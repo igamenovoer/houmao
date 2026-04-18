@@ -12,7 +12,11 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.activity import (
     detect_activity,
     latest_turn_region_signature,
 )
-from houmao.shared_tui_tracking.apps.codex_tui.signals.error_cells import latest_error_cell
+from houmao.shared_tui_tracking.apps.codex_tui.signals.error_cells import (
+    DEGRADED_CHAT_CONTEXT_NOTE,
+    is_degraded_error_cell,
+    latest_error_cell,
+)
 from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
     CODEX_STEER_INTERRUPTION_TEXT,
     is_interrupted_surface,
@@ -122,15 +126,14 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             active_status_row_visible=activity.active_status_row_visible,
         )
-        error_line = latest_error_cell(latest_turn_region_lines)
+        error_line = latest_error_cell(prompt_snapshot.stripped_prompt_region_lines)
         current_error_present = error_line is not None
+        degraded_context = is_degraded_error_cell(error_line)
         ready_posture = ready_posture_state(
             prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
             active_evidence=activity.active_evidence,
         )
-        if current_error_present and not interrupted and not activity.active_evidence:
-            ready_posture = "unknown"
         accepting_input = accepting_input_state(
             prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
@@ -171,6 +174,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             notes.append("ambiguous_interactive_surface")
         if current_error_present:
             notes.append("current_error_present")
+        if degraded_context:
+            notes.append(DEGRADED_CHAT_CONTEXT_NOTE)
         if activity.active_evidence:
             notes.append("active_turn_detected")
         if completion_marker is not None:
@@ -202,6 +207,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             success_blocked=success_blocked,
             surface_signature=surface_signature,
             notes=tuple(notes),
+            chat_context="degraded" if degraded_context else "current",
         )
 
     def build_temporal_frame(
@@ -228,7 +234,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
-        error_line = latest_error_cell(latest_turn_region_lines)
+        error_line = latest_error_cell(prompt_snapshot.stripped_prompt_region_lines)
         blocking_overlay = has_blocking_overlay(surface)
         ready_posture = ready_posture_state(
             prompt_visible=prompt_snapshot.prompt_visible,
@@ -240,9 +246,6 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             active_status_row_visible=activity.active_status_row_visible,
         )
-        if error_line is not None and not interrupted:
-            if not activity.active_evidence:
-                ready_posture = "unknown"
         return _CodexTuiFrame(
             prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,

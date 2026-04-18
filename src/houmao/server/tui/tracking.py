@@ -223,6 +223,7 @@ class LiveSessionTracker:
                             source=tracker_state.last_turn_source,
                             updated_at_utc=None,
                         ),
+                        "chat_context": tracker_state.chat_context,
                     }
                 )
             self.m_last_state = self.m_last_state.model_copy(update=update)
@@ -429,6 +430,7 @@ class LiveSessionTracker:
                         tracker_state=tracker_state,
                         observed_at_utc=observed_at_utc,
                     ),
+                    "chat_context": tracker_state.chat_context,
                     "operator_state": operator_state,
                     "lifecycle_timing": lifecycle_timing.model_copy(
                         update={"completion_candidate_elapsed_seconds": None}
@@ -635,6 +637,7 @@ class LiveSessionTracker:
                     "turn_phase": turn.phase,
                     "last_turn_result": last_turn.result,
                     "last_turn_source": last_turn.source,
+                    "chat_context": tracker_state.chat_context,
                     "accepting_input": surface.accepting_input,
                     "editing_input": surface.editing_input,
                     "ready_posture": surface.ready_posture,
@@ -732,6 +735,7 @@ class LiveSessionTracker:
                 surface=surface,
                 turn=turn,
                 last_turn=last_turn,
+                chat_context=tracker_state.chat_context,
                 monotonic_ts=monotonic_ts,
                 observed_at_utc=observed_at_utc,
                 cycle_seq=cycle_seq,
@@ -750,6 +754,7 @@ class LiveSessionTracker:
                 surface=surface,
                 turn=turn,
                 last_turn=last_turn,
+                chat_context=tracker_state.chat_context,
                 operator_state=operator_state,
                 lifecycle_timing=HoumaoLifecycleTimingMetadata(
                     readiness_unknown_elapsed_seconds=reduction.readiness_unknown_elapsed_seconds,
@@ -1123,6 +1128,7 @@ class LiveSessionTracker:
         surface: HoumaoTrackedSurface,
         turn: HoumaoTrackedTurn,
         last_turn: HoumaoTrackedLastTurn,
+        chat_context: str,
         monotonic_ts: float,
         observed_at_utc: str,
         cycle_seq: int,
@@ -1136,6 +1142,7 @@ class LiveSessionTracker:
                 surface=surface,
                 turn=turn,
                 last_turn=last_turn,
+                chat_context=chat_context,
             ),
             sort_keys=True,
             separators=(",", ":"),
@@ -1235,6 +1242,7 @@ class LiveSessionTracker:
                 surface=response.surface,
                 turn=response.turn,
                 last_turn=response.last_turn,
+                chat_context=response.chat_context,
                 stability=response.stability,
             )
         )
@@ -1527,6 +1535,7 @@ def _visible_signature_payload(
     surface: HoumaoTrackedSurface,
     turn: HoumaoTrackedTurn,
     last_turn: HoumaoTrackedLastTurn,
+    chat_context: str,
 ) -> dict[str, object]:
     """Return the operator-visible signature payload used for stability timing."""
 
@@ -1538,6 +1547,7 @@ def _visible_signature_payload(
         "surface": surface.model_dump(mode="json"),
         "turn": turn.model_dump(mode="json"),
         "last_turn": last_turn.model_dump(mode="json"),
+        "chat_context": chat_context,
     }
 
 
@@ -1575,6 +1585,7 @@ def _build_transition(
         ("turn_phase", previous.turn.phase, current.turn.phase),
         ("last_turn_result", previous.last_turn.result, current.last_turn.result),
         ("last_turn_source", previous.last_turn.source, current.last_turn.source),
+        ("chat_context", previous.chat_context, current.chat_context),
         ("probe_error", _error_message(previous.probe_error), _error_message(current.probe_error)),
         ("parse_error", _error_message(previous.parse_error), _error_message(current.parse_error)),
         (

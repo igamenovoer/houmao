@@ -128,6 +128,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayNotifierAuditOutcome,
     GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
     append_gateway_notifier_audit_record,
@@ -178,7 +179,8 @@ _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _REMINDER_BUSY_RETRY_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
-_TUI_RESET_PROMPT = "/clear"
+_DEFAULT_TUI_RESET_PROMPT = "/clear"
+_CODEX_TUI_RESET_PROMPT = "/new"
 _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
@@ -2023,16 +2025,23 @@ class GatewayServiceRuntime:
     def _dispatch_tui_new_prompt_workflow(self, *, prompt: str) -> None:
         """Clear the current TUI conversation, wait for readiness, then send the prompt."""
 
+        tracking = self._dispatch_tui_context_reset_only()
+        self.m_adapter.submit_prompt(prompt=prompt)
+        tracking.note_prompt_submission(message=prompt)
+
+    def _dispatch_tui_context_reset_only(self) -> SingleSessionTrackingRuntime:
+        """Submit only the tool-appropriate TUI context-reset signal and wait."""
+
         tracking = self.m_tui_tracking
         if tracking is None:
             raise GatewayError(
                 "Gateway TUI tracking is unavailable for reset-based prompt control."
             )
-        self.m_adapter.submit_prompt(prompt=_TUI_RESET_PROMPT)
-        tracking.note_prompt_submission(message=_TUI_RESET_PROMPT)
+        reset_prompt = self._tui_reset_prompt()
+        self.m_adapter.submit_prompt(prompt=reset_prompt)
+        tracking.note_prompt_submission(message=reset_prompt)
         self._wait_for_tui_ready_after_reset(tracking=tracking)
-        self.m_adapter.submit_prompt(prompt=prompt)
-        tracking.note_prompt_submission(message=prompt)
+        return tracking
 
     def _wait_for_tui_ready_after_reset(
         self,
@@ -2047,7 +2056,7 @@ class GatewayServiceRuntime:
         while time.monotonic() < deadline:
             tracking.refresh_once()
             with self.m_lock:
-                reasons = self._tui_prompt_not_ready_reasons_locked()
+                reasons = self._tui_reset_completion_blockers_locked()
             if not reasons:
                 return
             time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
@@ -2055,6 +2064,33 @@ class GatewayServiceRuntime:
             "TUI reset prompt was submitted, but the surface did not stabilize back to "
             "prompt-ready posture in time."
         )
+
+    def _tui_reset_completion_blockers_locked(self) -> list[str]:
+        """Return blockers that prevent post-reset semantic prompt delivery."""
+
+        return self._tui_prompt_not_ready_reasons_locked()
+
+    def _tui_reset_prompt(self) -> str:
+        """Return the tool-appropriate TUI semantic context-reset prompt."""
+
+        tool = self._tui_tool_name()
+        if tool == "codex":
+            return _CODEX_TUI_RESET_PROMPT
+        return _DEFAULT_TUI_RESET_PROMPT
+
+    def _tui_tool_name(self) -> str | None:
+        """Return the best known TUI tool name for reset-signal selection."""
+
+        tracking = self.m_tui_tracking
+        if tracking is not None:
+            identity = getattr(tracking, "identity", None) or getattr(tracking, "m_identity", None)
+            tool = getattr(identity, "tool", None)
+            if isinstance(tool, str) and tool:
+                return tool
+        metadata = self.m_attach_contract.backend_metadata
+        if isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1):
+            return metadata.tool
+        return None
 
     def _resolve_headless_prompt_selection_locked(
         self,
@@ -3184,7 +3220,7 @@ class GatewayServiceRuntime:
         unread_messages: list[_UnreadMailboxMessage],
         unread_count: int | None,
         unread_digest: str | None,
-        outcome: Literal["empty", "dedup_skip", "busy_skip", "enqueued", "poll_error"],
+        outcome: GatewayNotifierAuditOutcome,
         enqueued_request_id: str | None = None,
         detail: str | None = None,
     ) -> None:

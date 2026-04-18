@@ -55,6 +55,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.cao.models import CaoHealthResponse, CaoSuccessResponse
 from houmao.shared_tui_tracking.models import (
+    ChatContextState as HoumaoChatContextState,
     CompletionState,
     ParseStatus,
     ProcessState,
@@ -356,6 +357,7 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     surface: HoumaoTrackedSurface
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
+    chat_context: HoumaoChatContextState = "unknown"
     stability: HoumaoStabilityMetadata
     recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
     transport_state: TransportState = Field(default="tmux_missing", exclude=True)
@@ -386,6 +388,7 @@ class HoumaoTerminalSnapshotHistoryEntry(_HoumaoModel):
     surface: HoumaoTrackedSurface
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
+    chat_context: HoumaoChatContextState = "unknown"
     stability: HoumaoStabilityMetadata
 
     @field_validator("recorded_at_utc")

@@ -18,6 +18,7 @@ from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import Subject
 
 from houmao.shared_tui_tracking.models import (
+    ChatContextState,
     DetectedTurnSignals,
     RecentProfileFrame,
     TemporalHintSignals,
@@ -51,6 +52,7 @@ class _MutableTrackerState:
     detector_version: str
     active_reasons: tuple[str, ...]
     notes: tuple[str, ...]
+    chat_context: ChatContextState
 
 
 class TuiTrackerSession:
@@ -107,6 +109,7 @@ class TuiTrackerSession:
             detector_version=initial_signals.detector_version,
             active_reasons=(),
             notes=(),
+            chat_context=initial_signals.chat_context,
         )
         self.m_state_signature: str = _state_signature(self.m_state)
         self.m_stable_since_seconds: float = 0.0
@@ -241,6 +244,7 @@ class TuiTrackerSession:
                 detector_version=self.m_state.detector_version,
                 active_reasons=self.m_state.active_reasons,
                 notes=self.m_state.notes,
+                chat_context=self.m_state.chat_context,
             )
 
     def _handle_snapshot_event(self, raw_text: str) -> None:
@@ -486,6 +490,7 @@ class TuiTrackerSession:
             detector_version=signals.detector_version,
             active_reasons=signals.active_reasons,
             notes=signals.notes,
+            chat_context=signals.chat_context,
         )
 
     def _arm_success_timer_locked(self, *, surface_signature: str) -> None:
@@ -576,6 +581,7 @@ class TuiTrackerSession:
                 detector_version=signals.detector_version,
                 active_reasons=signals.active_reasons,
                 notes=signals.notes,
+                chat_context=signals.chat_context,
             )
             self.m_settled_success_signature = self.m_pending_success_signature
             self.m_armed_turn_source = None
@@ -637,6 +643,7 @@ class TuiTrackerSession:
             success_blocked=True,
             surface_signature=signals.surface_signature,
             notes=notes,
+            chat_context=signals.chat_context,
         )
 
     def _has_armed_turn_authority_locked(self) -> bool:
@@ -722,6 +729,7 @@ class TuiTrackerSession:
         detector_version: str,
         active_reasons: tuple[str, ...],
         notes: tuple[str, ...],
+        chat_context: ChatContextState,
     ) -> None:
         """Apply one state change and emit a transition when it is visible."""
 
@@ -737,6 +745,7 @@ class TuiTrackerSession:
             detector_version=detector_version,
             active_reasons=active_reasons,
             notes=notes,
+            chat_context=chat_context,
         )
         if next_state == self.m_state:
             self._log_debug(
@@ -773,6 +782,7 @@ class TuiTrackerSession:
             detector_version=snapshot.detector_version,
             active_reasons=snapshot.active_reasons,
             notes=snapshot.notes,
+            chat_context=snapshot.chat_context,
             stability_signature=snapshot.stability_signature,
             stable=snapshot.stable,
             stable_for_seconds=snapshot.stable_for_seconds,
@@ -805,6 +815,7 @@ class TuiTrackerSession:
                 "turn_phase": snapshot.turn_phase,
                 "last_turn_result": snapshot.last_turn_result,
                 "last_turn_source": snapshot.last_turn_source,
+                "chat_context": snapshot.chat_context,
             },
         )
 
@@ -823,6 +834,7 @@ class TuiTrackerSession:
             detector_version=self.m_state.detector_version,
             active_reasons=self.m_state.active_reasons,
             notes=self.m_state.notes,
+            chat_context=self.m_state.chat_context,
             stability_signature=self.m_state_signature,
             stable=stable_for_seconds >= self.m_config.stability_threshold_seconds,
             stable_for_seconds=stable_for_seconds,
@@ -874,6 +886,7 @@ def _state_signature(state: _MutableTrackerState) -> str:
             "detector_version": state.detector_version,
             "active_reasons": list(state.active_reasons),
             "notes": list(state.notes),
+            "chat_context": state.chat_context,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -903,6 +916,7 @@ def _summarize_mutable_tracker_state(state: _MutableTrackerState) -> dict[str, A
         "detector_version": state.detector_version,
         "active_reasons": list(state.active_reasons),
         "notes": list(state.notes),
+        "chat_context": state.chat_context,
     }
 
 
@@ -929,6 +943,7 @@ def _summarize_detected_turn_signals(signals: DetectedTurnSignals) -> dict[str, 
         "latest_status_line": signals.latest_status_line,
         "ambiguous_interactive_surface": signals.ambiguous_interactive_surface,
         "success_blocked": signals.success_blocked,
+        "chat_context": signals.chat_context,
         "surface_signature": _short_signature(signals.surface_signature),
         "notes": list(signals.notes),
     }
@@ -1018,4 +1033,5 @@ def _merge_temporal_hints(
         success_blocked=success_blocked or active_evidence,
         surface_signature=signals.surface_signature,
         notes=notes,
+        chat_context=signals.chat_context,
     )

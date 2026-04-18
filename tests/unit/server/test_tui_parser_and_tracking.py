@@ -61,6 +61,7 @@ def _tracker_state(
     last_turn_result: str = "none",
     last_turn_source: str = "none",
     notes: tuple[str, ...] = (),
+    chat_context: str = "current",
 ) -> TrackedStateSnapshot:
     return TrackedStateSnapshot(
         surface_accepting_input=surface_accepting_input,
@@ -78,6 +79,7 @@ def _tracker_state(
         stable_for_seconds=0.0,
         stable_since_seconds=0.0,
         observed_at_seconds=0.0,
+        chat_context=chat_context,
     )
 
 
@@ -966,6 +968,59 @@ def test_live_session_tracker_final_recovery_clears_stable_false_active() -> Non
     assert recovered.turn.phase == "ready"
     assert recovered.last_turn.result == "none"
     assert "recovered a stable false-active phase" in recovered.operator_state.detail
+
+
+def test_live_session_tracker_final_recovery_preserves_degraded_error_context() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("current_spinner",),
+            notes=("current_error_present", "chat_context=degraded"),
+            chat_context="degraded",
+        )
+    )
+
+    first = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:09:20+00:00",
+        monotonic_ts=20.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("compact error prompt-ready"),
+        output_text="stable compact-error ready surface",
+    )
+    recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:09:23+00:00",
+        monotonic_ts=23.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("compact error prompt-ready"),
+        output_text="stable compact-error ready surface",
+    )
+
+    assert first.turn.phase == "active"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.turn.phase == "ready"
+    assert recovered.last_turn.result == "none"
+    assert recovered.chat_context == "degraded"
 
 
 def test_live_session_tracker_final_recovery_resets_when_raw_surface_changes() -> None:
