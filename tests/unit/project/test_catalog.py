@@ -228,6 +228,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         },
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
+        gateway_mail_notifier_appendix_text="Prefer urgent legal mail before routine updates.",
         memo_seed_source_kind="tree",
         memo_seed_source_path=memo_seed_dir,
     )
@@ -235,6 +236,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
     assert profile.name == "alice"
     assert profile.source_name == "researcher-codex-default"
     assert profile.prompt_overlay_ref is not None
+    assert profile.gateway_mail_notifier_appendix_ref is not None
     assert profile.memo_seed is not None
 
     projection_root = catalog.materialize_projection()
@@ -270,6 +272,9 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "prompt_overlay": {
                 "mode": "append",
                 "text": "Prefer Alice repository conventions.",
+            },
+            "gateway_mail_notifier_appendix": {
+                "text": "Prefer urgent legal mail before routine updates.",
             },
             "memo_seed": {
                 "source_kind": "tree",
@@ -310,6 +315,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 managed_header_policy,
                 managed_header_section_policy,
                 prompt_overlay_mode,
+                gateway_mail_notifier_appendix_relative_path,
                 relaunch_chat_session_payload,
                 memo_seed_source_kind,
                 memo_seed_relative_path
@@ -328,6 +334,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
             "append",
+            "prompts/launch-profiles/alice-mail-notifier-appendix.md",
             '{"mode": "tool_last_or_new"}',
             "tree",
             "memo-seeds/launch-profiles/alice/seed",
@@ -340,11 +347,14 @@ def test_project_catalog_persists_and_projects_launch_profiles(
 
     assert profile.prompt_overlay_ref is not None
     profile.prompt_overlay_ref.resolve(overlay).unlink()
+    assert profile.gateway_mail_notifier_appendix_ref is not None
+    profile.gateway_mail_notifier_appendix_ref.resolve(overlay).unlink()
     assert profile.memo_seed is not None
     shutil.rmtree(profile.memo_seed.content_ref.resolve(overlay))
     degraded = catalog.validate_integrity()
     assert degraded.missing_content == (
         "memo-seeds/launch-profiles/alice/seed",
+        "prompts/launch-profiles/alice-mail-notifier-appendix.md",
         "prompts/launch-profiles/alice.md",
     )
 

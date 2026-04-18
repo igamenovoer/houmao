@@ -42,6 +42,7 @@ class ResolvedProjectLaunchProfile:
     memo_seed: ResolvedLaunchProfileMemoSeed | None = None
     specialist: SpecialistMetadata | None = None
     recipe: AgentPreset | None = None
+    gateway_mail_notifier_appendix_text: str | None = None
 
 
 def list_resolved_launch_profiles(
@@ -77,6 +78,11 @@ def resolve_launch_profile_entry(
         prompt_path = entry.prompt_overlay_ref.resolve(overlay)
         if prompt_path.is_file():
             prompt_overlay_text = prompt_path.read_text(encoding="utf-8").rstrip()
+    gateway_mail_notifier_appendix_text = None
+    if entry.gateway_mail_notifier_appendix_ref is not None:
+        appendix_path = entry.gateway_mail_notifier_appendix_ref.resolve(overlay)
+        if appendix_path.is_file():
+            gateway_mail_notifier_appendix_text = appendix_path.read_text(encoding="utf-8").rstrip()
     memo_seed = _resolve_launch_profile_memo_seed(overlay=overlay, memo_seed=entry.memo_seed)
 
     if entry.source_kind == "specialist":
@@ -86,6 +92,7 @@ def resolve_launch_profile_entry(
             return ResolvedProjectLaunchProfile(
                 entry=entry,
                 prompt_overlay_text=prompt_overlay_text,
+                gateway_mail_notifier_appendix_text=gateway_mail_notifier_appendix_text,
                 source_exists=False,
                 source_path=None,
                 recipe_name=None,
@@ -99,6 +106,7 @@ def resolve_launch_profile_entry(
         return ResolvedProjectLaunchProfile(
             entry=entry,
             prompt_overlay_text=prompt_overlay_text,
+            gateway_mail_notifier_appendix_text=gateway_mail_notifier_appendix_text,
             source_exists=True,
             source_path=specialist.metadata_path,
             recipe_name=specialist.preset_name,
@@ -116,6 +124,7 @@ def resolve_launch_profile_entry(
         return ResolvedProjectLaunchProfile(
             entry=entry,
             prompt_overlay_text=prompt_overlay_text,
+            gateway_mail_notifier_appendix_text=gateway_mail_notifier_appendix_text,
             source_exists=False,
             source_path=recipe_path,
             recipe_name=entry.source_name,
@@ -129,6 +138,7 @@ def resolve_launch_profile_entry(
     return ResolvedProjectLaunchProfile(
         entry=entry,
         prompt_overlay_text=prompt_overlay_text,
+        gateway_mail_notifier_appendix_text=gateway_mail_notifier_appendix_text,
         source_exists=True,
         source_path=recipe_path,
         recipe_name=entry.source_name,
@@ -187,6 +197,11 @@ def launch_profile_defaults_payload(
         if include_prompt_overlay_text and profile.prompt_overlay_text is not None:
             overlay_payload["text"] = profile.prompt_overlay_text
         payload["prompt_overlay"] = overlay_payload
+    if profile.gateway_mail_notifier_appendix_text is not None:
+        payload["gateway_mail_notifier_appendix"] = {
+            "present": True,
+            "text": profile.gateway_mail_notifier_appendix_text,
+        }
     if profile.memo_seed is not None:
         payload["memo_seed"] = {
             "present": True,

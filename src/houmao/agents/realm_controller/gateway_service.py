@@ -318,6 +318,14 @@ def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
     return "open unarchived inbox mail"
 
 
+def _render_mail_notifier_appendix_block(appendix_text: str) -> str:
+    """Return the optional runtime appendix block for notifier prompts."""
+
+    if not appendix_text:
+        return ""
+    return f"\n\nAdditional runtime guidance:\n{appendix_text}"
+
+
 def _load_mail_notifier_template() -> str:
     """Load the packaged markdown notifier prompt template."""
 
@@ -2752,14 +2760,25 @@ class GatewayServiceRuntime:
                 self._require_live_notifier_mailbox_config_locked()
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-            record = write_gateway_mail_notifier_record(
-                self.m_paths.queue_path,
-                enabled=True,
-                interval_seconds=request_payload.interval_seconds,
-                mode=request_payload.mode,
-                last_notified_digest=None,
-                last_error=None,
-            )
+            if "appendix_text" in request_payload.model_fields_set:
+                record = write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    enabled=True,
+                    interval_seconds=request_payload.interval_seconds,
+                    mode=request_payload.mode,
+                    appendix_text=request_payload.appendix_text,
+                    last_notified_digest=None,
+                    last_error=None,
+                )
+            else:
+                record = write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    enabled=True,
+                    interval_seconds=request_payload.interval_seconds,
+                    mode=request_payload.mode,
+                    last_notified_digest=None,
+                    last_error=None,
+                )
             self._log(
                 "mail notifier enabled "
                 f"interval_seconds={request_payload.interval_seconds} mode={request_payload.mode}"
@@ -3078,7 +3097,10 @@ class GatewayServiceRuntime:
                 self._log(block_detail)
                 return
 
-            prompt = self._build_mail_notifier_prompt(mode=record.mode)
+            prompt = self._build_mail_notifier_prompt(
+                mode=record.mode,
+                appendix_text=record.appendix_text,
+            )
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
@@ -3107,7 +3129,12 @@ class GatewayServiceRuntime:
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
-    def _build_mail_notifier_prompt(self, *, mode: GatewayMailNotifierMode) -> str:
+    def _build_mail_notifier_prompt(
+        self,
+        *,
+        mode: GatewayMailNotifierMode,
+        appendix_text: str,
+    ) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
@@ -3120,6 +3147,7 @@ class GatewayServiceRuntime:
             "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
             "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(base_url),
+            "{{APPENDIX_BLOCK}}": _render_mail_notifier_appendix_block(appendix_text),
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)

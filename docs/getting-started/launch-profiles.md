@@ -6,7 +6,7 @@ This page is the conceptual home for the launch-profile model. Other docs link h
 
 ## Why Launch Profiles Exist
 
-A specialist or a recipe answers the question *what is this agent?* — its role prompt, its tool, its skills, its setup, its default credentials. But the same specialist usually needs the same recurring **launch context**: the managed-agent name, the working directory, the credential override for this lane, the mailbox binding, the gateway posture, durable env records, an optional prompt overlay, and sometimes a reusable managed-memory memo seed.
+A specialist or a recipe answers the question *what is this agent?* — its role prompt, its tool, its skills, its setup, its default credentials. But the same specialist usually needs the same recurring **launch context**: the managed-agent name, the working directory, the credential override for this lane, the mailbox binding, the gateway posture, durable env records, an optional prompt overlay, optional gateway mail-notifier appendix guidance, and sometimes a reusable managed-memory memo seed.
 
 Without a stored launch profile, an operator has to remember and re-type that launch context every time. With one, the launch context becomes a named, persisted, project-local object that both `houmao-mgr` and the system-skill-driven agent surfaces can reference by name.
 
@@ -69,6 +69,7 @@ A launch profile may store, with no inline secrets:
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
+- an optional gateway mail-notifier appendix default,
 - a relaunch-only provider chat-session policy for future `agents relaunch` operations,
 - a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
 - a prompt overlay (mode plus inline text or a referenced file),
@@ -122,6 +123,19 @@ A launch profile may declare a prompt overlay. The supported modes are:
 The effective role prompt is composed once, **before** backend-specific role injection planning begins. Resumed turns do not replay the overlay as a separate second bootstrap step. From the backend's perspective, the prompt overlay is part of the role prompt that role injection plans against.
 
 Prompt overlays are inline text or a referenced file. File-backed overlays remain managed content under the overlay-owned content roots, and the catalog stores only the reference; the catalog does not duplicate large overlay payloads inside the SQLite store itself.
+
+## Gateway Mail-Notifier Appendix Defaults
+
+A launch profile may store a gateway mail-notifier appendix default. This is not part of the birth-time role prompt. Instead, launch-time materialization writes the appendix into the new session's runtime-owned gateway mail-notifier state, with notifier polling still disabled unless separately enabled.
+
+The stored appendix becomes the default runtime guidance used later when that session's gateway mail-notifier renders a wake-up prompt. Live notifier edits are runtime-owned: `houmao-mgr agents gateway mail-notifier enable --appendix-text ...` can replace or clear the running session's appendix, but it never rewrites the stored launch profile.
+
+Both profile lanes expose the same stored default:
+
+- Easy lane: `houmao-mgr project easy profile create|set --gateway-mail-notifier-appendix-text <text>`.
+- Explicit lane: `houmao-mgr project agents launch-profiles add|set --gateway-mail-notifier-appendix-text <text>`.
+
+Patch commands preserve the stored appendix when the flag is omitted. Use `--clear-gateway-mail-notifier-appendix` on the matching `set` command to remove the profile-owned default from future launches.
 
 ## Memo Seeds
 
@@ -177,7 +191,8 @@ When a managed agent was launched from a reusable launch profile, the build mani
 
 - whether the launch originated from a specialist source or a recipe source,
 - whether the birth-time reusable config came from an easy profile or an explicit launch profile,
-- the originating profile name when available.
+- the originating profile name when available,
+- whether a profile-owned gateway mail-notifier appendix default was present.
 
 Inspection commands surface that provenance:
 
@@ -215,7 +230,7 @@ houmao-mgr project easy profile set --name <profile> --workdir /repos/next-targe
 houmao-mgr project agents launch-profiles set --name <profile> --workdir /repos/next-target
 ```
 
-Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, memo seed, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
+Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, gateway mail-notifier appendix, memo seed, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
 
 Use same-name replacement only when you want recreate semantics:
 
@@ -227,7 +242,7 @@ houmao-mgr project easy profile create --name <profile> --specialist <specialist
 houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> --yes
 ```
 
-Replacement is lane-bounded and clears omitted optional fields, including any previously stored memo seed. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
+Replacement is lane-bounded and clears omitted optional fields, including any previously stored gateway mail-notifier appendix or memo seed. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
 
 ## CLI Surfaces
 

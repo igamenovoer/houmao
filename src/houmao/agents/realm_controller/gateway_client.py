@@ -467,7 +467,7 @@ class GatewayClient:
             "PUT",
             "/v1/mail-notifier",
             GatewayMailNotifierStatusV1,
-            body=payload.model_dump(mode="json"),
+            body=payload.model_dump(mode="json", exclude_unset=True),
         )
 
     def delete_mail_notifier(self) -> GatewayMailNotifierStatusV1:

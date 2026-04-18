@@ -1370,6 +1370,7 @@ class GatewayMailNotifierPutV1(_StrictGatewayModel):
     enabled: Literal[True] = True
     interval_seconds: int
     mode: GatewayMailNotifierMode = Field(default=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE)
+    appendix_text: str = ""
 
     @field_validator("interval_seconds")
     @classmethod
@@ -1396,6 +1397,7 @@ class GatewayMailNotifierStatusV1(_StrictGatewayModel):
     enabled: bool
     interval_seconds: int | None = None
     mode: GatewayMailNotifierMode = Field(default=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE)
+    appendix_text: str = ""
     supported: bool
     support_error: str | None = None
     last_poll_at_utc: str | None = None

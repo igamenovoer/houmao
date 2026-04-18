@@ -4707,6 +4707,56 @@ def test_gateway_mail_notifier_supports_manifest_backed_mailbox_without_tmux_pro
     assert enabled.interval_seconds == 60
 
 
+def test_gateway_mail_notifier_appendix_status_update_and_delete_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.read_tmux_session_environment_value",
+        lambda **kwargs: None,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+
+    initial = runtime.get_mail_notifier()
+    assert initial.appendix_text == ""
+
+    enabled = runtime.put_mail_notifier(
+        GatewayMailNotifierPutV1(
+            interval_seconds=60,
+            appendix_text="Only process urgent contract mail.",
+        )
+    )
+    assert enabled.enabled is True
+    assert enabled.appendix_text == "Only process urgent contract mail."
+
+    omitted = runtime.put_mail_notifier(
+        GatewayMailNotifierPutV1(interval_seconds=30, mode="unread_only")
+    )
+    assert omitted.interval_seconds == 30
+    assert omitted.mode == "unread_only"
+    assert omitted.appendix_text == "Only process urgent contract mail."
+
+    disabled = runtime.delete_mail_notifier()
+    assert disabled.enabled is False
+    assert disabled.appendix_text == "Only process urgent contract mail."
+
+    cleared = runtime.put_mail_notifier(
+        GatewayMailNotifierPutV1(interval_seconds=45, appendix_text="")
+    )
+    assert cleared.enabled is True
+    assert cleared.appendix_text == ""
+
+
 def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtrip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -5607,6 +5657,7 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
         assert message_id not in repeated_prompt
         assert "You have mail in inbox." in first_prompt
         assert "Mode: `any_inbox` - open unarchived inbox mail" in first_prompt
+        assert "Additional runtime guidance:" not in first_prompt
         assert "mark only those successfully processed emails read" not in first_prompt
         assert (
             "Mailbox API: `GET /v1/mail/status`; "
@@ -5785,7 +5836,12 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
     monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(
+                interval_seconds=1,
+                appendix_text="Prioritize contract notices before FYI updates.\nLeave billing alone.",
+            )
+        )
 
         time.sleep(1.3)
         assert fake_session.prompt_calls == []
@@ -6296,7 +6352,12 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
     )
     runtime.start()
     try:
-        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(
+                interval_seconds=1,
+                appendix_text="Prioritize contract notices before FYI updates.\nLeave billing alone.",
+            )
+        )
 
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline and not fake_client.submitted_prompts:
@@ -6338,6 +6399,11 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert (
             "Mailbox API: `GET /v1/mail/status`; "
             "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in prompt
+        )
+        assert (
+            "Additional runtime guidance:\n"
+            "Prioritize contract notices before FYI updates.\n"
+            "Leave billing alone." in prompt
         )
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" not in prompt

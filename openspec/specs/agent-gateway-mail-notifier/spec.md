@@ -15,7 +15,9 @@ That notifier surface SHALL include:
 Notifier configuration SHALL include at minimum:
 
 - whether notifier is enabled,
-- the unread-mail polling interval in seconds.
+- the unread-mail polling interval in seconds,
+- the effective notification mode,
+- the effective appendix text as a string, defaulting to the empty string.
 
 If the managed session is not mailbox-enabled, notifier enablement SHALL fail explicitly rather than silently enabling a broken poll loop.
 
@@ -33,6 +35,14 @@ For joined tmux-backed sessions, notifier support SHALL NOT treat unavailable re
 If that manifest pointer is missing, unreadable, unparsable, or its launch plan has no mailbox binding, enabling notifier behavior SHALL fail explicitly and SHALL leave notifier inactive.
 
 If the manifest exposes durable mailbox capability but the resulting mailbox binding cannot be validated as actionable for notifier work, notifier enablement SHALL fail explicitly and SHALL leave notifier inactive.
+
+When a caller omits `appendix_text` from `PUT /v1/mail-notifier`, the gateway SHALL preserve the currently stored appendix text unchanged.
+
+When a caller provides non-empty `appendix_text`, the gateway SHALL replace the stored appendix text with that exact string.
+
+When a caller provides `appendix_text=""`, the gateway SHALL clear the stored appendix text.
+
+`DELETE /v1/mail-notifier` SHALL disable polling without erasing the stored appendix text.
 
 #### Scenario: Mail notifier is enabled with an explicit interval
 - **WHEN** a caller sends `PUT /v1/mail-notifier` with `enabled=true` and `interval_seconds=60`
@@ -72,6 +82,27 @@ If the manifest exposes durable mailbox capability but the resulting mailbox bin
 - **AND WHEN** runtime-owned mailbox validation fails or required transport-local prerequisite material is unavailable for notifier work
 - **THEN** the gateway rejects notifier enablement explicitly
 - **AND THEN** notifier status reports that the session is not yet actionable for notifier work
+
+#### Scenario: Omitted appendix preserves stored notifier appendix
+- **WHEN** a caller has previously stored non-empty `appendix_text`
+- **AND WHEN** the caller sends `PUT /v1/mail-notifier` without an `appendix_text` field
+- **THEN** the gateway preserves the previously stored appendix text unchanged
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses return that preserved appendix text
+
+#### Scenario: Provided appendix replaces stored notifier appendix
+- **WHEN** a caller sends `PUT /v1/mail-notifier` with non-empty `appendix_text`
+- **THEN** the gateway stores that exact appendix text in notifier state
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses return the updated appendix text
+
+#### Scenario: Empty appendix clears stored notifier appendix
+- **WHEN** a caller sends `PUT /v1/mail-notifier` with `appendix_text=""`
+- **THEN** the gateway clears the stored appendix text
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses return `appendix_text=""`
+
+#### Scenario: Disable preserves notifier appendix state
+- **WHEN** a caller stores non-empty `appendix_text` and later sends `DELETE /v1/mail-notifier`
+- **THEN** the gateway disables notifier polling
+- **AND THEN** later `GET /v1/mail-notifier` responses still return the previously stored appendix text
 
 ### Requirement: Gateway notifier prompts use native mailbox-skill invocation and never surface skill-document paths
 When a gateway notifier wake-up prompt tells an agent to use installed Houmao mailbox skills, that prompt SHALL use tool-native mailbox-skill invocation guidance or explicit Houmao skill names and SHALL NOT instruct the agent to open `SKILL.md` paths from the copied project or from any visible skill directory.
@@ -287,3 +318,23 @@ Notifier audit records MAY include degraded-context detail for diagnostics, but 
 - **AND WHEN** queue admission passes
 - **THEN** the notifier enqueues the normal notifier prompt without first resetting context
 - **AND THEN** it does not record a busy skip solely because the previous visible turn contains a generic error
+
+### Requirement: Gateway notifier prompt appends configured runtime appendix text
+When the gateway mail notifier enqueues an internal prompt, it SHALL append the configured runtime appendix text only when notifier state currently stores a non-empty `appendix_text`.
+
+The appended appendix text SHALL be rendered after the gateway-owned wake-up context and SHALL remain additive prompt context rather than a replacement for notifier mode, gateway base URL, mailbox API summary, or mailbox-processing skill guidance.
+
+When `appendix_text` is the empty string, the notifier SHALL render no appendix block.
+
+#### Scenario: Non-empty appendix appears in notifier prompt
+- **WHEN** notifier state stores non-empty `appendix_text`
+- **AND WHEN** the gateway enqueues a notifier prompt
+- **THEN** the prompt includes that appendix text as an appended runtime guidance block
+- **AND THEN** the prompt still includes the gateway-owned notifier context
+
+#### Scenario: Empty appendix does not render an appendix block
+- **WHEN** notifier state stores `appendix_text=""`
+- **AND WHEN** the gateway enqueues a notifier prompt
+- **THEN** the prompt does not include an appendix block
+- **AND THEN** the prompt remains otherwise valid notifier output
+

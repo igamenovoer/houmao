@@ -1498,12 +1498,14 @@ class _FakePassivePairClient:
                 agent_ref,
                 getattr(request_model, "interval_seconds"),
                 getattr(request_model, "mode"),
+                getattr(request_model, "appendix_text"),
             )
         )
         return GatewayMailNotifierStatusV1(
             enabled=True,
             interval_seconds=getattr(request_model, "interval_seconds"),
             mode=getattr(request_model, "mode"),
+            appendix_text=getattr(request_model, "appendix_text"),
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -1701,15 +1703,23 @@ def test_gateway_mail_notifier_commands_use_passive_pair_client() -> None:
     )
 
     status = gateway_mail_notifier_status(target)
-    enabled = gateway_mail_notifier_enable(target, interval_seconds=60, mode="unread_only")
+    enabled = gateway_mail_notifier_enable(
+        target,
+        interval_seconds=60,
+        mode="unread_only",
+        appendix_text="Handle release-blocking mail first.",
+    )
     disabled = gateway_mail_notifier_disable(target)
 
     assert status.enabled is False
     assert enabled.interval_seconds == 60
     assert enabled.mode == "unread_only"
+    assert enabled.appendix_text == "Handle release-blocking mail first."
     assert disabled.enabled is False
     assert client.gateway_notifier_get_calls == ["published-alpha"]
-    assert client.gateway_notifier_put_calls == [("published-alpha", 60, "unread_only")]
+    assert client.gateway_notifier_put_calls == [
+        ("published-alpha", 60, "unread_only", "Handle release-blocking mail first.")
+    ]
     assert client.gateway_notifier_delete_calls == ["published-alpha"]
 
 

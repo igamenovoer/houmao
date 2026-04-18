@@ -114,7 +114,7 @@ The compatibility-projected reusable birth-time launch profile. Easy profiles an
 - easy profiles are specialist-backed and managed through `project easy profile ...`
 - explicit launch profiles are recipe-backed and managed through `project agents launch-profiles ...`
 
-For the shared conceptual model — easy versus explicit lanes, the precedence chain, prompt overlays, and profile provenance reporting — see [Launch Profiles](launch-profiles.md).
+For the shared conceptual model — easy versus explicit lanes, the precedence chain, prompt overlays, gateway mail-notifier appendix defaults, and profile provenance reporting — see [Launch Profiles](launch-profiles.md).
 
 ### `tools/<tool>/adapter.yaml`
 

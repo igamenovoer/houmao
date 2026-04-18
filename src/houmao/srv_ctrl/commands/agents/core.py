@@ -55,6 +55,10 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayTuiTrackingTimingOverridesV1,
 )
+from houmao.agents.realm_controller.gateway_storage import (
+    gateway_paths_from_manifest_path,
+    write_gateway_mail_notifier_record,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     TmuxPaneRecord,
@@ -173,18 +177,14 @@ def _resolve_relaunch_chat_session_selection_or_click(
         normalized_session_id = None
     if normalized_mode is None:
         if normalized_session_id is not None:
-            raise click.ClickException(
-                "`--chat-session-id` requires `--chat-session-mode exact`."
-            )
+            raise click.ClickException("`--chat-session-id` requires `--chat-session-mode exact`.")
         return None
     if normalized_mode != "exact" and normalized_session_id is not None:
         raise click.ClickException(
             "`--chat-session-id` is only supported with `--chat-session-mode exact`."
         )
     if normalized_mode == "exact" and normalized_session_id is None:
-        raise click.ClickException(
-            "`--chat-session-mode exact` requires `--chat-session-id`."
-        )
+        raise click.ClickException("`--chat-session-mode exact` requires `--chat-session-id`.")
     try:
         return RelaunchChatSessionSelection(
             mode=cast(Any, normalized_mode),
@@ -192,6 +192,8 @@ def _resolve_relaunch_chat_session_selection_or_click(
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
 _PROVIDER_BY_TOOL: dict[str, str] = {
     "claude": "claude_code",
     "codex": "codex",
@@ -507,6 +509,22 @@ def _managed_header_section_overrides_from_options(
         raise click.ClickException(str(exc)) from exc
 
 
+def _seed_launch_profile_mail_notifier_appendix(
+    *,
+    controller: Any,
+    appendix_text: str,
+) -> None:
+    """Persist a launch-profile mail-notifier appendix default into runtime gateway state."""
+
+    paths = gateway_paths_from_manifest_path(Path(controller.manifest_path))
+    if paths is None:
+        raise SessionManifestError(
+            "Launch-profile mail-notifier appendix defaults require runtime-owned gateway state."
+        )
+    paths.gateway_root.mkdir(parents=True, exist_ok=True)
+    write_gateway_mail_notifier_record(paths.queue_path, appendix_text=appendix_text)
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -548,6 +566,7 @@ def launch_managed_agent_locally(
     | None = None,
     launch_profile_provenance: dict[str, Any] | None = None,
     launch_profile_memo_seed: ResolvedLaunchProfileMemoSeed | None = None,
+    launch_profile_mail_notifier_appendix_text: str | None = None,
     force_mode: str | None = None,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
@@ -723,6 +742,11 @@ def launch_managed_agent_locally(
             if takeover_context is not None
             else None,
         )
+        if launch_profile_mail_notifier_appendix_text is not None:
+            _seed_launch_profile_mail_notifier_appendix(
+                controller=controller,
+                appendix_text=launch_profile_mail_notifier_appendix_text,
+            )
     except LaunchPolicyResolutionError as exc:
         raise click.ClickException(
             _format_launch_policy_resolution_error(
@@ -959,6 +983,7 @@ def launch_agents_command(
     ) = None
     launch_profile_provenance = None
     launch_profile_memo_seed = None
+    launch_profile_mail_notifier_appendix_text: str | None = None
     gateway_auto_attach = False
     gateway_host = None
     gateway_port = None
@@ -1037,6 +1062,9 @@ def launch_agents_command(
                 "mode": resolved_profile.entry.prompt_overlay_mode,
                 "present": resolved_profile.prompt_overlay_text is not None,
             },
+            "gateway_mail_notifier_appendix": {
+                "present": resolved_profile.gateway_mail_notifier_appendix_text is not None,
+            },
             "memo_seed": (
                 {
                     "present": True,
@@ -1055,6 +1083,9 @@ def launch_agents_command(
         if relaunch_payload:
             launch_profile_provenance["relaunch"] = relaunch_payload
         launch_profile_memo_seed = resolved_profile.memo_seed
+        launch_profile_mail_notifier_appendix_text = (
+            resolved_profile.gateway_mail_notifier_appendix_text
+        )
         declared_mailbox = _parse_stored_launch_profile_mailbox_or_click(
             resolved_profile.entry.mailbox_payload,
             profile_name=resolved_profile.entry.name,
@@ -1116,6 +1147,7 @@ def launch_agents_command(
         launch_profile_managed_header_section_policy=(launch_profile_managed_header_section_policy),
         launch_profile_provenance=launch_profile_provenance,
         launch_profile_memo_seed=launch_profile_memo_seed,
+        launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
         force_mode=force_mode,
     )
 

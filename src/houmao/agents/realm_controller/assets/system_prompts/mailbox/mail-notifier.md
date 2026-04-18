@@ -5,6 +5,6 @@ You have mail in inbox.
 Mode: `{{NOTIFIER_MODE}}` - {{MODE_GUIDANCE}}
 Gateway: `{{GATEWAY_BASE_URL}}`
 
-{{MAILBOX_API_SUMMARY}}
+{{MAILBOX_API_SUMMARY}}{{APPENDIX_BLOCK}}
 
 Process relevant inbox mail, archive only completed messages, then stop.

@@ -148,7 +148,7 @@ Common patch options:
 
 ## Easy Profiles
 
-An easy profile is reusable, specialist-backed birth-time launch configuration. It targets exactly one specialist and stores the launch context that the same specialist would otherwise need to be re-typed for: managed-agent identity, working directory, auth override, prompt-mode override, durable env records, declarative mailbox config, launch posture, an optional prompt overlay, and an optional memo seed for managed memory.
+An easy profile is reusable, specialist-backed birth-time launch configuration. It targets exactly one specialist and stores the launch context that the same specialist would otherwise need to be re-typed for: managed-agent identity, working directory, auth override, prompt-mode override, durable env records, declarative mailbox config, launch posture, an optional prompt overlay, an optional gateway mail-notifier appendix default, and an optional memo seed for managed memory.
 
 ```bash
 houmao-mgr project easy profile create \
@@ -158,6 +158,7 @@ houmao-mgr project easy profile create \
   --workdir /repos/review-target \
   --auth my-reviewer-creds \
   --prompt-mode unattended \
+  --gateway-mail-notifier-appendix-text "Prioritize release-blocking mail." \
   --no-gateway
 ```
 
@@ -183,13 +184,16 @@ Key options:
 | `--prompt-overlay-mode` | None | Optional `append` or `replace` prompt overlay. |
 | `--prompt-overlay-text` | None | Inline prompt-overlay text. |
 | `--prompt-overlay-file` | None | Path to a prompt-overlay text file (stored as managed file-backed content). |
+| `--gateway-mail-notifier-appendix-text` | None | Optional runtime guidance seeded into gateway mail-notifier state when launching from this profile. It does not enable notifier polling. |
 | `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir` | None | Optional managed-memory memo seed. Use text or file for one memo file, or a directory containing `houmao-memo.md` and/or `pages/`. |
 
 Easy profiles are stored as the same kind of catalog object that backs explicit recipe-backed launch profiles, but the easy lane keeps the authoring surface smaller and intentionally specialist-backed. The persisted profile lives in the catalog with `profile_lane=easy_profile` and `source_kind=specialist`, and projects into `.houmao/agents/launch-profiles/<name>.yaml` for low-level inspection.
 
 Easy profile creation may also store managed prompt-header policy. `--managed-header` stores whole-header `enabled`, `--no-managed-header` stores whole-header `disabled`, and omitting both stores `inherit`, which falls back to Houmao's default enabled managed-header behavior later at launch time. Repeatable `--managed-header-section SECTION=enabled|disabled` stores sparse section policy; omitted sections use their section defaults.
 
-Easy profiles may also store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacing the stored seed and `--clear-memo-seed` to remove the stored seed. Memo seeds always replace only the components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
+Easy profiles may also store gateway mail-notifier appendix text through `--gateway-mail-notifier-appendix-text`. `profile set` preserves the stored appendix when the flag is omitted and removes it with `--clear-gateway-mail-notifier-appendix`. The stored appendix seeds runtime gateway notifier state on launches from the profile, but later live notifier edits such as `houmao-mgr agents gateway mail-notifier enable --appendix-text ...` remain runtime-owned and do not rewrite the easy profile.
+
+Easy profiles may store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacing the stored seed and `--clear-memo-seed` to remove the stored seed. Memo seeds always replace only the components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
 
 Manage existing easy profiles with:
 
@@ -200,7 +204,7 @@ houmao-mgr project easy profile set --name reviewer-default --workdir /repos/nex
 houmao-mgr project easy profile remove --name reviewer-default
 ```
 
-`profile set` patches stored easy-profile defaults for future launches while preserving unspecified fields such as mailbox config, prompt overlay, or memo seed. Use it for ordinary edits instead of removing and recreating the profile.
+`profile set` patches stored easy-profile defaults for future launches while preserving unspecified fields such as mailbox config, prompt overlay, gateway mail-notifier appendix, or memo seed. Use it for ordinary edits instead of removing and recreating the profile.
 
 If the profile should be rebuilt over a different specialist or should intentionally drop old optional defaults, run `project easy profile create --name reviewer-default --specialist <specialist> ... --yes`. Same-name replacement is lane-bounded: an easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name.
 
@@ -223,9 +227,9 @@ houmao-mgr project easy instance launch \
 houmao-mgr project easy instance launch --profile reviewer-default
 ```
 
-When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, prompt overlay, and any stored memo seed), and uses the active project overlay as the authoritative source context. Auth remains user-facing by display name even though the stored profile resolves it through auth-profile identity. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
+When `--profile` is used, the command derives the source specialist from the stored profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless and gateway posture, prompt overlay, any gateway mail-notifier appendix default, and any stored memo seed), and uses the active project overlay as the authoritative source context. Auth remains user-facing by display name even though the stored profile resolves it through auth-profile identity. `--name` may be omitted when the profile stores a default managed-agent name; otherwise `--name` is still required.
 
-Stored memo seeds are applied before prompt composition and provider startup, so the launched agent begins with the represented `houmao-memo.md` and/or `pages/` state already present. Direct specialist launches do not apply a stored memo seed because there is no profile-backed seed to resolve.
+Stored gateway mail-notifier appendix defaults are written into the launched session's runtime notifier state while polling remains disabled. Stored memo seeds are applied before prompt composition and provider startup, so the launched agent begins with the represented `houmao-memo.md` and/or `pages/` state already present. Direct specialist launches do not apply these profile-backed defaults because there is no profile to resolve.
 
 Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, `--mail-account-dir`, `--managed-header` or `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`, and `--append-system-prompt-text` or `--append-system-prompt-file` win over easy-profile defaults but **never rewrite the stored easy profile**. The next launch from the same profile sees the original stored defaults again.
 

@@ -30,6 +30,8 @@ Use one of:
 - Use `launch-profiles set` for ordinary patch edits to existing explicit launch profiles.
 - `launch-profiles set` accepts the same default override options as `add`, plus clear flags such as `--clear-auth`, `--clear-env`, `--clear-mailbox`, `--clear-prompt-overlay`, and `--clear-memo-seed`.
 - Managed prompt-header section policy is stored with repeatable `--managed-header-section SECTION=enabled|disabled`; patch edits can remove one entry with `--clear-managed-header-section SECTION` or all entries with `--clear-managed-header-sections`.
+- Explicit launch profiles support a stored gateway mail-notifier appendix default through `--gateway-mail-notifier-appendix-text`. On launch, Houmao seeds that text into runtime gateway notifier state without enabling polling.
+- Use `--clear-gateway-mail-notifier-appendix` on `launch-profiles set` only when removing the stored profile-owned notifier appendix default.
 - Explicit launch profiles also support stored memo seeds through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`.
 - Memo seeds replace only components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present.
 - Supplying a new memo-seed source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new source.

@@ -88,9 +88,9 @@ These routes proxy to the agent's own gateway process. They return 502 if no gat
 | `POST` | `/houmao/agents/{agent_ref}/gateway/requests` | Create a gateway request (prompt, interrupt, etc.). |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/control/prompt` | Submit prompt through the gateway. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/control/send-keys` | Send raw control input through the gateway. |
-| `GET` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Mail-notifier status. |
-| `PUT` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Enable or reconfigure mail-notifier. |
-| `DELETE` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Disable mail-notifier. |
+| `GET` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Mail-notifier status, including effective `appendix_text`. |
+| `PUT` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Enable or reconfigure mail-notifier. Omitted `appendix_text` is preserved, non-empty text replaces it, and `""` clears it. |
+| `DELETE` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Disable mail-notifier without clearing stored appendix text. |
 
 Gateway attach and detach are local-only operations (`POST .../gateway/attach` and `.../gateway/detach` return 501 Not Implemented). Use `houmao-mgr agents gateway attach` directly on the host where the agent runs.
 

@@ -56,7 +56,7 @@ The project overlay includes a SQLite catalog at `.houmao/catalog.sqlite` (manag
 
 - **Specialist definitions**: Easy-specialist metadata including tool, auth selection, skills, and launch configuration.
 - **Auth profiles**: Catalog-owned auth identities with mutable display names, stable opaque bundle refs, and managed content references under `.houmao/content/auth/`.
-- **Launch profiles**: Reusable birth-time launch configuration shared by easy `project easy profile ...` and explicit `project agents launch-profiles ...` (catalog field `profile_lane` distinguishes the two).
+- **Launch profiles**: Reusable birth-time launch configuration shared by easy `project easy profile ...` and explicit `project agents launch-profiles ...`, including optional prompt overlay, gateway mail-notifier appendix default, and memo seed references (catalog field `profile_lane` distinguishes the two).
 - **Managed content references**: Pointers to prompt files, auth bundles, skill trees, setup trees, and prompt-overlay files stored under `.houmao/content/`.
 - **Role, recipe, launch-profile, and auth projections**: Generated agent tree entries used during build and launch (`.houmao/agents/roles/`, `.houmao/agents/presets/`, `.houmao/agents/launch-profiles/`, `.houmao/agents/tools/<tool>/auth/<bundle-ref>/`).
 

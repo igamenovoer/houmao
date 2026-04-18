@@ -639,6 +639,11 @@ def status_gateway_mail_notifier_command(
     type=click.Choice(["any_inbox", "unread_only"]),
     help="Mailbox notification mode.",
 )
+@click.option(
+    "--appendix-text",
+    default=None,
+    help="Runtime guidance appended to each generated mail-notifier prompt. Use an empty value to clear it.",
+)
 @_current_session_option
 @_target_tmux_session_option
 @_gateway_pair_port_option(
@@ -648,6 +653,7 @@ def status_gateway_mail_notifier_command(
 def enable_gateway_mail_notifier_command(
     interval_seconds: int,
     notifier_mode: GatewayMailNotifierMode,
+    appendix_text: str | None,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -669,6 +675,7 @@ def enable_gateway_mail_notifier_command(
             target,
             interval_seconds=interval_seconds,
             mode=notifier_mode,
+            appendix_text=appendix_text,
         )
     )
 

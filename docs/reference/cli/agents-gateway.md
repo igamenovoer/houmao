@@ -362,7 +362,7 @@ houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 
 #### `mail-notifier status`
 
-Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, and last-check metadata.
+Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, effective appendix text, and last-check metadata.
 
 ```
 houmao-mgr agents gateway mail-notifier status [OPTIONS]
@@ -378,7 +378,7 @@ houmao-mgr agents gateway mail-notifier status [OPTIONS]
 
 #### `mail-notifier enable`
 
-Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail.
+Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail. `--appendix-text` replaces the runtime appendix appended to future notifier prompts; omit it to preserve the current appendix, or pass an empty value to clear it.
 
 ```
 houmao-mgr agents gateway mail-notifier enable [OPTIONS]
@@ -388,6 +388,7 @@ houmao-mgr agents gateway mail-notifier enable [OPTIONS]
 |---|---|
 | `--interval-seconds INTEGER` | Mailbox polling interval in seconds. Must be >= 1. **Required.** |
 | `--mode [any_inbox\|unread_only]` | Notification mode. Defaults to `any_inbox`. |
+| `--appendix-text TEXT` | Runtime guidance appended to each generated notifier prompt. Empty string clears the stored appendix. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier enable. |
@@ -396,7 +397,7 @@ houmao-mgr agents gateway mail-notifier enable [OPTIONS]
 
 #### `mail-notifier disable`
 
-Disable the gateway mail-notifier for one managed agent. The notifier stops polling and no further notification prompts are submitted until re-enabled.
+Disable the gateway mail-notifier for one managed agent. The notifier stops polling and no further notification prompts are submitted until re-enabled. Disabling does not clear stored appendix text.
 
 ```
 houmao-mgr agents gateway mail-notifier disable [OPTIONS]

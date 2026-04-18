@@ -212,15 +212,26 @@ At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
 - durable non-secret env records
 - declarative mailbox configuration
 - managed-agent identity defaults
+- gateway mail-notifier appendix default
 - launch provenance
 
 The resulting build manifest or runtime launch metadata SHALL preserve profile provenance in a secret-free form sufficient for inspection and replay, including whether the birth-time config came from an easy profile or an explicit launch profile.
+
+When a launch-profile-derived gateway mail-notifier appendix default is present, the launch/runtime pipeline SHALL materialize that value into the runtime-owned gateway notifier state for the new session even if notifier polling starts disabled.
+
+Later live gateway mail-notifier edits SHALL remain runtime-owned and SHALL NOT rewrite the stored launch profile.
 
 #### Scenario: Launch-profile-derived auth and mailbox defaults survive into build and runtime resolution
 - **WHEN** a launch profile stores auth override `alice-creds` and declarative mailbox defaults
 - **AND WHEN** a managed-agent launch is started from that profile without conflicting direct overrides
 - **THEN** brain construction uses `alice-creds` as the effective auth selection
 - **AND THEN** the resulting launch pipeline carries the profile-derived mailbox configuration into runtime launch resolution
+
+#### Scenario: Launch-profile-derived notifier appendix seeds runtime gateway notifier state
+- **WHEN** a launch profile stores gateway mail-notifier appendix default `Watch billing-related inbox items first.`
+- **AND WHEN** a managed-agent launch is started from that profile without conflicting direct overrides
+- **THEN** the resulting runtime gateway notifier state stores that appendix text for the new session
+- **AND THEN** later live notifier enablement can reuse that runtime-owned appendix value
 
 #### Scenario: Direct launch override still wins over launch-profile-owned workdir
 - **WHEN** a launch profile stores working directory `/repos/alice`
@@ -2986,3 +2997,4 @@ When local interactive relaunch resumes an existing provider chat, runtime SHALL
 - **AND WHEN** the launch plan uses bootstrap-message role injection
 - **THEN** runtime does not submit the bootstrap message into the resumed provider chat as a user turn
 - **AND THEN** the resumed provider conversation is not polluted with a duplicate launch bootstrap prompt
+

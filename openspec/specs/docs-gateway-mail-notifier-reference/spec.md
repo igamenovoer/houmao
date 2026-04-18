@@ -8,6 +8,7 @@ The gateway reference SHALL include a page at `docs/reference/gateway/operations
 
 - What the mail-notifier is: a gateway-owned background loop that periodically checks the agent's mailbox and notifies the agent of open inbox work by injecting a prompt through the gateway request queue.
 - Configuration: `enable` with optional `--interval-seconds`, `disable`, and `status` commands.
+- Appendix configuration: notifier state includes queryable `appendix_text`, `PUT` preserves the stored appendix when the field is omitted, replaces it when a non-empty string is sent, and clears it when an empty string is sent.
 - Email processing flow: how the notifier polls open inbox work through the mailbox adapter, computes a digest from the current open message references for notifier state or audit purposes, checks whether gateway prompt delivery is currently blocked, formats a notification prompt, and submits that prompt through the gateway request pipeline when the gateway is ready.
 - Current repeat-notification behavior: the current implementation does not suppress later notifications merely because the open-work digest is unchanged, so the same open inbox snapshot MAY be enqueued again on later polling cycles while those messages remain unarchived.
 - Native mailbox-skill guidance: notifier prompts tell supported agents to use installed runtime-home Houmao mailbox skills through native invocation or explicit skill names rather than by opening `skills/.../SKILL.md` paths.
@@ -45,6 +46,11 @@ The page SHALL be derived from `gateway_service.py` mail-notifier methods and `g
 - **THEN** the page explains that successfully processed mail should be archived
 - **AND THEN** it does not present mark-read as the completion action for the notifier workflow
 
+#### Scenario: Reader understands appendix update semantics
+- **WHEN** a reader studies the notifier reference to understand appendix behavior
+- **THEN** the page explains that omitted `appendix_text` preserves the stored appendix, non-empty text replaces it, and the empty string clears it
+- **AND THEN** the page states that notifier status returns the effective appendix text
+
 ### Requirement: Gateway index links to mail-notifier page
 
 The gateway reference index at `docs/reference/gateway/index.md` SHALL include a link to the mail-notifier operations page under its operations section.
@@ -81,3 +87,4 @@ The page SHALL document that notifier status includes the effective mode.
 - **WHEN** a reader studies the `/v1/mail-notifier` status fields
 - **THEN** the page includes the effective notifier mode
 - **AND THEN** it does not present read state as the workflow completion signal
+

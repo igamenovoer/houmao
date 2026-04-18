@@ -27,7 +27,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 13
+CATALOG_SCHEMA_VERSION = 14
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -158,6 +158,7 @@ class LaunchProfileCatalogEntry:
     managed_header_policy: ManagedHeaderPolicy | None
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
+    gateway_mail_notifier_appendix_ref: ManagedContentRef | None = None
     memo_seed: LaunchProfileMemoSeed | None = None
     managed_header_section_policy: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] = (
         field(default_factory=dict)
@@ -767,6 +768,9 @@ class ProjectCatalog:
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
                     prompt_refs.relative_path AS prompt_relative_path,
+                    appendix_refs.content_kind AS appendix_kind,
+                    appendix_refs.storage_kind AS appendix_storage_kind,
+                    appendix_refs.relative_path AS appendix_relative_path,
                     memo_refs.content_kind AS memo_kind,
                     memo_refs.storage_kind AS memo_storage_kind,
                     memo_refs.relative_path AS memo_relative_path
@@ -774,6 +778,9 @@ class ProjectCatalog:
                 LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
                 LEFT JOIN content_refs AS prompt_refs
                     ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+                LEFT JOIN content_refs AS appendix_refs
+                    ON appendix_refs.id =
+                        launch_profiles.gateway_mail_notifier_appendix_content_ref_id
                 LEFT JOIN content_refs AS memo_refs
                     ON memo_refs.id = launch_profiles.memo_seed_content_ref_id
                 ORDER BY launch_profiles.name
@@ -813,6 +820,9 @@ class ProjectCatalog:
                     prompt_refs.content_kind AS prompt_kind,
                     prompt_refs.storage_kind AS prompt_storage_kind,
                     prompt_refs.relative_path AS prompt_relative_path,
+                    appendix_refs.content_kind AS appendix_kind,
+                    appendix_refs.storage_kind AS appendix_storage_kind,
+                    appendix_refs.relative_path AS appendix_relative_path,
                     memo_refs.content_kind AS memo_kind,
                     memo_refs.storage_kind AS memo_storage_kind,
                     memo_refs.relative_path AS memo_relative_path
@@ -820,6 +830,9 @@ class ProjectCatalog:
                 LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
                 LEFT JOIN content_refs AS prompt_refs
                     ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+                LEFT JOIN content_refs AS appendix_refs
+                    ON appendix_refs.id =
+                        launch_profiles.gateway_mail_notifier_appendix_content_ref_id
                 LEFT JOIN content_refs AS memo_refs
                     ON memo_refs.id = launch_profiles.memo_seed_content_ref_id
                 WHERE launch_profiles.name = ?
@@ -852,6 +865,7 @@ class ProjectCatalog:
         managed_header_section_policy: dict[Any, Any] | None = None,
         prompt_overlay_mode: str | None,
         prompt_overlay_text: str | None,
+        gateway_mail_notifier_appendix_text: str | None = None,
         memo_seed_source_kind: str | None = None,
         memo_seed_text: str | None = None,
         memo_seed_source_path: Path | None = None,
@@ -920,6 +934,13 @@ class ProjectCatalog:
                 content_kind=_CONTENT_KIND_PROMPT,
                 relative_path=f"prompts/launch-profiles/{name}.md",
             )
+        appendix_ref: ManagedContentRef | None = None
+        if gateway_mail_notifier_appendix_text is not None:
+            appendix_ref = self._snapshot_text(
+                text=gateway_mail_notifier_appendix_text,
+                content_kind=_CONTENT_KIND_PROMPT,
+                relative_path=f"prompts/launch-profiles/{name}-mail-notifier-appendix.md",
+            )
         memo_seed_ref: ManagedContentRef | None = None
         if memo_seed_source_kind is not None:
             memo_seed_ref = self._snapshot_launch_profile_memo_seed(
@@ -942,6 +963,11 @@ class ProjectCatalog:
             prompt_overlay_ref_id = (
                 self._upsert_content_ref(connection, prompt_overlay_ref)
                 if prompt_overlay_ref is not None
+                else None
+            )
+            appendix_ref_id = (
+                self._upsert_content_ref(connection, appendix_ref)
+                if appendix_ref is not None
                 else None
             )
             memo_seed_ref_id = (
@@ -974,11 +1000,12 @@ class ProjectCatalog:
                     managed_header_section_policy,
                     prompt_overlay_mode,
                     prompt_overlay_content_ref_id,
+                    gateway_mail_notifier_appendix_content_ref_id,
                     memo_seed_source_kind,
                     memo_seed_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -1000,6 +1027,8 @@ class ProjectCatalog:
                     managed_header_section_policy = excluded.managed_header_section_policy,
                     prompt_overlay_mode = excluded.prompt_overlay_mode,
                     prompt_overlay_content_ref_id = excluded.prompt_overlay_content_ref_id,
+                    gateway_mail_notifier_appendix_content_ref_id =
+                        excluded.gateway_mail_notifier_appendix_content_ref_id,
                     memo_seed_source_kind = excluded.memo_seed_source_kind,
                     memo_seed_content_ref_id = excluded.memo_seed_content_ref_id,
                     updated_at = excluded.updated_at
@@ -1026,6 +1055,7 @@ class ProjectCatalog:
                     json.dumps(resolved_managed_header_section_policy, sort_keys=True),
                     prompt_overlay_mode,
                     prompt_overlay_ref_id,
+                    appendix_ref_id,
                     memo_seed_source_kind,
                     memo_seed_ref_id,
                     timestamp,
@@ -1143,6 +1173,8 @@ class ProjectCatalog:
                     SELECT content_ref_id FROM setup_profiles
                     UNION
                     SELECT prompt_overlay_content_ref_id FROM launch_profiles
+                    UNION
+                    SELECT gateway_mail_notifier_appendix_content_ref_id FROM launch_profiles
                     UNION
                     SELECT memo_seed_content_ref_id FROM launch_profiles
                     """
@@ -1817,6 +1849,14 @@ class ProjectCatalog:
                 storage_kind=str(row["prompt_storage_kind"]),
                 relative_path=str(prompt_relative_path),
             )
+        appendix_ref: ManagedContentRef | None = None
+        appendix_relative_path = row["appendix_relative_path"]
+        if appendix_relative_path is not None:
+            appendix_ref = ManagedContentRef(
+                content_kind=str(row["appendix_kind"]),
+                storage_kind=str(row["appendix_storage_kind"]),
+                relative_path=str(appendix_relative_path),
+            )
         memo_seed: LaunchProfileMemoSeed | None = None
         memo_relative_path = row["memo_relative_path"]
         if memo_relative_path is not None:
@@ -1895,6 +1935,7 @@ class ProjectCatalog:
                 str(row["prompt_overlay_mode"]) if row["prompt_overlay_mode"] is not None else None
             ),
             prompt_overlay_ref=prompt_overlay_ref,
+            gateway_mail_notifier_appendix_ref=appendix_ref,
             memo_seed=memo_seed,
             managed_header_section_policy=managed_header_section_policy,
             metadata_path=self.m_catalog_path,
@@ -2027,6 +2068,8 @@ def _table_schema_sql() -> str:
         managed_header_section_policy TEXT NOT NULL DEFAULT '{{}}',
         prompt_overlay_mode TEXT,
         prompt_overlay_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
+        gateway_mail_notifier_appendix_content_ref_id INTEGER
+            REFERENCES content_refs(id) ON DELETE SET NULL,
         memo_seed_source_kind TEXT CHECK(
             memo_seed_source_kind IN ({memo_seed_source_kind_check})
         ),
@@ -2119,12 +2162,15 @@ def _view_sql() -> str:
         launch_profiles.managed_header_section_policy AS managed_header_section_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
         prompt_refs.relative_path AS prompt_overlay_relative_path,
+        appendix_refs.relative_path AS gateway_mail_notifier_appendix_relative_path,
         launch_profiles.memo_seed_source_kind AS memo_seed_source_kind,
         memo_refs.relative_path AS memo_seed_relative_path
     FROM launch_profiles
     LEFT JOIN auth_profiles ON auth_profiles.id = launch_profiles.auth_profile_id
     LEFT JOIN content_refs AS prompt_refs
         ON prompt_refs.id = launch_profiles.prompt_overlay_content_ref_id
+    LEFT JOIN content_refs AS appendix_refs
+        ON appendix_refs.id = launch_profiles.gateway_mail_notifier_appendix_content_ref_id
     LEFT JOIN content_refs AS memo_refs
         ON memo_refs.id = launch_profiles.memo_seed_content_ref_id;
     """
@@ -2184,9 +2230,7 @@ def _validate_current_catalog_schema(connection: sqlite3.Connection) -> None:
         )
     storage_model = _catalog_meta_value(connection, "storage_model")
     if storage_model != "hybrid_sqlite_catalog":
-        raise ValueError(
-            _catalog_incompatibility_error("missing current storage_model metadata")
-        )
+        raise ValueError(_catalog_incompatibility_error("missing current storage_model metadata"))
     for table_name, column_names in _required_current_catalog_columns().items():
         missing_columns = tuple(
             column_name
@@ -2301,6 +2345,7 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "managed_header_section_policy",
             "prompt_overlay_mode",
             "prompt_overlay_content_ref_id",
+            "gateway_mail_notifier_appendix_content_ref_id",
             "memo_seed_source_kind",
             "memo_seed_content_ref_id",
             "created_at",
@@ -2434,6 +2479,13 @@ def _render_launch_profile_yaml(
             "mode": entry.prompt_overlay_mode,
             "text": overlay_path.read_text(encoding="utf-8").rstrip(),
         }
+    if entry.gateway_mail_notifier_appendix_ref is not None:
+        appendix_path = entry.gateway_mail_notifier_appendix_ref.resolve_under_content_root(
+            content_root
+        )
+        defaults["gateway_mail_notifier_appendix"] = {
+            "text": appendix_path.read_text(encoding="utf-8").rstrip(),
+        }
     if entry.memo_seed is not None:
         memo_seed_path = entry.memo_seed.content_ref.resolve_under_content_root(content_root)
         defaults["memo_seed"] = {
@@ -2540,9 +2592,7 @@ def _normalize_relaunch_chat_session_payload(
         return None
     raw_mode = payload.get("mode")
     if not isinstance(raw_mode, str) or raw_mode not in _RELAUNCH_CHAT_SESSION_MODES:
-        raise ValueError(
-            f"{source}: mode must be one of {sorted(_RELAUNCH_CHAT_SESSION_MODES)}."
-        )
+        raise ValueError(f"{source}: mode must be one of {sorted(_RELAUNCH_CHAT_SESSION_MODES)}.")
     raw_id = payload.get("id", payload.get("session_id"))
     if raw_id is not None and not isinstance(raw_id, str):
         raise ValueError(f"{source}: id must be a string when provided.")
