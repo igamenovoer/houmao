@@ -78,7 +78,11 @@ from houmao.agents.realm_controller.errors import (
     LaunchPolicyResolutionError,
     SessionManifestError,
 )
-from houmao.agents.realm_controller.models import HeadlessResumeSelection, JoinedLaunchEnvBinding
+from houmao.agents.realm_controller.models import (
+    HeadlessResumeSelection,
+    JoinedLaunchEnvBinding,
+    RelaunchChatSessionSelection,
+)
 from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record_by_agent_id
 from houmao.project.overlay import (
@@ -88,7 +92,11 @@ from houmao.project.overlay import (
     materialize_project_agent_catalog_projection,
     resolve_project_aware_local_roots,
 )
-from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed, resolve_launch_profile
+from houmao.project.launch_profiles import (
+    ResolvedLaunchProfileMemoSeed,
+    launch_profile_relaunch_payload,
+    resolve_launch_profile,
+)
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
@@ -149,6 +157,41 @@ _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
     "codex": ("codex",),
     "gemini": ("gemini",),
 }
+_RELAUNCH_CHAT_SESSION_MODES: tuple[str, ...] = ("new", "tool_last_or_new", "exact")
+
+
+def _resolve_relaunch_chat_session_selection_or_click(
+    *,
+    mode: str | None,
+    session_id: str | None,
+) -> RelaunchChatSessionSelection | None:
+    """Resolve optional relaunch chat-session CLI flags."""
+
+    normalized_mode = mode.strip() if mode is not None else None
+    normalized_session_id = session_id.strip() if session_id is not None else None
+    if normalized_session_id == "":
+        normalized_session_id = None
+    if normalized_mode is None:
+        if normalized_session_id is not None:
+            raise click.ClickException(
+                "`--chat-session-id` requires `--chat-session-mode exact`."
+            )
+        return None
+    if normalized_mode != "exact" and normalized_session_id is not None:
+        raise click.ClickException(
+            "`--chat-session-id` is only supported with `--chat-session-mode exact`."
+        )
+    if normalized_mode == "exact" and normalized_session_id is None:
+        raise click.ClickException(
+            "`--chat-session-mode exact` requires `--chat-session-id`."
+        )
+    try:
+        return RelaunchChatSessionSelection(
+            mode=cast(Any, normalized_mode),
+            session_id=normalized_session_id,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 _PROVIDER_BY_TOOL: dict[str, str] = {
     "claude": "claude_code",
     "codex": "codex",
@@ -1008,6 +1051,9 @@ def launch_agents_command(
                 else {"present": False}
             ),
         }
+        relaunch_payload = launch_profile_relaunch_payload(resolved_profile)
+        if relaunch_payload:
+            launch_profile_provenance["relaunch"] = relaunch_payload
         launch_profile_memo_seed = resolved_profile.memo_seed
         declared_mailbox = _parse_stored_launch_profile_mailbox_or_click(
             resolved_profile.entry.mailbox_payload,
@@ -1287,14 +1333,34 @@ def stop_agent_command(port: int | None, agent_id: str | None, agent_name: str |
 
 @agents_group.command(name="relaunch")
 @pair_port_option(help_text="Houmao server port override for explicit relaunch")
+@click.option(
+    "--chat-session-mode",
+    type=click.Choice(_RELAUNCH_CHAT_SESSION_MODES),
+    default=None,
+    help=(
+        "Provider chat-session policy for this relaunch: new, tool_last_or_new, or exact. "
+        "Omitting the flag uses the launch-profile relaunch policy when present, otherwise new."
+    ),
+)
+@click.option(
+    "--chat-session-id",
+    default=None,
+    help="Provider chat-session id to resume when --chat-session-mode exact is selected.",
+)
 @managed_agent_selector_options
 def relaunch_agent_command(
     port: int | None,
+    chat_session_mode: str | None,
+    chat_session_id: str | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
     """Relaunch one tmux-backed managed agent without rebuilding its home."""
 
+    relaunch_chat_session = _resolve_relaunch_chat_session_selection_or_click(
+        mode=chat_session_mode,
+        session_id=chat_session_id,
+    )
     selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
         agent_id=agent_id,
         agent_name=agent_name,
@@ -1315,7 +1381,11 @@ def relaunch_agent_command(
             agent_def_dir=agent_def_dir,
             session_manifest_path=resolution.manifest_path,
         )
-        result = controller.relaunch()
+        result = (
+            controller.relaunch(chat_session=relaunch_chat_session)
+            if relaunch_chat_session is not None
+            else controller.relaunch()
+        )
         emit(
             {
                 "success": result.status == "ok",
@@ -1334,7 +1404,12 @@ def relaunch_agent_command(
         agent_name=selected_agent_name,
         port=port,
     )
-    emit(relaunch_managed_agent(target))
+    response = (
+        relaunch_managed_agent(target, relaunch_chat_session=relaunch_chat_session)
+        if relaunch_chat_session is not None
+        else relaunch_managed_agent(target)
+    )
+    emit(response)
 
 
 agents_group.add_command(gateway_group)

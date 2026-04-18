@@ -301,42 +301,21 @@ def _optional_env_string(variable_name: str) -> str | None:
     return stripped or None
 
 
-def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
-    """Return one markdown block with full current mailbox endpoint URLs."""
+def _render_mail_notifier_mailbox_api_summary(_base_url: str) -> str:
+    """Return one compact mailbox endpoint summary for notifier prompts."""
 
-    return "\n".join(
-        [
-            f"- `GET {base_url}/v1/mail/status`",
-            f"- `POST {base_url}/v1/mail/list`",
-            f"- `POST {base_url}/v1/mail/peek`",
-            f"- `POST {base_url}/v1/mail/read`",
-            f"- `POST {base_url}/v1/mail/send`",
-            f"- `POST {base_url}/v1/mail/post`",
-            f"- `POST {base_url}/v1/mail/reply`",
-            f"- `POST {base_url}/v1/mail/mark`",
-            f"- `POST {base_url}/v1/mail/move`",
-            f"- `POST {base_url}/v1/mail/archive`",
-        ]
+    return (
+        "Mailbox API: `GET /v1/mail/status`; "
+        "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
     )
 
 
 def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
-    """Return mode-specific prompt guidance for a notifier round."""
+    """Return compact mode-specific prompt guidance for a notifier round."""
 
     if mode == "unread_only":
-        return "\n".join(
-            [
-                "This `unread_only` notification was triggered by unread, unarchived inbox mail.",
-                "Start by listing unread inbox mail for this round. Read or answered inbox mail "
-                "that remains unarchived will not trigger another notification by itself in this mode.",
-            ]
-        )
-    return "\n".join(
-        [
-            "This `any_inbox` notification was triggered by unarchived inbox mail.",
-            "List open inbox mail for this round, including mail that may already be read or answered.",
-        ]
-    )
+        return "unread unarchived inbox mail"
+    return "open unarchived inbox mail"
 
 
 def _load_mail_notifier_template() -> str:
@@ -2900,60 +2879,34 @@ class GatewayServiceRuntime:
         if not processing_path.is_file():
             return "\n".join(
                 [
-                    "Houmao mailbox skills are not installed for this session.",
-                    "List open inbox mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
+                    "Houmao mailbox skills are not installed.",
+                    "Use the mailbox API below directly for this round.",
                 ]
             )
 
-        lines = [
-            (
-                "Use the installed Houmao email-processing skill "
-                f"`{mailbox_processing_skill_name()}` for this round."
-            ),
-        ]
+        lines: list[str] = []
         if tool == "claude":
             lines.extend(
                 [
                     f"/{mailbox_processing_skill_name()}",
-                    "In Claude Code the standalone slash-skill line above invokes the installed "
-                    "Houmao skill for this gateway-notified round.",
                 ]
             )
         elif tool == "codex":
             lines.extend(
                 [
                     f"${mailbox_processing_skill_name()} {gateway_base_url}",
-                    "In Codex this Houmao skill is installed natively. The standalone line "
-                    "above is the native skill trigger for this gateway-notified round.",
                 ]
             )
         elif tool == "gemini":
             lines.append(
-                "In Gemini this Houmao skill is installed natively. "
-                f"Invoke `{mailbox_processing_skill_name()}` by name for this round."
+                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )
         else:
             lines.append(
-                "Invoke the installed Houmao email-processing skill by name for this round."
+                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )
-        lines.append(
-            "Use the installed Houmao skills directly from the native tool skill surface. "
-            "Do not inspect the current project or runtime home for skill files."
-        )
         if gateway_path.is_file():
-            if tool != "codex":
-                lines.append(
-                    "Use the lower-level Houmao mailbox communication skill "
-                    f"`{mailbox_gateway_skill_name()}` by name when you need the exact "
-                    "`/v1/mail/*` operation contract or no-gateway transport guidance for this round."
-                )
-            else:
-                lines.append(
-                    "If you need the exact `/v1/mail/*` operation contract or no-gateway "
-                    "transport guidance for this round, use the lower-level Houmao mailbox "
-                    "communication skill "
-                    f"`{mailbox_gateway_skill_name()}` after the round skill expands."
-                )
+            lines.append(f"Details: `{mailbox_gateway_skill_name()}`.")
         return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
@@ -3166,7 +3119,7 @@ class GatewayServiceRuntime:
             "{{NOTIFIER_MODE}}": mode,
             "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
-            "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
+            "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(base_url),
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)

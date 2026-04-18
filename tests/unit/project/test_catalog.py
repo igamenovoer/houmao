@@ -220,6 +220,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "filesystem_root": "/mail-root",
         },
         posture_mapping={"headless": True, "gateway_port": 9011},
+        relaunch_chat_session_mapping={"mode": "tool_last_or_new"},
         managed_header_policy="inherit",
         managed_header_section_policy={
             "automation-notice": "disabled",
@@ -290,6 +291,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 },
             },
         },
+        "relaunch": {"chat_session": {"mode": "tool_last_or_new"}},
     }
 
     connection = sqlite3.connect(overlay.catalog_path)
@@ -308,6 +310,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 managed_header_policy,
                 managed_header_section_policy,
                 prompt_overlay_mode,
+                relaunch_chat_session_payload,
                 memo_seed_source_kind,
                 memo_seed_relative_path
             FROM v_launch_profiles
@@ -325,6 +328,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
             "append",
+            '{"mode": "tool_last_or_new"}',
             "tree",
             "memo-seeds/launch-profiles/alice/seed",
         )

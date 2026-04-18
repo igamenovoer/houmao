@@ -116,6 +116,17 @@ def get_project_launch_profile_command(name: str) -> None:
     help="Persist one fixed loopback gateway port for launches from this profile.",
 )
 @click.option(
+    "--relaunch-chat-session-mode",
+    type=click.Choice(_RELAUNCH_CHAT_SESSION_MODES),
+    default=None,
+    help="Persist relaunch chat-session policy: new, tool_last_or_new, or exact.",
+)
+@click.option(
+    "--relaunch-chat-session-id",
+    default=None,
+    help="Persist provider chat-session id for relaunch when mode is exact.",
+)
+@click.option(
     "--prompt-overlay-mode",
     type=click.Choice(("append", "replace")),
     default=None,
@@ -165,6 +176,8 @@ def add_project_launch_profile_command(
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
     gateway_port: int | None,
+    relaunch_chat_session_mode: str | None,
+    relaunch_chat_session_id: str | None,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
@@ -213,6 +226,9 @@ def add_project_launch_profile_command(
         clear_managed_header_section=(),
         clear_managed_header_sections=False,
         gateway_port=gateway_port,
+        relaunch_chat_session_mode=relaunch_chat_session_mode,
+        relaunch_chat_session_id=relaunch_chat_session_id,
+        clear_relaunch_chat_session=False,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
         prompt_overlay_file=prompt_overlay_file,
@@ -334,6 +350,22 @@ def add_project_launch_profile_command(
     help="Persist one fixed loopback gateway port for launches from this profile.",
 )
 @click.option(
+    "--relaunch-chat-session-mode",
+    type=click.Choice(_RELAUNCH_CHAT_SESSION_MODES),
+    default=None,
+    help="Persist relaunch chat-session policy override: new, tool_last_or_new, or exact.",
+)
+@click.option(
+    "--relaunch-chat-session-id",
+    default=None,
+    help="Persist provider chat-session id for relaunch when mode is exact.",
+)
+@click.option(
+    "--clear-relaunch-chat-session",
+    is_flag=True,
+    help="Clear the stored relaunch chat-session policy.",
+)
+@click.option(
     "--prompt-overlay-mode",
     type=click.Choice(("append", "replace")),
     default=None,
@@ -396,6 +428,9 @@ def set_project_launch_profile_command(
     clear_managed_header_section: tuple[str, ...],
     clear_managed_header_sections: bool,
     gateway_port: int | None,
+    relaunch_chat_session_mode: str | None,
+    relaunch_chat_session_id: str | None,
+    clear_relaunch_chat_session: bool,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
@@ -444,6 +479,9 @@ def set_project_launch_profile_command(
         clear_managed_header_section=clear_managed_header_section,
         clear_managed_header_sections=clear_managed_header_sections,
         gateway_port=gateway_port,
+        relaunch_chat_session_mode=relaunch_chat_session_mode,
+        relaunch_chat_session_id=relaunch_chat_session_id,
+        clear_relaunch_chat_session=clear_relaunch_chat_session,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
         prompt_overlay_file=prompt_overlay_file,

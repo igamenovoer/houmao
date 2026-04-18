@@ -16,7 +16,13 @@ from ..mail_commands import (
     MailPromptRequest,
     build_shadow_mail_result_surface_payloads,
 )
-from ..models import HeadlessTurnSessionSelection, LaunchPlan, SessionControlResult, SessionEvent
+from ..models import (
+    HeadlessTurnSessionSelection,
+    LaunchPlan,
+    RelaunchChatSessionSelection,
+    SessionControlResult,
+    SessionEvent,
+)
 from .claude_bootstrap import ensure_claude_home_bootstrap
 from .headless_base import HeadlessInteractiveSession, HeadlessSessionState
 from .shadow_parser_core import DialogProjection, is_operator_blocked, is_submit_ready
@@ -46,6 +52,41 @@ _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
 _POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
 _LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS = 10.0
 _LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS = 0.5
+
+
+def _relaunch_starts_fresh_chat(selection: RelaunchChatSessionSelection | None) -> bool:
+    """Return whether a TUI relaunch starts a fresh provider chat."""
+
+    return selection is None or selection.mode == "new"
+
+
+def _tui_relaunch_chat_session_args(
+    *,
+    tool: str,
+    selection: RelaunchChatSessionSelection | None,
+) -> list[str]:
+    """Return provider-native TUI continuation args for one relaunch selector."""
+
+    if selection is None or selection.mode == "new":
+        return []
+    if tool == "codex":
+        if selection.mode == "tool_last_or_new":
+            return ["resume", "--last"]
+        assert selection.session_id is not None
+        return ["resume", selection.session_id]
+    if tool == "claude":
+        if selection.mode == "tool_last_or_new":
+            return ["--continue"]
+        assert selection.session_id is not None
+        return ["--resume", selection.session_id]
+    if tool == "gemini":
+        if selection.mode == "tool_last_or_new":
+            return ["--resume", "latest"]
+        assert selection.session_id is not None
+        return ["--resume", selection.session_id]
+    raise BackendExecutionError(
+        f"Chat-session continuation is unsupported for local interactive tool {tool!r}."
+    )
 
 
 class LocalInteractiveSession(HeadlessInteractiveSession):
@@ -253,12 +294,20 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 
         self.terminate()
 
-    def relaunch(self) -> SessionControlResult:
+    def relaunch(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> SessionControlResult:
         """Respawn the provider TUI on the stable tmux window `0` surface."""
 
         try:
-            self._launch_provider_surface()
-            self._apply_startup_bootstrap()
+            self._launch_provider_surface(chat_session=chat_session)
+            if _relaunch_starts_fresh_chat(chat_session):
+                self._state.role_bootstrap_applied = False
+                self._apply_startup_bootstrap()
+            else:
+                self._state.role_bootstrap_applied = True
         except BackendExecutionError as exc:
             return SessionControlResult(
                 status="error",
@@ -275,11 +324,15 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             ),
         )
 
-    def _launch_provider_surface(self) -> None:
+    def _launch_provider_surface(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> None:
         self._prepare_tool_home()
         session_name = self._require_tmux_session_name()
         pane_target = headless_agent_pane_target_shared(session_name=session_name)
-        command_text = shlex.join(self._build_launch_command())
+        command_text = shlex.join(self._build_launch_command(chat_session=chat_session))
         script = "\n".join(
             [
                 "set +e",
@@ -322,7 +375,11 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         if self._plan.tool == "claude":
             ensure_claude_home_bootstrap(home_path=self._plan.home_path, env=self._plan.env)
 
-    def _build_launch_command(self) -> list[str]:
+    def _build_launch_command(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> list[str]:
         command = [self._plan.executable, *self._plan.args]
         if (
             self._plan.role_injection.method == "native_developer_instructions"
@@ -334,6 +391,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             and self._plan.role_injection.prompt
         ):
             command.extend(["--append-system-prompt", self._plan.role_injection.prompt])
+        command.extend(_tui_relaunch_chat_session_args(tool=self._plan.tool, selection=chat_session))
         return command
 
     def _apply_startup_bootstrap(self) -> None:

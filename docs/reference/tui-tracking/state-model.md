@@ -130,6 +130,14 @@ TrackedLastTurnSource = Literal["explicit_input", "surface_inference", "none"]
 
 How the last turn was initiated — via explicit prompt submission or inferred from surface state transitions.
 
+### ChatContextState
+
+```python
+ChatContextState = Literal["current", "degraded", "unknown"]
+```
+
+Whether the current visible chat context appears healthy enough for ordinary current-context prompting. `degraded` is recoverable diagnostic evidence, not a mandatory context-reset state. A prompt-ready TUI surface can have `chat_context=degraded` when a prompt-adjacent Codex compact/server error is visible.
+
 ## TrackedStateSnapshot
 
 Frozen dataclass representing a point-in-time snapshot of the tracked TUI state. This is the primary output of the tracking state machine.
@@ -151,6 +159,7 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 | `stable_for_seconds` | `float` | Duration the current signature has been stable |
 | `stable_since_seconds` | `float` | Elapsed time at which the current stability window began |
 | `observed_at_seconds` | `float` | Elapsed time at which this snapshot was observed |
+| `chat_context` | `ChatContextState` | Whether the current chat context is healthy, recoverably degraded, or unknown |
 
 ## DetectedTurnSignals
 
@@ -178,5 +187,8 @@ Frozen dataclass representing the raw signals extracted by a detector from a sin
 | `success_blocked` | `bool` | Whether success detection is blocked by surface ambiguity |
 | `surface_signature` | `str` | Signature of the observed surface for stability tracking |
 | `notes` | `tuple[str, ...]` | Additional diagnostic notes |
+| `chat_context` | `ChatContextState` | Detector-owned chat-context posture for the current surface |
 
 For Codex specifically, current activity is no longer inferred from arbitrary full-scrollback rows. Status-row and tool-cell activity come from the live edge of the current visible surface, while interruption, success context, and temporal transcript growth continue to use prompt-local latest-turn reasoning.
+
+Prompt-adjacent Codex compact/server error cells set `current_error_present=true`, block success candidacy, and expose `chat_context=degraded` while preserving prompt-ready input posture when the composer is otherwise ready. Historical compact/server error text in long scrollback does not degrade the current chat context.

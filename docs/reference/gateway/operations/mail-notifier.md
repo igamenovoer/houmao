@@ -60,6 +60,8 @@ The current busy checks include:
 
 If the managed session is busy or not prompt-ready, the cycle is audited as `busy_skip` and the eligible mail remains in the inbox for a later cycle.
 
+Recoverable degraded chat context is diagnostic, not a busy condition by itself. If the session is otherwise prompt-ready and queue admission passes, the notifier enqueues the normal current-context prompt work and does not send `/new`, `/clear`, or any other reset signal solely because degraded context is present. Clean-context notifier work is reported only when a clean-context workflow actually ran.
+
 For TUI-backed dispatch, the notifier also checks prompt-readiness reasons from the live TUI surface. For headless dispatch, it checks the active direct-turn or terminal-surface readiness state before enqueueing.
 
 ## Configuration
@@ -112,26 +114,25 @@ src/houmao/agents/realm_controller/assets/system_prompts/mailbox/mail-notifier.m
 
 That template includes:
 
-- a tool-specific skill-usage block,
+- a concise tool-specific skill-usage block,
 - the exact live `gateway.base_url`,
-- a rendered block of full `/v1/mail/*` endpoint URLs.
+- a one-line `/v1/mail/*` endpoint summary.
 
 The prompt tells the agent to:
 
-1. use the mode-specific list filter through the shared gateway mailbox API,
-2. choose the relevant email or emails for this round,
-3. complete that work,
-4. archive only the successfully processed selected emails after any required reply succeeds,
-5. stop and wait for the next notification.
+1. process relevant inbox mail through the shared gateway mailbox API,
+2. complete that work,
+3. archive only completed messages after any required reply succeeds,
+4. stop after the round.
 
 The skill-usage block is derived from the runtime-owned manifest and projected mailbox skill installation for the current tool.
 
 Current source behavior:
 
-- when the installed round-oriented mailbox skill is available, the prompt tells the agent to use the installed Houmao email-processing skill `houmao-process-emails-via-gateway`,
+- when the installed round-oriented mailbox skill is available, the prompt gives a concise native invocation for `houmao-process-emails-via-gateway`,
 - the prompt uses native installed-skill invocation guidance for the current tool rather than telling the agent to inspect `SKILL.md` files,
-- when the lower-level mailbox communication skill is also installed, the prompt tells the agent to use `houmao-agent-email-comms` for exact `/v1/mail/*` contract details or no-gateway transport guidance,
-- when the round-oriented mailbox skill is not installed, the prompt falls back to direct endpoint guidance.
+- when the lower-level mailbox communication skill is also installed, the prompt names `houmao-agent-email-comms` only as an optional details reference,
+- when the round-oriented mailbox skill is not installed, the prompt falls back to the compact mailbox API summary.
 
 ## Lifecycle Integration
 

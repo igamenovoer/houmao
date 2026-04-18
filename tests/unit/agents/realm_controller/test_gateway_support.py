@@ -5605,13 +5605,14 @@ def test_gateway_mail_notifier_polls_mailbox_local_state_and_repeats_after_resta
         repeated_prompt = fake_client.submitted_prompts[1][1]
         assert message_id not in first_prompt
         assert message_id not in repeated_prompt
-        assert (
-            "List open inbox mail for this round, including mail that may already be read or answered."
-            in first_prompt
-        )
-        assert "Notifier mode: `any_inbox`" in first_prompt
+        assert "You have mail in inbox." in first_prompt
+        assert "Mode: `any_inbox` - open unarchived inbox mail" in first_prompt
         assert "mark only those successfully processed emails read" not in first_prompt
-        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in first_prompt
+        assert (
+            "Mailbox API: `GET /v1/mail/status`; "
+            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in first_prompt
+        )
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in first_prompt
     finally:
         runtime.shutdown()
 
@@ -5706,9 +5707,9 @@ def test_gateway_mail_notifier_unread_only_skips_read_unarchived_mail(
         )
         _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
         prompt = fake_client.submitted_prompts[0][1]
-        assert "Notifier mode: `unread_only`" in prompt
-        assert "Start by listing unread inbox mail for this round." in prompt
-        assert "will not trigger another notification by itself" in prompt
+        assert "Mode: `unread_only` - unread unarchived inbox mail" in prompt
+        assert "Start by listing unread inbox mail for this round." not in prompt
+        assert "will not trigger another notification by itself" not in prompt
         assert "mark only those successfully processed emails read" not in prompt
     finally:
         runtime.shutdown()
@@ -5793,10 +5794,7 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
         _wait_until(lambda: len(fake_session.prompt_calls) >= 1, timeout_seconds=5.0)
         first_prompt = fake_session.prompt_calls[0][0]
         assert message_id not in first_prompt
-        assert (
-            "List open inbox mail for this round, including mail that may already be read or answered."
-            in first_prompt
-        )
+        assert "Mode: `any_inbox` - open unarchived inbox mail" in first_prompt
 
         readiness["busy"] = True
         prompt_count = len(fake_session.prompt_calls)
@@ -5807,10 +5805,7 @@ def test_gateway_mail_notifier_local_interactive_waits_for_prompt_ready_posture_
         _wait_until(lambda: len(fake_session.prompt_calls) >= prompt_count + 1, timeout_seconds=5.0)
         repeated_prompt = fake_session.prompt_calls[-1][0]
         assert message_id not in repeated_prompt
-        assert (
-            "List open inbox mail for this round, including mail that may already be read or answered."
-            in repeated_prompt
-        )
+        assert "Mode: `any_inbox` - open unarchived inbox mail" in repeated_prompt
     finally:
         runtime.shutdown()
 
@@ -6198,8 +6193,7 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
             if (
                 "--approval-mode=yolo" in launch_plan.args
                 and "--sandbox=false" in launch_plan.args
-                and "List open inbox mail for this round, including mail that may already be read or answered."
-                in prompt
+                and "You have mail in inbox." in prompt
             ):
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_path.write_text("processed by gemini notifier\n", encoding="utf-8")
@@ -6246,15 +6240,13 @@ def test_gateway_mail_notifier_gemini_headless_processes_mail_with_owned_unatten
 
     assert fake_session.prompt_calls
     prompt = fake_session.prompt_calls[0][0]
+    assert "You have mail in inbox." in prompt
+    assert "Mode: `any_inbox` - open unarchived inbox mail" in prompt
+    assert "In Gemini this Houmao skill is installed natively." not in prompt
     assert (
-        "List open inbox mail for this round, including mail that may already be read or answered."
-        in prompt
+        "Use `houmao-process-emails-via-gateway` with the gateway above for this round." in prompt
     )
-    assert "In Gemini this Houmao skill is installed natively." in prompt
-    assert "Invoke `houmao-process-emails-via-gateway` by name for this round." in prompt
-    assert (
-        "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name"
-    ) in prompt
+    assert "Details: `houmao-agent-email-comms`." in prompt
     assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
     assert ".agents/skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
     assert ".agents/skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
@@ -6315,16 +6307,11 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert first_message_id not in prompt
         assert second_message_id not in prompt
         assert "Unread email summaries in the current snapshot:" not in prompt
-        assert prompt.index(
-            "List open inbox mail for this round, including mail that may already be read or answered."
-        ) < prompt.index(
-            "Gateway mailbox operations for this round use the exact live gateway base URL:"
+        assert prompt.index("You have mail in inbox.") < prompt.index(
+            "$houmao-process-emails-via-gateway http://127.0.0.1:43123"
         )
-        assert (
-            "List open inbox mail for this round, including mail that may already be read or answered."
-            in prompt
-        )
-        assert "Choose which email or emails are relevant to process" in prompt
+        assert "Mode: `any_inbox` - open unarchived inbox mail" in prompt
+        assert "Choose which email or emails are relevant to process" not in prompt
         assert "thread_ref: filesystem:" not in prompt
         assert "from: HOUMAO-sender@agents.localhost" not in prompt
         assert "subject: Gateway unread reminder one" not in prompt
@@ -6333,38 +6320,29 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "TOP-SECRET-TWO" not in prompt
         assert "Nominated unread target" not in prompt
         assert "Remaining unread after this target" not in prompt
-        assert (
-            "Use the installed Houmao email-processing skill "
-            "`houmao-process-emails-via-gateway` for this round."
-        ) in prompt
-        assert "In Codex this Houmao skill is installed natively." in prompt
+        assert "Use the installed Houmao email-processing skill" not in prompt
+        assert "In Codex this Houmao skill is installed natively." not in prompt
         assert "$houmao-process-emails-via-gateway http://127.0.0.1:43123" in prompt
         assert "not as a registered slash skill" not in prompt
         assert "`/houmao-process-emails-via-gateway` lookup" not in prompt
         assert "Use the installed Houmao mailbox gateway skill" not in prompt
-        assert (
-            "use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms`"
-            in prompt
-        )
-        assert "Do not inspect the current project or runtime home for skill files." in prompt
+        assert "lower-level Houmao mailbox communication skill" not in prompt
+        assert "Details: `houmao-agent-email-comms`." in prompt
+        assert "Do not inspect the current project or runtime home for skill files." not in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
-        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/list`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/peek`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/read`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/send`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/post`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/reply`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/mark`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/move`" in prompt
-        assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" in prompt
+        assert (
+            "Mailbox API: `GET /v1/mail/status`; "
+            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in prompt
+        )
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
+        assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" not in prompt
         assert "curl -sS -X POST" not in prompt
-        assert "stop and wait for the next notification" in prompt
+        assert "archive only completed messages, then stop" in prompt
         assert "Houmao mailbox skills are not installed for this session." not in prompt
         assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
         assert "deliver_message.py" not in prompt
@@ -6418,16 +6396,10 @@ def test_gateway_mail_notifier_renders_claude_native_skill_invocation(
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert (
-            "Claude Code the standalone slash-skill line above invokes the installed Houmao skill"
-            in prompt
-        )
+        assert "standalone slash-skill line above invokes" not in prompt
         assert "/houmao-process-emails-via-gateway" in prompt
-        assert (
-            "Use the lower-level Houmao mailbox communication skill `houmao-agent-email-comms` by name"
-            in prompt
-        )
-        assert "Do not inspect the current project or runtime home for skill files." in prompt
+        assert "Details: `houmao-agent-email-comms`." in prompt
+        assert "Do not inspect the current project or runtime home for skill files." not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "skills/mailbox/houmao-process-emails-via-gateway/SKILL.md" not in prompt
@@ -6471,11 +6443,15 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
 
         assert len(fake_client.submitted_prompts) == 1
         prompt = fake_client.submitted_prompts[0][1]
-        assert "Houmao mailbox skills are not installed for this session." in prompt
-        assert "List open inbox mail through the shared gateway mailbox API" in prompt
+        assert "Houmao mailbox skills are not installed." in prompt
+        assert "Use the mailbox API below directly for this round." in prompt
         assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
-        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" in prompt
+        assert (
+            "Mailbox API: `GET /v1/mail/status`; "
+            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`." in prompt
+        )
+        assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
         assert "houmao-process-emails-via-gateway" not in prompt
         assert "houmao-agent-email-comms" not in prompt
     finally:
@@ -6591,11 +6567,17 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
         assert "stalwart:mail-1" not in fake_client.submitted_prompts[1][1]
         assert "stalwart:mail-1" not in fake_client.submitted_prompts[2][1]
         assert (
-            "List open inbox mail through the shared gateway mailbox API"
+            "Use the mailbox API below directly for this round."
             in fake_client.submitted_prompts[1][1]
         )
         assert (
-            "- `POST http://127.0.0.1:43123/v1/mail/archive`" in fake_client.submitted_prompts[1][1]
+            "Mailbox API: `GET /v1/mail/status`; "
+            "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
+            in fake_client.submitted_prompts[1][1]
+        )
+        assert (
+            "- `POST http://127.0.0.1:43123/v1/mail/archive`"
+            not in fake_client.submitted_prompts[1][1]
         )
     finally:
         runtime.shutdown()
@@ -6732,8 +6714,7 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
         assert len(fake_client.submitted_prompts) == 2
         assert message_id not in fake_client.submitted_prompts[1][1]
         assert (
-            "List open inbox mail for this round, including mail that may already be read or answered."
-            in fake_client.submitted_prompts[1][1]
+            "Mode: `any_inbox` - open unarchived inbox mail" in fake_client.submitted_prompts[1][1]
         )
     finally:
         runtime.shutdown()

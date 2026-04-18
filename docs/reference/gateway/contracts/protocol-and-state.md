@@ -477,13 +477,16 @@ Representative refusal payload (returned under an HTTP error status):
 Current behavior:
 
 - TUI-backed sessions (`cao_rest`, `houmao_server_rest`, and `local_interactive`) require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
-- TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits `/clear`, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
+- Recoverable degraded chat context and current-error diagnostics do not by themselves block ordinary prompt dispatch when the TUI-backed session otherwise satisfies the prompt-ready contract
+- TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits the tool-appropriate context-reset signal, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
+- Codex TUI reset-then-send uses `/new`; other TUI tools use their configured reset signal, commonly `/clear`
 - TUI-backed sessions reject explicit `chat_session.mode = "auto" | "current" | "tool_last_or_new" | "exact"` with HTTP `422`
 - TUI-backed sessions also reject any `execution.model` override with HTTP `422`
 - native local headless sessions require no active gateway-managed execution and no queued gateway work before prompt dispatch unless `force=true`
 - native headless sessions accept `chat_session.mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"`; `chat_session.id` is required only for `mode = "exact"`
 - native headless sessions accept optional `execution.model.name` plus optional `execution.model.reasoning.level`; the effective value merges with launch-resolved defaults for the current turn only and does not persist after the prompt completes
 - omitted headless `chat_session` means `mode = "auto"`, which resolves in order as pending `next_prompt_override`, pinned `current`, persisted `startup_default`, then fresh `new`
+- recoverable degraded chat context does not force headless `chat_session.mode = "new"`; ordinary headless selector resolution still applies unless the caller explicitly requests fresh context
 - `chat_session.mode = "current"` fails explicitly when the managed session has no pinned current provider session
 - server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
 - `force=true` bypasses only readiness/busy posture; it does not bypass blank prompt validation, detached state, reconciliation blocking, or unsupported backends
@@ -720,7 +723,7 @@ Shared mailbox route availability rules:
 
 ### `GET|PUT|DELETE /v1/mail-notifier`
 
-These routes manage the gateway-owned unread-mail reminder loop for mailbox-enabled sessions.
+These routes manage the gateway-owned mail-notifier loop for mailbox-enabled sessions.
 
 Representative enable request:
 
@@ -754,11 +757,13 @@ Support contract rules:
 - It validates current mailbox actionability from that manifest-backed binding and transport-local prerequisites before treating notifier behavior as supported.
 - The notifier wake-up prompt itself stays on the runtime-owned discovery contract for the agent turn: it points the agent at `resolve-live`, which derives current mailbox fields from the durable binding and returns optional `gateway.base_url` data when a valid live gateway is attached.
 - Enabling the notifier fails explicitly when the internal bootstrap state cannot resolve a readable manifest, when the manifest launch plan has no mailbox binding, or when the current manifest-backed binding is not actionable for notifier work.
-- Unread-mail truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+- Eligible inbox truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
+- The notifier mode selects the inbox filter: `any_inbox` wakes for any unarchived inbox mail, including read or answered mail, while `unread_only` wakes only for unread unarchived inbox mail.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
-- Wake-up prompts summarize the current unread snapshot and let the agent choose which unread message or messages to inspect and handle.
-- Each reminder includes the unread `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every unread message in that snapshot.
-- If unread mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on unread truth plus live prompt readiness rather than on reminder history.
+- Wake-up prompts summarize the current eligible inbox snapshot and let the agent choose which message or messages to inspect and handle.
+- Each reminder includes the eligible `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every selected message in that snapshot.
+- If eligible inbox mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on current mailbox truth plus live prompt readiness rather than on reminder history.
+- Recoverable degraded chat context does not by itself cause a busy skip and does not force a clean-context notifier prompt. If the target is otherwise prompt-ready and queue admission passes, the notifier uses normal current-context prompt work.
 
 Detailed inspection note:
 

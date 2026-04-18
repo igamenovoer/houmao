@@ -26,6 +26,7 @@ The public state is intentionally small:
 | `turn.phase` | `ready`, `active`, `unknown` | Current turn posture |
 | `last_turn.result` | `success`, `interrupted`, `known_failure`, `none` | Most recent completed terminal outcome |
 | `last_turn.source` | `explicit_input`, `surface_inference`, `none` | Where that recorded terminal turn came from |
+| `chat_context` | `current`, `degraded`, `unknown` | Whether the current chat context is healthy, recoverably degraded, or unknown |
 | `stability` | `signature`, `stable`, `stable_for_seconds`, `stable_since_utc` | Generic visible-state stability for the published response |
 | `recent_transitions` | bounded list of `HoumaoRecentTransition` | Recent visible state changes kept in memory for diagnostics |
 
@@ -115,6 +116,8 @@ For Codex, the tracker intentionally splits the surface into two scopes:
 
 That split prevents stale historical `• Working (... esc to interrupt)` rows far above the prompt from pinning `turn.phase=active` when the current surface is already prompt-ready.
 
+Prompt-adjacent Codex compact/server error cells are recoverable degraded-context evidence. They set current-error diagnostics and block success candidacy for that surface, but they do not force prompt readiness away from ready when the prompt/composer facts are otherwise ready. Historical compact/server error cells in long scrollback do not affect current `chat_context`.
+
 ### Turn Phase
 
 `turn.phase` is intentionally narrower than the internal reducer graph:
@@ -132,6 +135,7 @@ There are two host-owned corrections on top of the shared tracker. The narrow st
 - allow the final 20-second recovery to correct `surface.ready_posture=no`
 - stop anchored completion monitoring when final recovery expires a stale active anchor
 - do not manufacture `last_turn.result=success`
+- preserve recoverable error diagnostics such as `chat_context=degraded` when recovery corrects a false active state
 
 ### Last Turn
 

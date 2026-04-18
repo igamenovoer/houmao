@@ -162,11 +162,11 @@ The notifier SHALL record audit inputs in open-work terms, including open-work c
 - **AND THEN** it does not enqueue a prompt solely because that archived message exists
 
 ### Requirement: Gateway notifier wake-up prompts instruct archive-after-processing workflow
-When the gateway mail notifier enqueues an internal reminder for open inbox work, the prompt SHALL announce that open shared-mailbox work exists for the current session.
+When the gateway mail notifier enqueues an internal reminder for open inbox work, the prompt SHALL concisely announce that the current session has mail in its inbox.
 
 The prompt SHALL direct the agent to use the installed runtime-owned `houmao-process-emails-via-gateway` skill for the current round, list mailbox work through the shared gateway mailbox API, process selected relevant mail, archive only successfully processed mail, and stop after the round.
 
-The prompt SHALL distinguish safe triage from mutating reads by listing the current gateway mailbox lifecycle endpoints for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
+The prompt SHALL distinguish safe triage from mutating reads by listing a concise current gateway mailbox lifecycle endpoint summary for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
 The prompt SHALL NOT tell the agent that `mark-read` is the completion action.
 
@@ -249,3 +249,41 @@ In both modes, the prompt SHALL direct the agent to archive successfully process
 - **THEN** the prompt does not tell the agent that reading or marking read completes the work
 - **AND THEN** the prompt keeps archive as the completion action for successfully processed mail
 
+### Requirement: Mail notifier continues current context for recoverable degraded sessions
+For prompt-ready sessions, recoverable degraded chat context SHALL NOT by itself cause an ordinary notifier busy skip and SHALL NOT by itself require clean-context notifier work.
+
+When open inbox work is eligible and all existing readiness, notifier-mode, and queue-admission gates pass, the notifier SHALL enqueue or deliver the normal notifier prompt through current-context prompt work even if recoverable degraded context is present.
+
+Generic current-error diagnostics that do not carry recoverable degraded chat-context evidence SHALL also remain ordinary prompt-ready diagnostics rather than a reason to reset context or busy-skip when the prompt-ready and queue-admission gates pass.
+
+The notifier SHALL preserve explicit clean-context behavior only when a future caller-configured notifier policy or prompt-control request explicitly asks for clean context. It SHALL NOT infer that policy solely from recoverable degraded context.
+
+Notifier audit records MAY include degraded-context detail for diagnostics, but SHALL NOT report clean-context outcomes unless a clean-context workflow actually ran.
+
+#### Scenario: Prompt-ready degraded session gets notifier prompt
+- **GIVEN** a gateway mail notifier has open inbox work for the managed session
+- **AND GIVEN** the managed session is prompt-ready and its chat context is recoverably degraded
+- **AND GIVEN** the notifier's existing queue-admission gates pass
+- **WHEN** the notifier poll runs
+- **THEN** the notifier enqueues or delivers the normal notifier prompt through current-context prompt work
+- **AND THEN** the notifier does not record an ordinary busy skip solely because degraded context is present
+
+#### Scenario: TUI notifier does not reset for degraded context alone
+- **GIVEN** a TUI-backed gateway target is prompt-ready with recoverable degraded chat context
+- **AND GIVEN** the notifier has eligible open inbox work
+- **WHEN** the notifier poll creates notifier work
+- **THEN** the notifier does not first send `/new`, `/clear`, or another context-reset signal solely because degraded context is present
+- **AND THEN** the notifier audit outcome does not claim clean-context enqueue unless an explicit clean-context workflow ran
+
+#### Scenario: Headless notifier does not force new chat for degraded context alone
+- **GIVEN** a native headless gateway target has recoverable degraded chat context
+- **AND GIVEN** the notifier has eligible open inbox work and all admission gates pass
+- **WHEN** the notifier creates prompt work
+- **THEN** the prompt work does not include `chat_session.mode = new` solely because degraded context is present
+
+#### Scenario: Prompt-ready generic error surface receives normal notifier work
+- **WHEN** a notifier poll finds open inbox work for a TUI-backed session
+- **AND WHEN** the gateway-owned TUI state satisfies the prompt-ready contract while also reporting previous-turn generic error evidence
+- **AND WHEN** queue admission passes
+- **THEN** the notifier enqueues the normal notifier prompt without first resetting context
+- **AND THEN** it does not record a busy skip solely because the previous visible turn contains a generic error

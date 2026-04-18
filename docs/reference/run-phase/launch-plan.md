@@ -61,6 +61,7 @@ When a managed agent was launched from a reusable launch profile (either an easy
 - managed-agent identity defaults (`agent_name`, optionally `agent_id`),
 - the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, launch-owned appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. The runtime does not replay the overlay, appendix, or managed header later as separate bootstrap steps on resumed turns.
 - secret-free `inputs.houmao_system_prompt_layout` metadata describing the rendered structured prompt layout for new builds.
+- secret-free relaunch chat-session policy, when the launch profile stores one. This policy is not consumed during first launch; the runtime reads it later when `agents relaunch` is invoked without a direct chat-session override.
 
 The build manifest and the resulting runtime launch metadata also preserve secret-free **launch-profile provenance** sufficient for inspection and replay: the source lane (specialist or recipe), the birth-time lane (`easy_profile` or `launch_profile`), and the originating profile name when available. Inspection commands such as `houmao-mgr agents state`, `houmao-mgr agents list`, and the easy `houmao-mgr project easy instance get|list` surfaces report that provenance.
 

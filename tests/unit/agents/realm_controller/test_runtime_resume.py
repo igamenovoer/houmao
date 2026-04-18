@@ -22,12 +22,13 @@ from houmao.agents.realm_controller.loaders import (
     load_brain_manifest,
     load_role_package,
 )
-from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller.models import BackendKind, LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
 )
 from houmao.agents.realm_controller.runtime import (
+    _launch_profile_relaunch_chat_session_selection,
     resume_runtime_session,
 )
 
@@ -35,6 +36,48 @@ from houmao.agents.realm_controller.runtime import (
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def test_runtime_reads_launch_profile_relaunch_chat_policy_from_metadata(
+    tmp_path: Path,
+) -> None:
+    plan = LaunchPlan(
+        backend="local_interactive",
+        tool="codex",
+        executable="codex",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions",
+            role_name="reviewer",
+            prompt="Review carefully.",
+        ),
+        metadata={
+            "launch_overrides": {
+                "construction_provenance": {
+                    "launch_profile": {
+                        "name": "reviewer-default",
+                        "relaunch": {
+                            "chat_session": {
+                                "mode": "exact",
+                                "id": "provider-session-1",
+                            }
+                        },
+                    }
+                }
+            }
+        },
+    )
+
+    selection = _launch_profile_relaunch_chat_session_selection(plan)
+
+    assert selection is not None
+    assert selection.mode == "exact"
+    assert selection.session_id == "provider-session-1"
 
 
 def _seed_manifest(

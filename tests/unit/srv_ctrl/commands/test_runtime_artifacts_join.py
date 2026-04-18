@@ -274,7 +274,7 @@ def test_joined_tui_relaunch_respects_unavailable_vs_launchable_posture(
     monkeypatch.setattr(
         runtime_module,
         "_relaunch_backend_session",
-        lambda controller: SessionControlResult(  # type: ignore[arg-type]
+        lambda controller, **_kwargs: SessionControlResult(  # type: ignore[arg-type]
             status="ok",
             action="relaunch",
             detail="relaunched",

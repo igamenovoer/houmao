@@ -69,6 +69,7 @@ A launch profile may store, with no inline secrets:
 - durable non-secret env records,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
+- a relaunch-only provider chat-session policy for future `agents relaunch` operations,
 - a managed prompt-header whole-header policy (`inherit`, `enabled`, or `disabled`) plus optional per-section policy (`identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` set to `enabled` or `disabled`),
 - a prompt overlay (mode plus inline text or a referenced file),
 - an optional memo seed for managed memory (`houmao-memo.md` and/or contained `pages/`) plus one apply policy.
@@ -97,8 +98,19 @@ Rules:
 - Launch-time force takeover is also override-only. `--force [keep-stale|clean]` applies to the current `agents launch` or `project easy instance launch` invocation, never persists into the stored profile, and never changes what the next launch from that profile will request by default.
 - Bare `--force` means `keep-stale`: Houmao resolves the live-owner conflict, reuses the predecessor managed home, and leaves untouched stale artifacts alone. If stale leftovers break the replacement launch, the operator must clean or correct them explicitly.
 - `--force clean` is the explicit destructive variant: Houmao stops the predecessor and removes only predecessor-owned replaceable launch artifacts before rebuilding, while preserving unrelated operator-owned paths and shared mailbox message stores.
+- Stored relaunch chat-session policy is not a birth-time launch default and does not affect first launch. It is carried as secret-free launch-profile provenance so later `agents relaunch` can decide whether the provider TUI should start fresh, ask the provider for its latest chat, or resume an exact provider session id.
 - Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite the stored launch profile.
 - For easy profiles, the easy lane compiles down through the same five layers — the specialist resolves into a recipe-backed source layer before the launch-profile layer applies.
+
+## Relaunch Chat Sessions
+
+A launch profile may store a relaunch-only `chat_session` policy under its projected `relaunch` block. The supported modes are:
+
+- `new` — relaunch starts a fresh provider chat.
+- `tool_last_or_new` — relaunch asks the provider CLI to continue its latest chat when supported, or create one according to the provider's native behavior.
+- `exact` — relaunch resumes the exact provider chat id stored as `id`.
+
+This policy applies only to future instances launched from the profile. It does not mutate already-running agents, recipes, specialists, or the provider's own chat store. A direct `houmao-mgr agents relaunch --chat-session-mode ...` override wins for that one relaunch and does not rewrite the stored profile.
 
 ## Prompt Overlays
 

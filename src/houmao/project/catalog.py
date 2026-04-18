@@ -27,7 +27,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 12
+CATALOG_SCHEMA_VERSION = 13
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -59,6 +59,7 @@ _MEMO_SEED_SOURCE_KIND_TREE = "tree"
 _MEMO_SEED_SOURCE_KIND_VALUES = (_MEMO_SEED_SOURCE_KIND_MEMO, _MEMO_SEED_SOURCE_KIND_TREE)
 _MEMO_SEED_TOP_LEVEL_MEMO_FILE = "houmao-memo.md"
 _MEMO_SEED_TOP_LEVEL_PAGES_DIR = "pages"
+_RELAUNCH_CHAT_SESSION_MODES = frozenset({"new", "tool_last_or_new", "exact"})
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ class LaunchProfileCatalogEntry:
     env_payload: dict[str, str]
     mailbox_payload: dict[str, Any] | None
     posture_payload: dict[str, Any]
+    relaunch_chat_session_payload: dict[str, str] | None
     managed_header_policy: ManagedHeaderPolicy | None
     prompt_overlay_mode: str | None
     prompt_overlay_ref: ManagedContentRef | None
@@ -757,6 +759,7 @@ class ProjectCatalog:
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
+                    launch_profiles.relaunch_chat_session_payload,
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
@@ -802,6 +805,7 @@ class ProjectCatalog:
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
+                    launch_profiles.relaunch_chat_session_payload,
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
                     launch_profiles.prompt_overlay_mode,
@@ -843,6 +847,7 @@ class ProjectCatalog:
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
         posture_mapping: dict[str, Any] | None,
+        relaunch_chat_session_mapping: dict[str, Any] | None = None,
         managed_header_policy: ManagedHeaderPolicy | None = None,
         managed_header_section_policy: dict[Any, Any] | None = None,
         prompt_overlay_mode: str | None,
@@ -903,6 +908,10 @@ class ProjectCatalog:
             managed_header_section_policy,
             source="launch_profiles.managed_header_section_policy",
         )
+        resolved_relaunch_chat_session = _normalize_relaunch_chat_session_payload(
+            relaunch_chat_session_mapping,
+            source="launch_profiles.relaunch_chat_session_payload",
+        )
 
         prompt_overlay_ref: ManagedContentRef | None = None
         if prompt_overlay_text is not None:
@@ -960,6 +969,7 @@ class ProjectCatalog:
                     env_payload,
                     mailbox_payload,
                     posture_payload,
+                    relaunch_chat_session_payload,
                     managed_header_policy,
                     managed_header_section_policy,
                     prompt_overlay_mode,
@@ -968,7 +978,7 @@ class ProjectCatalog:
                     memo_seed_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -985,6 +995,7 @@ class ProjectCatalog:
                     env_payload = excluded.env_payload,
                     mailbox_payload = excluded.mailbox_payload,
                     posture_payload = excluded.posture_payload,
+                    relaunch_chat_session_payload = excluded.relaunch_chat_session_payload,
                     managed_header_policy = excluded.managed_header_policy,
                     managed_header_section_policy = excluded.managed_header_section_policy,
                     prompt_overlay_mode = excluded.prompt_overlay_mode,
@@ -1010,6 +1021,7 @@ class ProjectCatalog:
                     json.dumps(env_mapping or {}, sort_keys=True),
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
                     json.dumps(posture_mapping or {}, sort_keys=True),
+                    json.dumps(resolved_relaunch_chat_session or {}, sort_keys=True),
                     resolved_managed_header_policy,
                     json.dumps(resolved_managed_header_section_policy, sort_keys=True),
                     prompt_overlay_mode,
@@ -1824,6 +1836,12 @@ class ProjectCatalog:
         env_payload = _load_json_mapping(str(row["env_payload"]))
         mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
         posture_payload = _load_json_mapping(str(row["posture_payload"]))
+        relaunch_chat_session_payload = _normalize_relaunch_chat_session_payload(
+            _load_json_mapping(str(row["relaunch_chat_session_payload"]))
+            if row["relaunch_chat_session_payload"] is not None
+            else {},
+            source=f"launch profile `{row['name']}` relaunch_chat_session_payload",
+        )
         managed_header_section_policy = normalize_managed_header_section_policy_mapping(
             _load_json_mapping(str(row["managed_header_section_policy"]))
             if row["managed_header_section_policy"] is not None
@@ -1866,6 +1884,7 @@ class ProjectCatalog:
             env_payload={str(key): str(value) for key, value in env_payload.items()},
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             posture_payload=posture_payload,
+            relaunch_chat_session_payload=relaunch_chat_session_payload,
             managed_header_policy=normalize_managed_header_policy(
                 str(row["managed_header_policy"])
                 if row["managed_header_policy"] is not None
@@ -2003,6 +2022,7 @@ def _table_schema_sql() -> str:
         env_payload TEXT NOT NULL DEFAULT '{{}}',
         mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
         posture_payload TEXT NOT NULL DEFAULT '{{}}',
+        relaunch_chat_session_payload TEXT NOT NULL DEFAULT '{{}}',
         managed_header_policy TEXT,
         managed_header_section_policy TEXT NOT NULL DEFAULT '{{}}',
         prompt_overlay_mode TEXT,
@@ -2094,6 +2114,7 @@ def _view_sql() -> str:
         launch_profiles.env_payload AS env_payload,
         launch_profiles.mailbox_payload AS mailbox_payload,
         launch_profiles.posture_payload AS posture_payload,
+        launch_profiles.relaunch_chat_session_payload AS relaunch_chat_session_payload,
         launch_profiles.managed_header_policy AS managed_header_policy,
         launch_profiles.managed_header_section_policy AS managed_header_section_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
@@ -2275,6 +2296,7 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "env_payload",
             "mailbox_payload",
             "posture_payload",
+            "relaunch_chat_session_payload",
             "managed_header_policy",
             "managed_header_section_policy",
             "prompt_overlay_mode",
@@ -2423,6 +2445,10 @@ def _render_launch_profile_yaml(
                 "path": str(memo_seed_path),
             },
         }
+    if entry.relaunch_chat_session_payload:
+        payload["relaunch"] = {
+            "chat_session": dict(entry.relaunch_chat_session_payload),
+        }
     try:
         import yaml
 
@@ -2501,6 +2527,33 @@ def _load_json_mapping(raw_value: str) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise ValueError("Catalog JSON payload must be a mapping.")
     return cast(dict[str, Any], loaded)
+
+
+def _normalize_relaunch_chat_session_payload(
+    payload: dict[str, Any] | None,
+    *,
+    source: str,
+) -> dict[str, str] | None:
+    """Validate and normalize one stored relaunch chat-session policy payload."""
+
+    if not payload:
+        return None
+    raw_mode = payload.get("mode")
+    if not isinstance(raw_mode, str) or raw_mode not in _RELAUNCH_CHAT_SESSION_MODES:
+        raise ValueError(
+            f"{source}: mode must be one of {sorted(_RELAUNCH_CHAT_SESSION_MODES)}."
+        )
+    raw_id = payload.get("id", payload.get("session_id"))
+    if raw_id is not None and not isinstance(raw_id, str):
+        raise ValueError(f"{source}: id must be a string when provided.")
+    session_id = raw_id.strip() if isinstance(raw_id, str) else None
+    if raw_mode == "exact":
+        if session_id is None or not session_id:
+            raise ValueError(f"{source}: mode=exact requires a non-empty id.")
+        return {"mode": raw_mode, "id": session_id}
+    if session_id:
+        raise ValueError(f"{source}: id is only supported when mode=exact.")
+    return {"mode": raw_mode}
 
 
 def _read_memo_seed_text_file(path: Path, *, source: str) -> str:

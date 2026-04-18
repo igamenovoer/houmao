@@ -35,6 +35,7 @@ Current implementation note:
 | Temporal transcript growth | later latest-turn region grows while the active status row is not visible yet | active evidence (`transcript_growth`) | Codex can still be active before the status row stabilizes. The detector treats meaningful recent growth in the latest-turn region as temporal active evidence. |
 | Response bullet | `• READY`, `• RECOVERED` | settled success context | These bullet response lines are the visible success content in the maintained complex fixture family. |
 | Interrupted-ready banner | `■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit /feedback to report the issue.` | ready/interrupted posture | This banner can wrap across multiple terminal lines. Normalize whitespace before judging it. |
+| Prompt-adjacent error cell | `■ Error running remote compact task: stream disconnected before completion.` | current-error evidence, success blocker, recoverable degraded chat context for compact/server signatures | Only the bounded prompt-adjacent region counts. Long scrollback errors above the current prompt area are historical and must not degrade the current prompt state. |
 | Completion marker | `─ Worked for ...` | completion context when visible | This is useful supporting success context, but current success tracking also depends on the prompt/ready posture and the absence of stronger blocking or active evidence. |
 
 ## Signal Meanings Used Today
@@ -128,6 +129,26 @@ Operational note:
 
 - Normalize whitespace before matching the interrupted banner because Codex commonly wraps it.
 
+### Prompt-ready compact/server error
+
+Typical surface:
+
+- prompt-adjacent red error cell is visible near the current prompt
+- the error text matches a compact/server failure signature, such as a remote compact task stream disconnect
+- current prompt is visible, accepting input, not editing input, and not blocked by an overlay
+
+Tracker meaning:
+
+- `turn_phase=ready`
+- `current_error_present=true`
+- `success_candidate=false`
+- `chat_context=degraded`
+- `known_failure=false`
+
+Operational note:
+
+- `chat_context=degraded` means the current context is recoverably unhealthy, not that the gateway must clear context. Ordinary prompt delivery can continue when the prompt-ready gates pass. An explicit clean-context request such as `chat_session.mode=new` still runs the reset workflow.
+
 ### Settled success
 
 Typical surface:
@@ -164,3 +185,4 @@ When investigating a Codex tracking bug from pane snapshots:
 7. Decide whether the current prompt payload is plain draft text, dim placeholder text, or empty.
 8. Ignore bubblewrap warnings, generic tips, and stale banners outside the latest-turn region when judging current-turn state.
 9. Ignore stale `Working` rows and tool cells outside the live-edge tail when judging current activity.
+10. Treat compact/server error cells as current degraded-context evidence only when they are in the bounded prompt-adjacent region near the current prompt.

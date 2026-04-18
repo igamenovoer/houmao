@@ -3212,6 +3212,8 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "/mail-root",
             "--gateway-port",
             "9011",
+            "--relaunch-chat-session-mode",
+            "tool_last_or_new",
             "--prompt-overlay-mode",
             "append",
             "--prompt-overlay-text",
@@ -3255,7 +3257,16 @@ def test_project_agents_launch_profiles_crud_round_trip(
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+    assert add_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
     assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
+    projection_payload = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection_payload["relaunch"] == {
+        "chat_session": {"mode": "tool_last_or_new"}
+    }
 
     get_result = runner.invoke(
         cli, ["project", "agents", "launch-profiles", "get", "--name", "alice"]
@@ -3286,6 +3297,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+    assert get_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
 
     list_result = runner.invoke(
         cli,
@@ -3348,6 +3360,7 @@ def test_project_agents_launch_profiles_crud_round_trip(
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+    assert set_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
 
     remove_result = runner.invoke(
         cli, ["project", "agents", "launch-profiles", "remove", "--name", "alice"]
@@ -3886,6 +3899,10 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
             "replace",
             "--prompt-overlay-text",
             "Operate only on Alice-owned repositories.",
+            "--relaunch-chat-session-mode",
+            "exact",
+            "--relaunch-chat-session-id",
+            "provider-session-1",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
         ],
@@ -3916,6 +3933,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
+    assert "relaunch" not in replace_payload
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -3927,6 +3945,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
+    assert "relaunch" not in projection
 
 
 def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
@@ -3968,6 +3987,10 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--relaunch-chat-session-mode",
+            "exact",
+            "--relaunch-chat-session-id",
+            "provider-session-1",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
         ],
@@ -3998,6 +4021,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
+    assert "relaunch" not in replace_payload
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -4009,6 +4033,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
+    assert "relaunch" not in projection
 
 
 def test_project_launch_profile_replacement_requires_yes_noninteractive(

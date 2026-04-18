@@ -265,7 +265,7 @@ Use reminders for live attached-gateway timing only. Use mailbox backlog when yo
 
 - [Agent Gateway Reference](../index.md) — subsystem overview
 - [Protocol And State Contracts](../contracts/protocol-and-state.md) — exact route and payload definitions
-- [Gateway Mail-Notifier](mail-notifier.md) — gateway-owned polling loop for unread mailbox reminders
+- [Gateway Mail-Notifier](mail-notifier.md) — gateway-owned polling loop for mailbox notification prompts
 
 ## Source References
 

@@ -40,6 +40,7 @@ JoinedLaunchPostureKind = Literal[
 JoinedLaunchEnvBindingMode = Literal["literal", "inherit"]
 HeadlessResumeSelectionKind = Literal["none", "last", "exact"]
 HeadlessTurnSessionSelectionMode = Literal["new", "tool_last_or_new", "exact"]
+RelaunchChatSessionSelectionMode = Literal["new", "tool_last_or_new", "exact"]
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,29 @@ class HeadlessTurnSessionSelection:
             return
         if self.session_id is not None:
             raise ValueError("only exact headless turn selection may include session_id")
+
+
+@dataclass(frozen=True)
+class RelaunchChatSessionSelection:
+    """Resolved provider chat-session selection for one managed-agent relaunch."""
+
+    mode: RelaunchChatSessionSelectionMode
+    session_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate one resolved relaunch chat-session selection."""
+
+        if self.mode == "exact":
+            if self.session_id is None or not self.session_id.strip():
+                raise ValueError("exact relaunch chat-session selection requires session_id")
+            return
+        if self.session_id is not None:
+            raise ValueError("only exact relaunch chat-session selection may include session_id")
+
+    def to_headless_turn_selection(self) -> HeadlessTurnSessionSelection:
+        """Return the equivalent one-turn selector for a headless provider prompt."""
+
+        return HeadlessTurnSessionSelection(mode=self.mode, session_id=self.session_id)
 
 
 @dataclass(frozen=True)

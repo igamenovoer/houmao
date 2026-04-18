@@ -47,6 +47,7 @@ The primary backend for interactive agent sessions. The agent runs as a real int
 
 - **Session class:** `LocalInteractiveSession`
 - **Prompt delivery:** via tmux paste-buffer, which simulates typing the prompt into the agent's stdin.
+- **Relaunch continuation:** provider-native startup arguments are applied before respawning the TUI in tmux window `0`.
 - **Role injection:** bootstrap message sent as the first-turn prompt (see [Role Injection](role-injection.md)).
 - **Use case:** development, debugging, and any workflow where direct interactive access to the agent is valuable.
 
@@ -57,7 +58,7 @@ The primary backend for interactive agent sessions. The agent runs as a real int
 Runs Claude Code CLI in headless mode (`claude -p --verbose`). Output is captured programmatically rather than displayed in an interactive terminal.
 
 - **Session class:** `ClaudeHeadlessSession` (extends `HeadlessInteractiveSession`)
-- **Resume:** `--continue` flag to resume a previous conversation.
+- **Resume:** `--continue` resumes the provider's latest stored conversation; `--resume <session_id>` resumes an exact provider session.
 - **Role injection:** when the role prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty prompts skip both startup inputs.
 - **Use case:** automated pipelines, batch processing, and non-interactive agent orchestration.
 
@@ -68,7 +69,7 @@ Runs Claude Code CLI in headless mode (`claude -p --verbose`). Output is capture
 Runs Codex CLI in headless mode (`codex exec --json`). Produces structured JSON output for programmatic consumption.
 
 - **Session class:** `CodexHeadlessSession` (extends `HeadlessInteractiveSession`)
-- **Resume:** `resume <thread_id>` command to continue a previous thread.
+- **Resume:** `resume --last` asks Codex to continue its latest stored chat; `resume <session_id>` resumes an exact provider session.
 - **Role injection:** when the role prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty prompts skip the developer-instructions flag.
 - **Use case:** automated pipelines, structured output processing, and non-interactive agent orchestration.
 
@@ -81,7 +82,7 @@ Runs Gemini CLI in headless mode (`gemini -p`).
 - **Session class:** `GeminiHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Auth lanes:** managed Gemini homes support `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via projected `oauth_creds.json`. OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present.
 - **Managed skills:** Houmao-owned Gemini skills project into `.gemini/skills`; `.agents/skills` is only Gemini's upstream alias surface and is not Houmao's maintained contract.
-- **Resume:** `--resume <session_id>` when the session manifest already persists a Gemini session id. Resume stays bound to the same recorded working directory/project context.
+- **Resume:** `--resume latest` asks Gemini to continue its latest stored chat; `--resume <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
 - **Role injection:** bootstrap message sent as the first-turn prompt.
 - **Use case:** automated pipelines and non-interactive agent orchestration.
 
@@ -133,6 +134,18 @@ This base class manages:
   - `role_bootstrap_applied` — whether the first-turn role bootstrap message has been delivered.
 
 This shared infrastructure ensures consistent behavior across headless backends for concerns like process lifecycle, output buffering, and session persistence.
+
+## Relaunch Chat-Session Mapping
+
+Tmux-backed relaunch accepts a relaunch-only chat-session selector. It does not affect first launch and is distinct from gateway prompt-control chat-session selectors.
+
+| Tool | Local interactive latest | Local interactive exact | Native headless latest | Native headless exact |
+| --- | --- | --- | --- | --- |
+| Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
+| Claude Code | `claude --continue` | `claude --resume <session_id>` | `claude -p --continue <prompt>` | `claude -p --resume <session_id> <prompt>` |
+| Gemini CLI | `gemini --resume latest` | `gemini --resume <session_id>` | `gemini --resume latest -p <prompt>` | `gemini --resume <session_id> -p <prompt>` |
+
+When the relaunch selector is omitted, the runtime uses `new` and starts a fresh provider chat. When a local interactive relaunch resumes an existing provider chat, bootstrap-message role injection is not replayed into that chat.
 
 ## InteractiveSession protocol
 
