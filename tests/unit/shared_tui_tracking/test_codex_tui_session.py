@@ -68,6 +68,14 @@ _CODEX_ERROR_SURFACE = (
 _CODEX_COMPACT_DEGRADED_SURFACE = (
     "■ Error running remote compact task: stream disconnected before completion.\n\n› \n"
 )
+_CODEX_PROMPT_ADJACENT_AUTH_ERROR_SURFACE = (
+    "› Reply with exactly TRACKING_SMOKE_OK and nothing else.\n\n"
+    "■ Your access token could not be refreshed because your\n"
+    "refresh token was already used. Please log out and sign in\n"
+    "again.\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mSummarize recent commits\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 high · /tmp/demo/workdir\x1b[0m\n"
+)
 _CODEX_STALE_COMPACT_ERROR_SCROLLBACK_SURFACE = (
     "› Summarize the inbox\n\n"
     "■ Error running remote compact task: stream disconnected before completion.\n\n"
@@ -542,6 +550,19 @@ def test_codex_detector_generic_error_does_not_mark_degraded_context() -> None:
     assert signals.current_error_present is True
     assert signals.chat_context == "current"
     assert "chat_context=degraded" not in signals.notes
+
+
+def test_codex_detector_prompt_adjacent_wrapped_error_blocks_success() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_PROMPT_ADJACENT_AUTH_ERROR_SURFACE)
+
+    assert signals.current_error_present is True
+    assert signals.success_candidate is False
+    assert signals.success_blocked is True
+    assert signals.chat_context == "current"
+    assert "chat_context=degraded" not in signals.notes
+    assert signals.editing_input == "no"
 
 
 def test_codex_detector_ignores_historical_compact_error_outside_live_edge() -> None:

@@ -15,7 +15,7 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.activity import (
 from houmao.shared_tui_tracking.apps.codex_tui.signals.error_cells import (
     DEGRADED_CHAT_CONTEXT_NOTE,
     is_degraded_error_cell,
-    latest_error_cell,
+    prompt_adjacent_error_cell,
 )
 from houmao.shared_tui_tracking.apps.codex_tui.signals.interrupted import (
     CODEX_STEER_INTERRUPTION_TEXT,
@@ -126,7 +126,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             active_status_row_visible=activity.active_status_row_visible,
         )
-        error_line = latest_error_cell(prompt_snapshot.stripped_prompt_region_lines)
+        error_line = prompt_adjacent_error_cell(latest_turn_region_lines)
         current_error_present = error_line is not None
         degraded_context = is_degraded_error_cell(error_line)
         ready_posture = ready_posture_state(
@@ -234,7 +234,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
         )
-        error_line = latest_error_cell(prompt_snapshot.stripped_prompt_region_lines)
+        error_line = prompt_adjacent_error_cell(latest_turn_region_lines)
         blocking_overlay = has_blocking_overlay(surface)
         ready_posture = ready_posture_state(
             prompt_visible=prompt_snapshot.prompt_visible,
