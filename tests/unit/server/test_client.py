@@ -590,7 +590,7 @@ def test_put_managed_agent_gateway_mail_notifier_posts_json_body(monkeypatch) ->
     assert recorded == {
         "method": "PUT",
         "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
-        "kwargs": {"json_body": request_model.model_dump(mode="json")},
+        "kwargs": {"json_body": request_model.model_dump(mode="json", exclude_unset=True)},
     }
 
 
@@ -1125,7 +1125,11 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
     client = PassiveServerClient("http://127.0.0.1:9891")
     recorded: list[dict[str, object]] = []
     request_model = GatewayControlInputRequestV1(sequence="abc", escape_special_keys=True)
-    notifier_put = GatewayMailNotifierPutV1(interval_seconds=45, mode="unread_only")
+    notifier_put = GatewayMailNotifierPutV1(
+        interval_seconds=45,
+        mode="unread_only",
+        appendix_text="Handle only release-blocking mail.",
+    )
     control_payload = {
         "status": "ok",
         "action": "control_input",
@@ -1189,7 +1193,7 @@ def test_passive_server_client_gateway_send_keys_and_mail_notifier_routes(monkey
         {
             "method": "PUT",
             "path": "/houmao/agents/HOUMAO%20gpu%2F1/gateway/mail-notifier",
-            "kwargs": {"json_body": notifier_put.model_dump(mode="json")},
+            "kwargs": {"json_body": notifier_put.model_dump(mode="json", exclude_unset=True)},
         },
         {
             "method": "DELETE",

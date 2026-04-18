@@ -13,6 +13,11 @@ from houmao.agents.mailbox_runtime_models import (
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
+from houmao.agents.realm_controller.gateway_storage import (
+    gateway_paths_from_manifest_path,
+    read_gateway_mail_notifier_record,
+)
+from houmao.agents.realm_controller.manifest import default_manifest_path
 from houmao.project.catalog import ManagedContentRef
 from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
 from houmao.srv_ctrl.commands.agents.core import launch_managed_agent_locally
@@ -523,6 +528,83 @@ def test_launch_managed_agent_locally_applies_launch_profile_memo_seed_before_bu
         "page_file_count": 1,
         "page_directory_count": 1,
     }
+
+
+def test_launch_managed_agent_locally_seeds_profile_mail_notifier_appendix(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    manifest_path = default_manifest_path(
+        runtime_root,
+        "codex_headless",
+        "codex-headless-1",
+    ).resolve()
+
+    for path in (
+        repo_root,
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+        manifest_path.parent,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: SimpleNamespace(manifest_path=manifest_path),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: SimpleNamespace(
+            agent_identity="repo-research-1",
+            agent_id=derive_agent_id_from_name("repo-research-1"),
+            tmux_session_name="HOUMAO-repo-research-1",
+            manifest_path=manifest_path,
+        ),
+    )
+
+    launch_managed_agent_locally(
+        agents="researcher",
+        agent_name="repo-research-1",
+        agent_id=None,
+        auth=None,
+        session_name="HOUMAO-repo-research-1",
+        headless=True,
+        provider="codex",
+        working_directory=working_directory,
+        source_working_directory=repo_root,
+        source_agent_def_dir=source_agent_def_dir,
+        headless_display_style="plain",
+        headless_display_detail="concise",
+        launch_profile_mail_notifier_appendix_text=(
+            "Prefer urgent legal mail before routine updates."
+        ),
+    )
+
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    record = read_gateway_mail_notifier_record(paths.queue_path)
+    assert record.enabled is False
+    assert record.appendix_text == "Prefer urgent legal mail before routine updates."
 
 
 def test_launch_managed_agent_locally_memo_only_seed_preserves_pages(

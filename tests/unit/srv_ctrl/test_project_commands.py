@@ -3212,10 +3212,14 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "/mail-root",
             "--gateway-port",
             "9011",
+            "--relaunch-chat-session-mode",
+            "tool_last_or_new",
             "--prompt-overlay-mode",
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--gateway-mail-notifier-appendix-text",
+            "Prefer urgent legal mail before routine updates.",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
         ],
@@ -3249,13 +3253,27 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "mode": "append",
             "present": True,
         },
+        "gateway_mail_notifier_appendix": {
+            "present": True,
+            "text": "Prefer urgent legal mail before routine updates.",
+        },
     }
     _assert_memo_seed_payload(
         add_payload["defaults"]["memo_seed"],
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+    assert add_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
     assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
+    projection_payload = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
+    assert projection_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "text": "Prefer urgent legal mail before routine updates."
+    }
 
     get_result = runner.invoke(
         cli, ["project", "agents", "launch-profiles", "get", "--name", "alice"]
@@ -3286,6 +3304,11 @@ def test_project_agents_launch_profiles_crud_round_trip(
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+    assert get_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "present": True,
+        "text": "Prefer urgent legal mail before routine updates.",
+    }
+    assert get_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
 
     list_result = runner.invoke(
         cli,
@@ -3343,11 +3366,52 @@ def test_project_agents_launch_profiles_crud_round_trip(
     assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
     assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
     assert set_payload["defaults"]["prompt_overlay"]["present"] is True
+    assert set_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "present": True,
+        "text": "Prefer urgent legal mail before routine updates.",
+    }
     _assert_memo_seed_payload(
         set_payload["defaults"]["memo_seed"],
         source_kind="memo",
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
+    assert set_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
+
+    appendix_update_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--gateway-mail-notifier-appendix-text",
+            "Route billing notes to the backlog.",
+        ],
+    )
+    assert appendix_update_result.exit_code == 0, appendix_update_result.output
+    appendix_update_payload = json.loads(appendix_update_result.output)
+    assert appendix_update_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "present": True,
+        "text": "Route billing notes to the backlog.",
+    }
+
+    appendix_clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--clear-gateway-mail-notifier-appendix",
+        ],
+    )
+    assert appendix_clear_result.exit_code == 0, appendix_clear_result.output
+    appendix_clear_payload = json.loads(appendix_clear_result.output)
+    assert "gateway_mail_notifier_appendix" not in appendix_clear_payload["defaults"]
 
     remove_result = runner.invoke(
         cli, ["project", "agents", "launch-profiles", "remove", "--name", "alice"]
@@ -3551,6 +3615,8 @@ def test_project_easy_profile_crud_round_trip(
             "replace",
             "--prompt-overlay-text",
             "Operate only on Alice-owned repositories.",
+            "--gateway-mail-notifier-appendix-text",
+            "Escalate supervisor mail before status updates.",
             "--memo-seed-text",
             "Review Alice notes before taking action.",
         ],
@@ -3570,6 +3636,10 @@ def test_project_easy_profile_crud_round_trip(
         "mode": "replace",
         "present": True,
     }
+    assert create_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "present": True,
+        "text": "Escalate supervisor mail before status updates.",
+    }
     _assert_memo_seed_payload(
         create_payload["defaults"]["memo_seed"],
         source_kind="memo",
@@ -3587,6 +3657,10 @@ def test_project_easy_profile_crud_round_trip(
     assert get_payload["profile_lane"] == "easy-profile"
     assert get_payload["specialist"] == "researcher"
     assert get_payload["defaults"]["auth"] == "alice-creds"
+    assert get_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "present": True,
+        "text": "Escalate supervisor mail before status updates.",
+    }
     _assert_memo_seed_payload(
         get_payload["defaults"]["memo_seed"],
         source_kind="memo",
@@ -3660,6 +3734,8 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--gateway-mail-notifier-appendix-text",
+            "Keep product mail ahead of general FYI.",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
         ],
@@ -3691,6 +3767,10 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         "mode": "append",
         "present": True,
     }
+    assert set_payload["defaults"]["gateway_mail_notifier_appendix"] == {
+        "present": True,
+        "text": "Keep product mail ahead of general FYI.",
+    }
     _assert_memo_seed_payload(
         set_payload["defaults"]["memo_seed"],
         source_kind="memo",
@@ -3707,8 +3787,27 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         "mode": "append",
         "text": "Prefer Alice repository conventions.",
     }
+    assert projection["defaults"]["gateway_mail_notifier_appendix"] == {
+        "text": "Keep product mail ahead of general FYI."
+    }
     assert projection["defaults"]["memo_seed"]["source_kind"] == "memo"
     assert "policy" not in projection["defaults"]["memo_seed"]
+
+    clear_appendix_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--clear-gateway-mail-notifier-appendix",
+        ],
+    )
+    assert clear_appendix_result.exit_code == 0, clear_appendix_result.output
+    clear_appendix_payload = json.loads(clear_appendix_result.output)
+    assert "gateway_mail_notifier_appendix" not in clear_appendix_payload["defaults"]
 
 
 def test_project_easy_profile_set_updates_and_clears_memo_seed(
@@ -3886,6 +3985,10 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
             "replace",
             "--prompt-overlay-text",
             "Operate only on Alice-owned repositories.",
+            "--relaunch-chat-session-mode",
+            "exact",
+            "--relaunch-chat-session-id",
+            "provider-session-1",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
         ],
@@ -3916,6 +4019,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
+    assert "relaunch" not in replace_payload
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -3927,6 +4031,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
+    assert "relaunch" not in projection
 
 
 def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
@@ -3968,6 +4073,10 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
             "append",
             "--prompt-overlay-text",
             "Prefer Alice repository conventions.",
+            "--relaunch-chat-session-mode",
+            "exact",
+            "--relaunch-chat-session-id",
+            "provider-session-1",
             "--memo-seed-text",
             "Read the Alice memo before you start.",
         ],
@@ -3998,6 +4107,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
+    assert "relaunch" not in replace_payload
 
     projection = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
@@ -4009,6 +4119,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert "mailbox" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
+    assert "relaunch" not in projection
 
 
 def test_project_launch_profile_replacement_requires_yes_noninteractive(
@@ -4438,6 +4549,8 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
                 "append",
                 "--prompt-overlay-text",
                 "Prefer Alice repository conventions.",
+                "--gateway-mail-notifier-appendix-text",
+                "Keep legal notices ahead of routine reports.",
             ],
         ).exit_code
         == 0
@@ -4498,6 +4611,10 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["direct_model_config"].reasoning.level == 12
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert (
+        captured["launch_profile_mail_notifier_appendix_text"]
+        == "Keep legal notices ahead of routine reports."
+    )
     assert captured["launch_profile_provenance"] == {
         "name": "alice",
         "lane": "easy_profile",
@@ -4506,6 +4623,9 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
         "recipe_name": "researcher-codex-default",
         "prompt_overlay": {
             "mode": "append",
+            "present": True,
+        },
+        "gateway_mail_notifier_appendix": {
             "present": True,
         },
         "memo_seed": {
@@ -6278,6 +6398,7 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
         source_exists=True,
         recipe_name="researcher",
         prompt_overlay_text=None,
+        gateway_mail_notifier_appendix_text=None,
         memo_seed=None,
         entry=SimpleNamespace(
             name="alice",

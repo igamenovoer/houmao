@@ -15,7 +15,9 @@ That notifier surface SHALL include:
 Notifier configuration SHALL include at minimum:
 
 - whether notifier is enabled,
-- the unread-mail polling interval in seconds.
+- the unread-mail polling interval in seconds,
+- the effective notification mode,
+- the effective appendix text as a string, defaulting to the empty string.
 
 If the managed session is not mailbox-enabled, notifier enablement SHALL fail explicitly rather than silently enabling a broken poll loop.
 
@@ -33,6 +35,14 @@ For joined tmux-backed sessions, notifier support SHALL NOT treat unavailable re
 If that manifest pointer is missing, unreadable, unparsable, or its launch plan has no mailbox binding, enabling notifier behavior SHALL fail explicitly and SHALL leave notifier inactive.
 
 If the manifest exposes durable mailbox capability but the resulting mailbox binding cannot be validated as actionable for notifier work, notifier enablement SHALL fail explicitly and SHALL leave notifier inactive.
+
+When a caller omits `appendix_text` from `PUT /v1/mail-notifier`, the gateway SHALL preserve the currently stored appendix text unchanged.
+
+When a caller provides non-empty `appendix_text`, the gateway SHALL replace the stored appendix text with that exact string.
+
+When a caller provides `appendix_text=""`, the gateway SHALL clear the stored appendix text.
+
+`DELETE /v1/mail-notifier` SHALL disable polling without erasing the stored appendix text.
 
 #### Scenario: Mail notifier is enabled with an explicit interval
 - **WHEN** a caller sends `PUT /v1/mail-notifier` with `enabled=true` and `interval_seconds=60`
@@ -72,6 +82,27 @@ If the manifest exposes durable mailbox capability but the resulting mailbox bin
 - **AND WHEN** runtime-owned mailbox validation fails or required transport-local prerequisite material is unavailable for notifier work
 - **THEN** the gateway rejects notifier enablement explicitly
 - **AND THEN** notifier status reports that the session is not yet actionable for notifier work
+
+#### Scenario: Omitted appendix preserves stored notifier appendix
+- **WHEN** a caller has previously stored non-empty `appendix_text`
+- **AND WHEN** the caller sends `PUT /v1/mail-notifier` without an `appendix_text` field
+- **THEN** the gateway preserves the previously stored appendix text unchanged
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses return that preserved appendix text
+
+#### Scenario: Provided appendix replaces stored notifier appendix
+- **WHEN** a caller sends `PUT /v1/mail-notifier` with non-empty `appendix_text`
+- **THEN** the gateway stores that exact appendix text in notifier state
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses return the updated appendix text
+
+#### Scenario: Empty appendix clears stored notifier appendix
+- **WHEN** a caller sends `PUT /v1/mail-notifier` with `appendix_text=""`
+- **THEN** the gateway clears the stored appendix text
+- **AND THEN** subsequent `GET /v1/mail-notifier` responses return `appendix_text=""`
+
+#### Scenario: Disable preserves notifier appendix state
+- **WHEN** a caller stores non-empty `appendix_text` and later sends `DELETE /v1/mail-notifier`
+- **THEN** the gateway disables notifier polling
+- **AND THEN** later `GET /v1/mail-notifier` responses still return the previously stored appendix text
 
 ### Requirement: Gateway notifier prompts use native mailbox-skill invocation and never surface skill-document paths
 When a gateway notifier wake-up prompt tells an agent to use installed Houmao mailbox skills, that prompt SHALL use tool-native mailbox-skill invocation guidance or explicit Houmao skill names and SHALL NOT instruct the agent to open `SKILL.md` paths from the copied project or from any visible skill directory.
@@ -162,11 +193,11 @@ The notifier SHALL record audit inputs in open-work terms, including open-work c
 - **AND THEN** it does not enqueue a prompt solely because that archived message exists
 
 ### Requirement: Gateway notifier wake-up prompts instruct archive-after-processing workflow
-When the gateway mail notifier enqueues an internal reminder for open inbox work, the prompt SHALL announce that open shared-mailbox work exists for the current session.
+When the gateway mail notifier enqueues an internal reminder for open inbox work, the prompt SHALL concisely announce that the current session has mail in its inbox.
 
 The prompt SHALL direct the agent to use the installed runtime-owned `houmao-process-emails-via-gateway` skill for the current round, list mailbox work through the shared gateway mailbox API, process selected relevant mail, archive only successfully processed mail, and stop after the round.
 
-The prompt SHALL distinguish safe triage from mutating reads by listing the current gateway mailbox lifecycle endpoints for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
+The prompt SHALL distinguish safe triage from mutating reads by listing a concise current gateway mailbox lifecycle endpoint summary for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
 The prompt SHALL NOT tell the agent that `mark-read` is the completion action.
 
@@ -248,4 +279,62 @@ In both modes, the prompt SHALL direct the agent to archive successfully process
 - **WHEN** the notifier enqueues a prompt in either mode
 - **THEN** the prompt does not tell the agent that reading or marking read completes the work
 - **AND THEN** the prompt keeps archive as the completion action for successfully processed mail
+
+### Requirement: Mail notifier continues current context for recoverable degraded sessions
+For prompt-ready sessions, recoverable degraded chat context SHALL NOT by itself cause an ordinary notifier busy skip and SHALL NOT by itself require clean-context notifier work.
+
+When open inbox work is eligible and all existing readiness, notifier-mode, and queue-admission gates pass, the notifier SHALL enqueue or deliver the normal notifier prompt through current-context prompt work even if recoverable degraded context is present.
+
+Generic current-error diagnostics that do not carry recoverable degraded chat-context evidence SHALL also remain ordinary prompt-ready diagnostics rather than a reason to reset context or busy-skip when the prompt-ready and queue-admission gates pass.
+
+The notifier SHALL preserve explicit clean-context behavior only when a future caller-configured notifier policy or prompt-control request explicitly asks for clean context. It SHALL NOT infer that policy solely from recoverable degraded context.
+
+Notifier audit records MAY include degraded-context detail for diagnostics, but SHALL NOT report clean-context outcomes unless a clean-context workflow actually ran.
+
+#### Scenario: Prompt-ready degraded session gets notifier prompt
+- **GIVEN** a gateway mail notifier has open inbox work for the managed session
+- **AND GIVEN** the managed session is prompt-ready and its chat context is recoverably degraded
+- **AND GIVEN** the notifier's existing queue-admission gates pass
+- **WHEN** the notifier poll runs
+- **THEN** the notifier enqueues or delivers the normal notifier prompt through current-context prompt work
+- **AND THEN** the notifier does not record an ordinary busy skip solely because degraded context is present
+
+#### Scenario: TUI notifier does not reset for degraded context alone
+- **GIVEN** a TUI-backed gateway target is prompt-ready with recoverable degraded chat context
+- **AND GIVEN** the notifier has eligible open inbox work
+- **WHEN** the notifier poll creates notifier work
+- **THEN** the notifier does not first send `/new`, `/clear`, or another context-reset signal solely because degraded context is present
+- **AND THEN** the notifier audit outcome does not claim clean-context enqueue unless an explicit clean-context workflow ran
+
+#### Scenario: Headless notifier does not force new chat for degraded context alone
+- **GIVEN** a native headless gateway target has recoverable degraded chat context
+- **AND GIVEN** the notifier has eligible open inbox work and all admission gates pass
+- **WHEN** the notifier creates prompt work
+- **THEN** the prompt work does not include `chat_session.mode = new` solely because degraded context is present
+
+#### Scenario: Prompt-ready generic error surface receives normal notifier work
+- **WHEN** a notifier poll finds open inbox work for a TUI-backed session
+- **AND WHEN** the gateway-owned TUI state satisfies the prompt-ready contract while also reporting previous-turn generic error evidence
+- **AND WHEN** queue admission passes
+- **THEN** the notifier enqueues the normal notifier prompt without first resetting context
+- **AND THEN** it does not record a busy skip solely because the previous visible turn contains a generic error
+
+### Requirement: Gateway notifier prompt appends configured runtime appendix text
+When the gateway mail notifier enqueues an internal prompt, it SHALL append the configured runtime appendix text only when notifier state currently stores a non-empty `appendix_text`.
+
+The appended appendix text SHALL be rendered after the gateway-owned wake-up context and SHALL remain additive prompt context rather than a replacement for notifier mode, gateway base URL, mailbox API summary, or mailbox-processing skill guidance.
+
+When `appendix_text` is the empty string, the notifier SHALL render no appendix block.
+
+#### Scenario: Non-empty appendix appears in notifier prompt
+- **WHEN** notifier state stores non-empty `appendix_text`
+- **AND WHEN** the gateway enqueues a notifier prompt
+- **THEN** the prompt includes that appendix text as an appended runtime guidance block
+- **AND THEN** the prompt still includes the gateway-owned notifier context
+
+#### Scenario: Empty appendix does not render an appendix block
+- **WHEN** notifier state stores `appendix_text=""`
+- **AND WHEN** the gateway enqueues a notifier prompt
+- **THEN** the prompt does not include an appendix block
+- **AND THEN** the prompt remains otherwise valid notifier output
 

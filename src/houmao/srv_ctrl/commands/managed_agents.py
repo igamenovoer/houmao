@@ -1125,10 +1125,19 @@ def gateway_mail_notifier_enable(
     *,
     interval_seconds: int,
     mode: GatewayMailNotifierMode = "any_inbox",
+    appendix_text: str | None = None,
 ) -> GatewayMailNotifierStatusV1:
     """Enable or update gateway mail-notifier state for one managed agent."""
 
-    request_model = GatewayMailNotifierPutV1(interval_seconds=interval_seconds, mode=mode)
+    request_model = (
+        GatewayMailNotifierPutV1(
+            interval_seconds=interval_seconds,
+            mode=mode,
+            appendix_text=appendix_text,
+        )
+        if appendix_text is not None
+        else GatewayMailNotifierPutV1(interval_seconds=interval_seconds, mode=mode)
+    )
     if target.mode == "server":
         assert target.client is not None
         return pair_request(

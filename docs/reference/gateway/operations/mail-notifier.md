@@ -14,6 +14,8 @@ The notifier is part of the live gateway process:
 
 The prompt is a wake-up bridge between mailbox state and the agent's next prompt round. It is not itself the mailbox processing workflow.
 
+Notifier configuration also carries optional `appendix_text`. When non-empty, that text is appended to each rendered notifier prompt as additional runtime guidance. Use it for run-specific wake-up context such as "handle billing notices first" or "ignore FYI digests for this project"; do not use it to replace the mailbox-processing workflow itself.
+
 ## Current Polling Cycle
 
 When the notifier is enabled, the current implementation runs this cycle:
@@ -69,10 +71,16 @@ The mail-notifier is managed through `houmao-mgr agents gateway mail-notifier`:
 | Command | Description |
 | --- | --- |
 | `status` | Show whether notifier polling is enabled and report last-check metadata. |
-| `enable --interval-seconds N [--mode any_inbox|unread_only]` | Enable or reconfigure polling with interval `N` seconds and the selected mode. The current request model requires `N > 0`; the mode defaults to `any_inbox`. |
-| `disable` | Disable polling and stop future notifier prompt enqueueing. |
+| `enable --interval-seconds N [--mode any_inbox|unread_only] [--appendix-text TEXT]` | Enable or reconfigure polling with interval `N` seconds, the selected mode, and optionally a prompt appendix. The current request model requires `N > 0`; the mode defaults to `any_inbox`. |
+| `disable` | Disable polling and stop future notifier prompt enqueueing. Disabling does not clear stored `appendix_text`. |
 
 The live gateway rereads notifier state from storage on each cycle, so enable, disable, and interval changes take effect without restarting the gateway.
+
+Appendix update rules:
+
+- Omitting `--appendix-text` preserves the currently stored appendix.
+- Passing non-empty `--appendix-text TEXT` replaces the stored appendix.
+- Passing an empty string clears the stored appendix, for example `--appendix-text ''`.
 
 ## Status Fields
 
@@ -83,6 +91,7 @@ The live gateway rereads notifier state from storage on each cycle, so enable, d
 | `enabled` | Whether the notifier currently polls. |
 | `interval_seconds` | Current polling interval in seconds, or `null` when disabled. |
 | `mode` | Effective notifier mode, `any_inbox` or `unread_only`, including when disabled. |
+| `appendix_text` | Effective prompt appendix text. Empty string means no appendix is rendered. |
 | `supported` | Whether the current session configuration supports mailbox-backed notifier behavior. |
 | `support_error` | Why mailbox-backed notifier behavior is unsupported, when applicable. |
 | `last_poll_at_utc` | Timestamp of the last completed poll attempt. |
@@ -126,6 +135,13 @@ The prompt tells the agent to:
 
 The skill-usage block is derived from the runtime-owned manifest and projected mailbox skill installation for the current tool.
 
+When `appendix_text` is non-empty, the rendered prompt also includes:
+
+```text
+Additional runtime guidance:
+<appendix_text>
+```
+
 Current source behavior:
 
 - when the installed round-oriented mailbox skill is available, the prompt tells the agent to use the installed Houmao email-processing skill `houmao-process-emails-via-gateway`,
@@ -146,8 +162,8 @@ Current source behavior:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/v1/mail-notifier` | Inspect current notifier status. |
-| `PUT` | `/v1/mail-notifier` | Enable or reconfigure polling. |
-| `DELETE` | `/v1/mail-notifier` | Disable polling. |
+| `PUT` | `/v1/mail-notifier` | Enable or reconfigure polling. Body fields are `interval_seconds`, optional `mode`, and optional `appendix_text`. Omitted `appendix_text` preserves the stored appendix; an empty string clears it. |
+| `DELETE` | `/v1/mail-notifier` | Disable polling without clearing stored appendix text. |
 
 ## See Also
 

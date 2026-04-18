@@ -512,6 +512,7 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
     )
     assert enable_result.exit_code == 0
     assert "--mode [any_inbox|unread_only]" in enable_result.output
+    assert "--appendix-text TEXT" in enable_result.output
 
 
 def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
@@ -1387,11 +1388,21 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
-        lambda resolved_target, *, interval_seconds, mode: (
+        lambda resolved_target, *, interval_seconds, mode, appendix_text=None: (
             captured.update(
-                {"target": resolved_target, "interval_seconds": interval_seconds, "mode": mode}
+                {
+                    "target": resolved_target,
+                    "interval_seconds": interval_seconds,
+                    "mode": mode,
+                    "appendix_text": appendix_text,
+                }
             )
-            or {"enabled": True, "interval_seconds": interval_seconds, "mode": mode}
+            or {
+                "enabled": True,
+                "interval_seconds": interval_seconds,
+                "mode": mode,
+                "appendix_text": appendix_text,
+            }
         ),
     )
 
@@ -1407,6 +1418,8 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
             "60",
             "--mode",
             "unread_only",
+            "--appendix-text",
+            "Handle release-blocking mail first.",
         ],
     )
 
@@ -1415,10 +1428,12 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     assert captured["target"] is target
     assert captured["interval_seconds"] == 60
     assert captured["mode"] == "unread_only"
+    assert captured["appendix_text"] == "Handle release-blocking mail first."
     assert json.loads(result.output) == {
         "enabled": True,
         "interval_seconds": 60,
         "mode": "unread_only",
+        "appendix_text": "Handle release-blocking mail first.",
     }
 
 
@@ -2447,6 +2462,7 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
         provider="codex",
         recipe_name="researcher-codex-default",
         prompt_overlay_text="Prefer Alice repository conventions.",
+        gateway_mail_notifier_appendix_text="Keep legal notices ahead of routine reports.",
         memo_seed=None,
     )
     captured: dict[str, object] = {}
@@ -2516,6 +2532,10 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
     assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
     assert captured["prompt_overlay_mode"] == "append"
     assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert (
+        captured["launch_profile_mail_notifier_appendix_text"]
+        == "Keep legal notices ahead of routine reports."
+    )
     assert captured["managed_header_section_overrides"] == {"task-reminder": "enabled"}
     assert captured["launch_profile_managed_header_section_policy"] == {
         "automation-notice": "disabled"
@@ -2530,6 +2550,9 @@ def test_agents_launch_resolves_explicit_launch_profile_defaults(
         "recipe_name": "researcher-codex-default",
         "prompt_overlay": {
             "mode": "append",
+            "present": True,
+        },
+        "gateway_mail_notifier_appendix": {
             "present": True,
         },
         "memo_seed": {
@@ -2574,12 +2597,13 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
             ),
             source_exists=True,
             recipe_path=(tmp_path / "recipe.yaml").resolve(),
-                provider="codex",
-                recipe_name="researcher-codex-default",
-                prompt_overlay_text=None,
-                memo_seed=None,
-            ),
-        )
+            provider="codex",
+            recipe_name="researcher-codex-default",
+            prompt_overlay_text=None,
+            gateway_mail_notifier_appendix_text=None,
+            memo_seed=None,
+        ),
+    )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
         lambda project_overlay: (tmp_path / "agents").resolve(),
@@ -2640,12 +2664,13 @@ def test_agents_launch_rejects_removed_persist_dir_option(
             ),
             source_exists=True,
             recipe_path=recipe_path,
-                provider="codex",
-                recipe_name="researcher-codex-default",
-                prompt_overlay_text=None,
-                memo_seed=None,
-            ),
-        )
+            provider="codex",
+            recipe_name="researcher-codex-default",
+            prompt_overlay_text=None,
+            gateway_mail_notifier_appendix_text=None,
+            memo_seed=None,
+        ),
+    )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
         lambda project_overlay: source_agent_def_dir,
@@ -2800,12 +2825,13 @@ def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
             ),
             source_exists=True,
             recipe_path=recipe_path,
-                provider="codex",
-                recipe_name="researcher-codex-default",
-                prompt_overlay_text=None,
-                memo_seed=None,
-            ),
-        )
+            provider="codex",
+            recipe_name="researcher-codex-default",
+            prompt_overlay_text=None,
+            gateway_mail_notifier_appendix_text=None,
+            memo_seed=None,
+        ),
+    )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
         lambda project_overlay: source_agent_def_dir,

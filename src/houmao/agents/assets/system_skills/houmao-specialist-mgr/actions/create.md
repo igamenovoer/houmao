@@ -155,6 +155,7 @@ Common optional inputs:
 - `--prompt-overlay-mode append|replace`
 - `--prompt-overlay-text`
 - `--prompt-overlay-file`
+- `--gateway-mail-notifier-appendix-text`
 - `--memo-seed-text`
 - `--memo-seed-file`
 - `--memo-seed-dir`
@@ -175,6 +176,7 @@ Common clear inputs for `profile set`:
 - `--clear-managed-header-section SECTION`
 - `--clear-managed-header-sections`
 - `--clear-prompt-overlay`
+- `--clear-gateway-mail-notifier-appendix`
 - `--clear-memo-seed`
 
 Profile authoring rules:
@@ -184,6 +186,8 @@ Profile authoring rules:
 - use `project agents launch-profiles set` only for explicit recipe-backed launch profiles, not easy profiles
 - do not mix `--prompt-overlay-text` and `--prompt-overlay-file`
 - prompt-overlay text requires `--prompt-overlay-mode append|replace`
+- `--gateway-mail-notifier-appendix-text` stores a future runtime mail-notifier appendix default; it does not enable notifier polling by itself
+- `--clear-gateway-mail-notifier-appendix` removes the stored profile-owned notifier appendix default on `profile set`
 - do not mix `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`; use at most one source
 - memo seeds replace only components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present
 - supplying a new memo-seed source on `profile set` replaces the stored seed

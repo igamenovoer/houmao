@@ -638,6 +638,7 @@ class _AppServiceDouble:
             enabled=True,
             interval_seconds=request_model.interval_seconds,
             mode=request_model.mode,
+            appendix_text=request_model.appendix_text,
             supported=True,
             support_error=None,
             last_poll_at_utc=None,
@@ -1485,10 +1486,15 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert notifier_status.mode == "any_inbox"
     notifier_enabled = gateway_notifier_put_route.endpoint(
         agent_ref="claude-headless-1",
-        request_model=GatewayMailNotifierPutV1(interval_seconds=60, mode="unread_only"),
+        request_model=GatewayMailNotifierPutV1(
+            interval_seconds=60,
+            mode="unread_only",
+            appendix_text="Handle release-blocking mail first.",
+        ),
     )
     assert notifier_enabled.enabled is True
     assert notifier_enabled.mode == "unread_only"
+    assert notifier_enabled.appendix_text == "Handle release-blocking mail first."
     assert gateway_notifier_delete_route.endpoint(agent_ref="claude-headless-1").enabled is False
     assert (
         gateway_reminders_list_route.endpoint(agent_ref="claude-headless-1").effective_reminder_id

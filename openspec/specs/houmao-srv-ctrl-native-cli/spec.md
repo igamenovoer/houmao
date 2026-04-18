@@ -752,6 +752,42 @@ The command SHALL fail explicitly when the target is not tmux-backed, lacks vali
 - **THEN** the command fails explicitly
 - **AND THEN** it does not pretend that build-time launch or a raw CAO path is a supported replacement
 
+### Requirement: `houmao-mgr agents relaunch` exposes relaunch chat-session selection
+`houmao-mgr agents relaunch` SHALL expose optional relaunch chat-session selection for tmux-backed managed agents.
+
+The command SHALL accept a relaunch chat-session mode with values `new`, `tool_last_or_new`, and `exact`.
+
+The command SHALL accept a provider-native chat-session id only when the mode is `exact`.
+
+When relaunch chat-session mode is omitted, the command SHALL default to `new`.
+
+The command SHALL preserve both existing target forms:
+
+- explicit targeting by `--agent-id` or `--agent-name`,
+- current-session targeting when invoked from inside the owning managed tmux session.
+
+The command SHALL fail clearly when a selector is invalid, the target is not relaunchable, or the selected provider/backend does not support the requested relaunch chat-session mode.
+
+#### Scenario: Current-session relaunch continues latest provider chat
+- **WHEN** an operator runs `houmao-mgr agents relaunch --chat-session-mode tool_last_or_new` from inside a supported tmux-backed managed session
+- **THEN** the command resolves the current session through tmux-local manifest discovery
+- **AND THEN** it passes the latest-chat relaunch selector into the runtime relaunch primitive
+
+#### Scenario: Explicit relaunch resumes exact provider chat
+- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-name reviewer --chat-session-mode exact --chat-session-id abc123`
+- **THEN** the command resolves managed agent `reviewer`
+- **AND THEN** it passes exact provider session id `abc123` into the runtime relaunch primitive
+
+#### Scenario: Exact relaunch requires an id
+- **WHEN** an operator runs `houmao-mgr agents relaunch --chat-session-mode exact` without `--chat-session-id`
+- **THEN** the command fails validation before relaunching the managed session
+- **AND THEN** it does not silently fall back to latest-chat or fresh-chat relaunch
+
+#### Scenario: Fresh relaunch remains the default
+- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-id abc123` without relaunch chat-session flags
+- **THEN** the command uses relaunch chat-session mode `new`
+- **AND THEN** existing relaunch scripts keep their prior behavior
+
 ### Requirement: Managed-agent-targeting native CLI commands use explicit identity selectors
 
 `houmao-mgr agents` commands that target one managed agent SHALL accept explicit identity selectors instead of relying on one positional managed-agent reference.
@@ -1223,7 +1259,15 @@ When the operator omits the notifier mode, the command SHALL send the gateway no
 
 When the operator supplies `unread_only`, the command SHALL send the gateway notifier enable request with mode `unread_only`.
 
-The command output for notifier status and enable results SHALL preserve the `mode` field returned by the gateway.
+`houmao-mgr agents gateway mail-notifier enable` SHALL also accept an optional `--appendix-text` argument that updates notifier `appendix_text`.
+
+When the operator omits `--appendix-text`, the CLI SHALL send the notifier enable request without an appendix field so the gateway can preserve the stored appendix unchanged.
+
+When the operator supplies non-empty `--appendix-text`, the CLI SHALL send that exact string as notifier `appendix_text`.
+
+When the operator supplies `--appendix-text ""`, the CLI SHALL send `appendix_text=""` so the gateway clears the stored appendix.
+
+The command output for notifier status and enable results SHALL preserve both the `mode` field and the effective `appendix_text` returned by the gateway.
 
 #### Scenario: CLI enable defaults to any-inbox mode
 - **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60` without a mode option
@@ -1239,4 +1283,19 @@ The command output for notifier status and enable results SHALL preserve the `mo
 - **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --interval-seconds 60 --mode read`
 - **THEN** the CLI rejects the invocation as invalid input
 - **AND THEN** it does not send a notifier enable request with an unknown mode value
+
+#### Scenario: CLI omits appendix field when not provided
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60` without `--appendix-text`
+- **THEN** the CLI sends the notifier enable request without an appendix field
+- **AND THEN** the gateway can preserve previously stored appendix text unchanged
+
+#### Scenario: CLI forwards non-empty appendix text
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60 --appendix-text "Watch for high-priority mailbox work first."`
+- **THEN** the CLI sends that exact string as notifier `appendix_text`
+- **AND THEN** the emitted result includes the gateway-reported effective appendix text
+
+#### Scenario: CLI forwards empty appendix text to clear appendix
+- **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60 --appendix-text ""`
+- **THEN** the CLI sends `appendix_text=""` to the gateway
+- **AND THEN** it does not reinterpret the empty string as omitted input
 

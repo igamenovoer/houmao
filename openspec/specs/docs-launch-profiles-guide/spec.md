@@ -15,6 +15,9 @@ The page SHALL explain:
 - the shared catalog-backed model that backs both lanes,
 - the five-layer effective-launch precedence order,
 - prompt overlay modes (`append` and `replace`) and where overlay composition happens relative to backend-specific role injection,
+- that launch profiles may store a gateway mail-notifier appendix default as birth-time launch configuration,
+- that explicit `project agents launch-profiles ...` and easy `project easy profile ...` authoring lanes both support that stored notifier appendix default,
+- that launch-time materialization seeds that stored appendix into runtime gateway notifier state for the launched session,
 - how launch-profile provenance flows into runtime metadata and is reported by inspection commands,
 - when to use which lane.
 
@@ -42,6 +45,12 @@ The page SHALL NOT introduce CLI shapes, env vars, or precedence behavior that a
 - **THEN** they find that the easy lane uses `project easy profile ...` and is specialist-backed
 - **AND THEN** they find that the explicit lane uses `project agents launch-profiles ...` and is recipe-backed
 - **AND THEN** they find that both lanes write into one shared catalog-backed launch-profile object family
+
+#### Scenario: Reader understands notifier appendix defaults as launch-owned config
+
+- **WHEN** a reader studies the launch-profiles guide for gateway-related launch defaults
+- **THEN** the page explains that launch profiles may store a gateway mail-notifier appendix default
+- **AND THEN** it explains that launch-time materialization seeds that appendix into runtime gateway notifier state rather than enabling notifier polling by itself
 
 ### Requirement: Launch-profiles guide documents the precedence chain
 

@@ -77,7 +77,8 @@ Behavior note:
 
 - `--launch-profile` and `--agents` are mutually exclusive.
 - The stored launch profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
-- Stored launch-profile defaults may already include gateway posture, prompt overlay, durable env records, and declared mailbox configuration.
+- Stored launch-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
+- Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
 - Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
 - `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
 - Direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored launch profile.

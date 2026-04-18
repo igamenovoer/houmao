@@ -128,6 +128,11 @@ def get_project_launch_profile_command(name: str) -> None:
     default=None,
     help="Path to a prompt-overlay text file.",
 )
+@click.option(
+    "--gateway-mail-notifier-appendix-text",
+    default=None,
+    help="Default runtime guidance appended to mail-notifier prompts for launches from this profile.",
+)
 @click.option("--memo-seed-text", default=None, help="Inline launch-profile memo seed text.")
 @click.option(
     "--memo-seed-file",
@@ -168,6 +173,7 @@ def add_project_launch_profile_command(
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
+    gateway_mail_notifier_appendix_text: str | None,
     memo_seed_text: str | None,
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
@@ -221,6 +227,8 @@ def add_project_launch_profile_command(
         memo_seed_file=memo_seed_file,
         memo_seed_dir=memo_seed_dir,
         clear_memo_seed=False,
+        gateway_mail_notifier_appendix_text=gateway_mail_notifier_appendix_text,
+        clear_gateway_mail_notifier_appendix=False,
         clear_mailbox=False,
         clear_env=False,
         clear_agent_name=False,
@@ -347,6 +355,16 @@ def add_project_launch_profile_command(
     help="Path to a prompt-overlay text file.",
 )
 @click.option("--clear-prompt-overlay", is_flag=True, help="Clear the stored prompt overlay.")
+@click.option(
+    "--gateway-mail-notifier-appendix-text",
+    default=None,
+    help="Default runtime guidance appended to mail-notifier prompts for launches from this profile.",
+)
+@click.option(
+    "--clear-gateway-mail-notifier-appendix",
+    is_flag=True,
+    help="Clear the stored mail-notifier appendix default.",
+)
 @click.option("--memo-seed-text", default=None, help="Inline launch-profile memo seed text.")
 @click.option(
     "--memo-seed-file",
@@ -400,6 +418,8 @@ def set_project_launch_profile_command(
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
     clear_prompt_overlay: bool,
+    gateway_mail_notifier_appendix_text: str | None,
+    clear_gateway_mail_notifier_appendix: bool,
     memo_seed_text: str | None,
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
@@ -452,6 +472,8 @@ def set_project_launch_profile_command(
         memo_seed_file=memo_seed_file,
         memo_seed_dir=memo_seed_dir,
         clear_memo_seed=clear_memo_seed,
+        gateway_mail_notifier_appendix_text=gateway_mail_notifier_appendix_text,
+        clear_gateway_mail_notifier_appendix=clear_gateway_mail_notifier_appendix,
         clear_mailbox=clear_mailbox,
         clear_env=clear_env,
         clear_agent_name=clear_agent_name,

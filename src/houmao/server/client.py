@@ -706,7 +706,7 @@ class HoumaoServerClient(CaoRestClient):
             "PUT",
             f"/houmao/agents/{escaped}/gateway/mail-notifier",
             GatewayMailNotifierStatusV1,
-            json_body=request_model.model_dump(mode="json"),
+            json_body=request_model.model_dump(mode="json", exclude_unset=True),
         )
 
     def delete_managed_agent_gateway_mail_notifier(

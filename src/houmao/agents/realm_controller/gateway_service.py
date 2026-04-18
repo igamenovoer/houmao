@@ -128,6 +128,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayNotifierAuditOutcome,
     GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
     append_gateway_notifier_audit_record,
@@ -178,7 +179,8 @@ _QUEUE_POLL_INTERVAL_SECONDS = 0.2
 _REMINDER_BUSY_RETRY_INTERVAL_SECONDS = 0.2
 _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
-_TUI_RESET_PROMPT = "/clear"
+_DEFAULT_TUI_RESET_PROMPT = "/clear"
+_CODEX_TUI_RESET_PROMPT = "/new"
 _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
@@ -299,42 +301,29 @@ def _optional_env_string(variable_name: str) -> str | None:
     return stripped or None
 
 
-def _render_mail_notifier_full_endpoint_urls(base_url: str) -> str:
-    """Return one markdown block with full current mailbox endpoint URLs."""
+def _render_mail_notifier_mailbox_api_summary(_base_url: str) -> str:
+    """Return one compact mailbox endpoint summary for notifier prompts."""
 
-    return "\n".join(
-        [
-            f"- `GET {base_url}/v1/mail/status`",
-            f"- `POST {base_url}/v1/mail/list`",
-            f"- `POST {base_url}/v1/mail/peek`",
-            f"- `POST {base_url}/v1/mail/read`",
-            f"- `POST {base_url}/v1/mail/send`",
-            f"- `POST {base_url}/v1/mail/post`",
-            f"- `POST {base_url}/v1/mail/reply`",
-            f"- `POST {base_url}/v1/mail/mark`",
-            f"- `POST {base_url}/v1/mail/move`",
-            f"- `POST {base_url}/v1/mail/archive`",
-        ]
+    return (
+        "Mailbox API: `GET /v1/mail/status`; "
+        "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
     )
 
 
 def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
-    """Return mode-specific prompt guidance for a notifier round."""
+    """Return compact mode-specific prompt guidance for a notifier round."""
 
     if mode == "unread_only":
-        return "\n".join(
-            [
-                "This `unread_only` notification was triggered by unread, unarchived inbox mail.",
-                "Start by listing unread inbox mail for this round. Read or answered inbox mail "
-                "that remains unarchived will not trigger another notification by itself in this mode.",
-            ]
-        )
-    return "\n".join(
-        [
-            "This `any_inbox` notification was triggered by unarchived inbox mail.",
-            "List open inbox mail for this round, including mail that may already be read or answered.",
-        ]
-    )
+        return "unread unarchived inbox mail"
+    return "open unarchived inbox mail"
+
+
+def _render_mail_notifier_appendix_block(appendix_text: str) -> str:
+    """Return the optional runtime appendix block for notifier prompts."""
+
+    if not appendix_text:
+        return ""
+    return f"\n\nAdditional runtime guidance:\n{appendix_text}"
 
 
 def _load_mail_notifier_template() -> str:
@@ -2023,16 +2012,23 @@ class GatewayServiceRuntime:
     def _dispatch_tui_new_prompt_workflow(self, *, prompt: str) -> None:
         """Clear the current TUI conversation, wait for readiness, then send the prompt."""
 
+        tracking = self._dispatch_tui_context_reset_only()
+        self.m_adapter.submit_prompt(prompt=prompt)
+        tracking.note_prompt_submission(message=prompt)
+
+    def _dispatch_tui_context_reset_only(self) -> SingleSessionTrackingRuntime:
+        """Submit only the tool-appropriate TUI context-reset signal and wait."""
+
         tracking = self.m_tui_tracking
         if tracking is None:
             raise GatewayError(
                 "Gateway TUI tracking is unavailable for reset-based prompt control."
             )
-        self.m_adapter.submit_prompt(prompt=_TUI_RESET_PROMPT)
-        tracking.note_prompt_submission(message=_TUI_RESET_PROMPT)
+        reset_prompt = self._tui_reset_prompt()
+        self.m_adapter.submit_prompt(prompt=reset_prompt)
+        tracking.note_prompt_submission(message=reset_prompt)
         self._wait_for_tui_ready_after_reset(tracking=tracking)
-        self.m_adapter.submit_prompt(prompt=prompt)
-        tracking.note_prompt_submission(message=prompt)
+        return tracking
 
     def _wait_for_tui_ready_after_reset(
         self,
@@ -2047,7 +2043,7 @@ class GatewayServiceRuntime:
         while time.monotonic() < deadline:
             tracking.refresh_once()
             with self.m_lock:
-                reasons = self._tui_prompt_not_ready_reasons_locked()
+                reasons = self._tui_reset_completion_blockers_locked()
             if not reasons:
                 return
             time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
@@ -2055,6 +2051,33 @@ class GatewayServiceRuntime:
             "TUI reset prompt was submitted, but the surface did not stabilize back to "
             "prompt-ready posture in time."
         )
+
+    def _tui_reset_completion_blockers_locked(self) -> list[str]:
+        """Return blockers that prevent post-reset semantic prompt delivery."""
+
+        return self._tui_prompt_not_ready_reasons_locked()
+
+    def _tui_reset_prompt(self) -> str:
+        """Return the tool-appropriate TUI semantic context-reset prompt."""
+
+        tool = self._tui_tool_name()
+        if tool == "codex":
+            return _CODEX_TUI_RESET_PROMPT
+        return _DEFAULT_TUI_RESET_PROMPT
+
+    def _tui_tool_name(self) -> str | None:
+        """Return the best known TUI tool name for reset-signal selection."""
+
+        tracking = self.m_tui_tracking
+        if tracking is not None:
+            identity = getattr(tracking, "identity", None) or getattr(tracking, "m_identity", None)
+            tool = getattr(identity, "tool", None)
+            if isinstance(tool, str) and tool:
+                return tool
+        metadata = self.m_attach_contract.backend_metadata
+        if isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1):
+            return metadata.tool
+        return None
 
     def _resolve_headless_prompt_selection_locked(
         self,
@@ -2737,14 +2760,25 @@ class GatewayServiceRuntime:
                 self._require_live_notifier_mailbox_config_locked()
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-            record = write_gateway_mail_notifier_record(
-                self.m_paths.queue_path,
-                enabled=True,
-                interval_seconds=request_payload.interval_seconds,
-                mode=request_payload.mode,
-                last_notified_digest=None,
-                last_error=None,
-            )
+            if "appendix_text" in request_payload.model_fields_set:
+                record = write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    enabled=True,
+                    interval_seconds=request_payload.interval_seconds,
+                    mode=request_payload.mode,
+                    appendix_text=request_payload.appendix_text,
+                    last_notified_digest=None,
+                    last_error=None,
+                )
+            else:
+                record = write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    enabled=True,
+                    interval_seconds=request_payload.interval_seconds,
+                    mode=request_payload.mode,
+                    last_notified_digest=None,
+                    last_error=None,
+                )
             self._log(
                 "mail notifier enabled "
                 f"interval_seconds={request_payload.interval_seconds} mode={request_payload.mode}"
@@ -2864,60 +2898,34 @@ class GatewayServiceRuntime:
         if not processing_path.is_file():
             return "\n".join(
                 [
-                    "Houmao mailbox skills are not installed for this session.",
-                    "List open inbox mail through the shared gateway mailbox API and use the endpoint URLs below directly for this turn.",
+                    "Houmao mailbox skills are not installed.",
+                    "Use the mailbox API below directly for this round.",
                 ]
             )
 
-        lines = [
-            (
-                "Use the installed Houmao email-processing skill "
-                f"`{mailbox_processing_skill_name()}` for this round."
-            ),
-        ]
+        lines: list[str] = []
         if tool == "claude":
             lines.extend(
                 [
                     f"/{mailbox_processing_skill_name()}",
-                    "In Claude Code the standalone slash-skill line above invokes the installed "
-                    "Houmao skill for this gateway-notified round.",
                 ]
             )
         elif tool == "codex":
             lines.extend(
                 [
                     f"${mailbox_processing_skill_name()} {gateway_base_url}",
-                    "In Codex this Houmao skill is installed natively. The standalone line "
-                    "above is the native skill trigger for this gateway-notified round.",
                 ]
             )
         elif tool == "gemini":
             lines.append(
-                "In Gemini this Houmao skill is installed natively. "
-                f"Invoke `{mailbox_processing_skill_name()}` by name for this round."
+                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )
         else:
             lines.append(
-                "Invoke the installed Houmao email-processing skill by name for this round."
+                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )
-        lines.append(
-            "Use the installed Houmao skills directly from the native tool skill surface. "
-            "Do not inspect the current project or runtime home for skill files."
-        )
         if gateway_path.is_file():
-            if tool != "codex":
-                lines.append(
-                    "Use the lower-level Houmao mailbox communication skill "
-                    f"`{mailbox_gateway_skill_name()}` by name when you need the exact "
-                    "`/v1/mail/*` operation contract or no-gateway transport guidance for this round."
-                )
-            else:
-                lines.append(
-                    "If you need the exact `/v1/mail/*` operation contract or no-gateway "
-                    "transport guidance for this round, use the lower-level Houmao mailbox "
-                    "communication skill "
-                    f"`{mailbox_gateway_skill_name()}` after the round skill expands."
-                )
+            lines.append(f"Details: `{mailbox_gateway_skill_name()}`.")
         return "\n".join(lines)
 
     def _mailbox_adapter_locked(self) -> GatewayMailboxAdapter:
@@ -3089,7 +3097,10 @@ class GatewayServiceRuntime:
                 self._log(block_detail)
                 return
 
-            prompt = self._build_mail_notifier_prompt(mode=record.mode)
+            prompt = self._build_mail_notifier_prompt(
+                mode=record.mode,
+                appendix_text=record.appendix_text,
+            )
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
                 self.m_paths.queue_path,
@@ -3118,7 +3129,12 @@ class GatewayServiceRuntime:
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
 
-    def _build_mail_notifier_prompt(self, *, mode: GatewayMailNotifierMode) -> str:
+    def _build_mail_notifier_prompt(
+        self,
+        *,
+        mode: GatewayMailNotifierMode,
+        appendix_text: str,
+    ) -> str:
         """Build the reminder prompt submitted through the internal notifier path."""
 
         mailbox = self._load_mailbox_config()
@@ -3130,7 +3146,8 @@ class GatewayServiceRuntime:
             "{{NOTIFIER_MODE}}": mode,
             "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
-            "{{FULL_ENDPOINT_URLS_BLOCK}}": _render_mail_notifier_full_endpoint_urls(base_url),
+            "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(base_url),
+            "{{APPENDIX_BLOCK}}": _render_mail_notifier_appendix_block(appendix_text),
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)
@@ -3184,7 +3201,7 @@ class GatewayServiceRuntime:
         unread_messages: list[_UnreadMailboxMessage],
         unread_count: int | None,
         unread_digest: str | None,
-        outcome: Literal["empty", "dedup_skip", "busy_skip", "enqueued", "poll_error"],
+        outcome: GatewayNotifierAuditOutcome,
         enqueued_request_id: str | None = None,
         detail: str | None = None,
     ) -> None:

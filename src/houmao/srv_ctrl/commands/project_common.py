@@ -1082,6 +1082,8 @@ def _store_launch_profile_from_cli(
     memo_seed_file: Path | None,
     memo_seed_dir: Path | None,
     clear_memo_seed: bool,
+    gateway_mail_notifier_appendix_text: str | None,
+    clear_gateway_mail_notifier_appendix: bool,
     clear_mailbox: bool,
     clear_env: bool,
     clear_agent_name: bool,
@@ -1151,6 +1153,11 @@ def _store_launch_profile_from_cli(
             prompt_overlay_file=prompt_overlay_file,
         )
     )
+    if gateway_mail_notifier_appendix_text is not None and clear_gateway_mail_notifier_appendix:
+        raise click.ClickException(
+            "`--gateway-mail-notifier-appendix-text` cannot be combined with "
+            "`--clear-gateway-mail-notifier-appendix`."
+        )
     (
         requested_memo_seed_source_kind,
         requested_memo_seed_text,
@@ -1210,6 +1217,11 @@ def _store_launch_profile_from_cli(
             clear_all_sections=clear_managed_header_sections,
         )
         resolved_prompt_overlay_mode, resolved_prompt_overlay_text = prompt_overlay
+        if clear_gateway_mail_notifier_appendix:
+            raise click.ClickException(
+                "`--clear-gateway-mail-notifier-appendix` requires an existing launch profile."
+            )
+        resolved_gateway_mail_notifier_appendix_text = gateway_mail_notifier_appendix_text
         if clear_memo_seed:
             raise click.ClickException("`--clear-memo-seed` requires an existing memo seed.")
         if requested_memo_seed_source_kind is None:
@@ -1322,6 +1334,14 @@ def _store_launch_profile_from_cli(
         else:
             resolved_prompt_overlay_mode = current.entry.prompt_overlay_mode
             resolved_prompt_overlay_text = current.prompt_overlay_text
+        if clear_gateway_mail_notifier_appendix:
+            resolved_gateway_mail_notifier_appendix_text = None
+        elif gateway_mail_notifier_appendix_text is not None:
+            resolved_gateway_mail_notifier_appendix_text = gateway_mail_notifier_appendix_text
+        else:
+            resolved_gateway_mail_notifier_appendix_text = (
+                current.gateway_mail_notifier_appendix_text
+            )
         if clear_memo_seed:
             if current.memo_seed is None:
                 raise click.ClickException(
@@ -1381,6 +1401,8 @@ def _store_launch_profile_from_cli(
             memo_seed_file is not None,
             memo_seed_dir is not None,
             clear_memo_seed,
+            gateway_mail_notifier_appendix_text is not None,
+            clear_gateway_mail_notifier_appendix,
         )
     )
     if not mutation_requested:
@@ -1410,6 +1432,7 @@ def _store_launch_profile_from_cli(
         managed_header_section_policy=resolved_managed_header_section_policy,
         prompt_overlay_mode=resolved_prompt_overlay_mode,
         prompt_overlay_text=resolved_prompt_overlay_text,
+        gateway_mail_notifier_appendix_text=resolved_gateway_mail_notifier_appendix_text,
         memo_seed_source_kind=resolved_memo_seed_source_kind,
         memo_seed_text=resolved_memo_seed_text,
         memo_seed_source_path=resolved_memo_seed_source_path,
@@ -1434,6 +1457,9 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
         "prompt_overlay": {
             "mode": resolved.entry.prompt_overlay_mode,
             "present": resolved.prompt_overlay_text is not None,
+        },
+        "gateway_mail_notifier_appendix": {
+            "present": resolved.gateway_mail_notifier_appendix_text is not None,
         },
         "memo_seed": (
             {

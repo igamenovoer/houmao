@@ -49,16 +49,25 @@ At minimum, the shared model SHALL support:
 - declarative mailbox configuration
 - launch posture such as headless or gateway defaults
 - prompt overlay
+- optional gateway mail-notifier appendix default
 
 Prompt overlay SHALL support at minimum:
 - `append`, which appends profile-owned prompt text after the source role prompt
 - `replace`, which replaces the source role prompt with profile-owned prompt text
 
+The gateway mail-notifier appendix default SHALL be treated as reusable birth-time launch configuration. It SHALL NOT by itself enable the notifier, set notifier mode, or set notifier interval.
+
 #### Scenario: Launch-profile inspection reports stored birth-time defaults
-- **WHEN** profile `alice` stores default agent name, workdir, auth override, model override `gpt-5.4-mini`, reasoning level `4`, mailbox config, and gateway posture
+- **WHEN** profile `alice` stores default agent name, workdir, auth override, model override `gpt-5.4-mini`, reasoning level `4`, mailbox config, gateway posture, and gateway mail-notifier appendix default
 - **AND WHEN** an operator inspects that profile
 - **THEN** the inspection output reports those stored launch defaults as profile-owned configuration
 - **AND THEN** the output does not expose secret credential values inline
+
+#### Scenario: Launch-profile stores notifier appendix without forcing notifier enablement
+- **WHEN** profile `alice` stores gateway mail-notifier appendix default `Watch billing-related inbox items first.`
+- **AND WHEN** an operator inspects that profile
+- **THEN** the profile reports that stored appendix default
+- **AND THEN** the stored profile does not imply that gateway mail-notifier polling is already enabled for future launches
 
 ### Requirement: Launch-profile resolution applies explicit precedence
 The system SHALL resolve effective launch inputs with this precedence order:
@@ -203,4 +212,40 @@ Patch mutation SHALL preserve an existing memo seed when no memo seed field is s
 - **AND WHEN** an operator attempts to replace `alice` through the explicit launch-profile lane
 - **THEN** the replacement fails because the profile lane does not match
 - **AND THEN** the easy profile and its memo seed relationship remain unchanged
+
+### Requirement: Launch profiles may store relaunch chat-session policy
+The shared launch-profile object family SHALL support an optional relaunch-only chat-session policy for future live managed-agent instances created from that profile.
+
+The relaunch chat-session policy SHALL live under a relaunch-specific namespace and SHALL NOT affect first launch.
+
+The policy SHALL support modes `new`, `tool_last_or_new`, and `exact`.
+
+When the stored policy mode is `exact`, the profile SHALL store a non-empty provider-native session id.
+
+When no relaunch chat-session policy is stored, instances launched from the profile SHALL use the system default relaunch chat-session mode `new`.
+
+Profile inspection SHALL report the stored relaunch chat-session policy when present without exposing any credential material.
+
+Patch mutation SHALL preserve an existing relaunch chat-session policy when no relaunch chat-session field is supplied. Replacement mutation SHALL clear an existing relaunch chat-session policy unless the replacement request supplies one.
+
+#### Scenario: Profile stores latest-chat relaunch policy without changing first launch
+- **WHEN** an operator creates launch profile `reviewer` with relaunch chat-session mode `tool_last_or_new`
+- **AND WHEN** the operator launches a managed agent from `reviewer`
+- **THEN** the first launch starts normally rather than resuming provider history
+- **AND THEN** later relaunch of that managed agent uses the stored latest-chat relaunch policy unless a stronger relaunch command override is supplied
+
+#### Scenario: Profile stores exact relaunch policy
+- **WHEN** an operator creates launch profile `reviewer` with relaunch chat-session mode `exact` and provider session id `abc123`
+- **THEN** the stored profile records the exact relaunch chat-session policy
+- **AND THEN** inspection reports that exact provider session id as non-secret relaunch configuration
+
+#### Scenario: Replacement clears omitted relaunch chat-session policy
+- **WHEN** launch profile `reviewer` stores relaunch chat-session mode `tool_last_or_new`
+- **AND WHEN** an operator replaces `reviewer` without supplying a relaunch chat-session policy
+- **THEN** the replacement profile no longer records the prior relaunch chat-session policy
+
+#### Scenario: Patch preserves omitted relaunch chat-session policy
+- **WHEN** launch profile `reviewer` stores relaunch chat-session mode `tool_last_or_new`
+- **AND WHEN** an operator patches only the profile workdir
+- **THEN** the stored relaunch chat-session policy remains associated with the profile
 

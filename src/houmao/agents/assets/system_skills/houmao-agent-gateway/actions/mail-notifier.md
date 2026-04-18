@@ -9,10 +9,10 @@ Use this action when the live gateway should poll the attached agent's mailbox a
 3. If the task still lacks a required target or interval, ask the user in Markdown before proceeding.
 4. Run `agents gateway status` first when current context does not already confirm that a live gateway is attached.
 5. Use `status` to inspect whether notifier polling is enabled and whether the current mailbox binding supports it.
-6. Use `enable --interval-seconds <n>` to start or reconfigure polling. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail; use `--mode unread_only` only when the caller explicitly wants lower-noise unread-only wakeups.
+6. Use `enable --interval-seconds <n>` to start or reconfigure polling. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail; use `--mode unread_only` only when the caller explicitly wants lower-noise unread-only wakeups. Add `--appendix-text <text>` only when the caller wants runtime-specific guidance appended to notifier prompts; omit it to preserve the current appendix, and pass an empty string to clear it.
 7. Use `disable` to stop notifier polling.
 8. When the caller is already operating through the pair-managed HTTP API, use `/houmao/agents/{agent_ref}/gateway/mail-notifier` instead of direct gateway `/v1/mail-notifier`.
-9. Report whether the notifier is enabled now, the current interval, mode, and any support or last-error fields that matter.
+9. Report whether the notifier is enabled now, the current interval, mode, appendix text, and any support or last-error fields that matter.
 
 ## Command Shapes
 
@@ -22,6 +22,7 @@ CLI notifier control:
 <chosen houmao-mgr launcher> agents gateway mail-notifier status --agent-name <name>
 <chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60
 <chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --mode unread_only
+<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --appendix-text "Prioritize billing notices first."
 <chosen houmao-mgr launcher> agents gateway mail-notifier disable --agent-name <name>
 ```
 
@@ -29,6 +30,14 @@ Mode values:
 
 - `any_inbox`: default. Notify while any inbox mail remains unarchived, regardless of read or answered state.
 - `unread_only`: notify only while unread inbox mail remains unarchived. Read-but-unarchived work will not trigger another notifier prompt by itself in this mode.
+
+Appendix behavior:
+
+- `appendix_text` is queryable in notifier status and appended to rendered notifier prompts only when non-empty.
+- Omitted `appendix_text` on `PUT` preserves the stored runtime appendix.
+- Non-empty `appendix_text` replaces the stored runtime appendix.
+- Empty `appendix_text` clears the stored runtime appendix.
+- `DELETE` disables polling but does not clear the stored appendix.
 
 Pair-managed notifier routes:
 

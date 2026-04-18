@@ -926,11 +926,21 @@ class TestGatewayMailNotifierEndpoint:
         ):
             resp = client.put(
                 "/houmao/agents/abc123/gateway/mail-notifier",
-                json={"schema_version": 1, "interval_seconds": 60, "mode": "unread_only"},
+                json={
+                    "schema_version": 1,
+                    "interval_seconds": 60,
+                    "mode": "unread_only",
+                    "appendix_text": "Handle release-blocking mail first.",
+                },
             )
         assert resp.status_code == 200
         assert resp.json()["mode"] == "unread_only"
         assert put_mail_notifier.call_args.args[0].mode == "unread_only"
+        assert (
+            put_mail_notifier.call_args.args[0].appendix_text
+            == "Handle release-blocking mail first."
+        )
+        assert "appendix_text" in put_mail_notifier.call_args.args[0].model_fields_set
 
     def test_enable_rejects_invalid_mode(self, tmp_path: object) -> None:
         agent = _agent_with_gateway()
