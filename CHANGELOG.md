@@ -4,6 +4,19 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.3] - 2026-04-19
+
+### Added
+
+- **Permanent tmux-backed registry leases**: live agent registry entries for tmux-backed managed agents now use a 100-year TTL instead of a short expiry window. `houmao-mgr agents list` will no longer drop still-running tmux sessions from the registry (fixes #20).
+- **LLM Wiki search skill**: new `houmao-utils-llm-wiki` search sub-skill lets managed agents query wiki content directly.
+- **Relaunch chat continuation**: agents can now resume the previous chat session on relaunch via the new `relaunch_chat_session` launch-profile setting; supported modes are `new`, `tool_last_or_new`, and `exact`.
+
+### Fixed
+
+- **Codex TUI readiness stuck in `unknown` after compact error**: three-part fix — Codex context stays promptable after a degraded/compact error state, prompt-edge errors no longer falsely report success, and the Codex TUI error readiness detector is now hardened with improved signal profiles. The mail notifier will correctly resume delivery after the agent returns to an interactive prompt (fixes #19).
+- **Mailbox SQLite attach limit**: the filesystem mailbox transport no longer exhausts the SQLite `ATTACH` limit when many agents share a single process.
+
 ## [0.7.2] - 2026-04-19
 
 ### Added
