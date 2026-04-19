@@ -609,6 +609,12 @@ class LiveSessionTracker:
                 observed_at_utc=observed_at_utc,
             )
             turn = HoumaoTrackedTurn(phase=tracker_state.turn_phase)
+            operator_state = _align_operator_state_with_tracker_state(
+                operator_state=operator_state,
+                tracker_state=tracker_state,
+                diagnostics=diagnostics,
+                observed_at_utc=observed_at_utc,
+            )
             stale_active_candidate = _build_stale_active_recovery_candidate(
                 parsed_surface=parsed_surface,
                 diagnostics=diagnostics,
@@ -1680,6 +1686,64 @@ def _build_tracker_last_turn(
     )
 
 
+def _align_operator_state_with_tracker_state(
+    *,
+    operator_state: HoumaoOperatorState,
+    tracker_state: TrackedStateSnapshot,
+    diagnostics: HoumaoTrackedDiagnostics,
+    observed_at_utc: str,
+) -> HoumaoOperatorState:
+    """Return operator state corrected by authoritative tracker terminal facts."""
+
+    if diagnostics.availability != "available":
+        return operator_state
+    if tracker_state.turn_phase == "active":
+        return operator_state.model_copy(
+            update={
+                "status": "processing",
+                "readiness_state": "waiting",
+                "completion_state": "in_progress",
+                "detail": "Tracker-owned TUI signals indicate the current turn is still active.",
+                "projection_changed": False,
+                "updated_at_utc": observed_at_utc,
+            }
+        )
+    if tracker_state.last_turn_result == "known_failure":
+        readiness_state: ReadinessState = (
+            "ready" if tracker_state.surface_ready_posture == "yes" else "failed"
+        )
+        status: OperatorStatus = (
+            "ready" if tracker_state.surface_ready_posture == "yes" else "error"
+        )
+        return operator_state.model_copy(
+            update={
+                "status": status,
+                "readiness_state": readiness_state,
+                "completion_state": "failed",
+                "detail": "Tracker recognized a terminal failure surface for the current turn.",
+                "projection_changed": False,
+                "updated_at_utc": observed_at_utc,
+            }
+        )
+    if "current_error_present" in tracker_state.notes:
+        readiness_state = "ready" if tracker_state.surface_ready_posture == "yes" else "unknown"
+        status = "ready" if tracker_state.surface_ready_posture == "yes" else "unknown"
+        return operator_state.model_copy(
+            update={
+                "status": status,
+                "readiness_state": readiness_state,
+                "completion_state": "inactive",
+                "detail": (
+                    "Tracker recognized a current terminal error surface and blocked "
+                    "success settlement."
+                ),
+                "projection_changed": False,
+                "updated_at_utc": observed_at_utc,
+            }
+        )
+    return operator_state
+
+
 def _terminal_alias(identity: HoumaoTrackedSessionIdentity) -> str:
     """Return the primary terminal compatibility alias for one identity."""
 
@@ -1852,6 +1916,8 @@ def _build_final_stable_active_recovery_candidate(
     if turn.phase != "active":
         return None
     active_reasons = tracker_state.active_reasons
+    if "stream_retry_status" in active_reasons:
+        return None
     signature_payload = json.dumps(
         {
             "raw_surface_signature": raw_surface_signature,

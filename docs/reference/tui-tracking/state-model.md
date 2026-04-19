@@ -43,7 +43,8 @@ stateDiagram-v2
 
 - `surface_accepting_input=yes` or a visible prompt does not by itself prove that a turn is over. The shared tracker can keep `turn_phase=active` if there is stronger current activity evidence.
 - Detector profiles may use two different scopes at once: a prompt-scoped latest-turn region for interruption and success context, and a live-edge tail for current activity cues such as status rows and in-flight tool cells.
-- Codex is the main example of this split. Current activity uses the live edge so stale scrollback rows do not keep the turn active forever, while temporal transcript growth can still keep the turn active when no spinner or running row is visible.
+- Codex is the main example of this split. Current activity uses the live edge so stale scrollback rows do not keep the turn active forever, while temporal transcript growth can still keep the turn active when no spinner or running row is visible. Retry, reconnect, stream-recovery, and connection-loss status near the live edge count as current active evidence while visible.
+- Prompt-ready terminal failures and input readiness are independent facts. A detector may preserve `surface_ready_posture=yes` when the composer is genuinely ready while still blocking success and, for recognized terminal failure families, publishing `last_turn_result=known_failure`.
 - Host adapters may correct an unanchored stale `active` posture after a stable submit-ready window. That correction publishes `ready` without manufacturing `last_turn_result=success`.
 
 ## Core Type Aliases
@@ -152,7 +153,7 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 | `last_turn_source` | `TrackedLastTurnSource` | How the last turn was initiated |
 | `detector_name` | `str` | Name of the detector that produced this snapshot |
 | `detector_version` | `str` | Version of the detector |
-| `active_reasons` | `tuple[str, ...]` | Human-readable reasons the surface is considered active, such as `status_row`, `tool_cell`, or `transcript_growth` |
+| `active_reasons` | `tuple[str, ...]` | Human-readable reasons the surface is considered active, such as `status_row`, `tool_cell`, `transcript_growth`, or `stream_retry_status` |
 | `notes` | `tuple[str, ...]` | Additional detector notes for diagnostics and profile behavior |
 | `stability_signature` | `str` | Hash-like signature of the observable surface state |
 | `stable` | `bool` | Whether the surface state has been stable (unchanged) long enough to trust |
@@ -189,6 +190,8 @@ Frozen dataclass representing the raw signals extracted by a detector from a sin
 | `notes` | `tuple[str, ...]` | Additional diagnostic notes |
 | `chat_context` | `ChatContextState` | Detector-owned chat-context posture for the current surface |
 
-For Codex specifically, current activity is no longer inferred from arbitrary full-scrollback rows. Status-row and tool-cell activity come from the live edge of the current visible surface, while interruption, success context, and temporal transcript growth continue to use prompt-local latest-turn reasoning.
+For Codex specifically, current activity is no longer inferred from arbitrary full-scrollback rows. Status-row, tool-cell, and retry/reconnect activity come from the live edge of the current visible surface, while interruption, success context, and temporal transcript growth continue to use prompt-local latest-turn reasoning.
 
-Prompt-adjacent Codex compact/server error cells set `current_error_present=true`, block success candidacy, and expose `chat_context=degraded` while preserving prompt-ready input posture when the composer is otherwise ready. Historical compact/server error text in long scrollback does not degrade the current chat context.
+Prompt-adjacent Codex terminal failures set `current_error_present=true` and block success candidacy while preserving prompt-ready input posture when the composer is otherwise ready. Recognized terminal failure families such as overload/high-load, context-window exhaustion, quota exhaustion, or invalid prompt can publish `known_failure`; the exact upstream sentence is not part of the stable contract.
+
+Prompt-adjacent Codex compact/server error cells expose `chat_context=degraded` when the bounded block carries compact/server degraded semantics. That state is recoverable context-health evidence, not mandatory reset evidence, and it remains distinct from `known_failure`. Historical compact/server error text in long scrollback does not degrade the current chat context.
