@@ -397,4 +397,3 @@ When a caller reads notifier status through `GET /houmao/agents/{agent_ref}/gate
 - **AND WHEN** a caller sends `GET /houmao/agents/abc123/gateway/mail-notifier`
 - **THEN** the response body reports `mode=any_inbox`
 - **AND THEN** the proxy does not synthesize or omit the mode field
-

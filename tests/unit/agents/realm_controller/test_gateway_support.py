@@ -4902,6 +4902,15 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
     assert move_response.json()["messages"][0]["box"] == "archive"
     assert move_response.json()["messages"][0]["archived"] is True
 
+    archive_list_response = client.post(
+        "/v1/mail/list",
+        json=GatewayMailListRequestV1(box="archive", limit=10).model_dump(mode="json"),
+    )
+    assert archive_list_response.status_code == 200
+    assert [
+        message["message_ref"] for message in archive_list_response.json()["messages"]
+    ] == [f"filesystem:{unread_message_id}"]
+
     operator_reply_response = client.post(
         "/v1/mail/reply",
         json=GatewayMailReplyRequestV1(

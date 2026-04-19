@@ -28,6 +28,7 @@ from houmao.mailbox.managed import (
     deliver_message,
     deregister_mailbox,
     export_mailbox_archive,
+    ensure_mailbox_local_state,
     register_mailbox,
     repair_mailbox_index,
     update_mailbox_state,
@@ -125,6 +126,15 @@ def _read_export_manifest(output_dir: Path) -> dict[str, object]:
     payload = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
+
+
+def _fanout_principal(index: int) -> MailboxPrincipal:
+    """Return one deterministic mailbox principal for account fanout tests."""
+
+    return MailboxPrincipal(
+        principal_id=f"HOUMAO-fanout-{index:02d}",
+        address=f"fanout-{index:02d}@agents.localhost",
+    )
 
 
 def _delivery_payload(tmp_path: Path) -> dict[str, object]:
@@ -975,6 +985,107 @@ def test_deliver_message_routes_by_address_and_state_updates_use_active_registra
     ) == (1, 1, 0, 0)
 
 
+def test_ensure_mailbox_local_state_initializes_more_than_ten_accounts(
+    tmp_path: Path,
+) -> None:
+    principals = [_fanout_principal(index) for index in range(11)]
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=principals[0])
+    for principal in principals[1:]:
+        bootstrap_filesystem_mailbox(paths.root, principal=principal)
+
+    registrations = [
+        load_active_mailbox_registration(paths.root, address=principal.address)
+        for principal in principals
+    ]
+    for registration in registrations:
+        registration.local_sqlite_path.unlink(missing_ok=True)
+
+    ensure_mailbox_local_state(paths.root)
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        active_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM mailbox_registrations WHERE status = 'active'"
+            ).fetchone()[0]
+        )
+    assert active_count > 10
+    for registration in registrations:
+        with sqlite3.connect(registration.local_sqlite_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM message_state").fetchone() == (0,)
+
+
+def test_deliver_message_updates_local_state_for_more_than_ten_affected_accounts(
+    tmp_path: Path,
+) -> None:
+    principals = [_fanout_principal(index) for index in range(11)]
+    sender = principals[0]
+    recipients = principals[1:]
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    for recipient in recipients:
+        bootstrap_filesystem_mailbox(paths.root, principal=recipient)
+
+    staged_message = paths.staging_dir / "fanout-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260419T010000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260419T010000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-04-19T01:00:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+                for recipient in recipients
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Fanout past attached database limit",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+
+    result = deliver_message(paths.root, request)
+
+    assert result["ok"] is True
+    assert result["recipient_count"] == len(recipients)
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=sender.address,
+        message_id=request.message_id,
+    ) == (1, 0, 0, 0)
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        projection_rows = connection.execute(
+            """
+            SELECT folder_name, COUNT(*)
+            FROM mailbox_projections
+            WHERE message_id = ?
+            GROUP BY folder_name
+            ORDER BY folder_name
+            """,
+            (request.message_id,),
+        ).fetchall()
+    assert projection_rows == [("inbox", len(recipients)), ("sent", 1)]
+    for recipient in recipients:
+        projection_path = (
+            paths.mailbox_entry_path(recipient.address) / "inbox" / f"{request.message_id}.md"
+        )
+        assert projection_path.is_symlink()
+        assert _mailbox_state_for_address(
+            paths.sqlite_path,
+            address=recipient.address,
+            message_id=request.message_id,
+        ) == (0, 0, 0, 0)
+
+
 def test_clear_mailbox_messages_removes_mail_content_and_preserves_registrations(
     tmp_path: Path,
 ) -> None:
@@ -1761,6 +1872,67 @@ def test_repair_mailbox_index_rebuilds_address_based_projections_and_state(tmp_p
         address=recipient.address,
         message_id=request.message_id,
     ) == (0, 0, 0, 0)
+
+
+def test_repair_mailbox_index_rebuilds_local_state_for_more_than_ten_accounts(
+    tmp_path: Path,
+) -> None:
+    principals = [_fanout_principal(index) for index in range(11)]
+    sender = principals[0]
+    recipients = principals[1:]
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=sender)
+    for recipient in recipients:
+        bootstrap_filesystem_mailbox(paths.root, principal=recipient)
+
+    staged_message = paths.staging_dir / "repair-fanout-message.md"
+    request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(staged_message),
+            "message_id": "msg-20260419T011000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260419T011000Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-04-19T01:10:00Z",
+            "sender": {
+                "principal_id": sender.principal_id,
+                "address": sender.address,
+            },
+            "to": [
+                {
+                    "principal_id": recipient.principal_id,
+                    "address": recipient.address,
+                }
+                for recipient in recipients
+            ],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Repair fanout past attached database limit",
+            "attachments": [],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(staged_message, request)
+    deliver_message(paths.root, request)
+    paths.sqlite_path.unlink()
+
+    result = repair_mailbox_index(paths.root, RepairRequest.from_payload({}))
+
+    assert result["ok"] is True
+    assert result["message_count"] == 1
+    assert result["projection_count"] == len(principals)
+    assert result["registration_count"] > 10
+    assert result["defaulted_state_count"] == len(principals)
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=sender.address,
+        message_id=request.message_id,
+    ) == (1, 0, 0, 0)
+    for recipient in recipients:
+        assert _mailbox_state_for_address(
+            paths.sqlite_path,
+            address=recipient.address,
+            message_id=request.message_id,
+        ) == (0, 0, 0, 0)
 
 
 def test_bootstrap_ignores_legacy_shared_mailbox_state_for_local_sqlite(tmp_path: Path) -> None:

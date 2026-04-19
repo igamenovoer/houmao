@@ -4,6 +4,20 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.7.2] - 2026-04-19
+
+### Added
+
+- **Gateway mail notifier appendix text**: the gateway mail notifier PUT and status models gain an `appendix_text` field. Operators can supply runtime-specific guidance that is appended to every notifier prompt turn.
+- **Launch profile gateway mail notifier appendix**: launch profiles can carry a `gateway_mail_notifier_appendix` content ref, providing default appendix text injected into the gateway mail notifier at agent launch time.
+- **Launch profile relaunch chat session control**: launch profiles gain a `relaunch_chat_session` setting for controlling chat-session behavior when an agent is relaunched.
+
+### Changed
+
+- **Gateway mail notifier prompt compaction**: notifier prompt templates are now significantly more compact, replacing verbose endpoint lists with a condensed API summary line.
+- **Tool-specific TUI reset prompts**: the gateway now selects the correct TUI context-reset command per tool (e.g. `/new` for Codex, `/clear` for others) instead of always sending `/clear`.
+- **Project catalog schema bumped to 14**: catalog schema updated to store the new launch profile fields.
+
 ## [0.7.1] - 2026-04-17
 
 ### Fixed

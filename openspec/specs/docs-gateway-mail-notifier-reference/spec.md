@@ -87,4 +87,3 @@ The page SHALL document that notifier status includes the effective mode.
 - **WHEN** a reader studies the `/v1/mail-notifier` status fields
 - **THEN** the page includes the effective notifier mode
 - **AND THEN** it does not present read state as the workflow completion signal
-

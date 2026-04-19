@@ -2,8 +2,7 @@ import mermaid from "mermaid";
 import type { AuditEntry } from "audit-shared";
 import { renderTree } from "./tree.js";
 import { installFeedbackUI } from "./feedback.js";
-import { renderGraph, type GraphData, type GraphNode } from "./graph.js";
-import { ParticleField } from "./particles.js";
+import { installSearchUI } from "./search.js";
 
 interface PageResponse {
   path: string;
@@ -17,19 +16,16 @@ const state = {
   currentPath: "wiki/index.md" as string,
   rawMarkdown: "" as string,
   author: "me" as string,
-  graphTeardown: null as (() => void) | null,
 };
 
-// ── Mermaid with Catppuccin Mocha palette ──────────────────────────────────
+// Mermaid with Catppuccin Mocha palette.
 mermaid.initialize({
   startOnLoad: false,
   theme: "base",
   securityLevel: "loose",
   fontFamily: "Inter, system-ui, sans-serif",
   themeVariables: {
-    // canvas
     background: "#11111b",
-    // nodes
     primaryColor: "#313244",
     primaryTextColor: "#cdd6f4",
     primaryBorderColor: "#b4befe",
@@ -39,7 +35,6 @@ mermaid.initialize({
     tertiaryColor: "#585b70",
     tertiaryTextColor: "#cdd6f4",
     tertiaryBorderColor: "#94e2d5",
-    // edges & text
     lineColor: "#7f849c",
     textColor: "#cdd6f4",
     mainBkg: "#313244",
@@ -48,7 +43,6 @@ mermaid.initialize({
     clusterBorder: "#45475a",
     titleColor: "#cdd6f4",
     edgeLabelBackground: "#181825",
-    // sequence
     actorBkg: "#313244",
     actorBorder: "#b4befe",
     actorTextColor: "#cdd6f4",
@@ -64,7 +58,6 @@ mermaid.initialize({
     noteBorderColor: "#f9e2af",
     activationBkgColor: "#45475a",
     activationBorderColor: "#b4befe",
-    // state
     stateBkg: "#313244",
     stateBorder: "#b4befe",
     specialStateColor: "#f38ba8",
@@ -77,23 +70,29 @@ async function main() {
     if (cfg.author) state.author = cfg.author;
   } catch {}
 
-  // Tree.
   const tree = await fetch("/api/tree").then((r) => r.json());
   renderTree(document.getElementById("tree")!, tree, (path) => {
-    void loadPage(path);
-    history.pushState({ page: path }, "", `/?page=${encodeURIComponent(path)}`);
+    navigateToPage(path);
   });
 
-  // Initial page.
+  installSearchUI({
+    getCurrentPath: () => state.currentPath,
+    onSelect: (path) => {
+      navigateToPage(path);
+    },
+  });
+
   const initial = new URL(window.location.href).searchParams.get("page") ?? "wiki/index.md";
   await loadPage(initial);
 
   window.addEventListener("popstate", (e) => {
-    const p = (e.state && e.state.page) || new URL(window.location.href).searchParams.get("page") || "wiki/index.md";
+    const p =
+      (e.state && e.state.page) ||
+      new URL(window.location.href).searchParams.get("page") ||
+      "wiki/index.md";
     void loadPage(p);
   });
 
-  // Intercept wikilinks so navigation stays in the SPA.
   document.getElementById("page-content")!.addEventListener("click", (e) => {
     const target = (e.target as HTMLElement).closest("a.wikilink") as HTMLAnchorElement | null;
     if (!target) return;
@@ -102,85 +101,33 @@ async function main() {
     const page = u.searchParams.get("page");
     if (page) {
       e.preventDefault();
-      void loadPage(page);
-      history.pushState({ page }, "", `/?page=${encodeURIComponent(page)}`);
+      navigateToPage(page);
     }
   });
 
-  // Refresh audits button.
   document.getElementById("btn-refresh")!.addEventListener("click", () => {
     void loadAudits(state.currentPath);
   });
 
-  // Graph toggle.
-  const graphOverlay = document.getElementById("graph-overlay")!;
-  const openGraph = async () => {
-    graphOverlay.classList.remove("hidden");
-    // Let layout settle so canvas/svg get their sizes.
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-
-    const data = (await fetch("/api/graph").then((r) => r.json())) as GraphData;
-    const svg = document.getElementById("graph-svg") as unknown as SVGSVGElement;
-    const canvas = document.getElementById("graph-particles") as HTMLCanvasElement;
-
-    if (state.graphTeardown) state.graphTeardown();
-
-    const particles = new ParticleField(canvas, 95);
-    particles.start();
-
-    const teardownGraph = renderGraph(svg, data, {
-      onNodeClick: (node: GraphNode) => {
-        closeGraph();
-        void loadPage(node.path);
-        history.pushState({ page: node.path }, "", `/?page=${encodeURIComponent(node.path)}`);
-      },
-    });
-
-    state.graphTeardown = () => {
-      particles.stop();
-      teardownGraph();
-    };
-  };
-  const closeGraph = () => {
-    graphOverlay.classList.add("hidden");
-    if (state.graphTeardown) {
-      state.graphTeardown();
-      state.graphTeardown = null;
-    }
-  };
-  document.getElementById("btn-graph")!.addEventListener("click", () => {
-    if (graphOverlay.classList.contains("hidden")) void openGraph();
-    else closeGraph();
-  });
-  document.getElementById("graph-close")!.addEventListener("click", closeGraph);
-  document.getElementById("graph-reset")!.addEventListener("click", () => {
-    void openGraph();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !graphOverlay.classList.contains("hidden")) {
-      closeGraph();
-    }
-    if ((e.key === "g" || e.key === "G") && !isEditableFocused()) {
-      e.preventDefault();
-      if (graphOverlay.classList.contains("hidden")) void openGraph();
-      else closeGraph();
-    }
-  });
-
-  // Feedback UI.
   installFeedbackUI({
-    getState: () => ({ currentPath: state.currentPath, rawMarkdown: state.rawMarkdown, author: state.author }),
+    getState: () => ({
+      currentPath: state.currentPath,
+      rawMarkdown: state.rawMarkdown,
+      author: state.author,
+    }),
     onCreated: async () => {
       await loadAudits(state.currentPath);
     },
   });
 }
 
-function isEditableFocused(): boolean {
-  const el = document.activeElement;
-  if (!el) return false;
-  const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+function navigateToPage(path: string): void {
+  if (path !== state.currentPath) {
+    void loadPage(path);
+    history.pushState({ page: path }, "", `/?page=${encodeURIComponent(path)}`);
+    return;
+  }
+  history.replaceState({ page: path }, "", `/?page=${encodeURIComponent(path)}`);
 }
 
 async function loadPage(pathArg: string): Promise<void> {
@@ -199,7 +146,6 @@ async function loadPage(pathArg: string): Promise<void> {
 
     pageEl.innerHTML = data.html;
 
-    // Render mermaid blocks.
     const mermaidNodes = pageEl.querySelectorAll("pre.mermaid-block code.language-mermaid");
     for (let i = 0; i < mermaidNodes.length; i++) {
       const code = mermaidNodes[i] as HTMLElement;
@@ -219,12 +165,10 @@ async function loadPage(pathArg: string): Promise<void> {
       }
     }
 
-    // Tree selection highlight.
     document.querySelectorAll("#tree a.active").forEach((el) => el.classList.remove("active"));
     const link = document.querySelector(`#tree a[data-path="${cssEscape(data.path)}"]`);
     if (link) link.classList.add("active");
 
-    // Title chip.
     const titleEl = document.getElementById("wiki-title")!;
     titleEl.textContent = data.title ?? data.path;
 
@@ -233,7 +177,7 @@ async function loadPage(pathArg: string): Promise<void> {
     (document.querySelector("main") as HTMLElement | null)?.scrollTo({ top: 0 });
   } catch (err) {
     console.error(err);
-    pageEl.innerHTML = `<p class="loading">Error loading page.</p>`;
+    pageEl.innerHTML = "<p class=\"loading\">Error loading page.</p>";
   }
 }
 
@@ -244,7 +188,8 @@ async function loadAudits(targetPath: string): Promise<void> {
     const res = await fetch(`/api/audit?target=${encodeURIComponent(targetPath)}&mode=open`);
     const data: { entries: AuditEntry[] } = await res.json();
     if (data.entries.length === 0) {
-      el.innerHTML = '<p class="muted" style="padding: 4px 6px; font-size: 12.5px;">No open audits for this page.</p>';
+      el.innerHTML =
+        '<p class="muted" style="padding: 4px 6px; font-size: 12.5px;">No open audits for this page.</p>';
       return;
     }
     el.innerHTML = data.entries.map((e) => renderAuditItem(e)).join("");
@@ -292,13 +237,13 @@ function renderAuditItem(e: AuditEntry): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
+  return s.replace(/[&<>\"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] ?? ch),
   );
 }
 
 function cssEscape(s: string): string {
-  return s.replace(/["\\]/g, "\\$&");
+  return s.replace(/[\"\\\\]/g, "\\$&");
 }
 
 void main();

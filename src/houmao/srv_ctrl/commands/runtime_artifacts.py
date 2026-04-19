@@ -70,8 +70,7 @@ from houmao.agents.realm_controller.registry_models import (
     canonicalize_registry_agent_name,
 )
 from houmao.agents.realm_controller.registry_storage import (
-    DEFAULT_REGISTRY_LEASE_TTL,
-    JOINED_REGISTRY_SENTINEL_LEASE_TTL,
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
     new_registry_generation_id,
     publish_live_agent_record,
     remove_live_agent_record,
@@ -310,7 +309,7 @@ def materialize_joined_launch(
                 agent_id=resolved_agent_id,
                 generation_id=manifest_payload["registry_generation_id"],
                 published_at=published_at.isoformat(timespec="seconds"),
-                lease_expires_at=(published_at + JOINED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
+                lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
                     timespec="seconds"
                 ),
                 identity=RegistryIdentityV1(backend=backend, tool=tool),
@@ -650,7 +649,7 @@ def materialize_delegated_launch(
             agent_id=agent_id,
             generation_id=manifest_payload["registry_generation_id"],
             published_at=published_at.isoformat(timespec="seconds"),
-            lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(
+            lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
                 timespec="seconds"
             ),
             identity=RegistryIdentityV1(backend="houmao_server_rest", tool=tool),
