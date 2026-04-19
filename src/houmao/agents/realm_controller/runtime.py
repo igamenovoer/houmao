@@ -219,8 +219,7 @@ from .registry_models import (
     canonicalize_registry_agent_name,
 )
 from .registry_storage import (
-    DEFAULT_REGISTRY_LEASE_TTL,
-    JOINED_REGISTRY_SENTINEL_LEASE_TTL,
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
     new_registry_generation_id,
     publish_live_agent_record,
     remove_live_agent_record,
@@ -3359,14 +3358,6 @@ def _build_shared_registry_record_for_controller(
     published_at = datetime.now(UTC)
     session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
     mailbox = controller.launch_plan.mailbox
-    lease_ttl = (
-        JOINED_REGISTRY_SENTINEL_LEASE_TTL
-        if (
-            controller.agent_launch_authority is not None
-            and controller.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
-        )
-        else DEFAULT_REGISTRY_LEASE_TTL
-    )
 
     gateway_payload = _shared_registry_gateway_payload(controller)
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
@@ -3396,7 +3387,9 @@ def _build_shared_registry_record_for_controller(
         agent_id=agent_id,
         generation_id=generation_id,
         published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + lease_ttl).isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
+            timespec="seconds"
+        ),
         identity=RegistryIdentityV1(
             backend=controller.launch_plan.backend,
             tool=controller.launch_plan.tool,

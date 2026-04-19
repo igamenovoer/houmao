@@ -20,6 +20,9 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryRuntimeV1,
     RegistryTerminalV1,
 )
+from houmao.agents.realm_controller.registry_storage import (
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+)
 
 
 def _make_record(
@@ -222,6 +225,38 @@ class TestRegistryDiscoveryScan:
             svc.scan_once()
 
         assert svc.index.get_by_id("expired1") is None
+
+    def test_sentinel_agent_discovered_after_former_lease_boundaries(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        now = datetime.now(UTC)
+        published_at = now - timedelta(days=31)
+        record = _make_record(
+            agent_id="sentinel1",
+            session_name="HOUMAO-alpha-sentinel1",
+            published_at=published_at,
+            lease_expires_at=published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+        )
+        registry_root = tmp_path / "registry"
+        _write_record(registry_root, record)
+
+        svc = self._make_service(tmp_path)
+        with (
+            patch("houmao.passive_server.discovery.global_registry_paths") as mock_paths,
+            patch(
+                "houmao.passive_server.discovery._get_live_tmux_session_names",
+                return_value={"HOUMAO-alpha-sentinel1"},
+            ),
+        ):
+            from houmao.agents.realm_controller.registry_storage import GlobalRegistryPaths
+
+            mock_paths.return_value = GlobalRegistryPaths(
+                root=registry_root, live_agents_dir=registry_root / "live_agents"
+            )
+            svc.scan_once()
+
+        assert svc.index.get_by_id("sentinel1") is not None
 
     def test_dead_tmux_session_excluded(self, tmp_path: Path) -> None:
         record = _make_record(agent_id="dead1", session_name="HOUMAO-alpha-dead1")

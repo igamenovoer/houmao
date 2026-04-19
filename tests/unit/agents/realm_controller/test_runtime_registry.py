@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -23,9 +24,11 @@ from houmao.agents.realm_controller.models import (
     SessionControlResult,
 )
 from houmao.agents.realm_controller.registry_storage import (
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
     publish_live_agent_record,
     resolve_live_agent_record,
 )
+from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
 
 
@@ -198,6 +201,11 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert started_record.agent_name == "gpu"
     assert started_record.generation_id == controller.registry_generation_id
     assert started_record.gateway is None
+    started_published_at = datetime.fromisoformat(started_record.published_at)
+    started_lease_expires_at = datetime.fromisoformat(started_record.lease_expires_at)
+    assert (
+        started_lease_expires_at - started_published_at == TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL
+    )
 
     persisted = json.loads(controller.manifest_path.read_text(encoding="utf-8"))
     assert persisted["registry_generation_id"] == controller.registry_generation_id
@@ -220,6 +228,12 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     stop_result = resumed.stop(force_cleanup=True)
     assert stop_result.status == "ok"
     assert resolve_live_agent_record("gpu") is None
+
+
+def test_shared_registry_record_builder_skips_non_tmux_backed_controller() -> None:
+    controller = SimpleNamespace(_is_tmux_backed=lambda: False)
+
+    assert runtime_module._build_shared_registry_record_for_controller(controller) is None
 
 
 def test_start_runtime_session_persists_managed_force_mode_in_launch_metadata(

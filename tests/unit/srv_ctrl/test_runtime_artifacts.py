@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,9 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_ROOT_ENV_VAR,
     load_attach_contract,
     load_gateway_status,
+)
+from houmao.agents.realm_controller.registry_storage import (
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
 )
 from houmao.srv_ctrl.commands.runtime_artifacts import materialize_delegated_launch
 
@@ -94,3 +98,6 @@ def test_materialize_delegated_launch_writes_houmao_runtime_artifacts(
     assert getattr(record, "identity").backend == "houmao_server_rest"
     assert getattr(record, "runtime").manifest_path == str(manifest_path)
     assert getattr(record, "runtime").session_root == str(session_root)
+    published_at = datetime.fromisoformat(getattr(record, "published_at"))
+    lease_expires_at = datetime.fromisoformat(getattr(record, "lease_expires_at"))
+    assert lease_expires_at - published_at == TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL

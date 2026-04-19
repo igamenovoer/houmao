@@ -16,10 +16,34 @@
         <span id="wiki-title"></span>
       </div>
       <div class="topbar-right">
-        <button id="btn-graph" class="btn" type="button" title="Knowledge graph (G)">
-          <span>⬡</span> Graph
+        <div id="search-box">
+          <button
+            id="btn-search"
+            class="btn btn-search"
+            type="button"
+            aria-expanded="false"
+            aria-controls="search-panel"
+            title="Search (Ctrl+K or /)"
+          >
+            <span>⌕</span> Search
+            <kbd>Ctrl K</kbd>
+          </button>
+          <div id="search-panel" class="glass" role="search">
+            <input
+              id="search-input"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Search wiki"
+              aria-label="Search wiki"
+            />
+            <div id="search-status" aria-live="polite"></div>
+            <div id="search-results"></div>
+          </div>
+        </div>
+        <button id="btn-refresh" class="btn btn-icon btn-ghost" type="button" title="Refresh audits">
+          ↻
         </button>
-        <button id="btn-refresh" class="btn btn-icon btn-ghost" type="button" title="Refresh audits">↻</button>
       </div>
     </header>
 
@@ -77,29 +101,6 @@
         </div>
       </form>
     </dialog>
-
-    <div id="graph-overlay" class="hidden">
-      <div class="graph-header">
-        <h2>Knowledge graph</h2>
-        <div class="graph-controls">
-          <button id="graph-reset" class="btn btn-ghost" type="button">Reset</button>
-          <button id="graph-close" class="btn btn-icon btn-ghost" type="button" title="Close (G or Esc)">✕</button>
-        </div>
-      </div>
-      <div id="graph-svg-wrap">
-        <canvas id="graph-particles"></canvas>
-        <svg id="graph-svg"></svg>
-        <div class="graph-hint">
-          drag nodes · <kbd>scroll</kbd> zoom · <kbd>click</kbd> open
-        </div>
-        <div class="graph-legend">
-          <div class="legend-row"><span class="legend-dot concepts"></span> concepts</div>
-          <div class="legend-row"><span class="legend-dot entities"></span> entities</div>
-          <div class="legend-row"><span class="legend-dot summaries"></span> summaries</div>
-          <div class="legend-row"><span class="legend-dot other"></span> other</div>
-        </div>
-      </div>
-    </div>
 
     <script type="module" src="/assets/main.js"></script>
   </body>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import click
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,9 +39,20 @@ from houmao.agents.realm_controller.models import (
     RoleInjectionPlan,
     SessionControlResult,
 )
+from houmao.agents.realm_controller.registry_models import (
+    LiveAgentRegistryRecordV2,
+    RegistryIdentityV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV1,
+)
+from houmao.agents.realm_controller.registry_storage import (
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+    publish_live_agent_record,
+)
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.mailbox.managed import ManagedMailboxOperationError
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.server.models import (
     HoumaoHeadlessTurnAcceptedResponse,
     HoumaoManagedAgentDetailResponse,
@@ -538,6 +550,55 @@ def test_resolve_managed_agent_target_preserves_local_name_ambiguity_failures(
     message = str(exc_info.value)
     assert "Local managed-agent resolution is ambiguous for --agent-name `gpu`" in message
     assert "Retry with `--agent-id <id>`." in message
+
+
+def test_local_registry_list_and_selector_do_not_probe_tmux(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    published_at = datetime.now(UTC) - timedelta(days=31)
+    record = LiveAgentRegistryRecordV2(
+        agent_name="gpu",
+        agent_id="agent-1234",
+        generation_id="generation-1",
+        published_at=published_at.isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
+            timespec="seconds"
+        ),
+        identity=RegistryIdentityV1(backend="codex_headless", tool="codex"),
+        runtime=RegistryRuntimeV1(
+            manifest_path=str((tmp_path / "manifest.json").resolve()),
+            session_root=str((tmp_path / "session-root").resolve()),
+            agent_def_dir=str((tmp_path / "agent-def").resolve()),
+        ),
+        terminal=RegistryTerminalV1(session_name="gpu-session"),
+    )
+    publish_live_agent_record(record, now=published_at)
+
+    def _unexpected_tmux_probe(*, session_name: str) -> bool:
+        raise AssertionError(
+            f"ordinary local registry lookup should not probe tmux: {session_name}"
+        )
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        _unexpected_tmux_probe,
+    )
+
+    listed = managed_agents_module._list_registry_records()
+    resolved, miss_context = (
+        managed_agents_module._resolve_local_managed_agent_record_with_miss_context(
+            agent_id=None,
+            agent_name="gpu",
+        )
+    )
+
+    assert [item.agent_id for item in listed] == ["agent-1234"]
+    assert resolved is not None
+    assert resolved.agent_id == "agent-1234"
+    assert miss_context is None
 
 
 def test_list_managed_agents_merges_registry_and_server_results(

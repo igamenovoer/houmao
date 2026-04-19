@@ -19,6 +19,7 @@ from houmao.agents.realm_controller.registry_models import (
 from houmao.agents.realm_controller.registry_storage import (
     DEFAULT_REGISTRY_LEASE_TTL,
     LIVE_AGENT_REGISTRY_SCHEMA,
+    TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
     cleanup_stale_live_agent_records,
     new_registry_generation_id,
     publish_live_agent_record,
@@ -35,6 +36,7 @@ def _sample_record(
     agent_name: str = "HOUMAO-gpu",
     generation_id: str = "generation-1",
     now: datetime | None = None,
+    lease_ttl: timedelta = DEFAULT_REGISTRY_LEASE_TTL,
 ) -> LiveAgentRegistryRecordV2:
     published_at = now or datetime.now(UTC)
     return LiveAgentRegistryRecordV2(
@@ -42,7 +44,7 @@ def _sample_record(
         agent_id=derive_agent_id_from_name(agent_name),
         generation_id=generation_id,
         published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + DEFAULT_REGISTRY_LEASE_TTL).isoformat(timespec="seconds"),
+        lease_expires_at=(published_at + lease_ttl).isoformat(timespec="seconds"),
         identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
         runtime=RegistryRuntimeV1(
             manifest_path="/tmp/runtime/session/manifest.json",
@@ -136,6 +138,32 @@ def test_registry_terminal_session_lookup_skips_expired_records(
     resolved = resolve_live_agent_records_by_terminal_session_name("gpu", now=now)
 
     assert resolved == ()
+
+
+def test_tmux_sentinel_record_resolves_after_former_lease_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    published_at = now - timedelta(days=31)
+    publish_live_agent_record(
+        _sample_record(
+            agent_name="gpu",
+            now=published_at,
+            lease_ttl=TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+        ),
+        now=published_at,
+    )
+
+    by_name = resolve_live_agent_record("gpu", now=now)
+    by_session = resolve_live_agent_records_by_terminal_session_name("gpu", now=now)
+
+    assert by_name is not None
+    assert by_name.agent_name == "gpu"
+    assert len(by_session) == 1
+    assert by_session[0].agent_name == "gpu"
 
 
 def test_registry_rejects_fresh_duplicate_generation(
@@ -450,6 +478,45 @@ def test_cleanup_default_tmux_probe_marks_fresh_record_stale(
     )
 
     assert result.planned_agent_ids == (fresh_record.agent_id,)
+    assert result.preserved_agent_ids == ()
+    assert result.actions[0].reason == "local tmux liveness probe found no owning session"
+
+
+def test_cleanup_default_tmux_probe_marks_sentinel_record_stale_when_tmux_dead(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    live_agents_dir = registry_root / "live_agents"
+    live_agents_dir.mkdir(parents=True)
+
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    published_at = now - timedelta(days=31)
+    sentinel_record = _sample_record(
+        agent_name="HOUMAO-sentinel",
+        generation_id=new_registry_generation_id(),
+        now=published_at,
+        lease_ttl=TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+    )
+    sentinel_dir = live_agents_dir / sentinel_record.agent_id
+    sentinel_dir.mkdir()
+    (sentinel_dir / "record.json").write_text(
+        json.dumps(sentinel_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.tmux_session_exists",
+        lambda *, session_name: False,
+    )
+
+    result = cleanup_stale_live_agent_records(
+        now=now,
+        grace_period=timedelta(seconds=0),
+        dry_run=True,
+    )
+
+    assert result.planned_agent_ids == (sentinel_record.agent_id,)
     assert result.preserved_agent_ids == ()
     assert result.actions[0].reason == "local tmux liveness probe found no owning session"
 

@@ -24,6 +24,7 @@ from houmao.agents.realm_controller.registry_models import (
 from houmao.agents.realm_controller.schema_validation import validate_payload
 
 DEFAULT_REGISTRY_LEASE_TTL = timedelta(hours=24)
+TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=36500)
 JOINED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=30)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
 LIVE_AGENT_REGISTRY_SCHEMA = "live_agent_registry_record.v2.schema.json"
