@@ -762,7 +762,11 @@ def test_relaunch_keeps_local_interactive_mailbox_active_without_live_metadata(
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._relaunch_backend_session",
-        lambda controller: SimpleNamespace(status="ok", action="relaunch", detail="relaunched"),
+        lambda controller, **_kwargs: SimpleNamespace(
+            status="ok",
+            action="relaunch",
+            detail="relaunched",
+        ),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",
@@ -824,7 +828,11 @@ def test_relaunch_drops_one_off_env_overrides_and_keeps_persistent_env_records(
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._relaunch_backend_session",
-        lambda controller: SimpleNamespace(status="ok", action="relaunch", detail="relaunched"),
+        lambda controller, **_kwargs: SimpleNamespace(
+            status="ok",
+            action="relaunch",
+            detail="relaunched",
+        ),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",
@@ -874,7 +882,11 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._relaunch_backend_session",
-        lambda controller: SimpleNamespace(status="ok", action="relaunch", detail="relaunched"),
+        lambda controller, **_kwargs: SimpleNamespace(
+            status="ok",
+            action="relaunch",
+            detail="relaunched",
+        ),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._refresh_pair_launch_registration",

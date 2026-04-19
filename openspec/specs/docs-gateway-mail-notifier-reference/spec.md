@@ -50,6 +50,7 @@ The page SHALL be derived from `gateway_service.py` mail-notifier methods and `g
 - **WHEN** a reader studies the notifier reference to understand appendix behavior
 - **THEN** the page explains that omitted `appendix_text` preserves the stored appendix, non-empty text replaces it, and the empty string clears it
 - **AND THEN** the page states that notifier status returns the effective appendix text
+
 ### Requirement: Gateway index links to mail-notifier page
 
 The gateway reference index at `docs/reference/gateway/index.md` SHALL include a link to the mail-notifier operations page under its operations section.

@@ -235,6 +235,7 @@ Agent-not-found (404), ambiguous (409), and no-gateway (502) error handling SHAL
 - **AND WHEN** a caller sends `PUT /houmao/agents/abc123/gateway/mail-notifier` with `appendix_text=""`
 - **THEN** the passive server forwards the empty string unchanged
 - **AND THEN** it does not reinterpret that request as field omission
+
 ### Requirement: Passive server provides gateway TUI tracking proxy endpoints
 The passive server SHALL expose managed-agent gateway TUI tracking proxy routes for:
 

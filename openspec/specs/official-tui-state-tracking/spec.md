@@ -188,6 +188,53 @@ The system SHALL NOT publish a generic catch-all failure outcome. Only specifica
 - **AND THEN** the tracked state records `last_turn.result=success` for the completed turn
 - **AND THEN** the caller does not need to interpret public `candidate_complete` or `completed` states to know the turn ended successfully
 
+### Requirement: Prompt-ready terminal failures preserve readiness while blocking success
+When a supported tracked TUI profile recognizes a bounded current-turn terminal failure surface and the visible composer is otherwise submit-ready, the authoritative tracked state SHALL preserve prompt-derived readiness instead of degrading the surface solely because that failure is visible.
+
+In that case, the tracker SHALL continue to derive `surface.accepting_input`, `surface.editing_input`, and `surface.ready_posture` from the current prompt and overlay facts.
+
+The tracker SHALL NOT settle `last_turn.result=success` while that bounded terminal failure surface remains the current turn outcome.
+
+When the selected profile identifies a recognized terminal failure family strong enough to justify a terminal failure result, the tracker MAY publish `last_turn.result=known_failure` while preserving the current prompt-derived readiness.
+
+Recoverable degraded compact/server failures remain distinct from stronger recognized terminal failures. They SHALL preserve prompt-derived readiness and block success, but they SHALL NOT become `known_failure` solely because degraded context is present.
+
+#### Scenario: Warning-style terminal failure keeps ready input but does not settle success
+- **WHEN** a supported tracked TUI profile recognizes a bounded prompt-ready terminal failure surface for the current turn
+- **AND WHEN** the current surface accepts input, is not editing input, is not blocked by an overlay, and has no current active evidence
+- **THEN** the authoritative tracked state reports the prompt-derived ready surface posture for that current snapshot
+- **AND THEN** the tracker does not settle `last_turn.result=success` while that terminal failure surface remains current
+
+#### Scenario: Recognized prompt-ready terminal failure may publish known failure without degrading readiness
+- **WHEN** a supported tracked TUI profile recognizes a bounded current-turn terminal failure family strong enough to justify `known_failure`
+- **AND WHEN** the visible prompt is genuinely submit-ready
+- **THEN** the authoritative tracked state may publish `last_turn.result=known_failure`
+- **AND THEN** the tracker still preserves the prompt-derived ready surface posture for the current snapshot
+
+#### Scenario: Recoverable degraded compact failure remains non-success and non-known-failure
+- **WHEN** a supported tracked TUI profile recognizes a bounded prompt-ready compact/server degraded failure surface for the current turn
+- **THEN** the authoritative tracked state preserves prompt-derived readiness for that current snapshot
+- **AND THEN** the tracker does not settle `last_turn.result=success`
+- **AND THEN** the tracker does not publish `last_turn.result=known_failure` solely because degraded context is present
+
+### Requirement: Live retry or reconnect recovery surfaces remain active
+When a supported tracked TUI profile recognizes a bounded live-edge retry, reconnect, or stream-recovery surface for the current turn, the authoritative tracked state SHALL treat that surface as active-turn evidence rather than as a ready-return completion.
+
+While that bounded retry or reconnect surface remains current, the tracker SHALL keep `turn.phase=active` and SHALL block success settlement for that turn.
+
+Historical retry or reconnect text outside the bounded current-turn scope SHALL NOT by itself keep the turn active after the surface has genuinely returned to a ready non-active state.
+
+#### Scenario: Current retry status keeps the turn active
+- **WHEN** a supported tracked TUI profile recognizes a bounded live-edge retry or reconnect recovery surface for the current turn
+- **THEN** the authoritative tracked state reports `turn.phase=active`
+- **AND THEN** the tracker does not treat that surface as a ready-return success candidate
+
+#### Scenario: Historical retry text does not keep a later ready prompt active
+- **WHEN** older retry or reconnect text remains visible outside the bounded current-turn scope
+- **AND WHEN** the current supported surface is submit-ready and lacks current active evidence
+- **THEN** the authoritative tracked state does not keep `turn.phase=active` solely because that historical retry text remains visible
+- **AND THEN** the tracker can return to the ordinary ready posture for the current turn
+
 ### Requirement: Styled placeholder prompt text does not imply editing input
 For supported interactive TUI surfaces, the tracked state SHALL treat visible placeholder or suggestion text on the prompt line as non-editing posture when the selected profile classifies that prompt payload as placeholder content rather than user-authored draft input.
 
@@ -508,3 +555,30 @@ The default final stable-active recovery window SHALL be 20 seconds.
 - **WHEN** the tracker evaluates whether a recovery window has elapsed
 - **THEN** that timing is derived through the existing ReactiveX scheduler and tracker-owned observable pipeline
 - **AND THEN** the implementation does not require a second imperative manual timeout mechanism for stale-active or final stable-active recovery
+
+### Requirement: Stable promptable error surfaces recover from false active state
+For supported live TUI sessions, a stable promptable surface with current recoverable error evidence SHALL be eligible for non-active ready state when independent prompt-ready evidence is present.
+
+If stale or false active evidence leaves `turn.phase=active` while the parsed surface is submit-ready, the surface accepts input, the surface is not editing input, no blocking overlay is present, and the raw surface remains stable for the configured final stable-active recovery dwell, the live tracker SHALL recover the public state to `turn.phase=ready`.
+
+That recovery SHALL NOT settle `last_turn.result=success`, SHALL NOT emit `known_failure`, and SHALL preserve diagnostic evidence that the current surface includes recoverable error context.
+
+#### Scenario: Stable promptable compact-error surface becomes ready
+- **WHEN** a supported live Codex TUI session shows a prompt-adjacent recoverable compact/server error
+- **AND WHEN** the parsed surface is submit-ready
+- **AND WHEN** the tracked surface reports `surface.accepting_input=yes` and `surface.editing_input=no`
+- **AND WHEN** stale or false active evidence keeps `turn.phase=active`
+- **AND WHEN** the surface remains stable for the configured final stable-active recovery dwell
+- **THEN** the live tracked state reports `turn.phase=ready`
+- **AND THEN** the live tracked state reports prompt-ready surface posture for prompt admission
+- **AND THEN** the live tracked state does not report `last_turn.result=success`
+
+#### Scenario: Promptable error surface does not manufacture terminal success
+- **WHEN** a supported live TUI session recovers a stable promptable error surface from false active state
+- **THEN** the recovery does not settle the previous turn as successful
+- **AND THEN** the recovery does not report the recoverable error as a known failure unless a narrower known-failure signature is present
+
+#### Scenario: Recovery does not apply while prompt readiness is ambiguous
+- **WHEN** a supported live TUI session has recoverable error evidence
+- **AND WHEN** the prompt surface is not accepting input, is editing input, has a blocking overlay, or lacks submit-ready parsed-surface evidence
+- **THEN** the final stable-active recovery path does not publish ready state solely because an error is visible

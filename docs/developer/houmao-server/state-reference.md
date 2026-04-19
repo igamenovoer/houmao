@@ -177,6 +177,8 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 In the live server contract, `ready_posture=yes` may also appear after host-owned stale-active recovery for an unanchored session that stayed submit-ready through the configured recovery window, or after final stable-active recovery for a stable false-active surface with independent idle/freeform prompt-ready evidence. These recoveries correct stuck active posture; they are not success verdicts.
 
+Codex prompt-adjacent compact/server error surfaces can still publish `ready_posture=yes` when the prompt is otherwise ready. That error is exposed separately as current-error diagnostics plus `chat_context=degraded`, rather than as a reason to force the input surface to `unknown` or `active`.
+
 **Operational implications:** The terminal is ready to receive and begin processing a new prompt. This is the ideal state for sending input via `POST /houmao/terminals/{terminal_id}/input`.
 
 #### `no`
@@ -223,6 +225,8 @@ stateDiagram-v2
 **Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server can also publish `ready` after stale-active recovery when an unanchored session has remained submit-ready for the configured recovery window without stronger live evidence, or after the final stable-active recovery window when raw TUI evidence and published state are unchanged while parser evidence remains idle/freeform and input-ready.
 
 **Operational implications:** It is safe to send a new prompt via `POST /houmao/terminals/{terminal_id}/input`. The terminal is idle and waiting for the next instruction.
+
+When `chat_context=degraded` is also present, the surface is promptable but the current context is recoverably unhealthy. Gateway prompt-control and notifier flows may continue with ordinary current-context work unless the caller explicitly requests clean context.
 
 ### `active`
 

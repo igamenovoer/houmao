@@ -29,7 +29,7 @@ The gateway mailbox facade is the shared mailbox control surface for one attache
 | `POST /v1/mail/send` | send a new message without consuming the terminal-mutation slot | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `POST /v1/mail/reply` | reply to an existing message via opaque `message_ref` | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `POST /v1/mail/state` | mark one processed shared mailbox message read through opaque `message_ref` and return a minimal acknowledgment | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `GET|PUT|DELETE /v1/mail-notifier` | inspect or control unread-mail reminder behavior | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `GET|PUT|DELETE /v1/mail-notifier` | inspect or control gateway mail-notifier behavior | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 
 ## Why `/v1/mail/*` Exists
 
@@ -98,12 +98,13 @@ That split is why the mailbox docs and gateway docs stay adjacent but separate. 
 
 ## Notifier Polling Uses The Same Facade
 
-The unread-mail notifier is gateway-owned, but unread truth is transport-owned.
+The mail-notifier is gateway-owned, but mailbox truth is transport-owned.
 
-- The notifier checks unread mail through the same shared mailbox facade used for `check`.
+- The notifier checks eligible inbox mail through the same shared mailbox facade used for `check`.
+- Mode `any_inbox` treats any unarchived inbox mail as eligible, including read or answered mail. Mode `unread_only` limits eligibility to unread unarchived inbox mail.
 - The gateway still owns notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
 - This is what allows the notifier to work for both filesystem-backed and Stalwart-backed sessions without hard-wiring itself to filesystem mailbox-local SQLite.
-- Current reminder behavior is intentionally bounded: one reminder may summarize the full unread snapshot, the agent decides which unread messages to inspect and handle after checking current mailbox state, and the later turn still finishes with `POST /v1/mail/state` only after successful processing.
+- Current reminder behavior is intentionally bounded: one reminder may summarize the eligible inbox snapshot, the agent decides which messages to inspect and handle after checking current mailbox state, and the later turn archives successfully processed work through the shared mailbox facade.
 
 Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the broader runtime-managed filesystem placement around `gateway/` and session-local secret material.
 

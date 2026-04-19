@@ -34,6 +34,7 @@ CompletionState = Literal[
     "stalled",
 ]
 TrackerEventSource = Literal["snapshot", "timer", "input"]
+ChatContextState = Literal["current", "degraded", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class TrackedStateSnapshot:
     stable_for_seconds: float
     stable_since_seconds: float
     observed_at_seconds: float
+    chat_context: ChatContextState = "current"
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -97,6 +99,7 @@ class TrackedStateTransition:
     stable: bool
     stable_for_seconds: float
     stable_since_seconds: float
+    chat_context: ChatContextState = "current"
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -195,6 +198,7 @@ class DetectedTurnSignals:
     success_blocked: bool
     surface_signature: str
     notes: tuple[str, ...]
+    chat_context: ChatContextState = "current"
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""

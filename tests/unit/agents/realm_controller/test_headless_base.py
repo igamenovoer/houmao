@@ -28,6 +28,7 @@ from houmao.agents.realm_controller.errors import (
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
     LaunchPlan,
+    RelaunchChatSessionSelection,
     RoleInjectionPlan,
 )
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
@@ -224,6 +225,31 @@ def test_gemini_headless_builds_latest_resume_turn_command_from_selector(
         "--output-format",
         "stream-json",
     ]
+
+
+def test_headless_relaunch_selector_sets_next_prompt_resume_policy(tmp_path: Path) -> None:
+    session = object.__new__(ClaudeHeadlessSession)
+    session._state = HeadlessSessionState(  # type: ignore[attr-defined]
+        session_id="old-session",
+        role_bootstrap_applied=False,
+        working_directory=str(tmp_path),
+        tmux_session_name="HOUMAO-claude",
+    )
+
+    session._apply_relaunch_chat_session(  # noqa: SLF001
+        RelaunchChatSessionSelection(mode="exact", session_id="provider-session-1")
+    )
+
+    assert session._state.session_id is None  # noqa: SLF001
+    assert session._state.resume_selection_kind == "exact"  # noqa: SLF001
+    assert session._state.resume_selection_value == "provider-session-1"  # noqa: SLF001
+    assert session._state.role_bootstrap_applied is True  # noqa: SLF001
+
+    session._apply_relaunch_chat_session(RelaunchChatSessionSelection(mode="new"))  # noqa: SLF001
+
+    assert session._state.resume_selection_kind == "none"  # noqa: SLF001
+    assert session._state.resume_selection_value is None  # noqa: SLF001
+    assert session._state.role_bootstrap_applied is False  # noqa: SLF001
 
 
 def test_gemini_headless_executes_direct_prompt_with_unattended_full_permission_args(

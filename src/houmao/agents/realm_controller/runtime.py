@@ -203,6 +203,7 @@ from .models import (
     HeadlessTurnSessionSelection,
     InteractiveSession,
     LaunchPlan,
+    RelaunchChatSessionSelection,
     RoleInjectionPlan,
     SessionControlResult,
     SessionEvent,
@@ -716,10 +717,25 @@ class RuntimeSessionController:
             ),
         )
 
-    def relaunch(self) -> SessionControlResult:
+    def relaunch(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> SessionControlResult:
         """Relaunch the tmux-backed managed-agent surface without rebuilding the home."""
 
         self._reset_operation_warnings()
+        try:
+            effective_chat_session = _resolve_relaunch_chat_session_selection(
+                controller=self,
+                requested=chat_session,
+            )
+        except ValueError as exc:
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
         authority = _resolve_manifest_relaunch_authority(self)
         if authority.primary_window_index != _PRIMARY_AGENT_WINDOW_INDEX:
             return SessionControlResult(
@@ -763,10 +779,10 @@ class RuntimeSessionController:
                     status="error",
                     action="relaunch",
                     detail=str(exc),
-                )
+            )
             self.launch_plan = updated_launch_plan
 
-        result = _relaunch_backend_session(self)
+        result = _relaunch_backend_session(self, chat_session=effective_chat_session)
         if result.status != "ok":
             self.persist_manifest()
             return result
@@ -2077,17 +2093,94 @@ def _resolve_manifest_relaunch_authority(
     )
 
 
-def _relaunch_backend_session(controller: RuntimeSessionController) -> SessionControlResult:
+def _resolve_relaunch_chat_session_selection(
+    *,
+    controller: RuntimeSessionController,
+    requested: RelaunchChatSessionSelection | None,
+) -> RelaunchChatSessionSelection:
+    """Resolve relaunch chat-session policy from CLI override, profile provenance, or default."""
+
+    if requested is not None:
+        return requested
+    profile_selection = _launch_profile_relaunch_chat_session_selection(controller.launch_plan)
+    if profile_selection is not None:
+        return profile_selection
+    return RelaunchChatSessionSelection(mode="new")
+
+
+def _launch_profile_relaunch_chat_session_selection(
+    launch_plan: LaunchPlan,
+) -> RelaunchChatSessionSelection | None:
+    """Return stored launch-profile relaunch policy from launch-plan metadata when present."""
+
+    launch_overrides = launch_plan.metadata.get("launch_overrides")
+    if not isinstance(launch_overrides, dict):
+        return None
+    construction_provenance = launch_overrides.get("construction_provenance")
+    if not isinstance(construction_provenance, dict):
+        return None
+    launch_profile = construction_provenance.get("launch_profile")
+    if not isinstance(launch_profile, dict):
+        return None
+    relaunch = launch_profile.get("relaunch")
+    if isinstance(relaunch, dict):
+        chat_session = relaunch.get("chat_session")
+        if isinstance(chat_session, dict):
+            return _relaunch_chat_session_selection_from_payload(chat_session)
+    chat_session = launch_profile.get("relaunch_chat_session")
+    if isinstance(chat_session, dict):
+        return _relaunch_chat_session_selection_from_payload(chat_session)
+    return None
+
+
+def _relaunch_chat_session_selection_from_payload(
+    payload: dict[str, object],
+) -> RelaunchChatSessionSelection:
+    """Parse one persisted relaunch chat-session selector payload."""
+
+    raw_mode = payload.get("mode")
+    if raw_mode not in {"new", "tool_last_or_new", "exact"}:
+        raise ValueError(
+            "Launch-profile relaunch chat-session policy must use mode "
+            "`new`, `tool_last_or_new`, or `exact`."
+        )
+    mode = cast(Literal["new", "tool_last_or_new", "exact"], raw_mode)
+    session_id = payload.get("id", payload.get("session_id"))
+    if session_id is not None and not isinstance(session_id, str):
+        raise ValueError("Launch-profile relaunch chat-session id must be a string.")
+    return RelaunchChatSessionSelection(mode=mode, session_id=session_id)
+
+
+def _relaunch_backend_session(
+    controller: RuntimeSessionController,
+    *,
+    chat_session: RelaunchChatSessionSelection,
+) -> SessionControlResult:
     """Dispatch the shared relaunch primitive across supported tmux-backed backends."""
 
     backend_session = controller.backend_session
     if isinstance(backend_session, HoumaoServerRestSession):
+        if chat_session.mode != "new":
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Chat-session continuation is not supported for "
+                    "backend='houmao_server_rest'."
+                ),
+            )
         return backend_session.relaunch()
     if isinstance(backend_session, LocalInteractiveSession):
-        return backend_session.relaunch()
+        return backend_session.relaunch(chat_session=chat_session)
     if isinstance(backend_session, HeadlessInteractiveSession):
-        return backend_session.relaunch()
+        return backend_session.relaunch(chat_session=chat_session)
     if isinstance(backend_session, CaoRestSession):
+        if chat_session.mode != "new":
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail="Chat-session continuation is not supported for backend='cao_rest'.",
+            )
         return backend_session.relaunch()
     return SessionControlResult(
         status="error",

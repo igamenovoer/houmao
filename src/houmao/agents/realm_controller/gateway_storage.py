@@ -1378,7 +1378,13 @@ def _gateway_queue_schema_sql() -> str:
         active_execution TEXT,
         queue_depth INTEGER,
         outcome TEXT NOT NULL CHECK (
-            outcome IN ('empty', 'dedup_skip', 'busy_skip', 'enqueued', 'poll_error')
+            outcome IN (
+                'empty',
+                'dedup_skip',
+                'busy_skip',
+                'enqueued',
+                'poll_error'
+            )
         ),
         enqueued_request_id TEXT,
         detail TEXT

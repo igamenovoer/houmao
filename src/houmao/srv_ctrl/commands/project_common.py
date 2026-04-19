@@ -50,6 +50,7 @@ from houmao.project.easy import (
 )
 from houmao.project.launch_profiles import (
     launch_profile_defaults_payload,
+    launch_profile_relaunch_payload,
     launch_profile_source_payload,
     list_resolved_launch_profiles,
     resolve_launch_profile,
@@ -98,6 +99,7 @@ from .project_aware_wording import (
 
 _SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
 _LaunchProfileStoreOperation = Literal["create", "patch", "replace"]
+_RELAUNCH_CHAT_SESSION_MODES: tuple[str, ...] = ("new", "tool_last_or_new", "exact")
 
 
 def _ensure_project_roots() -> ProjectAwareLocalRoots:
@@ -734,6 +736,7 @@ def _launch_profile_payload_from_resolved(
 ) -> dict[str, object]:
     """Return one operator-facing payload from a resolved launch profile."""
 
+    relaunch_payload = launch_profile_relaunch_payload(resolved)
     payload: dict[str, object] = {
         "name": resolved.entry.name,
         "profile_lane": _profile_lane_label(resolved.entry.profile_lane),
@@ -744,6 +747,8 @@ def _launch_profile_payload_from_resolved(
         if resolved.entry.metadata_path is not None
         else None,
     }
+    if relaunch_payload:
+        payload["relaunch"] = relaunch_payload
     if resolved.entry.source_kind == "specialist":
         payload["specialist"] = resolved.entry.source_name
     if resolved.entry.source_kind == "recipe":
@@ -1042,6 +1047,43 @@ def _resolve_profile_posture_mapping(
     return payload
 
 
+def _resolve_relaunch_chat_session_mapping_or_click(
+    *,
+    mode: str | None,
+    session_id: str | None,
+) -> dict[str, str] | None:
+    """Resolve optional stored relaunch chat-session policy CLI inputs."""
+
+    normalized_mode = mode.strip() if mode is not None else None
+    normalized_session_id = session_id.strip() if session_id is not None else None
+    if normalized_session_id == "":
+        normalized_session_id = None
+    if normalized_mode is None:
+        if normalized_session_id is not None:
+            raise click.ClickException(
+                "`--relaunch-chat-session-id` requires `--relaunch-chat-session-mode exact`."
+            )
+        return None
+    if normalized_mode not in _RELAUNCH_CHAT_SESSION_MODES:
+        raise click.ClickException(
+            "`--relaunch-chat-session-mode` must be one of "
+            f"{', '.join(_RELAUNCH_CHAT_SESSION_MODES)}."
+        )
+    if normalized_mode != "exact" and normalized_session_id is not None:
+        raise click.ClickException(
+            "`--relaunch-chat-session-id` is only supported with "
+            "`--relaunch-chat-session-mode exact`."
+        )
+    if normalized_mode == "exact" and normalized_session_id is None:
+        raise click.ClickException(
+            "`--relaunch-chat-session-mode exact` requires `--relaunch-chat-session-id`."
+        )
+    payload = {"mode": normalized_mode}
+    if normalized_session_id is not None:
+        payload["id"] = normalized_session_id
+    return payload
+
+
 def _store_launch_profile_from_cli(
     *,
     overlay: HoumaoProjectOverlay,
@@ -1074,6 +1116,9 @@ def _store_launch_profile_from_cli(
     clear_managed_header_section: tuple[str, ...],
     clear_managed_header_sections: bool,
     gateway_port: int | None,
+    relaunch_chat_session_mode: str | None,
+    relaunch_chat_session_id: str | None,
+    clear_relaunch_chat_session: bool,
     prompt_overlay_mode: str | None,
     prompt_overlay_text: str | None,
     prompt_overlay_file: Path | None,
@@ -1189,6 +1234,10 @@ def _store_launch_profile_from_cli(
     )
 
     if current is None:
+        if clear_relaunch_chat_session:
+            raise click.ClickException(
+                "`--clear-relaunch-chat-session` requires an existing launch profile."
+            )
         resolved_agent_name = _optional_non_empty_value(agent_name)
         resolved_agent_id = _optional_non_empty_value(agent_id)
         resolved_workdir = _optional_non_empty_value(workdir)
@@ -1206,6 +1255,10 @@ def _store_launch_profile_from_cli(
             clear_headless=clear_headless,
             no_gateway=no_gateway,
             gateway_port=gateway_port,
+        )
+        resolved_relaunch_chat_session = _resolve_relaunch_chat_session_mapping_or_click(
+            mode=relaunch_chat_session_mode,
+            session_id=relaunch_chat_session_id,
         )
         resolved_managed_header_policy = (
             _managed_header_policy_from_override(managed_header) or "inherit"
@@ -1309,6 +1362,25 @@ def _store_launch_profile_from_cli(
             no_gateway=no_gateway,
             gateway_port=gateway_port,
         )
+        if clear_relaunch_chat_session and (
+            relaunch_chat_session_mode is not None or relaunch_chat_session_id is not None
+        ):
+            raise click.ClickException(
+                "`--clear-relaunch-chat-session` cannot be combined with "
+                "`--relaunch-chat-session-mode` or `--relaunch-chat-session-id`."
+            )
+        if clear_relaunch_chat_session:
+            resolved_relaunch_chat_session = None
+        else:
+            requested_relaunch_chat_session = _resolve_relaunch_chat_session_mapping_or_click(
+                mode=relaunch_chat_session_mode,
+                session_id=relaunch_chat_session_id,
+            )
+            resolved_relaunch_chat_session = (
+                requested_relaunch_chat_session
+                if requested_relaunch_chat_session is not None
+                else current.entry.relaunch_chat_session_payload
+            )
         if clear_managed_header and managed_header is not None:
             raise click.ClickException(
                 "`--managed-header` or `--no-managed-header` cannot be combined with "
@@ -1393,6 +1465,9 @@ def _store_launch_profile_from_cli(
             bool(clear_managed_header_section),
             clear_managed_header_sections,
             gateway_port is not None,
+            relaunch_chat_session_mode is not None,
+            relaunch_chat_session_id is not None,
+            clear_relaunch_chat_session,
             prompt_overlay_mode is not None,
             prompt_overlay_text is not None,
             prompt_overlay_file is not None,
@@ -1428,6 +1503,7 @@ def _store_launch_profile_from_cli(
         env_mapping=resolved_env,
         mailbox_mapping=resolved_mailbox,
         posture_mapping=resolved_posture,
+        relaunch_chat_session_mapping=resolved_relaunch_chat_session,
         managed_header_policy=resolved_managed_header_policy,
         managed_header_section_policy=resolved_managed_header_section_policy,
         prompt_overlay_mode=resolved_prompt_overlay_mode,
@@ -1448,7 +1524,7 @@ def _store_launch_profile_from_cli(
 def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
     """Return secret-free launch-profile provenance for build and runtime metadata."""
 
-    return {
+    payload = {
         "name": resolved.entry.name,
         "lane": resolved.entry.profile_lane,
         "source_kind": resolved.entry.source_kind,
@@ -1475,6 +1551,10 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
             else {"present": False}
         ),
     }
+    relaunch_payload = launch_profile_relaunch_payload(resolved)
+    if relaunch_payload:
+        payload["relaunch"] = relaunch_payload
+    return payload
 
 
 def _specialist_payload(
@@ -1986,6 +2066,7 @@ __all__ = [
     "describe_overlay_root_selection_source",
     "_SUPPORTED_PROJECT_TOOLS",
     "_LaunchProfileStoreOperation",
+    "_RELAUNCH_CHAT_SESSION_MODES",
     "_ensure_project_roots",
     "_ensure_project_overlay",
     "_resolve_existing_project_roots",

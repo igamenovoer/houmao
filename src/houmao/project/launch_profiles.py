@@ -216,6 +216,16 @@ def launch_profile_defaults_payload(
     return payload
 
 
+def launch_profile_relaunch_payload(profile: ResolvedProjectLaunchProfile) -> dict[str, Any]:
+    """Return one operator-facing relaunch policy payload for a resolved launch profile."""
+
+    payload: dict[str, Any] = {}
+    relaunch_chat_session_payload = getattr(profile.entry, "relaunch_chat_session_payload", None)
+    if relaunch_chat_session_payload:
+        payload["chat_session"] = dict(relaunch_chat_session_payload)
+    return payload
+
+
 def launch_profile_source_payload(profile: ResolvedProjectLaunchProfile) -> dict[str, Any]:
     """Return one operator-facing source payload for a resolved launch profile."""
 

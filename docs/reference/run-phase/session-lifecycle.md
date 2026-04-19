@@ -141,6 +141,29 @@ def close() -> None
 
 Releases resources held by the session controller without necessarily terminating the underlying agent process. Use this when detaching from a session that should continue running.
 
+### relaunch
+
+```python
+def relaunch(
+    *,
+    chat_session: RelaunchChatSessionSelection | None = None,
+) -> SessionControlResult
+```
+
+Relaunches a tmux-backed managed session without rebuilding the brain home. Relaunch reuses the runtime-owned session root, existing built home, persisted launch authority, and tmux window `0`. It is the runtime primitive behind `houmao-mgr agents relaunch` and gateway-managed relaunch recovery.
+
+The optional relaunch chat-session selector controls provider-native startup behavior:
+
+| Mode | Meaning |
+| --- | --- |
+| `new` | Start a fresh provider chat. This is the default and preserves prior relaunch behavior. |
+| `tool_last_or_new` | Ask the provider CLI to continue its latest stored chat, falling back according to that provider's native behavior. |
+| `exact` | Resume the exact provider-native session id supplied by the caller. |
+
+For local interactive TUI sessions, the selector is translated into startup arguments before the provider process is respawned in tmux window `0`. For native headless sessions, the selector is stored as the startup/default chat-session policy for the next managed headless prompt; relaunch itself does not send a provider turn.
+
+When a local interactive relaunch resumes an existing provider chat, the runtime does not replay bootstrap-message role injection into that resumed chat.
+
 ## Lifecycle flow
 
 ```mermaid
@@ -152,6 +175,7 @@ flowchart TD
     E --> F{Interact}
     F -->|send_prompt| E
     F -->|interrupt| E
+    F -->|relaunch| E
     F -->|terminate| G[Session ended]
     F -->|close| H[Detached]
     B --> I[Session manifest persisted]
@@ -213,6 +237,27 @@ sequenceDiagram
     RT->>CTL: RuntimeSessionController
     CTL->>GW: ensure_gateway_capability()
     CTL-->>Op: ready
+```
+
+## Relaunch sequence
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant CLI as CLI
+    participant RT as Runtime
+    participant MF as Manifest
+    participant BE as Backend
+    participant TM as tmux
+
+    Op->>CLI: agents relaunch<br/>(optional chat-session selector)
+    CLI->>RT: RuntimeSessionController.relaunch()
+    RT->>MF: read persisted relaunch authority
+    RT->>BE: relaunch(chat_session)
+    BE->>TM: respawn provider<br/>in window 0
+    TM-->>BE: provider surface restored
+    BE-->>RT: SessionControlResult
+    RT-->>CLI: relaunch result
 ```
 
 ## See also

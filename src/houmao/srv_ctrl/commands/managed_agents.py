@@ -99,6 +99,7 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_records_by_name,
 )
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
+from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -678,7 +679,11 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
     )
 
 
-def relaunch_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionResponse:
+def relaunch_managed_agent(
+    target: ManagedAgentTarget,
+    *,
+    relaunch_chat_session: RelaunchChatSessionSelection | None = None,
+) -> HoumaoManagedAgentActionResponse:
     """Relaunch one tmux-backed managed agent through the resolved runtime authority."""
 
     if target.mode == "server":
@@ -694,7 +699,11 @@ def relaunch_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActi
         controller = target.controller
         tracked_agent_id = target.identity.tracked_agent_id
 
-    result = controller.relaunch()
+    result = (
+        controller.relaunch(chat_session=relaunch_chat_session)
+        if relaunch_chat_session is not None
+        else controller.relaunch()
+    )
     return HoumaoManagedAgentActionResponse(
         success=result.status == "ok",
         tracked_agent_id=tracked_agent_id,

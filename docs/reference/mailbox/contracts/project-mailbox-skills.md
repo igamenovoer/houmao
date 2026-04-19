@@ -12,7 +12,7 @@ Two mailbox skills are projected:
 
 | Skill | Purpose |
 |---|---|
-| `houmao-process-emails-via-gateway` | Round-oriented workflow for processing gateway-notified unread emails. Instructs the agent to list unread mail, triage by metadata, process relevant messages, and mark them read. |
+| `houmao-process-emails-via-gateway` | Round-oriented workflow for processing gateway-notified mailbox work. Instructs the agent to list mailbox work through the gateway, triage by metadata, process relevant messages, archive successfully processed messages, and stop after the round. |
 | `houmao-agent-email-comms` | Unified mailbox communication skill for exact shared `/v1/mail/*` operations, transport-aware fallback, and resolver-driven mailbox inspection. |
 
 ## Tool-Specific Behavior

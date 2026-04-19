@@ -65,6 +65,53 @@ _CODEX_STEER_HANDOFF_SURFACE = (
 _CODEX_ERROR_SURFACE = (
     "■ Message exceeds the maximum length of 1048576 characters (1048577 provided).\n\n› \n"
 )
+_CODEX_COMPACT_DEGRADED_SURFACE = (
+    "■ Error running remote compact task: stream disconnected before completion.\n\n› \n"
+)
+_CODEX_WARNING_OVERLOADED_SURFACE = "⚠ server overloaded\n\n› \n"
+_CODEX_WARNING_HIGH_DEMAND_SURFACE = (
+    "⚠ We're currently experiencing high demand, which may cause temporary errors.\n\n› \n"
+)
+_CODEX_CONTEXT_WINDOW_ERROR_SURFACE = (
+    "■ Codex ran out of room in the model's context window. "
+    "Start a new thread or clear earlier history before retrying.\n\n"
+    "› \n"
+)
+_CODEX_RETRY_STATUS_SURFACE = (
+    "Reconnecting to model stream (2/5)\nIdle timeout waiting for SSE\n\n› \n"
+)
+_CODEX_AMBIENT_WARNING_SURFACE = "⚠ MCP startup incomplete (failed: alpha)\n\n› \n"
+_CODEX_PROMPT_ADJACENT_AUTH_ERROR_SURFACE = (
+    "› Reply with exactly TRACKING_SMOKE_OK and nothing else.\n\n"
+    "■ Your access token could not be refreshed because your\n"
+    "refresh token was already used. Please log out and sign in\n"
+    "again.\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mSummarize recent commits\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 high · /tmp/demo/workdir\x1b[0m\n"
+)
+_CODEX_STALE_COMPACT_ERROR_SCROLLBACK_SURFACE = (
+    "› Summarize the inbox\n\n"
+    "■ Error running remote compact task: stream disconnected before completion.\n\n"
+    "› Reply with RECOVERED\n\n"
+    "• RECOVERED\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mFind and fix a bug in @filename\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\x1b[0m\n"
+)
+_CODEX_STALE_WARNING_SCROLLBACK_SURFACE = (
+    "› Ask for a status check\n\n"
+    "⚠ server overloaded\n\n"
+    "› Reply with RECOVERED\n\n"
+    "• RECOVERED\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mFind and fix a bug in @filename\x1b[0m\n\n"
+    "\x1b[2m  gpt-5.4 xhigh · 100% left · /tmp/demo/workdir\x1b[0m\n"
+)
+_CODEX_NON_ADJACENT_COMPACT_ERROR_SAME_TURN_SURFACE = (
+    "› Investigate compact failures\n\n"
+    "■ Error running remote compact task: stream disconnected before completion.\n\n"
+    "• Later transcript text means the old error is not prompt-adjacent.\n\n"
+    "• More transcript text keeps the live edge away from the old error.\n\n"
+    "› \n"
+)
 _CODEX_OVERLAY_SURFACE = (
     "  Would you like to grant these permissions?\n\n"
     "› 1. Yes, grant these permissions (y)\n"
@@ -322,6 +369,7 @@ def test_codex_detector_ignores_stale_interrupted_scrollback_above_current_succe
     assert signals.ready_posture == "yes"
     assert signals.active_evidence is False
     assert signals.success_candidate is True
+    assert signals.chat_context == "current"
 
 
 def test_codex_detector_visible_draft_does_not_count_as_success_candidate() -> None:
@@ -331,6 +379,7 @@ def test_codex_detector_visible_draft_does_not_count_as_success_candidate() -> N
 
     assert signals.editing_input == "yes"
     assert signals.success_candidate is False
+    assert signals.chat_context == "current"
 
 
 def test_codex_detector_recorded_full_scrollback_ignores_stale_working_row() -> None:
@@ -466,10 +515,11 @@ def test_codex_tui_steer_handoff_surface_stays_active() -> None:
 
     assert state.turn_phase == "active"
     assert state.last_turn_result == "none"
+    assert state.chat_context == "current"
     assert "steer_handoff" in state.active_reasons
 
 
-def test_codex_tui_generic_error_blocks_success_and_degrades_posture() -> None:
+def test_codex_tui_generic_error_blocks_success_without_degrading_prompt_readiness() -> None:
     scheduler = TestScheduler()
     session = _codex_session(scheduler=scheduler)
 
@@ -481,8 +531,192 @@ def test_codex_tui_generic_error_blocks_success_and_degrades_posture() -> None:
 
     state = session.current_state()
 
-    assert state.turn_phase == "unknown"
+    assert state.turn_phase == "ready"
+    assert state.surface_accepting_input == "yes"
+    assert state.surface_editing_input == "no"
+    assert state.surface_ready_posture == "yes"
     assert state.last_turn_result == "none"
+    assert state.chat_context == "current"
+
+
+def test_codex_tui_prompt_ready_compact_error_marks_degraded_context() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.4)
+    session.on_snapshot(_CODEX_COMPACT_DEGRADED_SURFACE)
+    scheduler.advance_to(3.0)
+
+    state = session.current_state()
+    signals = session.latest_signals
+    assert signals is not None
+
+    assert state.turn_phase == "ready"
+    assert state.surface_ready_posture == "yes"
+    assert state.last_turn_result == "none"
+    assert state.chat_context == "degraded"
+    assert "chat_context=degraded" in state.notes
+    assert signals.current_error_present is True
+    assert signals.success_candidate is False
+    assert signals.known_failure is False
+
+
+def test_codex_tui_warning_failure_preserves_readiness_without_success() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    scheduler.advance_to(1.4)
+    session.on_snapshot(_CODEX_WARNING_OVERLOADED_SURFACE)
+    scheduler.advance_to(3.0)
+
+    state = session.current_state()
+    signals = session.latest_signals
+    assert signals is not None
+
+    assert state.turn_phase == "ready"
+    assert state.surface_accepting_input == "yes"
+    assert state.surface_editing_input == "no"
+    assert state.surface_ready_posture == "yes"
+    assert state.last_turn_result == "known_failure"
+    assert state.chat_context == "current"
+    assert signals.current_error_present is True
+    assert signals.known_failure is True
+    assert signals.success_candidate is False
+
+
+def test_codex_tui_retry_status_remains_active() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_RETRY_STATUS_SURFACE)
+    scheduler.advance_to(3.0)
+
+    state = session.current_state()
+
+    assert state.turn_phase == "active"
+    assert state.surface_ready_posture == "no"
+    assert state.last_turn_result == "none"
+    assert "stream_retry_status" in state.active_reasons
+
+
+def test_codex_detector_generic_error_does_not_mark_degraded_context() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_ERROR_SURFACE)
+
+    assert signals.current_error_present is True
+    assert signals.known_failure is False
+    assert signals.chat_context == "current"
+    assert "chat_context=degraded" not in signals.notes
+
+
+def test_codex_detector_warning_failure_blocks_success_without_exact_literal() -> None:
+    detector = CodexTuiSignalDetector()
+
+    for surface in (_CODEX_WARNING_OVERLOADED_SURFACE, _CODEX_WARNING_HIGH_DEMAND_SURFACE):
+        signals = detector.detect(output_text=surface)
+
+        assert signals.accepting_input == "yes"
+        assert signals.editing_input == "no"
+        assert signals.ready_posture == "yes"
+        assert signals.current_error_present is True
+        assert signals.known_failure is True
+        assert signals.success_candidate is False
+        assert signals.success_blocked is True
+        assert signals.chat_context == "current"
+        assert "known_failure_signal_detected" in signals.notes
+
+
+def test_codex_detector_red_context_window_failure_is_known_failure() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_CONTEXT_WINDOW_ERROR_SURFACE)
+
+    assert signals.ready_posture == "yes"
+    assert signals.current_error_present is True
+    assert signals.known_failure is True
+    assert signals.success_candidate is False
+    assert signals.success_blocked is True
+    assert signals.chat_context == "current"
+
+
+def test_codex_detector_live_edge_retry_status_is_active() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_RETRY_STATUS_SURFACE)
+
+    assert signals.active_evidence is True
+    assert "stream_retry_status" in signals.active_reasons
+    assert signals.ready_posture == "no"
+    assert signals.current_error_present is False
+    assert signals.known_failure is False
+    assert signals.success_candidate is False
+    assert signals.success_blocked is True
+    assert signals.latest_status_line == "Reconnecting to model stream (2/5)"
+
+
+def test_codex_detector_ambient_warning_does_not_mutate_turn_state() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_AMBIENT_WARNING_SURFACE)
+
+    assert signals.ready_posture == "yes"
+    assert signals.active_evidence is False
+    assert signals.current_error_present is False
+    assert signals.known_failure is False
+    assert signals.success_candidate is True
+    assert signals.chat_context == "current"
+
+
+def test_codex_detector_prompt_adjacent_wrapped_error_blocks_success() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_PROMPT_ADJACENT_AUTH_ERROR_SURFACE)
+
+    assert signals.current_error_present is True
+    assert signals.success_candidate is False
+    assert signals.success_blocked is True
+    assert signals.chat_context == "current"
+    assert "chat_context=degraded" not in signals.notes
+    assert signals.editing_input == "no"
+
+
+def test_codex_detector_ignores_historical_compact_error_outside_live_edge() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_STALE_COMPACT_ERROR_SCROLLBACK_SURFACE)
+
+    assert signals.current_error_present is False
+    assert signals.ready_posture == "yes"
+    assert signals.success_candidate is True
+    assert signals.chat_context == "current"
+
+
+def test_codex_detector_ignores_historical_warning_outside_live_edge() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_STALE_WARNING_SCROLLBACK_SURFACE)
+
+    assert signals.current_error_present is False
+    assert signals.known_failure is False
+    assert signals.ready_posture == "yes"
+    assert signals.success_candidate is True
+    assert signals.chat_context == "current"
+
+
+def test_codex_detector_ignores_non_adjacent_compact_error_in_current_turn() -> None:
+    detector = CodexTuiSignalDetector()
+
+    signals = detector.detect(output_text=_CODEX_NON_ADJACENT_COMPACT_ERROR_SAME_TURN_SURFACE)
+
+    assert signals.current_error_present is False
+    assert signals.ready_posture == "yes"
+    assert signals.chat_context == "current"
 
 
 def test_codex_tui_overlay_degrades_to_unknown() -> None:
@@ -496,3 +730,4 @@ def test_codex_tui_overlay_degrades_to_unknown() -> None:
 
     assert state.surface_ready_posture == "unknown"
     assert state.turn_phase == "unknown"
+    assert state.chat_context == "current"

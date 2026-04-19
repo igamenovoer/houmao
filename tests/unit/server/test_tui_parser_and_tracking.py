@@ -20,6 +20,10 @@ from houmao.server.tui.tracking import LiveSessionTracker
 _CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
 _CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
 _CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = "Would you like to run the following command?\n› \n"
+_CODEX_WARNING_OVERLOADED_RAW_SNAPSHOT = "⚠ server overloaded\n\n› \n"
+_CODEX_RETRY_STATUS_RAW_SNAPSHOT = (
+    "Reconnecting to model stream (2/5)\nIdle timeout waiting for SSE\n\n› \n"
+)
 _UNSET_OUTPUT_TEXT = object()
 
 
@@ -61,6 +65,7 @@ def _tracker_state(
     last_turn_result: str = "none",
     last_turn_source: str = "none",
     notes: tuple[str, ...] = (),
+    chat_context: str = "current",
 ) -> TrackedStateSnapshot:
     return TrackedStateSnapshot(
         surface_accepting_input=surface_accepting_input,
@@ -78,6 +83,7 @@ def _tracker_state(
         stable_for_seconds=0.0,
         stable_since_seconds=0.0,
         observed_at_seconds=0.0,
+        chat_context=chat_context,
     )
 
 
@@ -392,6 +398,129 @@ def test_live_session_tracker_reports_candidate_complete_elapsed_seconds() -> No
     assert completed.operator_state.completion_state == "completed"
     assert completed.lifecycle_timing.completion_candidate_elapsed_seconds == pytest.approx(1.6)
     assert completed.lifecycle_authority.completion_authority == "turn_anchored"
+
+
+def test_live_session_tracker_warning_failure_does_not_publish_candidate_completion() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+    probe_snapshot = HoumaoProbeSnapshot(
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        pane_id="%9",
+        pane_pid=4321,
+        matched_process_names=["codex"],
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    _arm_anchor(tracker, at=10.2, observed_at_utc="2026-03-19T10:00:00+00:00")
+
+    failed = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("warning failure prompt-ready"),
+        output_text=_CODEX_WARNING_OVERLOADED_RAW_SNAPSHOT,
+    )
+
+    assert failed.surface.ready_posture == "yes"
+    assert failed.turn.phase == "ready"
+    assert failed.last_turn.result == "known_failure"
+    assert failed.operator_state.status == "ready"
+    assert failed.operator_state.readiness_state == "ready"
+    assert failed.operator_state.completion_state == "failed"
+    assert failed.operator_state.completion_state != "candidate_complete"
+
+
+def test_live_session_tracker_retry_status_stays_active_under_parser_ready_projection() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    probe_snapshot = HoumaoProbeSnapshot(
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        pane_id="%9",
+        pane_pid=4321,
+        matched_process_names=["codex"],
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface(),
+    )
+    _arm_anchor(tracker, at=10.2, observed_at_utc="2026-03-19T10:00:00+00:00")
+
+    retrying = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("retry status prompt-visible"),
+        output_text=_CODEX_RETRY_STATUS_RAW_SNAPSHOT,
+    )
+    still_retrying = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:04+00:00",
+        monotonic_ts=14.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=probe_snapshot,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("retry status prompt-visible"),
+        output_text=_CODEX_RETRY_STATUS_RAW_SNAPSHOT,
+    )
+
+    assert retrying.surface.ready_posture == "no"
+    assert retrying.turn.phase == "active"
+    assert retrying.last_turn.result == "none"
+    assert retrying.operator_state.status == "processing"
+    assert retrying.operator_state.readiness_state == "waiting"
+    assert retrying.operator_state.completion_state == "in_progress"
+
+    assert still_retrying.surface.ready_posture == "no"
+    assert still_retrying.turn.phase == "active"
+    assert still_retrying.last_turn.result == "none"
+    assert still_retrying.operator_state.status == "processing"
+    assert still_retrying.operator_state.completion_state == "in_progress"
 
 
 def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> None:
@@ -966,6 +1095,59 @@ def test_live_session_tracker_final_recovery_clears_stable_false_active() -> Non
     assert recovered.turn.phase == "ready"
     assert recovered.last_turn.result == "none"
     assert "recovered a stable false-active phase" in recovered.operator_state.detail
+
+
+def test_live_session_tracker_final_recovery_preserves_degraded_error_context() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("current_spinner",),
+            notes=("current_error_present", "chat_context=degraded"),
+            chat_context="degraded",
+        )
+    )
+
+    first = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:09:20+00:00",
+        monotonic_ts=20.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("compact error prompt-ready"),
+        output_text="stable compact-error ready surface",
+    )
+    recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-09T12:09:23+00:00",
+        monotonic_ts=23.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("compact error prompt-ready"),
+        output_text="stable compact-error ready surface",
+    )
+
+    assert first.turn.phase == "active"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.turn.phase == "ready"
+    assert recovered.last_turn.result == "none"
+    assert recovered.chat_context == "degraded"
 
 
 def test_live_session_tracker_final_recovery_resets_when_raw_surface_changes() -> None:

@@ -19,6 +19,7 @@ from ..models import (
     HeadlessResumeSelectionKind,
     HeadlessTurnSessionSelection,
     LaunchPlan,
+    RelaunchChatSessionSelection,
     SessionControlResult,
     SessionEvent,
 )
@@ -282,7 +283,11 @@ class HeadlessInteractiveSession:
         )
         self._publish_tmux_session_environment()
 
-    def relaunch(self) -> SessionControlResult:
+    def relaunch(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> SessionControlResult:
         """Refresh the stable tmux-backed headless surface on window `0`."""
 
         session_name = self._require_tmux_session_name()
@@ -299,6 +304,7 @@ class HeadlessInteractiveSession:
             )
 
         try:
+            self._apply_relaunch_chat_session(chat_session)
             if not self._uses_joined_surface():
                 prepare_headless_agent_window_shared(session_name=session_name)
             self._publish_tmux_session_environment()
@@ -317,6 +323,28 @@ class HeadlessInteractiveSession:
                 "ready for the next turn without rebuilding the agent home."
             ),
         )
+
+    def _apply_relaunch_chat_session(
+        self,
+        selection: RelaunchChatSessionSelection | None,
+    ) -> None:
+        """Apply a relaunch-time provider chat selector to the next headless prompt."""
+
+        if selection is None:
+            return
+        self._state.session_id = None
+        self._state.resume_selection_value = None
+        if selection.mode == "new":
+            self._state.resume_selection_kind = "none"
+            self._state.role_bootstrap_applied = False
+            return
+        self._state.role_bootstrap_applied = True
+        if selection.mode == "tool_last_or_new":
+            self._state.resume_selection_kind = "last"
+            return
+        assert selection.session_id is not None
+        self._state.resume_selection_kind = "exact"
+        self._state.resume_selection_value = selection.session_id
 
     def _build_command(
         self,

@@ -17,7 +17,12 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     parse_tmux_control_input,
     send_tmux_control_input,
 )
-from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.models import (
+    LaunchPlan,
+    RelaunchChatSessionSelection,
+    RoleInjectionPlan,
+    SessionControlResult,
+)
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
@@ -677,6 +682,139 @@ def test_local_interactive_build_launch_command_skips_empty_append_prompt(tmp_pa
     )
 
     assert session._build_launch_command() == ["claude", "-p"]  # noqa: SLF001
+
+
+def test_local_interactive_build_launch_command_adds_codex_latest_resume_args(
+    tmp_path: Path,
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="codex",
+        executable="codex",
+        args=["--sandbox", "workspace-write"],
+        working_directory=tmp_path,
+        home_env_var="CODEX_HOME",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="native_developer_instructions",
+            role_name="gpu-kernel-coder",
+            prompt="stay focused",
+        ),
+        metadata={},
+    )
+
+    command = session._build_launch_command(  # noqa: SLF001
+        chat_session=RelaunchChatSessionSelection(mode="tool_last_or_new")
+    )
+
+    assert command == [
+        "codex",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        "developer_instructions=stay focused",
+        "resume",
+        "--last",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tool", "executable", "selection", "expected_args"),
+    [
+        (
+            "claude",
+            "claude",
+            RelaunchChatSessionSelection(mode="tool_last_or_new"),
+            ["--continue"],
+        ),
+        (
+            "claude",
+            "claude",
+            RelaunchChatSessionSelection(mode="exact", session_id="claude-session-1"),
+            ["--resume", "claude-session-1"],
+        ),
+        (
+            "gemini",
+            "gemini",
+            RelaunchChatSessionSelection(mode="tool_last_or_new"),
+            ["--resume", "latest"],
+        ),
+        (
+            "gemini",
+            "gemini",
+            RelaunchChatSessionSelection(mode="exact", session_id="gemini-session-1"),
+            ["--resume", "gemini-session-1"],
+        ),
+    ],
+)
+def test_local_interactive_build_launch_command_adds_resume_args_for_provider(
+    tmp_path: Path,
+    tool: str,
+    executable: str,
+    selection: RelaunchChatSessionSelection,
+    expected_args: list[str],
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool=tool,
+        executable=executable,
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="TOOL_HOME",
+        home_path=tmp_path / "home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="cao_profile",
+            role_name="gpu-kernel-coder",
+            prompt="",
+        ),
+        metadata={},
+    )
+
+    assert session._build_launch_command(chat_session=selection) == [  # noqa: SLF001
+        executable,
+        *expected_args,
+    ]
+
+
+def test_local_interactive_relaunch_suppresses_bootstrap_when_resuming_chat(
+    tmp_path: Path,
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._state = HeadlessSessionState(
+        working_directory=str(tmp_path),
+        tmux_session_name="HOUMAO-local",
+    )
+    launch_calls: list[RelaunchChatSessionSelection | None] = []
+    bootstrap_calls: list[str] = []
+
+    session._launch_provider_surface = lambda *, chat_session=None: launch_calls.append(  # type: ignore[method-assign]
+        chat_session
+    )
+    session._apply_startup_bootstrap = lambda: bootstrap_calls.append("bootstrap")  # type: ignore[method-assign]
+
+    result = session.relaunch(
+        chat_session=RelaunchChatSessionSelection(mode="exact", session_id="provider-session-1")
+    )
+
+    assert result == SessionControlResult(
+        status="ok",
+        action="relaunch",
+        detail=(
+            "Local interactive provider surface relaunched on tmux window `0` without "
+            "rebuilding the agent home."
+        ),
+    )
+    assert launch_calls == [
+        RelaunchChatSessionSelection(mode="exact", session_id="provider-session-1")
+    ]
+    assert bootstrap_calls == []
+    assert session._state.role_bootstrap_applied is True  # noqa: SLF001
 
 
 def test_runtime_session_controller_rejects_non_cao_control_input(

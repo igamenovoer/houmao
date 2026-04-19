@@ -1924,6 +1924,73 @@ def test_agents_relaunch_rejects_port_without_explicit_selector() -> None:
     )
 
 
+def test_agents_relaunch_rejects_chat_session_id_without_exact_mode() -> None:
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "relaunch", "--chat-session-id", "provider-session-1"],
+    )
+
+    assert result.exit_code != 0
+    assert "`--chat-session-id` requires `--chat-session-mode exact`" in result.output
+
+
+def test_agents_relaunch_current_session_forwards_chat_session_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    agent_def_dir = (tmp_path / "agent-def").resolve()
+    agent_def_dir.mkdir(parents=True)
+    captured: dict[str, object] = {}
+
+    class _Controller:
+        agent_id = "published-alpha"
+        agent_identity = "HOUMAO-alpha"
+
+        def relaunch(self, *, chat_session=None) -> SimpleNamespace:
+            captured["chat_session"] = chat_session
+            return SimpleNamespace(status="ok", detail="Runtime relaunched.")
+
+    _Controller.manifest_path = manifest_path
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._require_current_tmux_session_name",
+        lambda: "headless-session",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_manifest",
+        lambda *, session_name: SimpleNamespace(
+            manifest_path=manifest_path,
+            registry_record=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core._resolve_current_session_agent_def_dir",
+        lambda *, session_name, registry_record: agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resume_runtime_session",
+        lambda *, agent_def_dir, session_manifest_path: _Controller(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "relaunch",
+            "--chat-session-mode",
+            "exact",
+            "--chat-session-id",
+            "provider-session-1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    chat_session = captured["chat_session"]
+    assert chat_session.mode == "exact"
+    assert chat_session.session_id == "provider-session-1"
+
+
 def test_agents_relaunch_with_explicit_target_uses_managed_agent_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1963,6 +2030,50 @@ def test_agents_relaunch_with_explicit_target_uses_managed_agent_helper(
         "tracked_agent_id": "tracked-alpha",
         "detail": "Relaunched through managed authority.",
     }
+
+
+def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    target = SimpleNamespace(agent_ref="published-alpha")
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **kwargs: target,
+    )
+
+    def _relaunch_managed_agent(resolved_target, *, relaunch_chat_session=None):
+        captured["target"] = resolved_target
+        captured["relaunch_chat_session"] = relaunch_chat_session
+        return {
+            "success": True,
+            "tracked_agent_id": "tracked-alpha",
+            "detail": "Relaunched through managed authority.",
+        }
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.relaunch_managed_agent",
+        _relaunch_managed_agent,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "relaunch",
+            "--agent-name",
+            "alpha",
+            "--chat-session-mode",
+            "tool_last_or_new",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["target"] is target
+    chat_session = captured["relaunch_chat_session"]
+    assert chat_session.mode == "tool_last_or_new"
+    assert chat_session.session_id is None
 
 
 def test_server_status_reports_no_server_running(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -17,6 +17,15 @@ _BOOTSTRAP_STATUS_PREFIXES = (
 )
 _AGENT_TURN_STATUS_RE = re.compile(r"^\s*• (.+?) \((.+esc to interrupt.*)\)\s*$")
 _TOOL_CELL_RE = re.compile(r"^\s*• (Calling |Running |Waited for background terminal · ).+")
+_RETRY_STATUS_RE = re.compile(
+    r"\b("
+    r"reconnect(?:ing|ed)?|"
+    r"retry(?:ing)?|"
+    r"stream\s+(?:error|recover(?:y|ing)?|disconnect(?:ed|ion)?)|"
+    r"connection\s+(?:lost|failed)"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +68,10 @@ def detect_activity(
     if in_flight_tool_cell:
         active_reasons.append("tool_cell")
 
+    retry_status_line = _latest_retry_status_line(live_edge_lines)
+    if retry_status_line is not None:
+        active_reasons.append("stream_retry_status")
+
     steer_handoff = (
         steer_interruption_text_visible(lines=latest_turn_lines)
         and prompt_visible
@@ -70,7 +83,7 @@ def detect_activity(
     return CodexActivitySignals(
         active_evidence=bool(active_reasons),
         active_status_row_visible=active_status_line is not None,
-        latest_status_line=active_status_line,
+        latest_status_line=active_status_line or retry_status_line,
         active_reasons=tuple(dict.fromkeys(active_reasons)),
         steer_handoff=steer_handoff,
         in_flight_tool_cell=in_flight_tool_cell,
@@ -82,3 +95,15 @@ def latest_turn_region_signature(latest_turn_lines: tuple[str, ...]) -> str:
 
     payload = "\n".join(latest_turn_lines)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _latest_retry_status_line(live_edge_lines: tuple[str, ...]) -> str | None:
+    """Return the latest live-edge retry/reconnect status line, if present."""
+
+    for line in reversed(live_edge_lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("■", "⚠")):
+            continue
+        if _RETRY_STATUS_RE.search(stripped) is not None:
+            return stripped
+    return None

@@ -1035,12 +1035,14 @@ For TUI-backed sessions, the direct prompt-control path SHALL evaluate prompt re
 
 When a parsed surface is available for that TUI state, the gateway SHALL additionally require `parsed_surface.business_state = "idle"` and `parsed_surface.input_mode = "freeform"` before treating the target as prompt-ready.
 
+Previous-turn error evidence, current-error diagnostics, or recoverable degraded chat-context diagnostics SHALL NOT by themselves make a TUI-backed target non-ready when the prompt-ready contract above is satisfied.
+
 For native headless sessions, the direct prompt-control path SHALL require that authoritative runtime control is operable and that no active execution or active turn is already running for that managed session.
 
 For TUI-backed sessions with `chat_session.mode = new`, the direct prompt-control path SHALL:
 
-- require an initial prompt-ready TUI posture suitable for semantic prompt submission,
-- send a semantic reset prompt such as `/clear`,
+- require an initial prompt-ready TUI posture suitable for semantic context-reset submission,
+- send a tool-appropriate semantic context-reset signal, using `/new` for Codex TUI targets and configured reset signals such as `/clear` for other TUI targets,
 - wait until the tracked TUI state stabilizes back to prompt-ready posture,
 - send the caller's actual prompt only after that post-reset stabilization succeeds.
 
@@ -1077,15 +1079,33 @@ When the request sets `force = true`, the gateway MAY bypass readiness checks, b
 - **THEN** the gateway rejects that prompt explicitly
 - **AND THEN** it does not return a success payload claiming the prompt was sent
 
+#### Scenario: Prompt-ready error surface accepts ordinary prompt control
+- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target without `chat_session.mode = new`
+- **AND WHEN** the gateway-owned TUI state satisfies the prompt-ready contract while also reporting current-error or recoverable degraded chat-context diagnostics
+- **THEN** the gateway dispatches the prompt immediately
+- **AND THEN** it does not reject or reset the prompt solely because the previous visible turn contains recoverable error context
+
 #### Scenario: TUI new mode clears the conversation before sending the prompt
 - **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
 - **AND WHEN** the gateway-owned TUI state reports a stable ready posture
-- **THEN** the gateway first sends the configured reset prompt such as `/clear`
+- **THEN** the gateway first sends the configured tool-appropriate semantic context-reset signal
 - **AND THEN** after the TUI stabilizes back to ready posture, the gateway sends the caller's actual prompt
+
+#### Scenario: Codex TUI clean-context reset uses slash-new
+- **WHEN** a caller submits prompt work for a Codex TUI-backed gateway target with `chat_session.mode = new`
+- **AND WHEN** the gateway-owned TUI state reports a stable ready posture
+- **THEN** the gateway sends `/new` as the semantic context-reset signal
+- **AND THEN** it does not use `/clear` as the Codex context-reset signal for this workflow
+
+#### Scenario: Generic TUI reset may use slash-clear
+- **WHEN** a caller submits prompt work for a non-Codex TUI-backed gateway target with `chat_session.mode = new`
+- **AND WHEN** that target's configured context-reset signal is `/clear`
+- **THEN** the gateway sends `/clear` as the semantic context-reset signal
+- **AND THEN** it still waits for post-reset prompt-ready stabilization before sending the caller's actual prompt
 
 #### Scenario: TUI new mode fails when post-clear stabilization does not complete
 - **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
-- **AND WHEN** the reset prompt is sent but the TUI does not stabilize back to ready posture within the allowed wait
+- **AND WHEN** the reset signal is sent but the TUI does not stabilize back to ready posture within the allowed wait
 - **THEN** the gateway rejects that request explicitly
 - **AND THEN** it does not claim that the caller's actual prompt was delivered
 
@@ -1120,6 +1140,38 @@ When the request sets `force = true`, the gateway MAY bypass readiness checks, b
 - **WHEN** a caller submits `POST /v1/control/prompt` for backend `codex_app_server`
 - **THEN** the gateway rejects that request as not implemented
 - **AND THEN** it does not pretend that prompt readiness was evaluated successfully
+
+### Requirement: Degraded chat context does not force clean-context prompt control
+Gateway prompt control SHALL treat recoverable degraded chat context as compatible with ordinary current-context prompt delivery when the target otherwise satisfies the prompt-ready contract.
+
+For native headless targets, recoverable degraded chat context SHALL NOT by itself force the effective chat-session selector to `chat_session.mode = new`.
+
+For TUI-backed targets, recoverable degraded chat context SHALL NOT by itself trigger the reset-then-send workflow.
+
+Explicit clean-context requests SHALL remain supported. When a caller explicitly requests `chat_session.mode = new`, the gateway SHALL preserve the existing headless fresh-chat selection and TUI reset-then-send behavior for targets that support that selector.
+
+#### Scenario: Ordinary TUI prompt continues degraded current context
+- **GIVEN** a TUI-backed gateway target whose tracked state is prompt-ready and whose chat context is recoverably degraded
+- **WHEN** a caller submits direct prompt control without a `chat_session` selector
+- **THEN** the gateway sends the caller's prompt through the ordinary TUI prompt path
+- **AND THEN** the gateway does not first send `/new`, `/clear`, or another context-reset signal solely because degraded context is present
+
+#### Scenario: Explicit TUI new-chat prompt still resets
+- **GIVEN** a TUI-backed gateway target whose tracked state is prompt-ready
+- **WHEN** a caller submits direct prompt control with `chat_session.mode = new`
+- **THEN** the gateway runs the supported TUI reset-then-send workflow
+- **AND THEN** the caller's actual prompt is sent only after the reset workflow reaches prompt-ready posture
+
+#### Scenario: Ordinary headless prompt does not force new chat for degraded context
+- **GIVEN** a native headless gateway target whose chat context is recoverably degraded
+- **WHEN** a caller submits prompt control without an explicit clean-context selector
+- **THEN** the gateway resolves the prompt's chat-session selector using the ordinary current-context rules
+- **AND THEN** the dispatched request body does not include `chat_session.mode = new` solely because degraded context is present
+
+#### Scenario: Explicit headless new-chat prompt remains supported
+- **GIVEN** a native headless gateway target
+- **WHEN** a caller submits prompt control with `chat_session.mode = new`
+- **THEN** the gateway dispatches the prompt with a fresh provider-chat selection
 
 ### Requirement: Gateway raw send-keys bypasses prompt-readiness and busy gating
 
@@ -1600,4 +1652,3 @@ The attach flow SHALL continue using the gateway health endpoint as the authorit
 - **AND WHEN** a health probe returns the expected gateway protocol version before the readiness deadline
 - **THEN** gateway attach treats the gateway as ready
 - **AND THEN** it does not require separate file-state diagnostics to prove readiness
-
