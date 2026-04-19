@@ -178,29 +178,24 @@ class FilesystemGatewayMailboxAdapter:
             self.m_mailbox.filesystem_root,
             address=self.m_mailbox.address,
         )
-        shared_sqlite_path = (self.m_mailbox.filesystem_root / "index.sqlite").resolve()
         normalized_box = _normalize_box_name(box)
         since_filter = _parse_optional_timestamp(since)
         try:
-            with sqlite3.connect(shared_sqlite_path) as connection:
-                connection.execute("ATTACH DATABASE ? AS local_mailbox", (str(local_sqlite_path),))
+            with sqlite3.connect(local_sqlite_path) as connection:
                 rows = connection.execute(
                     """
                     SELECT
-                        message.message_id,
-                        message.thread_id,
-                        message.created_at_utc,
-                        message.subject,
-                        message.canonical_path,
-                        local_mailbox.message_state.is_read,
-                        local_mailbox.message_state.is_answered,
-                        local_mailbox.message_state.is_archived,
-                        local_mailbox.message_state.box_name
-                    FROM local_mailbox.message_state
-                    JOIN messages AS message
-                      ON message.message_id = local_mailbox.message_state.message_id
-                    WHERE local_mailbox.message_state.box_name = ?
-                    ORDER BY message.created_at_utc DESC, message.message_id DESC
+                        message_id,
+                        thread_id,
+                        created_at_utc,
+                        subject,
+                        is_read,
+                        is_answered,
+                        is_archived,
+                        box_name
+                    FROM message_state
+                    WHERE box_name = ?
+                    ORDER BY created_at_utc DESC, message_id DESC
                     """,
                     (normalized_box,),
                 ).fetchall()
@@ -214,9 +209,9 @@ class FilesystemGatewayMailboxAdapter:
             created_at_utc = str(row[2])
             if since_filter is not None and _parse_timestamp(created_at_utc) < since_filter:
                 continue
-            read = bool(row[5])
-            answered = bool(row[6])
-            archived_state = bool(row[7])
+            read = bool(row[4])
+            answered = bool(row[5])
+            archived_state = bool(row[6])
             if read_state == "read" and not read:
                 continue
             if read_state == "unread" and read:
@@ -227,17 +222,14 @@ class FilesystemGatewayMailboxAdapter:
                 continue
             if archived is not None and archived_state is not archived:
                 continue
-            message = self._load_message_document(
-                message_id=str(row[0]),
-                canonical_path=Path(str(row[4])),
-            )
+            message = self._load_message_by_id(str(row[0]))
             messages.append(
                 self._message_to_model(
                     message=message,
                     read=read,
                     answered=answered,
                     archived=archived_state,
-                    box=str(row[8]),
+                    box=str(row[7]),
                     include_body=include_body,
                 )
             )
@@ -736,26 +728,21 @@ class FilesystemGatewayMailboxAdapter:
     ) -> GatewayMailboxMessageV1:
         """Return one local message model by id, optionally requiring its active box."""
 
-        shared_sqlite_path = (self.m_mailbox.filesystem_root / "index.sqlite").resolve()
         local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
             self.m_mailbox.filesystem_root,
             address=self.m_mailbox.address,
         )
         try:
-            with sqlite3.connect(shared_sqlite_path) as connection:
-                connection.execute("ATTACH DATABASE ? AS local_mailbox", (str(local_sqlite_path),))
+            with sqlite3.connect(local_sqlite_path) as connection:
                 row = connection.execute(
                     """
                     SELECT
-                        message.canonical_path,
-                        local_mailbox.message_state.is_read,
-                        local_mailbox.message_state.is_answered,
-                        local_mailbox.message_state.is_archived,
-                        local_mailbox.message_state.box_name
-                    FROM local_mailbox.message_state
-                    JOIN messages AS message
-                      ON message.message_id = local_mailbox.message_state.message_id
-                    WHERE local_mailbox.message_state.message_id = ?
+                        is_read,
+                        is_answered,
+                        is_archived,
+                        box_name
+                    FROM message_state
+                    WHERE message_id = ?
                     """,
                     (message_id,),
                 ).fetchone()
@@ -767,19 +754,17 @@ class FilesystemGatewayMailboxAdapter:
             raise GatewayMailboxError(
                 f"filesystem mailbox state is missing for `{message_id}` in `{self.m_mailbox.address}`"
             )
-        message_box = str(row[4])
+        message_box = str(row[3])
         if box is not None and message_box != _normalize_box_name(box):
             raise GatewayMailboxError(
                 f"filesystem mailbox message `{message_id}` is in `{message_box}`, not `{box}`"
             )
-        message = self._load_message_document(
-            message_id=message_id, canonical_path=Path(str(row[0]))
-        )
+        message = self._load_message_by_id(message_id)
         return self._message_to_model(
             message=message,
-            read=bool(row[1]),
-            answered=bool(row[2]),
-            archived=bool(row[3]),
+            read=bool(row[0]),
+            answered=bool(row[1]),
+            archived=bool(row[2]),
             box=message_box,
             include_body=include_body,
         )
@@ -802,7 +787,6 @@ class FilesystemGatewayMailboxAdapter:
         try:
             with sqlite3.connect(shared_sqlite_path) as connection:
                 connection.execute("PRAGMA foreign_keys = ON")
-                connection.execute("ATTACH DATABASE ? AS local_mailbox", (str(local_sqlite_path),))
                 registration_row = connection.execute(
                     """
                     SELECT registration_id, mailbox_path
@@ -889,9 +873,17 @@ class FilesystemGatewayMailboxAdapter:
                     assignments.append("is_read = ?")
                     parameters.append(int(force_read))
                 parameters.append(message_id)
+                connection.commit()
+        except sqlite3.DatabaseError as exc:
+            raise GatewayMailboxError(
+                f"filesystem mailbox move failed for `{self.m_mailbox.address}`"
+            ) from exc
+        try:
+            with sqlite3.connect(local_sqlite_path) as connection:
+                connection.execute("BEGIN IMMEDIATE")
                 connection.execute(
                     f"""
-                    UPDATE local_mailbox.message_state
+                    UPDATE message_state
                     SET {", ".join(assignments)}
                     WHERE message_id = ?
                     """,
@@ -900,7 +892,9 @@ class FilesystemGatewayMailboxAdapter:
                 connection.commit()
         except sqlite3.DatabaseError as exc:
             raise GatewayMailboxError(
-                f"filesystem mailbox move failed for `{self.m_mailbox.address}`"
+                "filesystem mailbox local state update failed after moving "
+                f"`{message_id}` for `{self.m_mailbox.address}`; run mailbox repair to rebuild "
+                "local state"
             ) from exc
         return self._load_local_message_model(message_id=message_id, box=None, include_body=True)
 
