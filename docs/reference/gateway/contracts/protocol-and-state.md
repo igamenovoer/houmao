@@ -243,7 +243,10 @@ sequenceDiagram
     GW->>Q: INSERT state=accepted
     GW-->>C: 202 Accepted<br/>(request_id, queue_depth)
 
-    W->>Q: take next accepted
+    W->>Q: take next effective accepted
+    opt adjacent pending control intents
+        W->>Q: mark superseded records<br/>state=coalesced
+    end
     Q-->>W: request record
     W->>Q: UPDATE state=running
     W->>BE: submit_prompt() or interrupt()
@@ -261,6 +264,8 @@ The reminder timer path does not add a new public request kind. Reminders are re
 The notifier reminder path also does not add a new public request kind. The gateway may enqueue an internal `mail_notifier_prompt` record in `queue.sqlite`, but callers still control notifier behavior only through the dedicated `/v1/mail-notifier` routes.
 
 `POST /v1/requests` stays the semantic queued prompt surface. For headless targets, both this route and `POST /v1/control/prompt` also accept an optional request-scoped `execution.model` object with normalized `name` plus optional `reasoning.level` as a tool/model-specific preset index. Higher unused numbers saturate to the highest maintained Houmao preset for the resolved ladder, and `0` means explicit off only when that ladder supports it. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
+
+Before the worker promotes accepted durable work to `running`, it coalesces adjacent accepted control-intent records for the same managed-agent epoch. Coalescible records are limited to `interrupt` and `submit_prompt` records whose entire trimmed prompt is exactly `/compact`, `/clear`, or `/new`. Ordinary prompts, internal `mail_notifier_prompt` rows, unsupported request kinds, and different epoch values are hard boundaries. Duplicate interrupts collapse to one interrupt. Duplicate or superseded context-control prompts collapse to one final context action, with `/new` dominating `/clear` and `/compact`, and `/clear` dominating `/compact`. When a control run contains both interrupt and context action, one interrupt executes before the final context action. Superseded rows are retained as terminal `coalesced` records with result metadata and a `coalesced` gateway event; they do not contribute to active queue depth.
 
 Representative prompt submission:
 

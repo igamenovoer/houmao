@@ -55,6 +55,7 @@ GatewayStoredRequestState = Literal[
     "running",
     "completed",
     "failed",
+    "coalesced",
 ]
 GatewayMailPostReplyPolicy = Literal["none", "operator_mailbox"]
 GatewayMailReadFilter = Literal["any", "read", "unread"]

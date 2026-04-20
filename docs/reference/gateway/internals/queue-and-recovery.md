@@ -21,8 +21,9 @@ Current stored request states:
 - `running`
 - `completed`
 - `failed`
+- `coalesced`
 
-Current queue-depth reporting counts only `accepted` and `running` items. Completed and failed records remain useful for history and diagnostics, but they are not part of active queue depth.
+Current queue-depth reporting counts only `accepted` and `running` items. Completed, failed, and coalesced records remain useful for history and diagnostics, but they are not part of active queue depth.
 
 ## Current-Instance State
 
@@ -42,7 +43,8 @@ The gateway worker loop is intentionally serialized.
 
 - only one queue item can hold the active terminal-mutation slot at a time,
 - new requests are first persisted as `accepted`,
-- the worker promotes the oldest eligible request to `running`,
+- the worker coalesces adjacent pending control intents before promotion,
+- the worker promotes the next effective eligible request to `running`,
 - completion updates the record to `completed` or `failed` and appends an event.
 
 ```mermaid
@@ -54,7 +56,10 @@ sequenceDiagram
     CLI->>GW: POST /v1/requests
     GW->>Q: insert accepted record
     GW-->>CLI: accepted response
-    GW->>Q: promote next record<br/>to running
+    opt adjacent control-intent run
+        GW->>Q: mark superseded records<br/>coalesced
+    end
+    GW->>Q: promote effective record<br/>to running
     GW->>Be: submit_prompt or interrupt
     alt backend call succeeds
         GW->>Q: mark completed
@@ -62,6 +67,21 @@ sequenceDiagram
         GW->>Q: mark failed
     end
 ```
+
+## Control-Intent Coalescing
+
+The gateway treats a narrow set of queued records as coalescible control intents:
+
+- `interrupt`,
+- `submit_prompt` whose entire trimmed prompt is exactly `/compact`,
+- `submit_prompt` whose entire trimmed prompt is exactly `/clear`,
+- `submit_prompt` whose entire trimmed prompt is exactly `/new`.
+
+This policy is intentionally conservative. It does not parse command prefixes inside ordinary prose, it does not coalesce multiline prompts that merely mention commands, and it does not apply to direct `/v1/control/prompt` because that route bypasses the durable queue.
+
+When the oldest accepted queue record is a control intent, the worker scans the adjacent accepted control-intent run for the same `managed_agent_instance_epoch`. Ordinary prompts, internal `mail_notifier_prompt` records, unsupported request kinds, and different epochs stop the scan. Within the run, duplicate interrupts collapse to one interrupt, context-control prompts collapse to the strongest effective context action, `/new` supersedes `/clear` and `/compact`, and `/clear` supersedes `/compact`. If both interrupt and context action remain effective, the interrupt executes first and the context action executes afterward.
+
+Rows removed from execution are not deleted. They are marked `coalesced`, get `finished_at_utc`, and store `result_json` with the superseding request or action. The gateway also appends a `coalesced` event listing the coalesced request ids and effective actions.
 
 ## Health Versus Upstream Availability
 
@@ -110,7 +130,7 @@ Current behavior:
 
 - requests left in `accepted` state remain eligible after restart,
 - requests left in `running` state are marked failed on startup because the old process died mid-execution,
-- accepted work can be recovered and executed after restart if the upstream instance continuity is still valid,
+- accepted work can be recovered, coalesced, and executed after restart if the upstream instance continuity is still valid,
 - accepted work is preserved but not replayed when the new startup detects an epoch change that requires reconciliation.
 
 ```mermaid

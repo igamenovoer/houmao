@@ -86,6 +86,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
     GatewayJsonObject,
+    GatewayJsonValue,
     GatewayMailNotifierMode,
     GatewayMailNotifierPreNotificationContextAction,
     GatewayMailNotifierPutV1,
@@ -184,6 +185,11 @@ _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _DEFAULT_TUI_RESET_PROMPT = "/clear"
 _CODEX_TUI_RESET_PROMPT = "/new"
 _CODEX_TUI_COMPACT_PROMPT = "/compact"
+_GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS: dict[str, int] = {
+    _CODEX_TUI_COMPACT_PROMPT: 1,
+    _DEFAULT_TUI_RESET_PROMPT: 2,
+    _CODEX_TUI_RESET_PROMPT: 3,
+}
 _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
 _CODEX_DEGRADED_COMPACT_ERROR_TYPES = frozenset(
@@ -198,6 +204,7 @@ _CODEX_DEGRADED_COMPACT_ERROR_TYPES = frozenset(
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 _MemoryResponseT = TypeVar("_MemoryResponseT")
+_GatewayControlIntentAction = Literal["interrupt", "context"]
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
@@ -225,6 +232,42 @@ class _QueuedGatewayRequestRecord:
     request_kind: GatewayStoredRequestKind
     payload_json: str
     managed_agent_instance_epoch: int
+
+
+@dataclass(frozen=True)
+class _AcceptedGatewayRequestRecord:
+    """Accepted durable queue row considered for gateway execution."""
+
+    request_id: str
+    request_kind: GatewayStoredRequestKind
+    payload_json: str
+    managed_agent_instance_epoch: int
+
+
+@dataclass(frozen=True)
+class _GatewayControlIntent:
+    """Coalescible control intent parsed from one accepted queue row."""
+
+    action: _GatewayControlIntentAction
+    command: str | None = None
+
+    def effective_action_label(self) -> str:
+        """Return the compact action label used in coalescing audit records."""
+
+        if self.action == "interrupt":
+            return "interrupt"
+        assert self.command is not None
+        return f"submit_prompt:{self.command}"
+
+
+@dataclass(frozen=True)
+class _GatewayControlBlockPlan:
+    """Effective execution plan for one adjacent accepted control-intent block."""
+
+    next_record: _AcceptedGatewayRequestRecord
+    retained_request_ids: frozenset[str]
+    coalesced_into_by_request_id: dict[str, str]
+    effective_actions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -3722,35 +3765,229 @@ class GatewayServiceRuntime:
                 return None
 
             with sqlite3.connect(self.m_paths.queue_path) as connection:
-                row = connection.execute(
-                    """
-                    SELECT request_id, request_kind, payload_json, managed_agent_instance_epoch
-                    FROM gateway_requests
-                    WHERE state = 'accepted'
-                    ORDER BY accepted_at_utc ASC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                if row is None:
+                record = self._next_effective_accepted_request_locked(connection)
+                if record is None:
                     return None
-                request_id, request_kind, payload_json, epoch = row
                 connection.execute(
                     """
                     UPDATE gateway_requests
                     SET state = 'running', started_at_utc = ?
                     WHERE request_id = ?
                     """,
-                    (now_utc_iso(), request_id),
+                    (now_utc_iso(), record.request_id),
                 )
                 connection.commit()
 
             self._refresh_status_snapshot(active_execution="running")
             return _QueuedGatewayRequestRecord(
-                request_id=str(request_id),
-                request_kind=cast(GatewayStoredRequestKind, request_kind),
-                payload_json=str(payload_json),
-                managed_agent_instance_epoch=int(epoch),
+                request_id=record.request_id,
+                request_kind=record.request_kind,
+                payload_json=record.payload_json,
+                managed_agent_instance_epoch=record.managed_agent_instance_epoch,
             )
+
+    def _next_effective_accepted_request_locked(
+        self,
+        connection: sqlite3.Connection,
+    ) -> _AcceptedGatewayRequestRecord | None:
+        """Return the next executable accepted row after control-intent coalescing."""
+
+        rows = connection.execute(
+            """
+            SELECT request_id, request_kind, payload_json, managed_agent_instance_epoch
+            FROM gateway_requests
+            WHERE state = 'accepted'
+            ORDER BY accepted_at_utc ASC
+            """
+        ).fetchall()
+        records = tuple(self._accepted_gateway_request_from_row(row) for row in rows)
+        if not records:
+            return None
+
+        block = self._leading_control_intent_block(records)
+        if not block:
+            return records[0]
+
+        plan = self._plan_control_intent_coalescing(block)
+        self._apply_control_intent_coalescing_locked(
+            connection,
+            block=block,
+            plan=plan,
+        )
+        return plan.next_record
+
+    def _accepted_gateway_request_from_row(
+        self,
+        row: tuple[object, ...],
+    ) -> _AcceptedGatewayRequestRecord:
+        """Convert one accepted SQLite queue row into a typed internal record."""
+
+        request_id, request_kind, payload_json, epoch = row
+        return _AcceptedGatewayRequestRecord(
+            request_id=str(request_id),
+            request_kind=cast(GatewayStoredRequestKind, request_kind),
+            payload_json=str(payload_json),
+            managed_agent_instance_epoch=int(str(epoch)),
+        )
+
+    def _leading_control_intent_block(
+        self,
+        records: tuple[_AcceptedGatewayRequestRecord, ...],
+    ) -> tuple[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent], ...]:
+        """Return the leading adjacent coalescible control-intent block."""
+
+        if not records:
+            return ()
+        first_intent = self._coalescible_control_intent(records[0])
+        if first_intent is None:
+            return ()
+
+        epoch = records[0].managed_agent_instance_epoch
+        block: list[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent]] = [
+            (records[0], first_intent)
+        ]
+        for record in records[1:]:
+            if record.managed_agent_instance_epoch != epoch:
+                break
+            intent = self._coalescible_control_intent(record)
+            if intent is None:
+                break
+            block.append((record, intent))
+        return tuple(block)
+
+    def _coalescible_control_intent(
+        self,
+        record: _AcceptedGatewayRequestRecord,
+    ) -> _GatewayControlIntent | None:
+        """Return a control intent for one accepted queue record, when coalescible."""
+
+        if record.request_kind == "interrupt":
+            return _GatewayControlIntent(action="interrupt")
+        if record.request_kind != "submit_prompt":
+            return None
+        try:
+            payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(record.payload_json)
+        except ValidationError:
+            return None
+        command = payload.prompt.strip()
+        if command not in _GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS:
+            return None
+        return _GatewayControlIntent(action="context", command=command)
+
+    def _plan_control_intent_coalescing(
+        self,
+        block: tuple[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent], ...],
+    ) -> _GatewayControlBlockPlan:
+        """Build the effective execution plan for one adjacent control-intent block."""
+
+        interrupt_record = next(
+            (record for record, intent in block if intent.action == "interrupt"),
+            None,
+        )
+        context_record: _AcceptedGatewayRequestRecord | None = None
+        context_rank = -1
+        for record, intent in block:
+            if intent.action != "context":
+                continue
+            assert intent.command is not None
+            rank = _GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS[intent.command]
+            if rank >= context_rank:
+                context_record = record
+                context_rank = rank
+
+        retained_request_ids: set[str] = set()
+        effective_actions: list[str] = []
+        if interrupt_record is not None:
+            retained_request_ids.add(interrupt_record.request_id)
+            effective_actions.append("interrupt")
+        if context_record is not None:
+            retained_request_ids.add(context_record.request_id)
+            context_intent = self._coalescible_control_intent(context_record)
+            assert context_intent is not None
+            effective_actions.append(context_intent.effective_action_label())
+
+        next_record = interrupt_record or context_record
+        assert next_record is not None
+
+        coalesced_into_by_request_id: dict[str, str] = {}
+        for record, intent in block:
+            if record.request_id in retained_request_ids:
+                continue
+            if intent.action == "interrupt" and interrupt_record is not None:
+                coalesced_into_by_request_id[record.request_id] = interrupt_record.request_id
+            elif intent.action == "context" and context_record is not None:
+                coalesced_into_by_request_id[record.request_id] = context_record.request_id
+            else:
+                coalesced_into_by_request_id[record.request_id] = next_record.request_id
+
+        return _GatewayControlBlockPlan(
+            next_record=next_record,
+            retained_request_ids=frozenset(retained_request_ids),
+            coalesced_into_by_request_id=coalesced_into_by_request_id,
+            effective_actions=tuple(effective_actions),
+        )
+
+    def _apply_control_intent_coalescing_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        block: tuple[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent], ...],
+        plan: _GatewayControlBlockPlan,
+    ) -> None:
+        """Persist terminal coalesced state for skipped control-intent records."""
+
+        if not plan.coalesced_into_by_request_id:
+            return
+
+        coalesced_at_utc = now_utc_iso()
+        coalesced_request_ids: list[str] = []
+        for record, intent in block:
+            coalesced_into_request_id = plan.coalesced_into_by_request_id.get(record.request_id)
+            if coalesced_into_request_id is None:
+                continue
+            coalesced_request_ids.append(record.request_id)
+            result_json: GatewayJsonObject = {
+                "coalesced_at_utc": coalesced_at_utc,
+                "coalesced_into_request_id": coalesced_into_request_id,
+                "coalesced_reason": "superseded_control_intent",
+                "effective_actions": cast(GatewayJsonValue, list(plan.effective_actions)),
+                "original_action": intent.effective_action_label(),
+            }
+            connection.execute(
+                """
+                UPDATE gateway_requests
+                SET state = 'coalesced',
+                    finished_at_utc = ?,
+                    result_json = ?
+                WHERE request_id = ?
+                """,
+                (
+                    coalesced_at_utc,
+                    json.dumps(result_json, sort_keys=True),
+                    record.request_id,
+                ),
+            )
+
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "coalesced",
+                "coalesced_at_utc": coalesced_at_utc,
+                "coalesced_request_ids": cast(GatewayJsonValue, coalesced_request_ids),
+                "effective_request_ids": cast(
+                    GatewayJsonValue,
+                    sorted(plan.retained_request_ids),
+                ),
+                "effective_actions": cast(GatewayJsonValue, list(plan.effective_actions)),
+                "next_request_id": plan.next_record.request_id,
+            },
+        )
+        self._log(
+            "coalesced gateway control requests "
+            f"request_ids={','.join(coalesced_request_ids)} "
+            f"effective_actions={','.join(plan.effective_actions)}"
+        )
+        self.m_reminder_condition.notify_all()
 
     def _execute_request(self, *, request_record: _QueuedGatewayRequestRecord) -> None:
         """Execute one running request against the managed CAO terminal.
@@ -3766,28 +4003,27 @@ class GatewayServiceRuntime:
         payload_json = request_record.payload_json
         accepted_epoch = request_record.managed_agent_instance_epoch
 
+        early_error_detail: str | None = None
         with self.m_lock:
             self._refresh_status_snapshot(active_execution="running")
             if accepted_epoch != self.m_current_epoch:
-                self._finish_request(
-                    request_id=request_id,
-                    state="failed",
-                    error_detail=(
-                        "Request was accepted for a previous managed-agent instance epoch and "
-                        "will not be replayed automatically."
-                    ),
-                    result_json=None,
+                early_error_detail = (
+                    "Request was accepted for a previous managed-agent instance epoch and "
+                    "will not be replayed automatically."
                 )
-                return
-            if self.m_current_instance_id is None:
-                self._finish_request(
-                    request_id=request_id,
-                    state="failed",
-                    error_detail="Managed agent is unavailable.",
-                    result_json=None,
-                )
-                return
-            self._log(f"executing gateway request request_id={request_id} kind={request_kind}")
+            elif self.m_current_instance_id is None:
+                early_error_detail = "Managed agent is unavailable."
+            else:
+                self._log(f"executing gateway request request_id={request_id} kind={request_kind}")
+
+        if early_error_detail is not None:
+            self._finish_request(
+                request_id=request_id,
+                state="failed",
+                error_detail=early_error_detail,
+                result_json=None,
+            )
+            return
 
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:

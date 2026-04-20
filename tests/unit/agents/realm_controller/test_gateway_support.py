@@ -76,6 +76,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     GatewayCapabilityPublication,
+    GatewayPaths,
     ensure_gateway_capability,
     gateway_paths_from_manifest_path,
     load_gateway_current_instance,
@@ -4571,6 +4572,278 @@ def test_gateway_service_restart_recovers_accepted_requests(
     runtime.shutdown()
 
     assert fake_client.submitted_prompts == [("term-123", "queued")]
+
+
+def _insert_gateway_queue_row(
+    paths: GatewayPaths,
+    *,
+    request_id: str,
+    request_kind: str,
+    payload: dict[str, object],
+    accepted_at_utc: str,
+    epoch: int = 1,
+) -> None:
+    with sqlite3.connect(paths.queue_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO gateway_requests (
+                request_id,
+                request_kind,
+                payload_json,
+                state,
+                accepted_at_utc,
+                managed_agent_instance_epoch
+            )
+            VALUES (?, ?, ?, 'accepted', ?, ?)
+            """,
+            (
+                request_id,
+                request_kind,
+                json.dumps(payload, sort_keys=True),
+                accepted_at_utc,
+                epoch,
+            ),
+        )
+        connection.commit()
+
+
+def _gateway_queue_rows(paths: GatewayPaths) -> dict[str, tuple[str, str | None]]:
+    with sqlite3.connect(paths.queue_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT request_id, state, result_json
+            FROM gateway_requests
+            ORDER BY accepted_at_utc ASC
+            """
+        ).fetchall()
+    return {str(request_id): (str(state), result_json) for request_id, state, result_json in rows}
+
+
+def _gateway_events(paths: GatewayPaths) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in paths.events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _wait_for_gateway_queue_idle(runtime: GatewayServiceRuntime) -> None:
+    def _is_idle() -> bool:
+        status = runtime.status()
+        return status.queue_depth == 0 and status.active_execution == "idle"
+
+    _wait_until(_is_idle, timeout_seconds=5.0)
+
+
+def _start_cao_gateway_with_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rows: list[tuple[str, str, dict[str, object], int]],
+) -> tuple[GatewayServiceRuntime, GatewayPaths, _FakeCaoRestClient]:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    )
+    assert paths is not None
+    for index, (request_id, request_kind, payload, epoch) in enumerate(rows):
+        _insert_gateway_queue_row(
+            paths,
+            request_id=request_id,
+            request_kind=request_kind,
+            payload=payload,
+            accepted_at_utc=f"2026-03-13T00:00:{index:02d}+00:00",
+            epoch=epoch,
+        )
+
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    return runtime, paths, fake_client
+
+
+def test_gateway_service_coalesces_duplicate_interrupts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, paths, fake_client = _start_cao_gateway_with_rows(
+        tmp_path,
+        monkeypatch,
+        [
+            ("gwreq-1", "interrupt", {}, 1),
+            ("gwreq-2", "interrupt", {}, 1),
+            ("gwreq-3", "interrupt", {}, 1),
+        ],
+    )
+    try:
+        _wait_for_gateway_queue_idle(runtime)
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.submitted_prompts == [("term-123", "<interrupt>")]
+    rows = _gateway_queue_rows(paths)
+    assert rows["gwreq-1"][0] == "completed"
+    assert rows["gwreq-2"][0] == "coalesced"
+    assert rows["gwreq-3"][0] == "coalesced"
+
+
+def test_gateway_service_coalesces_duplicate_compact_prompts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, paths, fake_client = _start_cao_gateway_with_rows(
+        tmp_path,
+        monkeypatch,
+        [
+            ("gwreq-1", "submit_prompt", {"prompt": "/compact"}, 1),
+            ("gwreq-2", "submit_prompt", {"prompt": " /compact\n"}, 1),
+            ("gwreq-3", "submit_prompt", {"prompt": "/compact"}, 1),
+        ],
+    )
+    try:
+        _wait_for_gateway_queue_idle(runtime)
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.submitted_prompts == [("term-123", "/compact")]
+    rows = _gateway_queue_rows(paths)
+    assert rows["gwreq-1"][0] == "coalesced"
+    assert rows["gwreq-2"][0] == "coalesced"
+    assert rows["gwreq-3"][0] == "completed"
+
+
+def test_gateway_service_context_control_supersession_uses_strongest_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, paths, fake_client = _start_cao_gateway_with_rows(
+        tmp_path,
+        monkeypatch,
+        [
+            ("gwreq-1", "submit_prompt", {"prompt": "/compact"}, 1),
+            ("gwreq-2", "submit_prompt", {"prompt": "/clear"}, 1),
+            ("gwreq-3", "submit_prompt", {"prompt": "/new"}, 1),
+        ],
+    )
+    try:
+        _wait_for_gateway_queue_idle(runtime)
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.submitted_prompts == [("term-123", "/new")]
+    rows = _gateway_queue_rows(paths)
+    assert rows["gwreq-1"][0] == "coalesced"
+    assert rows["gwreq-2"][0] == "coalesced"
+    assert rows["gwreq-3"][0] == "completed"
+
+
+def test_gateway_service_mixed_control_block_runs_interrupt_before_final_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, paths, fake_client = _start_cao_gateway_with_rows(
+        tmp_path,
+        monkeypatch,
+        [
+            ("gwreq-1", "submit_prompt", {"prompt": "/compact"}, 1),
+            ("gwreq-2", "interrupt", {}, 1),
+            ("gwreq-3", "submit_prompt", {"prompt": "/clear"}, 1),
+            ("gwreq-4", "submit_prompt", {"prompt": "/new"}, 1),
+        ],
+    )
+    try:
+        _wait_for_gateway_queue_idle(runtime)
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.submitted_prompts == [
+        ("term-123", "<interrupt>"),
+        ("term-123", "/new"),
+    ]
+    rows = _gateway_queue_rows(paths)
+    assert rows["gwreq-1"][0] == "coalesced"
+    assert rows["gwreq-2"][0] == "completed"
+    assert rows["gwreq-3"][0] == "coalesced"
+    assert rows["gwreq-4"][0] == "completed"
+
+
+def test_gateway_service_control_coalescing_respects_prompt_notifier_and_epoch_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, paths, fake_client = _start_cao_gateway_with_rows(
+        tmp_path,
+        monkeypatch,
+        [
+            ("gwreq-1", "submit_prompt", {"prompt": "/compact"}, 1),
+            ("gwreq-2", "submit_prompt", {"prompt": "ordinary prompt"}, 1),
+            ("gwreq-3", "submit_prompt", {"prompt": "/new"}, 1),
+            ("gwreq-4", "mail_notifier_prompt", {"prompt": "/new"}, 1),
+            ("gwreq-5", "submit_prompt", {"prompt": "/clear"}, 1),
+            ("gwreq-6", "submit_prompt", {"prompt": "/new"}, 2),
+        ],
+    )
+    try:
+        _wait_for_gateway_queue_idle(runtime)
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.submitted_prompts == [
+        ("term-123", "/compact"),
+        ("term-123", "ordinary prompt"),
+        ("term-123", "/new"),
+        ("term-123", "/new"),
+        ("term-123", "/clear"),
+    ]
+    rows = _gateway_queue_rows(paths)
+    assert rows["gwreq-1"][0] == "completed"
+    assert rows["gwreq-2"][0] == "completed"
+    assert rows["gwreq-3"][0] == "completed"
+    assert rows["gwreq-4"][0] == "completed"
+    assert rows["gwreq-5"][0] == "completed"
+    assert rows["gwreq-6"][0] == "failed"
+
+
+def test_gateway_service_control_coalescing_records_audit_and_excludes_queue_depth(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, paths, fake_client = _start_cao_gateway_with_rows(
+        tmp_path,
+        monkeypatch,
+        [
+            ("gwreq-1", "submit_prompt", {"prompt": "/compact"}, 1),
+            ("gwreq-2", "submit_prompt", {"prompt": "/new"}, 1),
+        ],
+    )
+    try:
+        _wait_for_gateway_queue_idle(runtime)
+        status = runtime.status()
+    finally:
+        runtime.shutdown()
+
+    assert fake_client.submitted_prompts == [("term-123", "/new")]
+    assert status.queue_depth == 0
+    rows = _gateway_queue_rows(paths)
+    state, result_json = rows["gwreq-1"]
+    assert state == "coalesced"
+    assert result_json is not None
+    result = json.loads(result_json)
+    assert result["coalesced_into_request_id"] == "gwreq-2"
+    assert result["coalesced_reason"] == "superseded_control_intent"
+    assert result["effective_actions"] == ["submit_prompt:/new"]
+    events = _gateway_events(paths)
+    coalesced_events = [event for event in events if event.get("kind") == "coalesced"]
+    assert coalesced_events
+    assert coalesced_events[-1]["coalesced_request_ids"] == ["gwreq-1"]
+    assert coalesced_events[-1]["effective_actions"] == ["submit_prompt:/new"]
 
 
 def test_gateway_service_blocks_replay_when_instance_changes(
