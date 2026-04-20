@@ -38,8 +38,17 @@ RECOGNIZED_ROOTS = {"wiki", "raw", "log", "audit", "outputs"}
 
 # Required audit frontmatter fields
 AUDIT_REQUIRED_FIELDS = {
-    "id", "target", "target_lines", "anchor_before", "anchor_text",
-    "anchor_after", "severity", "author", "source", "created", "status",
+    "id",
+    "target",
+    "target_lines",
+    "anchor_before",
+    "anchor_text",
+    "anchor_after",
+    "severity",
+    "author",
+    "source",
+    "created",
+    "status",
 }
 VALID_SEVERITIES = {"info", "suggest", "warn", "error"}
 VALID_STATUSES = {"open", "resolved"}
@@ -141,7 +150,9 @@ def build_vault_index(root_path: Path) -> tuple[dict[str, ResolvedTarget], dict[
     return by_key, article_pages
 
 
-def resolve_target(root_path: Path, index: dict[str, ResolvedTarget], target: str) -> ResolvedTarget:
+def resolve_target(
+    root_path: Path, index: dict[str, ResolvedTarget], target: str
+) -> ResolvedTarget:
     target = target.strip().strip("/")
     if not target:
         return ResolvedTarget(kind="unknown", exists=False, canonical=target, file_path=None)
@@ -154,10 +165,14 @@ def resolve_target(root_path: Path, index: dict[str, ResolvedTarget], target: st
 
     top = no_suffix.split("/", 1)[0]
     if top in RECOGNIZED_ROOTS:
-        return ResolvedTarget(kind=target_kind(no_suffix), exists=False, canonical=no_suffix, file_path=None)
+        return ResolvedTarget(
+            kind=target_kind(no_suffix), exists=False, canonical=no_suffix, file_path=None
+        )
 
     if no_suffix.startswith(ARTICLE_LEGACY_PREFIXES):
-        return ResolvedTarget(kind="article", exists=False, canonical=f"wiki/{no_suffix}", file_path=None, legacy=True)
+        return ResolvedTarget(
+            kind="article", exists=False, canonical=f"wiki/{no_suffix}", file_path=None, legacy=True
+        )
 
     return ResolvedTarget(kind="unknown", exists=False, canonical=no_suffix, file_path=None)
 
@@ -241,11 +256,13 @@ def lint(root: str) -> int:
             if resolved.kind == "article":
                 inbound[resolved.canonical].append(canonical_rel(root_path, md_file))
             if resolved.legacy:
-                noncanonical_links.append((
-                    str(md_file.relative_to(root_path)),
-                    link.raw,
-                    resolved.canonical,
-                ))
+                noncanonical_links.append(
+                    (
+                        str(md_file.relative_to(root_path)),
+                        link.raw,
+                        resolved.canonical,
+                    )
+                )
 
     if dead_links:
         print(f"\n🔴 Dead wikilinks ({len(dead_links)}):")
@@ -266,7 +283,8 @@ def lint(root: str) -> int:
     # ── Pass 2: orphan pages ────────────────────────────────────────────────
     skip_orphan = {"wiki/index"}
     orphans = [
-        p for canonical, p in article_pages.items()
+        p
+        for canonical, p in article_pages.items()
         if canonical not in inbound and canonical not in skip_orphan
     ]
     if orphans:
@@ -281,7 +299,8 @@ def lint(root: str) -> int:
     if index_path.exists():
         index_text = index_path.read_text(encoding="utf-8")
         not_in_index = [
-            p for canonical, p in article_pages.items()
+            p
+            for canonical, p in article_pages.items()
             if p != index_path
             and canonical not in index_text
             and str(p.relative_to(wiki_path).with_suffix("")) not in index_text
@@ -306,7 +325,8 @@ def lint(root: str) -> int:
             link_counts[link.target] += 1
 
     missing_pages = [
-        (link, count) for link, count in link_counts.items()
+        (link, count)
+        for link, count in link_counts.items()
         if count >= 3 and not resolve_target(root_path, vault_index, link).exists
     ]
     if missing_pages:
@@ -327,7 +347,9 @@ def lint(root: str) -> int:
                 continue
             m = LOG_FILENAME_RE.match(p.name)
             if not m:
-                log_issues.append(f"   {p.relative_to(root_path)} — filename doesn't match YYYYMMDD.md")
+                log_issues.append(
+                    f"   {p.relative_to(root_path)} — filename doesn't match YYYYMMDD.md"
+                )
                 continue
             y, mo, d = m.groups()
             iso = f"{y}-{mo}-{d}"
@@ -347,9 +369,7 @@ def lint(root: str) -> int:
     # ── Pass 6: audit/ shape ─────────────────────────────────────────────────
     audit_targets_to_check: list[tuple[str, str]] = []  # (audit_id, target)
     if audit_path.exists() and audit_path.is_dir():
-        audit_files = [
-            p for p in audit_path.rglob("*.md") if p.name != ".gitkeep"
-        ]
+        audit_files = [p for p in audit_path.rglob("*.md") if p.name != ".gitkeep"]
         audit_issues: list[str] = []
         for p in audit_files:
             text = p.read_text(encoding="utf-8")
@@ -360,18 +380,14 @@ def lint(root: str) -> int:
                 continue
             missing = AUDIT_REQUIRED_FIELDS - set(fm.keys())
             if missing:
-                audit_issues.append(
-                    f"   {rel} — missing fields: {', '.join(sorted(missing))}"
-                )
+                audit_issues.append(f"   {rel} — missing fields: {', '.join(sorted(missing))}")
                 continue
             if fm["severity"] not in VALID_SEVERITIES:
                 audit_issues.append(
                     f"   {rel} — invalid severity '{fm['severity']}' (expected {sorted(VALID_SEVERITIES)})"
                 )
             if fm["source"] not in VALID_SOURCES:
-                audit_issues.append(
-                    f"   {rel} — invalid source '{fm['source']}'"
-                )
+                audit_issues.append(f"   {rel} — invalid source '{fm['source']}'")
             expected_status = "resolved" if "resolved" in p.parts else "open"
             if fm["status"] != expected_status:
                 audit_issues.append(
@@ -405,7 +421,7 @@ def lint(root: str) -> int:
         print("✅ All open-audit targets exist")
 
     # ── Summary ─────────────────────────────────────────────────────────────
-    print(f"\n{'─'*40}")
+    print(f"\n{'─' * 40}")
     if issues == 0:
         print("✅ Wiki is healthy — no issues found")
     else:

@@ -207,9 +207,7 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "For `in-repo` memo seeds" in skill_text
     assert "The repo root is the shared visibility surface." in in_repo_text
     assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
-    assert "| `<repo-root>/houmao-ws/<agent-name>/kb/**` | yes | yes | yes | no |" in (
-        in_repo_text
-    )
+    assert "| `<repo-root>/houmao-ws/<agent-name>/kb/**` | yes | yes | yes | no |" in (in_repo_text)
     assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
 
 

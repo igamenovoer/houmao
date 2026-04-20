@@ -58,7 +58,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailMoveRequestV1,
     GatewayExecutionOverrideV1,
     GatewayMailAnsweredFilter,
+    GatewayMailNotifierContextErrorPolicy,
     GatewayMailNotifierMode,
+    GatewayMailNotifierPreNotificationContextAction,
     GatewayMailPostRequestV1,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
@@ -1135,6 +1137,8 @@ def gateway_mail_notifier_enable(
     interval_seconds: int,
     mode: GatewayMailNotifierMode = "any_inbox",
     appendix_text: str | None = None,
+    context_error_policy: GatewayMailNotifierContextErrorPolicy = "continue_current",
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction = "none",
 ) -> GatewayMailNotifierStatusV1:
     """Enable or update gateway mail-notifier state for one managed agent."""
 
@@ -1143,9 +1147,16 @@ def gateway_mail_notifier_enable(
             interval_seconds=interval_seconds,
             mode=mode,
             appendix_text=appendix_text,
+            context_error_policy=context_error_policy,
+            pre_notification_context_action=pre_notification_context_action,
         )
         if appendix_text is not None
-        else GatewayMailNotifierPutV1(interval_seconds=interval_seconds, mode=mode)
+        else GatewayMailNotifierPutV1(
+            interval_seconds=interval_seconds,
+            mode=mode,
+            context_error_policy=context_error_policy,
+            pre_notification_context_action=pre_notification_context_action,
+        )
     )
     if target.mode == "server":
         assert target.client is not None

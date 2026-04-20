@@ -12,6 +12,7 @@ from houmao.shared_tui_tracking.detectors import (
 )
 from houmao.shared_tui_tracking.models import (
     CompletionState,
+    DegradedChatContextDiagnostic,
     DetectedTurnSignals,
     ParseStatus,
     ParsedSurfaceContext,
@@ -53,6 +54,7 @@ __all__ = [
     "CodexTrackedTurnSignalDetector",
     "CodexTuiSignalDetector",
     "CompletionState",
+    "DegradedChatContextDiagnostic",
     "DetectedTurnSignals",
     "FallbackClaudeDetector",
     "FallbackTrackedTurnSignalDetector",

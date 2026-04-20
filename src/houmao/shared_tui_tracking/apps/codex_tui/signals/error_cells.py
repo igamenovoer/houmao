@@ -15,6 +15,24 @@ _DEGRADED_COMPACT_RE = re.compile(
     r"(?:fail|error|disconnect|server|stream)|(?:server|stream|remote)\b.*\bcompact)\b",
     re.IGNORECASE,
 )
+_CODEX_REMOTE_COMPACT_STREAM_DISCONNECTED_RE = re.compile(
+    r"\b(stream|connection|response\s+body|socket)\b.*\b(disconnect|closed|lost|ended)|"
+    r"\b(disconnect|closed|lost|ended)\b.*\b(stream|connection|response\s+body|socket)\b",
+    re.IGNORECASE,
+)
+_CODEX_REMOTE_COMPACT_CONTEXT_LENGTH_RE = re.compile(
+    r"\b(context_length_exceeded|context\s+length|context\s+window|ran\s+out\s+of\s+room)\b",
+    re.IGNORECASE,
+)
+_CODEX_REMOTE_COMPACT_UNKNOWN_PARAMETER_RE = re.compile(
+    r"\b(unknown|unrecognized|unsupported)\s+(?:parameter|param|argument|field)\b",
+    re.IGNORECASE,
+)
+_CODEX_REMOTE_COMPACT_SERVER_ERROR_RE = re.compile(
+    r"\b(server\s+error|internal\s+server\s+error|bad\s+gateway|gateway\s+timeout|"
+    r"service\s+unavailable|5\d\d)\b",
+    re.IGNORECASE,
+)
 _KNOWN_TERMINAL_FAILURE_RE = re.compile(
     r"\b("
     r"server\s+overload(?:ed)?|"
@@ -30,6 +48,10 @@ _KNOWN_TERMINAL_FAILURE_RE = re.compile(
 )
 DEGRADED_CHAT_CONTEXT_NOTE = "chat_context=degraded"
 KNOWN_FAILURE_NOTE = "known_failure_signal_detected"
+CODEX_REMOTE_COMPACT_STREAM_DISCONNECTED = "codex_remote_compact_stream_disconnected"
+CODEX_REMOTE_COMPACT_CONTEXT_LENGTH_EXCEEDED = "codex_remote_compact_context_length_exceeded"
+CODEX_REMOTE_COMPACT_UNKNOWN_PARAMETER = "codex_remote_compact_unknown_parameter"
+CODEX_REMOTE_COMPACT_SERVER_ERROR = "codex_remote_compact_server_error"
 
 
 @dataclass(frozen=True)
@@ -39,6 +61,7 @@ class PromptAdjacentTerminalSignal:
     block_text: str
     marker: str
     degraded_context: bool
+    degraded_error_type: str | None
     known_failure: bool
 
     @property
@@ -83,6 +106,7 @@ def prompt_adjacent_terminal_signal(
                 block_text=block_text,
                 marker="error",
                 degraded_context=is_degraded_error_cell(block_text),
+                degraded_error_type=degraded_error_type(block_text),
                 known_failure=_is_known_terminal_failure(block_text),
             )
         if _CODEX_WARNING_CELL_RE.match(line) is not None:
@@ -93,6 +117,7 @@ def prompt_adjacent_terminal_signal(
                 block_text=block_text,
                 marker="warning",
                 degraded_context=is_degraded_error_cell(block_text),
+                degraded_error_type=degraded_error_type(block_text),
                 known_failure=True,
             )
         if not _can_belong_to_prompt_adjacent_error_block(line):
@@ -110,6 +135,22 @@ def is_degraded_error_cell(error_line: str | None) -> bool:
     if error_line is None:
         return False
     return _DEGRADED_COMPACT_RE.search(error_line) is not None
+
+
+def degraded_error_type(error_line: str | None) -> str | None:
+    """Return the Codex-scoped degraded error type for one prompt-adjacent error."""
+
+    if error_line is None or not is_degraded_error_cell(error_line):
+        return None
+    if _CODEX_REMOTE_COMPACT_STREAM_DISCONNECTED_RE.search(error_line) is not None:
+        return CODEX_REMOTE_COMPACT_STREAM_DISCONNECTED
+    if _CODEX_REMOTE_COMPACT_CONTEXT_LENGTH_RE.search(error_line) is not None:
+        return CODEX_REMOTE_COMPACT_CONTEXT_LENGTH_EXCEEDED
+    if _CODEX_REMOTE_COMPACT_UNKNOWN_PARAMETER_RE.search(error_line) is not None:
+        return CODEX_REMOTE_COMPACT_UNKNOWN_PARAMETER
+    if _CODEX_REMOTE_COMPACT_SERVER_ERROR_RE.search(error_line) is not None:
+        return CODEX_REMOTE_COMPACT_SERVER_ERROR
+    return "unknown"
 
 
 def _can_belong_to_prompt_adjacent_error_block(line: str) -> bool:

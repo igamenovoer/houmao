@@ -61,6 +61,8 @@ GatewayMailReadFilter = Literal["any", "read", "unread"]
 GatewayMailAnsweredFilter = Literal["any", "answered", "unanswered"]
 GatewayMailLifecycleOperation = Literal["mark", "move", "archive"]
 GatewayMailNotifierMode = Literal["any_inbox", "unread_only"]
+GatewayMailNotifierContextErrorPolicy = Literal["continue_current", "clear_context"]
+GatewayMailNotifierPreNotificationContextAction = Literal["none", "compact"]
 GatewayJsonScalar: TypeAlias = str | int | float | bool | None
 GatewayJsonValue: TypeAlias = (
     GatewayJsonScalar | list["GatewayJsonValue"] | dict[str, "GatewayJsonValue"]
@@ -81,6 +83,10 @@ GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_SCHEMA_VERSION = 1
 GATEWAY_MEMORY_SCHEMA_VERSION = 1
 DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE: GatewayMailNotifierMode = "any_inbox"
+DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY: GatewayMailNotifierContextErrorPolicy = (
+    "continue_current"
+)
+DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION: GatewayMailNotifierPreNotificationContextAction = "none"
 DEFAULT_GATEWAY_TUI_WATCH_POLL_INTERVAL_SECONDS = 0.5
 DEFAULT_GATEWAY_TUI_STABILITY_THRESHOLD_SECONDS = 1.0
 DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS = 1.0
@@ -1371,6 +1377,12 @@ class GatewayMailNotifierPutV1(_StrictGatewayModel):
     interval_seconds: int
     mode: GatewayMailNotifierMode = Field(default=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE)
     appendix_text: str = ""
+    context_error_policy: GatewayMailNotifierContextErrorPolicy = Field(
+        default=DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY
+    )
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction = Field(
+        default=DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION
+    )
 
     @field_validator("interval_seconds")
     @classmethod
@@ -1398,6 +1410,12 @@ class GatewayMailNotifierStatusV1(_StrictGatewayModel):
     interval_seconds: int | None = None
     mode: GatewayMailNotifierMode = Field(default=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE)
     appendix_text: str = ""
+    context_error_policy: GatewayMailNotifierContextErrorPolicy = Field(
+        default=DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY
+    )
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction = Field(
+        default=DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION
+    )
     supported: bool
     support_error: str | None = None
     last_poll_at_utc: str | None = None

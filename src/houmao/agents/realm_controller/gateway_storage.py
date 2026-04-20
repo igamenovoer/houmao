@@ -15,7 +15,9 @@ from pydantic import ValidationError
 
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
+    DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY,
     DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
+    DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION,
     GATEWAY_PROTOCOL_VERSION,
     BlueprintGatewayDefaults,
     GatewayAttachBackendMetadataCaoV1,
@@ -31,6 +33,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayJsonValue,
     GatewayAdmissionState,
     GatewayMailNotifierMode,
+    GatewayMailNotifierContextErrorPolicy,
+    GatewayMailNotifierPreNotificationContextAction,
     GatewayMailNotifierStatusV1,
     GatewayProtocolVersion,
     GatewayStatusV1,
@@ -119,6 +123,8 @@ class GatewayMailNotifierRecord:
     interval_seconds: int | None
     mode: GatewayMailNotifierMode
     appendix_text: str
+    context_error_policy: GatewayMailNotifierContextErrorPolicy
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction
     last_poll_at_utc: str | None
     last_notification_at_utc: str | None
     last_notified_digest: str | None
@@ -130,6 +136,8 @@ GatewayNotifierAuditOutcome = Literal[
     "dedup_skip",
     "busy_skip",
     "enqueued",
+    "pre_notification_context_error",
+    "context_recovery_error",
     "poll_error",
 ]
 
@@ -159,6 +167,11 @@ class GatewayNotifierAuditRecord:
     outcome: GatewayNotifierAuditOutcome
     enqueued_request_id: str | None
     detail: str | None
+    context_error_policy: GatewayMailNotifierContextErrorPolicy
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction
+    context_action_outcome: str | None
+    degraded_tool_name: str | None
+    degraded_error_type: str | None
 
 
 class _TmuxEnvSetter(Protocol):
@@ -880,6 +893,10 @@ def write_gateway_mail_notifier_record(
     interval_seconds: int | None | object = _UNSET,
     mode: GatewayMailNotifierMode | object = _UNSET,
     appendix_text: str | object = _UNSET,
+    context_error_policy: GatewayMailNotifierContextErrorPolicy | object = _UNSET,
+    pre_notification_context_action: (
+        GatewayMailNotifierPreNotificationContextAction | object
+    ) = _UNSET,
     last_poll_at_utc: str | None | object = _UNSET,
     last_notification_at_utc: str | None | object = _UNSET,
     last_notified_digest: str | None | object = _UNSET,
@@ -899,6 +916,19 @@ def write_gateway_mail_notifier_record(
             mode=record.mode if mode is _UNSET else cast(GatewayMailNotifierMode, mode),
             appendix_text=(
                 record.appendix_text if appendix_text is _UNSET else cast(str, appendix_text)
+            ),
+            context_error_policy=(
+                record.context_error_policy
+                if context_error_policy is _UNSET
+                else cast(GatewayMailNotifierContextErrorPolicy, context_error_policy)
+            ),
+            pre_notification_context_action=(
+                record.pre_notification_context_action
+                if pre_notification_context_action is _UNSET
+                else cast(
+                    GatewayMailNotifierPreNotificationContextAction,
+                    pre_notification_context_action,
+                )
             ),
             last_poll_at_utc=(
                 record.last_poll_at_utc
@@ -935,6 +965,8 @@ def build_gateway_mail_notifier_status(
         interval_seconds=record.interval_seconds,
         mode=record.mode,
         appendix_text=record.appendix_text,
+        context_error_policy=record.context_error_policy,
+        pre_notification_context_action=record.pre_notification_context_action,
         supported=supported,
         support_error=support_error,
         last_poll_at_utc=record.last_poll_at_utc,
@@ -956,6 +988,15 @@ def append_gateway_notifier_audit_record(
     outcome: GatewayNotifierAuditOutcome,
     enqueued_request_id: str | None = None,
     detail: str | None = None,
+    context_error_policy: GatewayMailNotifierContextErrorPolicy = (
+        DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY
+    ),
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction = (
+        DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION
+    ),
+    context_action_outcome: str | None = None,
+    degraded_tool_name: str | None = None,
+    degraded_error_type: str | None = None,
 ) -> GatewayNotifierAuditRecord:
     """Append one notifier audit row and return the persisted record."""
 
@@ -973,9 +1014,14 @@ def append_gateway_notifier_audit_record(
                 queue_depth,
                 outcome,
                 enqueued_request_id,
-                detail
+                detail,
+                context_error_policy,
+                pre_notification_context_action,
+                context_action_outcome,
+                degraded_tool_name,
+                degraded_error_type
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 poll_time_utc,
@@ -988,6 +1034,11 @@ def append_gateway_notifier_audit_record(
                 outcome,
                 enqueued_request_id,
                 detail,
+                context_error_policy,
+                pre_notification_context_action,
+                context_action_outcome,
+                degraded_tool_name,
+                degraded_error_type,
             ),
         )
         row = connection.execute("SELECT last_insert_rowid()").fetchone()
@@ -1008,6 +1059,11 @@ def append_gateway_notifier_audit_record(
         outcome=outcome,
         enqueued_request_id=enqueued_request_id,
         detail=detail,
+        context_error_policy=context_error_policy,
+        pre_notification_context_action=pre_notification_context_action,
+        context_action_outcome=context_action_outcome,
+        degraded_tool_name=degraded_tool_name,
+        degraded_error_type=degraded_error_type,
     )
 
 
@@ -1035,7 +1091,12 @@ def read_gateway_notifier_audit_records(
             queue_depth,
             outcome,
             enqueued_request_id,
-            detail
+            detail,
+            context_error_policy,
+            pre_notification_context_action,
+            context_action_outcome,
+            degraded_tool_name,
+            degraded_error_type
         FROM gateway_notifier_audit
         ORDER BY audit_id DESC
     """
@@ -1314,6 +1375,7 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
     """Create or validate the durable gateway queue schema."""
 
     if _has_gateway_queue_tables(connection):
+        _migrate_gateway_queue_schema(connection)
         _validate_current_gateway_queue_schema(connection)
     else:
         connection.executescript(_gateway_queue_schema_sql())
@@ -1326,22 +1388,146 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
             interval_seconds,
             mode,
             appendix_text,
+            context_error_policy,
+            pre_notification_context_action,
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
             last_error,
             updated_at_utc
         )
-        VALUES (1, 0, NULL, ?, '', NULL, NULL, NULL, NULL, ?)
+        VALUES (1, 0, NULL, ?, '', ?, ?, NULL, NULL, NULL, NULL, ?)
         """,
-        (DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE, now_utc_iso()),
+        (
+            DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
+            DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY,
+            DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION,
+            now_utc_iso(),
+        ),
     )
+
+
+def _migrate_gateway_queue_schema(connection: sqlite3.Connection) -> None:
+    """Apply additive gateway queue schema migrations for notifier-owned tables."""
+
+    notifier_columns = _sqlite_table_columns(connection, "gateway_mail_notifier")
+    if notifier_columns:
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="mode",
+            definition="mode TEXT NOT NULL DEFAULT 'any_inbox'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="appendix_text",
+            definition="appendix_text TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="context_error_policy",
+            definition="context_error_policy TEXT NOT NULL DEFAULT 'continue_current'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="pre_notification_context_action",
+            definition="pre_notification_context_action TEXT NOT NULL DEFAULT 'none'",
+        )
+
+    audit_columns = _sqlite_table_columns(connection, "gateway_notifier_audit")
+    if audit_columns:
+        audit_sql_row = connection.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'gateway_notifier_audit'
+            """
+        ).fetchone()
+        audit_sql = (
+            "" if audit_sql_row is None or audit_sql_row[0] is None else str(audit_sql_row[0])
+        )
+        if (
+            "context_error_policy" not in audit_columns
+            or "pre_notification_context_action" not in audit_columns
+            or "degraded_tool_name" not in audit_columns
+            or "pre_notification_context_error" not in audit_sql
+        ):
+            _rebuild_gateway_notifier_audit_table(connection, present_columns=audit_columns)
+
+
+def _add_column_if_missing(
+    connection: sqlite3.Connection,
+    *,
+    table_name: str,
+    present_columns: set[str],
+    column_name: str,
+    definition: str,
+) -> None:
+    """Add one SQLite column when it is absent."""
+
+    if column_name in present_columns:
+        return
+    connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {definition}")
+    present_columns.add(column_name)
+
+
+def _rebuild_gateway_notifier_audit_table(
+    connection: sqlite3.Connection,
+    *,
+    present_columns: set[str],
+) -> None:
+    """Rebuild notifier audit storage when CHECK constraints need widening."""
+
+    old_table = "gateway_notifier_audit_old"
+    connection.execute(f"DROP TABLE IF EXISTS {old_table}")
+    connection.execute(f"ALTER TABLE gateway_notifier_audit RENAME TO {old_table}")
+    connection.executescript(_gateway_notifier_audit_schema_sql())
+    common_columns = [
+        column_name
+        for column_name in (
+            "audit_id",
+            "poll_time_utc",
+            "unread_count",
+            "unread_digest",
+            "unread_summary_json",
+            "request_admission",
+            "active_execution",
+            "queue_depth",
+            "outcome",
+            "enqueued_request_id",
+            "detail",
+            "context_error_policy",
+            "pre_notification_context_action",
+            "context_action_outcome",
+            "degraded_tool_name",
+            "degraded_error_type",
+        )
+        if column_name in present_columns
+    ]
+    if common_columns:
+        joined = ", ".join(common_columns)
+        connection.execute(
+            f"""
+            INSERT INTO gateway_notifier_audit ({joined})
+            SELECT {joined}
+            FROM {old_table}
+            """
+        )
+    connection.execute(f"DROP TABLE {old_table}")
 
 
 def _gateway_queue_schema_sql() -> str:
     """Return the current gateway durable queue SQLite schema."""
 
-    return """
+    return (
+        """
     CREATE TABLE gateway_requests (
         request_id TEXT PRIMARY KEY,
         request_kind TEXT NOT NULL,
@@ -1361,6 +1547,10 @@ def _gateway_queue_schema_sql() -> str:
         interval_seconds INTEGER,
         mode TEXT NOT NULL DEFAULT 'any_inbox' CHECK (mode IN ('any_inbox', 'unread_only')),
         appendix_text TEXT NOT NULL DEFAULT '',
+        context_error_policy TEXT NOT NULL DEFAULT 'continue_current'
+            CHECK (context_error_policy IN ('continue_current', 'clear_context')),
+        pre_notification_context_action TEXT NOT NULL DEFAULT 'none'
+            CHECK (pre_notification_context_action IN ('none', 'compact')),
         last_poll_at_utc TEXT,
         last_notification_at_utc TEXT,
         last_notified_digest TEXT,
@@ -1368,6 +1558,17 @@ def _gateway_queue_schema_sql() -> str:
         updated_at_utc TEXT NOT NULL
     );
 
+    """
+        + _gateway_notifier_audit_schema_sql()
+        + """
+    """
+    )
+
+
+def _gateway_notifier_audit_schema_sql() -> str:
+    """Return the current notifier audit table SQLite schema."""
+
+    return """
     CREATE TABLE gateway_notifier_audit (
         audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
         poll_time_utc TEXT NOT NULL,
@@ -1383,11 +1584,18 @@ def _gateway_queue_schema_sql() -> str:
                 'dedup_skip',
                 'busy_skip',
                 'enqueued',
+                'pre_notification_context_error',
+                'context_recovery_error',
                 'poll_error'
             )
         ),
         enqueued_request_id TEXT,
-        detail TEXT
+        detail TEXT,
+        context_error_policy TEXT NOT NULL DEFAULT 'continue_current',
+        pre_notification_context_action TEXT NOT NULL DEFAULT 'none',
+        context_action_outcome TEXT,
+        degraded_tool_name TEXT,
+        degraded_error_type TEXT
     );
     """
 
@@ -1428,6 +1636,8 @@ def _validate_current_gateway_queue_schema(connection: sqlite3.Connection) -> No
             "interval_seconds",
             "mode",
             "appendix_text",
+            "context_error_policy",
+            "pre_notification_context_action",
             "last_poll_at_utc",
             "last_notification_at_utc",
             "last_notified_digest",
@@ -1446,6 +1656,11 @@ def _validate_current_gateway_queue_schema(connection: sqlite3.Connection) -> No
             "outcome",
             "enqueued_request_id",
             "detail",
+            "context_error_policy",
+            "pre_notification_context_action",
+            "context_action_outcome",
+            "degraded_tool_name",
+            "degraded_error_type",
         ),
     }
     for table_name, column_names in required_columns.items():
@@ -1536,6 +1751,13 @@ def _row_to_gateway_notifier_audit_record(
         outcome=cast(GatewayNotifierAuditOutcome, str(row[8])),
         enqueued_request_id=None if row[9] is None else str(row[9]),
         detail=None if row[10] is None else str(row[10]),
+        context_error_policy=_require_gateway_mail_notifier_context_error_policy(row[11]),
+        pre_notification_context_action=_require_gateway_mail_notifier_pre_notification_action(
+            row[12]
+        ),
+        context_action_outcome=None if row[13] is None else str(row[13]),
+        degraded_tool_name=None if row[14] is None else str(row[14]),
+        degraded_error_type=None if row[15] is None else str(row[15]),
     )
 
 
@@ -1550,6 +1772,8 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             interval_seconds,
             mode,
             appendix_text,
+            context_error_policy,
+            pre_notification_context_action,
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
@@ -1564,6 +1788,10 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             interval_seconds=None,
             mode=DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
             appendix_text="",
+            context_error_policy=DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY,
+            pre_notification_context_action=(
+                DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION
+            ),
             last_poll_at_utc=None,
             last_notification_at_utc=None,
             last_notified_digest=None,
@@ -1576,10 +1804,14 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
         interval_seconds=None if row[1] is None else int(row[1]),
         mode=_require_gateway_mail_notifier_mode(row[2]),
         appendix_text=str(row[3]),
-        last_poll_at_utc=None if row[4] is None else str(row[4]),
-        last_notification_at_utc=None if row[5] is None else str(row[5]),
-        last_notified_digest=None if row[6] is None else str(row[6]),
-        last_error=None if row[7] is None else str(row[7]),
+        context_error_policy=_require_gateway_mail_notifier_context_error_policy(row[4]),
+        pre_notification_context_action=_require_gateway_mail_notifier_pre_notification_action(
+            row[5]
+        ),
+        last_poll_at_utc=None if row[6] is None else str(row[6]),
+        last_notification_at_utc=None if row[7] is None else str(row[7]),
+        last_notified_digest=None if row[8] is None else str(row[8]),
+        last_error=None if row[9] is None else str(row[9]),
     )
 
 
@@ -1590,6 +1822,31 @@ def _require_gateway_mail_notifier_mode(value: object) -> GatewayMailNotifierMod
         return cast(GatewayMailNotifierMode, value)
     raise SessionManifestError(
         "Gateway mail notifier mode must be one of 'any_inbox' or 'unread_only'."
+    )
+
+
+def _require_gateway_mail_notifier_context_error_policy(
+    value: object,
+) -> GatewayMailNotifierContextErrorPolicy:
+    """Return a validated notifier degraded-context policy from storage."""
+
+    if value in {"continue_current", "clear_context"}:
+        return cast(GatewayMailNotifierContextErrorPolicy, value)
+    raise SessionManifestError(
+        "Gateway mail notifier context_error_policy must be one of "
+        "'continue_current' or 'clear_context'."
+    )
+
+
+def _require_gateway_mail_notifier_pre_notification_action(
+    value: object,
+) -> GatewayMailNotifierPreNotificationContextAction:
+    """Return a validated notifier pre-notification context action from storage."""
+
+    if value in {"none", "compact"}:
+        return cast(GatewayMailNotifierPreNotificationContextAction, value)
+    raise SessionManifestError(
+        "Gateway mail notifier pre_notification_context_action must be one of 'none' or 'compact'."
     )
 
 
@@ -1608,18 +1865,22 @@ def _write_gateway_mail_notifier_record(
             interval_seconds,
             mode,
             appendix_text,
+            context_error_policy,
+            pre_notification_context_action,
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
             last_error,
             updated_at_utc
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(singleton) DO UPDATE SET
             enabled = excluded.enabled,
             interval_seconds = excluded.interval_seconds,
             mode = excluded.mode,
             appendix_text = excluded.appendix_text,
+            context_error_policy = excluded.context_error_policy,
+            pre_notification_context_action = excluded.pre_notification_context_action,
             last_poll_at_utc = excluded.last_poll_at_utc,
             last_notification_at_utc = excluded.last_notification_at_utc,
             last_notified_digest = excluded.last_notified_digest,
@@ -1631,6 +1892,8 @@ def _write_gateway_mail_notifier_record(
             record.interval_seconds,
             record.mode,
             record.appendix_text,
+            record.context_error_policy,
+            record.pre_notification_context_action,
             record.last_poll_at_utc,
             record.last_notification_at_utc,
             record.last_notified_digest,

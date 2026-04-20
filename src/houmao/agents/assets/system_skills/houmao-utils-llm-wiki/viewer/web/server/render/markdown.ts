@@ -1,10 +1,8 @@
 import MarkdownIt from "markdown-it";
 import anchor from "markdown-it-anchor";
+import { katex as katexPlugin } from "@mdit/plugin-katex";
 // @ts-expect-error - no types shipped
 import attrs from "markdown-it-attrs";
-// @ts-expect-error - no types shipped
-import texmath from "markdown-it-texmath";
-import katex from "katex";
 import path from "node:path";
 import fs from "node:fs";
 import { wikilinksPlugin, type WikilinkResolver } from "./wikilinks.js";
@@ -35,10 +33,10 @@ export function createRenderer(opts: RendererOptions) {
       placement: "before",
     }),
   });
-  md.use(texmath, {
-    engine: katex,
+  md.use(katexPlugin, {
     delimiters: "dollars",
-    katexOptions: { throwOnError: false, strict: false },
+    throwOnError: false,
+    strict: false,
   });
 
   const resolver: WikilinkResolver = (target) => {

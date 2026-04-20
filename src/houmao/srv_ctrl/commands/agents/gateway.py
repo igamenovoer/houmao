@@ -25,7 +25,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayMailNotifierContextErrorPolicy,
     GatewayMailNotifierMode,
+    GatewayMailNotifierPreNotificationContextAction,
     GatewayReminderCreateBatchV1,
     GatewayReminderDefinitionV1,
     GatewayReminderListV1,
@@ -644,6 +646,20 @@ def status_gateway_mail_notifier_command(
     default=None,
     help="Runtime guidance appended to each generated mail-notifier prompt. Use an empty value to clear it.",
 )
+@click.option(
+    "--context-error-policy",
+    default="continue_current",
+    show_default=True,
+    type=click.Choice(["continue_current", "clear_context"]),
+    help="Action when a tool-scoped degraded context diagnostic is visible.",
+)
+@click.option(
+    "--pre-notification-context-action",
+    default="none",
+    show_default=True,
+    type=click.Choice(["none", "compact"]),
+    help="Context action to run before enqueueing each mail notification.",
+)
 @_current_session_option
 @_target_tmux_session_option
 @_gateway_pair_port_option(
@@ -654,6 +670,8 @@ def enable_gateway_mail_notifier_command(
     interval_seconds: int,
     notifier_mode: GatewayMailNotifierMode,
     appendix_text: str | None,
+    context_error_policy: GatewayMailNotifierContextErrorPolicy,
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -676,6 +694,8 @@ def enable_gateway_mail_notifier_command(
             interval_seconds=interval_seconds,
             mode=notifier_mode,
             appendix_text=appendix_text,
+            context_error_policy=context_error_policy,
+            pre_notification_context_action=pre_notification_context_action,
         )
     )
 

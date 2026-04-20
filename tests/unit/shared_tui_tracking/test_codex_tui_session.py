@@ -557,8 +557,15 @@ def test_codex_tui_prompt_ready_compact_error_marks_degraded_context() -> None:
     assert state.surface_ready_posture == "yes"
     assert state.last_turn_result == "none"
     assert state.chat_context == "degraded"
+    assert state.chat_context_diagnostic is not None
+    assert state.chat_context_diagnostic.tool_name == "codex"
+    assert (
+        state.chat_context_diagnostic.degraded_error_type
+        == "codex_remote_compact_stream_disconnected"
+    )
     assert "chat_context=degraded" in state.notes
     assert signals.current_error_present is True
+    assert signals.chat_context_diagnostic == state.chat_context_diagnostic
     assert signals.success_candidate is False
     assert signals.known_failure is False
 
@@ -612,6 +619,7 @@ def test_codex_detector_generic_error_does_not_mark_degraded_context() -> None:
     assert signals.current_error_present is True
     assert signals.known_failure is False
     assert signals.chat_context == "current"
+    assert signals.chat_context_diagnostic is None
     assert "chat_context=degraded" not in signals.notes
 
 

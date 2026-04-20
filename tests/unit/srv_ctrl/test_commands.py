@@ -513,6 +513,8 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
     assert enable_result.exit_code == 0
     assert "--mode [any_inbox|unread_only]" in enable_result.output
     assert "--appendix-text TEXT" in enable_result.output
+    assert "--context-error-policy [continue_current|clear_context]" in enable_result.output
+    assert "--pre-notification-context-action [none|compact]" in enable_result.output
 
 
 def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
@@ -1388,13 +1390,15 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
-        lambda resolved_target, *, interval_seconds, mode, appendix_text=None: (
+        lambda resolved_target, *, interval_seconds, mode, appendix_text=None, context_error_policy="continue_current", pre_notification_context_action="none": (
             captured.update(
                 {
                     "target": resolved_target,
                     "interval_seconds": interval_seconds,
                     "mode": mode,
                     "appendix_text": appendix_text,
+                    "context_error_policy": context_error_policy,
+                    "pre_notification_context_action": pre_notification_context_action,
                 }
             )
             or {
@@ -1402,6 +1406,8 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
                 "interval_seconds": interval_seconds,
                 "mode": mode,
                 "appendix_text": appendix_text,
+                "context_error_policy": context_error_policy,
+                "pre_notification_context_action": pre_notification_context_action,
             }
         ),
     )
@@ -1429,11 +1435,15 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     assert captured["interval_seconds"] == 60
     assert captured["mode"] == "unread_only"
     assert captured["appendix_text"] == "Handle release-blocking mail first."
+    assert captured["context_error_policy"] == "continue_current"
+    assert captured["pre_notification_context_action"] == "none"
     assert json.loads(result.output) == {
         "enabled": True,
         "interval_seconds": 60,
         "mode": "unread_only",
         "appendix_text": "Handle release-blocking mail first.",
+        "context_error_policy": "continue_current",
+        "pre_notification_context_action": "none",
     }
 
 

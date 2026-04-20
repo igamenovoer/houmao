@@ -779,7 +779,7 @@ class RuntimeSessionController:
                     status="error",
                     action="relaunch",
                     detail=str(exc),
-            )
+                )
             self.launch_plan = updated_launch_plan
 
         result = _relaunch_backend_session(self, chat_session=effective_chat_session)
@@ -2165,8 +2165,7 @@ def _relaunch_backend_session(
                 status="error",
                 action="relaunch",
                 detail=(
-                    "Chat-session continuation is not supported for "
-                    "backend='houmao_server_rest'."
+                    "Chat-session continuation is not supported for backend='houmao_server_rest'."
                 ),
             )
         return backend_session.relaunch()

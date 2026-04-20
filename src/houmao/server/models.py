@@ -346,6 +346,16 @@ class HoumaoTrackedLastTurn(_HoumaoModel):
     updated_at_utc: str | None = None
 
 
+class HoumaoDegradedChatContextDiagnostic(_HoumaoModel):
+    """Tool-scoped degraded context diagnostic exposed with terminal state."""
+
+    tool_name: str
+    detector_name: str
+    detector_version: str
+    degraded_error_type: str
+    message_preview: str | None = None
+
+
 class HoumaoTerminalStateResponse(_HoumaoModel):
     """Houmao extension route for live tracked terminal state."""
 
@@ -358,6 +368,7 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
     chat_context: HoumaoChatContextState = "unknown"
+    chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None = None
     stability: HoumaoStabilityMetadata
     recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
     transport_state: TransportState = Field(default="tmux_missing", exclude=True)
@@ -389,6 +400,7 @@ class HoumaoTerminalSnapshotHistoryEntry(_HoumaoModel):
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
     chat_context: HoumaoChatContextState = "unknown"
+    chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None = None
     stability: HoumaoStabilityMetadata
 
     @field_validator("recorded_at_utc")
