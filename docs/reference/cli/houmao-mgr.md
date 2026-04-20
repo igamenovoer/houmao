@@ -86,7 +86,7 @@ For dedicated coverage of complex nested command families, see:
 | `gateway interrupt` | Interrupt the current gateway operation. |
 | `gateway send-keys` | Send raw control input through the live gateway. |
 | `gateway tui state|history|watch|note-prompt` | Inspect or annotate the raw gateway-owned TUI tracking surface. |
-| `gateway mail-notifier status|enable|disable` | Inspect or control live gateway mail-notifier behavior. |
+| `gateway mail-notifier status|enable|disable` | Inspect or control live gateway mail-notifier behavior, including runtime appendix text and opt-in context policies. |
 
 Gateway targeting rules:
 

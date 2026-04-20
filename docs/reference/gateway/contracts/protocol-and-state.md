@@ -733,7 +733,9 @@ Representative enable request:
   "enabled": true,
   "interval_seconds": 60,
   "mode": "any_inbox",
-  "appendix_text": "Prioritize release-blocking mail."
+  "appendix_text": "Prioritize release-blocking mail.",
+  "context_error_policy": "continue_current",
+  "pre_notification_context_action": "none"
 }
 ```
 
@@ -746,6 +748,8 @@ Representative status response:
   "interval_seconds": 60,
   "mode": "any_inbox",
   "appendix_text": "Prioritize release-blocking mail.",
+  "context_error_policy": "continue_current",
+  "pre_notification_context_action": "none",
   "supported": true,
   "support_error": null,
   "last_poll_at_utc": "2026-03-16T09:45:00+00:00",
@@ -764,16 +768,18 @@ Support contract rules:
 - Eligible inbox truth comes from the shared gateway mailbox facade rather than mailbox-local SQLite, while notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and durable per-poll notifier audit history remain gateway-owned state in `queue.sqlite`.
 - The notifier mode selects the inbox filter: `any_inbox` wakes for any unarchived inbox mail, including read or answered mail, while `unread_only` wakes only for unread unarchived inbox mail.
 - `appendix_text` is optional runtime guidance appended to rendered notifier prompts. `PUT /v1/mail-notifier` preserves the stored appendix when the field is omitted, replaces it when a non-empty string is supplied, and clears it when `appendix_text` is `""`.
+- `context_error_policy` defaults to `continue_current`. `clear_context` is opt-in and only runs clean-context recovery when the current degraded diagnostic is recognized for the owning CLI tool.
+- `pre_notification_context_action` defaults to `none`. `compact` runs before every notification prompt only on supported tool/backend combinations; v1 supports Codex TUI via `/compact` and reports other combinations as unsupported.
 - `DELETE /v1/mail-notifier` disables polling without clearing stored `appendix_text`.
 - Notifier audit rows now persist shared `message_ref` and `thread_ref` values instead of transport-local mailbox ids.
 - Wake-up prompts summarize the current eligible inbox snapshot and let the agent choose which message or messages to inspect and handle.
 - Each reminder includes the eligible `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every selected message in that snapshot.
 - If eligible inbox mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on current mailbox truth plus live prompt readiness rather than on reminder history.
-- Recoverable degraded chat context does not by itself cause a busy skip and does not force a clean-context notifier prompt. If the target is otherwise prompt-ready and queue admission passes, the notifier uses normal current-context prompt work.
+- Recoverable degraded chat context does not by itself cause a busy skip and does not force a clean-context notifier prompt. If the target is otherwise prompt-ready and queue admission passes, the notifier uses normal current-context prompt work unless `context_error_policy=clear_context` matches a recognized tool-owned compaction diagnostic.
 
 Detailed inspection note:
 
-- `GET /v1/mail-notifier` stays a compact snapshot surface and includes effective `appendix_text`.
+- `GET /v1/mail-notifier` stays a compact snapshot surface and includes effective `appendix_text`, `context_error_policy`, and `pre_notification_context_action`.
 - Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`.
 - Detailed per-poll decision history can be inspected via the `gateway_notifier_audit` table inside `queue.sqlite`.
 

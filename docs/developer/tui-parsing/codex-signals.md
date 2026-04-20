@@ -167,12 +167,15 @@ Tracker meaning:
 - `current_error_present=true`
 - `success_candidate=false`
 - `chat_context=degraded`
+- `chat_context_diagnostic.tool_name=codex`
+- `chat_context_diagnostic.degraded_error_type` is Codex-scoped, for example `codex_remote_compact_stream_disconnected`, `codex_remote_compact_context_length_exceeded`, `codex_remote_compact_unknown_parameter`, `codex_remote_compact_server_error`, or `unknown`
 - `known_failure=false`
 
 Operational note:
 
 - `chat_context=degraded` means the current context is recoverably unhealthy, not that the gateway must clear context. Ordinary prompt delivery can continue when the prompt-ready gates pass. An explicit clean-context request such as `chat_session.mode=new` still runs the reset workflow.
 - Compact/server degraded context is intentionally separate from `known_failure`: it blocks success while preserving readiness, but it does not imply a mandatory reset.
+- Degraded error labels belong to the detector's CLI tool. Do not reuse Codex-specific labels for Claude, Gemini, or other tools; only `unknown` is shared.
 
 ### Settled success
 

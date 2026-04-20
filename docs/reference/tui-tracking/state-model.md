@@ -139,6 +139,20 @@ ChatContextState = Literal["current", "degraded", "unknown"]
 
 Whether the current visible chat context appears healthy enough for ordinary current-context prompting. `degraded` is recoverable diagnostic evidence, not a mandatory context-reset state. A prompt-ready TUI surface can have `chat_context=degraded` when a prompt-adjacent Codex compact/server error is visible.
 
+### DegradedChatContextDiagnostic
+
+```python
+@dataclass(frozen=True)
+class DegradedChatContextDiagnostic:
+    tool_name: str
+    detector_name: str
+    detector_version: str
+    degraded_error_type: str
+    message_preview: str | None = None
+```
+
+Optional detail attached when `chat_context=degraded`. `degraded_error_type` is scoped to the owning CLI tool; Codex-specific values are prefixed with `codex_`. The only degraded error type intentionally shared across CLI tools is `unknown`.
+
 ## TrackedStateSnapshot
 
 Frozen dataclass representing a point-in-time snapshot of the tracked TUI state. This is the primary output of the tracking state machine.
@@ -161,6 +175,7 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 | `stable_since_seconds` | `float` | Elapsed time at which the current stability window began |
 | `observed_at_seconds` | `float` | Elapsed time at which this snapshot was observed |
 | `chat_context` | `ChatContextState` | Whether the current chat context is healthy, recoverably degraded, or unknown |
+| `chat_context_diagnostic` | `DegradedChatContextDiagnostic \| None` | Tool-scoped degraded context details when available |
 
 ## DetectedTurnSignals
 
@@ -189,9 +204,10 @@ Frozen dataclass representing the raw signals extracted by a detector from a sin
 | `surface_signature` | `str` | Signature of the observed surface for stability tracking |
 | `notes` | `tuple[str, ...]` | Additional diagnostic notes |
 | `chat_context` | `ChatContextState` | Detector-owned chat-context posture for the current surface |
+| `chat_context_diagnostic` | `DegradedChatContextDiagnostic \| None` | Tool-scoped degraded context details when available |
 
 For Codex specifically, current activity is no longer inferred from arbitrary full-scrollback rows. Status-row, tool-cell, and retry/reconnect activity come from the live edge of the current visible surface, while interruption, success context, and temporal transcript growth continue to use prompt-local latest-turn reasoning.
 
 Prompt-adjacent Codex terminal failures set `current_error_present=true` and block success candidacy while preserving prompt-ready input posture when the composer is otherwise ready. Recognized terminal failure families such as overload/high-load, context-window exhaustion, quota exhaustion, or invalid prompt can publish `known_failure`; the exact upstream sentence is not part of the stable contract.
 
-Prompt-adjacent Codex compact/server error cells expose `chat_context=degraded` when the bounded block carries compact/server degraded semantics. That state is recoverable context-health evidence, not mandatory reset evidence, and it remains distinct from `known_failure`. Historical compact/server error text in long scrollback does not degrade the current chat context.
+Prompt-adjacent Codex compact/server error cells expose `chat_context=degraded` and a Codex-owned diagnostic when the bounded block carries compact/server degraded semantics. Current Codex degraded error types include `codex_remote_compact_stream_disconnected`, `codex_remote_compact_context_length_exceeded`, `codex_remote_compact_unknown_parameter`, `codex_remote_compact_server_error`, and `unknown`. That state is recoverable context-health evidence, not mandatory reset evidence, and it remains distinct from `known_failure`. Historical compact/server error text in long scrollback does not degrade the current chat context.
