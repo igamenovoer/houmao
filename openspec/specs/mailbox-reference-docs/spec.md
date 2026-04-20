@@ -261,7 +261,7 @@ At minimum, the mailbox reference SHALL:
 - provide a dedicated Stalwart-focused operations page under the mailbox subtree,
 - explain the prerequisites and Houmao-side assumptions for a Stalwart-backed session,
 - explain how to start a mailbox-enabled session with the `stalwart` transport,
-- explain how to verify the first session with `mail check`, `mail send`, and `mail reply`,
+- explain how to verify the first session with `mail list`, `mail send`, and `mail reply`,
 - explain that a live gateway mailbox facade becomes the preferred shared path when it is attached.
 
 The Stalwart-focused guidance SHALL include at least one transport-comparison artifact such as a table that helps new readers distinguish filesystem-backed and Stalwart-backed sessions before the docs dive into detailed contracts.
@@ -273,7 +273,7 @@ The Stalwart-focused guidance SHALL include at least one transport-comparison ar
 
 #### Scenario: Operator can follow a Stalwart-backed first session safely
 - **WHEN** an operator wants to start and verify a Stalwart-backed mailbox session
-- **THEN** the mailbox operations docs explain the Houmao-side prerequisites, the `stalwart` session-start flow, and the first `mail check`, `mail send`, and `mail reply` steps
+- **THEN** the mailbox operations docs explain the Houmao-side prerequisites, the `stalwart` session-start flow, and the first `mail list`, `mail send`, and `mail reply` steps
 - **AND THEN** the same page explains when the operator should expect shared mailbox work to prefer a live gateway mailbox facade
 
 ### Requirement: Mailbox reference documentation explains shared mailbox boundaries across runtime, gateway, and transport

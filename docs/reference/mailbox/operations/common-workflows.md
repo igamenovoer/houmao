@@ -1,6 +1,6 @@
 # Mailbox Common Workflows
 
-This page explains the practical v1 procedures for bootstrapping a mailbox, resolving current bindings, reading mail, sending mail, posting operator-origin notes, replying, marking processed mail read, and deciding when filesystem rules or compatibility helpers need deeper inspection.
+This page explains the practical v1 procedures for bootstrapping a mailbox, resolving current bindings, listing and reading mail, sending mail, posting operator-origin notes, replying, archiving processed mail, and deciding when filesystem rules or compatibility helpers need deeper inspection.
 
 ## Mental Model
 
@@ -10,7 +10,7 @@ The safest workflow is simple:
 2. Treat `rules/` as the mailbox-local operating manual, not as an ordinary execution protocol.
 3. Resolve the current live mailbox binding through `houmao-mgr agents mail resolve-live`.
 4. Prefer the live gateway `/v1/mail/*` facade when it is attached.
-5. Otherwise use `houmao-mgr agents mail check|send|post|reply|mark-read`.
+5. Otherwise use `houmao-mgr agents mail list|peek|read|send|post|reply|mark|move|archive`.
 6. Touch `rules/scripts/` only for compatibility, debugging, or repair workflows that intentionally bypass the ordinary managed path.
 
 ## Bootstrap And First Inspection
@@ -60,12 +60,12 @@ Important details:
 
 ## Read Mail Safely
 
-Use `agents mail check` when you want manager-owned or gateway-backed mailbox reads.
+Use `agents mail list` when you want manager-owned or gateway-backed mailbox reads.
 
 ```bash
-pixi run houmao-mgr agents mail check \
+pixi run houmao-mgr agents mail list \
   --agent-name research \
-  --unread-only \
+  --read-state unread \
   --limit 10
 ```
 
@@ -74,8 +74,9 @@ Operational guidance:
 - Re-resolve current bindings when you switch shells, sessions, or long-running automation contexts.
 - Treat `mailbox.filesystem.local_sqlite_path` as the source of truth for unread versus read state and mailbox-local thread summaries.
 - Treat `mailbox.filesystem.sqlite_path` as the shared structural catalog, not as the mailbox-view read or unread authority.
-- Only mark a message read after the mailbox action or processing step has completed successfully.
-- If a manager fallback result is `authoritative: false`, verify with `agents mail check`, filesystem inspection, or transport-native mailbox state.
+- Use `agents mail peek` when you need the body without changing read state; use `agents mail read` when you intentionally want to inspect the body and mark it read.
+- Archive a message only after the mailbox action or processing step has completed successfully.
+- If a manager fallback result is `authoritative: false`, verify with `agents mail list`, filesystem inspection, or transport-native mailbox state.
 
 ## Send New Mail
 
@@ -120,7 +121,7 @@ Operator-origin guidance:
 - `reply_policy=none` is the explicit no-reply opt-out and replies to those operator-origin messages are rejected explicitly.
 - This receive-side behavior is reply-only for reply-enabled operator-origin messages, not a general free-send contract for the reserved system mailbox.
 
-## Reply And Mark Read
+## Reply And Archive
 
 Use `agents mail reply` when you already know the parent shared `message_ref`.
 
@@ -131,21 +132,21 @@ pixi run houmao-mgr agents mail reply \
   --body-content "Reply with next steps"
 ```
 
-After you successfully process one nominated unread message, mark that same `message_ref` read:
+After you successfully process one nominated message, archive that same `message_ref`:
 
 ```bash
-pixi run houmao-mgr agents mail mark-read \
+pixi run houmao-mgr agents mail archive \
   --agent-name research \
   --message-ref filesystem:msg-20260312T050000Z-parent
 ```
 
-Reply and mark-read guidance:
+Reply and archive guidance:
 
 - Treat `message_ref` as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
-- When a live gateway facade is attached, use the shared gateway routines for `check`, `reply`, and `POST /v1/mail/state`.
-- When the manager-owned fallback path is in use, `houmao-mgr agents mail mark-read` is the supported explicit read-acknowledgement command.
+- When a live gateway facade is attached, use the shared gateway routines for `list`, `peek`, `read`, `reply`, `mark`, `move`, and `archive`.
+- When the manager-owned fallback path is in use, `houmao-mgr agents mail read` is the supported explicit read acknowledgement command and `houmao-mgr agents mail archive` is the supported processed-work closeout command.
 - Replies to operator-origin parent messages succeed when the parent was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
-- If `mark-read` returns `authoritative: false`, verify through `agents mail check`, filesystem inspection, or transport-native mailbox state before assuming the message was marked read.
+- If `archive` returns `authoritative: false`, verify through `agents mail list`, filesystem inspection, or transport-native mailbox state before assuming the message was archived.
 
 ## Answered Archive Lifecycle
 

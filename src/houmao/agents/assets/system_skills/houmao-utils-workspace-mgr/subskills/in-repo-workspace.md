@@ -113,7 +113,7 @@ For `plan`, include:
 - private worktree source and shared-KB paths agents should write
 - parent-checkout agent KB paths each owning agent may write
 - submodule materialization decisions for `repo-root`
-- local-state symlink decisions for each agent worktree
+- recursive local-state symlink decisions for each agent worktree, including reachable `.pixi/`, non-hidden local-only paths, hidden-path skips, symlink traversal skips, and tracked-content conflict skips
 - launch-profile cwd changes
 - optional memo-seed file paths
 
@@ -125,7 +125,7 @@ For `execute`:
 2. Create `houmao-ws/`, shared KB, per-agent KB, and per-agent README files as needed.
 3. Add `/houmao-ws/*/repo/` to the parent repo ignore rules if missing.
 4. Create one Git worktree per agent at `<ws-root>/<agent-name>/repo`.
-5. Apply the shared local-state symlink policy from `SKILL.md`.
+5. Apply the shared local-state symlink policy from `SKILL.md`, preserving relative paths for linked local-only state.
 6. Apply the shared tracked-submodule policy from `SKILL.md`.
 7. Write or update `<ws-root>/workspace.md`, including the repo-root cwd, shared visibility surface, and in-repo read/write ownership rules.
 8. Update launch profiles so each agent cwd points at `<repo-root>`.

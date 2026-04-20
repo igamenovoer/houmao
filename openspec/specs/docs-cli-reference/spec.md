@@ -22,7 +22,7 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `admin cleanup`,
 - `internals graph` (via a dedicated linked page `docs/reference/cli/internals.md`).
 
-When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `check`, `send`, `reply`, and `mark-read`, and it SHALL explain:
+When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, and it SHALL explain:
 
 - the selector rules for explicit targeting versus current-session targeting inside the owning managed tmux session,
 - the structured `resolve-live` result contract for current mailbox discovery, including the returned mailbox binding and optional `gateway.base_url`,
@@ -52,7 +52,7 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 
 #### Scenario: Reader can find `agents mail resolve-live` and targeting rules
 - **WHEN** a reader looks up `houmao-mgr agents mail`
-- **THEN** the CLI reference documents `resolve-live`, `mark-read`, and the other mailbox follow-up commands in that family
+- **THEN** the CLI reference documents `resolve-live`, `list`, `read`, `archive`, and the other mailbox follow-up commands in that family
 - **AND THEN** the reader can see when omitted selectors resolve the current managed tmux session and when explicit `--agent-id` or `--agent-name` is required
 - **AND THEN** the page explains that `resolve-live` returns structured mailbox data rather than mailbox-specific shell export
 
@@ -228,7 +228,7 @@ The CLI reference SHALL keep `houmao-cli` and `houmao-cao-server` in explicit de
 The CLI reference SHALL complete all truncated stub pages for `houmao-mgr agents` subcommand families. Specifically:
 
 - `docs/reference/cli/agents-gateway.md` SHALL document all subcommands including the `tui` subgroup (`state`, `history`, `watch`, `note-prompt`) and the `mail-notifier` subgroup (`status`, `enable`, `disable`) with full option tables.
-- `docs/reference/cli/agents-mail.md` SHALL document all subcommands (`resolve-live`, `status`, `check`, `send`, `reply`, `mark-read`) with full option tables and usage notes.
+- `docs/reference/cli/agents-mail.md` SHALL document all subcommands (`resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, `archive`) with full option tables and usage notes.
 - `docs/reference/cli/agents-mailbox.md` SHALL document all subcommands (`register`, `unregister`, `status`) with full option tables.
 - `docs/reference/cli/agents-turn.md` SHALL document all subcommands (`submit`, `status`, `events`, `stdout`, `stderr`) with full option tables.
 
@@ -822,7 +822,7 @@ The CLI reference page `docs/reference/cli/agents-mail.md` SHALL describe the cu
 
 That page SHALL state that ordinary shared-mailbox operations and no-gateway fallback guidance live in `houmao-agent-email-comms`, while notifier-driven unread-mail rounds live in `houmao-process-emails-via-gateway`. It SHALL NOT continue to describe the pre-unification split-mailbox skill names as current packaged skills.
 
-That page SHALL keep the documented subcommands (`resolve-live`, `status`, `check`, `send`, `post`, `reply`, `mark-read`) accurate to the current `srv_ctrl/commands/agents/mail.py` Click decorators, and SHALL preserve the existing targeting-rules and authority-aware result semantics requirements from the prior pass.
+That page SHALL keep the documented subcommands (`resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, `archive`) accurate to the current `srv_ctrl/commands/agents/mail.py` Click decorators, and SHALL preserve the existing targeting-rules and authority-aware result semantics requirements from the prior pass.
 
 That page SHALL explain that:
 
@@ -842,7 +842,7 @@ That page SHALL explain that:
 #### Scenario: agents-mail subcommand list still matches the live CLI
 
 - **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page documents `resolve-live`, `status`, `check`, `send`, `post`, `reply`, and `mark-read`
+- **THEN** the page documents `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`
 - **AND THEN** the option tables match the current `srv_ctrl/commands/agents/mail.py` Click decorators
 
 #### Scenario: agents-mail page distinguishes ordinary send from operator-origin post

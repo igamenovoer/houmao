@@ -14,7 +14,7 @@ For the pair boundary that exposes these routes, use [Houmao Server Pair](houmao
 | Detailed inspection | `GET /houmao/agents/{agent_ref}/state/detail` | TUI and headless | Returns one shared envelope with a transport-discriminated detail payload |
 | Transport-neutral request submission | `POST /houmao/agents/{agent_ref}/requests` | TUI and headless | Official prompt and interrupt surface across both transports |
 | Gateway lifecycle, direct prompt control, raw gateway-owned TUI inspection, gateway-mediated requests, headless session control, and notifier control | `GET /houmao/agents/{agent_ref}/gateway`, `POST /houmao/agents/{agent_ref}/gateway/attach`, `POST /houmao/agents/{agent_ref}/gateway/detach`, `POST /houmao/agents/{agent_ref}/gateway/control/prompt`, `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`, `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`, `GET /houmao/agents/{agent_ref}/gateway/tui/state`, `GET /houmao/agents/{agent_ref}/gateway/tui/history`, `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`, `POST /houmao/agents/{agent_ref}/gateway/requests`, `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` | TUI and headless | `POST /gateway/control/prompt` is immediate "send now or refuse now" control; `POST /gateway/requests` remains the queued gateway surface; `gateway/control/headless/*` is headless only |
-| Pair-owned mailbox follow-up | `GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/reply`, `POST /houmao/agents/{agent_ref}/mail/state` | TUI and headless when mailbox capability is present | These routes require pair-owned mailbox capability plus an eligible live gateway |
+| Pair-owned mailbox follow-up | `GET /houmao/agents/{agent_ref}/mail/status`, `GET /houmao/agents/{agent_ref}/mail/resolve-live`, `POST /houmao/agents/{agent_ref}/mail/list`, `POST /houmao/agents/{agent_ref}/mail/peek`, `POST /houmao/agents/{agent_ref}/mail/read`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/post`, `POST /houmao/agents/{agent_ref}/mail/reply`, `POST /houmao/agents/{agent_ref}/mail/mark`, `POST /houmao/agents/{agent_ref}/mail/move`, `POST /houmao/agents/{agent_ref}/mail/archive` | TUI and headless when mailbox capability is present | These routes require pair-owned mailbox capability plus an eligible live gateway |
 | Stop, native headless lifecycle, and durable turn detail | `POST /houmao/agents/{agent_ref}/stop`, `POST /houmao/agents/headless/launches`, `POST /houmao/agents/{agent_ref}/turns`, `POST /houmao/agents/{agent_ref}/interrupt`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`, `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr` | Stop applies to TUI and headless; turn detail is headless only | TUI stop reuses the managed session-delete lifecycle; durable headless turn evidence stays on `/turns/*` |
 
 ## Identity And Alias Resolution
@@ -222,7 +222,7 @@ The default documented prompt path remains `houmao-mgr agents prompt --agent-nam
 
 ## Pair-Owned Mail Follow-Up
 
-`GET /houmao/agents/{agent_ref}/mail/status`, `POST /houmao/agents/{agent_ref}/mail/check`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/reply`, and `POST /houmao/agents/{agent_ref}/mail/state` let callers perform mailbox follow-up through the managed-agent API without discovering the live gateway host or port.
+`GET /houmao/agents/{agent_ref}/mail/status`, `GET /houmao/agents/{agent_ref}/mail/resolve-live`, `POST /houmao/agents/{agent_ref}/mail/list`, `POST /houmao/agents/{agent_ref}/mail/peek`, `POST /houmao/agents/{agent_ref}/mail/read`, `POST /houmao/agents/{agent_ref}/mail/send`, `POST /houmao/agents/{agent_ref}/mail/post`, `POST /houmao/agents/{agent_ref}/mail/reply`, `POST /houmao/agents/{agent_ref}/mail/mark`, `POST /houmao/agents/{agent_ref}/mail/move`, and `POST /houmao/agents/{agent_ref}/mail/archive` let callers perform mailbox follow-up through the managed-agent API without discovering the live gateway host or port.
 
 Important boundary rules:
 
@@ -230,7 +230,7 @@ Important boundary rules:
 - they also require an eligible live gateway to be attached
 - they coexist with `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
 - `gateway/mail-notifier` remains background notifier configuration, while `mail/*` is the foreground mailbox-operation surface
-- `POST /mail/state` is the shared foreground state-update route; in v1 it is intentionally one-way and is used to mark one processed `message_ref` read
+- `POST /mail/read` reads one selected message and marks it read, while `POST /mail/mark`, `POST /mail/move`, and `POST /mail/archive` expose explicit foreground lifecycle updates for selected `message_ref` values
 
 Observable availability semantics:
 

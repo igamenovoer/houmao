@@ -302,9 +302,16 @@ The pair exposes three public server surfaces:
   - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
   - `GET /houmao/agents/{agent_ref}/mail/status`
-  - `POST /houmao/agents/{agent_ref}/mail/check`
+  - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
+  - `POST /houmao/agents/{agent_ref}/mail/list`
+  - `POST /houmao/agents/{agent_ref}/mail/peek`
+  - `POST /houmao/agents/{agent_ref}/mail/read`
   - `POST /houmao/agents/{agent_ref}/mail/send`
+  - `POST /houmao/agents/{agent_ref}/mail/post`
   - `POST /houmao/agents/{agent_ref}/mail/reply`
+  - `POST /houmao/agents/{agent_ref}/mail/mark`
+  - `POST /houmao/agents/{agent_ref}/mail/move`
+  - `POST /houmao/agents/{agent_ref}/mail/archive`
 - native headless lifecycle and durable turn routes:
   - `POST /houmao/agents/headless/launches`
   - `POST /houmao/agents/{agent_ref}/stop`

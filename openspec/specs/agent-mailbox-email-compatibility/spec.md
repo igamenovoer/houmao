@@ -11,13 +11,13 @@ At minimum, the implemented mapping SHALL preserve:
 - `subject`
 - reply ancestry through standard email reply headers
 - opaque message references suitable for later `reply` targeting
-- body semantics needed for `check`, `send`, and `reply`
+- body semantics needed for `list`, `send`, and `reply`
 - attachment metadata needed to compose and retrieve delivered attachments.
 
-#### Scenario: Mail check maps onto a real email-backed transport
-- **WHEN** a mailbox-enabled session performs `check` through the `stalwart` transport
+#### Scenario: Mail list maps onto a real email-backed transport
+- **WHEN** a mailbox-enabled session performs `list` through the `stalwart` transport
 - **THEN** the transport returns normalized mailbox message metadata derived from real email-backed Stalwart mailbox behavior
-- **AND THEN** the resulting check preserves sender, recipient, subject, body-preview, and reply-target meaning without requiring a filesystem canonical-message corpus
+- **AND THEN** the resulting list preserves sender, recipient, subject, body-preview, and reply-target meaning without requiring a filesystem canonical-message corpus
 
 #### Scenario: Reply ancestry maps onto standard email reply headers
 - **WHEN** a sender replies to an existing mailbox message through the `stalwart` transport

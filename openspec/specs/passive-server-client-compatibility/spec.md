@@ -57,7 +57,7 @@ At minimum, that client SHALL provide:
 - managed-agent state, detail, and history operations backed by the compatibility routes
 - prompt, interrupt, and stop operations backed by the passive request/action routes
 - gateway status and gateway request operations backed by the passive gateway routes
-- mailbox status/check/send/reply operations backed by the passive mail routes
+- mailbox status/list/peek/read/send/post/reply/mark/move/archive operations backed by the passive mail routes
 - headless turn submit/status/events/artifact operations backed by the passive headless routes
 
 Where the passive server returns passive-specific payloads, the client SHALL normalize them into the existing `HoumaoManagedAgent*` or `HoumaoHeadless*` models expected by pair consumers.

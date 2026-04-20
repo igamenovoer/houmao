@@ -91,7 +91,7 @@ That layer:
 
 - resolves the target managed agent explicitly or through same-session manifest-first discovery,
 - uses `houmao-mgr agents mail resolve-live` to expose the current normalized mailbox binding and any live `gateway.base_url`,
-- prefers pair-owned gateway-backed execution or local manager-owned direct execution for `status`, `check`, `send`, `reply`, and `mark-read`,
+- prefers pair-owned gateway-backed execution or local manager-owned direct execution for `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`,
 - preserves the existing prompt-turn path only as the non-authoritative local live-TUI fallback when direct authority is still unavailable.
 
 The lower-level runtime prompt path is still implemented through:
@@ -107,7 +107,7 @@ In practice, the ordinary attached-session path is:
 
 1. resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live`,
 2. when the resolver returns `gateway.base_url`, prefer that live gateway `/v1/mail/*` facade for shared mailbox operations,
-3. otherwise use `pixi run houmao-mgr agents mail check|send|reply|mark-read`,
+3. otherwise use `pixi run houmao-mgr agents mail list|peek|read|send|post|reply|mark|move|archive`,
 4. if those manager-owned commands still return `authoritative: false`, verify outcome through manager-owned or transport-owned state instead of treating submission as mailbox truth.
 
 This design keeps mailbox control inside the same runtime session model when needed, while still presenting one simpler public workflow across both transports.

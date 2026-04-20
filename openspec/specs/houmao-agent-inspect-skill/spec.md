@@ -34,7 +34,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `agents prompt|interrupt`
 - `agents gateway attach|detach|prompt|interrupt|send-keys`
-- mailbox send, reply, post, or mark-read work
+- mailbox send, reply, post, mark, move, or archive work
 - mailbox registration, repair, unregister, cleanup, or root administration
 - agent stop, relaunch, cleanup, or other lifecycle mutation
 - automatic invocation of the terminal recorder when the user did not explicitly ask for replay-grade capture
@@ -154,7 +154,7 @@ When the inspection task is about mailbox identity, unread state, or current liv
 
 - `houmao-mgr agents mail resolve-live`
 - `houmao-mgr agents mail status`
-- `houmao-mgr agents mail check`
+- `houmao-mgr agents mail list`
 
 When the inspection task is about late mailbox-binding posture for one local managed agent, the skill SHALL direct the caller to `houmao-mgr agents mailbox status`.
 
@@ -166,7 +166,7 @@ The skill SHALL distinguish durable gateway state from disposable log artifacts 
 
 #### Scenario: Actor-scoped mailbox inspection uses the live mail surfaces
 - **WHEN** a caller asks to inspect the current unread or mailbox identity state for one managed agent
-- **THEN** the skill directs the caller to `agents mail resolve-live`, `agents mail status`, or `agents mail check` as appropriate
+- **THEN** the skill directs the caller to `agents mail resolve-live`, `agents mail status`, or `agents mail list` as appropriate
 - **AND THEN** it does not misdescribe mailbox-root structural projection as the same thing as current unread follow-up state
 
 #### Scenario: Structural mailbox inspection delegates to mailbox administration guidance
@@ -178,4 +178,3 @@ The skill SHALL distinguish durable gateway state from disposable log artifacts 
 - **WHEN** a caller asks to inspect the runtime artifacts behind one managed session with gateway capability
 - **THEN** the skill allows inspection of `gateway/state.json`, `gateway/logs/gateway.log`, and other runtime-owned gateway files under the session root
 - **AND THEN** it distinguishes durable gateway state files from disposable log-only artifacts
-

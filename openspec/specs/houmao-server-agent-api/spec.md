@@ -551,9 +551,16 @@ If the addressed managed agent does not have an eligible live gateway attached, 
 At minimum, that route family SHALL include:
 
 - `GET /houmao/agents/{agent_ref}/mail/status`
-- `POST /houmao/agents/{agent_ref}/mail/check`
+- `GET /houmao/agents/{agent_ref}/mail/resolve-live`
+- `POST /houmao/agents/{agent_ref}/mail/list`
+- `POST /houmao/agents/{agent_ref}/mail/peek`
+- `POST /houmao/agents/{agent_ref}/mail/read`
 - `POST /houmao/agents/{agent_ref}/mail/send`
+- `POST /houmao/agents/{agent_ref}/mail/post`
 - `POST /houmao/agents/{agent_ref}/mail/reply`
+- `POST /houmao/agents/{agent_ref}/mail/mark`
+- `POST /houmao/agents/{agent_ref}/mail/move`
+- `POST /houmao/agents/{agent_ref}/mail/archive`
 
 In v1, the server SHALL satisfy those routes by proxying an attached eligible live gateway rather than by introducing a separate direct runtime-backed mailbox path.
 
@@ -561,11 +568,11 @@ Those routes SHALL coexist with the existing `/houmao/agents/{agent_ref}/gateway
 
 If the addressed managed agent does not expose pair-owned mailbox follow-up capability or does not have an eligible live gateway attached, the routes SHALL reject the request explicitly rather than silently fabricating success.
 
-#### Scenario: Caller checks mail through the managed-agent API
-- **WHEN** a caller requests `POST /houmao/agents/{agent_ref}/mail/check` for a managed agent that exposes pair-owned mailbox follow-up capability
+#### Scenario: Caller lists mail through the managed-agent API
+- **WHEN** a caller requests `POST /houmao/agents/{agent_ref}/mail/list` for a managed agent that exposes pair-owned mailbox follow-up capability
 - **AND WHEN** the addressed managed agent has an eligible live gateway attached
-- **THEN** `houmao-server` returns the managed-agent mail-check result through its own API
-- **AND THEN** the caller does not need to contact the gateway listener endpoint directly to perform that check
+- **THEN** `houmao-server` returns the managed-agent mail-list result through its own API
+- **AND THEN** the caller does not need to contact the gateway listener endpoint directly to perform that list operation
 
 #### Scenario: Mail follow-up fails clearly when mailbox capability or live gateway access is unavailable
 - **WHEN** a caller submits one of the managed-agent mail routes for an addressed agent that does not expose pair-owned mailbox follow-up capability or does not have an eligible live gateway attached

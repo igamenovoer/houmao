@@ -204,7 +204,7 @@ For attached `stalwart` sessions, projected mailbox system skills SHALL NOT pres
 - **WHEN** a projected mailbox system skill uses `houmao-mgr agents mail send ...` or `reply ...`
 - **AND WHEN** that command returns `authoritative: false`
 - **THEN** the skill treats the result as submission-only rather than verified mailbox success
-- **AND THEN** the skill uses `houmao-mgr agents mail check`, `status`, or transport-owned mailbox state to verify the requested outcome before assuming the mailbox mutation completed
+- **AND THEN** the skill uses `houmao-mgr agents mail list`, `status`, or transport-owned mailbox state to verify the requested outcome before assuming the mailbox mutation completed
 
 #### Scenario: Thin shell helpers stay wrappers over supported surfaces
 - **WHEN** a projected mailbox skill provides a shell helper for tmux-session-local mailbox work
@@ -221,7 +221,7 @@ That policy guidance MAY include markdown instructions about:
 - mailbox-local etiquette,
 - other presentation or workflow hints specific to that mailbox.
 
-The skill SHALL NOT present mailbox `rules/` as requiring the agent to execute mailbox-owned Python helper scripts for ordinary send, reply, check, or mark-read work.
+The skill SHALL NOT present mailbox `rules/` as requiring the agent to execute mailbox-owned Python helper scripts for ordinary list, peek, read, send, post, reply, mark, move, or archive work.
 
 #### Scenario: Filesystem mailbox skill treats mailbox-local rules as policy guidance
 - **WHEN** an agent uses the projected filesystem mailbox system skill for mailbox reads or writes
@@ -308,12 +308,12 @@ The round-oriented workflow skill SHALL:
 
 - act as the default installed runtime-owned procedure for notifier-triggered shared mailbox processing rounds when a live gateway facade is available,
 - assume the notifier round already provides the exact current gateway base URL,
-- define gateway-API-first metadata triage, unread-listing, relevant-message selection, selective inspection, work execution, and post-success mark-read behavior for the current round,
+- define gateway-API-first metadata triage, unread-listing, relevant-message selection, selective inspection, work execution, and post-success archive behavior for the current round,
 - tell the agent to stop after the current round and wait for the next notification rather than proactively polling for more mail.
 
 The unified ordinary-mailbox skill SHALL:
 
-- remain the lower-level operational skill for live discovery, status, check, read, send, reply, and mark-read behavior,
+- remain the lower-level operational skill for live discovery, status, list, peek, read, send, post, reply, mark, move, and archive behavior,
 - use a gateway base URL already present in prompt or context when that URL is available,
 - fall back to `houmao-mgr agents mail resolve-live` only when the current gateway base URL cannot be determined from prompt or context,
 - keep filesystem-specific and Stalwart-specific ordinary mailbox guidance as internal pages or references within the same skill package,
@@ -431,4 +431,3 @@ In both modes, the workflow SHALL keep archive as the completion action for succ
 - **WHEN** an agent follows the notifier-driven workflow in either mode
 - **THEN** the workflow does not tell the agent that marking a message read completes the mailbox work
 - **AND THEN** deferred, skipped, or unfinished messages remain unarchived for later handling according to the configured notifier mode
-

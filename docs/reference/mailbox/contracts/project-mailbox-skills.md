@@ -1,6 +1,6 @@
 # Project Mailbox Skills
 
-When an agent has a mailbox binding, the build phase automatically projects a set of mailbox system skills into the agent's runtime home. These skills give the agent native knowledge of how to check, send, reply to, and manage mailbox messages.
+When an agent has a mailbox binding, the build phase automatically projects a set of mailbox system skills into the agent's runtime home. These skills give the agent native knowledge of how to list, inspect, send, reply to, and manage mailbox messages.
 
 ## When Skills Are Projected
 
@@ -47,10 +47,10 @@ The primary round-oriented workflow skill. When triggered by a mail-notifier pro
 
 1. Confirm the gateway base URL is available.
 2. Use `GET /v1/mail/status` to verify mailbox identity.
-3. Use `POST /v1/mail/check` to list unread messages.
+3. Use `POST /v1/mail/list` to list eligible messages.
 4. Perform metadata-first triage (subject, sender, timestamp).
 5. Continue stalled or interrupted work from prior rounds.
-6. Mark only successfully processed emails as read.
+6. Archive only successfully processed emails.
 7. Stop after the round (do not proactively poll).
 
 ### `houmao-agent-email-comms`
@@ -59,10 +59,15 @@ The unified mailbox skill keeps the exact shared gateway facade plus no-gateway 
 
 | Action | Endpoint | Description |
 |---|---|---|
-| Check | `POST /v1/mail/check` | Inspect unread/current mailbox state with optional filtering. |
+| List | `POST /v1/mail/list` | Inspect unread, open, archived, or current mailbox state with optional filtering. |
+| Peek | `POST /v1/mail/peek` | Inspect one message without marking it read. |
+| Read | `POST /v1/mail/read` | Inspect one message and mark it read. |
 | Send | `POST /v1/mail/send` | Create new outbound message with recipients, subject, body, attachments. |
+| Post | `POST /v1/mail/post` | Post an operator-origin note into a managed agent mailbox. |
 | Reply | `POST /v1/mail/reply` | Reply to a message using its opaque `message_ref`. |
-| Mark read | `POST /v1/mail/state` | Mark an individual message as read after processing. |
+| Mark | `POST /v1/mail/mark` | Mark selected messages read, answered, or archived. |
+| Move | `POST /v1/mail/move` | Move selected messages to another mailbox box. |
+| Archive | `POST /v1/mail/archive` | Archive selected processed messages. |
 
 The same skill also includes:
 

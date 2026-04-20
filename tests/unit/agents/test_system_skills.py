@@ -205,8 +205,21 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "Execute Mode" in skill_text
     assert "For `in-repo`, the default planned launch cwd is `<repo-root>`" in skill_text
     assert "For `in-repo` memo seeds" in skill_text
+    assert "discover local-state symlink candidates recursively" in skill_text
+    assert "reachable `.pixi/` directories, at any depth" in skill_text
+    assert "explicitly local-only files or directories whose basename does not start with `.`" in (
+        skill_text
+    )
+    assert "`.pixi/` is the only default dot-prefixed exception" in skill_text
+    assert "`.hidden-parent/.pixi/` is skipped" in skill_text
+    assert "Do not follow symlinked directories" in skill_text
+    assert "skip if Git tracks any files under the source subtree" in skill_text
     assert "The repo root is the shared visibility surface." in in_repo_text
     assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
+    assert "recursive local-state symlink decisions" in in_repo_text
+    assert "hidden-path skips, symlink traversal skips, and tracked-content conflict skips" in (
+        in_repo_text
+    )
     assert "| `<repo-root>/houmao-ws/<agent-name>/kb/**` | yes | yes | yes | no |" in (in_repo_text)
     assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
 

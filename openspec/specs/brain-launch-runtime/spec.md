@@ -501,12 +501,12 @@ For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL us
 ### Requirement: Runtime CLI exposes top-level agent-mediated mailbox operations for resumed sessions
 The runtime CLI SHALL expose a top-level `mail` command surface for resumed mailbox-enabled sessions.
 
-That `mail` command surface SHALL support at minimum the operations `check`, `send`, and `reply`, and SHALL target an existing live session through the same agent-identity or session-manifest resolution model used by other runtime session-control commands.
+That `mail` command surface SHALL support at minimum the operations `list`, `send`, and `reply`, and SHALL target an existing live session through the same agent-identity or session-manifest resolution model used by other runtime session-control commands.
 
-#### Scenario: Mail check targets a resumed mailbox-enabled session
-- **WHEN** a developer invokes the runtime `mail check` command against a resumed mailbox-enabled session
+#### Scenario: Mail list targets a resumed mailbox-enabled session
+- **WHEN** a developer invokes the runtime `mail list` command against a resumed mailbox-enabled session
 - **THEN** the runtime resolves that target session through the normal runtime session-identity resolution path
-- **AND THEN** the runtime asks that live agent session to perform one mailbox-check operation for its bound mailbox principal
+- **AND THEN** the runtime asks that live agent session to perform one mailbox-list operation for its bound mailbox principal
 
 #### Scenario: Mail send targets a resumed mailbox-enabled session
 - **WHEN** a developer invokes the runtime `mail send` command against a resumed mailbox-enabled session with recipients and message content
@@ -519,7 +519,7 @@ That `mail` command surface SHALL support at minimum the operations `check`, `se
 - **AND THEN** the reply preserves the existing `thread_id`, `in_reply_to`, and `references` semantics for that thread
 
 ### Requirement: Runtime mail commands keep one operator surface while allowing gateway-backed shared mailbox interaction
-The runtime SHALL preserve the current operator-facing `mail check`, `mail send`, and `mail reply` command surface across filesystem and `stalwart` sessions.
+The runtime SHALL preserve the current operator-facing `mail list`, `mail send`, and `mail reply` command surface across filesystem and `stalwart` sessions.
 
 When the runtime owns mailbox execution directly, including manager-owned direct execution or gateway-backed execution, it SHALL return authoritative mailbox success or failure for the requested operation.
 
@@ -2997,4 +2997,3 @@ When local interactive relaunch resumes an existing provider chat, runtime SHALL
 - **AND WHEN** the launch plan uses bootstrap-message role injection
 - **THEN** runtime does not submit the bootstrap message into the resumed provider chat as a user turn
 - **AND THEN** the resumed provider conversation is not polluted with a duplicate launch bootstrap prompt
-

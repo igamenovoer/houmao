@@ -36,7 +36,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - `agents launch|join|stop|relaunch|cleanup`
 - `project easy specialist create|list|get|remove`
 - `project easy instance launch|list|get|stop`
-- ordinary mailbox `status|check|read|send|reply|mark-read` operations
+- ordinary mailbox `status|list|peek|read|send|post|reply|mark|move|archive` operations
 - mailbox transport-specific filesystem or Stalwart internals
 - gateway attach and detach lifecycle work
 
@@ -227,4 +227,3 @@ The packaged skill MAY continue using `agents state`, `agents gateway status`, `
 - **WHEN** a caller explicitly needs gateway-owned TUI state or history as part of queued prompt, queued interrupt, or prompt-provenance work
 - **THEN** the skill may still direct the caller to the supported gateway TUI tracker surfaces inside the messaging workflow
 - **AND THEN** it does not claim ownership of generic managed-agent inspection outside that messaging-specific context
-

@@ -109,18 +109,20 @@ Never symlink these AI tool directories into Houmao agent worktrees by default:
 
 These can contain provider homes, credentials, trust state, local agent state, or project config that can override Houmao launch-owned settings.
 
-Default allowed local-state symlink candidate:
+For in-repo workspaces, discover local-state symlink candidates recursively from the parent checkout. Do not follow symlinked directories while discovering candidates.
 
-```text
-.pixi
-```
+Default allowed candidates:
 
-Allow `.github` only when it is untracked and the user explicitly requests it. In most repos `.github` is tracked project content and should come from Git.
+- reachable `.pixi/` directories, at any depth
+- explicitly local-only files or directories whose basename does not start with `.`
+
+Hidden local-state paths are skipped by default at every depth, including `.env`, `.github`, `.claude`, `.codex`, `.gemini`, `.aider`, `.cursor`, `.continue`, `.windsurf`, `.kiro`, and arbitrary dot-prefixed files or directories. `.pixi/` is the only default dot-prefixed exception, and it must be reachable without entering a skipped hidden parent. For example, `tools/.pixi/` can be linked when `tools/` is traversable, but `.hidden-parent/.pixi/` is skipped because `.hidden-parent/` takes precedence.
 
 For every candidate, apply these rules:
 
-- symlink only if the source exists
-- skip if Git tracks any files under it
+- symlink only if the source exists and is explicitly local-only
+- skip if Git tracks any files under the source subtree
+- skip if the source is discovered only by following a symlinked directory
 - do not replace tracked content in the worktree
 - record linked and skipped paths in `workspace.md`
 

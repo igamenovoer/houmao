@@ -52,19 +52,55 @@ houmao-mgr agents mail status [OPTIONS]
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
-### `check`
+### `list`
 
-Check mailbox contents for one managed agent.
+List mailbox contents for one managed agent.
 
 ```
-houmao-mgr agents mail check [OPTIONS]
+houmao-mgr agents mail list [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--unread-only` | Return only unread messages. |
+| `--box TEXT` | Mailbox box/subdirectory to read. Defaults to `inbox`. |
+| `--read-state [any\|read\|unread]` | Read-state filter. Defaults to `any`. |
+| `--answered-state [any\|answered\|unanswered]` | Answered-state filter. Defaults to `any`. |
+| `--archived / --not-archived` | Archived-state filter. |
 | `--limit INTEGER` | Maximum number of messages to return. |
 | `--since TEXT` | Optional RFC3339 lower bound. |
+| `--include-body` | Include full message body text. |
+| `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+### `peek`
+
+Peek at one mailbox message without marking it read.
+
+```
+houmao-mgr agents mail peek [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--message-ref TEXT` | Opaque message reference returned by `agents mail list`. Required. |
+| `--box TEXT` | Require the message to be in this box. |
+| `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+### `read`
+
+Read one mailbox message and mark it read.
+
+```
+houmao-mgr agents mail read [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--message-ref TEXT` | Opaque message reference returned by `agents mail list`. Required. |
+| `--box TEXT` | Require the message to be in this box. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
@@ -120,7 +156,7 @@ houmao-mgr agents mail reply [OPTIONS]
 
 | Option | Description |
 |---|---|
-| `--message-ref TEXT` | Opaque message reference returned by `agents mail check`. Required. |
+| `--message-ref TEXT` | Opaque message reference returned by `agents mail list`. Required. |
 | `--body-content TEXT` | Inline body content. |
 | `--body-file TEXT` | Body content file path. |
 | `--attach TEXT` | Attachment file path. Repeatable. |
@@ -130,17 +166,53 @@ houmao-mgr agents mail reply [OPTIONS]
 
 Replies to operator-origin parent messages succeed when the parent was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts. When the parent explicitly used `reply_policy=none`, reply is rejected explicitly.
 
-### `mark-read`
+### `mark`
 
-Mark one mailbox message read for a managed agent.
+Mark selected mailbox messages for a managed agent.
 
 ```
-houmao-mgr agents mail mark-read [OPTIONS]
+houmao-mgr agents mail mark [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--message-ref TEXT` | Opaque message reference returned by `agents mail check`. Required. |
+| `--message-ref TEXT` | Message reference. Required and repeatable. |
+| `--read / --unread` | Set read state. |
+| `--answered / --unanswered` | Set answered state. |
+| `--archived / --unarchived` | Set archived state. |
+| `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+At least one of `--read/--unread`, `--answered/--unanswered`, or `--archived/--unarchived` is required.
+
+### `move`
+
+Move selected mailbox messages for a managed agent.
+
+```
+houmao-mgr agents mail move [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--message-ref TEXT` | Message reference. Required and repeatable. |
+| `--destination-box TEXT` | Destination mailbox box/subdirectory. Required. |
+| `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
+| `--agent-id TEXT` | Authoritative managed-agent id. |
+| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
+
+### `archive`
+
+Archive selected mailbox messages for a managed agent.
+
+```
+houmao-mgr agents mail archive [OPTIONS]
+```
+
+| Option | Description |
+|---|---|
+| `--message-ref TEXT` | Message reference. Required and repeatable. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
@@ -150,7 +222,7 @@ houmao-mgr agents mail mark-read [OPTIONS]
 - Verified pair-owned and manager-owned execution returns `authoritative: true`, `status: "verified"`, and `execution_path: "gateway_backed"` or `"manager_direct"`.
 - Local live-TUI fallback returns `authoritative: false` with submission-only status such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`.
 - `post` never returns a TUI-submission result because it refuses non-authoritative execution.
-- Non-authoritative fallback results may include `preview_result`, but callers must verify outcome through manager-owned follow-up such as `agents mail status` or `agents mail check`, the live gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
+- Non-authoritative fallback results may include `preview_result`, but callers must verify outcome through manager-owned follow-up such as `agents mail status` or `agents mail list`, the live gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
 
 ## Examples
 
@@ -164,8 +236,8 @@ pixi run houmao-mgr agents mail post \
   --subject "Resume after sync" \
   --body-content "Continue from the latest mailbox checkpoint."
 
-# Mark one processed unread message read for an explicit target.
-pixi run houmao-mgr agents mail mark-read \
+# Archive one processed message for an explicit target.
+pixi run houmao-mgr agents mail archive \
   --agent-name research \
   --message-ref filesystem:msg-20260312T050000Z-parent
 ```

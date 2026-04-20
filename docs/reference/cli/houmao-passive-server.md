@@ -101,9 +101,15 @@ Mail routes also proxy through the agent's gateway.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/houmao/agents/{agent_ref}/mail/status` | Mailbox status. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/check` | Check for mail messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/list` | List mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/peek` | Peek at one mailbox message without marking it read. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/read` | Read one mailbox message and mark it read. |
 | `POST` | `/houmao/agents/{agent_ref}/mail/send` | Send a mail message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/post` | Post an operator-origin mailbox note. |
 | `POST` | `/houmao/agents/{agent_ref}/mail/reply` | Reply to a mail message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/mark` | Mark selected mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/move` | Move selected mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/archive` | Archive selected mailbox messages. |
 
 ### Request Submission
 
@@ -135,7 +141,7 @@ Most `houmao-mgr` commands work with the passive server when targeting it via `-
 - `houmao-mgr agents state --port 9891 --agent-name <name>` — shows agent state
 - `houmao-mgr agents prompt --port 9891 --agent-name <name>` — submits prompt via gateway proxy
 - `houmao-mgr agents gateway status --port 9891 --agent-name <name>` — shows gateway status
-- `houmao-mgr agents mail check --port 9891 --agent-name <name>` — checks mailbox via gateway proxy
+- `houmao-mgr agents mail list --port 9891 --agent-name <name> --read-state unread` — lists unread mailbox items via gateway proxy
 - `houmao-mgr agents turn submit --port 9891 --agent-name <name>` — submits headless turn
 
 Gateway attach/detach are local-only and must be run directly on the agent's host, not through the passive server.

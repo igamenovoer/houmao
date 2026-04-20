@@ -188,7 +188,7 @@ When an operator needs workflow state such as whether a processed message is sti
 #### Scenario: Project mailbox verification guidance points operators to actor-scoped mail state
 
 - **WHEN** an operator needs to verify that one managed agent has finished processing mailbox work and no longer has actionable unread mail
-- **THEN** the supported completion boundary is an actor-scoped command such as `houmao-mgr agents mail check --agent-name alice --unread-only`
+- **THEN** the supported completion boundary is an actor-scoped command such as `houmao-mgr agents mail list --agent-name alice --read-state unread`
 - **AND THEN** `houmao-mgr project mailbox messages list|get` remains a structural inspection surface rather than the source of truth for that completion state
 
 ### Requirement: Project mailbox wording describes the selected overlay mailbox root

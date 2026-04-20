@@ -289,16 +289,16 @@ Agent-not-found (404), ambiguous (409), and no-gateway (502) error handling SHAL
 - **AND WHEN** a caller sends `GET /houmao/agents/abc123/mail/status`
 - **THEN** the response status code is 502
 
-### Requirement: Passive server provides a mail check proxy endpoint
-The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/check` that resolves the agent, creates a `GatewayClient`, and forwards the request body as a `GatewayMailCheckRequestV1` payload to `POST /v1/mail/check`.
+### Requirement: Passive server provides a mail list proxy endpoint
+The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/list` that resolves the agent, creates a `GatewayClient`, and forwards the request body as a `GatewayMailListRequestV1` payload to `POST /v1/mail/list`.
 
-The response body SHALL be a `GatewayMailCheckResponseV1` payload.
+The response body SHALL be a `GatewayMailListResponseV1` payload.
 
-#### Scenario: Mail check forwards to the gateway and returns messages
+#### Scenario: Mail list forwards to the gateway and returns messages
 - **WHEN** the discovery index contains agent `abc123` with a live gateway
-- **AND WHEN** a caller sends `POST /houmao/agents/abc123/mail/check` with a valid `GatewayMailCheckRequestV1` body
+- **AND WHEN** a caller sends `POST /houmao/agents/abc123/mail/list` with a valid `GatewayMailListRequestV1` body
 - **THEN** the response status code is 200
-- **AND THEN** the response body is the `GatewayMailCheckResponseV1` payload from the gateway
+- **AND THEN** the response body is the `GatewayMailListResponseV1` payload from the gateway
 
 ### Requirement: Passive server provides a mail send proxy endpoint
 The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/send` that resolves the agent, creates a `GatewayClient`, and forwards the request body as a `GatewayMailSendRequestV1` payload to `POST /v1/mail/send`.

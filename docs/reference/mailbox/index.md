@@ -9,7 +9,7 @@ If you are new to the subsystem, start with [Quickstart](quickstart.md). If you 
 The mailbox system is an async message transport owned by the runtime, not a loose collection of helper scripts.
 
 - The runtime resolves one mailbox binding for a session.
-- Shared mailbox operations such as `check`, `send`, `post`, `reply`, and the single-message read-state update may flow through the live gateway `/v1/mail/*` facade when it is attached, and that shared facade becomes the preferred path for common mailbox work.
+- Shared mailbox operations such as `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive` may flow through the live gateway `/v1/mail/*` facade when it is attached, and that shared facade becomes the preferred path for common mailbox work.
 - The filesystem transport stores canonical messages as immutable Markdown documents under `messages/` and keeps mailbox-view state in SQLite.
 - Newly derived managed-agent mailbox addresses use `<agentname>@houmao.localhost`, while `HOUMAO-*` locals under `houmao.localhost` are reserved for Houmao-owned system mailboxes such as `HOUMAO-operator@houmao.localhost`.
 - In the filesystem transport, operator-origin mail defaults to `reply_policy=operator_mailbox`; replies route back to the reserved system mailbox `HOUMAO-operator@houmao.localhost`, while `reply_policy=none` remains the explicit one-way opt-out.
@@ -22,7 +22,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 - `canonical message`: The immutable Markdown document plus YAML front matter that represents one delivered message.
 - `mailbox binding`: The resolved runtime config and env vars that tell a session which mailbox it belongs to.
-- `message_ref`: The opaque shared target used by direct runtime flows and the gateway mailbox facade for reply and single-message read-state update.
+- `message_ref`: The opaque shared target used by direct runtime flows and the gateway mailbox facade for message inspection, reply, and lifecycle updates.
 - `mailbox registration`: The active, inactive, or stashed ownership record for one full mailbox address.
 - `projection`: A filesystem-transport symlink in `mailboxes/<address>/inbox` or `sent` that points to a canonical message.
 - `mailbox root`: The filesystem-transport tree that holds `messages/`, `mailboxes/`, `locks/`, `rules/`, `staging/`, and `index.sqlite`.
@@ -31,7 +31,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 ### Start here
 
-- [Quickstart](quickstart.md): Enable mailbox support and run `mail check`, `mail send`, `mail post`, and `mail reply`.
+- [Quickstart](quickstart.md): Enable mailbox support and run `mail list`, `mail read`, `mail send`, `mail post`, `mail reply`, and `mail archive`.
 - [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md): Start a Stalwart-backed mailbox session, verify it directly, and understand when the gateway mailbox facade becomes the preferred shared path.
 ### Contracts
 
