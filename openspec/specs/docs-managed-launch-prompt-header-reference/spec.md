@@ -74,7 +74,10 @@ At minimum, the page SHALL explain:
 - that the automation notice tells agents not to call Claude's `AskUserQuestion` tool or equivalent interactive user-question tools that would open or focus an operator TUI panel,
 - that mailbox-driven clarification should be sent by replying to the relevant mailbox thread when that thread is reply-enabled rather than by asking the interactive operator,
 - that mailbox-driven ambiguity on non-reply-enabled threads should be resolved by the agent making its own decision with available context,
-- that the task reminder section tells agents to create a one-off live gateway reminder with a 10 second default notification check delay when beginning potentially long-running work and to turn that reminder off when the task is done,
+- that the task reminder section is for explicit self-reminding requests or concrete supervision/finalization checks rather than generic long-running work,
+- that the task reminder section uses examples such as required replies, required files, or health checks to define acceptable reminder targets,
+- that the task reminder section tells agents to keep using local working state when no concrete reminder target exists,
+- that the task reminder section does not prescribe a fixed generic default reminder delay,
 - that the mail acknowledgement section tells agents to send a concise acknowledgement to the reply-enabled address before doing substantive work.
 
 #### Scenario: Reader sees section default behavior
@@ -92,8 +95,9 @@ At minimum, the page SHALL explain:
 #### Scenario: Reader sees the task reminder rule
 - **WHEN** a reader opens the managed prompt header reference page
 - **THEN** the page documents that `task-reminder` is default-disabled
-- **AND THEN** the page documents that the section tells agents to create a one-off live gateway reminder with a 10 second default notification check delay when beginning potentially long-running work
-- **AND THEN** the page documents that the section tells agents to turn off that reminder when the task is done
+- **AND THEN** the page documents that enabling it narrows reminder use to explicit self-reminding requests or concrete supervision/finalization checks
+- **AND THEN** the page documents that it does not prescribe a fixed generic default reminder delay
+- **AND THEN** the page documents that it tells agents to avoid ceremonial reminders and keep using local working state when no concrete reminder target exists
 
 #### Scenario: Reader sees the mail acknowledgement rule
 - **WHEN** a reader opens the managed prompt header reference page

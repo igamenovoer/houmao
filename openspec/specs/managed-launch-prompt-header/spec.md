@@ -44,9 +44,18 @@ For mailbox-driven work, the automation notice section SHALL state that the agen
 
 The task reminder section SHALL be disabled by default unless a stronger section-level policy enables it.
 
-The task reminder section SHALL state that, when the agent begins potentially long-running work such as processing email, the agent SHALL create a one-off reminder on the live gateway to remind itself to verify that final output actions are complete before finishing.
+When enabled, the task reminder section SHALL state that reminder creation is reserved for either:
 
-The task reminder section SHALL state that the one-off reminder uses a default notification check delay of 10 seconds, SHALL name the expected final action such as replying to mail or writing a required file, and SHALL be deleted or otherwise turned off when the task is done.
+- explicit operator-directed self-reminding or self-wakeup behavior, or
+- concrete supervision or finalization checks whose completion would otherwise be easy to miss.
+
+When enabled, the task reminder section SHALL give concrete examples of acceptable reminder targets such as sending a required reply, writing a required file, or verifying agent or loop health.
+
+The task reminder section SHALL direct the agent to name the concrete obligation the reminder is guarding and to delete or otherwise turn off that reminder when the guarded obligation is satisfied.
+
+The task reminder section SHALL direct the agent to keep using local todo, memo, or other working state instead of creating a reminder when no explicit or concrete reminder target exists.
+
+The task reminder section SHALL NOT prescribe a fixed generic default reminder delay.
 
 The mail acknowledgement section SHALL be disabled by default unless a stronger section-level policy enables it.
 
@@ -65,12 +74,13 @@ When enabled, the mail acknowledgement section SHALL state that, for mailbox-dri
 - **THEN** the effective launch prompt does not include the `<memo_cue>` section
 - **AND THEN** other default-enabled sections still render unless their own policy disables them
 
-#### Scenario: Task reminder is default-off but can be enabled
+#### Scenario: Task reminder is default-off but can be enabled for concrete reminder work
 - **WHEN** an operator launches a managed agent with managed-header section policy `task-reminder=enabled`
 - **AND WHEN** the whole managed header resolves to enabled
 - **THEN** the effective launch prompt includes the `<task_reminder>` section
-- **AND THEN** the section tells the agent to create a one-off live gateway reminder when beginning potentially long-running work
-- **AND THEN** the section tells the agent to use a 10 second default notification check delay and turn off the reminder when the task is done
+- **AND THEN** the section tells the agent to use reminders only for explicit self-reminding requests or concrete supervision/finalization obligations
+- **AND THEN** the section tells the agent to avoid ceremonial reminders and to keep using local working state when no concrete reminder target exists
+- **AND THEN** the section does not prescribe a fixed generic default reminder delay
 
 #### Scenario: Mail acknowledgement is default-off but can be enabled
 - **WHEN** an operator launches a managed agent with managed-header section policy `mail-ack=enabled`
