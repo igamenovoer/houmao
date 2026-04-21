@@ -656,11 +656,45 @@ def _profile_lane_label(profile_lane: str) -> str:
     return profile_lane
 
 
+def _profile_lane_management_label(profile_lane: str) -> str:
+    """Return one operator-facing lane-management label."""
+
+    if profile_lane == "easy_profile":
+        return "easy profile"
+    if profile_lane == "launch_profile":
+        return "explicit launch-profile"
+    return _profile_lane_label(profile_lane)
+
+
+def _profile_lane_command_surface(profile_lane: str) -> str | None:
+    """Return the maintained command surface for one profile lane."""
+
+    if profile_lane == "easy_profile":
+        return "houmao-mgr project easy profile"
+    if profile_lane == "launch_profile":
+        return "houmao-mgr project agents launch-profiles"
+    return None
+
+
+def _wrong_lane_launch_profile_message(*, name: str, profile_lane: str, action: str) -> str:
+    """Return redirect guidance for one wrong-lane launch-profile request."""
+
+    command_surface = _profile_lane_command_surface(profile_lane)
+    if command_surface is None:
+        lane_label = _profile_lane_label(profile_lane)
+        return f"Launch profile `{name}` is not an available `{lane_label}` definition."
+    return (
+        f"Launch profile `{name}` belongs to the {_profile_lane_management_label(profile_lane)} "
+        f"lane; use `{command_surface} {action} --name {name}`."
+    )
+
+
 def _load_launch_profile_or_click(
     *,
     overlay: HoumaoProjectOverlay,
     name: str,
     expected_lane: str | None = None,
+    action: str | None = None,
 ) -> Any:
     """Load one resolved launch profile or raise one operator-facing error."""
 
@@ -669,6 +703,14 @@ def _load_launch_profile_or_click(
     except (FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     if expected_lane is not None and resolved.entry.profile_lane != expected_lane:
+        if action is not None:
+            raise click.ClickException(
+                _wrong_lane_launch_profile_message(
+                    name=name,
+                    profile_lane=resolved.entry.profile_lane,
+                    action=action,
+                )
+            )
         lane_label = _profile_lane_label(expected_lane)
         raise click.ClickException(
             f"Launch profile `{name}` is not an available `{lane_label}` definition."
@@ -715,6 +757,7 @@ def _launch_profile_payload(
     overlay: HoumaoProjectOverlay,
     profile_name: str,
     expected_lane: str | None = None,
+    action: str | None = None,
 ) -> dict[str, object]:
     """Return one operator-facing launch-profile payload."""
 
@@ -722,6 +765,7 @@ def _launch_profile_payload(
         overlay=overlay,
         name=profile_name,
         expected_lane=expected_lane,
+        action=action,
     )
     return _launch_profile_payload_from_resolved(overlay=overlay, resolved=resolved)
 
@@ -1154,6 +1198,7 @@ def _store_launch_profile_from_cli(
             overlay=overlay,
             name=profile_name,
             expected_lane=profile_lane,
+            action="set",
         )
     elif operation == "replace":
         _load_launch_profile_or_click(

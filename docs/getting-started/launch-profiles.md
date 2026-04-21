@@ -42,6 +42,8 @@ Both lanes write into one shared catalog-backed launch-profile object family, ev
 
 A specialist-backed easy profile and a recipe-backed explicit launch profile are stored as the same kind of catalog object. The difference is the source lane (`specialist` vs `recipe`) and the profile lane (`easy_profile` vs `launch_profile`) recorded on each entry. Both lanes project into the same compatibility tree under `.houmao/agents/launch-profiles/<name>.yaml`.
 
+That shared storage and shared projection path do not make the command families interchangeable. Manage easy profiles through `houmao-mgr project easy profile ...` and explicit launch profiles through `houmao-mgr project agents launch-profiles ...`; wrong-lane management attempts fail with guidance to the correct lane instead of reading, mutating, or deleting the other lane's profile.
+
 ## Source Versus Birth-Time Taxonomy
 
 The four operator-authored object families and the two derived runtime objects form one consistent taxonomy:

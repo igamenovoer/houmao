@@ -24,16 +24,30 @@ def list_project_launch_profiles_command(recipe: str | None, tool_name: str | No
     """List project-local named launch profiles."""
 
     overlay = _resolve_existing_project_overlay()
-    emit(
-        {
-            "project_root": str(overlay.project_root),
-            "launch_profiles": _list_launch_profile_payloads(
-                overlay=overlay,
-                source_recipe=_optional_non_empty_value(recipe),
-                tool=tool_name,
-            ),
-        }
+    launch_profiles = _list_launch_profile_payloads(
+        overlay=overlay,
+        source_recipe=_optional_non_empty_value(recipe),
+        tool=tool_name,
     )
+    payload: dict[str, object] = {
+        "project_root": str(overlay.project_root),
+        "launch_profiles": launch_profiles,
+    }
+    if not launch_profiles:
+        easy_profile_count = sum(
+            1
+            for resolved in list_resolved_launch_profiles(overlay=overlay)
+            if resolved.entry.profile_lane == "easy_profile"
+            and (tool_name is None or resolved.tool == tool_name)
+        )
+        if easy_profile_count > 0:
+            profile_label = "profile" if easy_profile_count == 1 else "profiles"
+            payload["note"] = (
+                "No explicit launch profiles found for this query. "
+                f"Found {easy_profile_count} easy {profile_label} in this overlay; use "
+                "`houmao-mgr project easy profile list`."
+            )
+    emit(payload)
 
 
 @project_launch_profiles_group.command(name="get")
@@ -46,6 +60,8 @@ def get_project_launch_profile_command(name: str) -> None:
         _launch_profile_payload(
             overlay=overlay,
             profile_name=_require_non_empty_name(name, field_name="--name"),
+            expected_lane="launch_profile",
+            action="get",
         )
     )
 
@@ -473,6 +489,7 @@ def set_project_launch_profile_command(
             overlay=overlay,
             name=profile_name,
             expected_lane="launch_profile",
+            action="set",
         ).entry.source_name,
         operation="patch",
         agent_name=agent_name,
@@ -532,6 +549,12 @@ def remove_project_launch_profile_command(name: str) -> None:
 
     overlay = _resolve_existing_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
+    _load_launch_profile_or_click(
+        overlay=overlay,
+        name=profile_name,
+        expected_lane="launch_profile",
+        action="remove",
+    )
     try:
         metadata_path = ProjectCatalog.from_overlay(overlay).remove_launch_profile(profile_name)
     except FileNotFoundError as exc:

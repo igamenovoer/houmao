@@ -66,4 +66,5 @@ def load_profile(*, overlay: HoumaoProjectOverlay, name: str) -> EasyProfileMeta
 def remove_profile_metadata(*, overlay: HoumaoProjectOverlay, name: str) -> Path:
     """Delete one persisted easy-profile definition from the catalog."""
 
+    load_profile(overlay=overlay, name=name)
     return ProjectCatalog.from_overlay(overlay).remove_launch_profile(name)

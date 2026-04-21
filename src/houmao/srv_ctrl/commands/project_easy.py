@@ -439,6 +439,7 @@ def set_easy_profile_command(
             overlay=overlay,
             name=profile_name,
             expected_lane="easy_profile",
+            action="set",
         ).entry.source_name,
         operation="patch",
         agent_name=agent_name,
@@ -496,12 +497,25 @@ def list_easy_profiles_command() -> None:
     """List persisted project-local easy profiles."""
 
     overlay = _resolve_existing_project_overlay()
+    resolved_profiles = list_resolved_launch_profiles(overlay=overlay)
     profiles = [
         _launch_profile_payload_from_resolved(overlay=overlay, resolved=profile)
-        for profile in list_resolved_launch_profiles(overlay=overlay)
+        for profile in resolved_profiles
         if profile.entry.profile_lane == "easy_profile"
     ]
-    emit({"project_root": str(overlay.project_root), "profiles": profiles})
+    payload: dict[str, object] = {"project_root": str(overlay.project_root), "profiles": profiles}
+    if not profiles:
+        explicit_profile_count = sum(
+            1 for profile in resolved_profiles if profile.entry.profile_lane == "launch_profile"
+        )
+        if explicit_profile_count > 0:
+            profile_label = "profile" if explicit_profile_count == 1 else "profiles"
+            payload["note"] = (
+                "No easy profiles found. "
+                f"Found {explicit_profile_count} explicit launch-{profile_label} in this overlay; "
+                "use `houmao-mgr project agents launch-profiles list`."
+            )
+    emit(payload)
 
 
 @easy_profile_group.command(name="get")
@@ -515,6 +529,7 @@ def get_easy_profile_command(name: str) -> None:
             overlay=overlay,
             profile_name=_require_non_empty_name(name, field_name="--name"),
             expected_lane="easy_profile",
+            action="get",
         )
     )
 
@@ -526,6 +541,12 @@ def remove_easy_profile_command(name: str) -> None:
 
     overlay = _resolve_existing_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
+    _load_launch_profile_or_click(
+        overlay=overlay,
+        name=profile_name,
+        expected_lane="easy_profile",
+        action="remove",
+    )
     try:
         metadata_path = remove_profile_metadata(overlay=overlay, name=profile_name)
     except FileNotFoundError as exc:

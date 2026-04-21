@@ -4941,6 +4941,211 @@ def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
     )
 
 
+def test_project_launch_profiles_wrong_lane_operations_redirect_to_easy_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+                "--workdir",
+                "/repos/alice",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "agents", "launch-profiles", "get", "--name", "alice"],
+    )
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--workdir",
+            "/repos/alice-next",
+        ],
+    )
+    remove_result = runner.invoke(
+        cli,
+        ["project", "agents", "launch-profiles", "remove", "--name", "alice"],
+    )
+
+    assert get_result.exit_code != 0
+    assert "belongs to the easy profile lane" in get_result.output
+    assert "project easy profile get --name alice" in get_result.output
+
+    assert set_result.exit_code != 0
+    assert "belongs to the easy profile lane" in set_result.output
+    assert "project easy profile set --name alice" in set_result.output
+
+    assert remove_result.exit_code != 0
+    assert "belongs to the easy profile lane" in remove_result.output
+    assert "project easy profile remove --name alice" in remove_result.output
+
+    payload = json.loads(
+        runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
+    )
+    assert payload["defaults"]["workdir"] == "/repos/alice"
+
+
+def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "nightly",
+                "--recipe",
+                "researcher-codex-default",
+                "--workdir",
+                "/repos/nightly",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "easy", "profile", "get", "--name", "nightly"],
+    )
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "nightly",
+            "--workdir",
+            "/repos/nightly-next",
+        ],
+    )
+    remove_result = runner.invoke(
+        cli,
+        ["project", "easy", "profile", "remove", "--name", "nightly"],
+    )
+
+    assert get_result.exit_code != 0
+    assert "belongs to the explicit launch-profile lane" in get_result.output
+    assert "project agents launch-profiles get --name nightly" in get_result.output
+
+    assert set_result.exit_code != 0
+    assert "belongs to the explicit launch-profile lane" in set_result.output
+    assert "project agents launch-profiles set --name nightly" in set_result.output
+
+    assert remove_result.exit_code != 0
+    assert "belongs to the explicit launch-profile lane" in remove_result.output
+    assert "project agents launch-profiles remove --name nightly" in remove_result.output
+
+    payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "agents", "launch-profiles", "get", "--name", "nightly"],
+        ).output
+    )
+    assert payload["defaults"]["workdir"] == "/repos/nightly"
+
+
+def test_project_launch_profiles_list_adds_note_when_only_easy_profiles_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(cli, ["project", "agents", "launch-profiles", "list"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["launch_profiles"] == []
+    assert "note" in payload
+    assert "project easy profile list" in payload["note"]
+
+
+def test_project_easy_profile_list_adds_note_when_only_explicit_profiles_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "nightly",
+                "--recipe",
+                "researcher-codex-default",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(cli, ["project", "easy", "profile", "list"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["profiles"] == []
+    assert "note" in payload
+    assert "project agents launch-profiles list" in payload["note"]
+
+
 def test_project_easy_profile_set_without_updates_fails_without_mutation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
