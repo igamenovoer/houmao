@@ -1,13 +1,34 @@
 # Plan Structure
 
-Use this reference to choose between the single-file and bundle plan forms and to keep the canonical entrypoint stable.
+Use this reference to choose between the single-file and bundle forms and to keep the canonical entrypoint stable.
+
+## Output Directory Contract
+
+Every authored pairwise-v2 plan should live under one user-chosen output directory.
+
+Canonical entrypoint for both forms:
+- `<plan-output-dir>/plan.md`
+
+Single-file output shape:
+- `<plan-output-dir>/plan.md`
+
+Bundle output shape:
+- `<plan-output-dir>/plan.md`
+- `<plan-output-dir>/prestart.md`
+- `<plan-output-dir>/routing-packets.md` or `<plan-output-dir>/routing-packets/`
+- `<plan-output-dir>/initialize-material.md`, when a separate durable-initialize note helps authoring
+- `<plan-output-dir>/graph.md`
+- `<plan-output-dir>/delegation.md`
+- `<plan-output-dir>/reporting.md`
+- `<plan-output-dir>/scripts/README.md`
+- `<plan-output-dir>/scripts/<files>`
+- `<plan-output-dir>/agents/<participant>.md`
 
 ## Single-File Form
 
-Use one Markdown file when the run is compact and the plan does not need many supporting notes or scripts.
+Use one output directory containing only `plan.md` when the run is compact and does not need many supporting notes or scripts.
 
 Minimum sections:
-
 - Objective
 - Master
 - Participants
@@ -15,7 +36,8 @@ Minimum sections:
 - Prestart Procedure
 - Prestart Strategy
 - Routing Packets
-- Email Initialization
+- Durable Initialize Material
+- Operator Preparation Wave, when used
 - Lifecycle Vocabulary
 - Completion Condition
 - Stop Policy
@@ -29,14 +51,13 @@ Minimum sections:
 Use one directory when the run needs supporting Markdown files, script documentation, or agent-specific notes.
 
 Canonical entrypoint:
-
 - `plan.md`
 
 Suggested bundle contents:
-
 - `plan.md`
 - `prestart.md`
 - `routing-packets.md` or `routing-packets/`
+- `initialize-material.md`, when a separate durable-initialize note helps authoring
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
@@ -49,7 +70,6 @@ Suggested bundle contents:
 Every plan should record the canonical lifecycle vocabulary separately for operator actions and observed states.
 
 Canonical operator actions:
-
 - `plan`
 - `initialize`
 - `start`
@@ -61,7 +81,6 @@ Canonical operator actions:
 - `hard-kill`
 
 Canonical observed states:
-
 - `authoring`
 - `initializing`
 - `awaiting_ack`
@@ -72,22 +91,30 @@ Canonical observed states:
 - `stopped`
 - `dead`
 
-## Email Initialization
+## Durable Initialize Material
 
-Every plan using the default `email_initialization` strategy should record:
+Every plan using pairwise-v2 durable initialize pages should record:
+- run-scoped initialize page namespace such as `loop-runs/pairwise-v2/<run_id>/initialize.md`
+- run-scoped master charter page namespace such as `loop-runs/pairwise-v2/<run_id>/start-charter.md`
+- exact begin and end sentinel convention for memo reference blocks keyed by `run_id` and slot
+- what each memo reference block summarizes and how it links to `pages/<relative-page>`
+- fail-closed replacement handling for duplicate memo blocks
 
-- gateway mail-notifier setup before initialization mail
+## Operator Preparation Wave
+
+Every plan using explicit `operator_preparation_wave` should record:
+- gateway mail-notifier setup before preparation mail
 - gateway mail-notifier interval: `5s` unless the user specified otherwise
-- initialization email target policy: all named participants by default, or an explicit target set when provided
+- preparation-mail target policy: delegating or non-leaf participants by default, leaf participants only when explicitly requested
 - acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
 - operator reply policy: `none` for `fire_and_proceed`, or `operator_mailbox` for `require_ack`
+- durable initialize page and memo reference-block posture for the preparation recipients
 - in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
 - fallback behavior for participants whose live gateway or mailbox binding does not support notifier polling
 
 ## Routing Packets
 
 Every plan using routing packets should record:
-
 - root routing packet location for the designated master
 - NetworkX node-link graph artifact location when machine-readable topology is available
 - packet JSON document location when machine-readable packet validation is available
@@ -103,29 +130,36 @@ Every plan using routing packets should record:
 
 Routing packets should be prepared at authoring time so intermediate runtime agents do not need to infer descendants or recompute graph slices from the full plan.
 
-When a plan keeps a NetworkX node-link graph and packet JSON document for machine checks, use `houmao-mgr internals graph high analyze --input <graph.json>`, optional `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants`, and `houmao-mgr internals graph high packet-expectations --input <graph.json>` during packet authoring. Use `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` before treating initialization as `ready` when routing packets are part of the plan. These commands validate structural coverage only; they do not replace semantic review of delegation policy, forbidden actions, result routing, or lifecycle vocabulary.
+When a plan keeps a NetworkX node-link graph and packet JSON document for machine checks, use:
+- `houmao-mgr internals graph high analyze --input <graph.json>`
+- optional `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants`
+- `houmao-mgr internals graph high packet-expectations --input <graph.json>`
+- `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>`
+
+These commands validate structural coverage only; they do not replace semantic review of delegation policy, forbidden actions, result routing, or lifecycle vocabulary.
 
 ## `prestart.md`
 
 For bundle plans, `prestart.md` should record:
-
-- selected `prestart_strategy`: default `email_initialization`, or explicit packet-only initialization when the user disables email initialization
+- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
 - graph artifact and packet JSON artifact locations when available
-- notifier preflight expectations
-- gateway mail-notifier interval: `5s` unless the user specified otherwise
-- initialization email target policy and delivery procedure
-- acknowledgement posture: default `fire_and_proceed`, or explicit `require_ack`
-- operator reply policy for initialization mail
+- run-scoped initialize page namespace and durable start-charter page namespace
+- exact begin/end sentinel convention for memo reference blocks keyed by `run_id` and slot
+- durable initialize page and memo reference-block write procedure
+- explicit `operator_preparation_wave` notifier preflight expectations, when that strategy is selected
+- gateway mail-notifier interval: `5s` unless the user specified otherwise for `operator_preparation_wave`
+- preparation-mail target policy and delivery procedure, when `operator_preparation_wave` is selected
+- acknowledgement posture: default `fire_and_proceed`, or explicit `require_ack` for `operator_preparation_wave`
+- operator reply policy for preparation mail
 - routing packet validation rules, root packet location, packet inventory, and child dispatch-table expectations when routing packets are part of the plan
 - authored topology or descendant relationships used to verify packet coverage
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
-- readiness rules for the selected strategy: notifier setup plus initialization mail, explicit acknowledgements when `require_ack` is selected, and packet validation when routing packets are part of the plan
+- readiness rules for the selected strategy
 - how the master trigger is kept separate from `initialize`
 
 ## Script Inventory Fields
 
 For each script, record:
-
 - path
 - purpose
 - allowed caller agents
@@ -136,12 +170,16 @@ For each script, record:
 
 ## Guardrails
 
+- Do not invent the plan output directory when the user has not provided one.
+- Do not leave the single-file form without `plan.md`.
 - Do not leave the bundle form without `plan.md`.
 - Do not leave the bundle form without `prestart.md` when prestart strategy is part of the run contract.
-- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or initialization targets.
-- Do not skip default email initialization merely because routing packet material exists.
+- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
+- Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
+- Do not skip durable initialize page and memo reference-block materialization when managed memory is being used.
+- Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text.
 - Do not require acknowledgement by default; use `fire_and_proceed` unless the plan explicitly selects `require_ack`.
-- Do not use a gateway mail-notifier interval other than `5s` unless the user or plan specifies another interval.
+- Do not use a gateway mail-notifier interval other than `5s` for `operator_preparation_wave` unless the user or plan specifies another interval.
 - Do not require runtime intermediate agents to recompute subtree slices that should have been prepared during authoring.
 - Do not mix lifecycle action names and observed state names into one ambiguous status field.
 - Do not hide plan-critical policy only inside an unreferenced support file.
