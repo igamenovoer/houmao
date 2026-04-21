@@ -77,11 +77,18 @@ pixi run houmao-mgr project init
 
 If you later run maintained project-aware commands from a nested subdirectory, the default behavior is still to reuse the nearest ancestor overlay you just initialized. Use `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want a nested directory to behave as an independent Houmao project root and bootstrap its own `.houmao/` instead of inheriting the parent one.
 
-### Step 2: Create One Specialist Through `project easy`
+If this repository already has an older `.houmao/` layout, do not expect ordinary project commands to upgrade it in place. Check the plan with `pixi run houmao-mgr project migrate`, then rerun with `--apply` when you are ready to refresh that overlay to the current structure.
+
+### Step 2: Register One Project Skill, Then Create One Specialist Through `project easy`
 
 ```bash
 mkdir -p /tmp/notes-skill
 printf '# Notes\n\nKeep responses concise and practical.\n' > /tmp/notes-skill/SKILL.md
+
+pixi run houmao-mgr project skills add \
+  --name notes \
+  --source /tmp/notes-skill \
+  --mode copy
 
 pixi run houmao-mgr project easy specialist create \
   --name researcher \
@@ -89,10 +96,12 @@ pixi run houmao-mgr project easy specialist create \
   --tool claude \
   --api-key your-api-key-here \
   --env-set OPENAI_MODEL=claude-sonnet-4 \
-  --with-skill /tmp/notes-skill
+  --skill notes
 ```
 
 When `--credential` is omitted, `project easy specialist create` derives the auth display name as `<specialist>-creds`. In this example the generated Claude auth bundle is displayed as `researcher-creds`, but its stored content and projected auth directories are keyed by an opaque internal bundle ref.
+
+Use `project skills add|set` when you want to manage one reusable project skill explicitly. `project easy specialist create --with-skill <dir>` still exists as a convenience path, but its maintained meaning is now “register or update the canonical project skill entry, then bind it to this specialist.”
 
 `--system-prompt` is optional for this higher-level workflow. If you omit both `--system-prompt` and `--system-prompt-file`, Houmao still writes the canonical role prompt file and treats that role as promptless.
 
@@ -100,7 +109,7 @@ For maintained easy launch paths, `project easy specialist create` now persists 
 
 Use repeatable `--env-set NAME=value` on `project easy specialist create` when the env is part of the specialist's durable launch semantics and should survive later relaunch. Those records are stored under `launch.env_records`, stay separate from credential env, and should not be used for secrets or auth-owned names such as `OPENAI_API_KEY`.
 
-This higher-level flow persists semantic state in the catalog and snapshots payload content into the managed content store. It also materializes the compatibility projection tree used by the existing builders and runtime. The auth bundle keeps display name `researcher-creds`, but its stored and projected directory names are opaque:
+This higher-level flow persists semantic state in the catalog and keeps canonical project-owned payloads under `.houmao/content/`. `.houmao/agents/` remains the derived compatibility projection tree used by the existing builders and runtime. The auth bundle keeps display name `researcher-creds`, but its stored and projected directory names are opaque:
 
 ```text
 .houmao/catalog.sqlite
@@ -112,6 +121,8 @@ This higher-level flow persists semantic state in the catalog and snapshots payl
 .houmao/agents/tools/claude/auth/<opaque-auth-ref>/
 .houmao/agents/skills/notes/
 ```
+
+Treat `.houmao/content/skills/notes/` as the canonical project skill entry. `.houmao/agents/skills/notes/` is derived projection only and may be rebuilt whenever Houmao rematerializes the compatibility tree.
 
 Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. Credential management now has its own concern-oriented entry points: use `houmao-mgr project credentials <tool> ...` for the active overlay or `houmao-mgr credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory. Use `houmao-mgr project agents roles ...` for prompt-only roles, `houmao-mgr project agents recipes ...` for named recipes, or `houmao-mgr project agents launch-profiles ...` for explicit recipe-backed launch profiles.
 

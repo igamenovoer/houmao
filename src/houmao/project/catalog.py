@@ -27,7 +27,7 @@ from houmao.agents.managed_prompt_header import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 14
+CATALOG_SCHEMA_VERSION = 15
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -60,6 +60,24 @@ _MEMO_SEED_SOURCE_KIND_VALUES = (_MEMO_SEED_SOURCE_KIND_MEMO, _MEMO_SEED_SOURCE_
 _MEMO_SEED_TOP_LEVEL_MEMO_FILE = "houmao-memo.md"
 _MEMO_SEED_TOP_LEVEL_PAGES_DIR = "pages"
 _RELAUNCH_CHAT_SESSION_MODES = frozenset({"new", "tool_last_or_new", "exact"})
+_PROJECT_SKILL_MODE_COPY = "copy"
+_PROJECT_SKILL_MODE_SYMLINK = "symlink"
+_PROJECT_SKILL_MODE_VALUES = (_PROJECT_SKILL_MODE_COPY, _PROJECT_SKILL_MODE_SYMLINK)
+
+
+@dataclass(frozen=True)
+class ProjectStructureMigrationState:
+    """Detected legacy project-layout state that requires explicit migration."""
+
+    catalog_version: int
+    legacy_specialist_paths: tuple[Path, ...]
+    unmanaged_skill_paths: tuple[Path, ...]
+
+    @property
+    def requires_migration(self) -> bool:
+        """Return whether one project overlay still needs explicit migration."""
+
+        return bool(self.legacy_specialist_paths or self.unmanaged_skill_paths)
 
 
 @dataclass(frozen=True)
@@ -73,12 +91,12 @@ class ManagedContentRef:
     def resolve(self, overlay: HoumaoProjectOverlay) -> Path:
         """Resolve this content ref against one overlay content root."""
 
-        return (overlay.content_root / self.relative_path).resolve()
+        return overlay.content_root.resolve() / self.relative_path
 
     def resolve_under_content_root(self, content_root: Path) -> Path:
         """Resolve this content ref against one explicit content root."""
 
-        return (content_root.resolve() / self.relative_path).resolve()
+        return content_root.resolve() / self.relative_path
 
 
 @dataclass(frozen=True)
@@ -97,7 +115,7 @@ class SpecialistCatalogEntry:
     skills: tuple[str, ...]
     prompt_ref: ManagedContentRef
     auth_ref: ManagedContentRef
-    skill_refs: tuple[ManagedContentRef, ...]
+    skill_entries: tuple[ProjectSkillCatalogEntry, ...]
     launch_payload: dict[str, Any]
     mailbox_payload: dict[str, Any] | None
     extra_payload: dict[str, Any]
@@ -121,9 +139,33 @@ class SpecialistCatalogEntry:
     def resolved_skill_paths(self, overlay: HoumaoProjectOverlay) -> tuple[Path, ...]:
         """Return the compatibility projection skill paths."""
 
-        return tuple(
-            (overlay.agents_root / "skills" / skill_name).resolve() for skill_name in self.skills
-        )
+        return tuple(overlay.agents_root / "skills" / skill_name for skill_name in self.skills)
+
+    def resolved_canonical_skill_paths(self, overlay: HoumaoProjectOverlay) -> tuple[Path, ...]:
+        """Return canonical project skill paths under `.houmao/content/skills/`."""
+
+        return tuple(entry.resolved_canonical_path(overlay) for entry in self.skill_entries)
+
+
+@dataclass(frozen=True)
+class ProjectSkillCatalogEntry:
+    """Resolved project-local skill registry entry loaded from the catalog."""
+
+    name: str
+    mode: Literal["copy", "symlink"]
+    content_ref: ManagedContentRef
+    source_path: Path | None
+    metadata_path: Path | None = None
+
+    def resolved_canonical_path(self, overlay: HoumaoProjectOverlay) -> Path:
+        """Return the canonical project-local skill path."""
+
+        return self.content_ref.resolve(overlay)
+
+    def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
+        """Return the compatibility projection skill path."""
+
+        return overlay.agents_root / "skills" / self.name
 
 
 @dataclass(frozen=True)
@@ -228,12 +270,14 @@ class ProjectCatalog:
             projection_root=overlay.agents_root,
         )
 
-    def initialize(self) -> None:
+    def initialize(self, *, allow_pending_migration: bool = False) -> None:
         """Create the catalog schema and managed content roots when missing."""
 
         catalog_existed = self.m_catalog_path.exists()
         if not catalog_existed:
             self._ensure_content_roots()
+        if not allow_pending_migration:
+            self._raise_if_pending_project_migration()
         with self._connect() as connection:
             if catalog_existed:
                 _validate_current_catalog_schema(connection)
@@ -243,6 +287,53 @@ class ProjectCatalog:
                 self._ensure_catalog_metadata(connection)
             self._seed_setup_profiles(connection)
             connection.executescript(_view_sql())
+
+    def detect_pending_migration(self) -> ProjectStructureMigrationState:
+        """Detect filesystem-backed legacy state that requires explicit migration."""
+
+        legacy_specialists_root = (self.m_catalog_path.parent / "easy" / "specialists").resolve()
+        legacy_specialist_paths = tuple(
+            sorted(legacy_specialists_root.glob("*.toml"))
+            if legacy_specialists_root.is_dir()
+            else ()
+        )
+
+        catalog_version = 0
+        registered_skill_names: set[str] = set()
+        if self.m_catalog_path.exists():
+            with self._connect() as connection:
+                catalog_version = _catalog_schema_version(connection)
+                if _table_exists(connection, "skill_packages"):
+                    registered_skill_names = {
+                        str(row["name"])
+                        for row in connection.execute("SELECT name FROM skill_packages").fetchall()
+                    }
+
+        unmanaged_skill_paths = (
+            tuple(
+                path
+                for path in sorted(
+                    (self.m_projection_root / "skills").iterdir(), key=lambda item: item.name
+                )
+                if path.name not in registered_skill_names
+            )
+            if (self.m_projection_root / "skills").is_dir()
+            else ()
+        )
+
+        return ProjectStructureMigrationState(
+            catalog_version=catalog_version,
+            legacy_specialist_paths=legacy_specialist_paths,
+            unmanaged_skill_paths=unmanaged_skill_paths,
+        )
+
+    def _raise_if_pending_project_migration(self) -> None:
+        """Reject ordinary catalog access when the overlay still needs migration."""
+
+        state = self.detect_pending_migration()
+        if not state.requires_migration:
+            return
+        raise ValueError(_project_structure_migration_required_error(state))
 
     def list_auth_profiles(self, *, tool: str | None = None) -> list[AuthProfileCatalogEntry]:
         """Return persisted auth profiles, optionally filtered by tool."""
@@ -285,10 +376,16 @@ class ProjectCatalog:
                 ).fetchall()
         return [self._auth_profile_from_row(row) for row in rows]
 
-    def load_auth_profile(self, *, tool: str, name: str) -> AuthProfileCatalogEntry:
+    def load_auth_profile(
+        self,
+        *,
+        tool: str,
+        name: str,
+        allow_pending_migration: bool = False,
+    ) -> AuthProfileCatalogEntry:
         """Load one auth profile by tool and display name."""
 
-        self.initialize()
+        self.initialize(allow_pending_migration=allow_pending_migration)
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -313,10 +410,15 @@ class ProjectCatalog:
             )
         return self._auth_profile_from_row(row)
 
-    def load_auth_profile_by_id(self, auth_profile_id: int) -> AuthProfileCatalogEntry:
+    def load_auth_profile_by_id(
+        self,
+        auth_profile_id: int,
+        *,
+        allow_pending_migration: bool = False,
+    ) -> AuthProfileCatalogEntry:
         """Load one auth profile by its catalog id."""
 
-        self.initialize()
+        self.initialize(allow_pending_migration=allow_pending_migration)
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -347,6 +449,7 @@ class ProjectCatalog:
         tool: str,
         display_name: str,
         source_path: Path,
+        allow_pending_migration: bool = False,
     ) -> AuthProfileCatalogEntry:
         """Create one new auth profile from a file-backed auth tree source."""
 
@@ -355,6 +458,7 @@ class ProjectCatalog:
             display_name=display_name,
             source_path=source_path,
             operation="add",
+            allow_pending_migration=allow_pending_migration,
         )
 
     def update_auth_profile_from_source(
@@ -363,6 +467,7 @@ class ProjectCatalog:
         tool: str,
         display_name: str,
         source_path: Path,
+        allow_pending_migration: bool = False,
     ) -> AuthProfileCatalogEntry:
         """Update one existing auth profile from a file-backed auth tree source."""
 
@@ -371,6 +476,7 @@ class ProjectCatalog:
             display_name=display_name,
             source_path=source_path,
             operation="set",
+            allow_pending_migration=allow_pending_migration,
         )
 
     def ensure_auth_profile_from_source(
@@ -379,6 +485,7 @@ class ProjectCatalog:
         tool: str,
         display_name: str,
         source_path: Path,
+        allow_pending_migration: bool = False,
     ) -> AuthProfileCatalogEntry:
         """Create or update one auth profile from a file-backed auth tree source."""
 
@@ -387,6 +494,7 @@ class ProjectCatalog:
             display_name=display_name,
             source_path=source_path,
             operation="upsert",
+            allow_pending_migration=allow_pending_migration,
         )
 
     def rename_auth_profile(
@@ -473,6 +581,182 @@ class ProjectCatalog:
             shutil.rmtree(projection_path)
         return profile
 
+    def project_skill_exists(
+        self,
+        name: str,
+        *,
+        allow_pending_migration: bool = False,
+    ) -> bool:
+        """Return whether one project skill registry entry already exists."""
+
+        self.initialize(allow_pending_migration=allow_pending_migration)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM skill_packages WHERE name = ? LIMIT 1",
+                (_require_catalog_name(name, field_name="name"),),
+            ).fetchone()
+        return row is not None
+
+    def list_project_skills(
+        self,
+        *,
+        allow_pending_migration: bool = False,
+    ) -> list[ProjectSkillCatalogEntry]:
+        """Return every registered project-local skill."""
+
+        self.initialize(allow_pending_migration=allow_pending_migration)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    skill_packages.name,
+                    skill_packages.mode,
+                    skill_packages.source_path,
+                    content_refs.content_kind,
+                    content_refs.storage_kind,
+                    content_refs.relative_path
+                FROM skill_packages
+                INNER JOIN content_refs ON content_refs.id = skill_packages.content_ref_id
+                ORDER BY skill_packages.name
+                """
+            ).fetchall()
+        return [self._project_skill_from_row(row) for row in rows]
+
+    def load_project_skill(
+        self,
+        name: str,
+        *,
+        allow_pending_migration: bool = False,
+    ) -> ProjectSkillCatalogEntry:
+        """Load one registered project-local skill."""
+
+        self.initialize(allow_pending_migration=allow_pending_migration)
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    skill_packages.name,
+                    skill_packages.mode,
+                    skill_packages.source_path,
+                    content_refs.content_kind,
+                    content_refs.storage_kind,
+                    content_refs.relative_path
+                FROM skill_packages
+                INNER JOIN content_refs ON content_refs.id = skill_packages.content_ref_id
+                WHERE skill_packages.name = ?
+                LIMIT 1
+                """,
+                (_require_catalog_name(name, field_name="name"),),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError(f"Project skill `{name}` was not found: {self.m_catalog_path}")
+        return self._project_skill_from_row(row)
+
+    def create_project_skill_from_source(
+        self,
+        *,
+        name: str,
+        source_path: Path,
+        mode: Literal["copy", "symlink"] = "copy",
+        allow_pending_migration: bool = False,
+    ) -> ProjectSkillCatalogEntry:
+        """Create one new project skill registry entry from a source directory."""
+
+        return self._store_project_skill_from_source(
+            name=name,
+            source_path=source_path,
+            mode=mode,
+            operation="add",
+            allow_pending_migration=allow_pending_migration,
+        )
+
+    def update_project_skill_from_source(
+        self,
+        *,
+        name: str,
+        source_path: Path,
+        mode: Literal["copy", "symlink"] = "copy",
+        allow_pending_migration: bool = False,
+    ) -> ProjectSkillCatalogEntry:
+        """Update one existing project skill registry entry from a source directory."""
+
+        return self._store_project_skill_from_source(
+            name=name,
+            source_path=source_path,
+            mode=mode,
+            operation="set",
+            allow_pending_migration=allow_pending_migration,
+        )
+
+    def ensure_project_skill_from_source(
+        self,
+        *,
+        name: str,
+        source_path: Path,
+        mode: Literal["copy", "symlink"] = "copy",
+        allow_pending_migration: bool = False,
+    ) -> ProjectSkillCatalogEntry:
+        """Create or update one project skill registry entry from a source directory."""
+
+        return self._store_project_skill_from_source(
+            name=name,
+            source_path=source_path,
+            mode=mode,
+            operation="upsert",
+            allow_pending_migration=allow_pending_migration,
+        )
+
+    def remove_project_skill(self, name: str) -> ProjectSkillCatalogEntry:
+        """Remove one project skill registry entry when no specialist still references it."""
+
+        skill = self.load_project_skill(name)
+        content_path = skill.content_ref.resolve_under_content_root(self.m_content_root)
+        projection_path = self.m_projection_root / "skills" / skill.name
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, content_ref_id
+                FROM skill_packages
+                WHERE name = ?
+                LIMIT 1
+                """,
+                (skill.name,),
+            ).fetchone()
+            if row is None:
+                raise FileNotFoundError(
+                    f"Project skill `{skill.name}` was not found: {self.m_catalog_path}"
+                )
+            referencing_specialists = tuple(
+                str(item["name"])
+                for item in connection.execute(
+                    """
+                    SELECT DISTINCT specialists.name
+                    FROM specialists
+                    INNER JOIN presets ON presets.id = specialists.preset_id
+                    INNER JOIN preset_skill_packages
+                        ON preset_skill_packages.preset_id = presets.id
+                    WHERE preset_skill_packages.skill_package_id = ?
+                    ORDER BY specialists.name
+                    """,
+                    (int(row["id"]),),
+                ).fetchall()
+            )
+            if referencing_specialists:
+                joined = ", ".join(referencing_specialists)
+                raise ValueError(
+                    f"Project skill `{skill.name}` is still referenced by specialist(s): {joined}."
+                )
+            connection.execute("DELETE FROM skill_packages WHERE id = ?", (int(row["id"]),))
+            self._delete_content_ref_if_unreferenced(
+                connection=connection,
+                content_ref_id=int(row["content_ref_id"]),
+            )
+        if content_path.exists() or content_path.is_symlink():
+            _remove_tree_or_path(content_path)
+        if projection_path.exists() or projection_path.is_symlink():
+            _remove_tree_or_path(projection_path)
+        return skill
+
     def specialist_exists(self, name: str) -> bool:
         """Return whether one specialist already exists in the catalog."""
 
@@ -524,10 +808,15 @@ class ProjectCatalog:
             ).fetchall()
             return [self._entry_from_row(connection, row) for row in rows]
 
-    def load_specialist(self, name: str) -> SpecialistCatalogEntry:
+    def load_specialist(
+        self,
+        name: str,
+        *,
+        allow_pending_migration: bool = False,
+    ) -> SpecialistCatalogEntry:
         """Load one specialist from the catalog."""
 
-        self.initialize()
+        self.initialize(allow_pending_migration=allow_pending_migration)
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -568,7 +857,7 @@ class ProjectCatalog:
                 raise FileNotFoundError(f"Specialist `{name}` was not found: {self.m_catalog_path}")
             return self._entry_from_row(connection, row)
 
-    def store_specialist_from_sources(
+    def store_specialist(
         self,
         *,
         name: str,
@@ -579,27 +868,23 @@ class ProjectCatalog:
         role_name: str,
         setup_name: str,
         prompt_path: Path,
-        skill_paths: tuple[Path, ...],
+        skill_names: tuple[str, ...],
         setup_path: Path | None = None,
         launch_mapping: dict[str, Any] | None,
         mailbox_mapping: dict[str, Any] | None,
         extra_mapping: dict[str, Any] | None,
+        allow_pending_migration: bool = False,
     ) -> SpecialistCatalogEntry:
-        """Snapshot one specialist from generated or imported file-backed sources."""
+        """Store one specialist bound to registered project skill names."""
 
-        self.initialize()
+        self.initialize(allow_pending_migration=allow_pending_migration)
         prompt_ref = self._snapshot_file(
             source_path=prompt_path,
             content_kind=_CONTENT_KIND_PROMPT,
             relative_path=f"prompts/{role_name}.md",
         )
-        skill_refs = tuple(
-            self._snapshot_tree(
-                source_path=skill_path,
-                content_kind=_CONTENT_KIND_SKILL,
-                relative_path=f"skills/{skill_path.name}",
-            )
-            for skill_path in skill_paths
+        resolved_skill_names = tuple(
+            _require_catalog_name(skill_name, field_name="skill_name") for skill_name in skill_names
         )
         setup_profile_id = self._ensure_setup_profile(
             tool=tool,
@@ -633,7 +918,7 @@ class ProjectCatalog:
             self._replace_preset_skills(
                 connection=connection,
                 preset_id=preset_id,
-                skill_refs=skill_refs,
+                skill_names=resolved_skill_names,
             )
             timestamp = _utcnow_iso()
             connection.execute(
@@ -688,7 +973,53 @@ class ProjectCatalog:
                     ).fetchone()
                     if remaining_role_refs is not None and int(remaining_role_refs[0]) == 0:
                         connection.execute("DELETE FROM roles WHERE id = ?", (previous_role_id,))
-        return self.load_specialist(name)
+        return self.load_specialist(name, allow_pending_migration=allow_pending_migration)
+
+    def store_specialist_from_sources(
+        self,
+        *,
+        name: str,
+        preset_name: str,
+        tool: str,
+        provider: str,
+        auth_profile: AuthProfileCatalogEntry,
+        role_name: str,
+        setup_name: str,
+        prompt_path: Path,
+        skill_paths: tuple[Path, ...],
+        setup_path: Path | None = None,
+        launch_mapping: dict[str, Any] | None,
+        mailbox_mapping: dict[str, Any] | None,
+        extra_mapping: dict[str, Any] | None,
+        allow_pending_migration: bool = False,
+    ) -> SpecialistCatalogEntry:
+        """Register source-backed skills in copy mode, then store one specialist."""
+
+        skill_names = tuple(
+            self.ensure_project_skill_from_source(
+                name=skill_path.name,
+                source_path=skill_path,
+                mode=cast(Literal["copy", "symlink"], _PROJECT_SKILL_MODE_COPY),
+                allow_pending_migration=allow_pending_migration,
+            ).name
+            for skill_path in skill_paths
+        )
+        return self.store_specialist(
+            name=name,
+            preset_name=preset_name,
+            tool=tool,
+            provider=provider,
+            auth_profile=auth_profile,
+            role_name=role_name,
+            setup_name=setup_name,
+            prompt_path=prompt_path,
+            skill_names=skill_names,
+            setup_path=setup_path,
+            launch_mapping=launch_mapping,
+            mailbox_mapping=mailbox_mapping,
+            extra_mapping=extra_mapping,
+            allow_pending_migration=allow_pending_migration,
+        )
 
     def remove_specialist(self, name: str) -> Path:
         """Delete one specialist definition from the catalog."""
@@ -1108,10 +1439,27 @@ class ProjectCatalog:
                 encoding="utf-8",
             )
 
-            for skill_name, skill_ref in zip(entry.skills, entry.skill_refs, strict=True):
-                skill_source = skill_ref.resolve_under_content_root(self.m_content_root)
-                skill_target = (self.m_projection_root / "skills" / skill_name).resolve()
-                _replace_tree(source=skill_source, destination=skill_target)
+        skills_root = (self.m_projection_root / "skills").resolve()
+        skills_root.mkdir(parents=True, exist_ok=True)
+        project_skills = self.list_project_skills()
+        desired_skill_names = {skill.name for skill in project_skills}
+        for project_skill in project_skills:
+            skill_source = project_skill.content_ref.resolve_under_content_root(self.m_content_root)
+            if not skill_source.exists() and not skill_source.is_symlink():
+                raise ValueError(f"Managed project skill payload was not found: {skill_source}")
+            if project_skill.mode == _PROJECT_SKILL_MODE_SYMLINK:
+                resolved_target = skill_source.resolve()
+                if not resolved_target.is_dir():
+                    raise ValueError(
+                        "Registered project skill symlink target is missing or not a directory: "
+                        f"{skill_source}"
+                    )
+            skill_target = skills_root / project_skill.name
+            _replace_symlink(target=skill_source, destination=skill_target)
+        for child in sorted(skills_root.iterdir(), key=lambda path: path.name):
+            if child.name in desired_skill_names:
+                continue
+            _remove_tree_or_path(child)
         desired_auth_dirs: dict[str, set[str]] = {}
         for auth_profile in auth_profiles:
             auth_source = auth_profile.content_ref.resolve_under_content_root(self.m_content_root)
@@ -1321,7 +1669,7 @@ class ProjectCatalog:
         resolved_source = source_path.resolve()
         if not resolved_source.is_file():
             raise ValueError(f"Managed content file does not exist: {resolved_source}")
-        destination = (self.m_content_root / relative_path).resolve()
+        destination = self.m_content_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(resolved_source, destination)
         return ManagedContentRef(
@@ -1451,6 +1799,7 @@ class ProjectCatalog:
         display_name: str,
         source_path: Path,
         operation: str,
+        allow_pending_migration: bool = False,
     ) -> AuthProfileCatalogEntry:
         """Create or update one auth profile from a file-backed source tree."""
 
@@ -1458,7 +1807,7 @@ class ProjectCatalog:
         if operation not in {"add", "set", "upsert"}:
             raise ValueError(f"Unsupported auth-profile store operation: {operation!r}")
 
-        self.initialize()
+        self.initialize(allow_pending_migration=allow_pending_migration)
         with self._connect() as connection:
             existing_row = self._find_auth_profile_row(
                 connection=connection,
@@ -1500,7 +1849,110 @@ class ProjectCatalog:
                     bundle_ref=bundle_ref,
                     content_ref_id=content_ref_id,
                 )
-        return self.load_auth_profile(tool=tool, name=resolved_display_name)
+        return self.load_auth_profile(
+            tool=tool,
+            name=resolved_display_name,
+            allow_pending_migration=allow_pending_migration,
+        )
+
+    def _store_project_skill_from_source(
+        self,
+        *,
+        name: str,
+        source_path: Path,
+        mode: Literal["copy", "symlink"],
+        operation: str,
+        allow_pending_migration: bool = False,
+    ) -> ProjectSkillCatalogEntry:
+        """Create or update one project skill registry entry from a source directory."""
+
+        resolved_name = _require_catalog_name(name, field_name="name")
+        if mode not in _PROJECT_SKILL_MODE_VALUES:
+            raise ValueError(
+                f"Unsupported project skill mode {mode!r}; expected one of "
+                f"{sorted(_PROJECT_SKILL_MODE_VALUES)}."
+            )
+        if operation not in {"add", "set", "upsert"}:
+            raise ValueError(f"Unsupported project-skill store operation: {operation!r}")
+
+        source_dir = source_path.resolve()
+        if not source_dir.is_dir():
+            raise ValueError(f"Project skill source directory was not found: {source_dir}")
+        if not (source_dir / "SKILL.md").is_file():
+            raise ValueError(f"Project skill source must contain `SKILL.md`: {source_dir}")
+
+        self.initialize(allow_pending_migration=allow_pending_migration)
+        with self._connect() as connection:
+            existing_row = connection.execute(
+                """
+                SELECT id, content_ref_id
+                FROM skill_packages
+                WHERE name = ?
+                LIMIT 1
+                """,
+                (resolved_name,),
+            ).fetchone()
+            if operation == "add" and existing_row is not None:
+                raise ValueError(
+                    f"Project skill `{resolved_name}` already exists in {self.m_catalog_path}"
+                )
+            if operation == "set" and existing_row is None:
+                raise FileNotFoundError(
+                    f"Project skill `{resolved_name}` was not found: {self.m_catalog_path}"
+                )
+
+            content_ref = self._materialize_project_skill_entry(
+                name=resolved_name,
+                source_path=source_dir,
+                mode=mode,
+            )
+            content_ref_id = self._upsert_content_ref(connection, content_ref)
+            connection.execute(
+                """
+                INSERT INTO skill_packages(name, content_ref_id, mode, source_path)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    content_ref_id = excluded.content_ref_id,
+                    mode = excluded.mode,
+                    source_path = excluded.source_path
+                """,
+                (
+                    resolved_name,
+                    content_ref_id,
+                    mode,
+                    str(source_dir),
+                ),
+            )
+            if existing_row is not None and int(existing_row["content_ref_id"]) != content_ref_id:
+                self._delete_content_ref_if_unreferenced(
+                    connection=connection,
+                    content_ref_id=int(existing_row["content_ref_id"]),
+                )
+        return self.load_project_skill(
+            resolved_name,
+            allow_pending_migration=allow_pending_migration,
+        )
+
+    def _materialize_project_skill_entry(
+        self,
+        *,
+        name: str,
+        source_path: Path,
+        mode: Literal["copy", "symlink"],
+    ) -> ManagedContentRef:
+        """Materialize one canonical project skill entry under `.houmao/content/skills/`."""
+
+        relative_path = f"skills/{name}"
+        destination = (self.m_content_root / relative_path).resolve()
+        if mode == _PROJECT_SKILL_MODE_COPY:
+            _replace_tree(source=source_path, destination=destination)
+        else:
+            _replace_symlink(target=source_path, destination=destination)
+        return ManagedContentRef(
+            content_kind=_CONTENT_KIND_SKILL,
+            storage_kind=_STORAGE_KIND_TREE,
+            relative_path=relative_path,
+        )
 
     def _find_auth_profile_row(
         self,
@@ -1521,6 +1973,40 @@ class ProjectCatalog:
             (tool, display_name),
         ).fetchone()
         return cast(sqlite3.Row | None, row)
+
+    def _delete_content_ref_if_unreferenced(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        content_ref_id: int,
+    ) -> None:
+        """Delete one content-ref row when nothing still references it."""
+
+        remaining_refs = connection.execute(
+            """
+            SELECT 1
+            FROM (
+                SELECT prompt_content_ref_id AS ref_id FROM roles
+                UNION ALL
+                SELECT content_ref_id AS ref_id FROM auth_profiles
+                UNION ALL
+                SELECT content_ref_id AS ref_id FROM skill_packages
+                UNION ALL
+                SELECT content_ref_id AS ref_id FROM setup_profiles
+                UNION ALL
+                SELECT prompt_overlay_content_ref_id AS ref_id FROM launch_profiles
+                UNION ALL
+                SELECT gateway_mail_notifier_appendix_content_ref_id AS ref_id FROM launch_profiles
+                UNION ALL
+                SELECT memo_seed_content_ref_id AS ref_id FROM launch_profiles
+            )
+            WHERE ref_id = ?
+            LIMIT 1
+            """,
+            (content_ref_id,),
+        ).fetchone()
+        if remaining_refs is None:
+            connection.execute("DELETE FROM content_refs WHERE id = ?", (content_ref_id,))
 
     def _upsert_content_ref(
         self,
@@ -1725,27 +2211,20 @@ class ProjectCatalog:
         *,
         connection: sqlite3.Connection,
         preset_id: int,
-        skill_refs: tuple[ManagedContentRef, ...],
+        skill_names: tuple[str, ...],
     ) -> None:
         """Replace the ordered skill package bindings for one preset."""
 
         connection.execute("DELETE FROM preset_skill_packages WHERE preset_id = ?", (preset_id,))
-        for ordinal, skill_ref in enumerate(skill_refs):
-            skill_ref_id = self._upsert_content_ref(connection, skill_ref)
-            skill_name = Path(skill_ref.relative_path).name
-            connection.execute(
-                """
-                INSERT INTO skill_packages(name, content_ref_id)
-                VALUES (?, ?)
-                ON CONFLICT(name) DO UPDATE SET content_ref_id = excluded.content_ref_id
-                """,
-                (skill_name, skill_ref_id),
-            )
+        for ordinal, skill_name in enumerate(skill_names):
             skill_row = connection.execute(
                 "SELECT id FROM skill_packages WHERE name = ? LIMIT 1",
                 (skill_name,),
             ).fetchone()
-            assert skill_row is not None
+            if skill_row is None:
+                raise FileNotFoundError(
+                    f"Project skill `{skill_name}` was not found: {self.m_catalog_path}"
+                )
             connection.execute(
                 """
                 INSERT INTO preset_skill_packages(preset_id, skill_package_id, ordinal)
@@ -1770,6 +2249,32 @@ class ProjectCatalog:
             metadata_path=self.m_catalog_path,
         )
 
+    def _project_skill_from_row(self, row: sqlite3.Row) -> ProjectSkillCatalogEntry:
+        """Build one structured project-skill entry from a joined row."""
+
+        raw_mode = str(row["mode"])
+        if raw_mode not in _PROJECT_SKILL_MODE_VALUES:
+            raise ValueError(
+                f"Unsupported project skill mode {raw_mode!r} in {self.m_catalog_path}."
+            )
+        raw_source_path = row["source_path"]
+        source_path = (
+            Path(str(raw_source_path)).resolve()
+            if isinstance(raw_source_path, str) and raw_source_path.strip()
+            else None
+        )
+        return ProjectSkillCatalogEntry(
+            name=str(row["skill_name"] if "skill_name" in row.keys() else row["name"]),
+            mode=cast(Literal["copy", "symlink"], raw_mode),
+            content_ref=ManagedContentRef(
+                content_kind=str(row["content_kind"]),
+                storage_kind=str(row["storage_kind"]),
+                relative_path=str(row["relative_path"]),
+            ),
+            source_path=source_path,
+            metadata_path=self.m_catalog_path,
+        )
+
     def _entry_from_row(
         self,
         connection: sqlite3.Connection,
@@ -1782,6 +2287,8 @@ class ProjectCatalog:
             """
             SELECT
                 skill_packages.name AS skill_name,
+                skill_packages.mode AS mode,
+                skill_packages.source_path AS source_path,
                 content_refs.content_kind,
                 content_refs.storage_kind,
                 content_refs.relative_path
@@ -1799,14 +2306,7 @@ class ProjectCatalog:
             (specialist_name,),
         ).fetchall()
         skill_names = tuple(str(skill_row["skill_name"]) for skill_row in skill_rows)
-        skill_refs = tuple(
-            ManagedContentRef(
-                content_kind=str(skill_row["content_kind"]),
-                storage_kind=str(skill_row["storage_kind"]),
-                relative_path=str(skill_row["relative_path"]),
-            )
-            for skill_row in skill_rows
-        )
+        skill_entries = tuple(self._project_skill_from_row(skill_row) for skill_row in skill_rows)
         launch_payload = _load_json_mapping(str(row["launch_payload"]))
         mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
         extra_payload = _load_json_mapping(str(row["extra_payload"]))
@@ -1831,7 +2331,7 @@ class ProjectCatalog:
                 storage_kind=str(row["auth_storage_kind"]),
                 relative_path=str(row["auth_relative_path"]),
             ),
-            skill_refs=skill_refs,
+            skill_entries=skill_entries,
             launch_payload=launch_payload,
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             extra_payload=extra_payload,
@@ -2003,7 +2503,9 @@ def _table_schema_sql() -> str:
     CREATE TABLE IF NOT EXISTS skill_packages (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
-        content_ref_id INTEGER NOT NULL REFERENCES content_refs(id) ON DELETE RESTRICT
+        content_ref_id INTEGER NOT NULL REFERENCES content_refs(id) ON DELETE RESTRICT,
+        mode TEXT NOT NULL CHECK(mode IN ('copy', 'symlink')) DEFAULT 'copy',
+        source_path TEXT
     );
 
     CREATE TABLE IF NOT EXISTS mailbox_policies (
@@ -2218,6 +2720,21 @@ def _catalog_meta_value(connection: sqlite3.Connection, key: str) -> str | None:
     return str(row[0])
 
 
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    """Return whether one SQLite table exists."""
+
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        LIMIT 1
+        """,
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
 def _validate_current_catalog_schema(connection: sqlite3.Connection) -> None:
     """Reject persisted catalogs that do not match the current schema exactly."""
 
@@ -2297,7 +2814,7 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "created_at",
             "updated_at",
         ),
-        "skill_packages": ("id", "name", "content_ref_id"),
+        "skill_packages": ("id", "name", "content_ref_id", "mode", "source_path"),
         "mailbox_policies": ("id", "name", "transport", "policy_payload"),
         "presets": (
             "id",
@@ -2370,9 +2887,28 @@ def _catalog_incompatibility_error(detail: str) -> str:
     """Return operator guidance for an incompatible project catalog."""
 
     return (
-        f"Unsupported project catalog schema: {detail}. Recreate or reinitialize the project "
-        "overlay to adopt the current catalog format; in-place project catalog migrations are "
-        "not supported before 1.0."
+        f"Unsupported project catalog schema: {detail}. Run `houmao-mgr project migrate` for "
+        "supported in-place upgrades, or recreate or reinitialize the project overlay when the "
+        "current Houmao version cannot migrate that catalog automatically."
+    )
+
+
+def _project_structure_migration_required_error(
+    state: ProjectStructureMigrationState,
+) -> str:
+    """Return operator guidance for one project overlay that still needs migration."""
+
+    details: list[str] = []
+    if state.legacy_specialist_paths:
+        joined = ", ".join(str(path) for path in state.legacy_specialist_paths)
+        details.append(f"legacy easy specialists: {joined}")
+    if state.unmanaged_skill_paths:
+        joined = ", ".join(str(path) for path in state.unmanaged_skill_paths)
+        details.append(f"compatibility-tree skills: {joined}")
+    joined_details = "; ".join(details) if details else "legacy project structure was detected"
+    return (
+        "Project overlay requires explicit migration before ordinary project commands can "
+        f"continue ({joined_details}). Run `houmao-mgr project migrate` first."
     )
 
 
@@ -2524,14 +3060,18 @@ def _copy_traversable_tree(*, source: Traversable, destination: Path) -> None:
     destination.write_bytes(source.read_bytes())
 
 
+def _replace_symlink(*, target: Path, destination: Path) -> None:
+    """Replace one path with a symlink to the selected target."""
+
+    _remove_tree_or_path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.symlink_to(target)
+
+
 def _replace_tree(*, source: Path, destination: Path) -> None:
     """Replace one directory tree atomically enough for local overlay use."""
 
-    if destination.exists():
-        if destination.is_symlink() or destination.is_file():
-            destination.unlink()
-        else:
-            shutil.rmtree(destination)
+    _remove_tree_or_path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination, symlinks=True)
 
@@ -2539,13 +3079,20 @@ def _replace_tree(*, source: Path, destination: Path) -> None:
 def _replace_path_with_text(*, destination: Path, text: str) -> None:
     """Replace one file-or-tree destination with UTF-8 text content."""
 
-    if destination.exists():
-        if destination.is_symlink() or destination.is_file():
-            destination.unlink()
-        else:
-            shutil.rmtree(destination)
+    _remove_tree_or_path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(text, encoding="utf-8")
+
+
+def _remove_tree_or_path(path: Path) -> None:
+    """Remove one file, symlink, or directory path when present."""
+
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+        return
+    shutil.rmtree(path)
 
 
 def _utcnow_iso() -> str:

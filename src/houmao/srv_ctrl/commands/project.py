@@ -5,10 +5,13 @@ from __future__ import annotations
 # ruff: noqa: F403,F405
 from .project_common import *
 from .credentials import project_credentials_group
+from houmao.project.migration import detect_project_migration_plan
 from .project_definitions import project_presets_group, project_recipes_group, project_roles_group
 from .project_easy import easy_project_group
 from .project_launch_profiles import project_launch_profiles_group
 from .project_mailbox import project_mailbox_group
+from .project_migrate import migrate_project_command
+from .project_skills import project_skills_group
 from .project_tools import project_tools_group
 
 
@@ -18,6 +21,8 @@ def project_group() -> None:
 
 
 project_group.add_command(project_credentials_group)
+project_group.add_command(project_skills_group)
+project_group.add_command(migrate_project_command)
 
 
 @project_group.command(name="init")
@@ -60,6 +65,9 @@ def project_status_command() -> None:
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     overlay = roots.project_overlay
+    migration_payload = (
+        detect_project_migration_plan(overlay).to_payload() if overlay is not None else None
+    )
     emit(
         {
             "discovered": overlay is not None,
@@ -81,6 +89,7 @@ def project_status_command() -> None:
             "project_easy_root": str(roots.easy_root),
             "would_bootstrap_overlay": overlay is None,
             "overlay_bootstrap_detail": _status_overlay_bootstrap_detail(roots),
+            "migration": migration_payload,
         }
     )
 

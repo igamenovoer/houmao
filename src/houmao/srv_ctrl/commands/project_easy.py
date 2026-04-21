@@ -615,11 +615,17 @@ def easy_specialist_group() -> None:
     help="Optional Gemini `oauth_creds.json` file.",
 )
 @click.option(
+    "--skill",
+    "skill_names",
+    multiple=True,
+    help="Repeatable registered project skill name to bind.",
+)
+@click.option(
     "--with-skill",
     "skill_dirs",
     multiple=True,
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    help="Repeatable skill directory to import into `.houmao/agents/skills/`.",
+    help="Repeatable skill directory to register in the project skill registry and bind.",
 )
 @click.option(
     "--env-set",
@@ -654,6 +660,7 @@ def create_easy_specialist_command(
     google_api_key: str | None,
     use_vertex_ai: bool,
     gemini_oauth_creds: Path | None,
+    skill_names: tuple[str, ...],
     skill_dirs: tuple[Path, ...],
     env_set: tuple[str, ...],
     no_unattended: bool,
@@ -695,10 +702,22 @@ def create_easy_specialist_command(
         system_prompt=system_prompt,
         system_prompt_file=system_prompt_file,
     )
-    imported_skills = _import_skill_directories(
-        overlay=overlay,
-        skill_dirs=skill_dirs,
+    catalog = ProjectCatalog.from_overlay(overlay)
+    bound_skill_names = list(
+        _resolve_registered_project_skill_names_or_click(
+            catalog=catalog,
+            skill_names=skill_names,
+            field_name="--skill",
+        )
     )
+    bound_skill_names.extend(
+        _register_project_skills_from_directories_or_click(
+            overlay=overlay,
+            catalog=catalog,
+            skill_dirs=skill_dirs,
+        )
+    )
+    resolved_skill_names = tuple(_deduplicate_names(bound_skill_names))
     setup_name = _require_non_empty_name(setup, field_name="--setup")
     setup_path = _tool_setup_path(overlay=overlay, tool=tool_name, name=setup_name)
     if not setup_path.is_dir():
@@ -774,14 +793,14 @@ def create_easy_specialist_command(
         role_name=specialist_name,
         tool=tool_name,
         setup=setup_name,
-        skills=[skill_path.name for skill_path in imported_skills],
+        skills=list(resolved_skill_names),
         auth=credential_name,
         prompt_mode=prompt_mode,
         model_config=resolved_model_config,
         env_records=persistent_env_records,
         overwrite=replace_conflict is not None,
     )
-    metadata = ProjectCatalog.from_overlay(overlay).store_specialist_from_sources(
+    metadata = catalog.store_specialist(
         name=specialist_name,
         preset_name=preset_name,
         tool=tool_name,
@@ -790,7 +809,7 @@ def create_easy_specialist_command(
         role_name=specialist_name,
         setup_name=setup_name,
         prompt_path=system_prompt_path,
-        skill_paths=tuple(imported_skills),
+        skill_names=resolved_skill_names,
         setup_path=setup_path,
         launch_mapping=launch_mapping,
         mailbox_mapping=None,
@@ -811,7 +830,7 @@ def create_easy_specialist_command(
                 "role_prompt": str(system_prompt_path),
                 "preset": str(preset_path),
                 "auth": str(auth_profile.resolved_projection_path(overlay)),
-                "skills": [str(path) for path in imported_skills],
+                "skills": [str(path) for path in metadata.resolved_canonical_skill_paths(overlay)],
             },
             "auth_result": auth_result,
         }
@@ -915,7 +934,52 @@ def _deduplicate_names(names: list[str]) -> list[str]:
     return result
 
 
-def _resolve_specialist_set_skill_paths(
+def _resolve_registered_project_skill_names_or_click(
+    *,
+    catalog: ProjectCatalog,
+    skill_names: tuple[str, ...],
+    field_name: str,
+) -> tuple[str, ...]:
+    """Resolve one ordered set of registered project skill names."""
+
+    resolved_names = _deduplicate_names(
+        [_require_non_empty_name(raw_name, field_name=field_name) for raw_name in skill_names]
+    )
+    missing = [
+        skill_name for skill_name in resolved_names if not catalog.project_skill_exists(skill_name)
+    ]
+    if missing:
+        joined = ", ".join(missing)
+        raise click.ClickException(f"Project skill(s) were not found: {joined}")
+    return tuple(resolved_names)
+
+
+def _register_project_skills_from_directories_or_click(
+    *,
+    overlay: HoumaoProjectOverlay,
+    catalog: ProjectCatalog,
+    skill_dirs: tuple[Path, ...],
+) -> tuple[str, ...]:
+    """Register one ordered set of skill directories in copy mode."""
+
+    registered_names: list[str] = []
+    for skill_dir in skill_dirs:
+        source_dir = skill_dir.resolve()
+        if not (source_dir / "SKILL.md").is_file():
+            raise click.ClickException(f"Skill directory must contain `SKILL.md`: {source_dir}")
+        try:
+            metadata = catalog.ensure_project_skill_from_source(
+                name=source_dir.name,
+                source_path=source_dir,
+                mode="copy",
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        registered_names.append(metadata.name)
+    return tuple(_deduplicate_names(registered_names))
+
+
+def _resolve_specialist_set_skill_names(
     *,
     overlay: HoumaoProjectOverlay,
     specialist: SpecialistMetadata,
@@ -923,28 +987,28 @@ def _resolve_specialist_set_skill_paths(
     add_skill_names: tuple[str, ...],
     remove_skill_names: tuple[str, ...],
     clear_skills: bool,
-) -> tuple[Path, ...]:
-    """Resolve projected skill directories for one specialist patch."""
+) -> tuple[str, ...]:
+    """Resolve registered project skill names for one specialist patch."""
 
+    catalog = ProjectCatalog.from_overlay(overlay)
     skill_names = [] if clear_skills else list(specialist.skills)
     for raw_name in remove_skill_names:
         remove_name = _require_non_empty_name(raw_name, field_name="--remove-skill")
         skill_names = [name for name in skill_names if name != remove_name]
     for raw_name in add_skill_names:
         skill_names.append(_require_non_empty_name(raw_name, field_name="--add-skill"))
-    imported_skill_paths = _import_skill_directories(overlay=overlay, skill_dirs=skill_dirs)
-    skill_names.extend(path.name for path in imported_skill_paths)
-    resolved_skill_names = _deduplicate_names(skill_names)
-
-    skill_paths: list[Path] = []
-    for skill_name in resolved_skill_names:
-        skill_path = (overlay.agents_root / "skills" / skill_name).resolve()
-        if not (skill_path / "SKILL.md").is_file():
-            raise click.ClickException(
-                f"Skill `{skill_name}` was not found in the project projection: {skill_path}"
-            )
-        skill_paths.append(skill_path)
-    return tuple(skill_paths)
+    skill_names.extend(
+        _register_project_skills_from_directories_or_click(
+            overlay=overlay,
+            catalog=catalog,
+            skill_dirs=skill_dirs,
+        )
+    )
+    return _resolve_registered_project_skill_names_or_click(
+        catalog=catalog,
+        skill_names=tuple(skill_names),
+        field_name="--add-skill",
+    )
 
 
 def _load_specialist_auth_profile_by_id_or_click(
@@ -1074,7 +1138,7 @@ def _store_specialist_patch_from_cli(
         system_prompt_file=system_prompt_file,
         clear_system_prompt=clear_system_prompt,
     )
-    skill_paths = _resolve_specialist_set_skill_paths(
+    skill_names = _resolve_specialist_set_skill_names(
         overlay=overlay,
         specialist=specialist,
         skill_dirs=skill_dirs,
@@ -1115,7 +1179,7 @@ def _store_specialist_patch_from_cli(
         env_set=env_set,
         clear_env=clear_env,
     )
-    metadata = catalog.store_specialist_from_sources(
+    metadata = catalog.store_specialist(
         name=specialist.name,
         preset_name=_canonical_preset_name(
             role_name=specialist.role_name,
@@ -1128,7 +1192,7 @@ def _store_specialist_patch_from_cli(
         role_name=specialist.role_name,
         setup_name=setup_name,
         prompt_path=prompt_path,
-        skill_paths=skill_paths,
+        skill_names=skill_names,
         setup_path=setup_path,
         launch_mapping=launch_mapping,
         mailbox_mapping=specialist.mailbox_payload,
@@ -1187,7 +1251,7 @@ def _store_specialist_patch_from_cli(
     "skill_dirs",
     multiple=True,
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    help="Repeatable skill directory to import and add to the specialist.",
+    help="Repeatable skill directory to register in the project skill registry and bind.",
 )
 @click.option("--add-skill", "add_skill_names", multiple=True, help="Add a project skill by name.")
 @click.option(

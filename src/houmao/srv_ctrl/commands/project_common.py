@@ -39,7 +39,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
-from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
+from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog, ProjectSkillCatalogEntry
 from houmao.project.easy import (
     SpecialistMetadata,
     TOOL_PROVIDER_MAP,
@@ -1573,6 +1573,10 @@ def _specialist_payload(
         "setup": metadata.setup_name,
         "role_name": metadata.role_name,
         "skills": list(metadata.skills),
+        "skill_bindings": [
+            _project_skill_payload(overlay=overlay, metadata=entry)
+            for entry in metadata.skill_entries
+        ],
         "launch": dict(metadata.launch_payload),
         "metadata_path": str(metadata.metadata_path)
         if metadata.metadata_path is not None
@@ -1583,6 +1587,25 @@ def _specialist_payload(
             "auth": str(metadata.resolved_auth_path(overlay)),
             "skills": [str(path) for path in metadata.resolved_skill_paths(overlay)],
         },
+    }
+
+
+def _project_skill_payload(
+    *,
+    overlay: HoumaoProjectOverlay,
+    metadata: ProjectSkillCatalogEntry,
+) -> dict[str, object]:
+    """Return one structured project skill payload."""
+
+    return {
+        "name": metadata.name,
+        "mode": metadata.mode,
+        "canonical_path": str(metadata.resolved_canonical_path(overlay)),
+        "projection_path": str(metadata.resolved_projection_path(overlay)),
+        "source_path": str(metadata.source_path) if metadata.source_path is not None else None,
+        "metadata_path": str(metadata.metadata_path)
+        if metadata.metadata_path is not None
+        else None,
     }
 
 
@@ -2121,6 +2144,7 @@ __all__ = [
     "_store_launch_profile_from_cli",
     "_launch_profile_provenance_payload",
     "_specialist_payload",
+    "_project_skill_payload",
     "_load_specialist_or_click",
     "_remove_specialist_metadata_or_click",
     "_list_project_instances",

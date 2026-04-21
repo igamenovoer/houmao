@@ -436,7 +436,9 @@ Command shape:
 
 ```text
 houmao-mgr project
-├── init | status
+├── init | status | migrate
+├── skills
+│   ├── add | set | list | get | remove
 ├── agents
 │   ├── roles ...
 │   ├── recipes ...                # canonical low-level source recipes
@@ -459,6 +461,8 @@ houmao-mgr project
 |---|---|
 | `init` | Create or validate the selected overlay root, default `<pwd>/.houmao`, write `houmao-config.toml`, write `.gitignore`, create `catalog.sqlite`, and create managed `content/` roots. |
 | `status` | Report whether a project overlay was discovered under the selected overlay root, which catalog was found, and which agent-definition root is effective. |
+| `migrate` | Inspect or apply one supported project-structure migration into the current overlay layout. |
+| `skills` | Maintain canonical project-local custom skills under `.houmao/content/skills/`. |
 | `agents` | Low-level filesystem-oriented management for the `.houmao/agents/` compatibility projection. |
 | `easy` | Higher-level specialist and instance workflow persisted in `.houmao/catalog.sqlite` with file-backed payloads under `.houmao/content/`. |
 | `mailbox` | Project-scoped wrapper over the generic mailbox-root CLI targeting `mailbox/` under the active overlay root. |
@@ -470,8 +474,46 @@ Project overlay notes:
 - `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=ancestor` is the default ambient lookup mode; `cwd_only` restricts ambient lookup to `<pwd>/.houmao/houmao-config.toml`.
 - The selected overlay root gets a local `.gitignore` containing `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
 - `project status` resolves the active overlay root from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, and reports the effective discovery mode in its JSON payload.
+- `project status` also reports a `migration` payload when an overlay is present so operators can tell whether legacy structure still needs explicit conversion.
 - `project init` creates `catalog.sqlite` plus managed `content/prompts/`, `content/auth/`, `content/skills/`, and `content/setups/` under the selected overlay root.
 - `project init` does not create `agents/`, `mailbox/`, or `easy/` under the selected overlay root by default.
+- `project skills add|set|list|get|remove` is the maintained project-local custom-skill registry. Canonical custom-skill storage lives under `.houmao/content/skills/`; `.houmao/agents/skills/` is derived projection only.
+- `project migrate` is the explicit upgrade path for supported older overlay layouts. Ordinary project commands do not silently migrate known legacy specialist metadata or compatibility-tree-first project skills in place.
+
+#### `project skills`
+
+`project skills` manages the canonical project-local skill registry rooted at `.houmao/content/skills/`.
+
+| Subcommand | Description |
+|---|---|
+| `add` | Register one new project skill from a source directory. |
+| `set` | Replace the source binding and storage mode for an existing project skill. |
+| `list` | List registered project skills. |
+| `get` | Inspect one registered project skill, including canonical and derived projection paths. |
+| `remove` | Remove one unreferenced project skill registration. |
+
+`project skills` notes:
+
+- `add` and `set` require `--name` plus `--source <dir>` pointing at a skill directory containing `SKILL.md`.
+- `--mode copy|symlink` controls the canonical project binding. `copy` is the default and snapshots the source tree into `.houmao/content/skills/<name>`. `symlink` makes `.houmao/content/skills/<name>` a symlink to the source directory.
+- Successful `add|set|remove` rematerializes `.houmao/agents/skills/<name>` as derived symlinks from the canonical project registry. Operators should treat `.houmao/agents/skills/` as compatibility projection only, not as hand-edited project state.
+- `remove` fails clearly while any specialist still references the target skill name.
+
+#### `project migrate`
+
+`project migrate` is the only supported writer for legacy-to-current project-structure upgrades.
+
+| Option | Description |
+|---|---|
+| _none_ | Show the detected migration plan without mutating the overlay. |
+| `--apply` | Apply the supported migration plan in place. |
+
+`project migrate` notes:
+
+- The command targets the active overlay selected through `HOUMAO_PROJECT_OVERLAY_DIR` or ambient discovery.
+- Successful apply rewrites supported legacy project structure into the current catalog-backed layout and removes the replaced legacy files after import.
+- Ordinary `project`, `project easy`, and catalog-backed workflows do not silently upgrade known legacy easy-specialist metadata or compatibility-tree-first project skills in place.
+- Unsupported legacy layouts fail with explicit guidance instead of partial mutation.
 
 #### `project agents`
 
@@ -546,6 +588,8 @@ Low-level boundary notes:
 - `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
 - `--model` and `--reasoning-level` are the supported launch-owned model-selection surfaces. `--reasoning-level` is a tool/model-specific preset index rather than a portable `1..10` knob.
+- repeatable `--skill <name>` binds already registered project skills by name.
+- repeatable `--with-skill <dir>` is a convenience path that registers or updates one canonical project skill entry and then binds it to the specialist.
 - when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt and recipe projection and accepts `--yes` for non-interactive replacement.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility recipe projected under `.houmao/agents/presets/`, including Gemini's headless-only easy lane.
@@ -564,7 +608,7 @@ Low-level boundary notes:
 - `--name` is required and must identify an existing specialist. At least one update or clear flag is required.
 - Patchable fields include prompt (`--system-prompt`, `--system-prompt-file`, `--clear-system-prompt`), skills (`--with-skill`, `--add-skill`, `--remove-skill`, `--clear-skills`), setup (`--setup`), credential (`--credential`), prompt mode (`--prompt-mode`, `--clear-prompt-mode`), launch-owned model (`--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level`), and persistent env (`--env-set`, `--clear-env`).
 - `--env-set` replaces the stored specialist env mapping with the repeated `NAME=value` records supplied on that command. Use `--clear-env` to remove the mapping.
-- `--with-skill <dir>` imports a skill directory and adds it to the specialist. `--add-skill <name>` adds an already projected project skill by name. `--remove-skill <name>` removes that skill from the specialist definition; shared projected skill content is not deleted just because one specialist stops referencing it.
+- `--with-skill <dir>` registers or updates one canonical project skill entry and then adds that skill to the specialist. `--add-skill <name>` adds an already registered project skill by name. `--remove-skill <name>` removes that skill from the specialist definition; shared project skill content is not deleted just because one specialist stops referencing it.
 - `--setup <name>` switches to another setup bundle for the specialist's current tool lane. When the preset name changes, the old specialist-owned projected preset file is removed after the catalog projection is materialized.
 - `--credential <name>` selects an existing credential display name for the specialist's current tool lane. It does not create or mutate credential bundles.
 - `specialist set` does not rename specialists and does not change the tool lane; create a new specialist when either identity should change.

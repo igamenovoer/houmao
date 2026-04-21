@@ -99,7 +99,7 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
     assert degraded.missing_content == ("prompts/researcher.md",)
 
 
-def test_project_catalog_does_not_import_legacy_specialist_metadata(
+def test_project_catalog_requires_explicit_migration_for_legacy_specialist_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -161,9 +161,74 @@ def test_project_catalog_does_not_import_legacy_specialist_metadata(
     )
 
     catalog = ProjectCatalog.from_overlay(overlay)
-    assert catalog.list_specialists() == []
-    with pytest.raises(FileNotFoundError, match="Specialist `researcher` was not found"):
+    with pytest.raises(ValueError, match="Run `houmao-mgr project migrate` first"):
+        catalog.list_specialists()
+    with pytest.raises(ValueError, match="Run `houmao-mgr project migrate` first"):
         catalog.load_specialist("researcher")
+
+
+def test_project_catalog_projects_copy_and_symlink_registered_skills(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    notes_source = _make_skill_dir(tmp_path, "notes")
+    review_source = _make_skill_dir(tmp_path, "review")
+
+    notes_skill = catalog.create_project_skill_from_source(name="notes", source_path=notes_source)
+    review_skill = catalog.create_project_skill_from_source(
+        name="review",
+        source_path=review_source,
+        mode="symlink",
+    )
+
+    assert notes_skill.mode == "copy"
+    assert review_skill.mode == "symlink"
+    assert notes_skill.resolved_canonical_path(overlay).is_dir()
+    assert not notes_skill.resolved_canonical_path(overlay).is_symlink()
+    assert review_skill.resolved_canonical_path(overlay).is_symlink()
+    assert review_skill.resolved_canonical_path(overlay).readlink() == review_source.resolve()
+
+    projection_root = catalog.materialize_projection()
+    projected_notes = projection_root / "skills" / "notes"
+    projected_review = projection_root / "skills" / "review"
+    assert projected_notes.is_symlink()
+    assert projected_notes.readlink() == notes_skill.resolved_canonical_path(overlay)
+    assert (projected_notes / "SKILL.md").is_file()
+    assert projected_review.is_symlink()
+    assert projected_review.readlink() == review_skill.resolved_canonical_path(overlay)
+    assert (projected_review / "SKILL.md").is_file()
+    assert catalog.validate_integrity().missing_content == ()
+
+
+def test_project_catalog_reports_broken_symlinked_skill_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    review_source = _make_skill_dir(tmp_path, "review")
+    catalog.create_project_skill_from_source(
+        name="review",
+        source_path=review_source,
+        mode="symlink",
+    )
+    shutil.rmtree(review_source)
+
+    with pytest.raises(ValueError, match="symlink target is missing"):
+        catalog.materialize_projection()
+    assert catalog.validate_integrity().missing_content == ("skills/review",)
 
 
 def test_project_catalog_persists_and_projects_launch_profiles(
@@ -445,7 +510,7 @@ def test_project_catalog_rejects_unsupported_schema_version(
     finally:
         connection.close()
 
-    with pytest.raises(ValueError, match="Recreate or reinitialize the project overlay"):
+    with pytest.raises(ValueError, match="recreate or reinitialize the project overlay"):
         catalog.initialize()
 
 
