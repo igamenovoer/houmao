@@ -319,6 +319,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert (pairwise_loop_v2_prestart / "prepare-run.md").is_file()
     assert (pairwise_loop_v2_operating / "start.md").is_file()
     assert (pairwise_loop_v2_operating / "peek.md").is_file()
+    assert (pairwise_loop_v2_operating / "recover-and-continue.md").is_file()
     assert (pairwise_loop_v2_operating / "hard-kill.md").is_file()
     assert relay_loop_skill_path.is_file()
     assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
@@ -332,9 +333,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v2_prepare_run = (pairwise_loop_v2_prestart / "prepare-run.md").read_text(
         encoding="utf-8"
     )
-    pairwise_loop_v2_start = (pairwise_loop_v2_operating / "start.md").read_text(
-        encoding="utf-8"
-    )
+    pairwise_loop_v2_start = (pairwise_loop_v2_operating / "start.md").read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
@@ -606,6 +605,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_v2_skill
     assert "prestart/prepare-run.md" in pairwise_loop_v2_skill
     assert "operating/start.md" in pairwise_loop_v2_skill
+    assert "operating/recover-and-continue.md" in pairwise_loop_v2_skill
     assert (
         "Use this Houmao skill only when the user explicitly asks for "
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
@@ -617,22 +617,32 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert (
         "The canonical operator-facing lifecycle actions are `plan`, `initialize`, "
-        "`start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`."
-        in pairwise_loop_v2_skill
+        "`start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, "
+        "and `hard-kill`." in pairwise_loop_v2_skill
     )
     assert (
         "The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, "
-        "`ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`." in pairwise_loop_v2_skill
+        "`ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, "
+        "`stopped`, and `dead`." in pairwise_loop_v2_skill
     )
     assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
-    assert "default `precomputed_routing_packets` validates routing packets" in pairwise_loop_v2_skill
+    assert (
+        "default `precomputed_routing_packets` validates routing packets" in pairwise_loop_v2_skill
+    )
     assert "durable start-charter page" in pairwise_loop_v2_skill
+    assert "runtime-owned recovery state" in pairwise_loop_v2_skill
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_v2_skill
     assert "houmao-memory-mgr" in pairwise_loop_v2_skill
-    assert "ask for the output directory before drafting or revising files" in pairwise_loop_v2_skill
+    assert (
+        "ask for the output directory before drafting or revising files" in pairwise_loop_v2_skill
+    )
     assert "## Plan Output Directory" in pairwise_loop_v2_skill
     assert "<plan-output-dir>/" in pairwise_loop_v2_skill
-    assert "Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v2 write surfaces" in pairwise_loop_v2_skill
+    assert (
+        "Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v2 write surfaces"
+        in pairwise_loop_v2_skill
+    )
     assert "memo page index" not in pairwise_loop_v2_prepare_run
     assert "pages/<relative-page>" in pairwise_loop_v2_prepare_run
     assert "path-discovery output" in pairwise_loop_v2_prepare_run
@@ -920,6 +930,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_ping_path = pairwise_loop_operating / "ping.md"
     pairwise_loop_pause_path = pairwise_loop_operating / "pause.md"
     pairwise_loop_resume_path = pairwise_loop_operating / "resume.md"
+    pairwise_loop_recover_and_continue_path = pairwise_loop_operating / "recover-and-continue.md"
     pairwise_loop_stop_path = pairwise_loop_operating / "stop.md"
     pairwise_loop_hard_kill_path = pairwise_loop_operating / "hard-kill.md"
     pairwise_loop_charter_path = pairwise_loop_references / "run-charter.md"
@@ -1000,6 +1011,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_ping = pairwise_loop_ping_path.read_text(encoding="utf-8")
     pairwise_loop_pause = pairwise_loop_pause_path.read_text(encoding="utf-8")
     pairwise_loop_resume = pairwise_loop_resume_path.read_text(encoding="utf-8")
+    pairwise_loop_recover_and_continue = pairwise_loop_recover_and_continue_path.read_text(
+        encoding="utf-8"
+    )
     pairwise_loop_stop = pairwise_loop_stop_path.read_text(encoding="utf-8")
     pairwise_loop_hard_kill = pairwise_loop_hard_kill_path.read_text(encoding="utf-8")
     pairwise_loop_charter = pairwise_loop_charter_path.read_text(encoding="utf-8")
@@ -1204,8 +1218,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "stable pairwise loop" in touring_advanced_usage
     assert "enriched pairwise loop" in touring_advanced_usage
     assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
-    assert "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`" in (
-        touring_advanced_usage
+    assert (
+        "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, "
+        "`recover_and_continue`, `stop`" in touring_advanced_usage
     )
     assert "ask the user to select or explicitly invoke the desired pairwise skill" in (
         touring_advanced_usage
@@ -1302,6 +1317,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_ping_path.is_file()
     assert pairwise_loop_pause_path.is_file()
     assert pairwise_loop_resume_path.is_file()
+    assert pairwise_loop_recover_and_continue_path.is_file()
     assert pairwise_loop_stop_path.is_file()
     assert pairwise_loop_hard_kill_path.is_file()
     assert not (pairwise_loop_operating / "status.md").exists()
@@ -1411,8 +1427,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_formulate
     assert "after `analyze` and any needed `slice` calls" in pairwise_loop_formulate
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_revise
-    assert "Preserve the current output directory unless the user explicitly asks to move the plan." in (
-        pairwise_loop_revise
+    assert (
+        "Preserve the current output directory unless the user explicitly asks to move the plan."
+        in (pairwise_loop_revise)
     )
     assert "Write the revised plan back under the selected output directory" in pairwise_loop_revise
     assert "by running graph analysis after `start`" in pairwise_loop_revise
@@ -1436,8 +1453,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         pairwise_loop_prepare
     )
     assert "point the participant at its durable initialize page" in pairwise_loop_prepare
-    assert "Do not treat standalone participant preparation mail as the default initialize path." in (
-        pairwise_loop_prepare
+    assert (
+        "Do not treat standalone participant preparation mail as the default initialize path."
+        in (pairwise_loop_prepare)
     )
     assert (
         "Do not guess packet coverage, initialize page paths, or explicit preparation-wave targets when the topology is unclear"
@@ -1449,14 +1467,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-agent-inspect" in pairwise_loop_start
     assert "`<plan-output-dir>/plan.md` for the single-file form" in pairwise_loop_start
     assert "`initialize` remains separate from `start`." in pairwise_loop_start
-    assert "durable initialize pages and exact-sentinel memo reference blocks have been written or refreshed" in (
-        pairwise_loop_start
+    assert (
+        "durable initialize pages and exact-sentinel memo reference blocks have been written or refreshed"
+        in (pairwise_loop_start)
     )
     assert "required replies from targeted preparation recipients have arrived" in (
         pairwise_loop_start
     )
     assert "compact start trigger" in pairwise_loop_start
     assert "loop-runs/pairwise-v2/<run_id>/start-charter.md" in pairwise_loop_start
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_start
     assert "Do not treat acknowledgement replies as readiness blockers" in pairwise_loop_start
     assert (
         "Later `peek` remains unintrusive, read-only, and does not keep the run alive."
@@ -1476,14 +1496,35 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "suspend the run's wakeup mechanisms" in pairwise_loop_pause
     assert "Disabling mail notifier alone is not sufficient" in pairwise_loop_pause
     assert "`resume` is not a synonym for `start`." in pairwise_loop_resume
+    assert "stopped, killed, or relaunched, use `recover_and_continue` instead" in (
+        pairwise_loop_resume
+    )
+    assert (
+        "restore one accepted pairwise loop after one or more participants were stopped, killed, or relaunched"
+        in (pairwise_loop_recover_and_continue)
+    )
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_recover_and_continue
+    assert "`recover_and_continue` preserves the same `run_id`." in (
+        pairwise_loop_recover_and_continue
+    )
+    assert "slot `recover-and-continue`" in pairwise_loop_recover_and_continue
+    assert "Do not replay stale reminder ids as though they were durable recovery state." in (
+        pairwise_loop_recover_and_continue
+    )
     assert "`interrupt-first` is the default stop posture for this skill." in pairwise_loop_stop
+    assert (
+        "Do not mark the recovery record terminal merely because canonical `stop` completed."
+        in (pairwise_loop_stop)
+    )
     assert "`broadcast-stop`" in pairwise_loop_stop
     assert "participant-wide direct intervention" in pairwise_loop_hard_kill
     assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
     assert "archive every open `message_ref`" in pairwise_loop_hard_kill
+    assert "marks the recovery record terminal" in pairwise_loop_hard_kill
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
+    assert "`recover_and_continue <run_id>`" in pairwise_loop_charter
     assert "path: <canonical plan path such as <plan-output-dir>/plan.md>" in pairwise_loop_charter
     assert "prestart strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_charter
@@ -1494,31 +1535,36 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Read the durable start-charter page at `pages/<relative-page>`." in (
         pairwise_loop_charter
     )
+    assert "## Compact Recover-And-Continue Trigger Template" in pairwise_loop_charter
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
     assert "## Canonical Observed States" in pairwise_loop_reporting
+    assert "## Recovery Summary Fields" in pairwise_loop_reporting
     assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
     assert (
         "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
     )
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
     assert "## Output Directory Contract" in pairwise_loop_plan_structure
-    assert "Every authored pairwise-v2 plan should live under one user-chosen output directory." in (
-        pairwise_loop_plan_structure
+    assert (
+        "Every authored pairwise-v2 plan should live under one user-chosen output directory."
+        in (pairwise_loop_plan_structure)
     )
     assert "`<plan-output-dir>/plan.md`" in pairwise_loop_plan_structure
     assert "## Durable Initialize Material" in pairwise_loop_plan_structure
     assert "Every plan using pairwise-v2 durable initialize pages should record" in (
         pairwise_loop_plan_structure
     )
-    assert "Do not describe explicit `operator_preparation_wave` as the default prestart strategy." in (
+    assert "<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json" in (
         pairwise_loop_plan_structure
+    )
+    assert (
+        "Do not describe explicit `operator_preparation_wave` as the default prestart strategy."
+        in (pairwise_loop_plan_structure)
     )
     assert "NetworkX node-link graph artifact location" in pairwise_loop_plan_structure
     assert "packet JSON document location" in pairwise_loop_plan_structure
     assert "optional `houmao-mgr internals graph high slice" in pairwise_loop_plan_structure
-    assert "preparation-mail target policy and delivery procedure" in (
-        pairwise_loop_plan_structure
-    )
+    assert "preparation-mail target policy and delivery procedure" in (pairwise_loop_plan_structure)
     assert "`hard-kill`" in pairwise_loop_plan_structure
     assert (
         "Treat `hard-kill` as a separate operator action"
@@ -1530,24 +1576,31 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_single_template
     )
+    assert "runtime-owned recovery record path" in pairwise_loop_single_template
     assert "graph-tool preflight: <analyze, optional slice, and packet-expectations results" in (
         pairwise_loop_single_template
     )
     assert "routing packet validation: <validate-packets result when graph and packet JSON" in (
         pairwise_loop_single_template
     )
-    assert "Initialize<br/>validate packets<br/>write durable pages" in pairwise_loop_single_template
+    assert (
+        "Initialize<br/>validate packets<br/>write durable pages" in pairwise_loop_single_template
+    )
     assert "# Routing Packets" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
+    assert "`recover_and_continue`" in pairwise_loop_single_template
     assert "The generated single-file output directory should contain only `plan.md`." in (
         pairwise_loop_single_template
     )
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
-    assert "Ask for the output directory if it is not already known" in pairwise_loop_bundle_template
+    assert (
+        "Ask for the output directory if it is not already known" in pairwise_loop_bundle_template
+    )
     assert "<plan-output-dir>/" in pairwise_loop_bundle_template
     assert "selected `prestart_strategy`: default `precomputed_routing_packets`" in (
         pairwise_loop_bundle_template
     )
+    assert "runtime-owned recovery record path family" in pairwise_loop_bundle_template
     assert "graph artifact and packet JSON artifact locations when available" in (
         pairwise_loop_bundle_template
     )

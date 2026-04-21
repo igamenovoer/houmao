@@ -47,6 +47,9 @@ default_stop_mode: interrupt-first
 - selected strategy: `precomputed_routing_packets` by default
 - durable initialize page namespace: <for example loop-runs/pairwise-v2/<run_id>/initialize.md>
 - durable start-charter page namespace: <for example loop-runs/pairwise-v2/<run_id>/start-charter.md>
+- durable continuation page namespace: <for example loop-runs/pairwise-v2/<run_id>/recover-and-continue.md>
+- runtime-owned recovery record path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json>
+- runtime-owned recovery history path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl>
 - memo sentinel convention: <exact begin/end sentinels keyed by run_id and slot>
 - durable initialize material: write participant initialize pages plus compact memo reference blocks before `ready`
 - operator preparation wave: <not selected | targeted preparation mail to delegating/non-leaf participants | explicit target set>
@@ -86,14 +89,14 @@ default_stop_mode: interrupt-first
 - child dispatch table: <none | child packet ids>
 
 # Durable Initialize Material
-Record the participant initialize page namespace, start-charter page namespace, memo sentinel convention, and compact memo reference-block posture. Record standalone preparation mail only when `operator_preparation_wave` is selected explicitly.
+Record the participant initialize page namespace, start-charter page namespace, continuation page namespace, runtime-owned recovery record path family, memo sentinel convention, and compact memo reference-block posture. Record standalone preparation mail only when `operator_preparation_wave` is selected explicitly.
 
 # Lifecycle Vocabulary
-- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
-- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, `dead`
+- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
+- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
 
 # Reporting Contract
-<peek, completion, stop-summary, and hard-kill-summary expectations using canonical observed states; peek remains unintrusive and read-only>
+<peek, recovery-summary, completion, stop-summary, and hard-kill-summary expectations using canonical observed states; peek remains unintrusive and read-only>
 
 # Timeout-Watch Policy
 - enabled for: <participants or edges, if any>
@@ -115,6 +118,7 @@ Record the participant initialize page namespace, start-charter page namespace, 
 flowchart TD
     UA[User Agent<br/>control only]
     Prep[Initialize<br/>validate packets<br/>write durable pages]
+    Recover[Recovering<br/>rebind participants<br/>refresh continuation pages]
     M[Master<br/>root run owner]
     W[Worker]
     Loop[Master Loop<br/>review run]
@@ -125,6 +129,8 @@ flowchart TD
     Prep -->|write charter + start| M
     UA -.->|peek master| M
     UA -.->|pause/resume| M
+    UA -.->|recover_and_continue| Recover
+    Recover -.->|accepted| M
     UA ==> |stop| M
     UA ==> |hard-kill| M
     UA ==> |hard-kill| W

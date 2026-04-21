@@ -1,6 +1,6 @@
 # Reporting Contract
 
-Use this reference when the authored plan or run charter needs to define what the master or operator should report for `peek`, completion, `stop`, or `hard-kill`.
+Use this reference when the authored plan or run charter needs to define what the master or operator should report for `peek`, `recover_and_continue`, completion, `stop`, or `hard-kill`.
 
 ## Canonical Observed States
 
@@ -10,6 +10,8 @@ Use this reference when the authored plan or run charter needs to define what th
 - `ready`
 - `running`
 - `paused`
+- `recovering`
+- `recovered_ready`
 - `stopping`
 - `stopped`
 - `dead`
@@ -33,6 +35,16 @@ Treat these state names as observations, not operator actions.
 - why the completion condition is satisfied
 - final observed state when useful
 - relevant plan or run references when needed
+
+## Recovery Summary Fields
+
+- `run_id`
+- `recovery_epoch`
+- current observed state during restart recovery
+- participant rebindings, including any operator-confirmed mapping
+- durable pages or memo slots refreshed
+- declarative wakeup posture restored
+- unresolved blockers or follow-up actions
 
 ## Stop Summary Fields
 
@@ -58,5 +70,6 @@ Treat these state names as observations, not operator actions.
 - Keep `peek` unintrusive: do not send prompts, email job messages, acknowledgements, or keepalive signals merely to produce a peek report.
 - Keep observed states distinct from lifecycle actions such as `start`, `peek`, or `stop`.
 - Keep `dead` as an observed condition, not an operator control verb.
+- Keep recovery summaries explicit about what was rebound, refreshed, restored, or still blocked before the run returns to `running`.
 - Keep completion and stop summaries tied to the authored completion and stop conditions.
 - Keep `hard-kill` summaries participant-explicit rather than pretending the master reconciled the run normally.

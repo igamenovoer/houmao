@@ -19,7 +19,7 @@ Use this branch when a guided-tour user wants a flat enumeration of the broader 
 ## Advanced Entries
 
 - **Stable pairwise loop** — use `houmao-agent-loop-pairwise` to author a pairwise loop plan and operate an accepted master-owned run through `plan`, `start`, `status`, and `stop`.
-- **Enriched pairwise loop** — use `houmao-agent-loop-pairwise-v2` to author an enriched pairwise loop plan and operate a run through `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` for extended runtime control and routing-packet prestart.
+- **Enriched pairwise loop** — use `houmao-agent-loop-pairwise-v2` to author an enriched pairwise loop plan and operate a run through `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` for extended runtime control and routing-packet prestart.
 - **Generic loop graph** — use `houmao-agent-loop-generic` for mixed pairwise and relay component graphs where a user-controlled agent needs to decompose a multi-agent communication graph and operate the accepted root-owned run through `start`, `status`, and `stop`.
 - **Advanced usage patterns** — use `houmao-adv-usage-pattern` for multi-step workflow compositions built from existing Houmao skills, including self-notification, pairwise edge loops, and forward relay loops, plus the elemental immediate driver-worker edge protocol that underlies loop components.
 - **Managed-agent memory** — use `houmao-memory-mgr` to read or write a managed agent's `houmao-memo.md` free-form memo file and the managed-agent pages memory.
@@ -42,7 +42,7 @@ Keep ownership boundaries explicit:
 - elemental immediate driver-worker edge protocol guidance belongs to `houmao-adv-usage-pattern`, specifically the pairwise edge-loop pattern,
 - ordinary project setup, specialist authoring, launch, messaging, mailbox, gateway, and lifecycle work still routes to the existing direct-operation skills.
 
-When the user only wants the simplest maintained pairwise planner, point them at the stable pairwise loop entry and ask the user to select or explicitly invoke the desired pairwise skill. When the user needs initialization mail, routing-packet preflight, read-only peeking, ping, pause and resume, or emergency hard-kill controls, point them at the enriched pairwise loop entry and again ask the user to select or explicitly invoke the desired pairwise skill.
+When the user only wants the simplest maintained pairwise planner, point them at the stable pairwise loop entry and ask the user to select or explicitly invoke the desired pairwise skill. When the user needs routing-packet preflight, read-only peeking, ping, pause-only resume, restart recovery with `recover_and_continue`, or emergency hard-kill controls, point them at the enriched pairwise loop entry and again ask the user to select or explicitly invoke the desired pairwise skill.
 
 ## Guardrails
 

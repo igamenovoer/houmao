@@ -77,6 +77,7 @@ Canonical operator actions:
 - `ping`
 - `pause`
 - `resume`
+- `recover_and_continue`
 - `stop`
 - `hard-kill`
 
@@ -87,6 +88,8 @@ Canonical observed states:
 - `ready`
 - `running`
 - `paused`
+- `recovering`
+- `recovered_ready`
 - `stopping`
 - `stopped`
 - `dead`
@@ -96,6 +99,9 @@ Canonical observed states:
 Every plan using pairwise-v2 durable initialize pages should record:
 - run-scoped initialize page namespace such as `loop-runs/pairwise-v2/<run_id>/initialize.md`
 - run-scoped master charter page namespace such as `loop-runs/pairwise-v2/<run_id>/start-charter.md`
+- run-scoped continuation page namespace such as `loop-runs/pairwise-v2/<run_id>/recover-and-continue.md`
+- runtime-owned recovery record path such as `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`
+- append-only recovery history path such as `<runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl`
 - exact begin and end sentinel convention for memo reference blocks keyed by `run_id` and slot
 - what each memo reference block summarizes and how it links to `pages/<relative-page>`
 - fail-closed replacement handling for duplicate memo blocks
@@ -144,6 +150,7 @@ For bundle plans, `prestart.md` should record:
 - selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
 - graph artifact and packet JSON artifact locations when available
 - run-scoped initialize page namespace and durable start-charter page namespace
+- runtime-owned recovery record path family and continuation page namespace
 - exact begin/end sentinel convention for memo reference blocks keyed by `run_id` and slot
 - durable initialize page and memo reference-block write procedure
 - explicit `operator_preparation_wave` notifier preflight expectations, when that strategy is selected
@@ -184,3 +191,4 @@ For each script, record:
 - Do not mix lifecycle action names and observed state names into one ambiguous status field.
 - Do not hide plan-critical policy only inside an unreferenced support file.
 - Do not omit the Mermaid control graph from the canonical plan surface.
+- Do not store mutable recovery ledgers only inside the authored plan bundle; the recovery record belongs under the runtime root.

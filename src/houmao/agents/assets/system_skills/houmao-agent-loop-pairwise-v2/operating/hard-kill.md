@@ -25,7 +25,8 @@ Use this page when the user wants an emergency operator override that forcefully
    - notifier disabled, unsupported, or blocked
    - reminder cleanup result
    - open counts drained or residual open-mail blockers
-8. Treat the run as terminal after `hard-kill`. If later human-readable reconciliation is still wanted, document it separately instead of waiting for canonical `stop` handling.
+8. Mark the runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json` terminal and append a hard-kill event to `events.jsonl`.
+9. Treat the run as terminal after `hard-kill`. If later human-readable reconciliation is still wanted, document it separately instead of waiting for canonical `stop` handling.
 
 ## Hard-Kill Contract
 
@@ -34,6 +35,7 @@ Use this page when the user wants an emergency operator override that forcefully
 - `hard-kill` disables mail-notifier polling and removes live reminders instead of merely pausing them.
 - `hard-kill` archives every open inbox message for each participant, even when that mail is unrelated to the current loop.
 - `hard-kill` is distinct from canonical `stop`, which still asks the master to reconcile partial results and unfinished work.
+- `hard-kill` marks the recovery record terminal, so ordinary `recover_and_continue` should reject that run.
 
 ## Guardrails
 
@@ -42,3 +44,4 @@ Use this page when the user wants an emergency operator override that forcefully
 - Do not leave paused reminders in place after `hard-kill`; remove them.
 - Do not preserve unrelated open mail; `hard-kill` intentionally clears the entire open inbox snapshot for each participant.
 - Do not claim a clean final state when notifier shutdown, reminder cleanup, or open-mail draining still failed for one participant.
+- Do not leave the recovery record marked recoverable after `hard-kill`.

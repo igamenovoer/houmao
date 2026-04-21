@@ -28,7 +28,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
 - `houmao-agent-loop-pairwise` for the restored stable pairwise loop surface: authoring master-owned pairwise loop plans and operating accepted runs through `start`, `status`, and `stop` while the user agent stays outside the execution loop
-- `houmao-agent-loop-pairwise-v2` for the versioned enriched pairwise workflow: authoring master-owned pairwise loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
+- `houmao-agent-loop-pairwise-v2` for the versioned enriched pairwise workflow: authoring master-owned pairwise loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
 - `houmao-agent-loop-generic` for decomposing generic loop graphs into typed pairwise and relay components and operating accepted root-owned runs through start, status, and stop
 
 The two pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, while `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow.

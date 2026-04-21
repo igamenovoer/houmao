@@ -7,12 +7,12 @@ Houmao ships three packaged loop skills. This page helps you choose the right on
 | Skill | Lifecycle verbs | Prestart model | Topology |
 |---|---|---|---|
 | `houmao-agent-loop-pairwise` | `start`, `status`, `stop` | None — send start charter directly | Pairwise edges only (master → named workers) |
-| `houmao-agent-loop-pairwise-v2` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill` | Routing packets (default) or operator preparation wave (opt-in) | Pairwise edges only — enriched lifecycle |
+| `houmao-agent-loop-pairwise-v2` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets (default) or operator preparation wave (opt-in) | Pairwise edges only — enriched lifecycle |
 | `houmao-agent-loop-generic` | `start`, `status`, `stop` | None — send start charter directly | Mixed: pairwise + relay components in one graph |
 
 **Use `houmao-agent-loop-pairwise`** when you want the simplest stable surface: author a plan, send a start charter to the master, poll status, and stop. No prestart ceremony.
 
-**Use `houmao-agent-loop-pairwise-v2`** when you need the enriched lifecycle: routing-packet-based initialization before start, mid-run peek and ping, pause/resume support, or `hard-kill`. This is the right choice for complex or long-running pairwise runs where you want stronger runtime control.
+**Use `houmao-agent-loop-pairwise-v2`** when you need the enriched lifecycle: routing-packet-based initialization before start, mid-run peek and ping, pause-only `resume`, restart-aware `recover_and_continue`, or `hard-kill`. This is the right choice for complex or long-running pairwise runs where you want stronger runtime control.
 
 **Use `houmao-agent-loop-generic`** when your communication graph has both pairwise components (immediate driver-worker local-close edges) and relay lanes (agent that receives from one side and forwards to another). Generic decomposes your intent into typed components and manages them in one graph.
 
@@ -54,7 +54,15 @@ Default `initialize` validates the routing-packet set and writes durable run mat
 
 `start` then writes the master-facing `start-charter` page under the same run-scoped namespace, refreshes the matching memo reference block, and sends a compact control-plane trigger that points the master at that durable page.
 
+Accepted `start` also creates or refreshes the runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json` plus append-only history in `events.jsonl`. That record stays outside the authored plan bundle and outside participant-local memo/pages so the same logical `run_id` can survive participant relaunch.
+
 The `operator_preparation_wave` strategy is an explicit opt-in in the plan. It sends standalone preparation mail to targeted participants and optionally waits for acknowledgement replies before the master trigger, but it is no longer the default carrier for initialize guidance. Use it for complex warmup scenarios, acknowledgement-gated preflight, or explicit participant confirmation before the run.
+
+### `resume` versus `recover_and_continue`
+
+`resume` is pause-only. Use it when the participant set and wakeup posture remained logically live and the run simply needs its paused clock restarted.
+
+Use `recover_and_continue` when one or more participants were stopped, killed, or relaunched and the same logical `run_id` should continue. Restart recovery rebinds participants, refreshes durable continuation material such as `loop-runs/pairwise-v2/<run_id>/recover-and-continue.md`, restores declarative notifier posture, and returns the run to `running` only after the master explicitly accepts continuation.
 
 ### CLI helpers for routing packets
 

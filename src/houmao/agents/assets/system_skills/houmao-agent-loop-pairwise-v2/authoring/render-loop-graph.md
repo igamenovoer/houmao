@@ -20,8 +20,8 @@ At minimum, the top-level graph must show:
 - Draw execution edges between the immediate driver and immediate worker.
 - Draw the supervision loop as a review cycle owned by the master, not as a worker-to-worker cycle.
 - If a worker becomes a child driver, draw that child control edge beneath the worker and show the child result returning to the immediate parent.
-- When labeling operator controls, prefer the canonical names `initialize`, `start`, `peek master`, `pause/resume`, and `stop`.
-- Label the default `initialize` path as email initialization with notifier setup. Label packet-only initialization only when the authored plan explicitly selects that strategy.
+- When labeling operator controls, prefer the canonical names `initialize`, `start`, `peek master`, `pause`, `resume`, `recover_and_continue`, and `stop`.
+- Label the default `initialize` path as routing-packet validation plus durable page writes. Label standalone preparation mail only when the authored plan explicitly selects `operator_preparation_wave`.
 - Keep labels short and wrap with `<br/>` when needed.
 - Split a very large topology into one top-level diagram plus supporting subtree diagrams instead of making one unreadable diagram.
 
@@ -32,18 +32,21 @@ flowchart TD
     UA[User Agent<br/>control only]
     M[Master<br/>root run owner]
     ML[Master Loop<br/>review active edges<br/>check completion<br/>check stop]
+    Recover[Restart Recovery<br/>rebind participants<br/>refresh continuation pages]
     A[Agent A<br/>worker and child driver]
     B[Agent B<br/>worker]
     C[Agent C<br/>worker]
     Done[Completion Condition<br/>user-defined]
     Stop[Stop Condition<br/>default: interrupt-first]
 
-    Prep[Initialize<br/>enable email notifier<br/>send init mail]
+    Prep[Initialize<br/>validate packets<br/>write durable pages]
 
     UA -->|initialize| Prep
     Prep -->|start<br/>root packet if used| M
     UA -.->|peek master| M
     UA -.->|pause/resume| M
+    UA -.->|recover_and_continue| Recover
+    Recover -.->|accepted| M
     UA ==> |stop| M
 
     M -->|email edge e1<br/>packet A if used| A

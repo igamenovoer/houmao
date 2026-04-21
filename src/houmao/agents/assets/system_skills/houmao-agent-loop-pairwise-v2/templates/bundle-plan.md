@@ -52,8 +52,8 @@ See `prestart.md`.
 See `routing-packets.md`.
 
 # Lifecycle Vocabulary
-- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
-- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, `dead`
+- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
+- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
 
 # Completion Condition
 <user-defined operational success condition>
@@ -82,6 +82,7 @@ Record:
 
 - selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
 - durable initialize page namespace and durable start-charter page namespace
+- continuation page namespace and runtime-owned recovery record path family
 - memo sentinel convention for run-owned reference blocks
 - durable initialize page and memo reference-block write procedure
 - notifier preflight procedure for `operator_preparation_wave`

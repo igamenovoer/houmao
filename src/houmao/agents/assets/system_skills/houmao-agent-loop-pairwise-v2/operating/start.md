@@ -15,6 +15,7 @@ Before sending `start`, confirm the plan defines:
 - authored topology and descendant relationships
 - prestart procedure
 - selected prestart strategy
+- plan revision, digest, or equivalent freshness marker
 - durable start-charter page namespace when the designated master's managed memory is being used
 - exact memo sentinel convention keyed by `run_id` and slot `start-charter`
 - explicit `operator_preparation_wave` target policy and acknowledgement posture when that strategy is selected
@@ -47,14 +48,17 @@ Before sending `start`, confirm the plan defines:
 11. Require an explicit master response:
    - `accepted`
    - `rejected`
-12. After acceptance, treat the run as `running`.
-13. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
-14. Direct the master and any intermediate driver to advise all downstream agents to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results.
-15. When routing packets are part of the plan, append the exact prepared child routing packet to each pairwise edge request email without editing, merging, or summarizing it unless the authored plan explicitly permits that transformation.
-16. Require fail-closed handling for packet mismatches: if a child packet is missing, has the wrong intended recipient, or carries a stale plan revision or digest, the driver stops that downstream dispatch and reports the mismatch.
-17. Do not ask the master or intermediate drivers to run graph analysis, infer descendants, or recompute child packet content after `start`; graph-tool checks belong before `ready`.
-18. Let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
-19. When the plan enables timeout-watch policy for selected participants or edges, keep it reminder-driven and non-blocking:
+12. After acceptance, initialize or refresh the runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json` and append a `start_accepted` event to `events.jsonl`:
+   - keep the record outside the authored plan bundle and outside participant-local memo or page files
+   - record `run_id`, `recovery_epoch=0`, canonical plan reference, plan revision or digest, designated master, allowed participant set, durable initialize/start page references, mailbox bindings, declarative wakeup posture, and recoverable-versus-terminal state
+13. After acceptance, treat the run as `running`.
+14. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
+15. Direct the master and any intermediate driver to advise all downstream agents to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results.
+16. When routing packets are part of the plan, append the exact prepared child routing packet to each pairwise edge request email without editing, merging, or summarizing it unless the authored plan explicitly permits that transformation.
+17. Require fail-closed handling for packet mismatches: if a child packet is missing, has the wrong intended recipient, or carries a stale plan revision or digest, the driver stops that downstream dispatch and reports the mismatch.
+18. Do not ask the master or intermediate drivers to run graph analysis, infer descendants, or recompute child packet content after `start`; graph-tool checks belong before `ready`.
+19. Let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
+20. When the plan enables timeout-watch policy for selected participants or edges, keep it reminder-driven and non-blocking:
    - persist overdue-check state in local bookkeeping
    - end the current live turn after downstream dispatch and follow-up setup
    - reopen the state later through a reminder-driven review round
@@ -71,6 +75,16 @@ Use the durable start-charter page as the primary readable control-plane charter
 
 When the user asks to inspect or edit the designated master's agent memo, `houmao-memo.md`, or memo-linked managed-memory pages while preparing `start`, route that work to `houmao-memory-mgr`.
 
+## Runtime-Owned Recovery Record
+
+Accepted pairwise-v2 starts create or refresh one runtime-owned recovery record for that logical run:
+
+- record path: `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`
+- history path: `<runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl`
+- ownership: runtime-owned, not authored-plan-owned
+
+The recovery record should capture the accepted plan reference and freshness marker, participant set, durable page references, mailbox bindings, declarative wakeup posture, and whether the run is still recoverable.
+
 ## Compact Start Trigger
 
 The live `start` trigger is intentionally compact. It should:
@@ -85,6 +99,7 @@ The live `start` trigger is intentionally compact. It should:
 - `initialize` remains separate from `start`.
 - The durable start-charter page is the primary readable control-plane charter when the designated master's managed memory is being used.
 - The live start trigger is a compact control-plane message, not a root pairwise execution edge.
+- Accepted `start` initializes or refreshes the runtime-owned recovery record for the same `run_id`.
 - For plans with routing packets, the start-charter page carries the root packet or exact root packet reference.
 - In-loop job communication uses email/mailbox by default for pairwise edge requests, receipts, and results.
 - The master should keep the run alive until the completion condition is satisfied or a stop signal arrives.
@@ -103,3 +118,4 @@ The live `start` trigger is intentionally compact. It should:
 - Do not ask the user agent to keep the run alive after the master accepted it.
 - Do not block one live turn after downstream dispatch merely because timeout-watch policy exists.
 - Do not silently widen delegation authority while constructing the charter.
+- Do not skip recovery-record initialization when the master accepts the run.

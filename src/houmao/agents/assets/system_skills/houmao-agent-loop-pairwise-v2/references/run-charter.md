@@ -1,4 +1,4 @@
-# Normalized Run Charter Page
+# Normalized Run Charter And Recovery Pages
 
 Use this reference when the user agent is ready to write one durable `start-charter` page and send one compact `start` trigger to the designated master.
 
@@ -6,6 +6,7 @@ Use this reference when the user agent is ready to write one durable `start-char
 
 - `run_id`
 - `plan_ref`
+- plan revision, digest, or equivalent freshness marker
 - designated master identity
 - allowed participants
 - delegation policy summary
@@ -31,7 +32,7 @@ Control-plane contract:
 - I am outside the execution loop.
 - Do not rely on me for liveness.
 - Keep this run alive until the completion condition is satisfied or I send stop.
-- I may later ask to `peek master <run_id>`, `pause <run_id>`, `resume <run_id>`, or `stop <run_id>`.
+- I may later ask to `peek master <run_id>`, `pause <run_id>`, `resume <run_id>`, `recover_and_continue <run_id>`, or `stop <run_id>`.
 
 Execution model:
 - Use the accepted plan for composed topology, recursive child-control edges, completion, stop, reporting, and lifecycle posture.
@@ -82,6 +83,42 @@ Reply with exactly one of:
 - rejected
 ```
 
+## Recovery Continuation Page Template
+
+```text
+You are continuing pairwise loop run `<run_id>` after restart recovery.
+
+Recovery posture:
+- recovery epoch: <epoch number>
+- plan reference: <canonical plan path and freshness marker>
+- this is the same logical run id, not a brand-new run
+
+Before fresh work, inspect and reconcile:
+- leftover mailbox state
+- `houmao-memo.md` and linked pages
+- workspace, branch, or local artifact state
+- notes, logs, tmp outputs, or partial results
+- incomplete downstream obligations or pending result-return duties
+
+Execution model:
+- use the accepted plan plus this recovery page as the continuation contract
+- do not invent a replacement run id
+- re-arm any live reminder posture that the recovery summary says must be recreated after acceptance
+```
+
+## Compact Recover-And-Continue Trigger Template
+
+```text
+You are the master for recovered pairwise loop run `<run_id>`.
+
+Read the durable recovery page at `pages/<relative-page>`.
+Use that page plus the accepted plan as the continuation contract for this run.
+
+Reply with exactly one of:
+- accepted
+- rejected
+```
+
 ## Guardrails
 
 - Keep the charter page compact and normalized.
@@ -90,3 +127,4 @@ Reply with exactly one of:
 - Do not use the compact start trigger as the only readable copy of the full charter when the designated master's managed memory is being used.
 - Do not ask the master to infer child packet content from the full plan when the packet inventory should already be authored.
 - Do not ask the master or intermediate drivers to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets prepared before `ready`.
+- Do not reuse the compact start trigger as the only restart-recovery contract; `recover_and_continue` needs the recovery-specific durable page.

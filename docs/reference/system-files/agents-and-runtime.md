@@ -1,6 +1,6 @@
 # Agents And Runtime
 
-This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and per-agent workspace directories.
+This page is the canonical filesystem inventory for runtime-managed agent storage: generated homes, generated manifests, runtime-owned loop-run recovery records, runtime session roots, nested gateway artifacts, runtime-owned Stalwart credential artifacts, and per-agent workspace directories.
 
 ## Runtime Root Overview
 
@@ -14,6 +14,11 @@ Representative default layout:
       ...
   manifests/
     <home-id>.yaml
+  loop-runs/
+    pairwise-v2/
+      <run-id>/
+        record.json
+        events.jsonl
   mailbox-credentials/
     stalwart/
       <credential-ref>.json
@@ -85,6 +90,24 @@ Mailbox filesystem layout remains documented under [Mailbox Reference](../mailbo
 | --- | --- | --- | --- | --- | --- |
 | `<runtime-root>/mailbox-credentials/stalwart/` | Stalwart mailbox bootstrap | runtime mailbox provisioning helpers | Durable runtime-owned secret store for Stalwart credential material keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Do not delete while sessions may resume against those bindings; `houmao-mgr admin cleanup runtime mailbox-credentials` removes only unreferenced files |
 | `<runtime-root>/mailbox-credentials/stalwart/<credential-ref>.json` | Stalwart mailbox bootstrap | runtime mailbox provisioning helpers when credentials are first created or intentionally rotated | Durable secret-bearing record containing the mailbox password and login metadata for one Stalwart binding | Stable path, secret-bearing payload | Treat as durable secret material rather than scratch; cleanup is safe only after preserved session manifests stop referencing the same `credential_ref` |
+
+## Runtime-Owned Loop-Run Recovery Artifacts
+
+Pairwise-v2 accepted runs may also persist one runtime-owned recovery envelope under the effective runtime root:
+
+```text
+<runtime-root>/loop-runs/pairwise-v2/<run-id>/
+  record.json
+  events.jsonl
+```
+
+| Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
+| --- | --- | --- | --- | --- | --- |
+| `<runtime-root>/loop-runs/pairwise-v2/<run-id>/` | accepted pairwise-v2 `start` guidance | pairwise-v2 `recover_and_continue`, `stop`, and `hard-kill` guidance | Runtime-owned envelope for one logical pairwise-v2 run across participant restarts | Stable path family | Do not delete while the run may still be inspected or recovered |
+| `<runtime-root>/loop-runs/pairwise-v2/<run-id>/record.json` | accepted pairwise-v2 `start` guidance | pairwise-v2 `recover_and_continue`, `stop`, and `hard-kill` guidance | Latest durable recovery contract for one accepted logical run, including `run_id`, `recovery_epoch`, plan reference and freshness marker, participants, durable page references, mailbox bindings, declarative wakeup posture, and recoverable-versus-terminal state | Stable operator-facing artifact | Treat as durable runtime state rather than scratch |
+| `<runtime-root>/loop-runs/pairwise-v2/<run-id>/events.jsonl` | accepted pairwise-v2 `start` guidance | pairwise-v2 `recover_and_continue`, `stop`, and `hard-kill` guidance | Append-only history of acceptance, recovery attempts, stop transitions, and terminal hard-kill transitions | Stable path, append-only payload | Safe to inspect; do not treat it as the authoritative latest record |
+
+These recovery files live outside the authored plan bundle and outside participant-local memo or page files. They are the runtime-owned continuity record for the same logical `run_id`.
 
 ## Session-Time Artifacts
 
@@ -163,6 +186,8 @@ The live tmux session publishes `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FI
 - `manifest.json` is also the supported durable authority for attach and relaunch on tmux-backed sessions.
 - `manifest.json` stays secret-free for Stalwart-backed sessions and persists `credential_ref` instead of inline mailbox secrets.
 - `manifest.json` may persist `launch_policy_provenance` when the session was built for unattended mode, and the nested redacted `launch_plan` may carry the same typed provenance for diagnostics.
+- `<runtime-root>/loop-runs/pairwise-v2/<run-id>/record.json` is the durable runtime-owned recovery record for one accepted logical pairwise-v2 run.
+- `<runtime-root>/loop-runs/pairwise-v2/<run-id>/events.jsonl` is append-only recovery history, not the authoritative latest record.
 - Runtime-owned Stalwart credential material lives under the runtime root, while one session-local materialized copy lives under the session root when needed.
 - `gateway/attach.json` is internal bootstrap state, not part of the supported external attach contract.
 - `gateway/gateway_manifest.json` is derived outward-facing bookkeeping, not the authoritative input for attach or relaunch behavior.

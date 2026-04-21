@@ -17,6 +17,8 @@ Use this page when the user wants canonical read-only inspection of one pairwise
 5. Use the canonical observed states when describing the current run:
    - `running`
    - `paused`
+   - `recovering`
+   - `recovered_ready`
    - `stopping`
    - `stopped`
    - `dead`
