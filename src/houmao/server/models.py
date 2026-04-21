@@ -70,6 +70,7 @@ from houmao.shared_tui_tracking.models import (
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
 ManagedAgentTransportKind = Literal["tui", "headless"]
+ManagedAgentLifecycleState = Literal["active", "stopped", "relaunching", "retired"]
 ManagedAgentAvailability = Literal["available", "unavailable", "error"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
@@ -346,6 +347,16 @@ class HoumaoTrackedLastTurn(_HoumaoModel):
     updated_at_utc: str | None = None
 
 
+class HoumaoDegradedChatContextDiagnostic(_HoumaoModel):
+    """Tool-scoped degraded context diagnostic exposed with terminal state."""
+
+    tool_name: str
+    detector_name: str
+    detector_version: str
+    degraded_error_type: str
+    message_preview: str | None = None
+
+
 class HoumaoTerminalStateResponse(_HoumaoModel):
     """Houmao extension route for live tracked terminal state."""
 
@@ -358,6 +369,7 @@ class HoumaoTerminalStateResponse(_HoumaoModel):
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
     chat_context: HoumaoChatContextState = "unknown"
+    chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None = None
     stability: HoumaoStabilityMetadata
     recent_transitions: list[HoumaoRecentTransition] = Field(default_factory=list)
     transport_state: TransportState = Field(default="tmux_missing", exclude=True)
@@ -389,6 +401,7 @@ class HoumaoTerminalSnapshotHistoryEntry(_HoumaoModel):
     turn: HoumaoTrackedTurn
     last_turn: HoumaoTrackedLastTurn
     chat_context: HoumaoChatContextState = "unknown"
+    chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None = None
     stability: HoumaoStabilityMetadata
 
     @field_validator("recorded_at_utc")
@@ -479,6 +492,7 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
     session_root: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    lifecycle_state: ManagedAgentLifecycleState | None = None
 
     @field_validator(
         "tracked_agent_id",
@@ -492,6 +506,7 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
         "session_root",
         "agent_name",
         "agent_id",
+        "lifecycle_state",
     )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:

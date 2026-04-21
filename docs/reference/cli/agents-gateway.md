@@ -348,7 +348,7 @@ houmao-mgr agents gateway tui note-prompt [OPTIONS]
 
 ### `mail-notifier`
 
-Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for open inbox work and injects notification prompts through the gateway's request queue.
+Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for open inbox work and injects notification prompts through the gateway's request queue. It can also run opt-in context handling before a notification prompt is enqueued.
 
 ```
 houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
@@ -362,7 +362,7 @@ houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 
 #### `mail-notifier status`
 
-Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, effective appendix text, and last-check metadata.
+Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, effective appendix text, effective context policies, and last-check metadata.
 
 ```
 houmao-mgr agents gateway mail-notifier status [OPTIONS]
@@ -378,7 +378,7 @@ houmao-mgr agents gateway mail-notifier status [OPTIONS]
 
 #### `mail-notifier enable`
 
-Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail. `--appendix-text` replaces the runtime appendix appended to future notifier prompts; omit it to preserve the current appendix, or pass an empty value to clear it.
+Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail. `--appendix-text` replaces the runtime appendix appended to future notifier prompts; omit it to preserve the current appendix, or pass an empty value to clear it. `--context-error-policy` defaults to `continue_current`, so degraded context remains diagnostic and does not force reset. `--context-error-policy clear_context` is opt-in and clears context only when the live degraded diagnostic is recognized for the owning CLI tool. `--pre-notification-context-action compact` runs a supported compaction action before each notification prompt; v1 supports Codex TUI through `/compact` and rejects unsupported tool/backend combinations.
 
 ```
 houmao-mgr agents gateway mail-notifier enable [OPTIONS]
@@ -389,6 +389,8 @@ houmao-mgr agents gateway mail-notifier enable [OPTIONS]
 | `--interval-seconds INTEGER` | Mailbox polling interval in seconds. Must be >= 1. **Required.** |
 | `--mode [any_inbox\|unread_only]` | Notification mode. Defaults to `any_inbox`. |
 | `--appendix-text TEXT` | Runtime guidance appended to each generated notifier prompt. Empty string clears the stored appendix. |
+| `--context-error-policy [continue_current\|clear_context]` | Degraded-context policy. Defaults to `continue_current`; `clear_context` is opt-in and applies only to recognized tool-owned degraded diagnostics. |
+| `--pre-notification-context-action [none\|compact]` | Context action to run before each notification prompt. Defaults to `none`; `compact` is supported for live Codex TUI gateways. |
 | `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
 | `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier enable. |

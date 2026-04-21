@@ -6,7 +6,7 @@ Internal Houmao utility commands for agents and maintainers.
 
 ## When to use these commands
 
-**`graph high`** is designed for **loop plan authoring and validation**. When an agent is building or validating a `houmao-agent-loop-pairwise-v2` or `houmao-agent-loop-generic` plan, these commands give it deterministic structural facts — root reachability, packet expectations, validation errors, and Mermaid scaffolding — without requiring graph reasoning inside the skill prompt.
+**`graph high`** is designed for **loop plan authoring and validation**. When an agent is building or validating a `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-generic` plan, these commands give it deterministic structural facts — root reachability, packet expectations, validation errors, and Mermaid scaffolding — without requiring graph reasoning inside the skill prompt.
 
 **`graph low`** is for **generic graph construction and NetworkX algorithm access**. Use it when you need to build or transform a graph from scratch, extract subgraphs, or run standard graph algorithms not covered by the high-level surface.
 

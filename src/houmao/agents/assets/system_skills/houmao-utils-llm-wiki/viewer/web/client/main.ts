@@ -70,9 +70,12 @@ async function main() {
     if (cfg.author) state.author = cfg.author;
   } catch {}
 
+  installMobilePanels();
+
   const tree = await fetch("/api/tree").then((r) => r.json());
   renderTree(document.getElementById("tree")!, tree, (path) => {
     navigateToPage(path);
+    closeMobilePanels();
   });
 
   installSearchUI({
@@ -146,24 +149,7 @@ async function loadPage(pathArg: string): Promise<void> {
 
     pageEl.innerHTML = data.html;
 
-    const mermaidNodes = pageEl.querySelectorAll("pre.mermaid-block code.language-mermaid");
-    for (let i = 0; i < mermaidNodes.length; i++) {
-      const code = mermaidNodes[i] as HTMLElement;
-      const pre = code.parentElement as HTMLElement;
-      const source = code.textContent ?? "";
-      const id = `mermaid-${Date.now()}-${i}`;
-      try {
-        const { svg } = await mermaid.render(id, source);
-        const container = document.createElement("div");
-        container.className = "mermaid-block";
-        container.innerHTML = svg;
-        const srcLine = pre.getAttribute("data-source-line");
-        if (srcLine) container.setAttribute("data-source-line", srcLine);
-        pre.replaceWith(container);
-      } catch (err) {
-        console.error("mermaid render failed", err);
-      }
-    }
+    await renderMermaidBlocks(pageEl);
 
     document.querySelectorAll("#tree a.active").forEach((el) => el.classList.remove("active"));
     const link = document.querySelector(`#tree a[data-path="${cssEscape(data.path)}"]`);
@@ -178,6 +164,71 @@ async function loadPage(pathArg: string): Promise<void> {
   } catch (err) {
     console.error(err);
     pageEl.innerHTML = "<p class=\"loading\">Error loading page.</p>";
+  }
+}
+
+function installMobilePanels(): void {
+  const navButton = document.getElementById("btn-nav") as HTMLButtonElement | null;
+  const auditsButton = document.getElementById("btn-audits") as HTMLButtonElement | null;
+  const backdrop = document.getElementById("mobile-panel-backdrop");
+
+  navButton?.addEventListener("click", () => {
+    setMobilePanel(document.body.classList.contains("mobile-nav-open") ? null : "nav");
+  });
+  auditsButton?.addEventListener("click", () => {
+    setMobilePanel(document.body.classList.contains("mobile-audits-open") ? null : "audits");
+  });
+  backdrop?.addEventListener("click", closeMobilePanels);
+  document.querySelectorAll("[data-mobile-close]").forEach((button) => {
+    button.addEventListener("click", closeMobilePanels);
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMobilePanels();
+  });
+}
+
+function setMobilePanel(panel: "nav" | "audits" | null): void {
+  const navOpen = panel === "nav";
+  const auditsOpen = panel === "audits";
+  document.body.classList.toggle("mobile-nav-open", navOpen);
+  document.body.classList.toggle("mobile-audits-open", auditsOpen);
+  document.body.classList.toggle("mobile-panel-open", navOpen || auditsOpen);
+  document.getElementById("btn-nav")?.setAttribute("aria-expanded", String(navOpen));
+  document.getElementById("btn-audits")?.setAttribute("aria-expanded", String(auditsOpen));
+}
+
+function closeMobilePanels(): void {
+  setMobilePanel(null);
+}
+
+async function renderMermaidBlocks(pageEl: HTMLElement): Promise<void> {
+  const mermaidNodes = pageEl.querySelectorAll("pre.mermaid-block code.language-mermaid");
+  for (let i = 0; i < mermaidNodes.length; i++) {
+    const code = mermaidNodes[i] as HTMLElement;
+    const pre = code.parentElement as HTMLElement;
+    const source = code.textContent ?? "";
+    const id = `mermaid-${Date.now()}-${i}`;
+    try {
+      const { svg } = await mermaid.render(id, source);
+      const container = document.createElement("div");
+      container.className = "mermaid-block mermaid-rendered";
+      container.innerHTML = svg;
+      const srcLine = pre.getAttribute("data-source-line");
+      if (srcLine) container.setAttribute("data-source-line", srcLine);
+      pre.replaceWith(container);
+    } catch (err) {
+      const fallback = document.createElement("div");
+      fallback.className = "mermaid-block mermaid-error";
+      const srcLine = pre.getAttribute("data-source-line");
+      if (srcLine) fallback.setAttribute("data-source-line", srcLine);
+      fallback.innerHTML = `
+        <p class="mermaid-error-title">Diagram failed to render.</p>
+        <p class="mermaid-error-message">${escapeHtml(errorMessage(err))}</p>
+        <pre><code>${escapeHtml(source)}</code></pre>
+      `;
+      pre.replaceWith(fallback);
+      console.error("mermaid render failed", err);
+    }
   }
 }
 
@@ -240,6 +291,10 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>\"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] ?? ch),
   );
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function cssEscape(s: string): string {

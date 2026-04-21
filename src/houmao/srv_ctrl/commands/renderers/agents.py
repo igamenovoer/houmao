@@ -12,7 +12,14 @@ import click
 # Agent list
 # ---------------------------------------------------------------------------
 
-_AGENT_LIST_COLUMNS = ("agent_name", "tracked_agent_id", "tool", "transport", "tmux_session_name")
+_AGENT_LIST_COLUMNS = (
+    "agent_name",
+    "tracked_agent_id",
+    "tool",
+    "transport",
+    "lifecycle_state",
+    "tmux_session_name",
+)
 
 
 def render_agent_list_plain(payload: object) -> None:

@@ -14,7 +14,7 @@ from houmao.mailbox import (
 from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal, deliver_message
 from houmao.owned_paths import HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR
 from houmao.project.overlay import PROJECT_OVERLAY_DIR_ENV_VAR
-from houmao.srv_ctrl.commands.main import cli
+from houmao.srv_ctrl.commands.main import cli, main
 
 
 _AMBIGUOUS_MESSAGE_STATE_FIELDS = {"read", "starred", "archived", "deleted"}
@@ -100,6 +100,80 @@ def test_mailbox_help_describes_project_aware_mailbox_default() -> None:
     assert result.exit_code == 0
     assert "active project mailbox root" in result.output
     assert "shared mailbox-root override" in result.output
+
+
+def test_main_renders_generic_mailbox_accounts_list_missing_index_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mailbox_root = (tmp_path / "shared-mail").resolve()
+    mailbox_root.mkdir(parents=True, exist_ok=True)
+
+    exit_code = main(["mailbox", "accounts", "list", "--mailbox-root", str(mailbox_root)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert f"Mailbox index is missing under `{mailbox_root}`." in captured.err
+    assert "Run `houmao-mgr mailbox init` first." in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_generic_mailbox_cleanup_unbootstrapped_root_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mailbox_root = (tmp_path / "shared-mail").resolve()
+    mailbox_root.mkdir(parents=True, exist_ok=True)
+
+    exit_code = main(["mailbox", "cleanup", "--mailbox-root", str(mailbox_root)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert f"missing protocol version file: {mailbox_root / 'protocol-version.txt'}" in captured.err
+    assert "Run `houmao-mgr mailbox init` first." in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_project_mailbox_accounts_list_missing_index_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    exit_code = main(["project", "mailbox", "accounts", "list"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Selected overlay mailbox root" in captured.err
+    assert "Run `houmao-mgr project mailbox init` first." in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_project_mailbox_cleanup_unbootstrapped_root_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    exit_code = main(["project", "mailbox", "cleanup"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Selected overlay mailbox root" in captured.err
+    assert "Run `houmao-mgr project mailbox init` first." in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_mailbox_accounts_commands_and_project_wrapper_have_root_parity(

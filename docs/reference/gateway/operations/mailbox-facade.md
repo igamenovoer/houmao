@@ -25,10 +25,15 @@ The gateway mailbox facade is the shared mailbox control surface for one attache
 | Route | Purpose | Exact contract |
 | --- | --- | --- |
 | `GET /v1/mail/status` | report whether the live gateway exposes the shared mailbox facade and which transport binding it is using | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/check` | list normalized mailbox messages | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/list` | list normalized mailbox message metadata, optionally including body content | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/peek` | inspect one selected message without marking it read | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/read` | inspect one selected message and mark it read | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `POST /v1/mail/send` | send a new message without consuming the terminal-mutation slot | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/post` | post an operator-origin note into the attached session's mailbox | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `POST /v1/mail/reply` | reply to an existing message via opaque `message_ref` | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
-| `POST /v1/mail/state` | mark one processed shared mailbox message read through opaque `message_ref` and return a minimal acknowledgment | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/mark` | mark selected mailbox messages read, answered, or archived | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/move` | move selected mailbox messages to another box | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
+| `POST /v1/mail/archive` | archive selected mailbox messages | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 | `GET|PUT|DELETE /v1/mail-notifier` | inspect or control gateway mail-notifier behavior | [Protocol And State Contracts](../contracts/protocol-and-state.md) |
 
 ## Why `/v1/mail/*` Exists
@@ -51,7 +56,7 @@ Sequence:
 2. In the current implementation, that bootstrap state usually comes from `attach.json.manifest_path`.
 3. The gateway reads `payload.launch_plan.mailbox` from that manifest.
 4. The gateway builds one transport-specific adapter from that mailbox binding.
-5. Shared mailbox routes call the adapter for `status`, `check`, `send`, `reply`, or the single-message read-state update.
+5. Shared mailbox routes call the adapter for status, listing, message inspection, send, operator-origin post, reply, marking, moving, or archive actions.
 
 ```mermaid
 sequenceDiagram
@@ -65,7 +70,7 @@ sequenceDiagram
     Gw->>Att: resolve manifest_path
     Gw->>Man: read launch_plan.mailbox
     Gw->>Ad: build adapter for<br/>resolved transport
-    Ad->>MB: perform status/check/<br/>send/reply/state-update
+    Ad->>MB: perform status/list/read/<br/>send/reply/archive
     MB-->>Ad: normalized mailbox data
     Ad-->>Gw: gateway mailbox model
     Gw-->>Cli: HTTP response
@@ -100,11 +105,11 @@ That split is why the mailbox docs and gateway docs stay adjacent but separate. 
 
 The mail-notifier is gateway-owned, but mailbox truth is transport-owned.
 
-- The notifier checks eligible inbox mail through the same shared mailbox facade used for `check`.
+- The notifier checks eligible inbox mail through the same shared mailbox facade used for `list`.
 - Mode `any_inbox` treats any unarchived inbox mail as eligible, including read or answered mail. Mode `unread_only` limits eligibility to unread unarchived inbox mail.
 - The gateway still owns notifier cadence, readiness-gated reminder delivery, last-error bookkeeping, and per-poll audit history in `queue.sqlite`.
 - This is what allows the notifier to work for both filesystem-backed and Stalwart-backed sessions without hard-wiring itself to filesystem mailbox-local SQLite.
-- Current reminder behavior is intentionally bounded: one reminder may summarize the eligible inbox snapshot, the agent decides which messages to inspect and handle after checking current mailbox state, and the later turn archives successfully processed work through the shared mailbox facade.
+- Current reminder behavior is intentionally bounded: one reminder may summarize the eligible inbox snapshot, the agent decides which messages to inspect and handle after listing current mailbox state, and the later turn archives successfully processed work through the shared mailbox facade.
 
 Use [Agents And Runtime](../../system-files/agents-and-runtime.md) for the broader runtime-managed filesystem placement around `gateway/` and session-local secret material.
 

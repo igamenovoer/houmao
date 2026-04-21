@@ -109,10 +109,12 @@ def main(root: str, mode: str) -> int:
 
     for target in sorted(grouped.keys()):
         entries = grouped[target]
-        entries.sort(key=lambda e: (
-            SEVERITY_ORDER.get(e.get("severity", "info"), 99),
-            e.get("created", ""),
-        ))
+        entries.sort(
+            key=lambda e: (
+                SEVERITY_ORDER.get(e.get("severity", "info"), 99),
+                e.get("created", ""),
+            )
+        )
         print(f"{target}  ({len(entries)} {mode})")
         for e in entries:
             sev = e.get("severity", "?")

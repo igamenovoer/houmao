@@ -193,13 +193,13 @@ The demo's inspect and verify surfaces SHALL treat runtime-home mailbox skill av
 The supported demo SHALL treat success as all of the following:
 - gateway notifier evidence shows unread work was detected and processed,
 - the agent creates the requested artifact under the copied project's `tmp/` directory,
-- `houmao-mgr agents mail check --unread-only` reaches zero actionable unread messages for the selected agent.
+- `houmao-mgr agents mail list --read-state unread` reaches zero actionable unread messages for the selected agent.
 
 `houmao-mgr project mailbox messages list|get` SHALL remain structural inspection only within this demo and SHALL be used to corroborate message identity, folder, projection path, canonical path, sender, recipients, subject, body, and attachments rather than authoritative read-state.
 
 #### Scenario: Demo verifies actor-scoped unread completion
 - **WHEN** the demo verifies one completed run after the delivered message is processed
-- **THEN** it checks `houmao-mgr agents mail check --unread-only` for zero actionable unread messages
+- **THEN** it checks `houmao-mgr agents mail list --read-state unread` for zero actionable unread messages
 - **AND THEN** it does not require project-mailbox inspection to report a global `read: true` state
 
 #### Scenario: Demo verifies the requested project artifact

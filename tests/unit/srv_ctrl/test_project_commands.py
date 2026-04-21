@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 from types import SimpleNamespace
 
+import click
 from click.testing import CliRunner
 import pytest
 import yaml
@@ -20,6 +21,7 @@ from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
     bootstrap_project_overlay,
     bootstrap_project_overlay_at_root,
+    ensure_project_agent_compatibility_tree,
     require_project_overlay,
 )
 from houmao.server.models import (
@@ -79,6 +81,62 @@ def _make_claude_config_dir(root: Path, name: str, *, token_suffix: str) -> Path
         encoding="utf-8",
     )
     return config_dir
+
+
+def _seed_legacy_easy_specialist_overlay(repo_root: Path) -> Path:
+    """Populate one overlay with legacy easy-specialist metadata and compatibility-first skills."""
+
+    overlay = require_project_overlay(repo_root)
+    ensure_project_agent_compatibility_tree(overlay)
+
+    role_root = overlay.agents_root / "roles" / "researcher"
+    role_root.mkdir(parents=True, exist_ok=True)
+    (role_root / "system-prompt.md").write_text("Legacy prompt\n", encoding="utf-8")
+    preset_path = overlay.agents_root / "presets" / "researcher-codex-default.yaml"
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: [notes]",
+                "auth: legacy-creds",
+                "launch:",
+                "  prompt_mode: unattended",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    auth_root = overlay.agents_root / "tools" / "codex" / "auth" / "legacy-creds"
+    (auth_root / "env").mkdir(parents=True, exist_ok=True)
+    (auth_root / "files").mkdir(parents=True, exist_ok=True)
+    (auth_root / "env" / "vars.env").write_text("OPENAI_API_KEY=sk-openai\n", encoding="utf-8")
+    (auth_root / "files" / "auth.json").write_text('{"logged_in": true}\n', encoding="utf-8")
+    skill_root = overlay.agents_root / "skills" / "notes"
+    skill_root.mkdir(parents=True, exist_ok=True)
+    (skill_root / "SKILL.md").write_text("# notes\n\nLegacy notes.\n", encoding="utf-8")
+    overlay.specialists_root.mkdir(parents=True, exist_ok=True)
+    specialist_path = overlay.specialists_root / "researcher.toml"
+    specialist_path.write_text(
+        "\n".join(
+            [
+                "schema_version = 1",
+                'name = "researcher"',
+                'tool = "codex"',
+                'provider = "codex"',
+                'credential_name = "legacy-creds"',
+                'role_name = "researcher"',
+                'system_prompt_path = "agents/roles/researcher/system-prompt.md"',
+                'preset_path = "agents/presets/researcher-codex-default.yaml"',
+                'auth_path = "agents/tools/codex/auth/legacy-creds"',
+                'skills = ["notes"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return specialist_path
 
 
 def _project_auth_root(repo_root: Path, *, tool: str, name: str) -> Path:
@@ -163,13 +221,15 @@ def _assert_memo_seed_payload(
     assert Path(str(content_ref["path"])).as_posix().endswith(relative_path)
 
 
-def test_project_help_mentions_agents_credentials_easy_and_mailbox() -> None:
+def test_project_help_mentions_agents_credentials_easy_skills_migrate_and_mailbox() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
     assert "init" in result.output
     assert "status" in result.output
     assert "agents" in result.output
+    assert "skills" in result.output
+    assert "migrate" in result.output
     assert "credentials" in result.output
     assert "easy" in result.output
     assert "mailbox" in result.output
@@ -183,6 +243,8 @@ def test_project_module_remains_public_entrypoint() -> None:
     assert project_commands.project_group.name == "project"
     assert project_commands.project_group.get_command(None, "agents") is not None
     assert project_commands.project_group.get_command(None, "credentials") is not None
+    assert project_commands.project_group.get_command(None, "skills") is not None
+    assert project_commands.project_group.get_command(None, "migrate") is not None
     assert (
         project_commands.project_group.get_command(None, "easy") is project_easy.easy_project_group
     )
@@ -227,6 +289,7 @@ def test_project_extracted_subgroup_help_surfaces() -> None:
             ["project", "agents", "--help"],
             ("tools", "roles", "presets", "recipes", "launch-profiles"),
         ),
+        (["project", "skills", "--help"], ("add", "set", "list", "get", "remove")),
         (["project", "easy", "--help"], ("profile", "specialist", "instance")),
         (
             ["project", "mailbox", "--help"],
@@ -277,6 +340,230 @@ def test_project_agents_tool_help_no_longer_mentions_auth() -> None:
     assert "get" in result.output
     assert "setups" in result.output
     assert "auth" not in result.output
+
+
+def test_project_skills_add_get_set_list_and_remove(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    review_skill_dir = _make_skill_dir(tmp_path, "review")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(notes_skill_dir),
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+    add_payload = json.loads(add_result.output)
+    assert add_payload["name"] == "notes"
+    assert add_payload["mode"] == "copy"
+    assert Path(add_payload["canonical_path"]).is_dir()
+    assert Path(add_payload["projection_path"]).is_symlink()
+
+    get_result = runner.invoke(cli, ["project", "skills", "get", "--name", "notes"])
+    assert get_result.exit_code == 0, get_result.output
+    assert json.loads(get_result.output)["mode"] == "copy"
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "set",
+            "--name",
+            "notes",
+            "--source",
+            str(review_skill_dir),
+            "--mode",
+            "symlink",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["mode"] == "symlink"
+    canonical_path = Path(set_payload["canonical_path"])
+    assert canonical_path.is_symlink()
+    assert canonical_path.readlink() == review_skill_dir.resolve()
+
+    list_result = runner.invoke(cli, ["project", "skills", "list"])
+    assert list_result.exit_code == 0, list_result.output
+    assert json.loads(list_result.output)["skills"] == [set_payload]
+
+    remove_result = runner.invoke(cli, ["project", "skills", "remove", "--name", "notes"])
+    assert remove_result.exit_code == 0, remove_result.output
+    remove_payload = json.loads(remove_result.output)
+    assert remove_payload["removed"] is True
+    assert not canonical_path.exists()
+    assert not canonical_path.is_symlink()
+
+
+def test_project_skills_remove_rejects_referenced_skill_and_specialist_get_reports_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "skills",
+                "add",
+                "--name",
+                "notes",
+                "--source",
+                str(notes_skill_dir),
+                "--mode",
+                "symlink",
+            ],
+        ).exit_code
+        == 0
+    )
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--skill",
+            "notes",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "easy", "specialist", "get", "--name", "researcher"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    specialist_payload = json.loads(get_result.output)
+    assert specialist_payload["skills"] == ["notes"]
+    assert specialist_payload["skill_bindings"][0]["name"] == "notes"
+    assert specialist_payload["skill_bindings"][0]["mode"] == "symlink"
+    assert specialist_payload["skill_bindings"][0]["canonical_path"].endswith(
+        "/.houmao/content/skills/notes"
+    )
+
+    remove_result = runner.invoke(cli, ["project", "skills", "remove", "--name", "notes"])
+    assert remove_result.exit_code != 0
+    assert "still referenced by specialist(s): researcher" in remove_result.output
+
+
+def test_project_migrate_plans_and_applies_supported_legacy_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    legacy_specialist_path = _seed_legacy_easy_specialist_overlay(repo_root)
+
+    plan_result = runner.invoke(cli, ["project", "migrate"])
+    assert plan_result.exit_code == 0, plan_result.output
+    plan_payload = json.loads(plan_result.output)
+    assert plan_payload["migration_required"] is True
+    assert plan_payload["can_apply"] is True
+    step_codes = {step["code"] for step in plan_payload["steps"]}
+    assert step_codes == {
+        "canonicalize-project-skills",
+        "import-legacy-easy-specialists",
+    }
+
+    apply_result = runner.invoke(cli, ["project", "migrate", "--apply"])
+    assert apply_result.exit_code == 0, apply_result.output
+    apply_payload = json.loads(apply_result.output)
+    assert apply_payload["applied"] is True
+    assert not legacy_specialist_path.exists()
+
+    overlay = require_project_overlay(repo_root)
+    canonical_skill_path = overlay.content_root / "skills" / "notes"
+    projected_skill_path = overlay.agents_root / "skills" / "notes"
+    assert canonical_skill_path.is_dir()
+    assert projected_skill_path.is_symlink()
+    assert projected_skill_path.readlink() == canonical_skill_path
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "easy", "specialist", "get", "--name", "researcher"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    assert json.loads(get_result.output)["skills"] == ["notes"]
+
+
+def test_project_migrate_reports_unsupported_legacy_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    overlay.specialists_root.mkdir(parents=True, exist_ok=True)
+    (overlay.specialists_root / "broken.toml").write_text(
+        "\n".join(
+            [
+                'name = "broken"',
+                'tool = "codex"',
+                'provider = "codex"',
+                'credential_name = "legacy-creds"',
+                'role_name = "broken"',
+                'system_prompt_path = "agents/roles/broken/system-prompt.md"',
+                'preset_path = "agents/presets/missing.yaml"',
+                'auth_path = "agents/tools/codex/auth/legacy-creds"',
+                'skills = ["notes"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    plan_result = runner.invoke(cli, ["project", "migrate"])
+    assert plan_result.exit_code == 0, plan_result.output
+    plan_payload = json.loads(plan_result.output)
+    assert plan_payload["migration_required"] is True
+    assert plan_payload["can_apply"] is False
+    assert plan_payload["unsupported_reasons"]
+
+    apply_result = runner.invoke(cli, ["project", "migrate", "--apply"])
+    assert apply_result.exit_code != 0
+    assert "Automatic project migration is not supported" in apply_result.output
 
 
 def test_project_agents_roles_help_mentions_verbs() -> None:
@@ -1015,6 +1302,124 @@ def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_p
     promptless_payload = json.loads(promptless_get_result.output)
     assert promptless_payload["system_prompt_exists"] is True
     assert promptless_payload["system_prompt_text"] == ""
+
+
+def test_main_renders_project_agents_recipes_list_malformed_preset_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    broken_path = repo_root / ".houmao" / "agents" / "presets" / "broken.yaml"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "unknown_field: nope",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = command_main.main(["project", "agents", "recipes", "list"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(broken_path) in captured.err
+    assert "unsupported top-level field(s): unknown_field" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_project_agents_presets_get_malformed_preset_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    broken_path = repo_root / ".houmao" / "agents" / "presets" / "broken.yaml"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "unknown_field: nope",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = command_main.main(["project", "agents", "presets", "get", "--name", "broken"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(broken_path) in captured.err
+    assert "unsupported top-level field(s): unknown_field" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_project_agents_roles_get_malformed_preset_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            ["project", "agents", "roles", "init", "--name", "researcher"],
+        ).exit_code
+        == 0
+    )
+
+    broken_path = repo_root / ".houmao" / "agents" / "presets" / "broken.yaml"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "unknown_field: nope",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = command_main.main(["project", "agents", "roles", "get", "--name", "researcher"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(broken_path) in captured.err
+    assert "unsupported top-level field(s): unknown_field" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_project_agents_presets_set_preserves_advanced_blocks(
@@ -3052,6 +3457,232 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
     )
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected_skill_marker"),
+    [
+        ("copy", "Version 1 from canonical snapshot."),
+        ("symlink", "Version 2 from live source."),
+    ],
+)
+def test_project_easy_instance_launch_uses_registered_project_skill_projection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    mode: str,
+    expected_skill_marker: str,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    skill_dir = _make_skill_dir(tmp_path, "notes")
+    (skill_dir / "SKILL.md").write_text(
+        "# notes\n\nVersion 1 from canonical snapshot.\n",
+        encoding="utf-8",
+    )
+    add_command = [
+        "project",
+        "skills",
+        "add",
+        "--name",
+        "notes",
+        "--source",
+        str(skill_dir),
+    ]
+    if mode == "symlink":
+        add_command.extend(["--mode", "symlink"])
+    add_result = runner.invoke(cli, add_command)
+    assert add_result.exit_code == 0, add_result.output
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--skill",
+            "notes",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    (skill_dir / "SKILL.md").write_text(
+        "# notes\n\nVersion 2 from live source.\n",
+        encoding="utf-8",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        canonical_skill = repo_root / ".houmao" / "content" / "skills" / "notes"
+        projected_skill = repo_root / ".houmao" / "agents" / "skills" / "notes"
+        assert projected_skill.is_symlink()
+        assert projected_skill.readlink() == canonical_skill
+        if mode == "copy":
+            assert canonical_skill.is_dir()
+            assert not canonical_skill.is_symlink()
+        else:
+            assert canonical_skill.is_symlink()
+            assert canonical_skill.readlink() == skill_dir.resolve()
+        captured["projected_skill_text"] = (projected_skill / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        manifest_path = (tmp_path / f"{mode}-manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id=f"{mode}-agent-123",
+            tmux_session_name=f"HOUMAO-repo-research-{mode}",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    launch_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            f"repo-research-{mode}",
+            "--headless",
+        ],
+    )
+
+    assert launch_result.exit_code == 0, launch_result.output
+    assert expected_skill_marker in str(captured["projected_skill_text"])
+
+
+def test_project_easy_instance_launch_reloads_symlink_project_skill_after_source_edit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    skill_dir = _make_skill_dir(tmp_path, "notes")
+    (skill_dir / "SKILL.md").write_text("# notes\n\nLaunch version 1.\n", encoding="utf-8")
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(skill_dir),
+            "--mode",
+            "symlink",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--skill",
+            "notes",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    launched_skill_texts: list[str] = []
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        projected_skill = repo_root / ".houmao" / "agents" / "skills" / "notes"
+        launched_skill_texts.append((projected_skill / "SKILL.md").read_text(encoding="utf-8"))
+        manifest_path = (tmp_path / f"{kwargs['agent_name']}-manifest.json").resolve()
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id=f"{kwargs['agent_name']}-id",
+            tmux_session_name=f"HOUMAO-{kwargs['agent_name']}",
+            manifest_path=manifest_path,
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    first_launch = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+        ],
+    )
+    assert first_launch.exit_code == 0, first_launch.output
+
+    (skill_dir / "SKILL.md").write_text("# notes\n\nLaunch version 2.\n", encoding="utf-8")
+
+    second_launch = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-2",
+            "--headless",
+        ],
+    )
+    assert second_launch.exit_code == 0, second_launch.output
+    assert launched_skill_texts == [
+        "# notes\n\nLaunch version 1.\n",
+        "# notes\n\nLaunch version 2.\n",
+    ]
+
+
 def test_project_easy_specialist_create_rejects_credential_owned_env_names(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4309,6 +4940,211 @@ def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
         )["profile_lane"]
         == "launch-profile"
     )
+
+
+def test_project_launch_profiles_wrong_lane_operations_redirect_to_easy_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+                "--workdir",
+                "/repos/alice",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "agents", "launch-profiles", "get", "--name", "alice"],
+    )
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--workdir",
+            "/repos/alice-next",
+        ],
+    )
+    remove_result = runner.invoke(
+        cli,
+        ["project", "agents", "launch-profiles", "remove", "--name", "alice"],
+    )
+
+    assert get_result.exit_code != 0
+    assert "belongs to the easy profile lane" in get_result.output
+    assert "project easy profile get --name alice" in get_result.output
+
+    assert set_result.exit_code != 0
+    assert "belongs to the easy profile lane" in set_result.output
+    assert "project easy profile set --name alice" in set_result.output
+
+    assert remove_result.exit_code != 0
+    assert "belongs to the easy profile lane" in remove_result.output
+    assert "project easy profile remove --name alice" in remove_result.output
+
+    payload = json.loads(
+        runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
+    )
+    assert payload["defaults"]["workdir"] == "/repos/alice"
+
+
+def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "nightly",
+                "--recipe",
+                "researcher-codex-default",
+                "--workdir",
+                "/repos/nightly",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "easy", "profile", "get", "--name", "nightly"],
+    )
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "nightly",
+            "--workdir",
+            "/repos/nightly-next",
+        ],
+    )
+    remove_result = runner.invoke(
+        cli,
+        ["project", "easy", "profile", "remove", "--name", "nightly"],
+    )
+
+    assert get_result.exit_code != 0
+    assert "belongs to the explicit launch-profile lane" in get_result.output
+    assert "project agents launch-profiles get --name nightly" in get_result.output
+
+    assert set_result.exit_code != 0
+    assert "belongs to the explicit launch-profile lane" in set_result.output
+    assert "project agents launch-profiles set --name nightly" in set_result.output
+
+    assert remove_result.exit_code != 0
+    assert "belongs to the explicit launch-profile lane" in remove_result.output
+    assert "project agents launch-profiles remove --name nightly" in remove_result.output
+
+    payload = json.loads(
+        runner.invoke(
+            cli,
+            ["project", "agents", "launch-profiles", "get", "--name", "nightly"],
+        ).output
+    )
+    assert payload["defaults"]["workdir"] == "/repos/nightly"
+
+
+def test_project_launch_profiles_list_adds_note_when_only_easy_profiles_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "easy",
+                "profile",
+                "create",
+                "--name",
+                "alice",
+                "--specialist",
+                "researcher",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(cli, ["project", "agents", "launch-profiles", "list"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["launch_profiles"] == []
+    assert "note" in payload
+    assert "project easy profile list" in payload["note"]
+
+
+def test_project_easy_profile_list_adds_note_when_only_explicit_profiles_exist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "agents",
+                "launch-profiles",
+                "add",
+                "--name",
+                "nightly",
+                "--recipe",
+                "researcher-codex-default",
+            ],
+        ).exit_code
+        == 0
+    )
+
+    result = runner.invoke(cli, ["project", "easy", "profile", "list"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["profiles"] == []
+    assert "note" in payload
+    assert "project agents launch-profiles list" in payload["note"]
 
 
 def test_project_easy_profile_set_without_updates_fails_without_mutation(
@@ -6378,6 +7214,131 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
     assert captured["force_mode"] == "keep-stale"
 
 
+def test_project_easy_instance_launch_forwards_reuse_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="repo-research-1",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["reuse_home"] is True
+
+
+def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Managed launch `--reuse-home` requires one compatible preserved home for "
+                "managed agent `repo-research-1` (agent_id `agent-repo-research-1`), but none "
+                "was found."
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires one compatible preserved home" in result.output
+
+
 def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -6471,6 +7432,63 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
     assert captured["force_mode"] == "clean"
     assert captured["managed_header_section_overrides"] == {"automation-notice": "disabled"}
     assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
+
+
+def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: pytest.fail(
+            "easy launch should not delegate `--reuse-home --force clean`"
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--reuse-home",
+            "--force",
+            "clean",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "`--reuse-home` is incompatible with `--force clean`" in result.output
 
 
 def test_project_easy_instance_stop_checks_overlay_and_delegates(

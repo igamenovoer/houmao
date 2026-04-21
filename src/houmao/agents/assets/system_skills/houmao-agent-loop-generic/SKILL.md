@@ -27,7 +27,7 @@ This packaged skill does not cover:
 - inventing free delegation, free forwarding, or hidden component dependencies when the plan is silent
 - drawing arbitrary cyclic worker-to-worker execution as the default model
 - replacing `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, `houmao-agent-inspect`, or `houmao-adv-usage-pattern`
-- replacing the explicit pairwise-only planners `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2` when the user asks for those skills by name
+- replacing the explicit pairwise-only planners `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, or `houmao-agent-loop-pairwise-v3` when the user asks for those skills by name
 
 ## Workflow
 
@@ -96,7 +96,7 @@ This packaged skill does not cover:
 - Route atomic relay component execution semantics to `houmao-adv-usage-pattern`, specifically the elemental relay-loop pattern.
 - Route routine authoring-time structural graph checks and deterministic Mermaid scaffolding to `houmao-mgr internals graph high analyze|slice|render-mermaid` as the first-class helper surface when a NetworkX node-link graph representation is available; keep semantic graph policy, result routing, and final graph review in this skill.
 - Do not route normal generic loop planning to `houmao-mgr internals graph low`; keep routine loop-skill graph work on the Houmao-aware `graph high` surface.
-- Route specialized pure-pairwise planning to `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2` only when the user explicitly invokes or has already selected those pairwise-only skills.
+- Route specialized pure-pairwise planning to `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, or `houmao-agent-loop-pairwise-v3` only when the user explicitly invokes or has already selected those pairwise-only skills.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
 
 ## Guardrails

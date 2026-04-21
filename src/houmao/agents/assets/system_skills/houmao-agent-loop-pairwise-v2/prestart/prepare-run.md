@@ -1,32 +1,34 @@
 # Initialize A Pairwise Loop Run
 
-Use this page when the user already has one authored pairwise plan and needs the canonical `initialize` action before the master trigger.
+Use this page when the user already has one authored pairwise-v2 plan and needs the canonical `initialize` action before the master trigger.
 
-Default initialization uses `email_initialization`: first turn on gateway email notification for targeted participants with interval `5s` unless the user specified another interval, then send standalone initialization email through the owned mailbox surfaces with `fire_and_proceed` acknowledgement posture.
+## Summary
 
-Use `require_ack` only when the authored plan or user explicitly asks for acknowledgement-gated readiness. Use packet-only initialization only when the plan or user explicitly disables email initialization.
+Default `initialize` uses `precomputed_routing_packets`:
+- validate routing-packet coverage
+- write durable initialize pages
+- refresh compact memo reference blocks through `houmao-memory-mgr`
+
+Use `operator_preparation_wave` only when the plan or user explicitly asks for participant warmup, standalone preparation mail, or acknowledgement-gated readiness.
+
+## Inputs
+
+Before starting, confirm the plan defines:
+- designated master
+- participant set
+- authored topology or descendant relationships
+- selected `prestart_strategy`
+- run-scoped initialize page namespace when managed memory is being used
+- exact memo sentinel convention keyed by `run_id` and slot
+- explicit `operator_preparation_wave` target policy and gateway mail-notifier interval when that strategy is selected
+- acknowledgement posture, defaulting to `fire_and_proceed` unless `require_ack` is selected explicitly
+- routing packet inventory and root packet location when routing packets are part of the plan
 
 ## Workflow
 
 1. Resolve the canonical plan entrypoint and the target `run_id`.
-2. Confirm that the plan already defines:
-   - the designated master
-   - the participant set
-   - the authored topology or descendant relationships
-   - the selected `prestart_strategy`
-   - initialization email target policy
-   - gateway mail-notifier interval, defaulting to `5s` unless the user specified otherwise
-   - acknowledgement posture, defaulting to `fire_and_proceed` unless `require_ack` is selected explicitly
-   - routing packet inventory and root packet location when routing packets are part of the plan
-3. Verify the authored topology. If descendant relationships are not clear enough to validate routing packet coverage, return to the authoring or revision lane before continuing.
-4. For every targeted participant with a supported live gateway and mailbox binding, verify or enable gateway mail-notifier behavior through `houmao-agent-gateway` before sending initialization mail:
-   - use interval `5s` by default
-   - use the user-specified or plan-specified interval when one is provided
-   - record participants whose notifier setup is unsupported or blocked instead of pretending they are covered
-5. Resolve the initialization email recipient set:
-   - include every named participant by default, including leaf participants
-   - narrow the recipient set only when the user or plan explicitly names a smaller initialization target set
-6. When routing packets are part of the plan, validate the packet set as structural preflight:
+2. Verify the authored topology. If descendant relationships are not clear enough to validate routing packet coverage, return to the authoring or revision lane before continuing.
+3. When routing packets are part of the plan, validate the packet set as structural preflight:
    - when a node-link graph and packet JSON document are available, use `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` as the explicit deterministic structural check before entering `ready`
    - when graph or packet JSON artifacts are unavailable, manually verify visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers before entering `ready`
    - one root packet exists for the designated master
@@ -34,81 +36,110 @@ Use `require_ack` only when the authored plan or user explicitly asks for acknow
    - every packet has packet id, intended recipient, immediate driver, and plan revision or digest
    - every non-leaf packet has a child dispatch table and exact child packet text or exact child packet references
    - packet recipients and immediate drivers match the authored topology
-7. Choose acknowledgement posture:
+4. For every targeted participant whose managed memory is being used, resolve one run-scoped initialize page path under `HOUMAO_AGENT_PAGES_DIR` through `houmao-memory-mgr`, using a namespace such as `loop-runs/pairwise-v2/<run_id>/initialize.md` and the memory-page resolve surface when you need exact path-discovery output.
+5. Write or replace one initialize page for each targeted participant through `houmao-memory-mgr` when managed memory is being used:
+   - include local role, local objective, allowed delegation targets or allowed delegation set, task-handling rules, obligations, forbidden actions, mailbox and result-return expectations, and any routing-packet or child-dispatch references that the participant must keep easy to reopen
+   - keep the page durable and run-scoped rather than treating the memo as the primary large-body carrier
+   - include the participant's exact routing packet or exact routing packet reference when routing packets are part of the plan
+6. Write or replace one compact memo reference block for each targeted participant through `houmao-memory-mgr` when managed memory is being used:
+   - use one exact begin sentinel and one exact end sentinel keyed by `run_id` and slot `initialize`
+   - keep the block short, include an explicit memo-relative link such as `pages/<relative-page>`, and summarize the page at a glance
+   - replace only the bounded block when exactly one matching begin/end pair exists
+   - append one new bounded block when no matching begin/end pair exists
+   - fail closed and report a conflict when more than one matching begin/end pair exists
+7. If the selected strategy is explicit `operator_preparation_wave`, resolve the preparation-mail recipient set:
+   - target delegating or non-leaf participants by default
+   - include leaf participants only when the user explicitly asks to prepare leaf agents, prepare all participants, or names those leaf participants in the target set
+8. For every targeted `operator_preparation_wave` participant with a supported live gateway and mailbox binding, verify or enable gateway mail-notifier behavior through `houmao-agent-gateway` before sending preparation mail:
+   - use interval `5s` by default
+   - use the user-specified or plan-specified interval when one is provided
+   - record participants whose notifier setup is unsupported or blocked instead of pretending they are covered
+9. Choose acknowledgement posture for `operator_preparation_wave`:
    - default `fire_and_proceed`
    - optional `require_ack`
-8. Send one standalone initialization email to each targeted recipient through the owned mailbox surfaces:
-   - include only that participant's own role, resources, delegation authority, obligations, forbidden actions, and optional timeout-watch policy
+10. When `operator_preparation_wave` is selected, send one standalone preparation email to each targeted recipient:
+   - point the participant at its durable initialize page and matching memo reference block rather than making the mail the only copy of the run guidance
    - advise the participant to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results
-   - include the participant's exact routing packet or exact routing packet reference when routing packets are part of the plan
-   - instruct the participant to write the initialization content they receive into `houmao-memo.md` via `HOUMAO_AGENT_MEMO_FILE`, including delegation rules, task-handling rules, obligations, and forbidden actions
-   - when operator-side gateway or pair-server memory access is available, prefer the supported memory memo operation (`houmao-mgr agents memory memo append` or the gateway/pair memory memo endpoint) so initialization lands in the managed memo before the participant needs it
-   - when the readable initialization material is too large for the memo, write a contained page under `HOUMAO_AGENT_PAGES_DIR`, then add an explicit authored memo link such as `pages/<relative-page>` or use the supported memory page resolve surface to report the exact memo-relative link
    - do not assume the participant already knows which upstream participant may later contact it
-9. Match operator-origin reply policy to the acknowledgement posture:
+11. Match operator-origin reply policy to the acknowledgement posture:
    - `fire_and_proceed` -> `reply_policy=none`
    - `require_ack` -> `reply_policy=operator_mailbox`
-10. When acknowledgement is required, instruct targeted recipients to reply to `HOUMAO-operator@houmao.localhost` and review those replies through the reserved operator mailbox before the master trigger is sent.
-11. Track the observed initialization state explicitly:
-   - enter `initializing` when routing packet validation, notifier preflight, or initialization email delivery is still in progress
-   - enter `awaiting_ack` only when `require_ack` is selected and required replies from targeted initialization recipients are still outstanding
-   - enter `ready` after notifier setup and initialization email delivery are complete, routing packet validation succeeds when packets are part of the plan, and any required acknowledgements from targeted recipients have arrived
-12. Keep `initialize` separate from the master trigger. This page handles `initialize`; it does not itself perform `start`.
+12. When acknowledgement is required, instruct targeted recipients to reply to `HOUMAO-operator@houmao.localhost` and review those replies through the reserved operator mailbox before the master trigger is sent.
+13. Track the observed initialization state explicitly:
+   - enter `initializing` when routing-packet validation, initialize-page materialization, memo reference-block refresh, or explicit `operator_preparation_wave` notifier or mail work is still in progress
+   - enter `awaiting_ack` only when explicit `operator_preparation_wave` selected `require_ack` and required replies from targeted preparation recipients are still outstanding
+   - enter `ready` after the selected prestart strategy is complete
+14. Keep `initialize` separate from the master trigger. This page handles `initialize`; it does not itself perform `start`.
 
 ## Routing Packets
 
-Routing packets are optional structural control material for default email initialization. When the plan uses them, the packet set must cover every parent-to-child pairwise edge in the authored topology.
+Routing packets are the default structural control material for pairwise-v2 initialization.
 
-The root packet is for the designated master and must be available to the normalized start charter. Each child packet is for one immediate pairwise edge and must name the intended recipient, immediate driver, plan revision or digest, local role and objective, result-return contract, obligations, forbidden actions, and any child dispatch table.
+- The root packet is for the designated master and must be available to the durable start-charter page.
+- Each child packet is for one immediate pairwise edge and must name the intended recipient, immediate driver, plan revision or digest, local role and objective, result-return contract, obligations, forbidden actions, and any child dispatch table.
+- Drivers later append child packets verbatim to pairwise edge request email.
+- If a packet is missing, mismatched, or stale, dispatch stops and the mismatch is reported instead of repaired from memory.
 
-Drivers later append child packets verbatim to pairwise edge request email. If a packet is missing, mismatched, or stale, dispatch stops and the mismatch is reported instead of repaired from memory.
+When a node-link graph and packet JSON document are available, `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` is the explicit deterministic structural check before `ready`. A validation failure is an initialization blocker; do not treat it as permission for runtime participants to repair packets from memory.
 
-When a node-link graph and packet JSON document are available, `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` is the explicit deterministic structural check for this packet coverage before `ready`. When those artifacts are unavailable, manually verify visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers before `ready`. A validation failure is an initialization blocker; do not treat it as permission for runtime participants to repair packets from memory.
+## Durable Initialize Material
 
-## Email Initialization
+Use durable initialize pages plus compact memo reference blocks as the default initialize material for participants whose managed memory is being used.
 
-Use this strategy by default unless the plan or user explicitly disables email initialization.
+- page namespace: `loop-runs/pairwise-v2/<run_id>/initialize.md`
+- memo block: short pointer surface only
+- memo work: route through `houmao-memory-mgr`
 
-Initialization targets are all named participants by default. Narrow the recipient set only when the user or plan explicitly names a smaller initialization target set.
+When the user asks about the agent memo itself, the `houmao-memo.md` file, or memo-linked managed-memory pages while running `initialize`, treat that as a `houmao-memory-mgr` task rather than a standalone pairwise-v2 editing surface.
 
-The operator agent turns on gateway mail-notifier polling first for every targeted participant with a supported live gateway and mailbox binding. Use interval `5s` unless the user or plan specifies another interval.
+## Memo Reference Block Contract
 
-The acknowledgement posture is `fire_and_proceed` by default. When `require_ack` is active, missing acknowledgements from targeted initialization recipients block `ready` until their replies arrive or the user changes the plan.
+Use exact sentinels keyed by `run_id` and slot `initialize`.
 
-## Initialization Mail Contract
+```md
+<!-- HOUMAO_PAIRWISE_V2_BEGIN run_id=<run_id> slot=initialize -->
+## Pairwise-V2 Initialize Reference
 
-Each initialization mail should make these items easy to find for the targeted recipient:
+- run: `<run_id>`
+- page: [pages/<relative-page>](pages/<relative-page>)
+- note: durable initialize guidance for this participant
+<!-- HOUMAO_PAIRWISE_V2_END run_id=<run_id> slot=initialize -->
+```
 
-- `run_id`
-- participant identity and role
-- local resources or artifacts available to that participant
-- allowed delegation targets or allowed delegation set
-- delegation-pattern expectations for work categories, when needed
-- mailbox, reminder, receipt, or result obligations
-- default job communication channel: email/mailbox for pairwise edge requests, receipts, and results
-- forbidden actions
-- instruction to copy the participant initialization memo content, delegation rules, task-handling rules, obligations, and forbidden actions into `houmao-memo.md` through `HOUMAO_AGENT_MEMO_FILE`
-- when available, confirmation that the operator already wrote or appended that same initialization material through the supported memory memo surface
-- optional page path under `HOUMAO_AGENT_PAGES_DIR` for oversized readable initialization context, plus an explicit memo-relative link such as `pages/<relative-page>` or path-discovery output from the memory page resolve surface
-- reply instructions when acknowledgement is required
+Replacement rules:
+- replace only the text bounded by the exact matching begin/end pair
+- append one new bounded block when no matching begin/end pair exists
+- fail closed and report a conflict when more than one matching begin/end pair exists
+- do not infer replacement boundaries from headings, nearby prose, or fuzzy text matches
+
+## Operator Preparation Wave
+
+Use this strategy only when the plan or user explicitly selects `operator_preparation_wave`.
+
+- Preparation-mail targets are delegating or non-leaf participants by default.
+- The acknowledgement posture is `fire_and_proceed` by default.
+- When `require_ack` is active, missing acknowledgements block `ready`.
+- Each standalone preparation mail should point at the durable initialize page and exact routing packet or exact packet reference when routing packets are part of the plan.
 
 ## Initialize Contract
 
 - `initialize` is the prestart action, not the master trigger.
-- Default `email_initialization` enables gateway mail-notifier polling first, using interval `5s` unless overridden, then sends initialization mail to targeted participants.
-- Default acknowledgement posture is `fire_and_proceed`.
-- Explicit `require_ack` initialization may remain in `awaiting_ack` until required replies arrive.
+- Default `precomputed_routing_packets` validates routing packets first, then writes durable initialize pages and compact memo reference blocks for participants whose managed memory is being used.
+- Standalone preparation mail belongs only to explicit `operator_preparation_wave`.
+- Default acknowledgement posture is `fire_and_proceed`; explicit `require_ack` may remain in `awaiting_ack` until required replies arrive.
 - Routing packet validation remains an initialization blocker when routing packets are part of the plan.
 - `ready` means the selected prestart strategy is complete and the operator may proceed to `start`.
 
 ## Guardrails
 
-- Do not skip gateway mail-notifier enablement before default email initialization unless explicitly disabled or unsupported for a participant.
-- Do not use a notifier interval other than `5s` unless the user or plan specifies another interval.
+- Do not treat standalone participant preparation mail as the default initialize path.
+- Do not skip the durable initialize page or its bounded memo reference block for participants whose managed memory is being used.
+- Do not infer memo replacement boundaries from headings or nearby prose; use exact begin/end sentinels keyed by `run_id` and slot.
+- Do not use a notifier interval other than `5s` for explicit `operator_preparation_wave` unless the user or plan specifies another interval.
 - Do not require acknowledgement by default.
 - Do not send one shared upstream-aware matrix as the only routing artifact.
 - Do not ask runtime participants to infer hidden downstream routing shapes; packets must be precomputed.
 - Do not ask runtime participants to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets prepared before `ready`.
-- Do not guess packet coverage or initialization email targets when the topology is unclear; return to authoring or revision first.
+- Do not guess packet coverage, initialize page paths, or explicit preparation-wave targets when the topology is unclear; return to authoring or revision first.
 - Do not trigger the master before the selected prestart strategy is complete.
-- Do not treat `require_ack` as permission to silently widen or narrow the explicit initialization mail target set.
+- Do not treat `require_ack` as permission to silently widen or narrow the explicit `operator_preparation_wave` target set.

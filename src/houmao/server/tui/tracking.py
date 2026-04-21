@@ -33,6 +33,7 @@ from houmao.shared_tui_tracking.public_state import (
 )
 from houmao.server.models import (
     CompletionState,
+    HoumaoDegradedChatContextDiagnostic,
     HoumaoTrackedDiagnostics,
     HoumaoErrorDetail,
     HoumaoTrackedLastTurn,
@@ -224,6 +225,7 @@ class LiveSessionTracker:
                             updated_at_utc=None,
                         ),
                         "chat_context": tracker_state.chat_context,
+                        "chat_context_diagnostic": _build_chat_context_diagnostic(tracker_state),
                     }
                 )
             self.m_last_state = self.m_last_state.model_copy(update=update)
@@ -431,6 +433,7 @@ class LiveSessionTracker:
                         observed_at_utc=observed_at_utc,
                     ),
                     "chat_context": tracker_state.chat_context,
+                    "chat_context_diagnostic": _build_chat_context_diagnostic(tracker_state),
                     "operator_state": operator_state,
                     "lifecycle_timing": lifecycle_timing.model_copy(
                         update={"completion_candidate_elapsed_seconds": None}
@@ -742,6 +745,7 @@ class LiveSessionTracker:
                 turn=turn,
                 last_turn=last_turn,
                 chat_context=tracker_state.chat_context,
+                chat_context_diagnostic=_build_chat_context_diagnostic(tracker_state),
                 monotonic_ts=monotonic_ts,
                 observed_at_utc=observed_at_utc,
                 cycle_seq=cycle_seq,
@@ -761,6 +765,7 @@ class LiveSessionTracker:
                 turn=turn,
                 last_turn=last_turn,
                 chat_context=tracker_state.chat_context,
+                chat_context_diagnostic=_build_chat_context_diagnostic(tracker_state),
                 operator_state=operator_state,
                 lifecycle_timing=HoumaoLifecycleTimingMetadata(
                     readiness_unknown_elapsed_seconds=reduction.readiness_unknown_elapsed_seconds,
@@ -1135,6 +1140,7 @@ class LiveSessionTracker:
         turn: HoumaoTrackedTurn,
         last_turn: HoumaoTrackedLastTurn,
         chat_context: str,
+        chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None,
         monotonic_ts: float,
         observed_at_utc: str,
         cycle_seq: int,
@@ -1149,6 +1155,7 @@ class LiveSessionTracker:
                 turn=turn,
                 last_turn=last_turn,
                 chat_context=chat_context,
+                chat_context_diagnostic=chat_context_diagnostic,
             ),
             sort_keys=True,
             separators=(",", ":"),
@@ -1249,6 +1256,7 @@ class LiveSessionTracker:
                 turn=response.turn,
                 last_turn=response.last_turn,
                 chat_context=response.chat_context,
+                chat_context_diagnostic=response.chat_context_diagnostic,
                 stability=response.stability,
             )
         )
@@ -1542,6 +1550,7 @@ def _visible_signature_payload(
     turn: HoumaoTrackedTurn,
     last_turn: HoumaoTrackedLastTurn,
     chat_context: str,
+    chat_context_diagnostic: HoumaoDegradedChatContextDiagnostic | None,
 ) -> dict[str, object]:
     """Return the operator-visible signature payload used for stability timing."""
 
@@ -1554,6 +1563,9 @@ def _visible_signature_payload(
         "turn": turn.model_dump(mode="json"),
         "last_turn": last_turn.model_dump(mode="json"),
         "chat_context": chat_context,
+        "chat_context_diagnostic": chat_context_diagnostic.model_dump(mode="json")
+        if chat_context_diagnostic is not None
+        else None,
     }
 
 
@@ -1592,6 +1604,11 @@ def _build_transition(
         ("last_turn_result", previous.last_turn.result, current.last_turn.result),
         ("last_turn_source", previous.last_turn.source, current.last_turn.source),
         ("chat_context", previous.chat_context, current.chat_context),
+        (
+            "chat_context_diagnostic",
+            _chat_context_diagnostic_signature(previous.chat_context_diagnostic),
+            _chat_context_diagnostic_signature(current.chat_context_diagnostic),
+        ),
         ("probe_error", _error_message(previous.probe_error), _error_message(current.probe_error)),
         ("parse_error", _error_message(previous.parse_error), _error_message(current.parse_error)),
         (
@@ -1684,6 +1701,33 @@ def _build_tracker_last_turn(
         source=tracker_state.last_turn_source,
         updated_at_utc=updated_at_utc,
     )
+
+
+def _build_chat_context_diagnostic(
+    tracker_state: TrackedStateSnapshot,
+) -> HoumaoDegradedChatContextDiagnostic | None:
+    """Return the public degraded context diagnostic for one tracker state."""
+
+    diagnostic = tracker_state.chat_context_diagnostic
+    if diagnostic is None:
+        return None
+    return HoumaoDegradedChatContextDiagnostic(
+        tool_name=diagnostic.tool_name,
+        detector_name=diagnostic.detector_name,
+        detector_version=diagnostic.detector_version,
+        degraded_error_type=diagnostic.degraded_error_type,
+        message_preview=diagnostic.message_preview,
+    )
+
+
+def _chat_context_diagnostic_signature(
+    diagnostic: HoumaoDegradedChatContextDiagnostic | None,
+) -> dict[str, object] | None:
+    """Return a stable transition-comparison payload for one diagnostic."""
+
+    if diagnostic is None:
+        return None
+    return diagnostic.model_dump(mode="json")
 
 
 def _align_operator_state_with_tracker_state(

@@ -256,7 +256,7 @@ Current behavior boundary:
 - gateway-routed requests do not auto-attach the gateway,
 - direct runtime control remains valid even for sessions that are gateway-capable but not currently gateway-attached.
 
-For server-managed agents, the same separation applies: `houmao-server` owns managed-agent request and gateway lifecycle routes, but shared mailbox send, check, and reply stay on the live gateway `/v1/mail/*` facade after attach.
+For server-managed agents, the same separation applies: `houmao-server` owns managed-agent request and gateway lifecycle routes, but shared mailbox listing, reading, sending, replying, and lifecycle updates stay on the live gateway `/v1/mail/*` facade after attach.
 
 ## Tail The Running Log
 

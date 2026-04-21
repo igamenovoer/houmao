@@ -1,37 +1,38 @@
-# Normalized Run Charter
+# Normalized Run Charter And Recovery Pages
 
-Use this reference when the user agent is ready to send one `start` request to the designated master.
+Use this reference when the user agent is ready to write one durable `start-charter` page and send one compact `start` trigger to the designated master.
 
 ## Required Fields
 
 - `run_id`
 - `plan_ref`
+- plan revision, digest, or equivalent freshness marker
 - designated master identity
 - allowed participants
 - delegation policy summary
 - prestart strategy summary
-- gateway mail-notifier interval and initialization email summary
-- acknowledgement posture
+- durable initialize material summary
+- explicit `operator_preparation_wave` summary when that strategy is selected
 - routing packet validation summary, including graph artifact and packet JSON artifact used when available
 - root routing packet or exact root packet reference when routing packets are part of the plan
 - completion condition summary
 - default stop mode
 - reporting contract summary with canonical observed states
 
-## Charter Template
+## Charter Page Template
 
 ```text
 You are the master for pairwise loop run `<run_id>`.
 
 Plan reference:
 - type: <single-file | bundle>
-- path: <canonical plan path>
+- path: <canonical plan path such as <plan-output-dir>/plan.md>
 
 Control-plane contract:
 - I am outside the execution loop.
 - Do not rely on me for liveness.
 - Keep this run alive until the completion condition is satisfied or I send stop.
-- I may later ask to `peek master <run_id>`, `pause <run_id>`, `resume <run_id>`, or `stop <run_id>`.
+- I may later ask to `peek master <run_id>`, `pause <run_id>`, `resume <run_id>`, `recover_and_continue <run_id>`, or `stop <run_id>`.
 
 Execution model:
 - Use the accepted plan for composed topology, recursive child-control edges, completion, stop, reporting, and lifecycle posture.
@@ -44,11 +45,13 @@ Delegation policy:
 <normalized policy from references/delegation-policy.md>
 
 Prestart posture:
-- prestart strategy: <email_initialization | packet_only_initialization>
-- gateway mail-notifier interval: <5s unless user specified otherwise>
-- initialization email: <sent to all named participants | sent to explicit target set>
+- prestart strategy: <precomputed_routing_packets | operator_preparation_wave>
+- durable initialize material: <participant initialize pages written under run-scoped namespace | not applicable>
+- participant memo reference blocks: <refreshed via exact sentinels | not applicable>
+- operator preparation wave: <not selected | targeted preparation mail sent to explicit target set>
+- gateway mail-notifier interval: <5s unless user specified otherwise when operator preparation wave is selected>
 - acknowledgement mode: <fire_and_proceed | require_ack>
-- required acknowledgements: <not applicable | completed for targeted initialization recipients>
+- required acknowledgements: <not applicable | completed for targeted preparation recipients>
 - routing packet validation: <completed by validate-packets | completed by manual visible-coverage check | not applicable>
 - graph artifact: <none | NetworkX node-link graph path>
 - packet JSON artifact: <none | packet JSON path>
@@ -65,18 +68,63 @@ Default stop mode:
 
 Reporting contract:
 <peek, completion, and stop-summary expectations using canonical observed states>
+```
 
-Start procedure:
-1. Read the plan.
-2. Read the root routing packet or exact packet reference when routing packets are part of the plan.
-3. Accept or reject the run explicitly.
-4. If accepted, persist root run state, arm supervision, and begin dispatch using the root packet dispatch table.
+## Compact Start Trigger Template
+
+```text
+You are the master for pairwise loop run `<run_id>`.
+
+Read the durable start-charter page at `pages/<relative-page>`.
+Use that page plus the accepted plan as the control-plane contract for this run.
+
+Reply with exactly one of:
+- accepted
+- rejected
+```
+
+## Recovery Continuation Page Template
+
+```text
+You are continuing pairwise loop run `<run_id>` after restart recovery.
+
+Recovery posture:
+- recovery epoch: <epoch number>
+- plan reference: <canonical plan path and freshness marker>
+- this is the same logical run id, not a brand-new run
+
+Before fresh work, inspect and reconcile:
+- leftover mailbox state
+- `houmao-memo.md` and linked pages
+- workspace, branch, or local artifact state
+- notes, logs, tmp outputs, or partial results
+- incomplete downstream obligations or pending result-return duties
+
+Execution model:
+- use the accepted plan plus this recovery page as the continuation contract
+- do not invent a replacement run id
+- re-arm any live reminder posture that the recovery summary says must be recreated after acceptance
+```
+
+## Compact Recover-And-Continue Trigger Template
+
+```text
+You are the master for recovered pairwise loop run `<run_id>`.
+
+Read the durable recovery page at `pages/<relative-page>`.
+Use that page plus the accepted plan as the continuation contract for this run.
+
+Reply with exactly one of:
+- accepted
+- rejected
 ```
 
 ## Guardrails
 
-- Keep the charter compact and normalized.
-- Send the plan reference, policy summary, email communication posture, and root routing packet or exact root packet reference when routing packets are used, not a second unstructured copy of the whole plan.
+- Keep the charter page compact and normalized.
+- Send the plan reference, policy summary, durable initialize posture, and root routing packet or exact root packet reference when routing packets are used, not a second unstructured copy of the whole plan.
 - Do not omit the statement that the user agent is outside the execution loop.
+- Do not use the compact start trigger as the only readable copy of the full charter when the designated master's managed memory is being used.
 - Do not ask the master to infer child packet content from the full plan when the packet inventory should already be authored.
 - Do not ask the master or intermediate drivers to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets prepared before `ready`.
+- Do not reuse the compact start trigger as the only restart-recovery contract; `recover_and_continue` needs the recovery-specific durable page.

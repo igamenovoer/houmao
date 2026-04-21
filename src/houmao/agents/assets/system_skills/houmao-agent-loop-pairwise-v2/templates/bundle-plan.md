@@ -1,11 +1,11 @@
 # Bundle Pairwise Loop Plan Template
 
-Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint.
+Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint. Ask for the output directory if it is not already known, then write the bundle there.
 
 ## Suggested Layout
 
 ```text
-loop-plan/
+<plan-output-dir>/
   plan.md
   prestart.md
   routing-packets.md
@@ -22,7 +22,7 @@ loop-plan/
 
 ## Canonical Entrypoint
 
-`plan.md` is the canonical entrypoint. The user agent should point the master at `plan.md` or at the bundle root with an explicit instruction to open `plan.md` first.
+`plan.md` is the canonical entrypoint. The user agent should point the master at `<plan-output-dir>/plan.md`, or at the bundle root with an explicit instruction to open `plan.md` first.
 
 ## `plan.md` Skeleton
 
@@ -52,8 +52,8 @@ See `prestart.md`.
 See `routing-packets.md`.
 
 # Lifecycle Vocabulary
-- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
-- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, `dead`
+- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
+- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
 
 # Completion Condition
 <user-defined operational success condition>
@@ -80,17 +80,21 @@ See `reporting.md`.
 
 Record:
 
-- notifier preflight procedure
-- selected `prestart_strategy`: default `email_initialization`, or explicit packet-only initialization when the user disables email initialization
-- gateway mail-notifier interval: `5s` unless the user specified otherwise
-- initialization email target policy: all named participants by default, or an explicit target set when provided
+- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- durable initialize page namespace and durable start-charter page namespace
+- continuation page namespace and runtime-owned recovery record path family
+- memo sentinel convention for run-owned reference blocks
+- durable initialize page and memo reference-block write procedure
+- notifier preflight procedure for `operator_preparation_wave`
+- gateway mail-notifier interval: `5s` unless the user specified otherwise for `operator_preparation_wave`
+- preparation-mail target policy: delegating or non-leaf participants by default, or an explicit target set when provided
 - acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
 - graph artifact and packet JSON artifact locations when available
 - graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
 - routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
 - validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
-- initialization mail procedure for targeted initialization recipients
-- operator reply policy for initialization mail: `none` for default `fire_and_proceed`, or `operator_mailbox` for explicit `require_ack`
+- preparation-mail procedure for targeted preparation recipients when `operator_preparation_wave` is selected
+- operator reply policy for preparation mail: `none` for default `fire_and_proceed`, or `operator_mailbox` for explicit `require_ack`
 - in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
 - readiness behavior for the selected strategy

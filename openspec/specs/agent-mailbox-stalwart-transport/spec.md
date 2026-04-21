@@ -54,7 +54,7 @@ The `stalwart` transport SHALL use JMAP as the primary automation surface for ma
 
 At minimum, the `stalwart` transport SHALL support:
 
-- discovering mailbox messages for `mail check`,
+- discovering mailbox messages for `mail list`,
 - composing and delivering a new message for `mail send`,
 - replying to an existing message for `mail reply`.
 

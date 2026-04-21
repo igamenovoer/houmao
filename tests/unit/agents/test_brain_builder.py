@@ -262,6 +262,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-pairwise-v3/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-inspect/SKILL.md").is_file()
@@ -283,6 +284,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
+        "houmao-agent-loop-pairwise-v3",
         "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",

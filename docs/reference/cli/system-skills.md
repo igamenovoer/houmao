@@ -15,7 +15,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-email-comms` for ordinary shared-mailbox operations and the no-gateway fallback path
 - `houmao-adv-usage-pattern` for supported multi-skill mailbox and gateway workflow compositions such as self-wakeup through self-mail plus notifier-driven rounds
 - `houmao-utils-llm-wiki` for explicit persistent Markdown LLM Wiki knowledge-base utilities: scaffold, ingest, compile, query, lint, audit, and local viewer workflows
-- `houmao-utils-workspace-mgr` for explicit multi-agent workspace planning and execution utilities: dry-run plans, in-repo and out-of-repo workspace layouts, per-agent Git worktrees, local-only shared repos, tracked submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules
+- `houmao-utils-workspace-mgr` for explicit multi-agent workspace planning and execution utilities: dry-run plans, task-scoped in-repo and out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, tracked submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users branch across project setup, mailbox setup, specialist/profile authoring, live-agent operations, and lifecycle follow-up
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files
@@ -28,10 +28,11 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
 - `houmao-agent-loop-pairwise` for the restored stable pairwise loop surface: authoring master-owned pairwise loop plans and operating accepted runs through `start`, `status`, and `stop` while the user agent stays outside the execution loop
-- `houmao-agent-loop-pairwise-v2` for the versioned enriched pairwise workflow: authoring master-owned pairwise loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
+- `houmao-agent-loop-pairwise-v2` for the versioned enriched pairwise workflow: authoring master-owned pairwise loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
+- `houmao-agent-loop-pairwise-v3` for the workspace-aware enriched pairwise workflow: pairwise-v2 lifecycle plus authored `standard` or `custom` workspace contracts, including task-scoped standard in-repo posture
 - `houmao-agent-loop-generic` for decomposing generic loop graphs into typed pairwise and relay components and operating accepted root-owned runs through start, status, and stop
 
-The two pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, while `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow.
+The three pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow, and `houmao-agent-loop-pairwise-v3` extends v2 with authored workspace contracts.
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -116,6 +117,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-agent-definition`
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
+- `houmao-agent-loop-pairwise-v3`
 - `houmao-agent-loop-generic`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`

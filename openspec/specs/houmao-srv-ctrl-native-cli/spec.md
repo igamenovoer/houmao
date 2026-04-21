@@ -516,17 +516,21 @@ At minimum, that family SHALL include:
 
 - `resolve-live`
 - `status`
-- `check`
+- `list`
+- `peek`
+- `read`
 - `send`
 - `post`
 - `reply`
-- `mark-read`
+- `mark`
+- `move`
+- `archive`
 
 Those commands SHALL address managed agents by managed-agent reference and SHALL dispatch mailbox work by the resolved managed-agent authority:
 
 - pair-managed targets SHALL use pair-owned mail authority,
 - local managed targets SHALL use verified manager-owned local mail authority or verified gateway-backed authority when available,
-- when a local live-TUI target lacks verified direct or gateway authority for ordinary mailbox actions such as `check`, `send`, `reply`, or `mark-read`, the command MAY fall back to TUI-mediated submission and SHALL preserve a non-authoritative submission result instead of claiming mailbox success,
+- when a local live-TUI target lacks verified direct or gateway authority for ordinary mailbox actions such as `list`, `send`, `reply`, or `archive`, the command MAY fall back to TUI-mediated submission and SHALL preserve a non-authoritative submission result instead of claiming mailbox success,
 - operator-origin `post` SHALL NOT fall back to TUI-mediated submission and SHALL fail explicitly when verified manager-owned, pair-owned, or gateway-backed authority is unavailable,
 - callers SHALL NOT be required to discover or call gateway endpoints directly themselves when using the CLI.
 
@@ -557,11 +561,11 @@ For local managed targets, ordinary mailbox follow-up SHALL NOT require promptin
 - **THEN** the command fails explicitly
 - **AND THEN** it does not guess a managed-agent target from cwd, gateway listener bindings, or ambient shell state
 
-#### Scenario: Local mail check uses manager-owned direct mailbox execution
-- **WHEN** an operator runs `houmao-mgr agents mail check --agent-name alice`
+#### Scenario: Local mail list uses manager-owned direct mailbox execution
+- **WHEN** an operator runs `houmao-mgr agents mail list --agent-name alice`
 - **AND WHEN** `alice` resolves to local managed-agent authority on the current host
 - **THEN** `houmao-mgr` performs mailbox follow-up through manager-owned local mail authority
-- **AND THEN** the command does not require prompting the target agent to interpret mailbox instructions for that ordinary mailbox check
+- **AND THEN** the command does not require prompting the target agent to interpret mailbox instructions for that ordinary mailbox list
 
 #### Scenario: Local live-TUI send without verified direct authority returns submission-only fallback
 - **WHEN** an operator runs `houmao-mgr agents mail send --agent-name alice --to bob@houmao.localhost --subject "..." --body-content "..."`
@@ -1298,4 +1302,37 @@ The command output for notifier status and enable results SHALL preserve both th
 - **WHEN** an operator runs `houmao-mgr agents gateway mail-notifier enable --agent-id abc123 --interval-seconds 60 --appendix-text ""`
 - **THEN** the CLI sends `appendix_text=""` to the gateway
 - **AND THEN** it does not reinterpret the empty string as omitted input
+
+### Requirement: `houmao-mgr` root error handling does not leak uncaught maintained-command exceptions as Python tracebacks
+
+The top-level `houmao-mgr` wrapper SHALL convert uncaught exceptions from maintained native command trees into non-zero CLI error output rather than allowing a Python traceback to reach the operator.
+
+This SHALL apply to maintained native subcommands under:
+
+- `server`
+- `agents`
+- `brains`
+- `credentials`
+- `admin`
+- `mailbox`
+- `project`
+- `system-skills`
+
+When a maintained command already normalizes a failure as explicit operator-facing CLI error output, the root wrapper SHALL preserve that non-zero failure behavior rather than treating the command as successful.
+
+When a maintained command still leaks a non-click exception to the root wrapper, the wrapper SHALL render stable CLI error text instead of a Python traceback and SHALL preserve non-zero exit behavior.
+
+#### Scenario: Project mailbox failure that reaches the root wrapper still renders without traceback
+
+- **WHEN** an operator runs `houmao-mgr project mailbox accounts list`
+- **AND WHEN** that maintained command leaks a mailbox-related exception to the top-level wrapper
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** the operator sees CLI error text instead of a Python traceback
+
+#### Scenario: Project recipe failure that reaches the root wrapper still renders without traceback
+
+- **WHEN** an operator runs `houmao-mgr project agents recipes list`
+- **AND WHEN** that maintained command leaks a malformed-preset parsing exception to the top-level wrapper
+- **THEN** `houmao-mgr` exits non-zero
+- **AND THEN** the operator sees CLI error text instead of a Python traceback
 

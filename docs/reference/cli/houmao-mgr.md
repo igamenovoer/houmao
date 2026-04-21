@@ -86,7 +86,7 @@ For dedicated coverage of complex nested command families, see:
 | `gateway interrupt` | Interrupt the current gateway operation. |
 | `gateway send-keys` | Send raw control input through the live gateway. |
 | `gateway tui state|history|watch|note-prompt` | Inspect or annotate the raw gateway-owned TUI tracking surface. |
-| `gateway mail-notifier status|enable|disable` | Inspect or control live gateway mail-notifier behavior. |
+| `gateway mail-notifier status|enable|disable` | Inspect or control live gateway mail-notifier behavior, including runtime appendix text and opt-in context policies. |
 
 Gateway targeting rules:
 
@@ -118,12 +118,22 @@ For supported tmux-backed managed sessions, including sessions adopted through `
 
 If `agents mailbox register` would replace existing shared mailbox state, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
 
+Managed-agent lifecycle listing rules:
+
+- `agents list` shows active lifecycle records by default.
+- Use `agents list --state stopped`, `--state retired`, or `--state all` when you intentionally want lifecycle-inclusive discovery instead of the normal live-control view.
+- Live control surfaces such as prompt, interrupt, gateway, mail, and stop still require active records. Stopped and retired records are for relaunch, cleanup, inspection, and explicit lifecycle-aware listings.
+
 Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
-- Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus fresh shared-registry metadata second.
-- Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority; prefer those path locators for explicit post-stop cleanup because the live shared-registry record may be gone.
-- When `--agent-id` or `--agent-name` cleanup finds no fresh shared-registry record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match.
+- Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus cleanup-capable lifecycle registry metadata second.
+- Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority, and tmux-backed relaunchable local stops preserve a stopped lifecycle record with the same locators plus last-known tmux authority. Prefer those durable locators for explicit post-stop cleanup.
+- When `--agent-id` or `--agent-name` cleanup finds a matching cleanup-capable lifecycle record, cleanup uses that record as the authoritative locator source and does not let a runtime-root scan replace it.
+- When `--agent-id` or `--agent-name` cleanup finds no matching lifecycle record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match. This bounded scan is the migration fallback for pre-change stopped sessions that predate lifecycle-aware registry persistence.
+- `agents cleanup session` retires stopped lifecycle records by default after successful session-root removal or validated absence. Use `--purge-registry` only when you explicitly want to delete the lifecycle record entirely.
+- `agents cleanup logs` and `agents cleanup mailbox` never retire or purge the lifecycle record because they preserve the durable session identity and runtime authority.
+- `agents cleanup session` does not retire or purge active lifecycle records; stop the agent first.
 - Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
 
 `agents launch` source-selector and launch-profile rules:
@@ -133,9 +143,13 @@ Cleanup targeting rules:
 - `--launch-profile` resolves the named launch profile from the active project overlay and rejects easy `project easy profile ...` selections; only explicit recipe-backed launch profiles (`profile_lane=launch_profile`) are accepted.
 - A launch-profile-backed launch derives the source recipe from the stored profile, then composes effective inputs in the precedence order: source recipe defaults → launch-profile defaults → direct CLI overrides.
 - Direct overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and never rewrite the stored launch profile.
+- `--reuse-home` is a launch-owned preserved-home flag. When supplied, Houmao resolves one compatible preserved home for the selected managed identity, rebuilds current Houmao-managed launch inputs onto that home, and still creates a fresh live session root for the new launch. The flag never rewrites the stored launch profile.
+- `--reuse-home` requires the preserved home to belong to the same managed identity, local runtime root, and tool family, and the preserved home path must still exist on disk. When no compatible preserved home exists, `agents launch` fails clearly instead of silently falling back to a new home.
+- `--reuse-home` alone does not replace a fresh live owner of the same managed identity. Use `--force` (or explicit `--force keep-stale`) when a live predecessor must stand down first.
 - `--force [keep-stale|clean]` is a launch-owned takeover flag for replacing an existing live local owner of the resolved managed identity. Omitting `--force` keeps the current owner in place and fails the new launch on that conflict.
 - Bare `--force` means `keep-stale`. Houmao stops the predecessor first, reuses the predecessor managed home in place, and leaves untouched stale artifacts alone. If leftover stale files break the replacement launch, Houmao does not scrub or repair them automatically.
 - `--force clean` is the explicit destructive mode. Houmao stops the predecessor, removes predecessor-owned replaceable launch artifacts such as the managed home, session root, job dir, and safe private mailbox paths, and then rebuilds from a clean managed-home state.
+- `--reuse-home --force clean` is rejected before cleanup begins because `clean` would destroy the preserved home the operator asked to keep.
 - Force takeover remains identity-scoped rather than tmux-name-scoped and never rewrites the stored launch profile.
 - `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides for the Houmao-managed prompt header. For what the header contains and the full prompt composition order, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - When neither managed-header flag is supplied, `agents launch` inherits managed-header policy from the selected launch profile when one is present; otherwise it falls back to the default enabled behavior.
@@ -150,12 +164,14 @@ Cleanup targeting rules:
 
 `agents relaunch` chat-session selection:
 
+- `agents relaunch` accepts both active records and stopped relaunchable records. When the selected record is stopped, relaunch revives the same managed-agent identity, runtime home, and session root on a fresh tmux container instead of treating the request as a fresh launch.
 - `agents relaunch` accepts optional `--chat-session-mode {new|tool_last_or_new|exact}` and `--chat-session-id <provider-session-id>`.
 - When omitted, relaunch uses the stored launch-profile relaunch policy when the running agent was launched from one; otherwise it starts a fresh provider chat.
 - `--chat-session-mode new` forces a fresh provider chat for this relaunch only.
 - `--chat-session-mode tool_last_or_new` translates to provider-native latest-chat continuation for supported TUI and headless surfaces: Codex uses `resume --last`, Claude uses `--continue`, and Gemini uses `--resume latest`.
 - `--chat-session-mode exact --chat-session-id <id>` resumes a provider session id exactly for this relaunch only. `--chat-session-id` is rejected unless the mode is `exact`.
 - For TUI relaunch, Houmao starts the provider TUI with native continuation flags and suppresses replay of bootstrap-message role injection when the selected mode resumes an existing provider chat. For headless relaunch, Houmao records the selector for the next submitted prompt rather than starting a provider turn during relaunch.
+- Retired records and stopped non-relaunchable records fail explicitly and are not silently replaced with a fresh launch flow.
 
 `agents prompt` request-scoped headless execution overrides:
 
@@ -424,7 +440,9 @@ Command shape:
 
 ```text
 houmao-mgr project
-├── init | status
+├── init | status | migrate
+├── skills
+│   ├── add | set | list | get | remove
 ├── agents
 │   ├── roles ...
 │   ├── recipes ...                # canonical low-level source recipes
@@ -447,6 +465,8 @@ houmao-mgr project
 |---|---|
 | `init` | Create or validate the selected overlay root, default `<pwd>/.houmao`, write `houmao-config.toml`, write `.gitignore`, create `catalog.sqlite`, and create managed `content/` roots. |
 | `status` | Report whether a project overlay was discovered under the selected overlay root, which catalog was found, and which agent-definition root is effective. |
+| `migrate` | Inspect or apply one supported project-structure migration into the current overlay layout. |
+| `skills` | Maintain canonical project-local custom skills under `.houmao/content/skills/`. |
 | `agents` | Low-level filesystem-oriented management for the `.houmao/agents/` compatibility projection. |
 | `easy` | Higher-level specialist and instance workflow persisted in `.houmao/catalog.sqlite` with file-backed payloads under `.houmao/content/`. |
 | `mailbox` | Project-scoped wrapper over the generic mailbox-root CLI targeting `mailbox/` under the active overlay root. |
@@ -458,8 +478,46 @@ Project overlay notes:
 - `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=ancestor` is the default ambient lookup mode; `cwd_only` restricts ambient lookup to `<pwd>/.houmao/houmao-config.toml`.
 - The selected overlay root gets a local `.gitignore` containing `*`, so the whole overlay stays local-only without editing the repo root `.gitignore`.
 - `project status` resolves the active overlay root from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, and reports the effective discovery mode in its JSON payload.
+- `project status` also reports a `migration` payload when an overlay is present so operators can tell whether legacy structure still needs explicit conversion.
 - `project init` creates `catalog.sqlite` plus managed `content/prompts/`, `content/auth/`, `content/skills/`, and `content/setups/` under the selected overlay root.
 - `project init` does not create `agents/`, `mailbox/`, or `easy/` under the selected overlay root by default.
+- `project skills add|set|list|get|remove` is the maintained project-local custom-skill registry. Canonical custom-skill storage lives under `.houmao/content/skills/`; `.houmao/agents/skills/` is derived projection only.
+- `project migrate` is the explicit upgrade path for supported older overlay layouts. Ordinary project commands do not silently migrate known legacy specialist metadata or compatibility-tree-first project skills in place.
+
+#### `project skills`
+
+`project skills` manages the canonical project-local skill registry rooted at `.houmao/content/skills/`.
+
+| Subcommand | Description |
+|---|---|
+| `add` | Register one new project skill from a source directory. |
+| `set` | Replace the source binding and storage mode for an existing project skill. |
+| `list` | List registered project skills. |
+| `get` | Inspect one registered project skill, including canonical and derived projection paths. |
+| `remove` | Remove one unreferenced project skill registration. |
+
+`project skills` notes:
+
+- `add` and `set` require `--name` plus `--source <dir>` pointing at a skill directory containing `SKILL.md`.
+- `--mode copy|symlink` controls the canonical project binding. `copy` is the default and snapshots the source tree into `.houmao/content/skills/<name>`. `symlink` makes `.houmao/content/skills/<name>` a symlink to the source directory.
+- Successful `add|set|remove` rematerializes `.houmao/agents/skills/<name>` as derived symlinks from the canonical project registry. Operators should treat `.houmao/agents/skills/` as compatibility projection only, not as hand-edited project state.
+- `remove` fails clearly while any specialist still references the target skill name.
+
+#### `project migrate`
+
+`project migrate` is the only supported writer for legacy-to-current project-structure upgrades.
+
+| Option | Description |
+|---|---|
+| _none_ | Show the detected migration plan without mutating the overlay. |
+| `--apply` | Apply the supported migration plan in place. |
+
+`project migrate` notes:
+
+- The command targets the active overlay selected through `HOUMAO_PROJECT_OVERLAY_DIR` or ambient discovery.
+- Successful apply rewrites supported legacy project structure into the current catalog-backed layout and removes the replaced legacy files after import.
+- Ordinary `project`, `project easy`, and catalog-backed workflows do not silently upgrade known legacy easy-specialist metadata or compatibility-tree-first project skills in place.
+- Unsupported legacy layouts fail with explicit guidance instead of partial mutation.
 
 #### `project agents`
 
@@ -534,6 +592,8 @@ Low-level boundary notes:
 - `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
 - `--model` and `--reasoning-level` are the supported launch-owned model-selection surfaces. `--reasoning-level` is a tool/model-specific preset index rather than a portable `1..10` knob.
+- repeatable `--skill <name>` binds already registered project skills by name.
+- repeatable `--with-skill <dir>` is a convenience path that registers or updates one canonical project skill entry and then binds it to the specialist.
 - when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt and recipe projection and accepts `--yes` for non-interactive replacement.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
 - maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility recipe projected under `.houmao/agents/presets/`, including Gemini's headless-only easy lane.
@@ -552,7 +612,7 @@ Low-level boundary notes:
 - `--name` is required and must identify an existing specialist. At least one update or clear flag is required.
 - Patchable fields include prompt (`--system-prompt`, `--system-prompt-file`, `--clear-system-prompt`), skills (`--with-skill`, `--add-skill`, `--remove-skill`, `--clear-skills`), setup (`--setup`), credential (`--credential`), prompt mode (`--prompt-mode`, `--clear-prompt-mode`), launch-owned model (`--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level`), and persistent env (`--env-set`, `--clear-env`).
 - `--env-set` replaces the stored specialist env mapping with the repeated `NAME=value` records supplied on that command. Use `--clear-env` to remove the mapping.
-- `--with-skill <dir>` imports a skill directory and adds it to the specialist. `--add-skill <name>` adds an already projected project skill by name. `--remove-skill <name>` removes that skill from the specialist definition; shared projected skill content is not deleted just because one specialist stops referencing it.
+- `--with-skill <dir>` registers or updates one canonical project skill entry and then adds that skill to the specialist. `--add-skill <name>` adds an already registered project skill by name. `--remove-skill <name>` removes that skill from the specialist definition; shared project skill content is not deleted just because one specialist stops referencing it.
 - `--setup <name>` switches to another setup bundle for the specialist's current tool lane. When the preset name changes, the old specialist-owned projected preset file is removed after the catalog projection is materialized.
 - `--credential <name>` selects an existing credential display name for the specialist's current tool lane. It does not create or mutate credential bundles.
 - `specialist set` does not rename specialists and does not change the tool lane; create a new specialist when either identity should change.
@@ -580,6 +640,8 @@ Low-level boundary notes:
 - `--profile` selects a stored easy profile. The command derives the source specialist from that profile, applies easy-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless/gateway posture, prompt overlay, any gateway mail-notifier appendix default, and any stored memo seed), and uses the active project overlay as the authoritative source context. Auth is still rendered by display name even though the stored relationship is auth-profile-backed. `--name` may be omitted when the selected profile stores a default managed-agent name; otherwise it remains required.
 - Stored easy-profile memo seeds apply their represented memo/pages components before prompt composition and provider startup. Direct `project easy instance launch --specialist ...` launches do not apply one because no reusable easy profile was selected, and there is no one-shot memo-seed override flag on the launch surface.
 - Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over easy-profile defaults but never rewrite the stored easy profile. The next launch from the same profile will see the original stored defaults again.
+- `--reuse-home` is also available here and behaves like `agents launch --reuse-home`: it reuses one compatible preserved home for the resolved managed identity, rebuilds current Houmao-managed launch inputs onto that home, and still creates fresh live session authority for the new launch. The flag never becomes part of specialist metadata or easy-profile storage.
+- `--reuse-home` alone does not replace a fresh live owner, and `--reuse-home --force clean` is rejected before cleanup begins because destructive clean mode would discard the preserved home contents.
 - `--force [keep-stale|clean]` is also available here and behaves the same as on `agents launch`, but only for the current easy-instance launch. Bare `--force` means `keep-stale`, which stops the predecessor and reuses the predecessor managed home while leaving untouched stale artifacts alone.
 - `--force clean` stops the predecessor and removes predecessor-owned replaceable launch artifacts before rebuilding. Shared mailbox message history and unrelated operator-owned paths are preserved.
 - Force mode never becomes part of specialist metadata or easy-profile storage.

@@ -1,6 +1,6 @@
 # Relaunch Agent Instance
 
-Use this action only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home.
+Use this action only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home. Relaunch can target either an active managed session or a stopped relaunchable lifecycle record; stopped relaunch revives the same managed-agent identity, session root, and built home instead of behaving like a fresh launch.
 
 ## Workflow
 
@@ -10,7 +10,7 @@ Use this action only when the user wants to relaunch one tmux-backed managed-age
 4. If no explicit target is available and current-session relaunch is not clearly the intended valid path, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the live managed-agent name or id.
 5. Choose a chat-session selector only when the user asks for one or a stored launch-profile relaunch policy should be left to the runtime default. Use fresh relaunch by omitting selector flags unless the user explicitly asks to continue the latest provider chat or resume an exact provider session id.
 6. Run `agents relaunch`.
-7. Report the relaunch result returned by the command.
+7. Report the relaunch result returned by the command. When the selected record was stopped, make it clear that relaunch revived the existing managed session rather than creating a new one.
 
 ## Command Shape
 
@@ -57,4 +57,5 @@ Selector meanings:
 - Do not reinterpret a relaunch request as `agents launch` or `project easy instance launch`.
 - Do not add `--chat-session-mode tool_last_or_new` or `--chat-session-mode exact` unless the user asks for continuation, gives a provider session id, or explicitly wants to override the stored launch-profile relaunch policy.
 - Do not claim that relaunch always recreates a missing tmux session or otherwise acts as a generic fresh-launch recovery path.
+- Do not describe stopped-session relaunch as a fresh launch; it is lifecycle revival of the same managed-agent identity.
 - If relaunch is unavailable because the selected session has no relaunch posture or the current-session authority cannot be resolved, report that relaunch is unavailable instead of silently switching to a fresh launch flow.

@@ -46,8 +46,24 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
     assert "memo-relative page links such as `pages/notes/todo.md`" in header
     assert "`houmao-memory-mgr`" in system_skills
     assert "`core`" in system_skills
+    assert "`recover_and_continue`" in system_skills
     assert "`houmao-memory-mgr`" in cli_reference
     assert "`core`" in cli_reference
+    assert "`recover_and_continue`" in cli_reference
+
+
+def test_system_files_docs_describe_pairwise_v2_recovery_record() -> None:
+    """Guard the runtime-files docs for the pairwise-v2 recovery-record contract."""
+
+    system_files = (REPO_ROOT / "docs/reference/system-files/agents-and-runtime.md").read_text(
+        encoding="utf-8"
+    )
+    index = (REPO_ROOT / "docs/reference/system-files/index.md").read_text(encoding="utf-8")
+
+    assert "<runtime-root>/loop-runs/pairwise-v2/<run-id>/record.json" in system_files
+    assert "<runtime-root>/loop-runs/pairwise-v2/<run-id>/events.jsonl" in system_files
+    assert "outside the authored plan bundle" in system_files
+    assert "loop-runs/pairwise-v2/<run-id>/" in index
 
 
 def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:

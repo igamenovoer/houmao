@@ -117,8 +117,8 @@ Shared runtime rules:
 
 - require `houmao-mgr agents mail resolve-live` for tmux-backed same-session discovery,
 - prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when the resolver returns a live `gateway.base_url`,
-- otherwise use `houmao-mgr agents mail check|send|reply|mark-read`,
-- treat `message_ref` as the shared reply and mark-read target contract,
+- otherwise use `houmao-mgr agents mail list|peek|read|send|post|reply|mark|move|archive`,
+- treat `message_ref` as the shared message, reply, and lifecycle target contract,
 - treat `authoritative: false` as submission-only rather than mailbox truth,
 - present `rules/` as markdown policy guidance and `rules/scripts/` as compatibility or implementation detail rather than the ordinary workflow contract.
 
@@ -139,10 +139,15 @@ Public subcommands:
 
 - `resolve-live`
 - `status`
-- `check`
+- `list`
+- `peek`
+- `read`
 - `send`
+- `post`
 - `reply`
-- `mark-read`
+- `mark`
+- `move`
+- `archive`
 
 Selector rules:
 
@@ -153,18 +158,22 @@ Selector rules:
 
 Argument rules:
 
-- `check` accepts `--unread-only`, `--limit`, and `--since`.
-- `send` requires at least one `--to`, a `--subject`, and exactly one of `--body-file` or `--body-content`.
-- `reply` requires `--message-ref` and exactly one of `--body-file` or `--body-content`.
-- `send` and `reply` accept repeatable `--attach`.
-- `mark-read` requires `--message-ref`.
+- `list` accepts `--box`, `--read-state`, `--answered-state`, `--archived/--not-archived`, `--limit`, `--since`, and `--include-body`.
+- `peek` and `read` require `--message-ref` and accept optional `--box`.
+- `send` requires at least one `--to`, a `--subject`, and body content from `--body-file` or `--body-content`.
+- `post` requires a `--subject`, body content from `--body-file` or `--body-content`, and accepts `--reply-policy`.
+- `reply` requires `--message-ref` and body content from `--body-file` or `--body-content`.
+- `send`, `post`, and `reply` accept repeatable `--attach`.
+- `mark` requires at least one `--message-ref` plus at least one of `--read/--unread`, `--answered/--unanswered`, or `--archived/--unarchived`.
+- `move` requires at least one `--message-ref` plus `--destination-box`.
+- `archive` requires at least one `--message-ref`.
 - Recipients must be full mailbox addresses, not short names.
 
 Result-strength rules:
 
 - verified pair-owned or manager-owned execution returns `authoritative: true`, `status: "verified"`, and `execution_path: "gateway_backed"` or `"manager_direct"`,
 - local live-TUI fallback returns `authoritative: false`, `execution_path: "tui_submission"`, and submission-only status such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`,
-- callers must verify non-authoritative outcomes through manager-owned `status` or `check`, gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
+- callers must verify non-authoritative outcomes through manager-owned `status` or `list`, gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
 
 ```mermaid
 sequenceDiagram

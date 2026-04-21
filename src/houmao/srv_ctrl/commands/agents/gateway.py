@@ -25,7 +25,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayMailNotifierContextErrorPolicy,
     GatewayMailNotifierMode,
+    GatewayMailNotifierPreNotificationContextAction,
     GatewayReminderCreateBatchV1,
     GatewayReminderDefinitionV1,
     GatewayReminderListV1,
@@ -37,7 +39,7 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_terminal_session_name,
@@ -644,6 +646,20 @@ def status_gateway_mail_notifier_command(
     default=None,
     help="Runtime guidance appended to each generated mail-notifier prompt. Use an empty value to clear it.",
 )
+@click.option(
+    "--context-error-policy",
+    default="continue_current",
+    show_default=True,
+    type=click.Choice(["continue_current", "clear_context"]),
+    help="Action when a tool-scoped degraded context diagnostic is visible.",
+)
+@click.option(
+    "--pre-notification-context-action",
+    default="none",
+    show_default=True,
+    type=click.Choice(["none", "compact"]),
+    help="Context action to run before enqueueing each mail notification.",
+)
 @_current_session_option
 @_target_tmux_session_option
 @_gateway_pair_port_option(
@@ -654,6 +670,8 @@ def enable_gateway_mail_notifier_command(
     interval_seconds: int,
     notifier_mode: GatewayMailNotifierMode,
     appendix_text: str | None,
+    context_error_policy: GatewayMailNotifierContextErrorPolicy,
+    pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction,
     current_session: bool,
     target_tmux_session: str | None,
     pair_port: int | None,
@@ -676,6 +694,8 @@ def enable_gateway_mail_notifier_command(
             interval_seconds=interval_seconds,
             mode=notifier_mode,
             appendix_text=appendix_text,
+            context_error_policy=context_error_policy,
+            pre_notification_context_action=pre_notification_context_action,
         )
     )
 
@@ -1251,7 +1271,7 @@ class _CurrentSessionManifestResolution:
 
     manifest_path: Path
     authority: ManifestSessionAuthority
-    registry_record: LiveAgentRegistryRecordV2 | None = None
+    registry_record: ManagedAgentRegistryRecordV3 | None = None
 
 
 @dataclass(frozen=True)
@@ -1516,7 +1536,7 @@ def _resolve_tmux_session_registry_record(
     *,
     session_name: str,
     context: _TmuxSessionResolutionContext,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Resolve one tmux session through the shared registry."""
 
     if context.registry_fallback_kind == "agent_id":
@@ -1527,7 +1547,7 @@ def _resolve_tmux_session_registry_record(
 def _resolve_current_session_registry_record(
     *,
     session_name: str,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Resolve the current session through shared registry using tmux-published agent id."""
 
     agent_id = _read_current_session_agent_id(session_name=session_name)
@@ -1545,7 +1565,7 @@ def _resolve_current_session_registry_record(
 def _resolve_target_tmux_session_registry_record(
     *,
     session_name: str,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Resolve one explicit tmux-session selector through shared-registry session matching."""
 
     matches = resolve_live_agent_records_by_terminal_session_name(session_name)
@@ -1608,7 +1628,7 @@ def _load_tmux_session_manifest_authority(
 def _resolve_tmux_session_agent_def_dir(
     *,
     session_name: str,
-    registry_record: LiveAgentRegistryRecordV2 | None,
+    registry_record: ManagedAgentRegistryRecordV3 | None,
     context: _TmuxSessionResolutionContext,
 ) -> Path:
     """Resolve local runtime authority needed to resume one tmux-targeted session."""
@@ -1640,7 +1660,7 @@ def _resolve_tmux_session_agent_def_dir(
 def _resolve_current_session_agent_def_dir(
     *,
     session_name: str,
-    registry_record: LiveAgentRegistryRecordV2 | None,
+    registry_record: ManagedAgentRegistryRecordV3 | None,
 ) -> Path:
     """Backward-compatible current-session agent-def resolution wrapper."""
 
@@ -1725,7 +1745,7 @@ def _require_manifest_path(
 
 
 def _require_registry_manifest_path(
-    record: LiveAgentRegistryRecordV2,
+    record: ManagedAgentRegistryRecordV3,
     *,
     context: _TmuxSessionResolutionContext,
 ) -> Path:
@@ -1815,7 +1835,7 @@ def _tmux_session_missing_metadata_message(*, context: _TmuxSessionResolutionCon
 def _format_ambiguous_tmux_session_registry_matches(
     *,
     session_name: str,
-    matches: tuple[LiveAgentRegistryRecordV2, ...],
+    matches: tuple[ManagedAgentRegistryRecordV3, ...],
 ) -> str:
     """Format one ambiguity error for exact tmux-session registry lookup."""
 

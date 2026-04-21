@@ -40,6 +40,49 @@ from houmao.mailbox.managed import (
 
 from .cleanup_support import CleanupAction, build_cleanup_payload
 
+MAILBOX_ROOT_FAILURE_TYPES = (
+    FileNotFoundError,
+    MailboxBootstrapError,
+    ManagedMailboxOperationError,
+    ValueError,
+    sqlite3.DatabaseError,
+)
+
+
+def format_mailbox_root_failure(
+    exc: Exception,
+    *,
+    init_command: str = "houmao-mgr mailbox init",
+) -> str:
+    """Render one mailbox-root failure as operator-facing CLI text."""
+
+    if isinstance(exc, sqlite3.DatabaseError):
+        detail = f"mailbox index is unreadable: {exc}"
+    else:
+        detail = str(exc).strip() or exc.__class__.__name__
+
+    if (
+        "Run `houmao-mgr mailbox init` first." in detail
+        and init_command != "houmao-mgr mailbox init"
+    ):
+        return detail.replace(
+            "Run `houmao-mgr mailbox init` first.",
+            f"Run `{init_command}` first.",
+        )
+
+    bootstrap_markers = (
+        "missing protocol version file:",
+        "missing mailbox index:",
+        "Mailbox index is missing under `",
+        "unsupported mailbox protocol version:",
+    )
+    if any(marker in detail for marker in bootstrap_markers):
+        if "Run `" not in detail:
+            separator = " " if detail.endswith((".", "!", "?")) else ". "
+            return f"{detail}{separator}Run `{init_command}` first."
+
+    return detail
+
 
 def init_mailbox_root(mailbox_root: Path) -> dict[str, object]:
     """Bootstrap or validate one filesystem mailbox root."""

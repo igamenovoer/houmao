@@ -1,5 +1,14 @@
 # Single-File Pairwise Loop Plan Template
 
+Write this template as `<plan-output-dir>/plan.md`.
+
+## Expected Output Directory
+
+```text
+<plan-output-dir>/
+  plan.md
+```
+
 ````md
 ---
 plan_id: <plan-id>
@@ -10,8 +19,8 @@ participants:
   - <worker-a>
   - <worker-b>
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
-prestart_strategy: <email_initialization | packet_only_initialization>
-mail_notifier_interval_seconds: <5 unless user specified otherwise>
+prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>
+mail_notifier_interval_seconds: <5 unless user specified otherwise for operator_preparation_wave>
 acknowledgement_posture: <fire_and_proceed | require_ack>
 plan_revision: <revision or digest>
 default_stop_mode: interrupt-first
@@ -35,17 +44,24 @@ default_stop_mode: interrupt-first
 <normalized delegation rules>
 
 # Prestart Procedure
-- notifier preflight: enable gateway mail-notifier for targeted participants before initialization mail, interval `5s` unless user specified otherwise
-- selected strategy: `email_initialization` by default
-- initialization email targets: <all named participants | explicit target set>
+- selected strategy: `precomputed_routing_packets` by default
+- durable initialize page namespace: <for example loop-runs/pairwise-v2/<run_id>/initialize.md>
+- durable start-charter page namespace: <for example loop-runs/pairwise-v2/<run_id>/start-charter.md>
+- durable continuation page namespace: <for example loop-runs/pairwise-v2/<run_id>/recover-and-continue.md>
+- runtime-owned recovery record path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json>
+- runtime-owned recovery history path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl>
+- memo sentinel convention: <exact begin/end sentinels keyed by run_id and slot>
+- durable initialize material: write participant initialize pages plus compact memo reference blocks before `ready`
+- operator preparation wave: <not selected | targeted preparation mail to delegating/non-leaf participants | explicit target set>
+- notifier preflight: enable gateway mail-notifier for targeted preparation-wave participants before preparation mail, interval `5s` unless user specified otherwise
 - acknowledgement posture: `fire_and_proceed` by default
 - graph-tool preflight: <analyze, optional slice, and packet-expectations results when a graph artifact exists>
 - routing packet validation: <validate-packets result when graph and packet JSON artifacts exist, or manual visible-coverage check when they do not>
-- root routing packet: <packet id or section reference included in the start charter>
+- root routing packet: <packet id or section reference included in the durable start-charter page>
 - child packet forwarding: append exact prepared child packet text to the pairwise edge request email; do not edit, merge, or summarize unless this plan explicitly permits it
 - mismatch handling: stop downstream dispatch and report to the immediate driver, or to the operator when the driver is the master
 - in-loop job communication: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
-- master trigger: <how the start charter stays separate from initialize>
+- master trigger: <how the compact start trigger stays separate from initialize>
 
 # Routing Packets
 ## `<root-packet-id>`
@@ -72,15 +88,15 @@ default_stop_mode: interrupt-first
 - forbidden actions: <what this participant must not do>
 - child dispatch table: <none | child packet ids>
 
-# Email Initialization
-Record initialization mail targets, notifier interval, acknowledgement posture, and operator reply policy. Default posture is `fire_and_proceed`; use `require_ack` only when selected explicitly.
+# Durable Initialize Material
+Record the participant initialize page namespace, start-charter page namespace, continuation page namespace, runtime-owned recovery record path family, memo sentinel convention, and compact memo reference-block posture. Record standalone preparation mail only when `operator_preparation_wave` is selected explicitly.
 
 # Lifecycle Vocabulary
-- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`, `hard-kill`
-- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `stopping`, `stopped`, `dead`
+- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
+- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
 
 # Reporting Contract
-<peek, completion, stop-summary, and hard-kill-summary expectations using canonical observed states; peek remains unintrusive and read-only>
+<peek, recovery-summary, completion, stop-summary, and hard-kill-summary expectations using canonical observed states; peek remains unintrusive and read-only>
 
 # Timeout-Watch Policy
 - enabled for: <participants or edges, if any>
@@ -101,7 +117,8 @@ Record initialization mail targets, notifier interval, acknowledgement posture, 
 ```mermaid
 flowchart TD
     UA[User Agent<br/>control only]
-    Prep[Initialize<br/>enable email notifier<br/>send init mail]
+    Prep[Initialize<br/>validate packets<br/>write durable pages]
+    Recover[Recovering<br/>rebind participants<br/>refresh continuation pages]
     M[Master<br/>root run owner]
     W[Worker]
     Loop[Master Loop<br/>review run]
@@ -109,9 +126,11 @@ flowchart TD
     Stop[Stop Condition<br/>interrupt-first default]
 
     UA -->|initialize| Prep
-    Prep -->|start| M
+    Prep -->|write charter + start| M
     UA -.->|peek master| M
     UA -.->|pause/resume| M
+    UA -.->|recover_and_continue| Recover
+    Recover -.->|accepted| M
     UA ==> |stop| M
     UA ==> |hard-kill| M
     UA ==> |hard-kill| W
@@ -123,4 +142,4 @@ flowchart TD
 ```
 ````
 
-Use this form when one file is enough. If the plan starts accumulating large support notes or multiple scripts, switch to the bundle form.
+Use this form when one file is enough. If the plan starts accumulating large support notes or multiple scripts, switch to the bundle form. The generated single-file output directory should contain only `plan.md`.

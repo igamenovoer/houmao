@@ -391,7 +391,9 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             and self._plan.role_injection.prompt
         ):
             command.extend(["--append-system-prompt", self._plan.role_injection.prompt])
-        command.extend(_tui_relaunch_chat_session_args(tool=self._plan.tool, selection=chat_session))
+        command.extend(
+            _tui_relaunch_chat_session_args(tool=self._plan.tool, selection=chat_session)
+        )
         return command
 
     def _apply_startup_bootstrap(self) -> None:

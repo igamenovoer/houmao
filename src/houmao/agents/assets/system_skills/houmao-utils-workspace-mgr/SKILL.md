@@ -10,6 +10,8 @@ Use this skill to prepare multi-agent workspaces. It has two modes:
 - `plan`: inspect context and show exactly what would be created or changed. Do not modify files unless the user explicitly asks to write the plan to a Markdown path.
 - `execute`: create the workspace, Git worktrees, local shared repos, ignore rules, optional memo seed files, and launch-profile adjustments.
 
+This skill prepares Houmao-standard workspace layouts only. If the user wants a custom operator-owned workspace contract, do not translate that layout here; keep it outside this skill.
+
 Do not launch agents from this skill. Hand off to `houmao-agent-instance` or `houmao-specialist-mgr` after workspace preparation.
 
 ## Inputs
@@ -18,6 +20,7 @@ Recover these from the prompt, current repo, launch profiles, and local Git stat
 
 - operation: `plan` or `execute`
 - workspace flavor: `in-repo` or `out-of-repo`
+- `task-name` for `in-repo`
 - launch profiles and their stable names
 - `ws-root`; default `<repo-root>/houmao-ws` for `in-repo`
 - target repo bindings for `out-of-repo`
@@ -62,7 +65,7 @@ Execute in this order:
 4. Apply safe local-state symlinks.
 5. Materialize tracked submodules.
 6. Create per-agent KB and shared KB paths.
-7. Update or create `workspace.md`.
+7. Update or create the flavor-specific workspace contract docs.
 8. Adjust launch profiles to point at the prepared flavor-specific cwd values.
 9. Optionally create memo-seed Markdown files and seed them into launch profiles.
 10. Inspect final Git/filesystem status and report commands run plus remaining manual work.
@@ -76,13 +79,19 @@ Load exactly one flavor page after choosing the workspace flavor:
 - `subskills/in-repo-workspace.md` for workspaces rooted under the current repo.
 - `subskills/out-of-repo-workspace.md` for standalone workspace repos that mount one or more target repos.
 
-Use the selected subskill page for directory layout, flavor-specific plan contents, execution steps, and flavor-specific `workspace.md` entries. Keep using this `SKILL.md` for shared policies such as naming, local-state symlinks, submodules, launch profiles, memo seeds, and guardrails.
+Use the selected subskill page for directory layout, flavor-specific plan contents, execution steps, and flavor-specific workspace-contract entries. Keep using this `SKILL.md` for shared policies such as naming, local-state symlinks, submodules, launch profiles, memo seeds, and guardrails.
 
 ## Naming
 
 Normalize each launch profile name into a path-safe `agent-name`. Refuse empty names and collisions.
 
-Default branch:
+For task-scoped `in-repo` workspaces, default branch:
+
+```text
+houmao/<task-name>/<agent-name>/main
+```
+
+For other standard workspace cases, default branch:
 
 ```text
 houmao/<agent-name>/main
@@ -109,18 +118,20 @@ Never symlink these AI tool directories into Houmao agent worktrees by default:
 
 These can contain provider homes, credentials, trust state, local agent state, or project config that can override Houmao launch-owned settings.
 
-Default allowed local-state symlink candidate:
+For in-repo workspaces, discover local-state symlink candidates recursively from the parent checkout. Do not follow symlinked directories while discovering candidates.
 
-```text
-.pixi
-```
+Default allowed candidates:
 
-Allow `.github` only when it is untracked and the user explicitly requests it. In most repos `.github` is tracked project content and should come from Git.
+- reachable `.pixi/` directories, at any depth
+- explicitly local-only files or directories whose basename does not start with `.`
+
+Hidden local-state paths are skipped by default at every depth, including `.env`, `.github`, `.claude`, `.codex`, `.gemini`, `.aider`, `.cursor`, `.continue`, `.windsurf`, `.kiro`, and arbitrary dot-prefixed files or directories. `.pixi/` is the only default dot-prefixed exception, and it must be reachable without entering a skipped hidden parent. For example, `tools/.pixi/` can be linked when `tools/` is traversable, but `.hidden-parent/.pixi/` is skipped because `.hidden-parent/` takes precedence.
 
 For every candidate, apply these rules:
 
-- symlink only if the source exists
-- skip if Git tracks any files under it
+- symlink only if the source exists and is explicitly local-only
+- skip if Git tracks any files under the source subtree
+- skip if the source is discovered only by following a symlinked directory
 - do not replace tracked content in the worktree
 - record linked and skipped paths in `workspace.md`
 
@@ -142,7 +153,7 @@ Seeded worktree procedure:
 2. Require the source checkout submodule to be initialized.
 3. Get the superproject-recorded submodule commit with `git rev-parse HEAD:<submodule-path>`.
 4. Run `git worktree add --no-checkout` from the source submodule repository into the agent submodule path.
-5. Use an agent-owned submodule branch such as `houmao/<agent-name>/main`.
+5. Use an agent-owned submodule branch such as `houmao/<task-name>/<agent-name>/main` for task-scoped in-repo workspaces, or `houmao/<agent-name>/main` otherwise.
 6. Seed files from the source submodule checkout while preserving the new worktree `.git` file.
 7. Do not copy the source submodule `.git` file or directory.
 8. Prefer reflink/copy-on-write seeding; warn before full-copy fallback for large submodules.
@@ -201,15 +212,15 @@ Memo seed content should include:
 - submodule commit and push rules
 - integration rule: avoid submodule structure changes; expect cherry-pick/path-limited merge
 
-For `in-repo` memo seeds, state that the agent launches from `<repo-root>` for shared visibility, writes source changes inside `<repo-root>/houmao-ws/<agent-name>/repo`, writes shared-KB changes intended for Git merge inside that worktree's `houmao-ws/shared-kb`, may write its own parent-checkout `houmao-ws/<agent-name>/kb`, and treats sibling KB directories, sibling worktrees, parent-checkout source, parent-checkout shared KB, and `workspace.md` as read-only by default.
+For `in-repo` memo seeds, state that the agent launches from `<repo-root>` for shared visibility, writes source changes inside `<repo-root>/houmao-ws/<task-name>/<agent-name>/repo`, writes shared-KB changes intended for Git merge inside that worktree's `houmao-ws/<task-name>/shared-kb`, may write its own parent-checkout `houmao-ws/<task-name>/<agent-name>/kb`, and treats sibling task KB directories, sibling task worktrees, parent-checkout source, parent-checkout task shared KB, task-local `workspace.md`, and repo-level `workspaces.md` as read-only by default.
 
 Preserve original memo seed text verbatim in a clearly labeled section, then append workspace rules. Update the launch profile to use the generated memo seed file only after writing it.
 
 Use `houmao-memory-mgr` for direct live-agent memo edits; this skill only prepares launch-profile memo seeds before launch.
 
-## `workspace.md`
+## Workspace Contract Docs
 
-Maintain `<ws-root>/workspace.md` as the human-readable map and operating contract. It should record:
+Maintain the flavor-specific human-readable workspace contract docs. They should record:
 
 - workspace flavor and root
 - agents, source profiles, cwd values, and branches
@@ -222,9 +233,16 @@ Maintain `<ws-root>/workspace.md` as the human-readable map and operating contra
 - memo-seed files created
 - integration and ownership rules
 
-For `in-repo`, record `<repo-root>` as the shared visibility surface and record read/write ownership for parent-checkout source paths, each agent's private worktree, each worktree copy of `houmao-ws/shared-kb`, parent-checkout `houmao-ws/shared-kb`, each agent's parent-checkout `kb`, sibling KB directories, sibling worktrees, and `workspace.md`.
+For `out-of-repo`, maintain `<ws-root>/workspace.md` as the authoritative workspace contract.
 
-Treat `workspace.md` as documentation, not as the only source of truth. Inspect Git and the filesystem for status.
+For `in-repo`, maintain:
+
+- `<repo-root>/houmao-ws/workspaces.md` as the repo-level index across task workspaces
+- `<repo-root>/houmao-ws/<task-name>/workspace.md` as the authoritative task-local workspace contract
+
+For `in-repo`, record `<repo-root>` as the shared visibility surface and record read/write ownership for parent-checkout source paths, each agent's private worktree, each worktree copy of `houmao-ws/<task-name>/shared-kb`, parent-checkout `houmao-ws/<task-name>/shared-kb`, each agent's parent-checkout `kb`, sibling KB directories, sibling worktrees, task-local `workspace.md`, and repo-level `workspaces.md`.
+
+Treat these workspace docs as documentation, not as the only source of truth. Inspect Git and the filesystem for status.
 
 ## Guardrails
 
@@ -235,4 +253,5 @@ Treat `workspace.md` as documentation, not as the only source of truth. Inspect 
 - Do not point multiple agents at the same mutable submodule working tree when they are expected to commit independently.
 - Do not copy submodule `.git` metadata from one checkout into another worktree.
 - Do not let one agent's default writable KB path point into another agent's `kb`.
+- Do not absorb arbitrary custom workspace layouts into this skill as though they were standard Houmao workspaces.
 - Do not treat local-only shared repos as portable unless the user exports or pushes them.

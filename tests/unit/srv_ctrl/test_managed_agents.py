@@ -36,6 +36,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
+    RelaunchChatSessionSelection,
     RoleInjectionPlan,
     SessionControlResult,
 )
@@ -98,6 +99,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     prompt_managed_agent,
     register_mailbox_binding,
     relaunch_managed_agent,
+    resolve_relaunch_managed_agent_target,
     resolve_managed_agent_mail_target,
     resolve_managed_agent_target,
     stop_managed_agent,
@@ -552,6 +554,192 @@ def test_resolve_managed_agent_target_preserves_local_name_ambiguity_failures(
     assert "Retry with `--agent-id <id>`." in message
 
 
+def test_resolve_managed_agent_target_rejects_stopped_local_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stopped_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-stopped",
+        lifecycle=SimpleNamespace(state="stopped"),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/stopped/manifest.json",
+            session_root="/tmp/stopped",
+        ),
+        terminal=SimpleNamespace(session_name="gpu-stopped"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_managed_agent_records_by_name",
+        lambda _agent_name: (stopped_record,),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    message = str(exc_info.value)
+    assert "inactive registry record" in message
+    assert "lifecycle_state=stopped" in message
+    assert "manifest_path=/tmp/stopped/manifest.json" in message
+    assert "session_root=/tmp/stopped" in message
+    assert "agents relaunch --agent-id agent-stopped" in message
+    assert "agents cleanup session --agent-id agent-stopped" in message
+
+
+def test_resolve_relaunch_managed_agent_target_accepts_stopped_local_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stopped_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-stopped",
+        lifecycle=SimpleNamespace(state="stopped", relaunchable=True),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/stopped/manifest.json",
+            session_root="/tmp/stopped",
+        ),
+        terminal=SimpleNamespace(session_name="gpu-stopped"),
+        identity=SimpleNamespace(backend="claude_headless", tool="claude"),
+    )
+    identity = _managed_identity()
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_relaunchable_managed_agent_records_by_name",
+        lambda _agent_name: (stopped_record,),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._identity_from_record",
+        lambda _record: identity,
+    )
+
+    target = resolve_relaunch_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    assert target.mode == "local"
+    assert target.controller is None
+    assert target.record is stopped_record
+    assert target.identity is identity
+
+
+def test_resolve_relaunch_managed_agent_target_rejects_nonrelaunchable_stopped_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stopped_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-stopped",
+        lifecycle=SimpleNamespace(state="stopped", relaunchable=False),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/stopped/manifest.json",
+            session_root="/tmp/stopped",
+        ),
+        terminal=SimpleNamespace(session_name="gpu-stopped"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_relaunchable_managed_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_managed_agent_records_by_name",
+        lambda _agent_name: (stopped_record,),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_relaunch_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    message = str(exc_info.value)
+    assert "cannot be relaunched" in message
+    assert "lifecycle_state=stopped" in message
+    assert "relaunchable=False" in message
+    assert "does not retain supported local relaunch authority" in message
+
+
+def test_resolve_relaunch_managed_agent_target_uses_stopped_manifest_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fallback_target = ManagedAgentTarget(
+        mode="local_stopped",
+        agent_ref="agent-123",
+        identity=_managed_identity(),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_relaunchable_managed_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_managed_agent_records_by_name",
+        lambda _agent_name: (),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_stopped_relaunch_manifest_fallback_target",
+        lambda **kwargs: fallback_target,
+    )
+
+    target = resolve_relaunch_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    assert target is fallback_target
+
+
+def test_resolve_managed_agent_target_ambiguity_lists_lifecycle_and_locators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-a",
+        lifecycle=SimpleNamespace(state="active"),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/agent-a/manifest.json",
+            session_root="/tmp/agent-a",
+        ),
+        terminal=SimpleNamespace(session_name="gpu-a"),
+    )
+    second_record = SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-b",
+        lifecycle=SimpleNamespace(state="active"),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/agent-b/manifest.json",
+            session_root="/tmp/agent-b",
+        ),
+        terminal=SimpleNamespace(session_name="gpu-b"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resolve_live_agent_records_by_name",
+        lambda _agent_name: (first_record, second_record),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    message = str(exc_info.value)
+    assert "lifecycle_state=active" in message
+    assert "manifest_path=/tmp/agent-a/manifest.json" in message
+    assert "session_root=/tmp/agent-b" in message
+
+
 def test_local_registry_list_and_selector_do_not_probe_tmux(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -664,6 +852,43 @@ def test_list_managed_agents_merges_registry_and_server_results(
     response = list_managed_agents(port=None)
 
     assert [agent.agent_id for agent in response.agents] == ["local-agent-id", "server-agent-id"]
+
+
+def test_list_managed_agents_filters_stopped_local_registry_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    registry_identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="tracked-stopped",
+        transport="headless",
+        tool="codex",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="tracked-stopped",
+        tmux_session_name="gpu-stopped",
+        tmux_window_name=None,
+        manifest_path="/tmp/stopped-manifest.json",
+        session_root="/tmp/stopped-session",
+        agent_name="local-stopped",
+        agent_id="stopped-agent-id",
+        lifecycle_state="stopped",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._list_registry_identities",
+        lambda *, lifecycle_state="active": (
+            captured.update({"lifecycle_state": lifecycle_state}) or [registry_identity]
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._optional_pair_client",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server enrichment should not run")),
+    )
+
+    response = list_managed_agents(port=None, lifecycle_state="stopped")
+
+    assert captured["lifecycle_state"] == "stopped"
+    assert [agent.agent_id for agent in response.agents] == ["stopped-agent-id"]
+    assert response.agents[0].lifecycle_state == "stopped"
 
 
 def test_late_mailbox_commands_reject_server_backed_targets() -> None:
@@ -1923,6 +2148,41 @@ def test_relaunch_managed_agent_uses_local_controller() -> None:
     assert response.tracked_agent_id == "tracked-alpha"
     assert response.detail == "Runtime relaunched."
     assert calls == ["relaunch"]
+
+
+def test_relaunch_managed_agent_revives_stopped_local_record() -> None:
+    stopped_record = SimpleNamespace(
+        lifecycle=SimpleNamespace(state="stopped"),
+    )
+    calls: list[object] = []
+    selection = RelaunchChatSessionSelection(mode="tool_last_or_new")
+    controller = SimpleNamespace(
+        revive_stopped_session=lambda *, chat_session=None: (
+            calls.append(chat_session)
+            or SimpleNamespace(status="ok", detail="Stopped runtime revived.")
+        )
+    )
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="published-alpha",
+        identity=_managed_identity(),
+        record=stopped_record,
+    )
+
+    original = managed_agents_module._resume_stopped_controller_from_record
+    managed_agents_module._resume_stopped_controller_from_record = lambda record: (
+        calls.append(record),
+        controller,
+    )[1]
+    try:
+        response = relaunch_managed_agent(target, relaunch_chat_session=selection)
+    finally:
+        managed_agents_module._resume_stopped_controller_from_record = original
+
+    assert response.success is True
+    assert response.tracked_agent_id == "tracked-alpha"
+    assert response.detail == "Stopped runtime revived."
+    assert calls == [stopped_record, selection]
 
 
 def test_relaunch_managed_agent_prefers_local_authority_for_passive_pair(

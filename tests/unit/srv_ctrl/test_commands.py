@@ -323,16 +323,47 @@ def test_main_renders_runtime_domain_error_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_main_leaves_unexpected_non_runtime_exception_uncaught(
+def test_main_renders_uncaught_mailbox_exception_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("unexpected stop failure")),
+        "houmao.srv_ctrl.commands.mailbox.list_mailbox_accounts",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("unexpected mailbox failure")),
     )
 
-    with pytest.raises(RuntimeError, match="unexpected stop failure"):
-        main(["agents", "stop", "--agent-id", "agent-123"])
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    mailbox_root.mkdir(parents=True, exist_ok=True)
+
+    exit_code = main(["mailbox", "accounts", "list", "--mailbox-root", str(mailbox_root)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "unexpected mailbox failure" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_uncaught_project_recipe_exception_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_definitions._resolve_existing_project_overlay",
+        lambda **kwargs: SimpleNamespace(project_root=(tmp_path / "repo").resolve()),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_definitions._list_named_preset_summaries",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("unexpected recipe failure")),
+    )
+
+    exit_code = main(["project", "agents", "recipes", "list"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "unexpected recipe failure" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(
@@ -432,6 +463,24 @@ def test_agents_list_plain_renders_rows_from_pydantic_payload(
     assert "claude" in result.output
 
 
+def test_agents_list_forwards_lifecycle_state_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.list_managed_agents",
+        lambda *, port=None, lifecycle_state="active": (
+            captured.update({"port": port, "lifecycle_state": lifecycle_state})
+            or HoumaoManagedAgentListResponse(agents=[])
+        ),
+    )
+
+    result = CliRunner().invoke(cli, ["--print-plain", "agents", "list", "--state", "stopped"])
+
+    assert result.exit_code == 0, result.output
+    assert captured == {"port": None, "lifecycle_state": "stopped"}
+
+
 def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -513,6 +562,8 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
     assert enable_result.exit_code == 0
     assert "--mode [any_inbox|unread_only]" in enable_result.output
     assert "--appendix-text TEXT" in enable_result.output
+    assert "--context-error-policy [continue_current|clear_context]" in enable_result.output
+    assert "--pre-notification-context-action [none|compact]" in enable_result.output
 
 
 def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
@@ -1388,13 +1439,15 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_mail_notifier_enable",
-        lambda resolved_target, *, interval_seconds, mode, appendix_text=None: (
+        lambda resolved_target, *, interval_seconds, mode, appendix_text=None, context_error_policy="continue_current", pre_notification_context_action="none": (
             captured.update(
                 {
                     "target": resolved_target,
                     "interval_seconds": interval_seconds,
                     "mode": mode,
                     "appendix_text": appendix_text,
+                    "context_error_policy": context_error_policy,
+                    "pre_notification_context_action": pre_notification_context_action,
                 }
             )
             or {
@@ -1402,6 +1455,8 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
                 "interval_seconds": interval_seconds,
                 "mode": mode,
                 "appendix_text": appendix_text,
+                "context_error_policy": context_error_policy,
+                "pre_notification_context_action": pre_notification_context_action,
             }
         ),
     )
@@ -1429,11 +1484,15 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
     assert captured["interval_seconds"] == 60
     assert captured["mode"] == "unread_only"
     assert captured["appendix_text"] == "Handle release-blocking mail first."
+    assert captured["context_error_policy"] == "continue_current"
+    assert captured["pre_notification_context_action"] == "none"
     assert json.loads(result.output) == {
         "enabled": True,
         "interval_seconds": 60,
         "mode": "unread_only",
         "appendix_text": "Handle release-blocking mail first.",
+        "context_error_policy": "continue_current",
+        "pre_notification_context_action": "none",
     }
 
 
@@ -1998,7 +2057,7 @@ def test_agents_relaunch_with_explicit_target_uses_managed_agent_helper(
     target = SimpleNamespace(agent_ref="published-alpha")
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.agents.core.resolve_relaunch_managed_agent_target",
         lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
     )
     monkeypatch.setattr(
@@ -2039,7 +2098,7 @@ def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
     target = SimpleNamespace(agent_ref="published-alpha")
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.agents.core.resolve_relaunch_managed_agent_target",
         lambda **kwargs: target,
     )
 
@@ -2809,6 +2868,7 @@ def test_agents_launch_help_mentions_force_mode() -> None:
 
     assert result.exit_code == 0
     assert "--force [keep-stale|clean]" in result.output
+    assert "--reuse-home" in result.output
 
 
 def test_agents_launch_bare_force_forwards_keep_stale(
@@ -2848,6 +2908,141 @@ def test_agents_launch_bare_force_forwards_keep_stale(
 
     assert result.exit_code == 0, result.output
     assert captured["force_mode"] == "keep-stale"
+
+
+def test_agents_launch_forwards_reuse_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    captured: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity="worker-a",
+                agent_id="agent-1234",
+                tmux_session_name="worker-a",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["reuse_home"] is True
+
+
+def test_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Managed launch `--reuse-home` requires one compatible preserved home for "
+                "managed agent `worker-a` (agent_id `agent-worker-a`), but none was found."
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--agent-name",
+            "worker-a",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires one compatible preserved home" in result.output
+
+
+def test_agents_launch_reuse_home_live_owner_conflict_requires_force(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Managed agent `worker-a` (agent_id `agent-worker-a`) already owns a live "
+                "registry record. Rerun with `--force` to replace it. `--reuse-home` alone "
+                "does not replace a live owner."
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--agent-name",
+            "worker-a",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Rerun with `--force`" in result.output
+    assert "`--reuse-home` alone does not replace a live owner." in result.output
+
+
+def test_agents_launch_rejects_reuse_home_clean_force_before_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: pytest.fail("launch should not delegate `--reuse-home --force clean`"),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--reuse-home",
+            "--force",
+            "clean",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "`--reuse-home` is incompatible with `--force clean`" in result.output
 
 
 def test_agents_launch_rejects_invalid_force_mode() -> None:

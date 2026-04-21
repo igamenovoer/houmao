@@ -39,7 +39,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
-from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
+from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog, ProjectSkillCatalogEntry
 from houmao.project.easy import (
     SpecialistMetadata,
     TOOL_PROVIDER_MAP,
@@ -327,7 +327,7 @@ def _list_named_preset_summaries(
     for preset_file in sorted(path for path in presets_root.iterdir() if path.is_file()):
         if preset_file.suffix not in {".yaml", ".yml"}:
             continue
-        parsed_preset = parse_agent_preset(preset_file)
+        parsed_preset = _parse_preset_or_click(preset_file)
         if role_name is not None and parsed_preset.role_name != role_name:
             continue
         if tool is not None and parsed_preset.tool != tool:
@@ -346,7 +346,7 @@ def _preset_summary(
     preset_file = _preset_path(overlay=overlay, preset_name=preset_name)
     if not preset_file.is_file():
         raise click.ClickException(f"Preset not found: {preset_file}")
-    parsed_preset = parse_agent_preset(preset_file)
+    parsed_preset = _parse_preset_or_click(preset_file)
     raw_payload = _load_yaml_mapping(preset_file)
     launch_payload = raw_payload.get("launch")
     return {
@@ -643,10 +643,7 @@ def _load_recipe_or_click(*, overlay: HoumaoProjectOverlay, name: str) -> Any:
     recipe_path = _preset_path(overlay=overlay, preset_name=recipe_name)
     if not recipe_path.is_file():
         raise click.ClickException(f"Recipe not found: {recipe_path}")
-    try:
-        return parse_agent_preset(recipe_path)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    return _parse_preset_or_click(recipe_path)
 
 
 def _profile_lane_label(profile_lane: str) -> str:
@@ -659,11 +656,45 @@ def _profile_lane_label(profile_lane: str) -> str:
     return profile_lane
 
 
+def _profile_lane_management_label(profile_lane: str) -> str:
+    """Return one operator-facing lane-management label."""
+
+    if profile_lane == "easy_profile":
+        return "easy profile"
+    if profile_lane == "launch_profile":
+        return "explicit launch-profile"
+    return _profile_lane_label(profile_lane)
+
+
+def _profile_lane_command_surface(profile_lane: str) -> str | None:
+    """Return the maintained command surface for one profile lane."""
+
+    if profile_lane == "easy_profile":
+        return "houmao-mgr project easy profile"
+    if profile_lane == "launch_profile":
+        return "houmao-mgr project agents launch-profiles"
+    return None
+
+
+def _wrong_lane_launch_profile_message(*, name: str, profile_lane: str, action: str) -> str:
+    """Return redirect guidance for one wrong-lane launch-profile request."""
+
+    command_surface = _profile_lane_command_surface(profile_lane)
+    if command_surface is None:
+        lane_label = _profile_lane_label(profile_lane)
+        return f"Launch profile `{name}` is not an available `{lane_label}` definition."
+    return (
+        f"Launch profile `{name}` belongs to the {_profile_lane_management_label(profile_lane)} "
+        f"lane; use `{command_surface} {action} --name {name}`."
+    )
+
+
 def _load_launch_profile_or_click(
     *,
     overlay: HoumaoProjectOverlay,
     name: str,
     expected_lane: str | None = None,
+    action: str | None = None,
 ) -> Any:
     """Load one resolved launch profile or raise one operator-facing error."""
 
@@ -672,6 +703,14 @@ def _load_launch_profile_or_click(
     except (FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     if expected_lane is not None and resolved.entry.profile_lane != expected_lane:
+        if action is not None:
+            raise click.ClickException(
+                _wrong_lane_launch_profile_message(
+                    name=name,
+                    profile_lane=resolved.entry.profile_lane,
+                    action=action,
+                )
+            )
         lane_label = _profile_lane_label(expected_lane)
         raise click.ClickException(
             f"Launch profile `{name}` is not an available `{lane_label}` definition."
@@ -718,6 +757,7 @@ def _launch_profile_payload(
     overlay: HoumaoProjectOverlay,
     profile_name: str,
     expected_lane: str | None = None,
+    action: str | None = None,
 ) -> dict[str, object]:
     """Return one operator-facing launch-profile payload."""
 
@@ -725,6 +765,7 @@ def _launch_profile_payload(
         overlay=overlay,
         name=profile_name,
         expected_lane=expected_lane,
+        action=action,
     )
     return _launch_profile_payload_from_resolved(overlay=overlay, resolved=resolved)
 
@@ -1157,6 +1198,7 @@ def _store_launch_profile_from_cli(
             overlay=overlay,
             name=profile_name,
             expected_lane=profile_lane,
+            action="set",
         )
     elif operation == "replace":
         _load_launch_profile_or_click(
@@ -1573,6 +1615,10 @@ def _specialist_payload(
         "setup": metadata.setup_name,
         "role_name": metadata.role_name,
         "skills": list(metadata.skills),
+        "skill_bindings": [
+            _project_skill_payload(overlay=overlay, metadata=entry)
+            for entry in metadata.skill_entries
+        ],
         "launch": dict(metadata.launch_payload),
         "metadata_path": str(metadata.metadata_path)
         if metadata.metadata_path is not None
@@ -1583,6 +1629,25 @@ def _specialist_payload(
             "auth": str(metadata.resolved_auth_path(overlay)),
             "skills": [str(path) for path in metadata.resolved_skill_paths(overlay)],
         },
+    }
+
+
+def _project_skill_payload(
+    *,
+    overlay: HoumaoProjectOverlay,
+    metadata: ProjectSkillCatalogEntry,
+) -> dict[str, object]:
+    """Return one structured project skill payload."""
+
+    return {
+        "name": metadata.name,
+        "mode": metadata.mode,
+        "canonical_path": str(metadata.resolved_canonical_path(overlay)),
+        "projection_path": str(metadata.resolved_projection_path(overlay)),
+        "source_path": str(metadata.source_path) if metadata.source_path is not None else None,
+        "metadata_path": str(metadata.metadata_path)
+        if metadata.metadata_path is not None
+        else None,
     }
 
 
@@ -1853,12 +1918,26 @@ def _default_role_prompt(role_name: str) -> str:
 def _load_yaml_mapping(path: Path) -> dict[str, object]:
     """Load one YAML mapping payload from disk."""
 
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise click.ClickException(f"Failed to read `{path}`: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise click.ClickException(f"Malformed YAML `{path}`: {exc}") from exc
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
         raise click.ClickException(f"{path}: expected a top-level YAML mapping.")
     return loaded
+
+
+def _parse_preset_or_click(path: Path) -> Any:
+    """Parse one preset definition or raise one operator-facing error."""
+
+    try:
+        return parse_agent_preset(path)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _write_yaml_mapping(path: Path, payload: dict[str, object]) -> None:
@@ -2088,6 +2167,7 @@ __all__ = [
     "_role_summary",
     "_list_named_preset_summaries",
     "_preset_summary",
+    "_parse_preset_or_click",
     "_write_role_prompt",
     "_canonical_preset_name",
     "_ensure_role_exists",
@@ -2121,6 +2201,7 @@ __all__ = [
     "_store_launch_profile_from_cli",
     "_launch_profile_provenance_payload",
     "_specialist_payload",
+    "_project_skill_payload",
     "_load_specialist_or_click",
     "_remove_specialist_metadata_or_click",
     "_list_project_instances",

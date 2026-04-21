@@ -501,12 +501,12 @@ For Gemini sessions, the discoverable tool-native mailbox skill surface SHALL us
 ### Requirement: Runtime CLI exposes top-level agent-mediated mailbox operations for resumed sessions
 The runtime CLI SHALL expose a top-level `mail` command surface for resumed mailbox-enabled sessions.
 
-That `mail` command surface SHALL support at minimum the operations `check`, `send`, and `reply`, and SHALL target an existing live session through the same agent-identity or session-manifest resolution model used by other runtime session-control commands.
+That `mail` command surface SHALL support at minimum the operations `list`, `send`, and `reply`, and SHALL target an existing live session through the same agent-identity or session-manifest resolution model used by other runtime session-control commands.
 
-#### Scenario: Mail check targets a resumed mailbox-enabled session
-- **WHEN** a developer invokes the runtime `mail check` command against a resumed mailbox-enabled session
+#### Scenario: Mail list targets a resumed mailbox-enabled session
+- **WHEN** a developer invokes the runtime `mail list` command against a resumed mailbox-enabled session
 - **THEN** the runtime resolves that target session through the normal runtime session-identity resolution path
-- **AND THEN** the runtime asks that live agent session to perform one mailbox-check operation for its bound mailbox principal
+- **AND THEN** the runtime asks that live agent session to perform one mailbox-list operation for its bound mailbox principal
 
 #### Scenario: Mail send targets a resumed mailbox-enabled session
 - **WHEN** a developer invokes the runtime `mail send` command against a resumed mailbox-enabled session with recipients and message content
@@ -519,7 +519,7 @@ That `mail` command surface SHALL support at minimum the operations `check`, `se
 - **AND THEN** the reply preserves the existing `thread_id`, `in_reply_to`, and `references` semantics for that thread
 
 ### Requirement: Runtime mail commands keep one operator surface while allowing gateway-backed shared mailbox interaction
-The runtime SHALL preserve the current operator-facing `mail check`, `mail send`, and `mail reply` command surface across filesystem and `stalwart` sessions.
+The runtime SHALL preserve the current operator-facing `mail list`, `mail send`, and `mail reply` command surface across filesystem and `stalwart` sessions.
 
 When the runtime owns mailbox execution directly, including manager-owned direct execution or gateway-backed execution, it SHALL return authoritative mailbox success or failure for the requested operation.
 
@@ -2997,4 +2997,144 @@ When local interactive relaunch resumes an existing provider chat, runtime SHALL
 - **AND WHEN** the launch plan uses bootstrap-message role injection
 - **THEN** runtime does not submit the bootstrap message into the resumed provider chat as a user turn
 - **AND THEN** the resumed provider conversation is not polluted with a duplicate launch bootstrap prompt
+
+### Requirement: Runtime stop preserves relaunch metadata for lifecycle-aware registry records
+For local tmux-backed managed-agent sessions with runtime-owned manifest authority, runtime stop SHALL preserve enough metadata for a later stopped-session relaunch before live process/container metadata is cleared.
+
+At minimum, the preserved metadata SHALL include:
+
+- managed-agent name and id when present
+- session manifest path
+- session root
+- agent-definition directory when present
+- runtime home path through existing manifest/build metadata
+- memory root, memo file, and pages directory when present
+- launch-profile relaunch chat-session policy when present
+- last known tmux session name
+
+When stop removes a tmux session, the runtime manifest SHALL no longer claim that the removed tmux session is an active live authority, but it SHALL preserve or reconstruct relaunch authority needed by the lifecycle registry.
+
+#### Scenario: Force cleanup stop preserves relaunch metadata
+- **WHEN** a local interactive managed agent is stopped with force cleanup
+- **AND WHEN** the runtime kills the provider tmux session
+- **THEN** the stopped session manifest and lifecycle registry record preserve the agent identity, runtime home, manifest path, session root, and agent-definition directory
+- **AND THEN** live liveness metadata for the killed tmux session is cleared
+
+#### Scenario: Stop preserves launch-profile relaunch policy
+- **WHEN** a managed agent was launched from a profile with relaunch chat-session mode `tool_last_or_new`
+- **AND WHEN** the agent is stopped
+- **THEN** the stopped runtime metadata preserves that relaunch policy
+- **AND THEN** a later relaunch without explicit chat-session flags can use the stored policy
+
+### Requirement: Runtime can revive stopped tmux-backed managed sessions without rebuilding the home
+The runtime SHALL provide a stopped-session revival path for relaunchable local tmux-backed managed sessions.
+
+Stopped-session revival SHALL reuse the existing managed runtime home and logical managed-agent identity. It SHALL NOT create a fresh managed-agent identity and SHALL NOT require a fresh launch from recipe or profile.
+
+Stopped-session revival SHALL create a new live tmux container when the previous tmux session was removed. It SHALL update the runtime manifest and registry liveness metadata to reference the new live tmux session after successful revival.
+
+Stopped-session revival SHALL apply the effective relaunch chat-session selector using the same provider-native semantics as active relaunch:
+
+- `new` starts a fresh provider chat against the existing home
+- `tool_last_or_new` asks the provider CLI to continue the latest provider-local chat when supported
+- `exact` asks the provider CLI to resume the requested provider session id when supported
+
+#### Scenario: Local interactive stopped relaunch reuses home and continues provider chat
+- **WHEN** a stopped local interactive Codex managed agent has a preserved runtime home and relaunchable registry record
+- **AND WHEN** an operator runs `houmao-mgr agents relaunch --agent-name reviewer --chat-session-mode tool_last_or_new`
+- **THEN** the runtime creates a new tmux-backed provider surface for the same logical managed agent
+- **AND THEN** the launch uses the existing managed runtime home
+- **AND THEN** the provider is started with tool-native latest-chat continuation arguments when supported
+
+#### Scenario: Headless stopped relaunch restores a turn-ready tmux surface
+- **WHEN** a stopped headless managed agent has a preserved runtime home and relaunchable registry record
+- **AND WHEN** an operator runs `houmao-mgr agents relaunch --agent-id agent-123`
+- **THEN** the runtime creates a new tmux-backed headless control surface for the same logical managed agent
+- **AND THEN** the manifest and registry record are updated to active lifecycle state after successful relaunch
+- **AND THEN** subsequent prompt turns use the revived runtime authority
+
+#### Scenario: Stopped relaunch fails without supported relaunch authority
+- **WHEN** a stopped managed-agent manifest lacks the metadata needed to rebuild provider-start runtime state
+- **AND WHEN** an operator requests stopped-session relaunch
+- **THEN** the runtime returns an explicit relaunch error
+- **AND THEN** the error does not silently fall back to creating a fresh launch
+
+### Requirement: Active relaunch remains distinct from stopped-session revival
+The existing active relaunch operation SHALL continue to require a valid live tmux-backed authority for the selected managed agent.
+
+Stopped-session revival SHALL be a separate runtime path or an explicitly separated branch that first recreates live authority and repairs manifest/registry liveness before using provider-start relaunch behavior.
+
+#### Scenario: Active relaunch rejects stale active authority
+- **WHEN** a runtime controller is asked to perform ordinary active relaunch
+- **AND WHEN** its current live tmux session binding is missing or does not match active authority
+- **THEN** ordinary active relaunch fails with a stale-authority error
+- **AND THEN** the caller must use stopped-session revival when the selected lifecycle record is stopped and relaunchable
+
+#### Scenario: Stopped-session revival publishes a fresh active authority
+- **WHEN** stopped-session revival succeeds
+- **THEN** the runtime manifest records the new live tmux session authority
+- **AND THEN** the registry record transitions to lifecycle state `active`
+- **AND THEN** live command routing can use the revived record
+
+### Requirement: Managed local fresh launch can rebuild current launch inputs onto a preserved home
+
+When a local managed launch explicitly requests reused-home mode, the runtime SHALL resolve one compatible preserved managed home for the current managed identity from local lifecycle metadata before provider startup.
+
+A preserved home SHALL be considered compatible only when all of the following are true:
+
+- it belongs to the same managed identity selected for the current launch,
+- it was recorded under the same local runtime root,
+- it belongs to the same tool family as the current launch,
+- its preserved home path still exists on disk.
+
+When compatible reused-home launch succeeds, the runtime SHALL rebuild the current launch's Houmao-managed setup projection, auth projection, skill projection, system-skill installation, launch helper, and build manifest onto that preserved home instead of allocating a new home id.
+
+The runtime SHALL preserve provider-owned or operator-owned files outside the paths that the rebuild explicitly rewrites.
+
+A reused-home fresh launch SHALL create new live session authority for the new launch. It SHALL NOT treat the request as stopped-session revival or active relaunch.
+
+When no compatible preserved home exists, the runtime SHALL fail explicitly and SHALL NOT silently fall back to allocating a brand-new home.
+
+#### Scenario: Stopped predecessor home is rebuilt for a fresh launch
+- **WHEN** stopped local managed agent `reviewer` preserves runtime home `/runtime/homes/codex-home-1`
+- **AND WHEN** a new local managed launch resolves the same managed identity `reviewer`
+- **AND WHEN** that launch explicitly requests reused-home mode
+- **THEN** the runtime rebuilds current Houmao-managed launch material onto `/runtime/homes/codex-home-1`
+- **AND THEN** the runtime does not allocate a new home id for that launch
+- **AND THEN** the runtime creates fresh live session authority for the new launch
+
+#### Scenario: Missing compatible preserved home fails without fresh-home fallback
+- **WHEN** a local managed launch explicitly requests reused-home mode
+- **AND WHEN** no compatible preserved home can be resolved for the selected managed identity
+- **THEN** the runtime fails the launch clearly
+- **AND THEN** it does not silently allocate a brand-new runtime home
+
+### Requirement: Reused-home fresh launch remains non-destructive and relaunch-distinct
+
+When reused-home launch is requested together with managed force takeover against a live predecessor, the runtime SHALL support only non-destructive `keep-stale` behavior for the preserved home.
+
+The runtime SHALL reject any attempt to combine reused-home launch with destructive `clean` semantics because that would discard the preserved home contents the operator asked to keep.
+
+Reused-home fresh launch SHALL NOT consume stored relaunch chat-session policy or provider-native chat continuation selectors automatically.
+
+Provider-local history that remains in the preserved home MAY stay available to provider-native continuation surfaces after startup, but the runtime SHALL still treat startup as a fresh launch rather than a relaunch.
+
+#### Scenario: Live predecessor stands down before keep-stale reused-home launch
+- **WHEN** a fresh live predecessor already owns managed identity `reviewer`
+- **AND WHEN** the replacement launch explicitly requests reused-home mode
+- **AND WHEN** the replacement launch also requests force mode `keep-stale`
+- **THEN** the runtime makes the predecessor stand down before replacement publication
+- **AND THEN** the replacement launch rebuilds onto the preserved home instead of deleting it
+
+#### Scenario: Reused-home launch rejects destructive clean mode
+- **WHEN** a local managed launch explicitly requests reused-home mode
+- **AND WHEN** that same launch also requests force mode `clean`
+- **THEN** the runtime rejects the request before destructive cleanup begins
+- **AND THEN** the preserved home contents remain untouched
+
+#### Scenario: Reused-home launch preserves relaunch-only chat policy boundaries
+- **WHEN** a local managed launch explicitly requests reused-home mode
+- **AND WHEN** the selected launch profile stores relaunch chat-session mode `tool_last_or_new`
+- **THEN** the runtime starts provider launch without automatically applying relaunch chat continuation arguments
+- **AND THEN** preserved provider-local history remains available only through the preserved home's ordinary provider-native surfaces
 

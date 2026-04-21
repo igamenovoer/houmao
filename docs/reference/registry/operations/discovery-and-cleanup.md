@@ -19,7 +19,17 @@ For name-addressed tmux-backed live control such as `houmao-mgr agents prompt`, 
 3. fall back to the shared registry when tmux-local discovery is unavailable,
 4. validate the resolved manifest and agent-definition pointers before resuming control.
 
-Path-like manifest identities do not use the shared registry. They go straight to the addressed `manifest.json`. Cleanup is the exception that can intentionally address stopped sessions: after live-registry lookup misses for `houmao-mgr agents cleanup --agent-id` or `--agent-name`, cleanup scans the effective runtime root for exactly one stopped manifest with the matching identity. Other live-control commands do not use stopped manifests as targets.
+Path-like manifest identities do not use the shared registry. They go straight to the addressed `manifest.json`. Relaunch and cleanup are the two managed-agent commands that can intentionally address stopped sessions: they prefer a matching lifecycle registry record when one exists and scan the effective runtime root for exactly one stopped manifest only as a migration fallback when no matching lifecycle record exists. Other live-control commands do not use stopped manifests as targets.
+
+## Stopped Lifecycle Records And Migration Fallback
+
+For current releases, the expected stopped-session path is lifecycle-aware:
+
+1. `agents stop` on a relaunchable tmux-backed local session publishes a stopped registry record instead of deleting the registry entry.
+2. `agents relaunch` can target that stopped record directly and revive the same managed-agent identity.
+3. `agents cleanup session` can target that stopped record directly and retire it by default or purge it explicitly.
+
+The runtime-root stopped-manifest scan is still maintained for older stopped sessions that predate lifecycle-aware registry persistence. It is intentionally bounded: exactly one stopped manifest must match the requested identity or the command fails explicitly.
 
 ## What Counts As Fallback-Eligible
 
@@ -102,6 +112,14 @@ pixi run python -m houmao.agents.realm_controller stop-session \
 ```
 
 ## Cleanup Semantics
+
+For managed-agent cleanup commands:
+
+- `agents cleanup session` prefers lifecycle registry records over runtime-root scans,
+- `agents cleanup session` retires stopped records by default after successful session-root removal or validated absence,
+- `agents cleanup session --purge-registry` deletes the lifecycle record entirely,
+- `agents cleanup logs` and `agents cleanup mailbox` preserve the lifecycle record,
+- active lifecycle records are not retired or purged through cleanup; stop the agent first.
 
 `houmao-mgr admin cleanup registry` is the operator-facing janitor for stale `live_agents/` directories.
 

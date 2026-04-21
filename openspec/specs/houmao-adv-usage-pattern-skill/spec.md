@@ -24,7 +24,7 @@ The packaged `houmao-adv-usage-pattern` skill SHALL include a self-notification 
 That pattern family SHALL describe self-notification as a composition over the maintained direct-operation skills:
 
 - `houmao-agent-gateway` for live gateway reminder creation, inspection, update, and deletion through `/v1/reminders`,
-- `houmao-agent-email-comms` for mailbox send, check, read, reply, and mailbox-state follow-up work around self-mail reminders,
+- `houmao-agent-email-comms` for mailbox send, list, read, reply, archive, and mailbox-state follow-up work around self-mail reminders,
 - `houmao-process-emails-via-gateway` for notifier-driven unread-mail rounds when the self-notification mode is self-mail.
 
 The pattern family SHALL explain that gateway reminders are the preferred mode when the task is high-priority, should stay focused ahead of unrelated new incoming mail, or benefits from one-off, repeating, ranking, or pause behavior.

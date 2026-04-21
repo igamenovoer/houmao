@@ -38,6 +38,22 @@ ChatContextState = Literal["current", "degraded", "unknown"]
 
 
 @dataclass(frozen=True)
+class DegradedChatContextDiagnostic:
+    """Tool-scoped diagnostic for a recoverable degraded chat context."""
+
+    tool_name: str
+    detector_name: str
+    detector_version: str
+    degraded_error_type: str
+    message_preview: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class TrackerConfig:
     """Configuration for one standalone tracker session."""
 
@@ -70,6 +86,7 @@ class TrackedStateSnapshot:
     stable_since_seconds: float
     observed_at_seconds: float
     chat_context: ChatContextState = "current"
+    chat_context_diagnostic: DegradedChatContextDiagnostic | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -100,6 +117,7 @@ class TrackedStateTransition:
     stable_for_seconds: float
     stable_since_seconds: float
     chat_context: ChatContextState = "current"
+    chat_context_diagnostic: DegradedChatContextDiagnostic | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""
@@ -199,6 +217,7 @@ class DetectedTurnSignals:
     surface_signature: str
     notes: tuple[str, ...]
     chat_context: ChatContextState = "current"
+    chat_context_diagnostic: DegradedChatContextDiagnostic | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return a JSON-serializable payload."""

@@ -853,7 +853,7 @@ def test_launch_managed_agent_locally_fails_before_build_without_force_on_live_o
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_live_agent_record_by_agent_id",
         lambda agent_id: SimpleNamespace(
-            identity=SimpleNamespace(backend="codex_headless"),
+            identity=SimpleNamespace(backend="codex_headless", tool="codex"),
             runtime=SimpleNamespace(manifest_path=str(tmp_path / "manifest.json")),
         ),
     )
@@ -907,6 +907,7 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
         source_agent_def_dir,
         session_root,
         job_dir,
+        home_path,
     ):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -920,7 +921,7 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
     )
 
     record = SimpleNamespace(
-        identity=SimpleNamespace(backend="codex_headless"),
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(manifest_path=str(session_manifest_path)),
     )
     state = {"record_present": True}
@@ -1006,6 +1007,262 @@ def test_launch_managed_agent_locally_keep_stale_reuses_predecessor_home(
     assert captured["runtime_kwargs"]["managed_force_mode"] == "keep-stale"
 
 
+def test_launch_managed_agent_locally_reuse_home_rebuilds_stopped_predecessor_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    session_root = runtime_root / "codex_headless" / "session-1"
+    session_manifest_path = session_root / "manifest.json"
+    job_dir = jobs_root / "job-1"
+    home_path = runtime_root / "homes" / "home-123"
+    build_manifest_path = (tmp_path / "build-manifest.yaml").resolve()
+
+    for path in (
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+        session_root,
+        job_dir,
+        home_path,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+
+    record = SimpleNamespace(
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
+        runtime=SimpleNamespace(manifest_path=str(session_manifest_path)),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_live_agent_record_by_agent_id",
+        lambda agent_id: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_relaunchable_managed_agent_record_by_agent_id",
+        lambda agent_id: record,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.stop_managed_agent",
+        lambda target: pytest.fail("stopped preserved-home reuse should not stop a live target"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.load_session_manifest",
+        lambda path: SimpleNamespace(path=path, payload={}),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.parse_session_manifest_payload",
+        lambda payload, source: SimpleNamespace(
+            job_dir=str(job_dir),
+            launch_plan=SimpleNamespace(mailbox=None),
+            brain_manifest_path=str(tmp_path / "brain.yaml"),
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.load_brain_manifest",
+        lambda path: {
+            "runtime": {
+                "runtime_root": str(runtime_root),
+                "home_id": "home-123",
+                "home_path": str(home_path),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: (
+            captured.setdefault("build_request", request),
+            SimpleNamespace(manifest_path=build_manifest_path),
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: (
+            captured.setdefault("runtime_kwargs", kwargs),
+            SimpleNamespace(
+                agent_identity="worker-a",
+                agent_id="agent-123",
+                tmux_session_name="worker-a",
+                manifest_path=build_manifest_path,
+            ),
+        )[1],
+    )
+
+    launch_managed_agent_locally(
+        agents="researcher",
+        agent_name="worker-a",
+        agent_id=None,
+        auth=None,
+        session_name="worker-a",
+        headless=True,
+        provider="codex",
+        working_directory=working_directory,
+        source_agent_def_dir=source_agent_def_dir,
+        headless_display_style="plain",
+        headless_display_detail="concise",
+        launch_profile_provenance={
+            "relaunch": {
+                "chat_session": {
+                    "mode": "tool_last_or_new",
+                }
+            }
+        },
+        reuse_home=True,
+    )
+
+    assert captured["build_request"].home_id == "home-123"
+    assert captured["build_request"].existing_home_mode is None
+    assert captured["build_request"].reuse_home is True
+    assert captured["build_request"].launch_profile_provenance == {
+        "relaunch": {
+            "chat_session": {
+                "mode": "tool_last_or_new",
+            }
+        }
+    }
+    assert captured["runtime_kwargs"]["managed_force_mode"] is None
+    assert "relaunch_chat_session" not in captured["runtime_kwargs"]
+
+
+def test_launch_managed_agent_locally_reuse_home_fails_without_preserved_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+
+    for path in (
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_live_agent_record_by_agent_id",
+        lambda agent_id: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_relaunchable_managed_agent_record_by_agent_id",
+        lambda agent_id: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: pytest.fail("builder should not run without a preserved home"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: pytest.fail("runtime should not start without a preserved home"),
+    )
+
+    with pytest.raises(click.ClickException, match="requires one compatible preserved home"):
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="worker-a",
+            agent_id=None,
+            auth=None,
+            session_name="worker-a",
+            headless=True,
+            provider="codex",
+            working_directory=working_directory,
+            source_agent_def_dir=source_agent_def_dir,
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            reuse_home=True,
+        )
+
+
+def test_launch_managed_agent_locally_rejects_reuse_home_with_clean_force(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+
+    for path in (
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: pytest.fail("builder should not run for `--reuse-home --force clean`"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: pytest.fail("runtime should not start for `--reuse-home --force clean`"),
+    )
+
+    with pytest.raises(
+        click.ClickException,
+        match=r"`--reuse-home` is incompatible with `--force clean`",
+    ):
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="worker-a",
+            agent_id=None,
+            auth=None,
+            session_name="worker-a",
+            headless=True,
+            provider="codex",
+            working_directory=working_directory,
+            source_agent_def_dir=source_agent_def_dir,
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            force_mode="clean",
+            reuse_home=True,
+        )
+
+
 def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1050,7 +1307,7 @@ def test_launch_managed_agent_locally_clean_removes_replaceable_predecessor_arti
     )
 
     record = SimpleNamespace(
-        identity=SimpleNamespace(backend="codex_headless"),
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(manifest_path=str(session_manifest_path)),
     )
     state = {"record_present": True}
@@ -1247,7 +1504,7 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
     )
 
     record = SimpleNamespace(
-        identity=SimpleNamespace(backend="codex_headless"),
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(manifest_path=str(session_manifest_path)),
     )
     state = {"record_present": True}

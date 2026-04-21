@@ -88,8 +88,8 @@ These routes proxy to the agent's own gateway process. They return 502 if no gat
 | `POST` | `/houmao/agents/{agent_ref}/gateway/requests` | Create a gateway request (prompt, interrupt, etc.). |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/control/prompt` | Submit prompt through the gateway. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/control/send-keys` | Send raw control input through the gateway. |
-| `GET` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Mail-notifier status, including effective `appendix_text`. |
-| `PUT` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Enable or reconfigure mail-notifier. Omitted `appendix_text` is preserved, non-empty text replaces it, and `""` clears it. |
+| `GET` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Mail-notifier status, including effective `appendix_text`, `context_error_policy`, and `pre_notification_context_action`. |
+| `PUT` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Enable or reconfigure mail-notifier. Omitted `appendix_text` is preserved, non-empty text replaces it, and `""` clears it. Optional `context_error_policy` and `pre_notification_context_action` select degraded-context handling and pre-notification compaction. |
 | `DELETE` | `/houmao/agents/{agent_ref}/gateway/mail-notifier` | Disable mail-notifier without clearing stored appendix text. |
 
 Gateway attach and detach are local-only operations (`POST .../gateway/attach` and `.../gateway/detach` return 501 Not Implemented). Use `houmao-mgr agents gateway attach` directly on the host where the agent runs.
@@ -101,9 +101,15 @@ Mail routes also proxy through the agent's gateway.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/houmao/agents/{agent_ref}/mail/status` | Mailbox status. |
-| `POST` | `/houmao/agents/{agent_ref}/mail/check` | Check for mail messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/list` | List mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/peek` | Peek at one mailbox message without marking it read. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/read` | Read one mailbox message and mark it read. |
 | `POST` | `/houmao/agents/{agent_ref}/mail/send` | Send a mail message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/post` | Post an operator-origin mailbox note. |
 | `POST` | `/houmao/agents/{agent_ref}/mail/reply` | Reply to a mail message. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/mark` | Mark selected mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/move` | Move selected mailbox messages. |
+| `POST` | `/houmao/agents/{agent_ref}/mail/archive` | Archive selected mailbox messages. |
 
 ### Request Submission
 
@@ -135,7 +141,7 @@ Most `houmao-mgr` commands work with the passive server when targeting it via `-
 - `houmao-mgr agents state --port 9891 --agent-name <name>` — shows agent state
 - `houmao-mgr agents prompt --port 9891 --agent-name <name>` — submits prompt via gateway proxy
 - `houmao-mgr agents gateway status --port 9891 --agent-name <name>` — shows gateway status
-- `houmao-mgr agents mail check --port 9891 --agent-name <name>` — checks mailbox via gateway proxy
+- `houmao-mgr agents mail list --port 9891 --agent-name <name> --read-state unread` — lists unread mailbox items via gateway proxy
 - `houmao-mgr agents turn submit --port 9891 --agent-name <name>` — submits headless turn
 
 Gateway attach/detach are local-only and must be run directly on the agent's host, not through the passive server.

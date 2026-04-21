@@ -87,8 +87,11 @@ from houmao.agents.realm_controller.models import (
     JoinedLaunchEnvBinding,
     RelaunchChatSessionSelection,
 )
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
-from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record_by_agent_id
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
+from houmao.agents.realm_controller.registry_storage import (
+    resolve_live_agent_record_by_agent_id,
+    resolve_relaunchable_managed_agent_record_by_agent_id,
+)
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
     ProjectAwareLocalRoots,
@@ -144,6 +147,7 @@ from ..managed_agents import (
     managed_agent_state_payload,
     prompt_managed_agent,
     relaunch_managed_agent,
+    resolve_relaunch_managed_agent_target,
     resolve_managed_agent_target,
     stop_managed_agent,
 )
@@ -220,17 +224,17 @@ class LocalManagedAgentLaunchResult:
 
 
 @dataclass(frozen=True)
-class _ManagedForceTakeoverContext:
-    """Resolved predecessor state for one forced managed-agent replacement."""
+class _ManagedPredecessorHomeContext:
+    """Resolved predecessor home state for one managed-agent launch."""
 
-    force_mode: ManagedLaunchForceMode
     agent_name: str
     agent_id: str
-    target: ManagedAgentTarget
-    record: LiveAgentRegistryRecordV2
+    record: ManagedAgentRegistryRecordV3
     home_id: str
     home_path: Path
     runtime_root: Path
+    force_mode: ManagedLaunchForceMode | None
+    target: ManagedAgentTarget | None
     session_root: Path | None
     mailbox_cleanup_paths: tuple[Path, ...]
 
@@ -262,38 +266,34 @@ def _load_brain_home_identity_from_manifest(
     )
 
 
-def _prepare_managed_force_takeover_context(
+def _load_managed_predecessor_home_context(
     *,
     managed_launch_identity: Any,
+    record: ManagedAgentRegistryRecordV3,
     resolved_runtime_root: Path,
+    requested_tool: str,
     force_mode: ManagedLaunchForceMode | None,
-) -> _ManagedForceTakeoverContext | None:
-    """Resolve one predecessor takeover context or fail before build/start."""
+    require_same_tool: bool,
+    require_preserved_home_path: bool,
+) -> _ManagedPredecessorHomeContext:
+    """Load one predecessor home context from a local registry record."""
 
-    existing_record = resolve_live_agent_record_by_agent_id(managed_launch_identity.agent_id)
-    if existing_record is None:
-        return None
-    if force_mode is None:
+    if record.identity.backend == "houmao_server_rest":
         raise RuntimeError(
-            "Managed agent "
-            f"`{managed_launch_identity.agent_name}` (agent_id `{managed_launch_identity.agent_id}`) "
-            "already owns a live registry record. Rerun with `--force` to replace it."
-        )
-    if existing_record.identity.backend == "houmao_server_rest":
-        raise RuntimeError(
-            "Managed launch force takeover only supports locally owned agents. "
+            "Managed preserved-home launch only supports locally owned agents. "
             f"Managed agent `{managed_launch_identity.agent_name}` is currently owned by "
             "`houmao-server`."
         )
+    if require_same_tool and record.identity.tool != requested_tool:
+        raise RuntimeError(
+            "Managed preserved-home launch requires matching tool families. Existing managed "
+            f"agent `{managed_launch_identity.agent_name}` uses tool `{record.identity.tool}`, "
+            f"but this launch resolved `{requested_tool}`."
+        )
 
-    manifest_path = Path(existing_record.runtime.manifest_path).expanduser().resolve()
+    manifest_path = Path(record.runtime.manifest_path).expanduser().resolve()
     handle = load_session_manifest(manifest_path)
     payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    session_root = runtime_owned_session_root_from_manifest_path(handle.path)
-    resolved_mailbox = resolved_mailbox_config_from_payload(
-        payload.launch_plan.mailbox,
-        manifest_path=handle.path,
-    )
     brain_manifest_path = Path(payload.brain_manifest_path).expanduser().resolve()
     predecessor_brain_manifest = load_brain_manifest(brain_manifest_path)
     predecessor_runtime_root, predecessor_home_id, predecessor_home_path = (
@@ -304,34 +304,50 @@ def _prepare_managed_force_takeover_context(
     )
     if predecessor_runtime_root != resolved_runtime_root:
         raise RuntimeError(
-            "Managed launch force takeover requires matching runtime roots. Existing owner "
+            "Managed preserved-home launch requires matching runtime roots. Existing owner "
             f"`{managed_launch_identity.agent_name}` uses runtime root "
             f"`{predecessor_runtime_root}`, but this launch resolved `{resolved_runtime_root}`."
         )
-
-    target = resolve_managed_agent_target(
-        agent_id=managed_launch_identity.agent_id,
-        agent_name=None,
-        port=None,
-    )
-    if target.mode != "local":
+    if require_preserved_home_path and not predecessor_home_path.exists():
         raise RuntimeError(
-            "Managed launch force takeover only supports locally owned agents. "
-            f"Managed agent `{managed_launch_identity.agent_name}` resolved to `{target.mode}` "
-            "control."
+            "Managed preserved-home launch requires an existing preserved home path, but "
+            f"`{predecessor_home_path}` is missing."
         )
 
-    return _ManagedForceTakeoverContext(
-        force_mode=force_mode,
+    target: ManagedAgentTarget | None = None
+    session_root: Path | None = None
+    mailbox_cleanup_paths: tuple[Path, ...] = ()
+    if force_mode is not None:
+        target = resolve_managed_agent_target(
+            agent_id=managed_launch_identity.agent_id,
+            agent_name=None,
+            port=None,
+        )
+        if target.mode != "local":
+            raise RuntimeError(
+                "Managed launch force takeover only supports locally owned agents. "
+                f"Managed agent `{managed_launch_identity.agent_name}` resolved to `{target.mode}` "
+                "control."
+            )
+        session_root = runtime_owned_session_root_from_manifest_path(handle.path)
+        if force_mode == "clean":
+            resolved_mailbox = resolved_mailbox_config_from_payload(
+                payload.launch_plan.mailbox,
+                manifest_path=handle.path,
+            )
+            mailbox_cleanup_paths = replaceable_mailbox_cleanup_paths(resolved_mailbox)
+
+    return _ManagedPredecessorHomeContext(
         agent_name=managed_launch_identity.agent_name,
         agent_id=managed_launch_identity.agent_id,
-        target=target,
-        record=existing_record,
+        record=record,
         home_id=predecessor_home_id,
         home_path=predecessor_home_path,
         runtime_root=predecessor_runtime_root,
+        force_mode=force_mode,
+        target=target,
         session_root=session_root,
-        mailbox_cleanup_paths=replaceable_mailbox_cleanup_paths(resolved_mailbox),
+        mailbox_cleanup_paths=mailbox_cleanup_paths,
     )
 
 
@@ -360,9 +376,72 @@ def _dedupe_force_takeover_paths(paths: tuple[Path | None, ...]) -> tuple[Path, 
     return tuple(deduped)
 
 
-def _perform_managed_force_takeover(context: _ManagedForceTakeoverContext) -> None:
+def _resolve_managed_predecessor_home_context(
+    *,
+    managed_launch_identity: Any,
+    resolved_runtime_root: Path,
+    requested_tool: str,
+    force_mode: ManagedLaunchForceMode | None,
+    reuse_home: bool,
+) -> _ManagedPredecessorHomeContext | None:
+    """Resolve one predecessor context for forced takeover or preserved-home reuse."""
+
+    if reuse_home and force_mode == "clean":
+        raise RuntimeError(
+            "`--reuse-home` is incompatible with `--force clean` because `clean` would destroy "
+            "the preserved home."
+        )
+
+    existing_record = resolve_live_agent_record_by_agent_id(managed_launch_identity.agent_id)
+    if existing_record is not None:
+        if force_mode is None:
+            detail = (
+                "Managed agent "
+                f"`{managed_launch_identity.agent_name}` (agent_id "
+                f"`{managed_launch_identity.agent_id}`) already owns a live registry record. "
+                "Rerun with `--force` to replace it."
+            )
+            if reuse_home:
+                detail += " `--reuse-home` alone does not replace a live owner."
+            raise RuntimeError(detail)
+        return _load_managed_predecessor_home_context(
+            managed_launch_identity=managed_launch_identity,
+            record=existing_record,
+            resolved_runtime_root=resolved_runtime_root,
+            requested_tool=requested_tool,
+            force_mode=force_mode,
+            require_same_tool=(reuse_home or force_mode == "keep-stale"),
+            require_preserved_home_path=(reuse_home or force_mode == "keep-stale"),
+        )
+
+    if not reuse_home:
+        return None
+
+    relaunchable_record = resolve_relaunchable_managed_agent_record_by_agent_id(
+        managed_launch_identity.agent_id
+    )
+    if relaunchable_record is None:
+        raise RuntimeError(
+            "Managed launch `--reuse-home` requires one compatible preserved home for managed "
+            f"agent `{managed_launch_identity.agent_name}` (agent_id "
+            f"`{managed_launch_identity.agent_id}`), but none was found."
+        )
+    return _load_managed_predecessor_home_context(
+        managed_launch_identity=managed_launch_identity,
+        record=relaunchable_record,
+        resolved_runtime_root=resolved_runtime_root,
+        requested_tool=requested_tool,
+        force_mode=None,
+        require_same_tool=True,
+        require_preserved_home_path=True,
+    )
+
+
+def _perform_managed_force_takeover(context: _ManagedPredecessorHomeContext) -> None:
     """Stop the predecessor owner and optionally clean predecessor-owned artifacts."""
 
+    if context.target is None:
+        raise RuntimeError("Managed force takeover requires one live predecessor target.")
     stop_result = stop_managed_agent(context.target)
     if not stop_result.success:
         raise RuntimeError(
@@ -568,6 +647,7 @@ def launch_managed_agent_locally(
     launch_profile_memo_seed: ResolvedLaunchProfileMemoSeed | None = None,
     launch_profile_mail_notifier_appendix_text: str | None = None,
     force_mode: str | None = None,
+    reuse_home: bool = False,
 ) -> LocalManagedAgentLaunchResult:
     """Resolve, build, and start one managed agent locally."""
 
@@ -589,7 +669,7 @@ def launch_managed_agent_locally(
     effective_source_env = dict(source_env) if source_env is not None else None
 
     resolved_backend_name = "unknown"
-    takeover_context: _ManagedForceTakeoverContext | None = None
+    predecessor_context: _ManagedPredecessorHomeContext | None = None
     takeover_completed = False
     memo_seed_application: LaunchProfileMemoSeedApplication | None = None
     try:
@@ -649,13 +729,15 @@ def launch_managed_agent_locally(
             overlay_root=project_roots.overlay_root,
             agent_id=managed_launch_identity.agent_id,
         )
-        takeover_context = _prepare_managed_force_takeover_context(
+        predecessor_context = _resolve_managed_predecessor_home_context(
             managed_launch_identity=managed_launch_identity,
             resolved_runtime_root=resolved_runtime_root,
+            requested_tool=target.preset.tool,
             force_mode=normalized_force_mode,
+            reuse_home=reuse_home,
         )
-        if takeover_context is not None:
-            _perform_managed_force_takeover(takeover_context)
+        if predecessor_context is not None and predecessor_context.target is not None:
+            _perform_managed_force_takeover(predecessor_context)
             takeover_completed = True
         if launch_profile_memo_seed is not None:
             memo_seed_application = apply_launch_profile_memo_seed(
@@ -691,10 +773,11 @@ def launch_managed_agent_locally(
                 extra=target.preset.extra,
                 agent_name=managed_launch_identity.agent_name,
                 agent_id=managed_launch_identity.agent_id,
-                home_id=takeover_context.home_id if takeover_context is not None else None,
+                home_id=predecessor_context.home_id if predecessor_context is not None else None,
                 existing_home_mode=(
-                    takeover_context.force_mode if takeover_context is not None else None
+                    predecessor_context.force_mode if predecessor_context is not None else None
                 ),
+                reuse_home=reuse_home,
                 role_prompt_override=prompt_payload.prompt,
                 managed_prompt_header=managed_prompt_header_metadata(
                     decision=managed_header_decision,
@@ -738,8 +821,8 @@ def launch_managed_agent_locally(
             mailbox_account_dir=mailbox_account_dir,
             headless_display_style=headless_display_style if headless else None,
             headless_display_detail=headless_display_detail if headless else None,
-            managed_force_mode=takeover_context.force_mode
-            if takeover_context is not None
+            managed_force_mode=predecessor_context.force_mode
+            if predecessor_context is not None and predecessor_context.target is not None
             else None,
         )
         if launch_profile_mail_notifier_appendix_text is not None:
@@ -762,11 +845,11 @@ def launch_managed_agent_locally(
         ValueError,
     ) as exc:
         detail = str(exc)
-        if takeover_completed and takeover_context is not None:
+        if takeover_completed and predecessor_context is not None:
             detail = (
                 "Replacement launch failed after predecessor "
-                f"`{takeover_context.agent_name}` stood down under "
-                f"`--force {takeover_context.force_mode}`: {detail}"
+                f"`{predecessor_context.agent_name}` stood down under "
+                f"`--force {predecessor_context.force_mode}`: {detail}"
             )
         raise click.ClickException(detail) from exc
 
@@ -935,6 +1018,11 @@ def agents_group() -> None:
         "provider, or `claude_code` when launching directly from `--agents`."
     ),
 )
+@click.option(
+    "--reuse-home",
+    is_flag=True,
+    help="Rebuild onto one compatible preserved home for the resolved managed identity.",
+)
 @managed_launch_force_option
 def launch_agents_command(
     agents: str | None,
@@ -952,6 +1040,7 @@ def launch_agents_command(
     headless_display_style: HeadlessDisplayStyle,
     headless_display_detail: HeadlessDisplayDetail,
     provider: str | None,
+    reuse_home: bool,
     force_mode: str | None,
 ) -> None:
     """Build and launch one managed agent locally without `houmao-server`."""
@@ -991,6 +1080,11 @@ def launch_agents_command(
         name=_normalize_model_name_or_click(model),
         reasoning_level=reasoning_level,
     )
+    if reuse_home and force_mode == "clean":
+        raise click.ClickException(
+            "`--reuse-home` is incompatible with `--force clean` because `clean` would destroy "
+            "the preserved home."
+        )
     managed_header_section_overrides = _managed_header_section_overrides_from_options(
         managed_header_section
     )
@@ -1149,6 +1243,7 @@ def launch_agents_command(
         launch_profile_memo_seed=launch_profile_memo_seed,
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
         force_mode=force_mode,
+        reuse_home=reuse_home,
     )
 
     emit_local_launch_completion(
@@ -1275,11 +1370,24 @@ def join_agents_command(
 
 @agents_group.command(name="list")
 @pair_port_option()
-def list_agents_command(port: int | None) -> None:
+@click.option(
+    "--state",
+    "lifecycle_state",
+    type=click.Choice(("active", "stopped", "relaunching", "retired", "all")),
+    default="active",
+    show_default=True,
+    help="Filter local registry-backed results by lifecycle state. Use `all` to include every lifecycle state.",
+)
+def list_agents_command(port: int | None, lifecycle_state: str) -> None:
     """List managed agents from the shared registry, optionally enriched by the server."""
 
+    payload = (
+        list_managed_agents(port=port)
+        if lifecycle_state == "active"
+        else list_managed_agents(port=port, lifecycle_state=cast(Any, lifecycle_state))
+    )
     emit(
-        list_managed_agents(port=port),
+        payload,
         plain_renderer=render_agent_list_plain,
         fancy_renderer=render_agent_list_fancy,
     )
@@ -1431,7 +1539,7 @@ def relaunch_agent_command(
         )
         return
 
-    target = resolve_managed_agent_target(
+    target = resolve_relaunch_managed_agent_target(
         agent_id=selected_agent_id,
         agent_name=selected_agent_name,
         port=port,

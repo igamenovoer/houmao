@@ -16,6 +16,15 @@
         <span id="wiki-title"></span>
       </div>
       <div class="topbar-right">
+        <button
+          id="btn-nav"
+          class="btn btn-mobile-panel"
+          type="button"
+          aria-expanded="false"
+          aria-controls="sidebar-left"
+        >
+          Index
+        </button>
         <div id="search-box">
           <button
             id="btn-search"
@@ -41,6 +50,15 @@
             <div id="search-results"></div>
           </div>
         </div>
+        <button
+          id="btn-audits"
+          class="btn btn-mobile-panel"
+          type="button"
+          aria-expanded="false"
+          aria-controls="sidebar-right"
+        >
+          Audits
+        </button>
         <button id="btn-refresh" class="btn btn-icon btn-ghost" type="button" title="Refresh audits">
           ↻
         </button>
@@ -50,6 +68,9 @@
     <aside id="sidebar-left" class="glass">
       <header>
         <h1>Navigation</h1>
+        <button class="btn btn-icon btn-ghost panel-close" type="button" data-mobile-close aria-label="Close navigation">
+          ×
+        </button>
       </header>
       <nav id="tree"><p class="loading">Loading tree</p></nav>
     </aside>
@@ -61,9 +82,14 @@
     <aside id="sidebar-right" class="glass">
       <header>
         <h2>Open audits</h2>
+        <button class="btn btn-icon btn-ghost panel-close" type="button" data-mobile-close aria-label="Close audits">
+          ×
+        </button>
       </header>
       <div id="audit-list"><p class="muted" style="padding: 14px;">—</p></div>
     </aside>
+
+    <div id="mobile-panel-backdrop" aria-hidden="true"></div>
 
     <div id="feedback-popover" class="hidden">
       <button id="feedback-trigger" class="btn btn-cta" type="button">💬 Add feedback</button>

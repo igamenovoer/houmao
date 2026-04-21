@@ -134,11 +134,19 @@ def main(argv: list[str] | None = None) -> int:
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--install-dir", required=True, help="Directory to install the viewer into.")
+    parser.add_argument(
+        "--install-dir", required=True, help="Directory to install the viewer into."
+    )
     parser.add_argument("--wiki", help="Existing LLM Wiki root. Prompted or inferred when omitted.")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Viewer port. Default: {DEFAULT_PORT}.")
-    parser.add_argument("--host", default=DEFAULT_HOST, help=f"Host to bind. Default: {DEFAULT_HOST}.")
-    parser.add_argument("--author", help="Author name passed to the viewer for audit feedback files.")
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help=f"Viewer port. Default: {DEFAULT_PORT}."
+    )
+    parser.add_argument(
+        "--host", default=DEFAULT_HOST, help=f"Host to bind. Default: {DEFAULT_HOST}."
+    )
+    parser.add_argument(
+        "--author", help="Author name passed to the viewer for audit feedback files."
+    )
     parser.add_argument(
         "--package-manager",
         choices=("auto", "npm", "bun"),
@@ -151,8 +159,12 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         default="background",
         help="How to start the viewer after build. Default: background.",
     )
-    parser.add_argument("--skip-install", action="store_true", help="Copy source but skip install/build commands.")
-    parser.add_argument("--force", action="store_true", help="Overwrite existing unmanaged viewer subdirectories.")
+    parser.add_argument(
+        "--skip-install", action="store_true", help="Copy source but skip install/build commands."
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="Overwrite existing unmanaged viewer subdirectories."
+    )
     parser.add_argument("--no-input", action="store_true", help="Do not prompt for missing values.")
     args = parser.parse_args(argv)
     if args.port < 1 or args.port > 65535:
@@ -221,7 +233,9 @@ def validate_wiki_root(wiki_root: Path) -> None:
     required = [wiki_root / "wiki" / "index.md", wiki_root / "audit"]
     missing = [str(p) for p in required if not p.exists()]
     if missing:
-        raise DeployError("wiki root is missing required LLM Wiki paths:\n  " + "\n  ".join(missing))
+        raise DeployError(
+            "wiki root is missing required LLM Wiki paths:\n  " + "\n  ".join(missing)
+        )
 
 
 def ensure_port_available(host: str, port: int) -> None:
@@ -317,7 +331,9 @@ def write_git_info_exclude(install_dir: Path) -> None:
     git_path = run_git(repo, "rev-parse", "--git-path", "info/exclude")
     if not git_path:
         return
-    exclude_path = (repo / git_path).resolve() if not Path(git_path).is_absolute() else Path(git_path)
+    exclude_path = (
+        (repo / git_path).resolve() if not Path(git_path).is_absolute() else Path(git_path)
+    )
     rel = install_dir.relative_to(repo).as_posix()
     if rel == ".":
         lines = [
@@ -429,7 +445,9 @@ def write_metadata(
         "launch_mode": launch_mode,
         "launch_command": launch_command,
     }
-    (install_dir / METADATA_FILE).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    (install_dir / METADATA_FILE).write_text(
+        json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def update_background_metadata(install_dir: Path, pid: int, log_path: Path) -> None:
@@ -468,7 +486,9 @@ def run_checked(command: list[str], cwd: Path) -> None:
     print(f"$ {format_command(command)}  # cwd={cwd}")
     result = subprocess.run(command, cwd=str(cwd), check=False)
     if result.returncode != 0:
-        raise DeployError(f"command failed with exit code {result.returncode}: {format_command(command)}")
+        raise DeployError(
+            f"command failed with exit code {result.returncode}: {format_command(command)}"
+        )
 
 
 def run_foreground(cwd: Path, command: list[str]) -> None:
@@ -501,7 +521,9 @@ def wait_for_server(host: str, port: int, pid: int, log_path: Path) -> None:
         if can_connect(host, port):
             return
         time.sleep(0.5)
-    raise DeployError(f"viewer did not start on http://{host}:{port}. Last log lines:\n{tail(log_path)}")
+    raise DeployError(
+        f"viewer did not start on http://{host}:{port}. Last log lines:\n{tail(log_path)}"
+    )
 
 
 def process_exited(pid: int) -> bool:

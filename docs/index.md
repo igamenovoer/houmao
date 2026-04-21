@@ -17,7 +17,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
 - [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the `houmao-memory-mgr` skill.
 - [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
-- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose between the three loop skills, understand the pairwise-v2 routing-packet prestart model, and discover the graph tooling that supports plan authoring.
+- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose between the four loop skills, understand the pairwise-v2 routing-packet prestart model plus pairwise-v3 workspace contracts, and discover the graph tooling that supports plan authoring.
 
 ## Reference
 

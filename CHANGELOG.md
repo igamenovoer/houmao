@@ -4,6 +4,23 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.8.0] - 2026-04-21
+
+### Added
+
+- **Lifecycle-aware managed agent registry**: registry records for tmux-backed managed agents now track full lifecycle state (`active`, `stopped`, `relaunching`, `retired`). Stopping a relaunchable agent transitions its record to `stopped` instead of deleting it, enabling true stop-and-relaunch workflows. Cleanup destructively removes stopped runtime artifacts. Operations on stopped records surface actionable guidance. Registry schema bumped to v3.
+- **Reuse-home fresh launch mode**: `houmao-mgr agents launch` gains a `--reuse-home fresh` mode that reuses the existing brain home without rebuilding it, enabling fast agent restarts that preserve the home layout while resetting the session state.
+- **Source-aware project asset registry**: project catalog now tracks the source of each registered asset (specialist, launch profile, skill). `houmao-mgr project` commands gain source-aware filtering and display. Project catalog schema bumped to v15. Includes a `migrate` sub-command for upgrading existing catalogs.
+- **Gateway control request coalescing**: the gateway now coalesces multiple rapid control requests into a single dispatch to prevent prompt flooding when several control signals arrive in quick succession.
+- **Mail notifier context recovery policy**: the gateway mail notifier gains a configurable context recovery policy controlling how the notifier handles degraded or compact-error TUI states before delivering mail. Policy can be set via `houmao-mgr agents gateway` and launch profiles.
+- **Pairwise v3 workspace-aware loop skill**: new `houmao-agent-loop-pairwise-v3` system skill adds full workspace-contract support to pairwise loop authoring and operation, with structured plan templates, delegation policy, and run-charter reference pages.
+- **Pairwise v2 recover-and-continue guidance**: `houmao-agent-loop-pairwise-v2` skill gains an explicit `recover-and-continue` operating subskill for handling stalled or failed loop runs without losing run state.
+
+### Fixed
+
+- **Launch-profile lane ownership enforced**: `houmao-mgr project easy` and `houmao-mgr project launch-profiles` now reject operations that would create or update a launch profile to own components from a different lane, preventing silent cross-lane ownership conflicts.
+- **Task reminders explicit in managed prompt header**: the task-reminder section of the managed prompt header is now always injected as an explicit inline reminder rather than relying on implicit context, ensuring agents follow active task constraints across prompt turns.
+
 ## [0.7.3] - 2026-04-19
 
 ### Added

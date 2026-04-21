@@ -13,15 +13,15 @@
     "dev": "tsx watch server/index.ts"
   },
   "dependencies": {
+    "@mdit/plugin-katex": "^0.25.2",
     "audit-shared": "file:../audit-shared",
     "express": "^4.19.2",
     "js-yaml": "^4.1.0",
-    "katex": "^0.16.10",
+    "katex": "^0.16.45",
     "markdown-it": "^14.1.0",
     "markdown-it-anchor": "^9.0.1",
     "markdown-it-attrs": "^4.2.0",
-    "markdown-it-texmath": "^1.0.0",
-    "mermaid": "^10.9.0",
+    "mermaid": "^11.14.0",
     "minisearch": "^7.2.0"
   },
   "devDependencies": {

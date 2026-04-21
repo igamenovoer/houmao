@@ -14,7 +14,7 @@ Houmao keeps the easy lane intentionally separate from the explicit `recipe + la
 | **Easy specialist + easy profile** | The same specialist relaunched with the same managed-agent name, working directory, credential lane, mailbox, and launch posture. | One specialist plus one or more easy profiles authored over that specialist. |
 | **Explicit recipe + launch-profile** | Teams that need precise control over the underlying recipe (skills list, setup bundle, prompt-mode default, mailbox-source declaration) and over the full birth-time launch contract. | A recipe authored through `project agents recipes ...` plus a launch profile authored through `project agents launch-profiles ...`. |
 
-An easy specialist is still a convenience layer over the full recipe system. Under the hood, `specialist create` generates the same projection structure (`roles/<name>/`, `tools/<tool>/auth/<creds>/`, the recipe under `.houmao/agents/presets/<name>.yaml`) that the low-level `project agents recipes ...` commands produce — it just does it in one step.
+An easy specialist is still a convenience layer over the full recipe system. Under the hood, `specialist create` generates the same projection structure (`roles/<name>/`, `tools/<tool>/auth/<creds>/`, the recipe under `.houmao/agents/presets/<name>.yaml`) that the low-level `project agents recipes ...` commands produce — it just does it in one step. Project-local custom skills now follow the same pattern: register them canonically under `.houmao/content/skills/` through `project skills ...`, then bind those registered skill names to specialists.
 
 ## Specialist → Easy Profile → Instance → Managed Agent
 
@@ -36,6 +36,21 @@ flowchart TD
 - An **instance** is a running managed agent launched from either a specialist directly or from an easy profile. It gets its own tmux session, brain home, and registry entry.
 - An instance IS a managed agent — it appears in `agents list`, can be targeted by `agents prompt`, `agents gateway`, `agents mail`, and all other managed-agent commands.
 
+## Register Project Skills First
+
+```bash
+houmao-mgr project skills add \
+  --name repo-map \
+  --source ./skills/repo-map \
+  --mode copy
+```
+
+- Use `--mode copy` when you want the overlay to own its own copy under `.houmao/content/skills/<name>/`.
+- Use `--mode symlink` when you want `.houmao/content/skills/<name>` to stay live against the original source directory.
+- Treat `.houmao/content/skills/` as canonical project skill storage. `.houmao/agents/skills/` is derived projection only.
+
+If this project already has an older easy-specialist layout or compatibility-tree-first project skills, run `houmao-mgr project migrate` before using ordinary `project easy ...` or `project skills ...` commands. Maintained commands do not silently upgrade those overlays in place.
+
 ## Creating a Specialist
 
 ```bash
@@ -43,7 +58,8 @@ houmao-mgr project easy specialist create \
   --name my-reviewer \
   --tool claude \
   --system-prompt-file ./prompts/reviewer.md \
-  --api-key "$ANTHROPIC_API_KEY"
+  --api-key "$ANTHROPIC_API_KEY" \
+  --skill repo-map
 ```
 
 Key options:
@@ -56,7 +72,8 @@ Key options:
 | `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
 | `--api-key` | None | API key for the selected tool. |
 | `--setup` | `default` | Preset setup name within the tool's setup bundles. |
-| `--with-skill` | None | Repeatable. Path to a skill directory (must contain `SKILL.md`). |
+| `--skill` | None | Repeatable. Bind one already registered project skill by name. |
+| `--with-skill` | None | Repeatable. Convenience path: register or update one skill directory (must contain `SKILL.md`) and then bind that resulting project skill name. |
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 | `--model` | None | Optional launch-owned default model name. |
@@ -94,7 +111,8 @@ houmao-mgr project easy specialist create \
   --name claude-reviewer \
   --tool claude \
   --system-prompt "You are a Claude-based code reviewer." \
-  --claude-config-dir ~/.claude
+  --claude-config-dir ~/.claude \
+  --skill repo-map
 ```
 
 Gemini-specific auth inputs now support two maintained lanes:
@@ -113,7 +131,8 @@ houmao-mgr project easy specialist create \
   --system-prompt "You are a Gemini-based code reviewer." \
   --api-key "$GEMINI_API_KEY" \
   --base-url https://gemini.example.test \
-  --gemini-oauth-creds ./secrets/oauth_creds.json
+  --gemini-oauth-creds ./secrets/oauth_creds.json \
+  --skill repo-map
 ```
 
 ## Editing a Specialist
@@ -124,7 +143,7 @@ Use `specialist set` for ordinary changes to an existing specialist. It patches 
 houmao-mgr project easy specialist set \
   --name my-reviewer \
   --system-prompt-file ./prompts/reviewer-v2.md \
-  --with-skill ./skills/repo-map \
+  --add-skill repo-map \
   --remove-skill old-notes \
   --prompt-mode unattended
 ```
@@ -135,8 +154,8 @@ Common patch options:
 |---|---|
 | `--system-prompt` / `--system-prompt-file` | Replace the stored prompt from inline text or a file. |
 | `--clear-system-prompt` | Store an empty prompt. |
-| `--with-skill <dir>` | Import a skill directory and add it to the specialist. |
-| `--add-skill <name>` / `--remove-skill <name>` | Add or remove an already projected project skill by name. |
+| `--with-skill <dir>` | Register or update a skill directory and then add that project skill to the specialist. |
+| `--add-skill <name>` / `--remove-skill <name>` | Add or remove an already registered project skill by name. |
 | `--clear-skills` | Remove all skills from this specialist. Shared skill content remains available to other specialists. |
 | `--setup <name>` | Switch to a different setup bundle for the specialist's current tool lane. |
 | `--credential <name>` | Switch to another existing credential display name for the specialist's current tool lane. |
@@ -304,9 +323,10 @@ Easy-lane data is stored across the project overlay as follows:
 | `.houmao/catalog.sqlite` | Specialist metadata, easy-profile metadata, and references to managed content. Both easy profiles and explicit launch profiles share the same catalog launch-profile family. |
 | `.houmao/content/prompts/<name>.md` | System prompt file (and prompt-overlay text files when an easy profile uses `--prompt-overlay-file`). |
 | `.houmao/content/auth/<tool>/<opaque-bundle-ref>/` | Auth bundle directory tree stored by opaque bundle ref. The user-facing auth display name lives in the catalog. |
-| `.houmao/content/skills/<skill>/` | Skill directory copies. |
+| `.houmao/content/skills/<skill>/` | Canonical project skill entry. In `copy` mode this is a project-owned directory; in `symlink` mode this path is a symlink to the chosen source directory. |
 | `.houmao/agents/roles/<name>/` | Generated role projection with `system-prompt.md`. |
 | `.houmao/agents/presets/<recipe>.yaml` | Generated recipe projection (also addressable through the `presets` compatibility-alias CLI). |
+| `.houmao/agents/skills/<skill>/` | Derived compatibility projection rebuilt from `.houmao/content/skills/`. Do not treat it as the source of truth. |
 | `.houmao/agents/launch-profiles/<profile>.yaml` | Easy-profile and explicit launch-profile compatibility projection. |
 
 ## See Also

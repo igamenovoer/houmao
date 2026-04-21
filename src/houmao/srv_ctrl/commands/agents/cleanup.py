@@ -48,9 +48,15 @@ def cleanup_group() -> None:
     is_flag=True,
     help="Preview removable artifacts without deleting them.",
 )
+@click.option(
+    "--purge-registry",
+    is_flag=True,
+    help="Delete the lifecycle registry record instead of retiring it after session cleanup.",
+)
 @_cleanup_target_options
 def cleanup_session_command(
     dry_run: bool,
+    purge_registry: bool,
     agent_id: str | None,
     agent_name: str | None,
     manifest_path: Path | None,
@@ -65,6 +71,7 @@ def cleanup_session_command(
             manifest_path=manifest_path,
             session_root=session_root,
             dry_run=dry_run,
+            purge_registry=purge_registry,
         )
     )
 

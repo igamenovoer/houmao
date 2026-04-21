@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
@@ -19,6 +19,7 @@ from reactivex.subject import Subject
 
 from houmao.shared_tui_tracking.models import (
     ChatContextState,
+    DegradedChatContextDiagnostic,
     DetectedTurnSignals,
     RecentProfileFrame,
     TemporalHintSignals,
@@ -53,6 +54,7 @@ class _MutableTrackerState:
     active_reasons: tuple[str, ...]
     notes: tuple[str, ...]
     chat_context: ChatContextState
+    chat_context_diagnostic: DegradedChatContextDiagnostic | None
 
 
 class TuiTrackerSession:
@@ -110,6 +112,7 @@ class TuiTrackerSession:
             active_reasons=(),
             notes=(),
             chat_context=initial_signals.chat_context,
+            chat_context_diagnostic=initial_signals.chat_context_diagnostic,
         )
         self.m_state_signature: str = _state_signature(self.m_state)
         self.m_stable_since_seconds: float = 0.0
@@ -245,6 +248,7 @@ class TuiTrackerSession:
                 active_reasons=self.m_state.active_reasons,
                 notes=self.m_state.notes,
                 chat_context=self.m_state.chat_context,
+                chat_context_diagnostic=self.m_state.chat_context_diagnostic,
             )
 
     def _handle_snapshot_event(self, raw_text: str) -> None:
@@ -491,6 +495,7 @@ class TuiTrackerSession:
             active_reasons=signals.active_reasons,
             notes=signals.notes,
             chat_context=signals.chat_context,
+            chat_context_diagnostic=signals.chat_context_diagnostic,
         )
 
     def _arm_success_timer_locked(self, *, surface_signature: str) -> None:
@@ -582,6 +587,7 @@ class TuiTrackerSession:
                 active_reasons=signals.active_reasons,
                 notes=signals.notes,
                 chat_context=signals.chat_context,
+                chat_context_diagnostic=signals.chat_context_diagnostic,
             )
             self.m_settled_success_signature = self.m_pending_success_signature
             self.m_armed_turn_source = None
@@ -644,6 +650,7 @@ class TuiTrackerSession:
             surface_signature=signals.surface_signature,
             notes=notes,
             chat_context=signals.chat_context,
+            chat_context_diagnostic=signals.chat_context_diagnostic,
         )
 
     def _has_armed_turn_authority_locked(self) -> bool:
@@ -730,6 +737,7 @@ class TuiTrackerSession:
         active_reasons: tuple[str, ...],
         notes: tuple[str, ...],
         chat_context: ChatContextState,
+        chat_context_diagnostic: DegradedChatContextDiagnostic | None = None,
     ) -> None:
         """Apply one state change and emit a transition when it is visible."""
 
@@ -746,6 +754,7 @@ class TuiTrackerSession:
             active_reasons=active_reasons,
             notes=notes,
             chat_context=chat_context,
+            chat_context_diagnostic=chat_context_diagnostic,
         )
         if next_state == self.m_state:
             self._log_debug(
@@ -783,6 +792,7 @@ class TuiTrackerSession:
             active_reasons=snapshot.active_reasons,
             notes=snapshot.notes,
             chat_context=snapshot.chat_context,
+            chat_context_diagnostic=snapshot.chat_context_diagnostic,
             stability_signature=snapshot.stability_signature,
             stable=snapshot.stable,
             stable_for_seconds=snapshot.stable_for_seconds,
@@ -816,6 +826,7 @@ class TuiTrackerSession:
                 "last_turn_result": snapshot.last_turn_result,
                 "last_turn_source": snapshot.last_turn_source,
                 "chat_context": snapshot.chat_context,
+                "chat_context_diagnostic": _diagnostic_payload(snapshot.chat_context_diagnostic),
             },
         )
 
@@ -835,6 +846,7 @@ class TuiTrackerSession:
             active_reasons=self.m_state.active_reasons,
             notes=self.m_state.notes,
             chat_context=self.m_state.chat_context,
+            chat_context_diagnostic=self.m_state.chat_context_diagnostic,
             stability_signature=self.m_state_signature,
             stable=stable_for_seconds >= self.m_config.stability_threshold_seconds,
             stable_for_seconds=stable_for_seconds,
@@ -887,6 +899,7 @@ def _state_signature(state: _MutableTrackerState) -> str:
             "active_reasons": list(state.active_reasons),
             "notes": list(state.notes),
             "chat_context": state.chat_context,
+            "chat_context_diagnostic": _diagnostic_payload(state.chat_context_diagnostic),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -900,6 +913,16 @@ def _short_signature(value: str | None) -> str | None:
     if value is None:
         return None
     return value[:12]
+
+
+def _diagnostic_payload(
+    diagnostic: DegradedChatContextDiagnostic | None,
+) -> dict[str, Any] | None:
+    """Return a JSON-serializable diagnostic payload."""
+
+    if diagnostic is None:
+        return None
+    return asdict(diagnostic)
 
 
 def _summarize_mutable_tracker_state(state: _MutableTrackerState) -> dict[str, Any]:
@@ -917,6 +940,7 @@ def _summarize_mutable_tracker_state(state: _MutableTrackerState) -> dict[str, A
         "active_reasons": list(state.active_reasons),
         "notes": list(state.notes),
         "chat_context": state.chat_context,
+        "chat_context_diagnostic": _diagnostic_payload(state.chat_context_diagnostic),
     }
 
 
@@ -944,6 +968,7 @@ def _summarize_detected_turn_signals(signals: DetectedTurnSignals) -> dict[str, 
         "ambiguous_interactive_surface": signals.ambiguous_interactive_surface,
         "success_blocked": signals.success_blocked,
         "chat_context": signals.chat_context,
+        "chat_context_diagnostic": _diagnostic_payload(signals.chat_context_diagnostic),
         "surface_signature": _short_signature(signals.surface_signature),
         "notes": list(signals.notes),
     }
@@ -1034,4 +1059,5 @@ def _merge_temporal_hints(
         surface_signature=signals.surface_signature,
         notes=notes,
         chat_context=signals.chat_context,
+        chat_context_diagnostic=signals.chat_context_diagnostic,
     )

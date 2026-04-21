@@ -38,7 +38,7 @@ The header has six stable policy sections. CLI and stored-profile policy use the
 | `memo-cue` | `<memo_cue>` | enabled | Makes memo reading mandatory before planning or acting at every prompt turn, new dialog, topic change, compaction, or cleared-context boundary; limits the memo to concise working rules and current facts; sends long details to `pages/` with short memo links; allows updates only on explicit memo prompts or obviously stale facts; and requires memo-relative `pages/...` links. |
 | `houmao-runtime-guidance` | `<houmao_runtime_guidance>` | enabled | Tells the agent to prefer bundled Houmao workflows, `houmao-mgr`, Houmao-owned manifests, runtime metadata, and supported service interfaces for Houmao-managed work. |
 | `automation-notice` | `<automation_notice>` | enabled | States that the agent is in fully automated mode, prohibits interactive user-question tools, and directs mailbox-driven clarification to reply-enabled mailbox threads when available. |
-| `task-reminder` | `<task_reminder>` | disabled | Instructs long-running mailbox-style work to create a short gateway reminder and clear it when the final action is complete. |
+| `task-reminder` | `<task_reminder>` | disabled | Reserves reminders for explicit self-reminding requests or concrete supervision/finalization checks, and tells the agent to keep using local working state when no such reminder target exists. |
 | `mail-ack` | `<mail_ack>` | disabled | Instructs mailbox-driven work to send a concise acknowledgement to the reply-enabled address before substantive work. |
 
 The structured prompt is part of the prompt body delivered to the underlying CLI tool. It is not a separate transport channel, RPC, or out-of-band signal. The model sees it the same way it would see any other system prompt content.
@@ -147,6 +147,8 @@ Section policy resolves independently for each section:
 | (none) | absent | section default | `default` |
 
 For example, a stored profile can disable only `automation-notice` while keeping the default `identity`, `memo-cue`, and `houmao-runtime-guidance` sections. A one-shot launch can then restore the notice with `--managed-header-section automation-notice=enabled`, disable the memo cue with `--managed-header-section memo-cue=disabled`, or enable the default-off mailbox sections with `--managed-header-section task-reminder=enabled --managed-header-section mail-ack=enabled`.
+
+When `task-reminder` is enabled, it does not authorize generic "check back later" self-pings. The section is intentionally narrower: it is for explicit operator-requested self-reminding or for concrete supervision/finalization obligations such as a required reply, a required file write, or an agent/loop health check. If there is no concrete reminder target, the agent should keep its progress in local todo, memo, or other working state instead of creating a ceremonial reminder turn.
 
 ## Verifying the Header for One Launch
 

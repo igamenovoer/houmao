@@ -38,6 +38,7 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.ready import (
 )
 from houmao.shared_tui_tracking.detectors import BaseTrackedTurnSignalDetector
 from houmao.shared_tui_tracking.models import (
+    DegradedChatContextDiagnostic,
     DetectedTurnSignals,
     ParsedSurfaceContext,
     RecentProfileFrame,
@@ -51,6 +52,7 @@ _TEMPORAL_WINDOW_SECONDS = 3.0
 _MAX_CONTIGUOUS_GAP_SECONDS = 2.0
 _MIN_GROWTH_CHARS = 48
 _MIN_ADDED_LINES = 2
+_MAX_DEGRADED_MESSAGE_PREVIEW_CHARS = 240
 LOGGER = logging.getLogger(__name__)
 
 
@@ -130,6 +132,17 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         current_error_present = terminal_signal is not None
         degraded_context = (
             terminal_signal.degraded_context if terminal_signal is not None else False
+        )
+        degraded_context_diagnostic = (
+            DegradedChatContextDiagnostic(
+                tool_name="codex",
+                detector_name="codex_tui",
+                detector_version=self.detector_version,
+                degraded_error_type=terminal_signal.degraded_error_type or "unknown",
+                message_preview=_message_preview(terminal_signal.block_text),
+            )
+            if degraded_context and terminal_signal is not None
+            else None
         )
         known_failure = (
             terminal_signal.known_failure
@@ -222,6 +235,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             surface_signature=surface_signature,
             notes=tuple(notes),
             chat_context="degraded" if degraded_context else "current",
+            chat_context_diagnostic=degraded_context_diagnostic,
         )
 
     def build_temporal_frame(
@@ -345,6 +359,15 @@ class CodexTuiSignalDetectorV0_116_X(_BaseCodexTuiSignalDetector):
             detector_version="0.116.x",
             prompt_behavior_variant=CodexPromptBehaviorVariantV0_116_X(),
         )
+
+
+def _message_preview(value: str) -> str:
+    """Return a bounded single-line preview suitable for diagnostics."""
+
+    normalized = " ".join(value.split())
+    if len(normalized) <= _MAX_DEGRADED_MESSAGE_PREVIEW_CHARS:
+        return normalized
+    return normalized[: _MAX_DEGRADED_MESSAGE_PREVIEW_CHARS - 1].rstrip() + "..."
 
 
 class FallbackCodexTuiSignalDetector(_BaseCodexTuiSignalDetector):

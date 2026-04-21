@@ -2,6 +2,7 @@ from __future__ import annotations
 import click
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +18,14 @@ from houmao.agents.realm_controller.manifest import (
     write_session_manifest,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.registry_models import (
+    ManagedAgentRegistryRecordV3,
+    RegistryIdentityV1,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
+    RegistryRuntimeV1,
+    RegistryTerminalV2,
+)
 from houmao.mailbox import bootstrap_filesystem_mailbox
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
@@ -108,17 +117,45 @@ def _registry_record(
     session_name: str = "join-sess",
     agent_id: str = "agent-joined",
     agent_name: str = "joined-agent",
-) -> SimpleNamespace:
-    """Build one lightweight registry-record stand-in for cleanup tests."""
+    lifecycle_state: str = "stopped",
+) -> ManagedAgentRegistryRecordV3:
+    """Build one lifecycle-aware registry record for cleanup tests."""
 
-    return SimpleNamespace(
+    published_at = datetime.now(UTC)
+    current_session_name = session_name if lifecycle_state == "active" else None
+    return ManagedAgentRegistryRecordV3(
         agent_id=agent_id,
         agent_name=agent_name,
-        runtime=SimpleNamespace(
+        generation_id="generation-1",
+        lifecycle=RegistryLifecycleV1(
+            state=lifecycle_state,
+            relaunchable=lifecycle_state != "retired",
+            state_updated_at=published_at.isoformat(timespec="seconds"),
+            stopped_at=(
+                published_at.isoformat(timespec="seconds")
+                if lifecycle_state in {"stopped", "retired"}
+                else None
+            ),
+            stop_reason="operator_stop" if lifecycle_state in {"stopped", "retired"} else None,
+        ),
+        identity=RegistryIdentityV1(backend="codex_headless", tool="codex"),
+        runtime=RegistryRuntimeV1(
             manifest_path=str(manifest_path.resolve()),
             session_root=(str(session_root.resolve()) if session_root is not None else None),
+            agent_def_dir="/tmp/agents",
         ),
-        terminal=SimpleNamespace(session_name=session_name),
+        terminal=RegistryTerminalV2(
+            current_session_name=current_session_name,
+            last_session_name=session_name or "join-sess",
+        ),
+        liveness=(
+            RegistryLivenessV1(
+                published_at=published_at.isoformat(timespec="seconds"),
+                lease_expires_at=(published_at + timedelta(minutes=5)).isoformat(timespec="seconds"),
+            )
+            if lifecycle_state == "active"
+            else None
+        ),
     )
 
 
@@ -343,7 +380,7 @@ def test_current_session_cleanup_resolution_falls_back_to_registry_session_root(
     )
     monkeypatch.setattr(
         runtime_cleanup,
-        "_resolve_local_managed_agent_record",
+        "_resolve_local_cleanup_registry_record",
         lambda *, agent_id, agent_name: (
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
@@ -376,7 +413,7 @@ def test_managed_session_cleanup_uses_registry_session_root_when_manifest_pointe
 
     monkeypatch.setattr(
         runtime_cleanup,
-        "_resolve_local_managed_agent_record",
+        "_resolve_local_cleanup_registry_record",
         lambda *, agent_id, agent_name: (
             record if agent_id == "agent-joined" and agent_name is None else None
         ),
@@ -395,6 +432,49 @@ def test_managed_session_cleanup_uses_registry_session_root_when_manifest_pointe
     assert target.parse_error is not None
 
 
+def test_managed_session_cleanup_prefers_registry_record_over_runtime_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    scan_manifest = _write_runtime_manifest(tmp_path, runtime_root=runtime_root, session_id="session-scan")
+    registry_manifest = _write_runtime_manifest(
+        tmp_path,
+        runtime_root=runtime_root,
+        session_id="session-registry",
+        tmux_session_name="join-sess-registry",
+    )
+    record = _registry_record(
+        manifest_path=registry_manifest,
+        session_root=registry_manifest.parent,
+        session_name="join-sess-registry",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_effective_runtime_root",
+        lambda runtime_root: runtime_root or (tmp_path / "runtime").resolve(),
+    )
+
+    target = runtime_cleanup.resolve_managed_session_cleanup_target(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+    )
+
+    assert target.session_root == registry_manifest.parent.resolve()
+    assert target.manifest_path == registry_manifest.resolve()
+    assert target.session_root != scan_manifest.parent.resolve()
+
+
 def test_managed_session_cleanup_recovers_stopped_session_by_agent_id(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -404,7 +484,7 @@ def test_managed_session_cleanup_recovers_stopped_session_by_agent_id(
 
     monkeypatch.setattr(
         runtime_cleanup,
-        "_resolve_local_managed_agent_record",
+        "_resolve_local_cleanup_registry_record",
         lambda *, agent_id, agent_name: None,
     )
     monkeypatch.setattr(
@@ -437,7 +517,7 @@ def test_managed_session_cleanup_recovers_stopped_session_by_agent_name(
 
     monkeypatch.setattr(
         runtime_cleanup,
-        "_resolve_local_managed_agent_record",
+        "_resolve_local_cleanup_registry_record",
         lambda *, agent_id, agent_name: None,
     )
     monkeypatch.setattr(
@@ -460,6 +540,56 @@ def test_managed_session_cleanup_recovers_stopped_session_by_agent_name(
     assert payload["scope"]["session_root"] == str(manifest_path.parent)
 
 
+def test_managed_session_cleanup_registry_name_ambiguity_lists_lifecycle_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    first_manifest = _write_runtime_manifest(tmp_path, session_id="session-1")
+    second_manifest = _write_runtime_manifest(
+        tmp_path,
+        session_id="session-2",
+        tmux_session_name="join-sess-2",
+    )
+    first_record = _registry_record(
+        manifest_path=first_manifest,
+        session_root=first_manifest.parent,
+        agent_id="agent-1",
+        agent_name="reviewer",
+        lifecycle_state="stopped",
+    )
+    second_record = _registry_record(
+        manifest_path=second_manifest,
+        session_root=second_manifest.parent,
+        agent_id="agent-2",
+        agent_name="reviewer",
+        session_name="join-sess-2",
+        lifecycle_state="retired",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "resolve_cleanup_managed_agent_records_by_name",
+        lambda agent_name: (first_record, second_record),
+    )
+
+    with pytest.raises(runtime_cleanup.CleanupResolutionError) as exc_info:
+        runtime_cleanup.resolve_managed_session_cleanup_target(
+            agent_id=None,
+            agent_name="reviewer",
+            manifest_path=None,
+            session_root=None,
+        )
+
+    message = str(exc_info.value)
+    assert "ambiguous" in message
+    assert "agent-1" in message
+    assert "agent-2" in message
+    assert "lifecycle_state=stopped" in message
+    assert "lifecycle_state=retired" in message
+    assert str(first_manifest) in message
+    assert str(second_manifest.parent.resolve()) in message
+
+
 def test_managed_session_cleanup_stopped_selector_ambiguity_lists_candidates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -479,7 +609,7 @@ def test_managed_session_cleanup_stopped_selector_ambiguity_lists_candidates(
 
     monkeypatch.setattr(
         runtime_cleanup,
-        "_resolve_local_managed_agent_record",
+        "_resolve_local_cleanup_registry_record",
         lambda *, agent_id, agent_name: None,
     )
     monkeypatch.setattr(
@@ -513,7 +643,7 @@ def test_managed_session_cleanup_stopped_selector_no_match_is_explicit(
 
     monkeypatch.setattr(
         runtime_cleanup,
-        "_resolve_local_managed_agent_record",
+        "_resolve_local_cleanup_registry_record",
         lambda *, agent_id, agent_name: None,
     )
     monkeypatch.setattr(
@@ -650,6 +780,188 @@ def test_managed_session_cleanup_blocks_live_session_removal(
     assert blocked_kinds == {"session_root"}
 
 
+def test_managed_session_cleanup_retires_stopped_registry_record_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="stopped",
+    )
+    captured: dict[str, ManagedAgentRegistryRecordV3] = {}
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "publish_managed_agent_record",
+        lambda updated_record: captured.setdefault("record", updated_record),
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=False,
+    )
+
+    assert not session_root.exists()
+    assert {action["artifact_kind"] for action in payload["applied_actions"]} == {
+        "managed_agent_registry_record",
+        "session_root",
+    }
+    assert payload["summary"]["registry_lifecycle_action"] == "retire"
+    assert captured["record"].lifecycle.state == "retired"
+    assert captured["record"].lifecycle.relaunchable is False
+
+
+def test_managed_session_cleanup_purges_registry_record_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="stopped",
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "remove_managed_agent_record",
+        lambda agent_id, generation_id=None: captured.update(
+            {"agent_id": agent_id, "generation_id": generation_id}
+        )
+        or True,
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=False,
+        purge_registry=True,
+    )
+
+    assert not session_root.exists()
+    assert payload["summary"]["registry_lifecycle_action"] == "purge"
+    assert {action["proposed_action"] for action in payload["applied_actions"]} == {
+        "remove",
+        "purge",
+    }
+    assert captured == {"agent_id": "agent-joined", "generation_id": "generation-1"}
+
+
+def test_managed_session_cleanup_dry_run_reports_registry_lifecycle_action(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="stopped",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "publish_managed_agent_record",
+        lambda updated_record: (_ for _ in ()).throw(AssertionError("unexpected publish")),
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "remove_managed_agent_record",
+        lambda agent_id, generation_id=None: (_ for _ in ()).throw(
+            AssertionError("unexpected purge")
+        ),
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=True,
+    )
+
+    assert session_root.exists()
+    assert payload["summary"]["registry_lifecycle_action"] == "retire"
+    assert {action["artifact_kind"] for action in payload["planned_actions"]} == {
+        "managed_agent_registry_record",
+        "session_root",
+    }
+
+
+def test_managed_session_cleanup_blocks_active_registry_record_even_without_live_tmux(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="active",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "publish_managed_agent_record",
+        lambda updated_record: (_ for _ in ()).throw(AssertionError("unexpected retire")),
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=False,
+    )
+
+    assert session_root.exists()
+    assert payload["applied_actions"] == []
+    assert {action["artifact_kind"] for action in payload["blocked_actions"]} == {"session_root"}
+    assert payload["summary"]["registry_lifecycle_action"] is None
+
+
 def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_registry_evidence(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -662,7 +974,11 @@ def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_r
         session_root=session_root,
     )
 
-    monkeypatch.setattr(runtime_cleanup, "_list_registry_records", lambda: [record])
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_list_registry_records",
+        lambda lifecycle_state="active": [record],
+    )
     monkeypatch.setattr(
         runtime_cleanup,
         "tmux_session_exists",
@@ -680,6 +996,46 @@ def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_r
     assert session_root.exists()
     assert payload["applied_actions"] == []
     assert {action["artifact_kind"] for action in payload["blocked_actions"]} == {"session_root"}
+
+
+def test_agents_cleanup_session_command_forwards_purge_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.cleanup.cleanup_managed_session",
+        lambda **kwargs: captured.update(kwargs)
+        or {
+            "dry_run": True,
+            "scope": {},
+            "resolution": {},
+            "planned_actions": [],
+            "applied_actions": [],
+            "blocked_actions": [],
+            "preserved_actions": [],
+            "summary": {},
+        },
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "cleanup",
+            "session",
+            "--agent-id",
+            "agent-joined",
+            "--dry-run",
+            "--purge-registry",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["agent_id"] == "agent-joined"
+    assert captured["dry_run"] is True
+    assert captured["purge_registry"] is True
 
 
 def test_managed_session_logs_missing_manifest_still_cleans_remaining_artifacts(

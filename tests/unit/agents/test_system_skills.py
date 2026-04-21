@@ -36,6 +36,7 @@ CORE_SYSTEM_SKILLS = (
     "houmao-agent-definition",
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-pairwise-v2",
+    "houmao-agent-loop-pairwise-v3",
     "houmao-agent-loop-generic",
     "houmao-agent-instance",
     "houmao-agent-inspect",
@@ -94,6 +95,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-definition",
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
+        "houmao-agent-loop-pairwise-v3",
         "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",
@@ -205,9 +207,28 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "Execute Mode" in skill_text
     assert "For `in-repo`, the default planned launch cwd is `<repo-root>`" in skill_text
     assert "For `in-repo` memo seeds" in skill_text
+    assert "discover local-state symlink candidates recursively" in skill_text
+    assert "reachable `.pixi/` directories, at any depth" in skill_text
+    assert "explicitly local-only files or directories whose basename does not start with `.`" in (
+        skill_text
+    )
+    assert "`.pixi/` is the only default dot-prefixed exception" in skill_text
+    assert "`.hidden-parent/.pixi/` is skipped" in skill_text
+    assert "Do not follow symlinked directories" in skill_text
+    assert "skip if Git tracks any files under the source subtree" in skill_text
     assert "The repo root is the shared visibility surface." in in_repo_text
     assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
-    assert "| `<repo-root>/houmao-ws/<agent-name>/kb/**` | yes | yes | yes | no |" in (
+    assert "recursive local-state symlink decisions" in in_repo_text
+    assert "hidden-path skips, symlink traversal skips, and tracked-content conflict skips" in (
+        in_repo_text
+    )
+    assert "Resolve one `task-name` for the workspace team." in in_repo_text
+    assert "<repo-root>/houmao-ws/<task-name>" in in_repo_text
+    assert "houmao/<task-name>/<agent-name>/main" in in_repo_text
+    assert "| `<repo-root>/houmao-ws/<task-name>/<agent-name>/kb/**` | yes | yes | yes | no |" in (
+        in_repo_text
+    )
+    assert "| `<repo-root>/houmao-ws/workspaces.md` | yes | no by default | yes | no by default |" in (
         in_repo_text
     )
     assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
@@ -278,6 +299,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v2_authoring = home_path / "skills/houmao-agent-loop-pairwise-v2/authoring"
     pairwise_loop_v2_prestart = home_path / "skills/houmao-agent-loop-pairwise-v2/prestart"
     pairwise_loop_v2_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
+    pairwise_loop_v3_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
+    pairwise_loop_v3_authoring = home_path / "skills/houmao-agent-loop-pairwise-v3/authoring"
+    pairwise_loop_v3_prestart = home_path / "skills/houmao-agent-loop-pairwise-v3/prestart"
+    pairwise_loop_v3_operating = home_path / "skills/houmao-agent-loop-pairwise-v3/operating"
+    pairwise_loop_v3_references = home_path / "skills/houmao-agent-loop-pairwise-v3/references"
     relay_loop_skill_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
@@ -308,7 +334,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert (pairwise_loop_v2_prestart / "prepare-run.md").is_file()
     assert (pairwise_loop_v2_operating / "start.md").is_file()
     assert (pairwise_loop_v2_operating / "peek.md").is_file()
+    assert (pairwise_loop_v2_operating / "recover-and-continue.md").is_file()
     assert (pairwise_loop_v2_operating / "hard-kill.md").is_file()
+    assert pairwise_loop_v3_skill_path.is_file()
+    assert (pairwise_loop_v3_authoring / "formulate-loop-plan.md").is_file()
+    assert (pairwise_loop_v3_prestart / "prepare-run.md").is_file()
+    assert (pairwise_loop_v3_operating / "start.md").is_file()
+    assert (pairwise_loop_v3_operating / "recover-and-continue.md").is_file()
+    assert (pairwise_loop_v3_references / "workspace-contract.md").is_file()
     assert relay_loop_skill_path.is_file()
     assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
     assert (relay_loop_operating / "start.md").is_file()
@@ -321,6 +354,17 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v2_prepare_run = (pairwise_loop_v2_prestart / "prepare-run.md").read_text(
         encoding="utf-8"
     )
+    pairwise_loop_v2_start = (pairwise_loop_v2_operating / "start.md").read_text(encoding="utf-8")
+    pairwise_loop_v3_skill = pairwise_loop_v3_skill_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_prepare_run = (pairwise_loop_v3_prestart / "prepare-run.md").read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v3_start = (pairwise_loop_v3_operating / "start.md").read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v3_workspace_contract = (
+        pairwise_loop_v3_references / "workspace-contract.md"
+    ).read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
@@ -592,6 +636,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "authoring/formulate-loop-plan.md" in pairwise_loop_v2_skill
     assert "prestart/prepare-run.md" in pairwise_loop_v2_skill
     assert "operating/start.md" in pairwise_loop_v2_skill
+    assert "operating/recover-and-continue.md" in pairwise_loop_v2_skill
     assert (
         "Use this Houmao skill only when the user explicitly asks for "
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
@@ -603,18 +648,72 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert (
         "The canonical operator-facing lifecycle actions are `plan`, `initialize`, "
-        "`start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill`."
-        in pairwise_loop_v2_skill
+        "`start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, "
+        "and `hard-kill`." in pairwise_loop_v2_skill
     )
     assert (
         "The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, "
-        "`ready`, `running`, `paused`, `stopping`, `stopped`, and `dead`." in pairwise_loop_v2_skill
+        "`ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, "
+        "`stopped`, and `dead`." in pairwise_loop_v2_skill
     )
     assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
+    assert (
+        "default `precomputed_routing_packets` validates routing packets" in pairwise_loop_v2_skill
+    )
+    assert "durable start-charter page" in pairwise_loop_v2_skill
+    assert "runtime-owned recovery state" in pairwise_loop_v2_skill
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_v2_skill
+    assert "houmao-memory-mgr" in pairwise_loop_v2_skill
+    assert (
+        "ask for the output directory before drafting or revising files" in pairwise_loop_v2_skill
+    )
+    assert "## Plan Output Directory" in pairwise_loop_v2_skill
+    assert "<plan-output-dir>/" in pairwise_loop_v2_skill
+    assert (
+        "Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v2 write surfaces"
+        in pairwise_loop_v2_skill
+    )
     assert "memo page index" not in pairwise_loop_v2_prepare_run
     assert "pages/<relative-page>" in pairwise_loop_v2_prepare_run
     assert "path-discovery output" in pairwise_loop_v2_prepare_run
+    assert "HOUMAO_PAIRWISE_V2_BEGIN" in pairwise_loop_v2_prepare_run
+    assert "loop-runs/pairwise-v2/<run_id>/initialize.md" in pairwise_loop_v2_prepare_run
+    assert "treat that as a `houmao-memory-mgr` task" in pairwise_loop_v2_prepare_run
+    assert "route that work to `houmao-memory-mgr`" in pairwise_loop_v2_start
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v3_skill
+    assert "references/workspace-contract.md" in pairwise_loop_v3_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise-v3`." in pairwise_loop_v3_skill
+    )
+    assert (
+        "Every authored plan records a `workspace_contract` with mode `standard` or `custom`."
+        in pairwise_loop_v3_skill
+    )
+    assert "standard workspace-preparation skill" in pairwise_loop_v3_skill
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_v3_skill
+    assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
+        pairwise_loop_v3_skill
+    )
+    assert "Do not prescribe a fixed subtree under per-agent `kb/`" in pairwise_loop_v3_skill
+    assert "loop-runs/pairwise-v3/<run_id>/initialize.md" in pairwise_loop_v3_prepare_run
+    assert "when mode is `standard`, record the selected standard posture" in (
+        pairwise_loop_v3_prepare_run
+    )
+    assert "when mode is `custom`, record the explicit operator-owned paths" in (
+        pairwise_loop_v3_prepare_run
+    )
+    assert "loop-runs/pairwise-v3/<run_id>/start-charter.md" in pairwise_loop_v3_start
+    assert "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`" in (
+        pairwise_loop_v3_start
+    )
+    assert "task-qualified branches such as `houmao/<task-name>/<agent-name>/main`" in (
+        pairwise_loop_v3_workspace_contract
+    )
+    assert "Do not use the standard workspace-preparation skill as a custom-workspace translation layer." in (
+        pairwise_loop_v3_workspace_contract
+    )
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
@@ -792,6 +891,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
     pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise-v2/references"
     pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise-v2/templates"
+    pairwise_loop_v3_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
+    pairwise_loop_v3_authoring = home_path / "skills/houmao-agent-loop-pairwise-v3/authoring"
+    pairwise_loop_v3_prestart = home_path / "skills/houmao-agent-loop-pairwise-v3/prestart"
+    pairwise_loop_v3_operating = home_path / "skills/houmao-agent-loop-pairwise-v3/operating"
+    pairwise_loop_v3_references = home_path / "skills/houmao-agent-loop-pairwise-v3/references"
+    pairwise_loop_v3_templates = home_path / "skills/houmao-agent-loop-pairwise-v3/templates"
     relay_loop_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
@@ -817,6 +922,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert utils_workspace_mgr_path.is_file()
     assert stable_pairwise_loop_path.is_file()
     assert pairwise_loop_path.is_file()
+    assert pairwise_loop_v3_path.is_file()
     assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
     memory_mgr_skill = memory_mgr_path.read_text(encoding="utf-8")
@@ -828,6 +934,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_skill = touring_path.read_text(encoding="utf-8")
     stable_pairwise_loop_skill = stable_pairwise_loop_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_skill = pairwise_loop_v3_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     specialist_launch_action_path = specialist_mgr_actions / "launch.md"
@@ -895,6 +1002,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_ping_path = pairwise_loop_operating / "ping.md"
     pairwise_loop_pause_path = pairwise_loop_operating / "pause.md"
     pairwise_loop_resume_path = pairwise_loop_operating / "resume.md"
+    pairwise_loop_recover_and_continue_path = pairwise_loop_operating / "recover-and-continue.md"
     pairwise_loop_stop_path = pairwise_loop_operating / "stop.md"
     pairwise_loop_hard_kill_path = pairwise_loop_operating / "hard-kill.md"
     pairwise_loop_charter_path = pairwise_loop_references / "run-charter.md"
@@ -904,6 +1012,30 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_plan_structure_path = pairwise_loop_references / "plan-structure.md"
     pairwise_loop_single_template_path = pairwise_loop_templates / "single-file-plan.md"
     pairwise_loop_bundle_template_path = pairwise_loop_templates / "bundle-plan.md"
+    pairwise_loop_v3_formulate_path = pairwise_loop_v3_authoring / "formulate-loop-plan.md"
+    pairwise_loop_v3_revise_path = pairwise_loop_v3_authoring / "revise-loop-plan.md"
+    pairwise_loop_v3_graph_path = pairwise_loop_v3_authoring / "render-loop-graph.md"
+    pairwise_loop_v3_prepare_path = pairwise_loop_v3_prestart / "prepare-run.md"
+    pairwise_loop_v3_start_path = pairwise_loop_v3_operating / "start.md"
+    pairwise_loop_v3_peek_path = pairwise_loop_v3_operating / "peek.md"
+    pairwise_loop_v3_ping_path = pairwise_loop_v3_operating / "ping.md"
+    pairwise_loop_v3_pause_path = pairwise_loop_v3_operating / "pause.md"
+    pairwise_loop_v3_resume_path = pairwise_loop_v3_operating / "resume.md"
+    pairwise_loop_v3_recover_and_continue_path = (
+        pairwise_loop_v3_operating / "recover-and-continue.md"
+    )
+    pairwise_loop_v3_stop_path = pairwise_loop_v3_operating / "stop.md"
+    pairwise_loop_v3_hard_kill_path = pairwise_loop_v3_operating / "hard-kill.md"
+    pairwise_loop_v3_charter_path = pairwise_loop_v3_references / "run-charter.md"
+    pairwise_loop_v3_workspace_contract_path = (
+        pairwise_loop_v3_references / "workspace-contract.md"
+    )
+    pairwise_loop_v3_policy_path = pairwise_loop_v3_references / "delegation-policy.md"
+    pairwise_loop_v3_stop_modes_path = pairwise_loop_v3_references / "stop-modes.md"
+    pairwise_loop_v3_reporting_path = pairwise_loop_v3_references / "reporting-contract.md"
+    pairwise_loop_v3_plan_structure_path = pairwise_loop_v3_references / "plan-structure.md"
+    pairwise_loop_v3_single_template_path = pairwise_loop_v3_templates / "single-file-plan.md"
+    pairwise_loop_v3_bundle_template_path = pairwise_loop_v3_templates / "bundle-plan.md"
     relay_loop_formulate_path = relay_loop_authoring / "formulate-loop-plan.md"
     relay_loop_revise_path = relay_loop_authoring / "revise-loop-plan.md"
     relay_loop_graph_path = relay_loop_authoring / "render-loop-graph.md"
@@ -975,6 +1107,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_ping = pairwise_loop_ping_path.read_text(encoding="utf-8")
     pairwise_loop_pause = pairwise_loop_pause_path.read_text(encoding="utf-8")
     pairwise_loop_resume = pairwise_loop_resume_path.read_text(encoding="utf-8")
+    pairwise_loop_recover_and_continue = pairwise_loop_recover_and_continue_path.read_text(
+        encoding="utf-8"
+    )
     pairwise_loop_stop = pairwise_loop_stop_path.read_text(encoding="utf-8")
     pairwise_loop_hard_kill = pairwise_loop_hard_kill_path.read_text(encoding="utf-8")
     pairwise_loop_charter = pairwise_loop_charter_path.read_text(encoding="utf-8")
@@ -983,6 +1118,23 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_plan_structure = pairwise_loop_plan_structure_path.read_text(encoding="utf-8")
     pairwise_loop_single_template = pairwise_loop_single_template_path.read_text(encoding="utf-8")
     pairwise_loop_bundle_template = pairwise_loop_bundle_template_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_formulate = pairwise_loop_v3_formulate_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_revise = pairwise_loop_v3_revise_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_prepare = pairwise_loop_v3_prepare_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_start = pairwise_loop_v3_start_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_charter = pairwise_loop_v3_charter_path.read_text(encoding="utf-8")
+    pairwise_loop_v3_workspace_contract = pairwise_loop_v3_workspace_contract_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v3_plan_structure = pairwise_loop_v3_plan_structure_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v3_single_template = pairwise_loop_v3_single_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v3_bundle_template = pairwise_loop_v3_bundle_template_path.read_text(
+        encoding="utf-8"
+    )
     relay_loop_formulate = relay_loop_formulate_path.read_text(encoding="utf-8")
     relay_loop_revise = relay_loop_revise_path.read_text(encoding="utf-8")
     relay_loop_graph = relay_loop_graph_path.read_text(encoding="utf-8")
@@ -1160,6 +1312,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-project-mgr" in touring_skill
     assert "houmao-agent-loop-pairwise" in touring_skill
     assert "houmao-agent-loop-pairwise-v2" in touring_skill
+    assert "houmao-agent-loop-pairwise-v3" in touring_skill
     assert "houmao-agent-instance" in touring_skill
     assert "## Welcome Message" in touring_skill
     assert "framework and CLI toolkit for orchestrating teams" in touring_skill
@@ -1178,9 +1331,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "gateway_tmux_window_index" in touring_author_launch
     assert "stable pairwise loop" in touring_advanced_usage
     assert "enriched pairwise loop" in touring_advanced_usage
+    assert "Workspace-aware pairwise loop" in touring_advanced_usage
+    assert "authored `standard` or `custom` workspace contract" in touring_advanced_usage
     assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
-    assert "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `stop`" in (
-        touring_advanced_usage
+    assert (
+        "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, "
+        "`recover_and_continue`, `stop`" in touring_advanced_usage
     )
     assert "ask the user to select or explicitly invoke the desired pairwise skill" in (
         touring_advanced_usage
@@ -1225,6 +1381,28 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
     )
     assert "houmao-mgr internals graph high" in pairwise_loop_skill
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v3_skill
+    assert "references/workspace-contract.md" in pairwise_loop_v3_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise-v3`." in pairwise_loop_v3_skill
+    )
+    assert "workspace-aware enriched pairwise-loop skill" in pairwise_loop_v3_skill
+    assert "It extends `houmao-agent-loop-pairwise-v2`" in pairwise_loop_v3_skill
+    assert (
+        "Every authored plan records a `workspace_contract` with mode `standard` or `custom`."
+        in pairwise_loop_v3_skill
+    )
+    assert "Standard in-repo posture is task-scoped under `<repo-root>/houmao-ws/<task-name>/...`." in (
+        pairwise_loop_v3_skill
+    )
+    assert "Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`" in (
+        pairwise_loop_v3_skill
+    )
+    assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
+        pairwise_loop_v3_skill
+    )
+    assert "Do not prescribe a fixed subtree under per-agent `kb/`" in pairwise_loop_v3_skill
     assert "authoring/formulate-loop-plan.md" in relay_loop_skill
     assert "authoring/render-loop-graph.md" in relay_loop_skill
     assert "operating/start.md" in relay_loop_skill
@@ -1277,6 +1455,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_ping_path.is_file()
     assert pairwise_loop_pause_path.is_file()
     assert pairwise_loop_resume_path.is_file()
+    assert pairwise_loop_recover_and_continue_path.is_file()
     assert pairwise_loop_stop_path.is_file()
     assert pairwise_loop_hard_kill_path.is_file()
     assert not (pairwise_loop_operating / "status.md").exists()
@@ -1287,6 +1466,26 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_plan_structure_path.is_file()
     assert pairwise_loop_single_template_path.is_file()
     assert pairwise_loop_bundle_template_path.is_file()
+    assert pairwise_loop_v3_formulate_path.is_file()
+    assert pairwise_loop_v3_revise_path.is_file()
+    assert pairwise_loop_v3_graph_path.is_file()
+    assert pairwise_loop_v3_prepare_path.is_file()
+    assert pairwise_loop_v3_start_path.is_file()
+    assert pairwise_loop_v3_peek_path.is_file()
+    assert pairwise_loop_v3_ping_path.is_file()
+    assert pairwise_loop_v3_pause_path.is_file()
+    assert pairwise_loop_v3_resume_path.is_file()
+    assert pairwise_loop_v3_recover_and_continue_path.is_file()
+    assert pairwise_loop_v3_stop_path.is_file()
+    assert pairwise_loop_v3_hard_kill_path.is_file()
+    assert pairwise_loop_v3_charter_path.is_file()
+    assert pairwise_loop_v3_workspace_contract_path.is_file()
+    assert pairwise_loop_v3_policy_path.is_file()
+    assert pairwise_loop_v3_stop_modes_path.is_file()
+    assert pairwise_loop_v3_reporting_path.is_file()
+    assert pairwise_loop_v3_plan_structure_path.is_file()
+    assert pairwise_loop_v3_single_template_path.is_file()
+    assert pairwise_loop_v3_bundle_template_path.is_file()
     assert relay_loop_formulate_path.is_file()
     assert relay_loop_revise_path.is_file()
     assert relay_loop_graph_path.is_file()
@@ -1372,6 +1571,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "No free delegation is allowed unless the plan says so explicitly."
         in pairwise_loop_formulate
     )
+    assert "Resolve the plan output directory before drafting files" in pairwise_loop_formulate
+    assert "canonical entrypoint path: `<plan-output-dir>/plan.md`" in pairwise_loop_formulate
+    assert "Write the generated plan into the selected output directory" in pairwise_loop_formulate
     assert "first-class structural preflight before authoring packets" in pairwise_loop_formulate
     assert "houmao-mgr internals graph high analyze --input <graph.json>" in (
         pairwise_loop_formulate
@@ -1383,6 +1585,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_formulate
     assert "after `analyze` and any needed `slice` calls" in pairwise_loop_formulate
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_revise
+    assert (
+        "Preserve the current output directory unless the user explicitly asks to move the plan."
+        in (pairwise_loop_revise)
+    )
+    assert "Write the revised plan back under the selected output directory" in pairwise_loop_revise
     assert "by running graph analysis after `start`" in pairwise_loop_revise
     assert "```mermaid" in pairwise_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
@@ -1396,32 +1603,38 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     assert "reply_policy=operator_mailbox" in pairwise_loop_prepare
     assert "canonical `initialize` action" in pairwise_loop_prepare
-    assert "Initialization targets are all named participants by default" in pairwise_loop_prepare
-    assert "include every named participant by default, including leaf participants" in (
+    assert "loop-runs/pairwise-v2/<run_id>/initialize.md" in pairwise_loop_prepare
+    assert "exact begin sentinel and one exact end sentinel keyed by `run_id` and slot" in (
         pairwise_loop_prepare
     )
-    assert "Narrow the recipient set only when the user or plan explicitly names" in (
+    assert "Preparation-mail targets are delegating or non-leaf participants by default" in (
         pairwise_loop_prepare
     )
+    assert "point the participant at its durable initialize page" in pairwise_loop_prepare
     assert (
-        "missing acknowledgements from targeted initialization recipients block `ready`"
-        in pairwise_loop_prepare
+        "Do not treat standalone participant preparation mail as the default initialize path."
+        in (pairwise_loop_prepare)
     )
     assert (
-        "Do not guess packet coverage or initialization email targets when the topology is unclear"
+        "Do not guess packet coverage, initialize page paths, or explicit preparation-wave targets when the topology is unclear"
         in (pairwise_loop_prepare)
     )
     assert "`awaiting_ack`" in pairwise_loop_prepare
     assert "`ready`" in pairwise_loop_prepare
     assert "After the master accepts the run, the master owns liveness" in pairwise_loop_start
     assert "houmao-agent-inspect" in pairwise_loop_start
+    assert "`<plan-output-dir>/plan.md` for the single-file form" in pairwise_loop_start
     assert "`initialize` remains separate from `start`." in pairwise_loop_start
-    assert "initialization email has been sent to the resolved initialization recipients" in (
+    assert (
+        "durable initialize pages and exact-sentinel memo reference blocks have been written or refreshed"
+        in (pairwise_loop_start)
+    )
+    assert "required replies from targeted preparation recipients have arrived" in (
         pairwise_loop_start
     )
-    assert "required replies from targeted initialization recipients have arrived" in (
-        pairwise_loop_start
-    )
+    assert "compact start trigger" in pairwise_loop_start
+    assert "loop-runs/pairwise-v2/<run_id>/start-charter.md" in pairwise_loop_start
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_start
     assert "Do not treat acknowledgement replies as readiness blockers" in pairwise_loop_start
     assert (
         "Later `peek` remains unintrusive, read-only, and does not keep the run alive."
@@ -1441,45 +1654,87 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "suspend the run's wakeup mechanisms" in pairwise_loop_pause
     assert "Disabling mail notifier alone is not sufficient" in pairwise_loop_pause
     assert "`resume` is not a synonym for `start`." in pairwise_loop_resume
+    assert "stopped, killed, or relaunched, use `recover_and_continue` instead" in (
+        pairwise_loop_resume
+    )
+    assert (
+        "restore one accepted pairwise loop after one or more participants were stopped, killed, or relaunched"
+        in (pairwise_loop_recover_and_continue)
+    )
+    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_recover_and_continue
+    assert "`recover_and_continue` preserves the same `run_id`." in (
+        pairwise_loop_recover_and_continue
+    )
+    assert "slot `recover-and-continue`" in pairwise_loop_recover_and_continue
+    assert "Do not replay stale reminder ids as though they were durable recovery state." in (
+        pairwise_loop_recover_and_continue
+    )
     assert "`interrupt-first` is the default stop posture for this skill." in pairwise_loop_stop
+    assert (
+        "Do not mark the recovery record terminal merely because canonical `stop` completed."
+        in (pairwise_loop_stop)
+    )
     assert "`broadcast-stop`" in pairwise_loop_stop
     assert "participant-wide direct intervention" in pairwise_loop_hard_kill
     assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
     assert "archive every open `message_ref`" in pairwise_loop_hard_kill
+    assert "marks the recovery record terminal" in pairwise_loop_hard_kill
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
-    assert "prestart strategy: <email_initialization | packet_only_initialization>" in (
+    assert "`recover_and_continue <run_id>`" in pairwise_loop_charter
+    assert "path: <canonical plan path such as <plan-output-dir>/plan.md>" in pairwise_loop_charter
+    assert "prestart strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_charter
     )
     assert "root routing packet: <inline packet text or exact packet reference>" in (
         pairwise_loop_charter
     )
+    assert "Read the durable start-charter page at `pages/<relative-page>`." in (
+        pairwise_loop_charter
+    )
+    assert "## Compact Recover-And-Continue Trigger Template" in pairwise_loop_charter
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
     assert "## Canonical Observed States" in pairwise_loop_reporting
+    assert "## Recovery Summary Fields" in pairwise_loop_reporting
     assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
     assert (
         "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
     )
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
-    assert "Every plan using the default `email_initialization` strategy should record" in (
+    assert "## Output Directory Contract" in pairwise_loop_plan_structure
+    assert (
+        "Every authored pairwise-v2 plan should live under one user-chosen output directory."
+        in (pairwise_loop_plan_structure)
+    )
+    assert "`<plan-output-dir>/plan.md`" in pairwise_loop_plan_structure
+    assert "## Durable Initialize Material" in pairwise_loop_plan_structure
+    assert "Every plan using pairwise-v2 durable initialize pages should record" in (
         pairwise_loop_plan_structure
+    )
+    assert "<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json" in (
+        pairwise_loop_plan_structure
+    )
+    assert (
+        "Do not describe explicit `operator_preparation_wave` as the default prestart strategy."
+        in (pairwise_loop_plan_structure)
     )
     assert "NetworkX node-link graph artifact location" in pairwise_loop_plan_structure
     assert "packet JSON document location" in pairwise_loop_plan_structure
     assert "optional `houmao-mgr internals graph high slice" in pairwise_loop_plan_structure
-    assert "initialization email target policy and delivery procedure" in (
-        pairwise_loop_plan_structure
-    )
+    assert "preparation-mail target policy and delivery procedure" in (pairwise_loop_plan_structure)
     assert "`hard-kill`" in pairwise_loop_plan_structure
     assert (
         "Treat `hard-kill` as a separate operator action"
         in pairwise_loop_stop_modes_path.read_text(encoding="utf-8")
     )
     assert "# Prestart Procedure" in pairwise_loop_single_template
-    assert "prestart_strategy: <email_initialization | packet_only_initialization>" in (
+    assert "Write this template as `<plan-output-dir>/plan.md`." in pairwise_loop_single_template
+    assert "## Expected Output Directory" in pairwise_loop_single_template
+    assert "prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_single_template
     )
+    assert "runtime-owned recovery record path" in pairwise_loop_single_template
     assert "graph-tool preflight: <analyze, optional slice, and packet-expectations results" in (
         pairwise_loop_single_template
     )
@@ -1487,14 +1742,23 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         pairwise_loop_single_template
     )
     assert (
-        "Initialize<br/>enable email notifier<br/>send init mail" in pairwise_loop_single_template
+        "Initialize<br/>validate packets<br/>write durable pages" in pairwise_loop_single_template
     )
     assert "# Routing Packets" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
+    assert "`recover_and_continue`" in pairwise_loop_single_template
+    assert "The generated single-file output directory should contain only `plan.md`." in (
+        pairwise_loop_single_template
+    )
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
-    assert "selected `prestart_strategy`: default `email_initialization`" in (
+    assert (
+        "Ask for the output directory if it is not already known" in pairwise_loop_bundle_template
+    )
+    assert "<plan-output-dir>/" in pairwise_loop_bundle_template
+    assert "selected `prestart_strategy`: default `precomputed_routing_packets`" in (
         pairwise_loop_bundle_template
     )
+    assert "runtime-owned recovery record path family" in pairwise_loop_bundle_template
     assert "graph artifact and packet JSON artifact locations when available" in (
         pairwise_loop_bundle_template
     )
@@ -1507,6 +1771,49 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "# Lifecycle Vocabulary" in pairwise_loop_bundle_template
     assert "agents/<participant>.md" in pairwise_loop_bundle_template
     assert "scripts/README.md" in pairwise_loop_bundle_template
+    assert "workspace contract mode: `standard` or `custom`" in pairwise_loop_v3_formulate
+    assert "explicit operator-owned launch cwd" in pairwise_loop_v3_formulate
+    assert "Do not invent a custom lane inside that workspace-preparation path." in (
+        pairwise_loop_v3_formulate
+    )
+    assert (
+        "Preserve the current output directory unless the user explicitly asks to move the plan."
+        in pairwise_loop_v3_revise
+    )
+    assert "loop-runs/pairwise-v3/<run_id>/initialize.md" in pairwise_loop_v3_prepare
+    assert "loop-runs/pairwise-v3/<run_id>/start-charter.md" in pairwise_loop_v3_start
+    assert "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`" in (
+        pairwise_loop_v3_start
+    )
+    assert "mode: <standard | custom>" in pairwise_loop_v3_charter
+    assert "posture: <in-repo | out-of-repo | custom>" in pairwise_loop_v3_charter
+    assert "Do not translate `custom` into `houmao-ws/...`." in pairwise_loop_v3_charter
+    assert "Every pairwise-v3 plan records one workspace contract:" in (
+        pairwise_loop_v3_workspace_contract
+    )
+    assert "task-qualified branches such as `houmao/<task-name>/<agent-name>/main`" in (
+        pairwise_loop_v3_workspace_contract
+    )
+    assert "Do not use the standard workspace-preparation skill as a custom-workspace translation layer." in (
+        pairwise_loop_v3_workspace_contract
+    )
+    assert "Every pairwise-v3 plan should record one authored workspace contract." in (
+        pairwise_loop_v3_plan_structure
+    )
+    assert "The workspace contract should describe allowed surfaces and ownership" in (
+        pairwise_loop_v3_plan_structure
+    )
+    assert "Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`." in (
+        pairwise_loop_v3_plan_structure
+    )
+    assert "workspace_contract_mode: <standard | custom>" in pairwise_loop_v3_single_template
+    assert "runtime-owned recovery files: remain outside this workspace contract" in (
+        pairwise_loop_v3_single_template
+    )
+    assert "workspace contract mode: `standard` or `custom`" in pairwise_loop_v3_bundle_template
+    assert "for `custom`, the explicit operator-owned launch cwd" in (
+        pairwise_loop_v3_bundle_template
+    )
     assert (
         "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly."
         in relay_loop_formulate

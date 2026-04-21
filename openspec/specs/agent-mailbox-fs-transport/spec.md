@@ -62,7 +62,7 @@ That guidance MAY cover:
 - mailbox-local etiquette,
 - other workflow hints specific to that mailbox.
 
-The filesystem mailbox public contract SHALL NOT require `rules/` to carry the canonical execution protocol for ordinary send, reply, check, or mark-read operations.
+The filesystem mailbox public contract SHALL NOT require `rules/` to carry the canonical execution protocol for ordinary list, peek, read, send, post, reply, mark, move, or archive operations.
 
 The transport MAY publish compatibility or diagnostic assets under `rules/scripts/`, but it SHALL NOT require a stable public `rules/scripts/` filename set for ordinary agent or operator mailbox work.
 
@@ -147,7 +147,7 @@ Ordinary agent-facing filesystem mailbox workflows SHALL reach those writes thro
 - **WHEN** an ordinary filesystem mailbox action reaches `houmao-mgr agents mail ...`
 - **AND WHEN** the command returns `authoritative: false`
 - **THEN** the caller treats that result as request submission rather than as verified filesystem delivery or state mutation
-- **AND THEN** the caller verifies the mailbox outcome through mailbox state or a follow-up manager-owned check instead of falling back to mailbox-owned scripts as the truth boundary
+- **AND THEN** the caller verifies the mailbox outcome through mailbox state or a follow-up manager-owned list instead of falling back to mailbox-owned scripts as the truth boundary
 
 #### Scenario: Concurrent writers serialize conflicting mailbox updates
 - **WHEN** two sender processes attempt to update the same mailbox address concurrently

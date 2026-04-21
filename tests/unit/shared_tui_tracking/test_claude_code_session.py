@@ -144,6 +144,8 @@ def test_claude_typed_draft_counts_as_editing() -> None:
     assert signals.prompt_text == "Review staged changes"
     assert "prompt_behavior_variant=2.1.x" in signals.notes
     assert "prompt_kind=draft" in signals.notes
+    assert signals.chat_context == "current"
+    assert signals.chat_context_diagnostic is None
 
 
 def test_claude_placeholder_prompt_keeps_prompt_text_empty() -> None:

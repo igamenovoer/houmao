@@ -86,7 +86,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailSendRequestV1,
     GatewayMailStatusV1,
     GatewayJsonObject,
+    GatewayJsonValue,
     GatewayMailNotifierMode,
+    GatewayMailNotifierPreNotificationContextAction,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
     GatewayPromptControlErrorV1,
@@ -128,6 +130,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.gateway_storage import (
+    GatewayMailNotifierRecord,
     GatewayNotifierAuditOutcome,
     GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
@@ -181,11 +184,27 @@ _NOTIFIER_IDLE_CHECK_INTERVAL_SECONDS = 0.2
 _NOTIFIER_RATE_LIMIT_SECONDS = 30.0
 _DEFAULT_TUI_RESET_PROMPT = "/clear"
 _CODEX_TUI_RESET_PROMPT = "/new"
+_CODEX_TUI_COMPACT_PROMPT = "/compact"
+_GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS: dict[str, int] = {
+    _CODEX_TUI_COMPACT_PROMPT: 1,
+    _DEFAULT_TUI_RESET_PROMPT: 2,
+    _CODEX_TUI_RESET_PROMPT: 3,
+}
 _TUI_RESET_READY_WAIT_SECONDS = 15.0
 _TUI_RESET_READY_POLL_INTERVAL_SECONDS = 0.2
+_CODEX_DEGRADED_COMPACT_ERROR_TYPES = frozenset(
+    {
+        "codex_remote_compact_stream_disconnected",
+        "codex_remote_compact_context_length_exceeded",
+        "codex_remote_compact_unknown_parameter",
+        "codex_remote_compact_server_error",
+        "unknown",
+    }
+)
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 _MemoryResponseT = TypeVar("_MemoryResponseT")
+_GatewayControlIntentAction = Literal["interrupt", "context"]
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
@@ -213,6 +232,42 @@ class _QueuedGatewayRequestRecord:
     request_kind: GatewayStoredRequestKind
     payload_json: str
     managed_agent_instance_epoch: int
+
+
+@dataclass(frozen=True)
+class _AcceptedGatewayRequestRecord:
+    """Accepted durable queue row considered for gateway execution."""
+
+    request_id: str
+    request_kind: GatewayStoredRequestKind
+    payload_json: str
+    managed_agent_instance_epoch: int
+
+
+@dataclass(frozen=True)
+class _GatewayControlIntent:
+    """Coalescible control intent parsed from one accepted queue row."""
+
+    action: _GatewayControlIntentAction
+    command: str | None = None
+
+    def effective_action_label(self) -> str:
+        """Return the compact action label used in coalescing audit records."""
+
+        if self.action == "interrupt":
+            return "interrupt"
+        assert self.command is not None
+        return f"submit_prompt:{self.command}"
+
+
+@dataclass(frozen=True)
+class _GatewayControlBlockPlan:
+    """Effective execution plan for one adjacent accepted control-intent block."""
+
+    next_record: _AcceptedGatewayRequestRecord
+    retained_request_ids: frozenset[str]
+    coalesced_into_by_request_id: dict[str, str]
+    effective_actions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -2016,7 +2071,11 @@ class GatewayServiceRuntime:
         self.m_adapter.submit_prompt(prompt=prompt)
         tracking.note_prompt_submission(message=prompt)
 
-    def _dispatch_tui_context_reset_only(self) -> SingleSessionTrackingRuntime:
+    def _dispatch_tui_context_reset_only(
+        self,
+        *,
+        lock_held: bool = False,
+    ) -> SingleSessionTrackingRuntime:
         """Submit only the tool-appropriate TUI context-reset signal and wait."""
 
         tracking = self.m_tui_tracking
@@ -2027,29 +2086,61 @@ class GatewayServiceRuntime:
         reset_prompt = self._tui_reset_prompt()
         self.m_adapter.submit_prompt(prompt=reset_prompt)
         tracking.note_prompt_submission(message=reset_prompt)
-        self._wait_for_tui_ready_after_reset(tracking=tracking)
+        self._wait_for_tui_ready_after_context_action(
+            tracking=tracking,
+            action_name="reset",
+            lock_held=lock_held,
+        )
         return tracking
 
-    def _wait_for_tui_ready_after_reset(
+    def _dispatch_tui_compaction_only(
+        self,
+        *,
+        lock_held: bool = False,
+    ) -> SingleSessionTrackingRuntime:
+        """Submit only the Codex TUI compact signal and wait."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None:
+            raise GatewayError(
+                "Gateway TUI tracking is unavailable for compaction-based prompt control."
+            )
+        if self._tui_tool_name() != "codex":
+            raise GatewayError("TUI compaction is only supported for Codex.")
+        self.m_adapter.submit_prompt(prompt=_CODEX_TUI_COMPACT_PROMPT)
+        tracking.note_prompt_submission(message=_CODEX_TUI_COMPACT_PROMPT)
+        self._wait_for_tui_ready_after_context_action(
+            tracking=tracking,
+            action_name="compaction",
+            lock_held=lock_held,
+        )
+        return tracking
+
+    def _wait_for_tui_ready_after_context_action(
         self,
         *,
         tracking: SingleSessionTrackingRuntime,
+        action_name: str,
+        lock_held: bool,
     ) -> None:
-        """Wait for the tracked TUI surface to stabilize back to prompt-ready."""
+        """Wait for the tracked TUI surface to stabilize after a context action."""
 
         deadline = time.monotonic() + _TUI_RESET_READY_WAIT_SECONDS
         # Give the reset prompt one poll cycle to take effect before accepting ready again.
         time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
         while time.monotonic() < deadline:
             tracking.refresh_once()
-            with self.m_lock:
+            if lock_held:
                 reasons = self._tui_reset_completion_blockers_locked()
+            else:
+                with self.m_lock:
+                    reasons = self._tui_reset_completion_blockers_locked()
             if not reasons:
                 return
             time.sleep(_TUI_RESET_READY_POLL_INTERVAL_SECONDS)
         raise GatewayError(
-            "TUI reset prompt was submitted, but the surface did not stabilize back to "
-            "prompt-ready posture in time."
+            f"TUI {action_name} prompt was submitted, but the surface did not stabilize "
+            "back to prompt-ready posture in time."
         )
 
     def _tui_reset_completion_blockers_locked(self) -> list[str]:
@@ -2373,6 +2464,27 @@ class GatewayServiceRuntime:
             return None
 
         return None
+
+    def _current_tui_degraded_context_diagnostic_locked(self) -> object | None:
+        """Return the current TUI degraded-context diagnostic, when one is visible."""
+
+        if self._notifier_dispatch_mode_locked() != "tui" or self.m_tui_tracking is None:
+            return None
+        state = self.m_tui_tracking.current_state()
+        if state.chat_context != "degraded":
+            return None
+        return state.chat_context_diagnostic
+
+    def _is_clearable_degraded_context_diagnostic(self, diagnostic: object) -> bool:
+        """Return whether one degraded-context diagnostic is policy-clearable."""
+
+        tool_name = getattr(diagnostic, "tool_name", None)
+        degraded_error_type = getattr(diagnostic, "degraded_error_type", None)
+        return (
+            tool_name == "codex"
+            and isinstance(degraded_error_type, str)
+            and degraded_error_type in _CODEX_DEGRADED_COMPACT_ERROR_TYPES
+        )
 
     def _next_direct_headless_turn_id_locked(self) -> str:
         """Return the next direct-control headless turn id."""
@@ -2760,6 +2872,13 @@ class GatewayServiceRuntime:
                 self._require_live_notifier_mailbox_config_locked()
             except GatewayError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+            context_action_support_error = (
+                self._notifier_pre_notification_context_action_support_error_locked(
+                    request_payload.pre_notification_context_action
+                )
+            )
+            if context_action_support_error is not None:
+                raise HTTPException(status_code=422, detail=context_action_support_error)
             if "appendix_text" in request_payload.model_fields_set:
                 record = write_gateway_mail_notifier_record(
                     self.m_paths.queue_path,
@@ -2767,6 +2886,10 @@ class GatewayServiceRuntime:
                     interval_seconds=request_payload.interval_seconds,
                     mode=request_payload.mode,
                     appendix_text=request_payload.appendix_text,
+                    context_error_policy=request_payload.context_error_policy,
+                    pre_notification_context_action=(
+                        request_payload.pre_notification_context_action
+                    ),
                     last_notified_digest=None,
                     last_error=None,
                 )
@@ -2776,6 +2899,10 @@ class GatewayServiceRuntime:
                     enabled=True,
                     interval_seconds=request_payload.interval_seconds,
                     mode=request_payload.mode,
+                    context_error_policy=request_payload.context_error_policy,
+                    pre_notification_context_action=(
+                        request_payload.pre_notification_context_action
+                    ),
                     last_notified_digest=None,
                     last_error=None,
                 )
@@ -2812,21 +2939,57 @@ class GatewayServiceRuntime:
         """Return the notifier status while the runtime lock is held."""
 
         record = read_gateway_mail_notifier_record(self.m_paths.queue_path)
-        supported, support_error = self._notifier_support_status()
+        supported, support_error = self._notifier_support_status(record=record)
         return build_gateway_mail_notifier_status(
             record=record,
             supported=supported,
             support_error=support_error,
         )
 
-    def _notifier_support_status(self) -> tuple[bool, str | None]:
+    def _notifier_support_status(
+        self,
+        *,
+        record: GatewayMailNotifierRecord | None = None,
+    ) -> tuple[bool, str | None]:
         """Return whether notifier behavior is currently supported."""
 
         try:
             self._require_live_notifier_mailbox_config_locked()
         except GatewayError as exc:
             return False, str(exc)
+        if record is not None:
+            context_action_support_error = (
+                self._notifier_pre_notification_context_action_support_error_locked(
+                    record.pre_notification_context_action
+                )
+            )
+            if context_action_support_error is not None:
+                return False, context_action_support_error
         return True, None
+
+    def _notifier_pre_notification_context_action_support_error_locked(
+        self,
+        action: GatewayMailNotifierPreNotificationContextAction,
+    ) -> str | None:
+        """Return an enablement error for unsupported pre-notification context actions."""
+
+        if action == "none":
+            return None
+        if action != "compact":
+            return f"Unsupported pre-notification context action: {action!r}."
+        if self._notifier_dispatch_mode_locked() != "tui":
+            return (
+                "pre_notification_context_action='compact' is only supported for live "
+                "Codex TUI gateway targets."
+            )
+        if self.m_tui_tracking is None:
+            return "pre_notification_context_action='compact' requires live TUI tracking."
+        if self._tui_tool_name() != "codex":
+            return (
+                "pre_notification_context_action='compact' is only supported for Codex TUI "
+                "gateway targets."
+            )
+        return None
 
     def _require_live_notifier_mailbox_config_locked(self) -> MailboxResolvedConfig:
         """Return durable mailbox config only when live notifier actionability is present."""
@@ -3014,6 +3177,7 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="poll_error",
                     detail=str(exc),
+                    record=record,
                 )
                 self._log(f"mail notifier disabled: {exc}")
                 return
@@ -3055,6 +3219,7 @@ class GatewayServiceRuntime:
                     unread_digest=None,
                     outcome="poll_error",
                     detail=str(exc),
+                    record=record,
                 )
                 self._log(f"mail notifier poll error: {exc}")
                 return
@@ -3073,6 +3238,7 @@ class GatewayServiceRuntime:
                     unread_count=0,
                     unread_digest=None,
                     outcome="empty",
+                    record=record,
                 )
                 self._log(f"mail notifier poll: no open inbox mail mode={record.mode}")
                 return
@@ -3093,9 +3259,73 @@ class GatewayServiceRuntime:
                     unread_digest=unread_digest,
                     outcome="busy_skip",
                     detail=block_detail,
+                    record=record,
                 )
                 self._log(block_detail)
                 return
+
+            context_action_outcomes: list[str] = []
+            if record.pre_notification_context_action == "compact":
+                try:
+                    self._dispatch_tui_compaction_only(lock_held=True)
+                    context_action_outcomes.append("pre_notification_compact_completed")
+                except GatewayError as exc:
+                    write_gateway_mail_notifier_record(
+                        self.m_paths.queue_path,
+                        last_poll_at_utc=poll_time_utc,
+                        last_error=str(exc),
+                    )
+                    self._append_notifier_audit_record(
+                        poll_time_utc=poll_time_utc,
+                        status=status,
+                        unread_messages=unread_messages,
+                        unread_count=len(unread_messages),
+                        unread_digest=unread_digest,
+                        outcome="pre_notification_context_error",
+                        detail=str(exc),
+                        record=record,
+                        context_action_outcome="pre_notification_compact_failed",
+                    )
+                    self._log(f"mail notifier pre-notification context action failed: {exc}")
+                    return
+
+            degraded_error_type = None
+            degraded_tool_name = None
+            diagnostic = self._current_tui_degraded_context_diagnostic_locked()
+            if diagnostic is not None:
+                degraded_tool_name = str(getattr(diagnostic, "tool_name", "unknown"))
+                degraded_error_type = str(getattr(diagnostic, "degraded_error_type", "unknown"))
+            if (
+                record.context_error_policy == "clear_context"
+                and diagnostic is not None
+                and self._is_clearable_degraded_context_diagnostic(diagnostic)
+            ):
+                try:
+                    self._dispatch_tui_context_reset_only(lock_held=True)
+                    context_action_outcomes.append("clear_context_completed")
+                except GatewayError as exc:
+                    write_gateway_mail_notifier_record(
+                        self.m_paths.queue_path,
+                        last_poll_at_utc=poll_time_utc,
+                        last_error=str(exc),
+                    )
+                    self._append_notifier_audit_record(
+                        poll_time_utc=poll_time_utc,
+                        status=status,
+                        unread_messages=unread_messages,
+                        unread_count=len(unread_messages),
+                        unread_digest=unread_digest,
+                        outcome="context_recovery_error",
+                        detail=str(exc),
+                        record=record,
+                        context_action_outcome="clear_context_failed",
+                        degraded_tool_name=degraded_tool_name,
+                        degraded_error_type=degraded_error_type,
+                    )
+                    self._log(f"mail notifier degraded-context recovery failed: {exc}")
+                    return
+            elif diagnostic is not None:
+                context_action_outcomes.append("degraded_context_continued")
 
             prompt = self._build_mail_notifier_prompt(
                 mode=record.mode,
@@ -3117,6 +3347,12 @@ class GatewayServiceRuntime:
                 unread_digest=unread_digest,
                 outcome="enqueued",
                 enqueued_request_id=request_id,
+                record=record,
+                context_action_outcome=(
+                    ",".join(context_action_outcomes) if context_action_outcomes else None
+                ),
+                degraded_tool_name=degraded_tool_name,
+                degraded_error_type=degraded_error_type,
             )
             self._log(
                 f"mail notifier enqueued request_id={request_id} "
@@ -3153,11 +3389,19 @@ class GatewayServiceRuntime:
             rendered = rendered.replace(placeholder, replacement)
         return rendered.rstrip()
 
-    def _enqueue_internal_prompt(self, *, prompt: str) -> str:
+    def _enqueue_internal_prompt(
+        self,
+        *,
+        prompt: str,
+        chat_session: GatewayChatSessionSelectorV1 | None = None,
+    ) -> str:
         """Insert one internal notifier prompt into durable queue storage."""
 
         request_id = generate_gateway_request_id()
         accepted_at_utc = now_utc_iso()
+        payload: GatewayJsonObject = {"prompt": prompt}
+        if chat_session is not None:
+            payload["chat_session"] = chat_session.model_dump(mode="json")
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             connection.execute(
                 """
@@ -3174,7 +3418,7 @@ class GatewayServiceRuntime:
                 (
                     request_id,
                     "mail_notifier_prompt",
-                    json.dumps({"prompt": prompt}, sort_keys=True),
+                    json.dumps(payload, sort_keys=True),
                     accepted_at_utc,
                     self.m_current_epoch,
                 ),
@@ -3204,9 +3448,19 @@ class GatewayServiceRuntime:
         outcome: GatewayNotifierAuditOutcome,
         enqueued_request_id: str | None = None,
         detail: str | None = None,
+        record: GatewayMailNotifierRecord | None = None,
+        context_action_outcome: str | None = None,
+        degraded_tool_name: str | None = None,
+        degraded_error_type: str | None = None,
     ) -> None:
         """Persist one structured notifier audit row."""
 
+        context_error_policy = (
+            record.context_error_policy if record is not None else "continue_current"
+        )
+        pre_notification_context_action = (
+            record.pre_notification_context_action if record is not None else "none"
+        )
         append_gateway_notifier_audit_record(
             self.m_paths.queue_path,
             poll_time_utc=poll_time_utc,
@@ -3227,6 +3481,11 @@ class GatewayServiceRuntime:
             outcome=outcome,
             enqueued_request_id=enqueued_request_id,
             detail=detail,
+            context_error_policy=context_error_policy,
+            pre_notification_context_action=pre_notification_context_action,
+            context_action_outcome=context_action_outcome,
+            degraded_tool_name=degraded_tool_name,
+            degraded_error_type=degraded_error_type,
         )
 
     def _reminder_loop(self) -> None:
@@ -3506,35 +3765,229 @@ class GatewayServiceRuntime:
                 return None
 
             with sqlite3.connect(self.m_paths.queue_path) as connection:
-                row = connection.execute(
-                    """
-                    SELECT request_id, request_kind, payload_json, managed_agent_instance_epoch
-                    FROM gateway_requests
-                    WHERE state = 'accepted'
-                    ORDER BY accepted_at_utc ASC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                if row is None:
+                record = self._next_effective_accepted_request_locked(connection)
+                if record is None:
                     return None
-                request_id, request_kind, payload_json, epoch = row
                 connection.execute(
                     """
                     UPDATE gateway_requests
                     SET state = 'running', started_at_utc = ?
                     WHERE request_id = ?
                     """,
-                    (now_utc_iso(), request_id),
+                    (now_utc_iso(), record.request_id),
                 )
                 connection.commit()
 
             self._refresh_status_snapshot(active_execution="running")
             return _QueuedGatewayRequestRecord(
-                request_id=str(request_id),
-                request_kind=cast(GatewayStoredRequestKind, request_kind),
-                payload_json=str(payload_json),
-                managed_agent_instance_epoch=int(epoch),
+                request_id=record.request_id,
+                request_kind=record.request_kind,
+                payload_json=record.payload_json,
+                managed_agent_instance_epoch=record.managed_agent_instance_epoch,
             )
+
+    def _next_effective_accepted_request_locked(
+        self,
+        connection: sqlite3.Connection,
+    ) -> _AcceptedGatewayRequestRecord | None:
+        """Return the next executable accepted row after control-intent coalescing."""
+
+        rows = connection.execute(
+            """
+            SELECT request_id, request_kind, payload_json, managed_agent_instance_epoch
+            FROM gateway_requests
+            WHERE state = 'accepted'
+            ORDER BY accepted_at_utc ASC
+            """
+        ).fetchall()
+        records = tuple(self._accepted_gateway_request_from_row(row) for row in rows)
+        if not records:
+            return None
+
+        block = self._leading_control_intent_block(records)
+        if not block:
+            return records[0]
+
+        plan = self._plan_control_intent_coalescing(block)
+        self._apply_control_intent_coalescing_locked(
+            connection,
+            block=block,
+            plan=plan,
+        )
+        return plan.next_record
+
+    def _accepted_gateway_request_from_row(
+        self,
+        row: tuple[object, ...],
+    ) -> _AcceptedGatewayRequestRecord:
+        """Convert one accepted SQLite queue row into a typed internal record."""
+
+        request_id, request_kind, payload_json, epoch = row
+        return _AcceptedGatewayRequestRecord(
+            request_id=str(request_id),
+            request_kind=cast(GatewayStoredRequestKind, request_kind),
+            payload_json=str(payload_json),
+            managed_agent_instance_epoch=int(str(epoch)),
+        )
+
+    def _leading_control_intent_block(
+        self,
+        records: tuple[_AcceptedGatewayRequestRecord, ...],
+    ) -> tuple[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent], ...]:
+        """Return the leading adjacent coalescible control-intent block."""
+
+        if not records:
+            return ()
+        first_intent = self._coalescible_control_intent(records[0])
+        if first_intent is None:
+            return ()
+
+        epoch = records[0].managed_agent_instance_epoch
+        block: list[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent]] = [
+            (records[0], first_intent)
+        ]
+        for record in records[1:]:
+            if record.managed_agent_instance_epoch != epoch:
+                break
+            intent = self._coalescible_control_intent(record)
+            if intent is None:
+                break
+            block.append((record, intent))
+        return tuple(block)
+
+    def _coalescible_control_intent(
+        self,
+        record: _AcceptedGatewayRequestRecord,
+    ) -> _GatewayControlIntent | None:
+        """Return a control intent for one accepted queue record, when coalescible."""
+
+        if record.request_kind == "interrupt":
+            return _GatewayControlIntent(action="interrupt")
+        if record.request_kind != "submit_prompt":
+            return None
+        try:
+            payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(record.payload_json)
+        except ValidationError:
+            return None
+        command = payload.prompt.strip()
+        if command not in _GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS:
+            return None
+        return _GatewayControlIntent(action="context", command=command)
+
+    def _plan_control_intent_coalescing(
+        self,
+        block: tuple[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent], ...],
+    ) -> _GatewayControlBlockPlan:
+        """Build the effective execution plan for one adjacent control-intent block."""
+
+        interrupt_record = next(
+            (record for record, intent in block if intent.action == "interrupt"),
+            None,
+        )
+        context_record: _AcceptedGatewayRequestRecord | None = None
+        context_rank = -1
+        for record, intent in block:
+            if intent.action != "context":
+                continue
+            assert intent.command is not None
+            rank = _GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS[intent.command]
+            if rank >= context_rank:
+                context_record = record
+                context_rank = rank
+
+        retained_request_ids: set[str] = set()
+        effective_actions: list[str] = []
+        if interrupt_record is not None:
+            retained_request_ids.add(interrupt_record.request_id)
+            effective_actions.append("interrupt")
+        if context_record is not None:
+            retained_request_ids.add(context_record.request_id)
+            context_intent = self._coalescible_control_intent(context_record)
+            assert context_intent is not None
+            effective_actions.append(context_intent.effective_action_label())
+
+        next_record = interrupt_record or context_record
+        assert next_record is not None
+
+        coalesced_into_by_request_id: dict[str, str] = {}
+        for record, intent in block:
+            if record.request_id in retained_request_ids:
+                continue
+            if intent.action == "interrupt" and interrupt_record is not None:
+                coalesced_into_by_request_id[record.request_id] = interrupt_record.request_id
+            elif intent.action == "context" and context_record is not None:
+                coalesced_into_by_request_id[record.request_id] = context_record.request_id
+            else:
+                coalesced_into_by_request_id[record.request_id] = next_record.request_id
+
+        return _GatewayControlBlockPlan(
+            next_record=next_record,
+            retained_request_ids=frozenset(retained_request_ids),
+            coalesced_into_by_request_id=coalesced_into_by_request_id,
+            effective_actions=tuple(effective_actions),
+        )
+
+    def _apply_control_intent_coalescing_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        block: tuple[tuple[_AcceptedGatewayRequestRecord, _GatewayControlIntent], ...],
+        plan: _GatewayControlBlockPlan,
+    ) -> None:
+        """Persist terminal coalesced state for skipped control-intent records."""
+
+        if not plan.coalesced_into_by_request_id:
+            return
+
+        coalesced_at_utc = now_utc_iso()
+        coalesced_request_ids: list[str] = []
+        for record, intent in block:
+            coalesced_into_request_id = plan.coalesced_into_by_request_id.get(record.request_id)
+            if coalesced_into_request_id is None:
+                continue
+            coalesced_request_ids.append(record.request_id)
+            result_json: GatewayJsonObject = {
+                "coalesced_at_utc": coalesced_at_utc,
+                "coalesced_into_request_id": coalesced_into_request_id,
+                "coalesced_reason": "superseded_control_intent",
+                "effective_actions": cast(GatewayJsonValue, list(plan.effective_actions)),
+                "original_action": intent.effective_action_label(),
+            }
+            connection.execute(
+                """
+                UPDATE gateway_requests
+                SET state = 'coalesced',
+                    finished_at_utc = ?,
+                    result_json = ?
+                WHERE request_id = ?
+                """,
+                (
+                    coalesced_at_utc,
+                    json.dumps(result_json, sort_keys=True),
+                    record.request_id,
+                ),
+            )
+
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "coalesced",
+                "coalesced_at_utc": coalesced_at_utc,
+                "coalesced_request_ids": cast(GatewayJsonValue, coalesced_request_ids),
+                "effective_request_ids": cast(
+                    GatewayJsonValue,
+                    sorted(plan.retained_request_ids),
+                ),
+                "effective_actions": cast(GatewayJsonValue, list(plan.effective_actions)),
+                "next_request_id": plan.next_record.request_id,
+            },
+        )
+        self._log(
+            "coalesced gateway control requests "
+            f"request_ids={','.join(coalesced_request_ids)} "
+            f"effective_actions={','.join(plan.effective_actions)}"
+        )
+        self.m_reminder_condition.notify_all()
 
     def _execute_request(self, *, request_record: _QueuedGatewayRequestRecord) -> None:
         """Execute one running request against the managed CAO terminal.
@@ -3550,28 +4003,27 @@ class GatewayServiceRuntime:
         payload_json = request_record.payload_json
         accepted_epoch = request_record.managed_agent_instance_epoch
 
+        early_error_detail: str | None = None
         with self.m_lock:
             self._refresh_status_snapshot(active_execution="running")
             if accepted_epoch != self.m_current_epoch:
-                self._finish_request(
-                    request_id=request_id,
-                    state="failed",
-                    error_detail=(
-                        "Request was accepted for a previous managed-agent instance epoch and "
-                        "will not be replayed automatically."
-                    ),
-                    result_json=None,
+                early_error_detail = (
+                    "Request was accepted for a previous managed-agent instance epoch and "
+                    "will not be replayed automatically."
                 )
-                return
-            if self.m_current_instance_id is None:
-                self._finish_request(
-                    request_id=request_id,
-                    state="failed",
-                    error_detail="Managed agent is unavailable.",
-                    result_json=None,
-                )
-                return
-            self._log(f"executing gateway request request_id={request_id} kind={request_kind}")
+            elif self.m_current_instance_id is None:
+                early_error_detail = "Managed agent is unavailable."
+            else:
+                self._log(f"executing gateway request request_id={request_id} kind={request_kind}")
+
+        if early_error_detail is not None:
+            self._finish_request(
+                request_id=request_id,
+                state="failed",
+                error_detail=early_error_detail,
+                result_json=None,
+            )
+            return
 
         try:
             if request_kind in {"submit_prompt", "mail_notifier_prompt"}:

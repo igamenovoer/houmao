@@ -1,6 +1,6 @@
 # Mailbox Quickstart
 
-This page shows the shortest safe path to a working mailbox-enabled local managed agent and the manager-owned mailbox flow you will use first: `agents mail resolve-live`, `agents mail check`, `agents mail send`, `agents mail post`, `agents mail reply`, and `agents mail mark-read`.
+This page shows the shortest safe path to a working mailbox-enabled local managed agent and the manager-owned mailbox flow you will use first: `agents mail resolve-live`, `agents mail list`, `agents mail peek`, `agents mail read`, `agents mail send`, `agents mail post`, `agents mail reply`, and `agents mail archive`.
 
 ## Choose Your Transport
 
@@ -11,7 +11,7 @@ Choose the transport before you copy a startup example.
 | `filesystem` | you want the fully Houmao-owned mailbox transport with local rules, SQLite state, and projections | stay on this page |
 | `stalwart` | you want Stalwart to be the mailbox authority for delivery, unread state, and reply ancestry | [Stalwart Setup And First Session](operations/stalwart-setup-and-first-session.md) |
 
-The rest of this page keeps the shortest inline filesystem example. The `mail resolve-live`, `mail check`, `mail send`, `mail post`, `mail reply`, and `mail mark-read` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
+The rest of this page keeps the shortest inline filesystem example. The `mail resolve-live`, `mail list`, `mail peek`, `mail read`, `mail send`, `mail post`, `mail reply`, `mail mark`, `mail move`, and `mail archive` CLI surface is shared, but Stalwart-specific startup and secret-handling guidance lives in the dedicated page above.
 
 ## Mental Model
 
@@ -105,14 +105,14 @@ sequenceDiagram
     CLI-->>Op: normalized binding<br/>and optional gateway
 ```
 
-## Check Mail
+## List Mail
 
-Use `agents mail check` against a mailbox-enabled managed agent.
+Use `agents mail list` against a mailbox-enabled managed agent.
 
 ```bash
-pixi run houmao-mgr agents mail check \
+pixi run houmao-mgr agents mail list \
   --agent-name research \
-  --unread-only \
+  --read-state unread \
   --limit 10
 ```
 
@@ -120,7 +120,7 @@ Important details:
 
 - `--agent-name` or `--agent-id` uses the normal managed-agent selector rules.
 - Inside the owning managed tmux session, those selectors may be omitted for current-session targeting.
-- `--unread-only` and `--limit` are optional filters.
+- `--read-state`, `--answered-state`, `--archived/--not-archived`, and `--limit` are optional filters.
 - `--since` accepts an RFC3339 lower bound when you want incremental review.
 
 Typical stdout is a verified manager result when Houmao owns the mailbox execution path directly.
@@ -130,11 +130,13 @@ Typical stdout is a verified manager result when Houmao owns the mailbox executi
   "address": "research@houmao.localhost",
   "authoritative": true,
   "execution_path": "manager_direct",
-  "operation": "check",
+  "operation": "list",
   "principal_id": "HOUMAO-research",
   "schema_version": 1,
   "status": "verified",
   "transport": "filesystem",
+  "message_count": 2,
+  "open_count": 2,
   "unread_count": 2
 }
 ```
@@ -159,7 +161,7 @@ Important details:
 - `--attach` paths are validated by the CLI before they are surfaced to the session.
 - When Houmao can execute through pair-owned, gateway-backed, or manager-owned direct authority, the result is authoritative.
 - When a local live TUI fallback is used, the result is submission-only and returns `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error` without claiming mailbox success from transcript parsing.
-- Use `houmao-mgr agents mail status`, `houmao-mgr agents mail check`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative fallback results.
+- Use `houmao-mgr agents mail status`, `houmao-mgr agents mail list`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative fallback results.
 
 ## Post Operator-Origin Mail
 
@@ -201,21 +203,21 @@ Important details:
 - When the parent message is operator-origin, reply succeeds if that message was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
 - Operator-origin reply enablement is filesystem-only in v1 because `post` itself is filesystem-only.
 
-## Mark Mail Read
+## Archive Processed Mail
 
-After you successfully process one nominated unread message, mark that same `message_ref` read.
+After you successfully process one nominated message and send any required reply, archive that same `message_ref`.
 
 ```bash
-pixi run houmao-mgr agents mail mark-read \
+pixi run houmao-mgr agents mail archive \
   --agent-name research \
   --message-ref filesystem:msg-20260312T050000Z-parent
 ```
 
 Important details:
 
-- `mark-read` is the manager-owned fallback companion to gateway `POST /v1/mail/state`.
-- Only mark a message read after the processing step succeeded.
-- If the command returns `authoritative: false`, verify the outcome through `houmao-mgr agents mail check`, filesystem mailbox inspection, or transport-native mailbox state.
+- `read` marks a message read when you intentionally need to inspect the full body and acknowledge read state.
+- `archive` closes processed inbox work after the processing step and any required reply have succeeded.
+- If the command returns `authoritative: false`, verify the outcome through `houmao-mgr agents mail list`, filesystem mailbox inspection, or transport-native mailbox state.
 
 ## Direct Execution And TUI Fallback
 
@@ -226,13 +228,13 @@ Important details:
 - Gemini runtime homes use top-level Houmao-owned skills under `.gemini/skills/`, such as `.gemini/skills/houmao-process-emails-via-gateway/SKILL.md` and `.gemini/skills/houmao-agent-email-comms/SKILL.md`.
 - Houmao does not use the launched repo's `.claude/` tree as the runtime Claude config directory.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
-- For bounded attached-session turns, that shared facade includes `POST /v1/mail/state` so one processed unread target can be marked read without reconstructing transport-local identifiers.
+- For bounded attached-session turns, that shared facade includes `POST /v1/mail/read`, `POST /v1/mail/mark`, and `POST /v1/mail/archive` so selected messages can be inspected, marked, or archived without reconstructing transport-local identifiers.
 - In TUI fallback mode, exact sentinel-delimited result recovery is optional preview data, not the correctness boundary for the command result.
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
-    participant CLI as mail send<br/>reply or mark-read
+    participant CLI as mail send<br/>reply or archive
     participant RT as Runtime
     participant MB as Gateway facade<br/>or transport
     participant Ses as Live TUI
