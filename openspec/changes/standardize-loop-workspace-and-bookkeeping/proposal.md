@@ -1,35 +1,34 @@
 ## Why
 
-Loop-planned agents already have strong control-plane guidance, but they do not yet carry a deterministic contract for where participants are allowed to work or how operator-visible bookkeeping should be maintained. In practice that leaves loop runs inconsistent across teams and sessions, especially when Houmao already has a separate workspace-management surface with explicit in-repo and out-of-repo postures.
+`houmao-agent-loop-pairwise-v2` has a strong control-plane and recovery model, but it still leaves workspace posture outside the authored run contract. Users need a newer pairwise skill that can either use a standardized Houmao workspace or honor a user-provided custom workspace without forcing both concerns into the same skill surface.
 
 ## What Changes
 
-- Add a standard loop-run contract that separates workspace posture from bookkeeping posture and makes both explicit in authored loop plans.
-- Add a built-in standard workspace mode for loop plans that reuses the existing `houmao-utils-workspace-mgr` in-repo and out-of-repo styles instead of inventing a separate loop-only layout.
-- Define standard workspace rules for loop-planned runs, including where code edits happen, whether repo-root or workspace-root visibility surfaces are writable, whether ad hoc worktrees are allowed, and which shared surfaces are read-only versus writable.
-- Define standard bookkeeping rules for loop-planned runs as semantic obligations rather than a fixed directory tree: expected bookkeeping categories, visibility and ownership expectations, update moments, and explicit plan-declared file locations.
-- Require bookkeeping locations to be declared by the user-authored plan or charter rather than imposing a Houmao-owned fixed subtree under per-agent `kb/`.
-- Integrate the loop skills with the workspace-manager skill so a loop plan can reference or request a prepared standard workspace posture instead of improvising one during run setup.
-- Update loop-plan templates, reporting guidance, and loop-authoring docs so operators can see the workspace contract and bookkeeping contract up front.
+- Add a new packaged skill `houmao-agent-loop-pairwise-v3` as an extension of pairwise-v2.
+- Give pairwise-v3 a first-class workspace contract with two modes:
+  - `standard`, which uses Houmao's standardized workspace posture
+  - `custom`, which records user-provided paths and rules directly in the loop plan
+- Define standard in-repo workspace posture for pairwise-v3 as task-scoped under `houmao-ws/<task-name>/...` so one repository can host multiple concurrent teams without path or branch collisions.
+- Keep `houmao-utils-workspace-mgr` as the standard workspace-preparation skill only. It does not gain a custom-workspace mode; users who do not want the standard Houmao workspace simply do not invoke it.
+- Keep pairwise-v3 recovery boundaries aligned with pairwise-v2: runtime-owned recovery files remain Houmao-managed state, not user-authored bookkeeping.
+- Update loop authoring docs and packaged system-skill installation/catalog expectations so pairwise-v3 is presented as the workspace-aware extension of pairwise-v2.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `loop-run-contracts`: defines the standard loop workspace and bookkeeping contract vocabulary, including standard versus custom postures, integration with prepared in-repo or out-of-repo workspaces, and the rule that bookkeeping locations are explicit plan-owned paths rather than a fixed Houmao subtree.
+- `houmao-agent-loop-pairwise-v3-skill`: packaged pairwise-v3 skill that extends v2 with authored workspace contracts, including standard and custom workspace modes and standardized task-scoped in-repo posture.
 
 ### Modified Capabilities
 
-- `houmao-agent-loop-pairwise-skill`: add workspace-contract and bookkeeping-contract requirements to stable pairwise authoring and run-control guidance.
-- `houmao-agent-loop-pairwise-v2-skill`: add workspace-contract and bookkeeping-contract requirements to enriched pairwise authoring, initialize, start, and reporting guidance.
-- `houmao-agent-loop-generic-skill`: add workspace-contract and bookkeeping-contract requirements to generic loop authoring and run-control guidance.
-- `houmao-utils-workspace-mgr-skill`: add requirements for loop-facing standard workspace posture summaries that loop plans can reference without redefining in-repo or out-of-repo semantics.
-- `docs-loop-authoring-guide`: document the standard workspace and bookkeeping contract model for loop plans and explain when users should keep the standard mode versus declare a custom contract.
+- `houmao-utils-workspace-mgr-skill`: keep the workspace manager standard-only while redefining standard in-repo workspaces as task-scoped under `houmao-ws/<task-name>/`.
+- `houmao-system-skill-installation`: package and install `houmao-agent-loop-pairwise-v3` as a current Houmao-owned system skill alongside the existing pairwise variants.
+- `docs-loop-authoring-guide`: explain when to use pairwise-v2 versus pairwise-v3 and document pairwise-v3 standard/custom workspace modes plus task-scoped in-repo posture.
 
 ## Impact
 
-- Packaged loop skill assets under `src/houmao/agents/assets/system_skills/` for `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-generic`.
-- Packaged workspace-manager skill assets under `src/houmao/agents/assets/system_skills/houmao-utils-workspace-mgr/`.
-- OpenSpec specs for the loop skills, workspace-manager skill, loop authoring docs, and the new cross-cutting `loop-run-contracts` capability.
-- Loop-plan templates, references, and examples that currently describe reporting but not a first-class workspace or bookkeeping contract.
-- No runtime engine change is required for the first step. This is primarily a contract, guidance, and documentation change for how loop-planned runs are authored and interpreted.
+- New packaged skill assets under `src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v3/`.
+- Packaged workspace-manager skill assets under `src/houmao/agents/assets/system_skills/houmao-utils-workspace-mgr/`, especially the in-repo flavor guidance and naming rules.
+- Packaged system-skill catalog and install/docs surfaces that enumerate current loop skills.
+- Loop authoring docs, templates, and references that currently stop at pairwise-v2 and do not describe a workspace-aware pairwise successor.
+- No runtime engine replacement is required in this change; the main deliverable is a new packaged skill plus aligned workspace-manager and documentation contracts.

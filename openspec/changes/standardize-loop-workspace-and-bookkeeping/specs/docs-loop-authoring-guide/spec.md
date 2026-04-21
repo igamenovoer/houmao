@@ -1,24 +1,42 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
-### Requirement: Loop authoring guide documents workspace and bookkeeping contracts
-The loop authoring guide at `docs/getting-started/loop-authoring.md` SHALL explain that authored loop plans carry both a workspace contract and a bookkeeping contract.
+### Requirement: docs site includes a loop authoring guide
+The docs site SHALL include a getting-started guide at `docs/getting-started/loop-authoring.md` that helps readers choose a loop skill and understand the current loop authoring models.
 
-The guide SHALL describe:
+The guide SHALL include a skill-selection table that lists the current packaged loop skills — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-generic` — with at minimum: the lifecycle verbs each skill supports, the prestart model it uses, and the topology it targets.
 
-- the difference between `standard` and `custom` contract postures,
-- that standard workspace mode reuses the existing in-repo and out-of-repo workspace-manager styles,
-- that standard bookkeeping mode requires explicit declared locations,
-- that standard bookkeeping mode does not imply a fixed Houmao-owned subtree under per-agent `kb/`.
+The guide SHALL explain that `houmao-agent-loop-pairwise-v3` is the workspace-aware extension of pairwise-v2.
 
-#### Scenario: Reader understands standard contract posture
-- **WHEN** a reader uses the loop authoring guide to plan a loop run
-- **THEN** the guide explains how standard workspace mode maps to the workspace-manager postures
-- **AND THEN** it explains that bookkeeping locations are explicit plan-owned paths rather than a fixed directory tree
+That v3 guidance SHALL cover:
+- that pairwise-v3 adds a workspace contract to the authored run plan,
+- that the workspace contract supports `standard` and `custom` modes,
+- that `standard` mode may rely on Houmao's standard workspace posture,
+- that `custom` mode records operator-owned paths directly in the loop plan,
+- that standard in-repo posture is task-scoped under `houmao-ws/<task-name>/...`,
+- that `houmao-utils-workspace-mgr` remains the standard workspace-preparation skill rather than a custom-workspace lane.
 
-### Requirement: Loop authoring guide distinguishes bookkeeping from managed memory guidance
-The loop authoring guide SHALL explain that managed memory and pairwise-v2 initialize material remain guidance surfaces, not the default mutable bookkeeping ledger for a run.
+The guide SHALL continue to explain the pairwise-v2 routing-packet and recovery model as the conceptual baseline that pairwise-v3 extends rather than replaces.
 
-#### Scenario: Reader does not confuse memo pages with bookkeeping ledgers
-- **WHEN** a reader compares pairwise-v2 initialize guidance with the bookkeeping contract model
-- **THEN** the guide explains that managed memory carries run guidance and references
-- **AND THEN** it does not present managed memory as the default home for mutable loop bookkeeping
+The guide SHALL include a short orientation to `houmao-agent-loop-generic`: what a "generic loop graph" means (a graph with typed pairwise and relay components), when to use it over the pairwise-only skills, and a pointer to the skill's SKILL.md for the full authoring vocabulary.
+
+The guide SHALL link to:
+- each loop skill's SKILL.md (or the skills directory) for full lifecycle vocabulary and operating pages,
+- `docs/reference/cli/internals.md` for the `graph high` command reference,
+- `docs/getting-started/system-skills-overview.md` for the full skill catalog.
+
+The guide SHALL NOT reproduce the full pairwise-v2 or pairwise-v3 routing-packet JSON schema, the complete loop-plan template, or the full operating-page vocabulary — those live in the skill SKILL.md and its supporting pages.
+
+#### Scenario: Reader can choose between v2 and v3
+- **WHEN** a reader opens `docs/getting-started/loop-authoring.md`
+- **THEN** they find a reference table comparing the current loop skills including pairwise-v2 and pairwise-v3
+- **AND THEN** they can see that pairwise-v3 is the workspace-aware extension while pairwise-v2 remains available as its predecessor
+
+#### Scenario: Reader understands v3 standard versus custom workspace
+- **WHEN** a reader studies the pairwise-v3 section of the loop authoring guide
+- **THEN** the guide explains `standard` versus `custom` workspace mode
+- **AND THEN** it explains that custom workspace is recorded in the loop plan rather than routed through `houmao-utils-workspace-mgr`
+
+#### Scenario: Reader understands task-scoped standard in-repo posture
+- **WHEN** a reader studies the standard in-repo workspace posture for pairwise-v3
+- **THEN** the guide explains that the standard team root is `houmao-ws/<task-name>/...`
+- **AND THEN** it does not present the flat `houmao-ws/<agent-name>/...` layout as the current standard in-repo model

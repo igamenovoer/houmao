@@ -95,7 +95,7 @@ This packaged skill does not cover:
 - Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
 - Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
 - Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
-- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including the pairwise and generic loop skills, the advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
+- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including the stable, enriched, workspace-aware, and generic loop skills, the advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
 - Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
 
 ## References
@@ -114,6 +114,7 @@ This packaged skill does not cover:
 - Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
 - Route advanced stable pairwise loop creation to `houmao-agent-loop-pairwise` only after the user selects or explicitly invokes that skill.
 - Route advanced enriched pairwise loop creation to `houmao-agent-loop-pairwise-v2` only after the user selects or explicitly invokes that skill.
+- Route advanced workspace-aware pairwise loop creation to `houmao-agent-loop-pairwise-v3` only after the user selects or explicitly invokes that skill.
 - Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
 - Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
 
@@ -125,7 +126,7 @@ This packaged skill does not cover:
 - Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
 - Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
-- Do not silently auto-route generic pairwise loop planning or pairwise run-control requests into `houmao-agent-loop-pairwise` or `houmao-agent-loop-pairwise-v2`; ask the user to select or explicitly invoke the desired pairwise skill.
+- Do not silently auto-route generic pairwise loop planning or pairwise run-control requests into `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, or `houmao-agent-loop-pairwise-v3`; ask the user to select or explicitly invoke the desired pairwise skill.
 - Do not restate composed pairwise topology, run-control details, or elemental pairwise edge-loop protocol inline; keep those on the selected pairwise loop skill and `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
 - Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.

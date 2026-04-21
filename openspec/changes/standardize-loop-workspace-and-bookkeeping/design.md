@@ -1,171 +1,182 @@
 ## Context
 
-Houmao's loop skills already standardize control-plane behavior such as topology, lifecycle vocabulary, reporting, and pairwise-v2 prestart material. What they do not standardize is the operator-facing contract for where agents are expected to work and where they are expected to keep inspection-friendly notes during a run.
+Pairwise-v2 already owns rich pairwise lifecycle behavior: routing-packet prestart, durable managed-memory guidance, runtime-owned recovery records, and `recover_and_continue`. What it does not own is a first-class workspace contract. That leaves operators choosing between ad hoc workspace prose inside loop plans and a separate workspace-manager skill that currently knows nothing about a v2/v3 pairwise run contract.
 
-That gap is especially visible because Houmao already has an explicit multi-agent workspace surface in `houmao-utils-workspace-mgr`. The workspace-manager skill distinguishes in-repo and out-of-repo layouts, private mutation surfaces, shared visibility surfaces, and launch-profile cwd expectations. Loop plans currently do not reuse that vocabulary, so loop-planned teams can drift into repo-root edits, ad hoc worktrees, and inconsistent bookkeeping locations.
+The user requirement here is more precise than the earlier draft:
 
-There is also an important repository constraint: Houmao managed memory is not the right home for mutable bookkeeping ledgers. Recent memory guidance deliberately keeps `houmao-memo.md` and contained pages focused on live-agent instructions and durable readable notes, and warns against turning managed memory into runtime scratch or supervision state. That means issue `#29` should not be solved by introducing fixed ledgers under managed memory.
+- pairwise-v3 should be the workspace-aware extension of pairwise-v2,
+- pairwise-v3 should let the operator choose a standardized Houmao workspace or a custom operator-owned workspace,
+- `houmao-utils-workspace-mgr` should remain standard-only rather than becoming a universal custom-workspace inspector,
+- standard in-repo workspaces should be task-scoped under `houmao-ws/<task-name>/...`,
+- runtime-owned recovery records must remain separate from user-authored bookkeeping and workspace notes.
 
-The design therefore needs to:
+That gives us a clear split of responsibility:
 
-- reuse the workspace-manager split instead of inventing a loop-only workspace model,
-- add a first-class loop contract for workspace and bookkeeping,
-- avoid prescribing a fixed subtree under per-agent `kb/`,
-- keep the first step at the guidance/spec/template layer rather than requiring new runtime machinery.
+- `houmao-agent-loop-pairwise-v3` owns workspace contract choice inside the loop plan,
+- `houmao-utils-workspace-mgr` owns only the standardized Houmao workspace layout,
+- pairwise-v2 remains intact as the non-workspace-specialized predecessor.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Give every authored loop plan a first-class workspace contract and bookkeeping contract.
-- Provide a standard workspace mode that reuses the existing in-repo and out-of-repo workspace-manager styles.
-- Provide a standard bookkeeping mode that defines obligations and visibility without imposing a fixed directory tree.
-- Make loop plans declare whether ad hoc worktrees are allowed, where code edits belong, and which shared surfaces are writable.
-- Make bookkeeping locations explicit plan-owned paths so operators and participants know where to read and write.
-- Let loop plans reference prepared workspace-manager outputs instead of duplicating or improvising workspace posture.
-- Update authoring templates and docs so these contracts are visible before a run starts.
+- Introduce `houmao-agent-loop-pairwise-v3` as the workspace-aware extension of v2.
+- Let pairwise-v3 plans declare `workspace_contract.mode = standard | custom`.
+- Define standard in-repo posture for pairwise-v3 as task-scoped under `houmao-ws/<task-name>/...`.
+- Keep pairwise-v3 compatible with pairwise-v2 lifecycle ideas, including initialize/start/recovery boundaries.
+- Keep `houmao-utils-workspace-mgr` standard-only and task-scoped for in-repo mode.
+- Make docs and packaging reflect the new v2/v3 distinction clearly.
 
 **Non-Goals:**
 
-- Do not introduce a new runtime loop engine or filesystem enforcement layer in this change.
-- Do not redefine Houmao managed memory as the home for mutable run bookkeeping.
-- Do not impose one Houmao-owned subtree shape under per-agent `kb/`.
-- Do not require every team to use the standard modes; custom contracts remain supported when the user needs them.
-- Do not redesign the existing in-repo or out-of-repo workspace-manager flavors.
+- Do not retrofit standard/custom workspace modes into `houmao-utils-workspace-mgr`.
+- Do not redefine pairwise-v2 in place; v3 is additive.
+- Do not redesign the out-of-repo workspace-manager flavor.
+- Do not redefine Houmao runtime-owned recovery files as user-authored bookkeeping.
+- Do not impose a fixed subtree under per-agent `kb/` for custom workspaces.
 
 ## Decisions
 
-### Decision: Add a cross-cutting loop-run contract vocabulary
+### Decision: Introduce pairwise-v3 instead of mutating pairwise-v2 in place
 
-Loop plans will gain two explicit contract surfaces:
+The workspace-aware loop contract should ship as `houmao-agent-loop-pairwise-v3`, not as a breaking rewrite of v2.
 
-- `workspace_contract`
-- `bookkeeping_contract`
+Why:
 
-These are authored-plan concepts, not runtime-only hidden conventions. They belong in canonical loop plan surfaces and in the corresponding skill references/templates, so operators can inspect them before launch and before handoff.
+- v2 already has a stable mental model around initialize/start/recover-and-continue;
+- workspace-aware planning is a meaningful extension, not just a small wording change;
+- keeping v2 intact makes migration and docs comparison cleaner.
 
-Why this over embedding the rules inside free-form reporting guidance:
+Alternative considered: modify pairwise-v2 directly. Rejected because it would blur whether old v2 plans are still valid and would mix workspace posture changes into an existing versioned surface.
 
-- reporting describes what a master reports, not where participants may mutate state;
-- workspace posture must be visible before the run begins, not discovered mid-run;
-- bookkeeping needs operator-facing semantics and locations, not only output summaries.
+### Decision: Standard/custom workspace choice belongs to pairwise-v3, not to workspace-manager
 
-Alternative considered: keep workspace/bookkeeping as loose prose in plan notes. Rejected because that reproduces the current ambiguity and makes standardization impossible to test.
+Pairwise-v3 will own a workspace contract such as:
 
-### Decision: Standard workspace mode reuses workspace-manager flavors
+```text
+workspace_contract:
+  mode: standard | custom
+```
 
-The standard workspace mode will not invent a new loop-specific layout. Instead, it will explicitly reuse the existing `houmao-utils-workspace-mgr` postures:
+If `mode = standard`, pairwise-v3 uses Houmao's standard workspace posture and may refer to or require a workspace prepared through `houmao-utils-workspace-mgr`.
 
-- `standard/in-repo`
-- `standard/out-of-repo`
+If `mode = custom`, pairwise-v3 records operator-provided paths and rules directly in the loop plan. In that case, `houmao-utils-workspace-mgr` is not invoked and does not gain any custom-workspace lane.
 
-For each standard posture, loop guidance will summarize the loop-relevant operator contract:
+Why:
 
-- launch visibility surface,
-- source-mutation surface,
-- shared writable surfaces,
-- read-only shared surfaces,
-- ad hoc worktree policy,
-- relationship to a prepared workspace or to a referenced `workspace.md`.
+- the operator chooses workspace posture as part of the run contract;
+- the workspace manager should stay focused on preparing Houmao-standard layouts;
+- “custom workspace” is a loop-planning concern, not a workspace-manager concern.
 
-Why this over a new loop-specific workspace model:
+Alternative considered: add `custom` mode to workspace-manager too. Rejected because it would turn the workspace manager into a generic workspace abstraction layer instead of a standard Houmao workspace preparer.
 
-- the workspace-manager skill already owns these semantics;
-- a third layout would drift from the existing in-repo/out-of-repo guidance;
-- users asked for determinism, not another competing workspace abstraction.
+### Decision: Standard in-repo posture is task-scoped
 
-Alternative considered: define a loop-only workspace layout separate from workspace-manager. Rejected because it duplicates responsibility and would quickly diverge from the existing utility skill.
+The standard in-repo posture used by pairwise-v3 and prepared by workspace-manager should be:
 
-### Decision: Standard bookkeeping mode standardizes semantics, not tree shape
+```text
+<repo-root>/
+  houmao-ws/
+    workspaces.md
+    <task-name>/
+      workspace.md
+      shared-kb/
+      <agent-name>/
+        kb/
+        repo/
+```
 
-The standard bookkeeping mode will define:
+This means:
 
-- required bookkeeping categories,
-- ownership and visibility expectations,
-- update triggers or cadence,
-- the rule that every bookkeeping surface must have an explicit declared path.
+- task root: `<repo-root>/houmao-ws/<task-name>`
+- authoritative task contract: `<task-root>/workspace.md`
+- task-local shared knowledge: `<task-root>/shared-kb/`
+- repo-level index only: `<repo-root>/houmao-ws/workspaces.md`
+- task-qualified branches such as `houmao/<task-name>/<agent-name>/main`
 
-It will not define a universal directory schema such as `kb/loop-runs/<run_id>/...`.
+Why:
 
-Why this over a fixed subtree:
+- multiple teams can coexist in one repository;
+- common role names stop colliding;
+- `shared-kb` and `workspace.md` become task-local rather than repo-global.
 
-- bookkeeping structure is task-specific and user-specific;
-- the user explicitly rejected assuming a fixed layout under per-agent `kb/`;
-- forcing a universal tree would make the "standard" mode too rigid for real loop workflows.
+Alternative considered: keep the flat `houmao-ws/<agent-name>/...` shape. Rejected because it cannot represent multiple concurrent teams cleanly.
 
-Alternative considered: standardize a fixed set of files under per-agent `kb/`. Rejected because it overfits one bookkeeping style and conflicts with the need for user-owned task-specific note structure.
+### Decision: Repo root can remain the shared visibility surface in standard in-repo mode
 
-### Decision: Explicit bookkeeping paths are mandatory for standard bookkeeping mode
+For standard in-repo posture, the launch cwd may still remain `<repo-root>`, while writes are task-local by default:
 
-Standard bookkeeping mode will still require the plan to name concrete paths or files for the bookkeeping it expects. The plan may point at one file, several files, or paths outside `kb/`, as long as they are explicit and compatible with the workspace contract.
+- source writes: `<task-root>/<agent-name>/repo`
+- task notes: `<task-root>/<agent-name>/kb`
+- task shared merge-oriented knowledge: task-local private worktree copy of `shared-kb`
 
-The authoring guidance should not silently invent a Houmao-owned subtree. When the user has not supplied enough information to identify safe bookkeeping locations, the authoring flow should resolve that explicitly in the plan rather than pretending one fixed layout exists.
+Why:
 
-Why this over implicit default paths:
+- repo-root shared visibility is still useful;
+- the collision problem is solved by task-local write surfaces, not by hiding the repository.
 
-- operators need to know where to look without guessing;
-- the path is part of the contract between planner, operator, and participants;
-- implicit defaults would smuggle a directory policy back into the system.
+Alternative considered: launch from `<task-root>` instead of `<repo-root>`. Rejected for now because the wider shared visibility model is still valuable.
 
-Alternative considered: keep paths optional in standard mode and let agents choose. Rejected because it does not solve issue `#29`; it simply preserves improvisation.
+### Decision: Custom workspace contracts are explicit plan-owned path declarations
 
-### Decision: Pairwise, pairwise-v2, and generic all adopt the same contract seams
+When pairwise-v3 uses `workspace_contract.mode = custom`, the plan should declare concrete paths and rules directly, for example:
 
-All three current loop skills will adopt the same high-level contract vocabulary, but each skill will apply it at its own lifecycle seams:
+- launch cwd
+- source write paths
+- shared writable paths
+- bookkeeping paths
+- read-only paths
+- ad hoc worktree posture
 
-- stable pairwise: authoring, start charter, status/stop reporting contract,
-- pairwise-v2: authoring, initialize, start, peek/stop summaries,
-- generic: authoring, start charter, status/stop reporting contract.
+Pairwise-v3 does not silently translate those paths into `houmao-ws/...`.
 
-This keeps the loop family coherent while respecting the different lifecycle surfaces already present in each skill.
+Why:
 
-Why this over changing only pairwise-v2:
+- custom mode exists exactly for operators who do not want the standardized Houmao layout;
+- implicit translation would make custom mode dishonest.
 
-- issue `#28` and `#29` are about loop-planned runs generally, not only enriched pairwise runs;
-- limiting the change to v2 would leave stable pairwise and generic with the same ambiguity.
+Alternative considered: let pairwise-v3 loosely describe custom workspaces without explicit paths. Rejected because it would restore the same ambiguity this change is meant to remove.
 
-Alternative considered: solve this only in pairwise-v2 because it already has `initialize`. Rejected because workspace and bookkeeping are authored-plan concerns across the whole loop family.
+### Decision: Runtime-owned recovery state stays separate in v3
 
-### Decision: Workspace-manager adds a loop-facing summary, not a second planning mode
+Pairwise-v3 inherits the pairwise-v2 rule that runtime-owned recovery records remain Houmao-managed state, not part of the authored workspace or bookkeeping contract.
 
-`houmao-utils-workspace-mgr` will be extended so its existing plans and `workspace.md` can act as loop-facing references for standard workspace mode. The goal is not to give workspace-manager ownership of loop planning, but to let loop plans reuse prepared workspace posture without restating the full layout from scratch.
+Examples:
 
-The summary should cover:
+- `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`
+- `<runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl`
 
-- selected flavor and root,
-- per-agent launch cwd or visibility surface,
-- writable source location,
-- writable shared knowledge location when applicable,
-- default read-only shared surfaces,
-- ad hoc worktree posture,
-- any workspace-specific cautions relevant to loop participants.
+The v3 contract may reference operator-visible recovery notes, but it must not treat these runtime files as normal user-authored bookkeeping paths.
 
-Why this over teaching loop skills to restate workspace-manager semantics from memory:
+Why:
 
-- it keeps workspace semantics owned by the workspace skill;
-- it reduces drift between prepared workspaces and loop-plan expectations;
-- it avoids teaching multiple loop skills to duplicate in-repo/out-of-repo details.
+- recovery records are part of Houmao's runtime continuity model;
+- operators and agents should not treat them as ordinary workspace notes.
 
-Alternative considered: have each loop skill restate the full workspace-manager guidance inline. Rejected because it creates copy drift and weakens the separation of responsibilities.
+Alternative considered: absorb recovery state into the workspace contract. Rejected because it blurs ownership and runtime semantics.
 
 ## Risks / Trade-offs
 
-- [Risk] Users may read "standard bookkeeping mode" as a fixed file tree even though the design intends semantic standardization only. -> Mitigation: make the spec and templates state explicitly that bookkeeping locations are declared paths, not a Houmao-owned subtree.
-- [Risk] Requiring explicit bookkeeping paths can add friction during authoring. -> Mitigation: keep the standard mode lightweight and let authors declare one small set of concrete files instead of a large structure.
-- [Risk] Standard workspace mode could drift from the workspace-manager skill over time. -> Mitigation: make loop plans reference workspace-manager postures and summaries instead of copying the full layout into each loop skill.
-- [Risk] This first step improves contracts but does not enforce them at runtime. -> Mitigation: frame the change honestly as a guidance/spec/template change and leave future enforcement as separate follow-up work if still needed.
-- [Risk] Operators may expect managed memory to carry bookkeeping because pairwise-v2 already writes initialize material there. -> Mitigation: keep the docs explicit that managed memory is for run guidance and references, while bookkeeping lives in declared workspace paths.
+- [Risk] Having both v2 and v3 may confuse users. -> Mitigation: update loop authoring docs so v2 is the recovery/control-rich baseline and v3 is the workspace-aware extension.
+- [Risk] Standard/custom at the loop-skill level may make users expect the workspace manager to understand both. -> Mitigation: state explicitly that `houmao-utils-workspace-mgr` remains standard-only.
+- [Risk] Task-scoped in-repo posture is a breaking conceptual change from the current flat layout. -> Mitigation: document it clearly and keep the change localized to the standard in-repo model.
+- [Risk] Custom workspace mode can become too underspecified. -> Mitigation: require concrete path declarations in the authored v3 contract.
+- [Risk] Users may confuse runtime recovery files with custom bookkeeping. -> Mitigation: keep the docs and v3 spec explicit about the recovery boundary.
 
 ## Migration Plan
 
-1. Add the new `loop-run-contracts` capability spec.
-2. Update the loop skill specs to require workspace and bookkeeping contracts in authored plans and run-control guidance.
-3. Update the workspace-manager skill spec so prepared workspaces can expose loop-facing standard posture summaries.
-4. Update loop plan templates, references, and the loop authoring guide to show the new contract sections.
-5. Implement the packaged skill and docs changes without changing the runtime engine.
+1. Add the new `houmao-agent-loop-pairwise-v3-skill` capability.
+2. Update the workspace-manager spec so standard in-repo posture is task-scoped and remains standard-only.
+3. Update packaged system-skill installation expectations to include pairwise-v3.
+4. Update loop authoring docs to distinguish pairwise-v2 from pairwise-v3 and explain standard/custom workspace modes.
+5. Implement the new packaged skill and aligned docs/assets.
 
-Rollback is documentation/spec/asset rollback only. No persisted runtime data migration is required for this change.
+Rollback is doc/spec/asset rollback only. No runtime data migration is required for this change.
 
 ## Open Questions
 
-None for this proposal. The main contract boundary is now clear: standardize workspace posture and bookkeeping semantics, but keep bookkeeping file placement explicit and plan-owned.
+None for the proposal. The ownership boundary is now explicit:
+
+- pairwise-v3 owns workspace contract choice,
+- workspace-manager owns only the standard workspace,
+- runtime recovery remains Houmao-owned state.

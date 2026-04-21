@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Agent Loop Pairwise V3"
+  short_description: "Author, initialize, and operate workspace-aware enriched master-owned pairwise loop runs."
+  default_prompt: "Use $houmao-agent-loop-pairwise-v3 only when the user explicitly requests it and needs to turn a goal into a workspace-aware enriched pairwise loop plan written under a user-selected output directory, choose a `standard` or `custom` workspace contract, run canonical `initialize` through default precomputed routing-packet validation plus durable initialize-page materialization or explicit operator preparation-wave preflight, or send compact page-backed `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, or `hard-kill` control requests without making the user agent part of the execution loop."

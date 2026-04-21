@@ -1,25 +1,22 @@
-## 1. Shared Contract Surfaces
+## 1. Pairwise-V3 Skill
 
-- [ ] 1.1 Add shared loop-run contract guidance for `workspace_contract` and `bookkeeping_contract`, including `standard` versus `custom` posture vocabulary.
-- [ ] 1.2 Update loop plan templates and reference pages so standard workspace mode reuses `in-repo` or `out-of-repo` posture and standard bookkeeping mode requires explicit declared locations without a fixed `kb/` subtree.
+- [x] 1.1 Add the packaged `houmao-agent-loop-pairwise-v3` skill as the workspace-aware extension of pairwise-v2.
+- [x] 1.2 Author pairwise-v3 plan, reference, and operating assets so the workspace contract supports `standard` and `custom` modes.
+- [x] 1.3 Ensure pairwise-v3 preserves pairwise-v2 recovery boundaries and keeps runtime-owned recovery files outside the authored workspace contract.
 
-## 2. Loop Skill Updates
+## 2. Standard Workspace Integration
 
-- [ ] 2.1 Update `houmao-agent-loop-pairwise` authoring and operating assets to require explicit workspace and bookkeeping contracts in accepted run plans.
-- [ ] 2.2 Update `houmao-agent-loop-pairwise-v2` authoring, prestart, and operating assets to preserve declared workspace/bookkeeping contracts and keep mutable bookkeeping out of managed-memory ledgers.
-- [ ] 2.3 Update `houmao-agent-loop-generic` authoring and operating assets to require explicit workspace and bookkeeping contracts in authored generic run plans.
+- [x] 2.1 Redefine the standard in-repo workspace posture as task-scoped under `houmao-ws/<task-name>/...`, including task-local `workspace.md`, task-local `shared-kb`, and task-qualified branch naming.
+- [x] 2.2 Update `houmao-utils-workspace-mgr` guidance so it remains the standard workspace-preparation skill and does not gain a custom-workspace lane.
+- [x] 2.3 Ensure workspace-manager loop-facing summaries describe the reusable standard workspace contract without prescribing a fixed per-agent bookkeeping tree.
 
-## 3. Workspace-Manager Integration
+## 3. Catalog And Documentation
 
-- [ ] 3.1 Update `houmao-utils-workspace-mgr` guidance so prepared in-repo and out-of-repo workspaces can publish loop-facing standard posture summaries.
-- [ ] 3.2 Ensure workspace-manager loop-facing summaries describe writable zones and ad hoc worktree posture without prescribing a fixed per-agent bookkeeping tree.
+- [x] 3.1 Update packaged system-skill installation/catalog expectations so `houmao-agent-loop-pairwise-v3` is a current installable skill in the pairwise family.
+- [x] 3.2 Update `docs/getting-started/loop-authoring.md` to explain pairwise-v2 versus pairwise-v3, standard versus custom workspace mode, and task-scoped standard in-repo posture.
+- [x] 3.3 Refresh any affected loop-facing examples or supporting references so they point at pairwise-v3 where workspace-aware planning is intended.
 
-## 4. Documentation
+## 4. Verification
 
-- [ ] 4.1 Update `docs/getting-started/loop-authoring.md` to document the new workspace and bookkeeping contract model, including standard/custom posture and explicit bookkeeping-path rules.
-- [ ] 4.2 Refresh any affected loop-facing examples or supporting references so they show the new contract sections consistently.
-
-## 5. Verification
-
-- [ ] 5.1 Add or update focused checks that cover the loop authoring guide and any affected packaged asset text that now carries workspace/bookkeeping contract requirements.
-- [ ] 5.2 Run the relevant focused validation for the changed docs/assets and confirm the OpenSpec change is apply-ready.
+- [x] 4.1 Add or update focused checks that cover the new pairwise-v3 packaged asset text and the updated loop authoring guide.
+- [x] 4.2 Run the relevant focused validation for the changed docs/assets and confirm the OpenSpec change is apply-ready.

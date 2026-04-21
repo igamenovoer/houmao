@@ -35,8 +35,8 @@ This reference is self-contained. It does not depend on any file outside the pac
 ## Roles In A Multi-Agent Run
 
 - **User agent** — the agent (human or CLI) that interacts with the user and composes Houmao plans. The user agent stays outside the execution loop; it plans, starts, checks, and stops rather than driving pairwise edges directly. Owning skill: the top-level `houmao-touring` tour and the loop skills.
-- **Master** — the designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling after accepting a loop run. Owning skills: `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-generic`.
-- **Loop plan** — a single-file or bundle plan that names a master, participants, and the intended pairwise or relay topology. The plan is the author-time artifact that the loop skills consume at `start`. Owning skills: `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-generic`.
+- **Master** — the designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling after accepting a loop run. Owning skills: `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-generic`.
+- **Loop plan** — a single-file or bundle plan that names a master, participants, and the intended pairwise or relay topology. The plan is the author-time artifact that the loop skills consume at `start`. Owning skills: `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-generic`.
 
 ## Memory And Pages
 
