@@ -495,12 +495,14 @@ def _task_reminder_section() -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="task_reminder",
         text=(
-            "When starting potentially long-running work, such as processing email, create a "
-            "one-off reminder on the live gateway to remind yourself to verify final output "
-            "actions are complete before finishing. Use a default notification check delay of "
-            "10 seconds. The reminder should name the expected final action, such as replying "
-            "to mail or writing a required file. Delete or otherwise turn off that reminder "
-            "when the task is done."
+            "Use a live gateway reminder only when the operator explicitly asked for a later "
+            "self-reminder or when you need one concrete supervision or finalization check "
+            "that would otherwise be easy to miss. Acceptable reminder targets include "
+            "sending a required reply, writing a required file, or verifying agent or loop "
+            "health. Name the concrete obligation the reminder is guarding, and delete or "
+            "otherwise turn off that reminder when the obligation is satisfied. When no "
+            "explicit or concrete reminder target exists, keep using local todo, memo, or "
+            "other working state instead of creating a ceremonial self-ping."
         ),
     )
 
