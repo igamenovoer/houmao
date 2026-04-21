@@ -3229,6 +3229,7 @@ class GatewayServiceRuntime:
                     self.m_paths.queue_path,
                     last_poll_at_utc=poll_time_utc,
                     last_notified_digest=None,
+                    compacted_eligible_message_refs=(),
                     last_error=None,
                 )
                 self._append_notifier_audit_record(
@@ -3244,6 +3245,19 @@ class GatewayServiceRuntime:
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
+            current_eligible_message_refs = self._mail_notifier_eligible_message_refs(unread_messages)
+            current_eligible_message_ref_set = set(current_eligible_message_refs)
+            pruned_compacted_eligible_message_refs = tuple(
+                message_ref
+                for message_ref in record.compacted_eligible_message_refs
+                if message_ref in current_eligible_message_ref_set
+            )
+            if pruned_compacted_eligible_message_refs != record.compacted_eligible_message_refs:
+                record = write_gateway_mail_notifier_record(
+                    self.m_paths.queue_path,
+                    compacted_eligible_message_refs=pruned_compacted_eligible_message_refs,
+                )
+
             block_detail = self._notifier_block_detail_locked(status=status)
             if block_detail is not None:
                 write_gateway_mail_notifier_record(
@@ -3265,9 +3279,21 @@ class GatewayServiceRuntime:
                 return
 
             context_action_outcomes: list[str] = []
-            if record.pre_notification_context_action == "compact":
+            newly_eligible_message_refs = tuple(
+                message_ref
+                for message_ref in current_eligible_message_refs
+                if message_ref not in set(record.compacted_eligible_message_refs)
+            )
+            if (
+                record.pre_notification_context_action == "compact"
+                and newly_eligible_message_refs
+            ):
                 try:
                     self._dispatch_tui_compaction_only(lock_held=True)
+                    record = write_gateway_mail_notifier_record(
+                        self.m_paths.queue_path,
+                        compacted_eligible_message_refs=current_eligible_message_refs,
+                    )
                     context_action_outcomes.append("pre_notification_compact_completed")
                 except GatewayError as exc:
                     write_gateway_mail_notifier_record(
@@ -3364,6 +3390,14 @@ class GatewayServiceRuntime:
 
         digest_source = "\n".join(sorted(message.message_ref for message in unread_messages))
         return hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
+
+    def _mail_notifier_eligible_message_refs(
+        self,
+        unread_messages: list[_UnreadMailboxMessage],
+    ) -> tuple[str, ...]:
+        """Return a deterministic identity set for the current eligible mail snapshot."""
+
+        return tuple(sorted({message.message_ref for message in unread_messages}))
 
     def _build_mail_notifier_prompt(
         self,
@@ -4059,7 +4093,7 @@ class GatewayServiceRuntime:
                     turn_id=payload.turn_id,
                     session_selection=session_selection,
                     execution_model=execution_model,
-                    note_prompt_submission=request_kind == "submit_prompt",
+                    note_prompt_submission=request_kind in {"submit_prompt", "mail_notifier_prompt"},
                 )
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)

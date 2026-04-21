@@ -19,7 +19,7 @@ Notifier configuration also carries optional `appendix_text`. When non-empty, th
 Notifier configuration also carries two context policies:
 
 - `context_error_policy` defaults to `continue_current`. With the default, recoverable degraded context remains diagnostic and the notifier does not clear context before wake-up delivery. `clear_context` is opt-in and only applies when the current degraded diagnostic is recognized for the owning CLI tool.
-- `pre_notification_context_action` defaults to `none`. `compact` is an opt-in preflight that runs a supported compaction action before every notification prompt. In v1 this is supported for live Codex TUI gateways through `/compact`; unsupported tool/backend combinations are rejected instead of silently ignored.
+- `pre_notification_context_action` defaults to `none`. `compact` is an opt-in preflight that runs a supported compaction action before notification prompts only when newly eligible mail appears. In v1 this is supported for live Codex TUI gateways through `/compact`; unsupported tool/backend combinations are rejected instead of silently ignored.
 
 ## Current Polling Cycle
 
@@ -32,7 +32,7 @@ When the notifier is enabled, the current implementation runs this cycle:
 5. If there is no eligible mail, record an `empty` audit row and stop this cycle.
 6. If eligible mail exists, compute a SHA256 digest from the sorted eligible `message_ref` values.
 7. Check whether prompt enqueueing is currently blocked by gateway readiness.
-8. If configured, run the pre-notification context action. For Codex TUI `compact`, the gateway sends `/compact`, waits for prompt-ready stabilization, and refreshes tracked diagnostics.
+8. If configured and the current eligible set contains at least one mail item that has not yet triggered compaction during its current eligibility stretch, run the pre-notification context action. For Codex TUI `compact`, the gateway sends `/compact`, waits for prompt-ready stabilization, refreshes tracked diagnostics, and remembers the current eligible `message_ref` set as already compacted for the current eligibility stretch.
 9. If `context_error_policy=clear_context` and the refreshed degraded diagnostic is a recognized Codex compaction diagnostic, run the existing TUI clean-context reset workflow before enqueueing the wake-up prompt.
 10. If the gateway is ready, render the notification prompt and enqueue one internal `mail_notifier_prompt` request.
 11. Reschedule the next poll as `now + interval_seconds`.
@@ -48,11 +48,14 @@ Important source-truth details:
 - the notifier computes `unread_digest` from eligible `message_ref` values,
 - the notifier audit trail stores that digest,
 - the current enqueue path does not compare the new digest against a previously notified digest before deciding to enqueue,
-- `last_notified_digest` exists in the notifier record model, but the current cycle writes it as `None` rather than using it to suppress repeated wakeups.
+- `last_notified_digest` exists in the notifier record model, but the current cycle writes it as `None` rather than using it to suppress repeated wakeups,
+- pre-notification compaction bookkeeping is tracked separately from prompt-repeat behavior, so unchanged eligible mail can still trigger later wake-up prompts without triggering another `/compact`.
 
 Practical effect:
 
 - unchanged eligible inbox mail can wake the agent again on later notifier cycles,
+- unchanged continuously eligible mail does not trigger another pre-notification compaction once the notifier has already compacted for that eligibility stretch,
+- newly eligible mail added to an already-compacted eligible set may trigger one additional compaction for the expanded set,
 - in `any_inbox` mode, repeated wakeups stop when the message is archived, moved out of inbox, deleted, the notifier is disabled, or the gateway stays unavailable or busy long enough that nothing can be enqueued,
 - in `unread_only` mode, marking a message read also removes it from notifier eligibility, so use this mode only when that lower-noise trade-off is intended.
 

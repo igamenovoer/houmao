@@ -547,6 +547,7 @@ def test_gateway_storage_migrates_old_notifier_schema_with_policy_defaults(
     assert record.appendix_text == ""
     assert record.context_error_policy == "continue_current"
     assert record.pre_notification_context_action == "none"
+    assert record.compacted_eligible_message_refs == ()
 
 
 def test_gateway_tui_tracking_timing_config_resolves_precedence() -> None:
@@ -6461,6 +6462,183 @@ def test_gateway_mail_notifier_pre_notification_compacts_codex_before_prompt(
     assert enqueued_rows
     assert enqueued_rows[-1].pre_notification_context_action == "compact"
     assert enqueued_rows[-1].context_action_outcome == "pre_notification_compact_completed"
+
+
+def test_gateway_mail_notifier_pre_notification_compaction_does_not_repeat_for_unchanged_mail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    message_id = _deliver_unread_mailbox_message(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
+        filesystem_root=(tmp_path / "mailbox").resolve(),
+        bindings_version="2026-03-16T08:00:00.000001Z",
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    )
+    assert paths is not None
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(
+                interval_seconds=1,
+                pre_notification_context_action="compact",
+            )
+        )
+        _wait_until(
+            lambda: sum(1 for prompt, _ in fake_session.prompt_calls if prompt != "/compact") >= 2,
+            timeout_seconds=7.0,
+        )
+    finally:
+        runtime.shutdown()
+
+    compact_prompts = [prompt for prompt, _ in fake_session.prompt_calls if prompt == "/compact"]
+    notifier_prompts = [prompt for prompt, _ in fake_session.prompt_calls if prompt != "/compact"]
+    assert compact_prompts == ["/compact"]
+    assert len(notifier_prompts) >= 2
+    assert sum(1 for note in _FakeGatewayTrackingRuntime.m_prompt_notes if note == "/compact") == 1
+    assert len([note for note in _FakeGatewayTrackingRuntime.m_prompt_notes if note != "/compact"]) >= 2
+    record = read_gateway_mail_notifier_record(paths.queue_path)
+    assert record.compacted_eligible_message_refs == (f"filesystem:{message_id}",)
+    enqueued_rows = [
+        row
+        for row in read_gateway_notifier_audit_records(paths.queue_path)
+        if row.outcome == "enqueued"
+    ]
+    assert len(enqueued_rows) >= 2
+    assert (
+        sum(
+            1
+            for row in enqueued_rows
+            if row.context_action_outcome == "pre_notification_compact_completed"
+        )
+        == 1
+    )
+
+
+def test_gateway_mail_notifier_pre_notification_compaction_runs_once_for_expanded_mail_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    message_id_a = _deliver_unread_mailbox_message(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+    mailbox = FilesystemMailboxResolvedConfig(
+        transport="filesystem",
+        principal_id="HOUMAO-gpu",
+        address="HOUMAO-gpu@agents.localhost",
+        filesystem_root=(tmp_path / "mailbox").resolve(),
+        bindings_version="2026-03-16T08:00:00.000001Z",
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    monkeypatch.setattr(runtime, "_require_live_notifier_mailbox_config_locked", lambda: mailbox)
+    monkeypatch.setattr(runtime, "_load_mailbox_config", lambda: mailbox)
+    paths = gateway_paths_from_manifest_path(
+        default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    )
+    assert paths is not None
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(
+            GatewayMailNotifierPutV1(
+                interval_seconds=1,
+                pre_notification_context_action="compact",
+            )
+        )
+        _wait_until(lambda: len(fake_session.prompt_calls) >= 2, timeout_seconds=5.0)
+        message_id_b = _deliver_unread_mailbox_message(
+            tmp_path,
+            message_id="msg-20260316T090100Z-b1c2d3e4f5a64798aabbccddeeff0022",
+            created_at_utc="2026-03-16T09:01:00Z",
+            subject="Gateway unread reminder two",
+        )
+        _wait_until(
+            lambda: sum(1 for prompt, _ in fake_session.prompt_calls if prompt != "/compact") >= 3,
+            timeout_seconds=8.0,
+        )
+    finally:
+        runtime.shutdown()
+
+    compact_prompts = [prompt for prompt, _ in fake_session.prompt_calls if prompt == "/compact"]
+    assert compact_prompts == ["/compact", "/compact"]
+    record = read_gateway_mail_notifier_record(paths.queue_path)
+    assert record.compacted_eligible_message_refs == tuple(
+        sorted((f"filesystem:{message_id_a}", f"filesystem:{message_id_b}"))
+    )
+    enqueued_rows = [
+        row
+        for row in read_gateway_notifier_audit_records(paths.queue_path)
+        if row.outcome == "enqueued"
+    ]
+    assert len(enqueued_rows) >= 3
+    assert (
+        sum(
+            1
+            for row in enqueued_rows
+            if row.context_action_outcome == "pre_notification_compact_completed"
+        )
+        == 2
+    )
 
 
 def test_gateway_mail_notifier_rejects_pre_notification_compact_for_non_codex_tui(

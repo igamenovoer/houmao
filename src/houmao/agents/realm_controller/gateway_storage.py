@@ -128,6 +128,7 @@ class GatewayMailNotifierRecord:
     last_poll_at_utc: str | None
     last_notification_at_utc: str | None
     last_notified_digest: str | None
+    compacted_eligible_message_refs: tuple[str, ...]
     last_error: str | None
 
 
@@ -900,6 +901,7 @@ def write_gateway_mail_notifier_record(
     last_poll_at_utc: str | None | object = _UNSET,
     last_notification_at_utc: str | None | object = _UNSET,
     last_notified_digest: str | None | object = _UNSET,
+    compacted_eligible_message_refs: Sequence[str] | object = _UNSET,
     last_error: str | None | object = _UNSET,
 ) -> GatewayMailNotifierRecord:
     """Persist selected notifier fields and return the resulting durable record."""
@@ -944,6 +946,13 @@ def write_gateway_mail_notifier_record(
                 record.last_notified_digest
                 if last_notified_digest is _UNSET
                 else cast(str | None, last_notified_digest)
+            ),
+            compacted_eligible_message_refs=(
+                record.compacted_eligible_message_refs
+                if compacted_eligible_message_refs is _UNSET
+                else _normalize_gateway_mail_notifier_compacted_message_refs(
+                    cast(Sequence[str], compacted_eligible_message_refs)
+                )
             ),
             last_error=record.last_error if last_error is _UNSET else cast(str | None, last_error),
         )
@@ -1393,10 +1402,11 @@ def _ensure_queue_schema(connection: sqlite3.Connection) -> None:
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
+            compacted_eligible_message_refs_json,
             last_error,
             updated_at_utc
         )
-        VALUES (1, 0, NULL, ?, '', ?, ?, NULL, NULL, NULL, NULL, ?)
+        VALUES (1, 0, NULL, ?, '', ?, ?, NULL, NULL, NULL, '[]', NULL, ?)
         """,
         (
             DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
@@ -1439,6 +1449,13 @@ def _migrate_gateway_queue_schema(connection: sqlite3.Connection) -> None:
             present_columns=notifier_columns,
             column_name="pre_notification_context_action",
             definition="pre_notification_context_action TEXT NOT NULL DEFAULT 'none'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="compacted_eligible_message_refs_json",
+            definition="compacted_eligible_message_refs_json TEXT NOT NULL DEFAULT '[]'",
         )
 
     audit_columns = _sqlite_table_columns(connection, "gateway_notifier_audit")
@@ -1554,6 +1571,7 @@ def _gateway_queue_schema_sql() -> str:
         last_poll_at_utc TEXT,
         last_notification_at_utc TEXT,
         last_notified_digest TEXT,
+        compacted_eligible_message_refs_json TEXT NOT NULL DEFAULT '[]',
         last_error TEXT,
         updated_at_utc TEXT NOT NULL
     );
@@ -1641,6 +1659,7 @@ def _validate_current_gateway_queue_schema(connection: sqlite3.Connection) -> No
             "last_poll_at_utc",
             "last_notification_at_utc",
             "last_notified_digest",
+            "compacted_eligible_message_refs_json",
             "last_error",
             "updated_at_utc",
         ),
@@ -1777,6 +1796,7 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
+            compacted_eligible_message_refs_json,
             last_error
         FROM gateway_mail_notifier
         WHERE singleton = 1
@@ -1795,6 +1815,7 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             last_poll_at_utc=None,
             last_notification_at_utc=None,
             last_notified_digest=None,
+            compacted_eligible_message_refs=(),
             last_error=None,
         )
         _write_gateway_mail_notifier_record(connection, record)
@@ -1811,7 +1832,10 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
         last_poll_at_utc=None if row[6] is None else str(row[6]),
         last_notification_at_utc=None if row[7] is None else str(row[7]),
         last_notified_digest=None if row[8] is None else str(row[8]),
-        last_error=None if row[9] is None else str(row[9]),
+        compacted_eligible_message_refs=_deserialize_gateway_mail_notifier_compacted_message_refs(
+            row[9]
+        ),
+        last_error=None if row[10] is None else str(row[10]),
     )
 
 
@@ -1870,10 +1894,11 @@ def _write_gateway_mail_notifier_record(
             last_poll_at_utc,
             last_notification_at_utc,
             last_notified_digest,
+            compacted_eligible_message_refs_json,
             last_error,
             updated_at_utc
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(singleton) DO UPDATE SET
             enabled = excluded.enabled,
             interval_seconds = excluded.interval_seconds,
@@ -1884,6 +1909,7 @@ def _write_gateway_mail_notifier_record(
             last_poll_at_utc = excluded.last_poll_at_utc,
             last_notification_at_utc = excluded.last_notification_at_utc,
             last_notified_digest = excluded.last_notified_digest,
+            compacted_eligible_message_refs_json = excluded.compacted_eligible_message_refs_json,
             last_error = excluded.last_error,
             updated_at_utc = excluded.updated_at_utc
         """,
@@ -1897,10 +1923,51 @@ def _write_gateway_mail_notifier_record(
             record.last_poll_at_utc,
             record.last_notification_at_utc,
             record.last_notified_digest,
+            _serialize_gateway_mail_notifier_compacted_message_refs(
+                record.compacted_eligible_message_refs
+            ),
             record.last_error,
             now_utc_iso(),
         ),
     )
+
+
+def _normalize_gateway_mail_notifier_compacted_message_refs(
+    compacted_message_refs: Sequence[str],
+) -> tuple[str, ...]:
+    """Return one deterministic compacted-message identity set."""
+
+    normalized = {str(message_ref) for message_ref in compacted_message_refs}
+    return tuple(sorted(normalized))
+
+
+def _serialize_gateway_mail_notifier_compacted_message_refs(
+    compacted_message_refs: Sequence[str],
+) -> str:
+    """Serialize compacted eligible message refs for SQLite persistence."""
+
+    payload = list(_normalize_gateway_mail_notifier_compacted_message_refs(compacted_message_refs))
+    return json.dumps(payload, sort_keys=True)
+
+
+def _deserialize_gateway_mail_notifier_compacted_message_refs(
+    payload_json: object,
+) -> tuple[str, ...]:
+    """Deserialize compacted eligible message refs from SQLite persistence."""
+
+    payload = json.loads(str(payload_json))
+    if not isinstance(payload, list):
+        raise SessionManifestError(
+            "Gateway mail notifier compacted_eligible_message_refs_json must decode to a list."
+        )
+    refs: list[str] = []
+    for item in payload:
+        if not isinstance(item, str):
+            raise SessionManifestError(
+                "Gateway mail notifier compacted_eligible_message_refs_json must contain strings."
+            )
+        refs.append(item)
+    return _normalize_gateway_mail_notifier_compacted_message_refs(refs)
 
 
 def _require_json_string(value: object, *, key: str) -> str:

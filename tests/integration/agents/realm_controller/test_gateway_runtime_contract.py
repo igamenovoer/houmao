@@ -449,7 +449,7 @@ class _FakeHeadlessSessionRegistry:
         self.m_session_name = session_name
         self.m_session_id = "headless-session-1"
         self.m_prompts: list[str] = []
-        self.m_prompt_calls: list[tuple[str, str | None]] = []
+        self.m_prompt_calls: list[tuple[str, str | None, object | None, object | None]] = []
         self.m_interrupt_count = 0
         self.m_terminated = False
 
@@ -497,11 +497,15 @@ class _FakeCodexHeadlessSession(HeadlessInteractiveSession):
         prompt: str,
         *,
         turn_artifact_dir_name: str | None = None,
+        session_selection: object | None = None,
+        execution_model: object | None = None,
     ) -> list[SessionEvent]:
         """Record a direct prompt submission for the fake headless backend."""
 
         self.m_registry.m_prompts.append(prompt)
-        self.m_registry.m_prompt_calls.append((prompt, turn_artifact_dir_name))
+        self.m_registry.m_prompt_calls.append(
+            (prompt, turn_artifact_dir_name, session_selection, execution_model)
+        )
         self._state.turn_index += 1
         self._state.session_id = self.m_registry.m_session_id
         return [
@@ -955,7 +959,7 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port, execution_mode: (
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
             captured_attach.update(
                 {
                     "controller": controller,
@@ -963,6 +967,7 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
                     "host": host,
                     "port": port,
                     "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
                 }
             )
             or port
@@ -1036,7 +1041,7 @@ def test_runtime_owned_headless_between_turn_attach_rebuilds_internal_attach_con
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port, execution_mode: (
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
             captured_attach.update(
                 {
                     "controller": controller,
@@ -1044,6 +1049,7 @@ def test_runtime_owned_headless_between_turn_attach_rebuilds_internal_attach_con
                     "host": host,
                     "port": port,
                     "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
                 }
             )
             or 43123
@@ -1140,7 +1146,7 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
     captured_attach: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
-        lambda *, controller, paths, host, port, execution_mode: (
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
             captured_attach.update(
                 {
                     "controller": controller,
@@ -1148,6 +1154,7 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
                     "host": host,
                     "port": port,
                     "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
                 }
             )
             or port
@@ -1380,7 +1387,7 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
         captured_attach: dict[str, object] = {}
         monkeypatch.setattr(
             "houmao.agents.realm_controller.runtime._start_gateway_process",
-            lambda *, controller, paths, host, port, execution_mode: (
+            lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
                 captured_attach.update(
                     {
                         "controller": controller,
@@ -1388,6 +1395,7 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
                         "host": host,
                         "port": port,
                         "execution_mode": execution_mode,
+                        "tui_tracking_timings": tui_tracking_timings,
                     }
                 )
                 or port
@@ -1442,11 +1450,9 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
             _wait_until(lambda: len(fake_cao.messages()) >= 1, timeout_seconds=5.0)
             first_prompt = fake_cao.messages()[0][1]
             assert message_id not in first_prompt
-            assert (
-                "List unread mail through the shared gateway mailbox API for this round."
-                in first_prompt
-            )
-            assert f"GET http://127.0.0.1:{runtime.m_port}/v1/mail/status" in first_prompt
+            assert "Use the mailbox API below directly for this round." in first_prompt
+            assert f"Gateway: `http://127.0.0.1:{runtime.m_port}`" in first_prompt
+            assert "Mailbox API: `GET /v1/mail/status`;" in first_prompt
 
             readiness["busy"] = True
             prompt_count = len(fake_cao.messages())
@@ -1457,10 +1463,7 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
             _wait_until(lambda: len(fake_cao.messages()) >= prompt_count + 1, timeout_seconds=5.0)
             repeated_prompt = fake_cao.messages()[-1][1]
             assert message_id not in repeated_prompt
-            assert (
-                "List unread mail through the shared gateway mailbox API for this round."
-                in repeated_prompt
-            )
+            assert "Use the mailbox API below directly for this round." in repeated_prompt
         finally:
             runtime.shutdown()
 
@@ -1800,7 +1803,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
         captured_attach: dict[str, object] = {}
         monkeypatch.setattr(
             "houmao.agents.realm_controller.runtime._start_gateway_process",
-            lambda *, controller, paths, host, port, execution_mode: (
+            lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
                 captured_attach.update(
                     {
                         "controller": controller,
@@ -1808,6 +1811,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
                         "host": host,
                         "port": port,
                         "execution_mode": execution_mode,
+                        "tui_tracking_timings": tui_tracking_timings,
                     }
                 )
                 or port
@@ -1870,10 +1874,7 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
             assert fake_cao.messages()
             latest_prompt = fake_cao.messages()[-1][1]
             assert message_id not in latest_prompt
-            assert (
-                "List unread mail through the shared gateway mailbox API for this round."
-                in latest_prompt
-            )
+            assert "Use the mailbox API below directly for this round." in latest_prompt
         finally:
             runtime.shutdown()
 
