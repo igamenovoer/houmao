@@ -1525,6 +1525,11 @@ def easy_instance_group() -> None:
     metavar="SECTION=STATE",
     help="One-shot managed-header section override (`enabled` or `disabled`).",
 )
+@click.option(
+    "--reuse-home",
+    is_flag=True,
+    help="Rebuild onto one compatible preserved home for the resolved managed identity.",
+)
 @managed_launch_force_option
 def launch_easy_instance_command(
     specialist: str | None,
@@ -1551,6 +1556,7 @@ def launch_easy_instance_command(
     mail_account_dir: Path | None,
     managed_header: bool | None,
     managed_header_section: tuple[str, ...],
+    reuse_home: bool,
     force_mode: str | None,
 ) -> None:
     """Launch one managed-agent instance from a compiled specialist definition."""
@@ -1579,6 +1585,11 @@ def launch_easy_instance_command(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
     )
+    if reuse_home and force_mode == "clean":
+        raise click.ClickException(
+            "`--reuse-home` is incompatible with `--force clean` because `clean` would destroy "
+            "the preserved home."
+        )
     managed_header_section_overrides = _managed_header_section_policy_from_options(
         managed_header_section
     )
@@ -1777,6 +1788,7 @@ def launch_easy_instance_command(
         launch_profile_memo_seed=launch_profile_memo_seed,
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
         force_mode=force_mode,
+        reuse_home=reuse_home,
     )
     emit_local_launch_completion(
         launch_result=launch_result,

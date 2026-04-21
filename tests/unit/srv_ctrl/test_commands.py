@@ -2868,6 +2868,7 @@ def test_agents_launch_help_mentions_force_mode() -> None:
 
     assert result.exit_code == 0
     assert "--force [keep-stale|clean]" in result.output
+    assert "--reuse-home" in result.output
 
 
 def test_agents_launch_bare_force_forwards_keep_stale(
@@ -2907,6 +2908,141 @@ def test_agents_launch_bare_force_forwards_keep_stale(
 
     assert result.exit_code == 0, result.output
     assert captured["force_mode"] == "keep-stale"
+
+
+def test_agents_launch_forwards_reuse_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    captured: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity="worker-a",
+                agent_id="agent-1234",
+                tmux_session_name="worker-a",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["reuse_home"] is True
+
+
+def test_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Managed launch `--reuse-home` requires one compatible preserved home for "
+                "managed agent `worker-a` (agent_id `agent-worker-a`), but none was found."
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--agent-name",
+            "worker-a",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires one compatible preserved home" in result.output
+
+
+def test_agents_launch_reuse_home_live_owner_conflict_requires_force(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Managed agent `worker-a` (agent_id `agent-worker-a`) already owns a live "
+                "registry record. Rerun with `--force` to replace it. `--reuse-home` alone "
+                "does not replace a live owner."
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--agent-name",
+            "worker-a",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Rerun with `--force`" in result.output
+    assert "`--reuse-home` alone does not replace a live owner." in result.output
+
+
+def test_agents_launch_rejects_reuse_home_clean_force_before_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: pytest.fail("launch should not delegate `--reuse-home --force clean`"),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--agents",
+            "researcher",
+            "--reuse-home",
+            "--force",
+            "clean",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "`--reuse-home` is incompatible with `--force clean`" in result.output
 
 
 def test_agents_launch_rejects_invalid_force_mode() -> None:

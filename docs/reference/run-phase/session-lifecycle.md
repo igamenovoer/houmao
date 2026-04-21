@@ -152,6 +152,8 @@ def relaunch(
 
 Relaunches a tmux-backed managed session without rebuilding the brain home. Relaunch reuses the runtime-owned session root, existing built home, persisted launch authority, and tmux window `0`. It is the runtime primitive behind `houmao-mgr agents relaunch` and gateway-managed relaunch recovery.
 
+Fresh launch can also intentionally target a preserved home through `houmao-mgr agents launch --reuse-home` or `houmao-mgr project easy instance launch --reuse-home`, but that is a different lifecycle shape. Reuse-home launch rebuilds current Houmao-managed launch inputs onto one compatible preserved home, creates a new live session root and new registry authority, and does not automatically consume relaunch-only chat-session policy. Relaunch remains the supported path when the operator wants to restart the same built session/home posture rather than request a fresh launch over preserved provider-local state.
+
 The optional relaunch chat-session selector controls provider-native startup behavior:
 
 | Mode | Meaning |

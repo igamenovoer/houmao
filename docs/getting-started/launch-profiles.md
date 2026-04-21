@@ -98,9 +98,11 @@ Rules:
 
 - Fields omitted by a higher-priority layer survive from the next lower-priority layer.
 - Direct CLI overrides win over launch-profile defaults but **never rewrite the stored launch profile**. Overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and are dropped on the next launch from the same profile.
+- `--reuse-home` is also override-only. `houmao-mgr agents launch --reuse-home` and `houmao-mgr project easy instance launch --reuse-home` reuse one compatible preserved home for the resolved managed identity, rebuild current Houmao-managed launch inputs onto that home, and still create fresh live session authority for the new launch. The flag is not stored back into the profile.
 - Launch-time force takeover is also override-only. `--force [keep-stale|clean]` applies to the current `agents launch` or `project easy instance launch` invocation, never persists into the stored profile, and never changes what the next launch from that profile will request by default.
 - Bare `--force` means `keep-stale`: Houmao resolves the live-owner conflict, reuses the predecessor managed home, and leaves untouched stale artifacts alone. If stale leftovers break the replacement launch, the operator must clean or correct them explicitly.
 - `--force clean` is the explicit destructive variant: Houmao stops the predecessor and removes only predecessor-owned replaceable launch artifacts before rebuilding, while preserving unrelated operator-owned paths and shared mailbox message stores.
+- `--reuse-home` never silently falls back to a new home. The preserved home must belong to the same managed identity, runtime root, and tool family, and its home path must still exist on disk. `--reuse-home` alone does not replace a fresh live owner, and `--reuse-home --force clean` is rejected because `clean` would destroy the preserved home the operator asked to keep.
 - Stored relaunch chat-session policy is not a birth-time launch default and does not affect first launch. It is carried as secret-free launch-profile provenance so later `agents relaunch` can decide whether the provider TUI should start fresh, ask the provider for its latest chat, or resume an exact provider session id.
 - Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite the stored launch profile.
 - For easy profiles, the easy lane compiles down through the same five layers — the specialist resolves into a recipe-backed source layer before the launch-profile layer applies.
@@ -114,6 +116,8 @@ A launch profile may store a relaunch-only `chat_session` policy under its proje
 - `exact` — relaunch resumes the exact provider chat id stored as `id`.
 
 This policy applies only to future instances launched from the profile. It does not mutate already-running agents, recipes, specialists, or the provider's own chat store. A direct `houmao-mgr agents relaunch --chat-session-mode ...` override wins for that one relaunch and does not rewrite the stored profile.
+
+That same relaunch policy is still relaunch-only even when an operator uses `--reuse-home` on a fresh launch. Reuse-home preserves provider-local history in the reused home, so provider-native surfaces such as `/resume` may still observe that history after startup, but Houmao does not automatically translate the stored relaunch policy into fresh-launch startup arguments.
 
 ## Prompt Overlays
 
@@ -256,16 +260,20 @@ houmao-mgr project easy specialist create --name <name> --tool <tool> ...
 houmao-mgr project easy profile create --name <profile> --specialist <name> ...
 houmao-mgr project easy profile set --name <profile> ...
 houmao-mgr project easy instance launch --profile <profile>           # easy-profile-backed
+houmao-mgr project easy instance launch --profile <profile> --reuse-home
 houmao-mgr project easy instance launch --specialist <name> --name <managed-name>
 
 # Explicit lane
 houmao-mgr project agents recipes add --name <recipe> --role <role> --tool <tool> ...
 houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> ...
 houmao-mgr agents launch --launch-profile <profile>                   # launch-profile-backed
+houmao-mgr agents launch --launch-profile <profile> --reuse-home
 houmao-mgr agents launch --agents <selector> --provider <provider>    # direct recipe selector
 ```
 
 `--profile` and `--specialist` cannot be combined on `project easy instance launch`. `--launch-profile` and `--agents` cannot be combined on `agents launch`.
+
+Use `--reuse-home` when you want fresh launch inputs plus preserved provider-local home state. Use `agents relaunch` when you want the same built session/home posture restarted without rebuilding. `--reuse-home` never persists into the reusable profile itself.
 
 `project agents presets ...` remains valid as a compatibility alias for the same files that `project agents recipes ...` administers; both names map to `.houmao/agents/presets/<name>.yaml`.
 

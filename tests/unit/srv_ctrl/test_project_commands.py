@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 from types import SimpleNamespace
 
+import click
 from click.testing import CliRunner
 import pytest
 import yaml
@@ -7213,6 +7214,131 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
     assert captured["force_mode"] == "keep-stale"
 
 
+def test_project_easy_instance_launch_forwards_reuse_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="repo-research-1",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["reuse_home"] is True
+
+
+def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_clearly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (_ for _ in ()).throw(
+            click.ClickException(
+                "Managed launch `--reuse-home` requires one compatible preserved home for "
+                "managed agent `repo-research-1` (agent_id `agent-repo-research-1`), but none "
+                "was found."
+            )
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires one compatible preserved home" in result.output
+
+
 def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7306,6 +7432,63 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
     assert captured["force_mode"] == "clean"
     assert captured["managed_header_section_overrides"] == {"automation-notice": "disabled"}
     assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
+
+
+def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
+        lambda **kwargs: SimpleNamespace(
+            tool="codex",
+            provider="codex",
+            resolved_preset_path=lambda project_overlay: preset_path,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: pytest.fail(
+            "easy launch should not delegate `--reuse-home --force clean`"
+        ),
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--specialist",
+            "researcher",
+            "--name",
+            "repo-research-1",
+            "--headless",
+            "--reuse-home",
+            "--force",
+            "clean",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "`--reuse-home` is incompatible with `--force clean`" in result.output
 
 
 def test_project_easy_instance_stop_checks_overlay_and_delegates(
