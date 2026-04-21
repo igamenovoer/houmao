@@ -57,23 +57,25 @@ default_stop_mode: interrupt-first
 
 # Prestart Procedure
 - selected strategy: `precomputed_routing_packets` by default
-- durable initialize page namespace: <for example loop-runs/pairwise-v3/<run_id>/initialize.md>
-- durable start-charter page namespace: <for example loop-runs/pairwise-v3/<run_id>/start-charter.md>
+- launch profiles: <none | participant -> launch-profile mapping that initialize may use after mailbox-association precheck>
+- initialize memo slot: <for example slot `initialize` keyed by exact run_id sentinels>
 - durable continuation page namespace: <for example loop-runs/pairwise-v3/<run_id>/recover-and-continue.md>
 - runtime-owned recovery record path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json>
 - runtime-owned recovery history path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl>
+- email/mailbox verification: refuse to proceed when the master or any required participant lacks email/mailbox support
+- start delivery: send the kickoff through mail by default; use direct prompt only when the user explicitly asks for it
 - memo sentinel convention: <exact begin/end sentinels keyed by run_id and slot>
-- durable initialize material: write participant initialize pages plus compact memo reference blocks before `ready`
+- initialize memo material: write master and participant run-owned memo blocks before `ready`
 - operator preparation wave: <not selected | targeted preparation mail to delegating/non-leaf participants | explicit target set>
 - notifier preflight: enable gateway mail-notifier for targeted preparation-wave participants before preparation mail, interval `5s` unless user specified otherwise
 - acknowledgement posture: `fire_and_proceed` by default
 - graph-tool preflight: <analyze, optional slice, and packet-expectations results when a graph artifact exists>
 - routing packet validation: <validate-packets result when graph and packet JSON artifacts exist, or manual visible-coverage check when they do not>
-- root routing packet: <packet id or section reference included in the durable start-charter page>
+- root routing packet: <packet id or section reference included in the designated master's initialize memo>
 - child packet forwarding: append exact prepared child packet text to the pairwise edge request email; do not edit, merge, or summarize unless this plan explicitly permits it
 - mismatch handling: stop downstream dispatch and report to the immediate driver, or to the operator when the driver is the master
 - in-loop job communication: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
-- master trigger: <how the compact start trigger stays separate from initialize>
+- master trigger: <how the compact start trigger tells the master to read its memo and start>
 
 # Routing Packets
 ## `<root-packet-id>`
@@ -100,8 +102,8 @@ default_stop_mode: interrupt-first
 - forbidden actions: <what this participant must not do>
 - child dispatch table: <none | child packet ids>
 
-# Durable Initialize Material
-Record the participant initialize page namespace, start-charter page namespace, continuation page namespace, runtime-owned recovery record path family, memo sentinel convention, and compact memo reference-block posture. Record standalone preparation mail only when `operator_preparation_wave` is selected explicitly.
+# Run Memo Material
+Record the initialize memo slot expectations, continuation page namespace, runtime-owned recovery record path family, memo sentinel convention, and run-owned memo-block posture. Record standalone preparation mail only when `operator_preparation_wave` is selected explicitly.
 
 # Lifecycle Vocabulary
 - operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
@@ -129,7 +131,7 @@ Record the participant initialize page namespace, start-charter page namespace, 
 ```mermaid
 flowchart TD
     UA[User Agent<br/>control only]
-    Prep[Initialize<br/>validate packets<br/>write durable pages]
+    Prep[Initialize<br/>validate packets<br/>write run memos]
     Recover[Recovering<br/>rebind participants<br/>refresh continuation pages]
     M[Master<br/>root run owner]
     W[Worker]
@@ -138,7 +140,7 @@ flowchart TD
     Stop[Stop Condition<br/>interrupt-first default]
 
     UA -->|initialize| Prep
-    Prep -->|write charter + start| M
+    Prep -->|start: read memo and begin| M
     UA -.->|peek master| M
     UA -.->|pause/resume| M
     UA -.->|recover_and_continue| Recover

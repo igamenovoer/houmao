@@ -140,15 +140,16 @@ For reusable birth-time defaults (fixed agent name, working directory, mailbox, 
 
 A **loop** lets multiple agents collaborate on a structured task. One agent is the **master** (or root owner) — it owns liveness, drives execution, evaluates completion, and handles stop. The **user agent stays outside the execution loop**: you plan, start, check status, and stop — the master does the rest.
 
-Houmao ships three loop skills. Choose the one that fits your topology and lifecycle needs:
+Houmao ships four loop skills. Choose the one that fits your topology and lifecycle needs:
 
 | Skill | Lifecycle | Best for |
 |---|---|---|
 | `houmao-agent-loop-pairwise` | `start` / `status` / `stop` | Simple pairwise master → workers; minimal ceremony |
-| `houmao-agent-loop-pairwise-v2` | `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `stop` / `hard-kill` | Pairwise graphs with enriched runtime control and routing-packet prestart |
+| `houmao-agent-loop-pairwise-v2` | `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with enriched runtime control and routing-packet prestart |
+| `houmao-agent-loop-pairwise-v3` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with an authored workspace contract — standard `houmao-ws/<task>/…` or custom — layered on the v2 lifecycle |
 | `houmao-agent-loop-generic` | `start` / `status` / `stop` | Mixed pairwise + relay component graphs |
 
-See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill selection guidance, the pairwise-v2 routing-packet model, and the `internals graph` tooling that supports authoring.
+See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill selection guidance, the pairwise-v2 routing-packet model, the pairwise-v3 workspace contract, and the `internals graph` tooling that supports authoring.
 
 > This example uses creative-writing specialists to show Houmao isn't limited to coding agents. The same pattern works for code review, optimization, or any multi-agent pipeline.
 
@@ -399,10 +400,11 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-utils-llm-wiki` | Explicit utility skill for persistent Markdown LLM Wiki knowledge bases: scaffold, ingest, compile, query, lint, audit, and launch a bundled local viewer |
 | `houmao-utils-workspace-mgr` | Explicit utility skill for planning and executing multi-agent workspace layouts, including in-repo or out-of-repo workspaces, per-agent Git worktrees, shared/local-only repos, submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules |
 | `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
-| `houmao-agent-loop-pairwise-v2` | Enriched pairwise workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `stop`, and `hard-kill` |
+| `houmao-agent-loop-pairwise-v2` | Enriched pairwise workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` |
+| `houmao-agent-loop-pairwise-v3` | Workspace-aware pairwise workflow: author plans with a `standard` (task-scoped `houmao-ws/<task>/…`) or `custom` workspace contract, run `plan` / `initialize`, and operate accepted runs through the same enriched lifecycle as v2 |
 | `houmao-agent-loop-generic` | Decompose generic multi-agent loop graphs into typed pairwise and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
 
-`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, specialists, credentials, definitions, live-agent lifecycle, and loop orchestration. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
+`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, specialists, credentials, definitions, and live-agent lifecycle. For loop orchestration, `core` auto-installs all three pairwise variants — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, and `houmao-agent-loop-pairwise-v3` — alongside `houmao-agent-loop-generic`, so a managed agent can drive any of the four loop skills without an extra install step. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
 
 ```bash
 houmao-mgr system-skills install --tool claude,codex,copilot,gemini

@@ -44,18 +44,18 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 ### Run Phase
 
 - [Launch Plan](reference/run-phase/launch-plan.md): Composing manifest + role into a backend-specific launch plan.
-- [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, and stop sessions.
+- [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, stop, and [relaunch](reference/run-phase/session-lifecycle.md#relaunch-sequence) sessions — including the 0.8.0 `--reuse-home fresh` launch mode that reuses an existing brain home for fast restarts without rebuilding.
 - [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and server-backed.
 - [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
 - [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header with six independently controllable sections prepended to every managed launch by default — memo cue, content, per-section control, composition, opt-out flags, and stored launch-profile policy.
 
 ### Subsystems
 
-- [Gateway](reference/gateway/index.md): Per-agent FastAPI sidecar for session control and mail.
+- [Gateway](reference/gateway/index.md): Per-agent FastAPI sidecar for session control and mail. Includes [control-intent coalescing](reference/gateway/internals/queue-and-recovery.md#control-intent-coalescing) so multiple rapid control requests collapse into a single dispatch, and a [mail-notifier context-recovery policy](reference/gateway/operations/mail-notifier.md) (`context_error_policy` and `pre_notification_context_action`) for handling degraded TUI posture before wake-up delivery.
 - [Mailbox](reference/mailbox/index.md): Unified mailbox protocol — filesystem and Stalwart JMAP.
 - [TUI Tracking](reference/tui-tracking/state-model.md): State machine, detectors, and replay engine.
 - [Lifecycle](reference/lifecycle/completion-detection.md): Turn-anchored readiness and completion detection.
-- [Agent Registry](reference/registry/index.md): Session discovery and managed agent records.
+- [Agent Registry](reference/registry/index.md): Session discovery and managed agent records — now [lifecycle-aware](reference/registry/contracts/record-and-layout.md#lifecycle) so records track `active`, `stopped`, `relaunching`, and `retired` states across stop-and-relaunch workflows.
 - [Terminal Record](reference/terminal-record/index.md): tmux session recording and replay.
 - [System Files](reference/system-files/index.md): Filesystem layout and owned paths.
 

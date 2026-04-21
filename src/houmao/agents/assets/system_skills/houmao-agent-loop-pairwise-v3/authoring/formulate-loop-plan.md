@@ -40,7 +40,9 @@ Write the generated plan under the selected output directory:
    - lifecycle vocabulary summary
    - authored topology and descendant relationships
    - prestart strategy: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
-   - durable initialize page namespace and durable start-charter page namespace when managed memory is being used
+   - optional launch-profile references for participants that `initialize` may launch
+   - initialize memo-slot expectations when managed memory is being used
+   - continuation page namespace and runtime-owned recovery path family when managed memory is being used
    - exact memo sentinel convention keyed by `run_id` and slot when managed memory is being used
    - explicit `operator_preparation_wave` target policy
    - gateway mail-notifier interval
@@ -70,13 +72,16 @@ Write the generated plan under the selected output directory:
    - instruct runtime drivers to append child packets verbatim to pairwise edge request email, without editing, merging, or summarizing them unless the plan explicitly permits that transformation
    - fail closed when a child packet is missing, names a different recipient, or carries a stale plan revision or digest
 12. Define the durable initialize and communication posture:
-   - default `initialize` validates routing packets, writes participant initialize pages, and refreshes exact-sentinel memo reference blocks
+   - default `initialize` validates routing packets and writes run-owned participant memo blocks under exact sentinels
+   - default `initialize` checks mailbox association on provided launch profiles, launches missing participants only from profiles that pass that precheck, and otherwise fails closed if required participants remain missing
+   - default `initialize` verifies that the designated master and every required participant have email/mailbox support and fails closed when any required participant does not
+   - ordinary `start` sends the kickoff through mail by default and uses direct prompt delivery only when the user explicitly requests it
    - explicit `operator_preparation_wave` targets delegating or non-leaf participants by default, and adds standalone preparation mail only when selected
    - gateway mail-notifier interval is `5s` unless the user specifies otherwise for `operator_preparation_wave`
    - acknowledgement posture is `fire_and_proceed` unless the user explicitly selects `require_ack`
    - advise all agents to use the email system for in-loop job communication by default, including pairwise edge requests, receipts, and results
 13. Render the final graph through `authoring/render-loop-graph.md`.
-14. Produce a durable start-charter page summary plus compact start-trigger summary through `references/run-charter.md`.
+14. Produce a master initialize-memo summary plus compact start-trigger summary through `references/run-charter.md`.
 15. Write the generated plan into the selected output directory.
 16. Report the canonical plan path and resulting output-directory structure to the user.
 
@@ -84,7 +89,7 @@ Write the generated plan under the selected output directory:
 
 - No free delegation is allowed unless the plan says so explicitly.
 - Treat the user agent as outside the execution loop.
-- Treat the designated master as the root run owner after acceptance.
+- Treat the designated master as the root run owner after `start` fires.
 - Keep the authored workspace contract explicit and honest.
 - For `standard` in-repo posture, treat the task root as `<repo-root>/houmao-ws/<task-name>`.
 - For `custom` workspace posture, record explicit paths instead of translating them into Houmao-standard paths.
@@ -110,8 +115,9 @@ The finalized authored plan should make these items easy to find:
 - authored topology and descendant relationships
 - delegation policy
 - prestart strategy
-- durable initialize page namespace
-- durable start-charter page namespace
+- optional launch-profile references
+- initialize memo-slot expectations
+- continuation page namespace and runtime-owned recovery path family
 - memo sentinel convention
 - explicit `operator_preparation_wave` target policy
 - gateway mail-notifier interval

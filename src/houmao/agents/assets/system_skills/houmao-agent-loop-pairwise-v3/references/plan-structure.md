@@ -138,16 +138,17 @@ Canonical observed states:
 - `stopped`
 - `dead`
 
-## Durable Initialize Material
+`awaiting_ack` belongs only to explicit `operator_preparation_wave` runs that selected `require_ack`; ordinary `start` itself is not an acknowledgement state.
 
-Every plan using pairwise-v3 durable initialize pages should record:
-- run-scoped initialize page namespace such as `loop-runs/pairwise-v3/<run_id>/initialize.md`
-- run-scoped master charter page namespace such as `loop-runs/pairwise-v3/<run_id>/start-charter.md`
+## Run Memo Material
+
+Every plan using pairwise-v3 managed memory should record:
+- initialize memo-slot expectations for the designated master and other participants, typically under slot `initialize`
 - run-scoped continuation page namespace such as `loop-runs/pairwise-v3/<run_id>/recover-and-continue.md`
 - runtime-owned recovery record path such as `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`
 - append-only recovery history path such as `<runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl`
-- exact begin and end sentinel convention for memo reference blocks keyed by `run_id` and slot
-- what each memo reference block summarizes and how it links to `pages/<relative-page>`
+- exact begin and end sentinel convention for memo blocks keyed by `run_id` and slot
+- what each initialize memo block must contain for masters versus other participants
 - fail-closed replacement handling for duplicate memo blocks
 
 ## Operator Preparation Wave
@@ -158,7 +159,7 @@ Every plan using explicit `operator_preparation_wave` should record:
 - preparation-mail target policy: delegating or non-leaf participants by default, leaf participants only when explicitly requested
 - acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
 - operator reply policy: `none` for `fire_and_proceed`, or `operator_mailbox` for `require_ack`
-- durable initialize page and memo reference-block posture for the preparation recipients
+- initialize memo posture for the preparation recipients
 - in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
 - fallback behavior for participants whose live gateway or mailbox binding does not support notifier polling
 
@@ -194,10 +195,13 @@ For bundle plans, `prestart.md` should record:
 - selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
 - workspace contract summary or `workspace-contract.md` reference
 - graph artifact and packet JSON artifact locations when available
-- run-scoped initialize page namespace and durable start-charter page namespace
+- optional launch-profile references for required participants that `initialize` may launch, plus the rule that mailbox association is checked on those profiles before launch
+- email/mailbox verification rule for the designated master and every required participant
+- ordinary `start` mail-delivery rule, with direct prompt only by explicit user request
+- initialize memo-slot expectations for the designated master and other participants
 - runtime-owned recovery record path family and continuation page namespace
 - exact begin/end sentinel convention for memo reference blocks keyed by `run_id` and slot
-- durable initialize page and memo reference-block write procedure
+- initialize memo write procedure
 - explicit `operator_preparation_wave` notifier preflight expectations, when that strategy is selected
 - gateway mail-notifier interval: `5s` unless the user specified otherwise for `operator_preparation_wave`
 - preparation-mail target policy and delivery procedure, when `operator_preparation_wave` is selected
@@ -230,7 +234,9 @@ For each script, record:
 - Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`.
 - Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
 - Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
-- Do not skip durable initialize page and memo reference-block materialization when managed memory is being used.
+- Do not invent launch-profile references for participants the plan did not specify.
+- Do not skip initialize memo materialization when managed memory is being used.
+- Do not let the run reach `ready` when the designated master or any required participant lacks email/mailbox support.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text.
 - Do not require acknowledgement by default; use `fire_and_proceed` unless the plan explicitly selects `require_ack`.
 - Do not use a gateway mail-notifier interval other than `5s` for `operator_preparation_wave` unless the user or plan specifies another interval.

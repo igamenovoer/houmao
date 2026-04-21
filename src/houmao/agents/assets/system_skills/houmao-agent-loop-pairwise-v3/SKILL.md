@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-loop-pairwise-v3
-description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v3` to author one workspace-aware enriched pairwise loop plan in a user-selected output directory, run routing-packet-first `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill`.
+description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v3` to author one workspace-aware enriched pairwise loop plan in a user-selected output directory, run routing-packet-validated memo-first `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill`.
 license: MIT
 ---
 
@@ -14,7 +14,7 @@ This is the manual, workspace-aware enriched pairwise-loop skill. It owns:
 - pairwise-v3 plan authoring
 - authored workspace-contract choice
 - prestart preparation
-- run-control actions after the plan is accepted
+- run-control actions after the plan is prepared
 
 It extends `houmao-agent-loop-pairwise-v2` instead of replacing the stable `houmao-agent-loop-pairwise` skill or mutating v2 in place.
 
@@ -22,8 +22,8 @@ It extends `houmao-agent-loop-pairwise-v2` instead of replacing the stable `houm
 
 Use this skill when the user needs one of these:
 - `plan`: create or revise a workspace-aware enriched pairwise loop plan
-- `initialize`: validate routing packets and prepare durable per-agent run material
-- `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`: operate an accepted run
+- `initialize`: validate routing packets and write durable per-agent memo guidance
+- `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`: operate a prepared or active run
 
 Do not use this skill for:
 - generic pairwise-loop requests when the user did not name `houmao-agent-loop-pairwise-v3`
@@ -35,10 +35,12 @@ Do not use this skill for:
 ## Core Model
 
 - The user agent stays outside the execution loop.
-- The designated master owns supervision after `start` is accepted.
+- The designated master owns supervision after `start` fires.
 - `initialize` is separate from `start`.
 - Default prestart strategy is `precomputed_routing_packets`.
-- By default, `precomputed_routing_packets` validates routing packets before the master trigger.
+- By default, `precomputed_routing_packets` validates routing packets before the master trigger and then materializes per-agent memo guidance directly.
+- When the plan provides launch profiles for missing participants, `initialize` first checks mailbox association on those profiles, then may launch them before mail-capability checks and memo materialization continue.
+- Pairwise-v3 requires email/mailbox support for the designated master and every required participant; if any required participant lacks it, `initialize` and `recover_and_continue` fail closed.
 - `operator_preparation_wave` is explicit opt-in.
 - `resume` is pause-only.
 - `recover_and_continue` preserves the same `run_id` after participant stop, kill, or relaunch when the runtime-owned recovery record still marks the run recoverable.
@@ -67,6 +69,8 @@ Operator actions:
 - `hard-kill`
 
 The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, and `dead`.
+
+`awaiting_ack` belongs only to explicit `operator_preparation_wave` runs that selected `require_ack`. Ordinary `start` itself does not wait for `accepted` or `rejected`.
 
 Observed states:
 - `authoring`
@@ -138,18 +142,18 @@ Prestart:
 - Read [prestart/prepare-run.md](prestart/prepare-run.md) for `initialize`.
 
 Operations:
-- Read [operating/start.md](operating/start.md) for the compact page-backed `start` flow.
+- Read [operating/start.md](operating/start.md) for the compact mail-first memo-read `start` flow.
 - Read [operating/peek.md](operating/peek.md) for read-only inspection.
 - Read [operating/ping.md](operating/ping.md) for active messaging to one participant.
 - Read [operating/pause.md](operating/pause.md) to suspend wakeup mechanisms.
 - Read [operating/resume.md](operating/resume.md) to restore a paused run.
-- Read [operating/recover-and-continue.md](operating/recover-and-continue.md) to restore one accepted run after participant stop or relaunch.
+- Read [operating/recover-and-continue.md](operating/recover-and-continue.md) to restore one started run after participant stop or relaunch.
 - Read [operating/stop.md](operating/stop.md) for canonical stop.
 - Read [operating/hard-kill.md](operating/hard-kill.md) for emergency participant-wide interruption and mail draining.
 
 References:
 - Read [references/workspace-contract.md](references/workspace-contract.md) to normalize `standard` versus `custom` workspace contracts.
-- Read [references/run-charter.md](references/run-charter.md) for the durable start-charter page and compact start trigger.
+- Read [references/run-charter.md](references/run-charter.md) for the master memo contract, compact start trigger, and recovery continuation material.
 - Read [references/delegation-policy.md](references/delegation-policy.md) to normalize delegation rules.
 - Read [references/stop-modes.md](references/stop-modes.md) to choose stop posture.
 - Read [references/reporting-contract.md](references/reporting-contract.md) for `peek`, recovery-summary, completion, stop-summary, and `hard-kill` summary expectations.
@@ -163,15 +167,19 @@ Templates:
 
 Memory and plan material:
 - Route any agent memo, `houmao memo`, `houmao-memo.md`, or memo-linked `pages/` request that arises while planning, initializing, or starting a pairwise-v3 run to `houmao-memory-mgr`.
-- Route initialize or start managed-memory page and memo reads or writes to `houmao-memory-mgr` and its supported `houmao-mgr agents memory ...` surfaces.
+- Route initialize memo writes, recovery-page writes, and related managed-memory reads or writes to `houmao-memory-mgr` and its supported `houmao-mgr agents memory ...` surfaces.
+
+Participant launch:
+- When a pairwise-v3 plan provides launch-profile-backed birth-time references for missing participants, route those launches through `houmao-agent-instance`.
 
 Workspace posture:
 - Route standard workspace preparation or standard workspace summaries to the standard workspace-preparation skill.
 - Keep that workspace-preparation lane standard-only. Do not route custom operator-owned layouts through it as if it were a custom-workspace inspector.
 
 Messaging and mail:
-- Route `start`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and participant interrupts within `hard-kill` to `houmao-agent-messaging`.
-- Route explicit `operator_preparation_wave` mail-notifier enablement, declarative notifier restoration during `recover_and_continue`, and `hard-kill` notifier shutdown to `houmao-agent-gateway`.
+- Route ordinary `start` to `houmao-agent-email-comms` by default, and use `houmao-agent-messaging` only when the user explicitly asks for direct prompt delivery.
+- Route `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and participant interrupts within `hard-kill` to `houmao-agent-messaging`.
+- Route explicit `operator_preparation_wave` mail-notifier enablement, agent email-notification re-enable work during `recover_and_continue`, declarative notifier restoration, and `hard-kill` notifier shutdown to `houmao-agent-gateway`.
 - Route explicit `operator_preparation_wave` preparation mail, in-loop pairwise email traffic, and `hard-kill` mail archiving to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr`.
 
@@ -181,7 +189,7 @@ Inspection and structure:
 - Treat `houmao-mgr internals graph high` output as structural evidence only.
 
 Runtime-owned recovery state:
-- Treat `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json` plus `events.jsonl` as runtime-owned recovery state for accepted runs; keep that state outside the authored plan bundle, outside participant-local memo or page files, and outside the authored workspace contract.
+- Treat `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json` plus `events.jsonl` as runtime-owned recovery state for started runs; keep that state outside the authored plan bundle, outside participant-local memo or page files, and outside the authored workspace contract.
 
 Execution composition:
 - Keep composed topology, recursive child-control edges, rendered graphs, workspace contracts, run charters, lifecycle preparation, and run-control actions in this skill.
@@ -197,7 +205,7 @@ Activation:
 Plan, workspace, and memory:
 - Do not invent a plan output directory when the user has not provided one; ask for it before writing plan files.
 - Do not scatter one authored plan across multiple unrelated directories; keep `plan.md` and supporting files under the selected plan output directory.
-- Do not omit the authored workspace contract from the accepted v3 plan.
+- Do not omit the authored workspace contract from the v3 plan.
 - Do not silently translate a custom workspace contract into `houmao-ws/...`.
 - Do not prescribe a fixed subtree under per-agent `kb/`; custom bookkeeping paths are task-specific and must be declared explicitly.
 - Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v3 write surfaces; route them to `houmao-memory-mgr`.
@@ -205,7 +213,10 @@ Plan, workspace, and memory:
 
 Runtime behavior:
 - Do not treat standalone participant preparation mail as the default initialize path; it belongs only to explicit `operator_preparation_wave`.
-- Do not skip durable initialize pages or exact-sentinel memo reference blocks for participants whose managed memory is being used.
+- Do not invent launch profiles for missing participants during `initialize`.
+- Do not skip run-owned initialize memo materialization or exact-sentinel memo blocks for participants whose managed memory is being used.
+- Do not proceed with pairwise-v3 when any required participant lacks email/mailbox support.
+- Do not default ordinary `start` to direct prompt delivery; use mail unless the user explicitly asks otherwise.
 - Do not require intermediate runtime agents to run graph analysis, recompute graph topology, or recompute descendant plan slices.
 - Do not edit, merge, or summarize prepared child routing packets during runtime handoff unless the authored plan explicitly permits that transformation.
 - Do not repair missing, mismatched, or stale child routing packets by graph reasoning from memory; fail closed and report the mismatch.
@@ -219,6 +230,7 @@ Control semantics:
 - Do not treat `ping` as equivalent to `peek`.
 - Do not treat `resume` as a synonym for `recover_and_continue`.
 - Do not treat `recover_and_continue` as a synonym for `start`.
+- Do not wait for ordinary `start` to return `accepted` or `rejected`; that handshake belongs only to `recover_and_continue`.
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
 - Do not redefine canonical `stop` as an implicit participant-wide broadcast.
 - Do not treat `hard-kill` as a synonym for canonical `stop`.

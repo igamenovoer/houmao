@@ -4,6 +4,16 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.8.1] - 2026-04-21
+
+### Changed
+
+- **BREAKING (pairwise-v3 only): memo-first `initialize` and compact `start`**: `houmao-agent-loop-pairwise-v3` now materializes participant guidance (organization rules, workspace posture, goals, local obligations) directly into agents' memos instead of writing durable prestart pages, and `start` becomes a compact trigger that tells the designated master to read its memo and begin work — no durable start-charter page, no explicit `accepted`/`rejected` reply required, mail-backed kickoff by default. `initialize` may launch missing participants from provided launch profiles before mail-capability checks, and fails closed when any required participant lacks email/mailbox support. Operators using the previous v3 `start` contract must adopt the new memo-first initialize flow. Other loop skills (`houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-generic`) are unaffected.
+
+### Documentation
+
+- **README and docs index surface 0.8.0 capabilities**: `README.md` §4 Agent Loop table now lists all four loop skills with `houmao-agent-loop-pairwise-v3` included, the System Skills table gains a pairwise-v3 row, and the auto-install paragraph names all three pairwise variants. `docs/index.md` Subsystems and Run-phase pointers now name gateway control-intent coalescing, the mail-notifier context-recovery policy, the lifecycle-aware registry record states, and the reuse-home / stop-relaunch run-phase flow, linking into the existing reference pages without a release-note section.
+
 ## [0.8.0] - 2026-04-21
 
 ### Added
