@@ -10,7 +10,7 @@ from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     runtime_owned_session_root_from_manifest_path,
 )
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.agents.realm_controller.registry_storage import (
     resolve_live_agent_record,
     resolve_live_agent_record_by_agent_id,
@@ -104,7 +104,7 @@ class KnownSessionRegistry:
         *,
         agent_id: str | None,
         agent_name: str | None,
-    ) -> LiveAgentRegistryRecordV2 | None:
+    ) -> ManagedAgentRegistryRecordV3 | None:
         """Return optional shared-registry evidence for enrichment only."""
 
         if agent_id is not None:

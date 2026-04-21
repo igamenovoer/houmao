@@ -21,15 +21,21 @@ from houmao.agents.realm_controller.gateway_storage import (
 from houmao.agents.realm_controller.models import (
     GatewayControlResult,
     LaunchPlan,
+    RelaunchChatSessionSelection,
     SessionControlResult,
 )
 from houmao.agents.realm_controller.registry_storage import (
     TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+    load_managed_agent_record_by_agent_id,
     publish_live_agent_record,
     resolve_live_agent_record,
 )
 from houmao.agents.realm_controller import runtime as runtime_module
-from houmao.agents.realm_controller.runtime import resume_runtime_session, start_runtime_session
+from houmao.agents.realm_controller.runtime import (
+    resume_runtime_session,
+    resume_stopped_runtime_session,
+    start_runtime_session,
+)
 
 
 def _write(path: Path, text: str) -> None:
@@ -123,6 +129,7 @@ class _FakeHeadlessSession:
             tmux_session_name=tmux_session_name,
         )
         self.m_force_cleanup = False
+        self.m_relaunch_chat_sessions: list[RelaunchChatSessionSelection | None] = []
 
     @property
     def state(self) -> HeadlessSessionState:
@@ -143,7 +150,16 @@ class _FakeHeadlessSession:
         return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
 
     def terminate(self) -> SessionControlResult:
+        self.m_state = replace(self.m_state, tmux_session_name=None)
         return SessionControlResult(status="ok", action="terminate", detail="stopped")
+
+    def relaunch(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> SessionControlResult:
+        self.m_relaunch_chat_sessions.append(chat_session)
+        return SessionControlResult(status="ok", action="relaunch", detail="relaunched")
 
     def close(self) -> None:
         return
@@ -200,6 +216,9 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert started_record is not None
     assert started_record.agent_name == "gpu"
     assert started_record.generation_id == controller.registry_generation_id
+    assert started_record.lifecycle.state == "active"
+    assert started_record.lifecycle.relaunchable is True
+    assert started_record.terminal.current_session_name is not None
     assert started_record.gateway is None
     started_published_at = datetime.fromisoformat(started_record.published_at)
     started_lease_expires_at = datetime.fromisoformat(started_record.lease_expires_at)
@@ -228,6 +247,180 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     stop_result = resumed.stop(force_cleanup=True)
     assert stop_result.status == "ok"
     assert resolve_live_agent_record("gpu") is None
+    assert resumed.agent_id is not None
+    stopped_record = load_managed_agent_record_by_agent_id(resumed.agent_id)
+    assert stopped_record is not None
+    assert stopped_record.lifecycle.state == "stopped"
+    assert stopped_record.lifecycle.relaunchable is True
+    assert stopped_record.liveness is None
+    assert stopped_record.gateway is None
+    assert stopped_record.terminal.current_session_name is None
+    assert stopped_record.terminal.last_session_name == started_record.terminal.current_session_name
+    stopped_payload = json.loads(resumed.manifest_path.read_text(encoding="utf-8"))
+    assert stopped_payload["tmux_session_name"] == started_record.terminal.current_session_name
+
+
+def test_resume_stopped_runtime_session_revives_headless_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(
+                kwargs.get("agent_identity")
+                or kwargs["resume_state"].backend_state["tmux_session_name"]
+            ),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="claude_headless",
+        working_directory=tmp_path,
+        agent_name="gpu",
+    )
+    original_session_name = controller.tmux_session_name
+    original_generation_id = controller.registry_generation_id
+    assert original_session_name is not None
+    assert original_generation_id is not None
+
+    stop_result = controller.stop(force_cleanup=True)
+    assert stop_result.status == "ok"
+
+    revived = resume_stopped_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=controller.manifest_path,
+    )
+    assert revived.tmux_session_name is not None
+    assert revived.tmux_session_name != original_session_name
+
+    result = revived.revive_stopped_session(
+        chat_session=RelaunchChatSessionSelection(mode="tool_last_or_new")
+    )
+
+    assert result.status == "ok"
+    assert isinstance(revived.backend_session, _FakeHeadlessSession)
+    assert revived.backend_session.m_relaunch_chat_sessions[-1] is not None
+    assert revived.backend_session.m_relaunch_chat_sessions[-1].mode == "tool_last_or_new"
+
+    active_record = resolve_live_agent_record("gpu")
+    assert active_record is not None
+    assert active_record.lifecycle.state == "active"
+    assert active_record.generation_id != original_generation_id
+    assert active_record.terminal.current_session_name == revived.tmux_session_name
+    assert active_record.terminal.last_session_name == revived.tmux_session_name
+
+    revived_payload = json.loads(revived.manifest_path.read_text(encoding="utf-8"))
+    assert revived_payload["tmux_session_name"] == revived.tmux_session_name
+    assert revived_payload["registry_generation_id"] == revived.registry_generation_id
+    assert revived_payload["registry_generation_id"] != original_generation_id
+
+
+def test_stopped_revival_uses_stored_launch_profile_relaunch_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.HeadlessInteractiveSession",
+        _FakeHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **kwargs: _FakeHeadlessSession(
+            tmux_session_name=str(
+                kwargs.get("agent_identity")
+                or kwargs["resume_state"].backend_state["tmux_session_name"]
+            ),
+            launch_plan=kwargs["launch_plan"],
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.has_tmux_session_shared",
+        lambda **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    controller = start_runtime_session(
+        agent_def_dir=agent_def_dir,
+        brain_manifest_path=brain_manifest_path,
+        role_name="r",
+        runtime_root=runtime_root,
+        backend="local_interactive",
+        working_directory=tmp_path,
+        agent_name="gpu",
+    )
+    controller.launch_plan = replace(
+        controller.launch_plan,
+        metadata={
+            **controller.launch_plan.metadata,
+            "launch_overrides": {
+                "construction_provenance": {
+                    "launch_profile": {
+                        "name": "reviewer-default",
+                        "relaunch": {
+                            "chat_session": {
+                                "mode": "tool_last_or_new",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+    )
+
+    stop_result = controller.stop(force_cleanup=True)
+    assert stop_result.status == "ok"
+
+    revived = resume_stopped_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=controller.manifest_path,
+    )
+    result = revived.revive_stopped_session()
+
+    assert result.status == "ok"
+    assert isinstance(revived.backend_session, _FakeHeadlessSession)
+    assert revived.backend_session.m_relaunch_chat_sessions[-1] is not None
+    assert revived.backend_session.m_relaunch_chat_sessions[-1].mode == "tool_last_or_new"
 
 
 def test_shared_registry_record_builder_skips_non_tmux_backed_controller() -> None:
@@ -342,7 +535,7 @@ def test_start_runtime_session_seeds_gateway_defaults_from_manifest_extra(
     assert desired.desired_port == 43123
 
 
-def test_external_launch_authority_defers_runtime_publish_but_stop_clears_registry(
+def test_external_launch_authority_defers_runtime_publish_but_stop_preserves_stopped_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -408,6 +601,11 @@ def test_external_launch_authority_defers_runtime_publish_but_stop_clears_regist
     stop_result = controller.stop(force_cleanup=True)
     assert stop_result.status == "ok"
     assert resolve_live_agent_record("gpu") is None
+    assert controller.agent_id is not None
+    stopped_record = load_managed_agent_record_by_agent_id(controller.agent_id)
+    assert stopped_record is not None
+    assert stopped_record.lifecycle.state == "stopped"
+    assert stopped_record.terminal.last_session_name == published.terminal.current_session_name
 
 
 def test_send_prompt_preserves_success_when_registry_refresh_fails(
@@ -512,15 +710,15 @@ def test_stop_preserves_success_when_registry_cleanup_fails(
     )
     monkeypatch.setattr(
         controller,
-        "clear_shared_registry_record",
-        lambda: (_ for _ in ()).throw(OSError("permission denied")),
+        "publish_stopped_shared_registry_record",
+        lambda *, last_tmux_session_name: (_ for _ in ()).throw(OSError("permission denied")),
     )
 
     result = controller.stop(force_cleanup=True)
 
     assert result.status == "ok"
     assert controller.consume_operation_warnings() == (
-        "Shared-registry cleanup failed after successful stop-session teardown: permission denied",
+        "Shared-registry stop transition failed after successful stop-session teardown: permission denied",
     )
 
 

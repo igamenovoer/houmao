@@ -12,7 +12,10 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import (
+    ManagedAgentRegistryRecordV3,
+    parse_managed_agent_registry_record,
+)
 from houmao.agents.realm_controller.registry_storage import (
     global_registry_paths,
     is_live_agent_record_fresh,
@@ -27,7 +30,7 @@ logger = logging.getLogger(__name__)
 class DiscoveredAgent:
     """One validated, fresh, tmux-live agent in the index."""
 
-    record: LiveAgentRegistryRecordV2
+    record: ManagedAgentRegistryRecordV3
     summary: DiscoveredAgentSummary
 
 
@@ -73,7 +76,7 @@ class DiscoveredAgentIndex:
             self._agents = dict(agents)
 
 
-def _summary_from_record(record: LiveAgentRegistryRecordV2) -> DiscoveredAgentSummary:
+def _summary_from_record(record: ManagedAgentRegistryRecordV3) -> DiscoveredAgentSummary:
     """Project a registry record into a ``DiscoveredAgentSummary``."""
 
     has_gateway = (
@@ -209,14 +212,14 @@ class RegistryDiscoveryService:
         self.m_index.replace(new_agents)
 
     @staticmethod
-    def _load_and_validate(path: Path) -> LiveAgentRegistryRecordV2 | None:
+    def _load_and_validate(path: Path) -> ManagedAgentRegistryRecordV3 | None:
         """Load one record, returning ``None`` on any parse/validation error."""
 
         import json
 
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            return LiveAgentRegistryRecordV2.model_validate(payload)
-        except (json.JSONDecodeError, Exception):
+            return parse_managed_agent_registry_record(payload)
+        except (json.JSONDecodeError, SessionManifestError):
             logger.debug("Skipping invalid registry record: %s", path)
             return None

@@ -4,6 +4,7 @@ import json
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Callable, Literal
 
 import pytest
 from pydantic import ValidationError
@@ -12,9 +13,13 @@ from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_n
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
     RegistryRuntimeV1,
     RegistryTerminalV1,
+    RegistryTerminalV2,
 )
 from houmao.agents.realm_controller.registry_storage import (
     DEFAULT_REGISTRY_LEASE_TTL,
@@ -23,9 +28,12 @@ from houmao.agents.realm_controller.registry_storage import (
     cleanup_stale_live_agent_records,
     new_registry_generation_id,
     publish_live_agent_record,
+    resolve_cleanup_managed_agent_record_by_agent_id,
     resolve_global_registry_root,
     resolve_live_agent_record,
     resolve_live_agent_records_by_terminal_session_name,
+    resolve_managed_agent_records_by_name,
+    resolve_relaunchable_managed_agent_record_by_agent_id,
 )
 from houmao.agents.realm_controller.schema_validation import load_schema
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
@@ -52,6 +60,56 @@ def _sample_record(
             agent_def_dir="/tmp/agents",
         ),
         terminal=RegistryTerminalV1(session_name=agent_name),
+    )
+
+
+def _sample_lifecycle_record(
+    *,
+    agent_name: str = "HOUMAO-gpu",
+    generation_id: str = "generation-1",
+    now: datetime | None = None,
+    lease_ttl: timedelta = DEFAULT_REGISTRY_LEASE_TTL,
+    lifecycle_state: Literal["active", "stopped", "relaunching", "retired"] = "active",
+    relaunchable: bool = True,
+    stop_reason: str | None = "operator_stop",
+) -> ManagedAgentRegistryRecordV3:
+    published_at = now or datetime.now(UTC)
+    current_session_name = agent_name if lifecycle_state in {"active", "relaunching"} else None
+    return ManagedAgentRegistryRecordV3(
+        agent_name=agent_name,
+        agent_id=derive_agent_id_from_name(agent_name),
+        generation_id=generation_id,
+        lifecycle=RegistryLifecycleV1(
+            state=lifecycle_state,
+            relaunchable=relaunchable,
+            state_updated_at=published_at.isoformat(timespec="seconds"),
+            stopped_at=(
+                published_at.isoformat(timespec="seconds")
+                if lifecycle_state in {"stopped", "retired"}
+                else None
+            ),
+            stop_reason=stop_reason if lifecycle_state in {"stopped", "retired"} else None,
+        ),
+        identity=RegistryIdentityV1(backend="claude_headless", tool="claude"),
+        runtime=RegistryRuntimeV1(
+            manifest_path="/tmp/runtime/session/manifest.json",
+            session_root="/tmp/runtime/session",
+            agent_def_dir="/tmp/agents",
+        ),
+        terminal=RegistryTerminalV2(
+            current_session_name=current_session_name,
+            last_session_name=agent_name,
+        ),
+        liveness=(
+            RegistryLivenessV1(
+                published_at=published_at.isoformat(timespec="seconds"),
+                lease_expires_at=(published_at + lease_ttl).isoformat(timespec="seconds"),
+            )
+            if lifecycle_state in {"active", "relaunching"}
+            else None
+        ),
+        gateway=None,
+        mailbox=None,
     )
 
 
@@ -103,6 +161,29 @@ def test_registry_publish_and_resolve_accepts_friendly_name(
     assert resolved is not None
     assert resolved.agent_name == "gpu"
     assert resolved.generation_id == "generation-1"
+
+
+def test_registry_loads_legacy_v2_payload_as_active_lifecycle_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    legacy_record = _sample_record(agent_name="gpu")
+    record_path = registry_root / "live_agents" / legacy_record.agent_id / "record.json"
+    record_path.parent.mkdir(parents=True)
+    record_path.write_text(
+        json.dumps(legacy_record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    resolved = resolve_live_agent_record("gpu")
+
+    assert resolved is not None
+    assert resolved.lifecycle.state == "active"
+    assert resolved.terminal.current_session_name == "gpu"
+    assert resolved.terminal.last_session_name == "gpu"
+    assert resolved.liveness is not None
 
 
 def test_registry_resolves_exact_terminal_session_matches(
@@ -166,6 +247,54 @@ def test_tmux_sentinel_record_resolves_after_former_lease_boundaries(
     assert by_session[0].agent_name == "gpu"
 
 
+def test_stopped_registry_record_is_relaunchable_and_not_live(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    record = _sample_lifecycle_record(agent_name="gpu", lifecycle_state="stopped")
+
+    published = publish_live_agent_record(record)
+
+    assert published.lifecycle.state == "stopped"
+    assert resolve_live_agent_record("gpu") is None
+    all_matches = resolve_managed_agent_records_by_name("gpu")
+    assert len(all_matches) == 1
+    assert all_matches[0].lifecycle.state == "stopped"
+    relaunchable = resolve_relaunchable_managed_agent_record_by_agent_id(published.agent_id)
+    assert relaunchable is not None
+    assert relaunchable.lifecycle.state == "stopped"
+    assert relaunchable.terminal.current_session_name is None
+    assert relaunchable.terminal.last_session_name == "gpu"
+    cleanup_record = resolve_cleanup_managed_agent_record_by_agent_id(published.agent_id)
+    assert cleanup_record is not None
+    assert cleanup_record.runtime.session_root == "/tmp/runtime/session"
+
+
+def test_retired_registry_record_is_durable_but_not_relaunchable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    record = _sample_lifecycle_record(
+        agent_name="gpu",
+        lifecycle_state="retired",
+        relaunchable=False,
+    )
+
+    published = publish_live_agent_record(record)
+
+    assert published.lifecycle.state == "retired"
+    assert resolve_live_agent_record("gpu") is None
+    all_matches = resolve_managed_agent_records_by_name("gpu")
+    assert len(all_matches) == 1
+    assert all_matches[0].lifecycle.state == "retired"
+    assert resolve_relaunchable_managed_agent_record_by_agent_id(published.agent_id) is None
+    cleanup_record = resolve_cleanup_managed_agent_record_by_agent_id(published.agent_id)
+    assert cleanup_record is not None
+    assert cleanup_record.lifecycle.state == "retired"
+
+
 def test_registry_rejects_fresh_duplicate_generation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -175,6 +304,32 @@ def test_registry_rejects_fresh_duplicate_generation(
 
     with pytest.raises(SessionManifestError, match="ownership conflict"):
         publish_live_agent_record(_sample_record(generation_id="generation-2"))
+
+
+def test_registry_allows_new_active_generation_after_stopped_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    publish_live_agent_record(
+        _sample_lifecycle_record(
+            agent_name="gpu",
+            generation_id="generation-1",
+            lifecycle_state="stopped",
+        )
+    )
+
+    published = publish_live_agent_record(
+        _sample_lifecycle_record(
+            agent_name="gpu",
+            generation_id="generation-2",
+            lifecycle_state="active",
+        )
+    )
+
+    assert published.lifecycle.state == "active"
+    assert published.generation_id == "generation-2"
+    assert published.terminal.current_session_name == "gpu"
 
 
 def test_resolve_live_agent_record_returns_none_for_malformed_record(
@@ -206,6 +361,38 @@ def test_registry_rejects_naive_timestamps() -> None:
             ),
             terminal=RegistryTerminalV1(session_name="HOUMAO-gpu"),
         )
+
+
+@pytest.mark.parametrize(
+    ("record", "match"),
+    [
+        (
+            lambda: _sample_lifecycle_record(lifecycle_state="retired", relaunchable=True),
+            "retired lifecycle records must not remain relaunchable",
+        ),
+        (
+            lambda: ManagedAgentRegistryRecordV3(
+                **{
+                    **_sample_lifecycle_record(lifecycle_state="stopped").model_dump(),
+                    "lifecycle": {
+                        "state": "stopped",
+                        "relaunchable": True,
+                        "state_updated_at": "2026-03-13T12:00:00+00:00",
+                        "stopped_at": None,
+                        "stop_reason": "operator_stop",
+                    },
+                }
+            ),
+            "stopped_at is required",
+        ),
+    ],
+)
+def test_registry_rejects_invalid_lifecycle_shapes(
+    record: Callable[[], object],
+    match: str,
+) -> None:
+    with pytest.raises(ValidationError, match=match):
+        record()
 
 
 def test_registry_schema_is_packaged_and_covers_optional_gateway_and_mailbox_groups() -> None:

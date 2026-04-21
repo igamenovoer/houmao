@@ -209,18 +209,21 @@ from .models import (
     SessionEvent,
 )
 from .registry_models import (
-    LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
     RegistryGatewayV1,
     RegistryIdentityV1,
+    RegistryLifecycleV1,
+    RegistryLivenessV1,
     RegistryMailboxFilesystemV1,
     RegistryMailboxStalwartV1,
     RegistryMailboxV1,
     RegistryRuntimeV1,
-    RegistryTerminalV1,
+    RegistryTerminalV2,
     canonicalize_registry_agent_name,
 )
 from .registry_storage import (
     TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
+    load_managed_agent_record_by_agent_id,
     new_registry_generation_id,
     publish_live_agent_record,
     remove_live_agent_record,
@@ -255,6 +258,14 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
     "gemini_headless",
     "cao_rest",
     "houmao_server_rest",
+)
+_STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
+    {
+        "local_interactive",
+        "codex_headless",
+        "claude_headless",
+        "gemini_headless",
+    }
 )
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
 _GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
@@ -503,6 +514,7 @@ class RuntimeSessionController:
         """Terminate backend resources and persist state."""
 
         self._reset_operation_warnings()
+        last_tmux_session_name = _tmux_session_name_for_controller(self)
         if self._is_tmux_backed():
             try:
                 detach_result = self.detach_gateway()
@@ -521,12 +533,17 @@ class RuntimeSessionController:
             self.backend_session.configure_stop_force_cleanup(force_cleanup=force_cleanup)
         result = self.backend_session.terminate()
         if result.status == "ok":
+            self.tmux_session_name = last_tmux_session_name
             self.persist_manifest(refresh_registry=False)
             try:
-                self.clear_shared_registry_record()
+                stopped_record = self.publish_stopped_shared_registry_record(
+                    last_tmux_session_name=last_tmux_session_name
+                )
+                if stopped_record is None:
+                    self.clear_shared_registry_record()
             except (OSError, SessionManifestError) as exc:
                 self._record_registry_warning(
-                    "Shared-registry cleanup failed after successful stop-session teardown",
+                    "Shared-registry stop transition failed after successful stop-session teardown",
                     exc,
                 )
         else:
@@ -800,6 +817,80 @@ class RuntimeSessionController:
         self.persist_manifest()
         return result
 
+    def revive_stopped_session(
+        self,
+        *,
+        chat_session: RelaunchChatSessionSelection | None = None,
+    ) -> SessionControlResult:
+        """Revive one stopped tmux-backed managed-agent runtime without rebuilding its home."""
+
+        self._reset_operation_warnings()
+        if not _backend_supports_stopped_session_relaunch(self.launch_plan.backend):
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=(
+                    "Stopped-session revival is only supported for local tmux-backed backends "
+                    f"({sorted(_STOPPED_SESSION_RELAUNCH_BACKENDS)}), got "
+                    f"{self.launch_plan.backend!r}."
+                ),
+            )
+        try:
+            effective_chat_session = _resolve_relaunch_chat_session_selection(
+                controller=self,
+                requested=chat_session,
+            )
+        except ValueError as exc:
+            _rollback_stopped_session_revival(self)
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
+
+        if _backend_requires_provider_start_relaunch(self.launch_plan.backend):
+            try:
+                updated_launch_plan = _build_provider_start_launch_plan_for_relaunch(self)
+                _refresh_backend_launch_plan(
+                    backend_session=self.backend_session,
+                    launch_plan=updated_launch_plan,
+                )
+            except (
+                FileNotFoundError,
+                LaunchPlanError,
+                LaunchPolicyResolutionError,
+                RuntimeError,
+                SessionManifestError,
+                ValueError,
+            ) as exc:
+                _rollback_stopped_session_revival(self)
+                return SessionControlResult(
+                    status="error",
+                    action="relaunch",
+                    detail=str(exc),
+                )
+            self.launch_plan = updated_launch_plan
+
+        result = _relaunch_backend_session(self, chat_session=effective_chat_session)
+        if result.status != "ok":
+            _rollback_stopped_session_revival(self)
+            return result
+
+        self.registry_generation_id = new_registry_generation_id()
+        try:
+            self.ensure_gateway_capability()
+            _refresh_pair_launch_registration(self)
+        except (OSError, SessionManifestError) as exc:
+            _rollback_stopped_session_revival(self)
+            return SessionControlResult(
+                status="error",
+                action="relaunch",
+                detail=str(exc),
+            )
+
+        self.persist_manifest()
+        return result
+
     def persist_manifest(self, *, refresh_registry: bool = True) -> None:
         """Persist current backend state to session manifest."""
 
@@ -989,7 +1080,7 @@ class RuntimeSessionController:
             )
         return session_name
 
-    def refresh_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+    def refresh_shared_registry_record(self) -> ManagedAgentRegistryRecordV3 | None:
         """Publish or refresh the shared-registry record for this live session."""
 
         if not self.should_publish_shared_registry_record():
@@ -1015,10 +1106,25 @@ class RuntimeSessionController:
 
         return self.registry_launch_authority == "runtime"
 
-    def build_shared_registry_record(self) -> LiveAgentRegistryRecordV2 | None:
+    def build_shared_registry_record(self) -> ManagedAgentRegistryRecordV3 | None:
         """Build the current pointer-oriented shared-registry record for this session."""
 
         return _build_shared_registry_record_for_controller(self)
+
+    def publish_stopped_shared_registry_record(
+        self,
+        *,
+        last_tmux_session_name: str | None,
+    ) -> ManagedAgentRegistryRecordV3 | None:
+        """Publish one stopped lifecycle record after successful local teardown."""
+
+        record = _build_stopped_shared_registry_record_for_controller(
+            self,
+            last_tmux_session_name=last_tmux_session_name,
+        )
+        if record is None:
+            return None
+        return publish_live_agent_record(record)
 
     def clear_shared_registry_record(self) -> bool:
         """Remove this session's shared-registry record during authoritative teardown."""
@@ -1454,6 +1560,43 @@ def resume_runtime_session(
 ) -> RuntimeSessionController:
     """Resume a runtime session from a persisted manifest."""
 
+    return _resume_runtime_session_controller(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_manifest_path,
+        cao_profile_store_dir=cao_profile_store_dir,
+        cao_parsing_mode=cao_parsing_mode,
+        stopped_revival=False,
+    )
+
+
+def resume_stopped_runtime_session(
+    *,
+    agent_def_dir: Path,
+    session_manifest_path: Path,
+    cao_profile_store_dir: Path | None = None,
+    cao_parsing_mode: CaoParsingMode | None = None,
+) -> RuntimeSessionController:
+    """Prepare a controller that can revive one stopped tmux-backed runtime session."""
+
+    return _resume_runtime_session_controller(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=session_manifest_path,
+        cao_profile_store_dir=cao_profile_store_dir,
+        cao_parsing_mode=cao_parsing_mode,
+        stopped_revival=True,
+    )
+
+
+def _resume_runtime_session_controller(
+    *,
+    agent_def_dir: Path,
+    session_manifest_path: Path,
+    cao_profile_store_dir: Path | None,
+    cao_parsing_mode: CaoParsingMode | None,
+    stopped_revival: bool,
+) -> RuntimeSessionController:
+    """Build one runtime controller from a persisted manifest with optional stopped revival."""
+
     handle = load_session_manifest(session_manifest_path)
     manifest_payload = parse_session_manifest_payload(
         handle.payload,
@@ -1463,6 +1606,11 @@ def resume_runtime_session(
     backend = manifest_payload.backend
     role_name = manifest_payload.role_name
     brain_manifest_path = Path(manifest_payload.brain_manifest_path).resolve()
+    if stopped_revival and not _backend_supports_stopped_session_relaunch(backend):
+        raise SessionManifestError(
+            "Stopped-session revival is only supported for local tmux-backed backends "
+            f"({sorted(_STOPPED_SESSION_RELAUNCH_BACKENDS)}), got {backend!r}."
+        )
     role_package = load_role_package(agent_def_dir, role_name)
     memory = _memory_from_manifest_payload(payload=manifest_payload)
     if memory is not None:
@@ -1472,6 +1620,7 @@ def resume_runtime_session(
         manifest_payload,
         session_manifest_path=session_manifest_path,
     )
+    brain_manifest: dict[str, object] | None = None
     if _is_joined_tmux_manifest(manifest_payload):
         launch_plan = _build_joined_launch_plan_from_manifest_payload(
             payload=manifest_payload,
@@ -1479,17 +1628,17 @@ def resume_runtime_session(
             mailbox=resolved_mailbox,
         )
     else:
-        manifest = load_brain_manifest(brain_manifest_path)
+        brain_manifest = load_brain_manifest(brain_manifest_path)
         role_package = replace(
             role_package,
             system_prompt=_effective_role_prompt_from_brain_manifest(
-                manifest,
+                brain_manifest,
                 fallback=role_package.system_prompt,
             ),
         )
         launch_plan = build_launch_plan(
             LaunchPlanRequest(
-                brain_manifest=manifest,
+                brain_manifest=brain_manifest,
                 role_package=role_package,
                 backend=backend,
                 working_directory=Path(manifest_payload.working_directory),
@@ -1506,6 +1655,19 @@ def resume_runtime_session(
         )
     launch_plan = _launch_plan_with_memory(launch_plan, memory=memory)
 
+    requested_tmux_session_name = manifest_payload.tmux_session_name
+    if stopped_revival:
+        if brain_manifest is None:
+            brain_manifest = load_brain_manifest(brain_manifest_path)
+        requested_tmux_session_name = _resolve_start_session_identity(
+            manifest=brain_manifest,
+            tool=manifest_payload.tool,
+            role_name=role_name,
+            requested_agent_name=manifest_payload.agent_name,
+            requested_agent_identity=None,
+            requested_agent_id=manifest_payload.agent_id,
+        ).tmux_session_name
+
     backend_session = _create_backend_session(
         launch_plan=launch_plan,
         role_name=role_name,
@@ -1514,8 +1676,9 @@ def resume_runtime_session(
         cao_profile_store_dir=cao_profile_store_dir,
         resume_state=manifest_payload,
         session_manifest_path=session_manifest_path.resolve(),
-        agent_identity=manifest_payload.tmux_session_name,
+        agent_identity=requested_tmux_session_name,
         cao_parsing_mode=cao_parsing_mode,
+        stopped_revival=stopped_revival,
     )
 
     resolved_tmux_session_name: str | None = None
@@ -1525,7 +1688,7 @@ def resume_runtime_session(
         resolved_tmux_session_name = backend_session.state.tmux_session_name
 
     registry_generation_id = manifest_payload.registry_generation_id
-    if backend in _TMUX_BACKED_BACKENDS and registry_generation_id is None:
+    if backend in _TMUX_BACKED_BACKENDS and (registry_generation_id is None or stopped_revival):
         registry_generation_id = new_registry_generation_id()
 
     controller = RuntimeSessionController(
@@ -1537,7 +1700,7 @@ def resume_runtime_session(
         backend_session=backend_session,
         agent_identity=manifest_payload.agent_name,
         agent_id=manifest_payload.agent_id,
-        tmux_session_name=resolved_tmux_session_name or manifest_payload.tmux_session_name,
+        tmux_session_name=resolved_tmux_session_name or requested_tmux_session_name,
         memory_root=memory.memory_root if memory is not None else None,
         memo_file=memory.memo_file if memory is not None else None,
         pages_dir=memory.pages_dir if memory is not None else None,
@@ -1550,7 +1713,8 @@ def resume_runtime_session(
         registry_launch_authority=manifest_payload.registry_launch_authority,
         agent_launch_authority=manifest_payload.agent_launch_authority,
     )
-    controller.ensure_gateway_capability()
+    if not stopped_revival:
+        controller.ensure_gateway_capability()
     return controller
 
 
@@ -1566,6 +1730,7 @@ def _create_backend_session(
     session_manifest_path: Path | None = None,
     agent_identity: str | None = None,
     cao_parsing_mode: CaoParsingMode | None = None,
+    stopped_revival: bool = False,
 ) -> InteractiveSession:
     """Create a concrete backend session for start/resume flows."""
 
@@ -1578,7 +1743,11 @@ def _create_backend_session(
         return cast(InteractiveSession, CodexAppServerSession(launch_plan=launch_plan))
 
     if launch_plan.backend == "codex_headless":
-        state = _resume_headless_state(resume_state, launch_plan=launch_plan)
+        state = _resume_headless_state(
+            resume_state,
+            launch_plan=launch_plan,
+            stopped_revival=stopped_revival,
+        )
         return cast(
             InteractiveSession,
             CodexHeadlessSession(
@@ -1595,7 +1764,11 @@ def _create_backend_session(
         )
 
     if launch_plan.backend == "local_interactive":
-        state = _resume_local_interactive_state(resume_state, launch_plan=launch_plan)
+        state = _resume_local_interactive_state(
+            resume_state,
+            launch_plan=launch_plan,
+            stopped_revival=stopped_revival,
+        )
         return cast(
             InteractiveSession,
             LocalInteractiveSession(
@@ -1612,7 +1785,11 @@ def _create_backend_session(
         )
 
     if launch_plan.backend == "claude_headless":
-        state = _resume_headless_state(resume_state, launch_plan=launch_plan)
+        state = _resume_headless_state(
+            resume_state,
+            launch_plan=launch_plan,
+            stopped_revival=stopped_revival,
+        )
         return cast(
             InteractiveSession,
             ClaudeHeadlessSession(
@@ -1629,7 +1806,11 @@ def _create_backend_session(
         )
 
     if launch_plan.backend == "gemini_headless":
-        state = _resume_headless_state(resume_state, launch_plan=launch_plan)
+        state = _resume_headless_state(
+            resume_state,
+            launch_plan=launch_plan,
+            stopped_revival=stopped_revival,
+        )
         if (
             state is not None
             and Path(state.working_directory).resolve() != launch_plan.working_directory
@@ -1734,6 +1915,7 @@ def _resume_headless_state(
     payload: SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
+    stopped_revival: bool = False,
 ) -> HeadlessSessionState | None:
     if payload is None:
         return None
@@ -1749,7 +1931,7 @@ def _resume_headless_state(
             "Headless resume requires a non-empty headless.session_id after turn 0"
         )
     tmux_session_name = _manifest_tmux_session_name(payload)
-    if tmux_session_name is None or not tmux_session_name.strip():
+    if not stopped_revival and (tmux_session_name is None or not tmux_session_name.strip()):
         raise SessionManifestError("Headless resume requires a non-empty tmux session authority.")
     tmux_window_name = _resolved_resumed_tmux_window_name(payload=payload, launch_plan=launch_plan)
 
@@ -1764,7 +1946,11 @@ def _resume_headless_state(
             payload,
             fallback=headless.working_directory or str(launch_plan.working_directory),
         ),
-        tmux_session_name=tmux_session_name.strip(),
+        tmux_session_name=(
+            None
+            if stopped_revival
+            else (tmux_session_name.strip() if tmux_session_name is not None else None)
+        ),
         tmux_window_name=tmux_window_name,
         resume_selection_kind=headless.resume_selection_kind,
         resume_selection_value=headless.resume_selection_value,
@@ -1776,6 +1962,7 @@ def _resume_local_interactive_state(
     payload: SessionManifestPayloadV4 | None,
     *,
     launch_plan: LaunchPlan,
+    stopped_revival: bool = False,
 ) -> HeadlessSessionState | None:
     if payload is None:
         return None
@@ -1787,7 +1974,7 @@ def _resume_local_interactive_state(
         )
 
     tmux_session_name = _manifest_tmux_session_name(payload)
-    if tmux_session_name is None or not tmux_session_name.strip():
+    if not stopped_revival and (tmux_session_name is None or not tmux_session_name.strip()):
         raise SessionManifestError(
             "Local interactive resume requires a non-empty tmux session authority."
         )
@@ -1804,7 +1991,11 @@ def _resume_local_interactive_state(
             payload,
             fallback=local_interactive.working_directory or str(launch_plan.working_directory),
         ),
-        tmux_session_name=tmux_session_name.strip(),
+        tmux_session_name=(
+            None
+            if stopped_revival
+            else (tmux_session_name.strip() if tmux_session_name is not None else None)
+        ),
         tmux_window_name=tmux_window_name,
         joined_session=_is_joined_tmux_manifest(payload),
     )
@@ -2663,6 +2854,12 @@ def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
     }
 
 
+def _backend_supports_stopped_session_relaunch(backend: BackendKind) -> bool:
+    """Return whether one backend supports reviving a stopped tmux-backed runtime home."""
+
+    return backend in _STOPPED_SESSION_RELAUNCH_BACKENDS
+
+
 def _build_provider_start_launch_plan_for_relaunch(
     controller: RuntimeSessionController,
 ) -> LaunchPlan:
@@ -3263,7 +3460,7 @@ def _resolve_agent_identity_from_shared_registry(
 
 def _agent_identity_resolution_from_registry_record(
     *,
-    record: LiveAgentRegistryRecordV2,
+    record: ManagedAgentRegistryRecordV3,
     explicit_agent_def_dir: Path | None,
     warnings: tuple[str, ...],
 ) -> AgentIdentityResolution:
@@ -3336,7 +3533,7 @@ def _resolve_agent_def_dir_for_name_resolution(
 
 def _resolve_agent_def_dir_for_registry_resolution(
     *,
-    record: LiveAgentRegistryRecordV2,
+    record: ManagedAgentRegistryRecordV3,
     explicit_agent_def_dir: Path | None,
 ) -> Path:
     """Resolve the effective agent-definition root for registry-based control."""
@@ -3431,7 +3628,7 @@ def _runtime_agent_def_dir(controller: RuntimeSessionController) -> Path | None:
 
 def _build_shared_registry_record_for_controller(
     controller: RuntimeSessionController,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Build one shared-registry record from current runtime-owned session state."""
 
     if not controller._is_tmux_backed():
@@ -3449,19 +3646,131 @@ def _build_shared_registry_record_for_controller(
 
     published_at = datetime.now(UTC)
     session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
-    mailbox = controller.launch_plan.mailbox
+    return ManagedAgentRegistryRecordV3(
+        agent_name=canonicalize_registry_agent_name(canonical_agent_name),
+        agent_id=agent_id,
+        generation_id=generation_id,
+        lifecycle=RegistryLifecycleV1(
+            state="active",
+            relaunchable=_shared_registry_record_is_relaunchable(
+                controller=controller,
+                session_root=session_root,
+            ),
+            state_updated_at=published_at.isoformat(timespec="seconds"),
+        ),
+        identity=RegistryIdentityV1(
+            backend=controller.launch_plan.backend,
+            tool=controller.launch_plan.tool,
+        ),
+        runtime=_shared_registry_runtime_payload(
+            controller=controller,
+            session_root=session_root,
+        ),
+        terminal=RegistryTerminalV2(
+            kind="tmux",
+            current_session_name=tmux_session_name,
+            last_session_name=tmux_session_name,
+        ),
+        liveness=RegistryLivenessV1(
+            published_at=published_at.isoformat(timespec="seconds"),
+            lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
+                timespec="seconds"
+            ),
+        ),
+        gateway=_shared_registry_gateway_payload(controller),
+        mailbox=_shared_registry_mailbox_payload(controller),
+    )
 
-    gateway_payload = _shared_registry_gateway_payload(controller)
+
+def _build_stopped_shared_registry_record_for_controller(
+    controller: RuntimeSessionController,
+    *,
+    last_tmux_session_name: str | None,
+) -> ManagedAgentRegistryRecordV3 | None:
+    """Build one stopped lifecycle registry record after successful runtime teardown."""
+
+    if not controller._is_tmux_backed():
+        return None
+
+    canonical_agent_name = controller.agent_identity
+    agent_id = controller.agent_id
+    generation_id = controller.registry_generation_id
+    if generation_id is None or canonical_agent_name is None or agent_id is None:
+        return None
+    if (
+        not controller.should_publish_shared_registry_record()
+        and load_managed_agent_record_by_agent_id(agent_id) is None
+    ):
+        return None
+
+    session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
+    stopped_at = datetime.now(UTC)
+    last_session_name = last_tmux_session_name or controller.tmux_session_name or canonical_agent_name
+    return ManagedAgentRegistryRecordV3(
+        agent_name=canonicalize_registry_agent_name(canonical_agent_name),
+        agent_id=agent_id,
+        generation_id=generation_id,
+        lifecycle=RegistryLifecycleV1(
+            state="stopped",
+            relaunchable=_shared_registry_record_is_relaunchable(
+                controller=controller,
+                session_root=session_root,
+            ),
+            state_updated_at=stopped_at.isoformat(timespec="seconds"),
+            stopped_at=stopped_at.isoformat(timespec="seconds"),
+            stop_reason="operator_stop",
+        ),
+        identity=RegistryIdentityV1(
+            backend=controller.launch_plan.backend,
+            tool=controller.launch_plan.tool,
+        ),
+        runtime=_shared_registry_runtime_payload(
+            controller=controller,
+            session_root=session_root,
+        ),
+        terminal=RegistryTerminalV2(
+            kind="tmux",
+            current_session_name=None,
+            last_session_name=last_session_name,
+        ),
+        liveness=None,
+        gateway=None,
+        mailbox=_shared_registry_mailbox_payload(controller),
+    )
+
+
+def _shared_registry_runtime_payload(
+    *,
+    controller: RuntimeSessionController,
+    session_root: Path | None,
+) -> RegistryRuntimeV1:
+    """Build the shared-registry runtime locator payload for one controller."""
+
+    return RegistryRuntimeV1(
+        manifest_path=str(controller.manifest_path.resolve()),
+        session_root=str(session_root.resolve()) if session_root is not None else None,
+        agent_def_dir=(
+            str(controller.agent_def_dir.resolve()) if controller.agent_def_dir is not None else None
+        ),
+    )
+
+
+def _shared_registry_mailbox_payload(
+    controller: RuntimeSessionController,
+) -> RegistryMailboxV1 | None:
+    """Build durable mailbox identity metadata for one registry record."""
+
+    mailbox = controller.launch_plan.mailbox
     if isinstance(mailbox, FilesystemMailboxResolvedConfig):
-        mailbox_payload: RegistryMailboxV1 | None = RegistryMailboxFilesystemV1(
+        return RegistryMailboxFilesystemV1(
             transport="filesystem",
             principal_id=mailbox.principal_id,
             address=mailbox.address,
             filesystem_root=str(mailbox.filesystem_root.resolve()),
             bindings_version=mailbox.bindings_version,
         )
-    elif isinstance(mailbox, StalwartMailboxResolvedConfig):
-        mailbox_payload = RegistryMailboxStalwartV1(
+    if isinstance(mailbox, StalwartMailboxResolvedConfig):
+        return RegistryMailboxStalwartV1(
             transport="stalwart",
             principal_id=mailbox.principal_id,
             address=mailbox.address,
@@ -3471,37 +3780,35 @@ def _build_shared_registry_record_for_controller(
             login_identity=mailbox.login_identity,
             credential_ref=mailbox.credential_ref,
         )
-    else:
-        mailbox_payload = None
+    return None
 
-    return LiveAgentRegistryRecordV2(
-        agent_name=canonicalize_registry_agent_name(canonical_agent_name),
-        agent_id=agent_id,
-        generation_id=generation_id,
-        published_at=published_at.isoformat(timespec="seconds"),
-        lease_expires_at=(published_at + TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL).isoformat(
-            timespec="seconds"
-        ),
-        identity=RegistryIdentityV1(
-            backend=controller.launch_plan.backend,
-            tool=controller.launch_plan.tool,
-        ),
-        runtime=RegistryRuntimeV1(
-            manifest_path=str(controller.manifest_path.resolve()),
-            session_root=str(session_root.resolve()) if session_root is not None else None,
-            agent_def_dir=(
-                str(controller.agent_def_dir.resolve())
-                if controller.agent_def_dir is not None
-                else None
-            ),
-        ),
-        terminal=RegistryTerminalV1(
-            kind="tmux",
-            session_name=tmux_session_name,
-        ),
-        gateway=gateway_payload,
-        mailbox=mailbox_payload,
-    )
+
+def _shared_registry_record_is_relaunchable(
+    *,
+    controller: RuntimeSessionController,
+    session_root: Path | None,
+) -> bool:
+    """Return whether the controller retains supported stopped-session relaunch authority."""
+
+    if session_root is None or controller.agent_def_dir is None:
+        return False
+    return _backend_supports_stopped_session_relaunch(controller.launch_plan.backend)
+
+
+def _rollback_stopped_session_revival(controller: RuntimeSessionController) -> None:
+    """Best-effort cleanup for a failed stopped-session revival attempt."""
+
+    if not isinstance(controller.backend_session, HeadlessInteractiveSession):
+        controller.tmux_session_name = None
+        return
+    controller.backend_session.configure_stop_force_cleanup(force_cleanup=True)
+    result = controller.backend_session.terminate()
+    controller.tmux_session_name = None
+    if result.status == "ok":
+        return
+    message = f"Stopped-session revival cleanup failed: {result.detail}"
+    controller.operation_warnings = (*controller.operation_warnings, message)
+    _LOGGER.warning(message)
 
 
 def _shared_registry_gateway_payload(

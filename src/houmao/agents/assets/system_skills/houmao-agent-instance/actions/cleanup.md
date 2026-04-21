@@ -10,10 +10,10 @@ Use this action only when the user wants to clean stopped-session managed-agent 
    - `logs` for session-local log artifacts
 3. Recover one supported cleanup selector from the current prompt first and recent chat context second when it was stated explicitly:
    - Prefer `--manifest-path` or `--session-root` from recent stop output when present.
-   - Use `--agent-id` or `--agent-name` when no durable path locator is available but the target identity was stated explicitly. These selectors can recover stopped sessions through bounded runtime-root fallback after the live registry record has been removed.
+   - Use `--agent-id` or `--agent-name` when no durable path locator is available but the target identity was stated explicitly. These selectors prefer cleanup-capable lifecycle registry records, including stopped records preserved by `agents stop`, and fall back to bounded runtime-root fallback scanning only when no matching lifecycle record exists.
 4. If the cleanup kind or selector is still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the cleanup kind choices and the selectors still needed.
 5. Include `--dry-run` only when the user explicitly asks to preview cleanup.
-6. Run the selected cleanup command. Session cleanup removes the stopped session envelope and does not remove the managed-agent memory root.
+6. Run the selected cleanup command. Session cleanup removes the stopped session envelope, retires the stopped lifecycle record by default, and does not remove the managed-agent memory root. Add `--purge-registry` only when the user explicitly wants to delete the lifecycle record entirely.
 7. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
 
 ## Command Shape
@@ -48,4 +48,5 @@ For log cleanup, use:
 - Do not guess the cleanup kind or cleanup selector.
 - Do not widen a vague cleanup request into session or logs cleanup without user confirmation.
 - Do not assume cleanup is safe for a live session; this skill is for stopped-session cleanup only.
+- Do not add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.
 - Do not create or search stopped-session tombstones, stopped-agent indexes, or unsupported registry state.

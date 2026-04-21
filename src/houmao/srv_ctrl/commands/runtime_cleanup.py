@@ -20,7 +20,14 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
     runtime_owned_session_root_from_manifest_path,
 )
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
+from houmao.agents.realm_controller.registry_storage import (
+    publish_managed_agent_record,
+    record_path_for_agent_id,
+    remove_managed_agent_record,
+    resolve_cleanup_managed_agent_record_by_agent_id,
+    resolve_cleanup_managed_agent_records_by_name,
+)
 from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
@@ -28,7 +35,7 @@ from houmao.project.overlay import (
 )
 
 from .cleanup_support import CleanupAction, build_cleanup_payload, remove_path
-from .managed_agents import _list_registry_records, _resolve_local_managed_agent_record
+from .managed_agents import _list_registry_records
 from .project_aware_wording import describe_runtime_root_selection
 
 
@@ -44,7 +51,7 @@ class ResolvedManagedSessionCleanupTarget:
     session_root: Path
     payload: SessionManifestPayloadV4 | None
     resolution: dict[str, object]
-    registry_record: LiveAgentRegistryRecordV2 | None = None
+    registry_record: ManagedAgentRegistryRecordV3 | None = None
     parse_error: str | None = None
 
 
@@ -119,7 +126,7 @@ def resolve_managed_session_cleanup_target(
             authority_value=str(session_root.resolve()),
         )
     if agent_id is not None or agent_name is not None:
-        record = _resolve_local_managed_agent_record(
+        record = _resolve_local_cleanup_registry_record(
             agent_id=agent_id,
             agent_name=agent_name,
         )
@@ -135,7 +142,8 @@ def resolve_managed_session_cleanup_target(
             else:
                 selector = f"`--agent-name {agent_name}`"
             raise CleanupResolutionError(
-                "Local cleanup target resolution found no fresh shared-registry record for "
+                "Local cleanup target resolution found no cleanup-capable shared-registry record "
+                "for "
                 f"{selector} and no matching stopped session under the effective runtime root. "
                 "Use `--manifest-path` or `--session-root` for stopped sessions outside that root."
             )
@@ -169,7 +177,7 @@ def resolve_managed_session_cleanup_target(
     except click.ClickException as exc:
         raise CleanupResolutionError(str(exc)) from exc
     if current_agent_id is not None:
-        record = _resolve_local_managed_agent_record(
+        record = _resolve_local_cleanup_registry_record(
             agent_id=current_agent_id,
             agent_name=None,
         )
@@ -193,6 +201,7 @@ def cleanup_managed_session(
     manifest_path: Path | None,
     session_root: Path | None,
     dry_run: bool,
+    purge_registry: bool = False,
 ) -> dict[str, object]:
     """Clean one resolved stopped managed-session envelope."""
 
@@ -219,7 +228,21 @@ def cleanup_managed_session(
         details=session_details,
     )
 
-    if live:
+    registry_record = target.registry_record
+    session_root_present = target.session_root.exists() or target.session_root.is_symlink()
+    session_cleanup_complete = False
+
+    if _cleanup_target_has_active_registry_record(target):
+        blocked_actions.append(
+            CleanupAction(
+                artifact_kind="session_root",
+                path=target.session_root,
+                proposed_action="remove",
+                reason="shared-registry record still claims active lifecycle state; stop the agent first",
+                details=session_details,
+            )
+        )
+    elif live:
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
@@ -230,8 +253,27 @@ def cleanup_managed_session(
             )
         )
     else:
-        _apply_cleanup_action(
-            action=session_action,
+        if session_root_present:
+            planned_count = len(planned_actions)
+            applied_count = len(applied_actions)
+            _apply_cleanup_action(
+                action=session_action,
+                dry_run=dry_run,
+                planned_actions=planned_actions,
+                applied_actions=applied_actions,
+                blocked_actions=blocked_actions,
+            )
+            if dry_run:
+                session_cleanup_complete = len(planned_actions) > planned_count
+            else:
+                session_cleanup_complete = len(applied_actions) > applied_count
+        else:
+            session_cleanup_complete = True
+
+    if session_cleanup_complete and registry_record is not None:
+        _apply_cleanup_registry_lifecycle_action(
+            record=registry_record,
+            purge_registry=purge_registry,
             dry_run=dry_run,
             planned_actions=planned_actions,
             applied_actions=applied_actions,
@@ -244,13 +286,20 @@ def cleanup_managed_session(
             "kind": "managed_session_cleanup",
             "manifest_path": str(target.manifest_path),
             "session_root": str(target.session_root),
+            "purge_registry": purge_registry,
         },
         resolution=target.resolution,
         planned_actions=planned_actions,
         applied_actions=applied_actions,
         blocked_actions=blocked_actions,
         preserved_actions=preserved_actions,
-        extra_summary={"live_session": live},
+        extra_summary={
+            "live_session": live,
+            "registry_lifecycle_action": _planned_cleanup_registry_action_name(
+                registry_record=registry_record,
+                purge_registry=purge_registry,
+            ),
+        },
     )
 
 
@@ -833,7 +882,7 @@ def _load_cleanup_target_from_manifest_path(
     manifest_path: Path,
     authority: str,
     authority_value: str | None = None,
-    registry_record: LiveAgentRegistryRecordV2 | None = None,
+    registry_record: ManagedAgentRegistryRecordV3 | None = None,
 ) -> ResolvedManagedSessionCleanupTarget:
     """Load one manifest-backed cleanup target with partial-target fallback."""
 
@@ -887,7 +936,7 @@ def _load_cleanup_target_from_session_root(
     session_root: Path,
     authority: str,
     authority_value: str | None = None,
-    registry_record: LiveAgentRegistryRecordV2 | None = None,
+    registry_record: ManagedAgentRegistryRecordV3 | None = None,
     parse_error: str | None = None,
 ) -> ResolvedManagedSessionCleanupTarget:
     """Build one partial cleanup target from a runtime-owned session root."""
@@ -919,7 +968,7 @@ def _load_cleanup_target_from_session_root(
 
 def _load_cleanup_target_from_registry_record(
     *,
-    record: LiveAgentRegistryRecordV2,
+    record: ManagedAgentRegistryRecordV3,
     authority: str,
     authority_value: str | None = None,
 ) -> ResolvedManagedSessionCleanupTarget:
@@ -965,6 +1014,31 @@ def _load_cleanup_target_from_registry_record(
         registry_record=record,
         parse_error=manifest_target_error,
     )
+
+
+def _resolve_local_cleanup_registry_record(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> ManagedAgentRegistryRecordV3 | None:
+    """Resolve one cleanup-capable lifecycle registry record."""
+
+    if agent_id is not None:
+        return resolve_cleanup_managed_agent_record_by_agent_id(agent_id)
+
+    assert agent_name is not None
+    matches = resolve_cleanup_managed_agent_records_by_name(agent_name)
+    if len(matches) > 1:
+        raise CleanupResolutionError(
+            _format_ambiguous_cleanup_registry_matches(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                matches=matches,
+            )
+        )
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _resolve_stopped_cleanup_target_from_runtime_root(
@@ -1243,13 +1317,158 @@ def _cleanup_target_details(target: ResolvedManagedSessionCleanupTarget) -> dict
     elif target.registry_record is not None:
         details["agent_id"] = target.registry_record.agent_id
         details["agent_name"] = target.registry_record.agent_name
+        details["lifecycle_state"] = target.registry_record.lifecycle.state
         details["tmux_session_name"] = target.registry_record.terminal.session_name
     if target.parse_error is not None:
         details["parse_error"] = target.parse_error
     return details
 
 
-def _registry_record_session_root(record: LiveAgentRegistryRecordV2) -> Path | None:
+def _cleanup_target_has_active_registry_record(target: ResolvedManagedSessionCleanupTarget) -> bool:
+    """Return whether cleanup matched an active lifecycle registry record."""
+
+    return (
+        target.registry_record is not None and target.registry_record.lifecycle.state == "active"
+    )
+
+
+def _planned_cleanup_registry_action_name(
+    *,
+    registry_record: ManagedAgentRegistryRecordV3 | None,
+    purge_registry: bool,
+) -> str | None:
+    """Return the registry lifecycle action implied by session cleanup."""
+
+    if registry_record is None:
+        return None
+    if purge_registry:
+        return "purge"
+    if registry_record.lifecycle.state == "stopped":
+        return "retire"
+    return None
+
+
+def _apply_cleanup_registry_lifecycle_action(
+    *,
+    record: ManagedAgentRegistryRecordV3,
+    purge_registry: bool,
+    dry_run: bool,
+    planned_actions: list[CleanupAction],
+    applied_actions: list[CleanupAction],
+    blocked_actions: list[CleanupAction],
+) -> None:
+    """Plan or apply the registry lifecycle mutation implied by session cleanup."""
+
+    lifecycle_action = _build_cleanup_registry_lifecycle_action(
+        record=record,
+        purge_registry=purge_registry,
+    )
+    if lifecycle_action is None:
+        return
+    if dry_run:
+        planned_actions.append(lifecycle_action)
+        return
+
+    try:
+        if lifecycle_action.proposed_action == "retire":
+            publish_managed_agent_record(_build_retired_registry_record_for_cleanup(record))
+        elif lifecycle_action.proposed_action == "purge":
+            removed = remove_managed_agent_record(
+                record.agent_id,
+                generation_id=record.generation_id,
+            )
+            if not removed:
+                raise SessionManifestError(
+                    "shared-registry record was missing or no longer matched the selected generation"
+                )
+        else:
+            raise AssertionError(
+                f"Unsupported cleanup registry lifecycle action {lifecycle_action.proposed_action!r}"
+            )
+    except (SessionManifestError, ValueError) as exc:
+        blocked_actions.append(
+            CleanupAction(
+                artifact_kind=lifecycle_action.artifact_kind,
+                path=lifecycle_action.path,
+                proposed_action=lifecycle_action.proposed_action,
+                reason=f"{lifecycle_action.reason}; registry update failed: {exc}",
+                details=lifecycle_action.details,
+            )
+        )
+    else:
+        applied_actions.append(lifecycle_action)
+
+
+def _build_cleanup_registry_lifecycle_action(
+    *,
+    record: ManagedAgentRegistryRecordV3,
+    purge_registry: bool,
+) -> CleanupAction | None:
+    """Return the lifecycle registry action implied by session cleanup."""
+
+    action_name = _planned_cleanup_registry_action_name(
+        registry_record=record,
+        purge_registry=purge_registry,
+    )
+    if action_name is None:
+        return None
+
+    session_root = _registry_record_session_root(record)
+    details = {
+        "agent_id": record.agent_id,
+        "agent_name": record.agent_name,
+        "generation_id": record.generation_id,
+        "lifecycle_state": record.lifecycle.state,
+        "manifest_path": record.runtime.manifest_path,
+        "session_root": str(session_root) if session_root is not None else None,
+    }
+    if action_name == "retire":
+        return CleanupAction(
+            artifact_kind="managed_agent_registry_record",
+            path=record_path_for_agent_id(record.agent_id),
+            proposed_action="retire",
+            reason="session cleanup removes stopped runtime artifacts, so relaunch must be disabled",
+            details=details,
+        )
+    return CleanupAction(
+        artifact_kind="managed_agent_registry_record",
+        path=record_path_for_agent_id(record.agent_id),
+        proposed_action="purge",
+        reason="session cleanup removes runtime artifacts and operator requested full registry purge",
+        details=details,
+    )
+
+
+def _build_retired_registry_record_for_cleanup(
+    record: ManagedAgentRegistryRecordV3,
+) -> ManagedAgentRegistryRecordV3:
+    """Return one retired lifecycle record for post-cleanup publication."""
+
+    retired_at = _coerce_now(None).isoformat(timespec="seconds")
+    record_payload = record.model_dump(mode="json")
+    lifecycle_payload = dict(record_payload["lifecycle"])
+    lifecycle_payload.update(
+        {
+            "state": "retired",
+            "relaunchable": False,
+            "state_updated_at": retired_at,
+            "stopped_at": record.lifecycle.stopped_at or retired_at,
+            "stop_reason": record.lifecycle.stop_reason or "cleanup_session",
+        }
+    )
+    terminal_payload = dict(record_payload["terminal"])
+    terminal_payload["current_session_name"] = None
+    terminal_payload["last_session_name"] = (
+        record.terminal.last_session_name or record.terminal.session_name
+    )
+    record_payload["lifecycle"] = lifecycle_payload
+    record_payload["terminal"] = terminal_payload
+    record_payload["liveness"] = None
+    record_payload["gateway"] = None
+    return ManagedAgentRegistryRecordV3.model_validate(record_payload)
+
+
+def _registry_record_session_root(record: ManagedAgentRegistryRecordV3) -> Path | None:
     """Return the optional runtime-owned session root recorded in shared registry state."""
 
     session_root_value = record.runtime.session_root
@@ -1264,18 +1483,45 @@ def _registry_record_session_root(record: LiveAgentRegistryRecordV2) -> Path | N
     return derived_session_root.resolve()
 
 
-def _find_registry_record_for_session_root(session_root: Path) -> LiveAgentRegistryRecordV2 | None:
-    """Return one unique fresh shared-registry record that matches the session root."""
+def _find_registry_record_for_session_root(
+    session_root: Path,
+) -> ManagedAgentRegistryRecordV3 | None:
+    """Return one unique lifecycle-aware shared-registry record that matches the session root."""
 
     resolved_session_root = session_root.resolve()
     matches = [
         record
-        for record in _list_registry_records()
+        for record in _list_registry_records(lifecycle_state="all")
         if _registry_record_session_root(record) == resolved_session_root
     ]
     if len(matches) == 1:
         return matches[0]
     return None
+
+
+def _format_ambiguous_cleanup_registry_matches(
+    *,
+    selector_name: str,
+    selector_value: str,
+    matches: Sequence[ManagedAgentRegistryRecordV3],
+) -> str:
+    """Format one explicit cleanup ambiguity error for lifecycle-aware records."""
+
+    candidate_lines = "\n".join(
+        (
+            f"- agent_id={record.agent_id} "
+            f"agent_name={record.agent_name} "
+            f"lifecycle_state={record.lifecycle.state} "
+            f"manifest_path={record.runtime.manifest_path} "
+            f"session_root={_registry_record_session_root(record)}"
+        )
+        for record in matches
+    )
+    return (
+        f"Local managed-session cleanup resolution is ambiguous for {selector_name} "
+        f"`{selector_value}`.\nCandidates:\n{candidate_lines}\n"
+        "Retry with `--agent-id <id>`, `--manifest-path`, or `--session-root`."
+    )
 
 
 def _coerce_now(now: datetime | None) -> datetime:

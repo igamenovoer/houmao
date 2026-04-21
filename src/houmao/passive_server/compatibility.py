@@ -7,7 +7,7 @@ from typing import Literal, cast
 from houmao.agents.mailbox_runtime_models import MailboxTransport
 from houmao.agents.realm_controller.backends.tmux_runtime import HEADLESS_AGENT_WINDOW_NAME
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.passive_server.discovery import DiscoveredAgent
 from houmao.passive_server.headless import PassiveManagedHeadlessControlState
 from houmao.passive_server.models import (
@@ -79,7 +79,7 @@ def managed_identity_from_discovered_agent(agent: DiscoveredAgent) -> HoumaoMana
 
 
 def mailbox_summary_from_registry_record(
-    record: LiveAgentRegistryRecordV2,
+    record: ManagedAgentRegistryRecordV3,
 ) -> HoumaoManagedAgentMailboxSummaryView | None:
     """Return optional redacted mailbox posture from one registry record."""
 

@@ -61,7 +61,7 @@ sequenceDiagram
     participant RG as shared registry
     RT->>MF: write manifest with<br/>registry_generation_id
     RT->>GW: seed or refresh stable<br/>gateway capability
-    RT->>RG: build LiveAgentRegistryRecordV2
+    RT->>RG: build ManagedAgentRegistryRecordV3
     RT->>RG: publish record.json
     RG-->>RT: verified fresh record
 ```
@@ -80,7 +80,7 @@ Important rules:
 - refreshes reuse the same generation,
 - resume reuses the persisted generation for the same session,
 - replacement sessions get a new generation,
-- targeted stop cleanup only removes the record when it still belongs to the same generation.
+- destructive cleanup or explicit purge only removes the record when it still belongs to the same generation.
 
 That last rule protects against one session tearing down a record that a later replacement publisher already owns.
 
@@ -102,10 +102,10 @@ Current warning-style cases include:
 
 - manifest persistence after a successful prompt or control action,
 - mailbox binding refresh after the mailbox work already succeeded,
-- registry cleanup after a successful `agents stop` teardown,
+- stopped-record publication after a successful `agents stop` teardown,
 - pre-stop gateway-detach paths when registry-side refresh work fails during cleanup handling.
 
-Managed-agent stop responses carry `manifest_path` and `session_root` when those locators are known before teardown. Those fields are the supported bridge from live registry discovery to later stopped-session cleanup after the live record has been removed.
+Managed-agent stop responses carry `manifest_path` and `session_root` when those locators are known before teardown. Those fields remain the supported explicit bridge from live discovery to later stopped-session relaunch or cleanup, even though lifecycle-aware stop now preserves the same locators in the stopped registry record.
 
 Representative flow:
 
@@ -132,15 +132,17 @@ On authoritative stop for a tmux-backed session:
 
 1. the runtime tries to detach any live gateway first when relevant,
 2. it terminates the backend session,
-3. it persists the final manifest without another registry refresh,
-4. it calls `clear_shared_registry_record()` with the current `generation_id`.
+3. it persists the final manifest with the last-known tmux session name preserved for later relaunch,
+4. it publishes a stopped lifecycle record that clears active liveness and gateway metadata while preserving runtime pointers, mailbox identity metadata, generation id, and last-known tmux authority.
 
-If record removal fails after the session was already stopped, the runtime keeps the successful stop result and reports a warning instead of turning the stop into a failure.
+If stopped-record publication fails after the session was already stopped, the runtime keeps the successful stop result and falls back to clearing the record rather than turning the stop into a failure.
+
+`agents cleanup session` is now the destructive lifecycle step for stopped local sessions: after successful session-root removal, cleanup retires the stopped record by default or deletes it entirely when `--purge-registry` is requested.
 
 ## Current Implementation Notes
 
 - `refresh_shared_registry_record()` returns `None` for non-tmux-backed sessions or when required publication state is missing.
-- `publish_live_agent_record()` validates the serialized payload against the packaged `live_agent_registry_record.v2.schema.json` contract before any write starts.
+- `publish_live_agent_record()` validates the serialized payload against the packaged `managed_agent_registry_record.v3.schema.json` contract before any write starts.
 - `publish_live_agent_record()` enforces freshness and conflict checks before and after the atomic replace.
 - Atomic record writes clean up orphan temp files on replace failure.
 - `cleanup_stale_live_agent_records()` continues past per-directory failures and reports them separately.

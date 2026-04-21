@@ -70,6 +70,7 @@ from houmao.shared_tui_tracking.models import (
 
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
 ManagedAgentTransportKind = Literal["tui", "headless"]
+ManagedAgentLifecycleState = Literal["active", "stopped", "relaunching", "retired"]
 ManagedAgentAvailability = Literal["available", "unavailable", "error"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
@@ -491,6 +492,7 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
     session_root: str | None = None
     agent_name: str | None = None
     agent_id: str | None = None
+    lifecycle_state: ManagedAgentLifecycleState | None = None
 
     @field_validator(
         "tracked_agent_id",
@@ -504,6 +506,7 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
         "session_root",
         "agent_name",
         "agent_id",
+        "lifecycle_state",
     )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:

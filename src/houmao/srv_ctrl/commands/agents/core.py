@@ -87,7 +87,7 @@ from houmao.agents.realm_controller.models import (
     JoinedLaunchEnvBinding,
     RelaunchChatSessionSelection,
 )
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record_by_agent_id
 from houmao.project.overlay import (
     PROJECT_OVERLAY_DIR_ENV_VAR,
@@ -144,6 +144,7 @@ from ..managed_agents import (
     managed_agent_state_payload,
     prompt_managed_agent,
     relaunch_managed_agent,
+    resolve_relaunch_managed_agent_target,
     resolve_managed_agent_target,
     stop_managed_agent,
 )
@@ -227,7 +228,7 @@ class _ManagedForceTakeoverContext:
     agent_name: str
     agent_id: str
     target: ManagedAgentTarget
-    record: LiveAgentRegistryRecordV2
+    record: ManagedAgentRegistryRecordV3
     home_id: str
     home_path: Path
     runtime_root: Path
@@ -1275,11 +1276,24 @@ def join_agents_command(
 
 @agents_group.command(name="list")
 @pair_port_option()
-def list_agents_command(port: int | None) -> None:
+@click.option(
+    "--state",
+    "lifecycle_state",
+    type=click.Choice(("active", "stopped", "relaunching", "retired", "all")),
+    default="active",
+    show_default=True,
+    help="Filter local registry-backed results by lifecycle state. Use `all` to include every lifecycle state.",
+)
+def list_agents_command(port: int | None, lifecycle_state: str) -> None:
     """List managed agents from the shared registry, optionally enriched by the server."""
 
+    payload = (
+        list_managed_agents(port=port)
+        if lifecycle_state == "active"
+        else list_managed_agents(port=port, lifecycle_state=cast(Any, lifecycle_state))
+    )
     emit(
-        list_managed_agents(port=port),
+        payload,
         plain_renderer=render_agent_list_plain,
         fancy_renderer=render_agent_list_fancy,
     )
@@ -1431,7 +1445,7 @@ def relaunch_agent_command(
         )
         return
 
-    target = resolve_managed_agent_target(
+    target = resolve_relaunch_managed_agent_target(
         agent_id=selected_agent_id,
         agent_name=selected_agent_name,
         port=port,

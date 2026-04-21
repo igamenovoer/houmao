@@ -432,6 +432,24 @@ def test_agents_list_plain_renders_rows_from_pydantic_payload(
     assert "claude" in result.output
 
 
+def test_agents_list_forwards_lifecycle_state_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.list_managed_agents",
+        lambda *, port=None, lifecycle_state="active": (
+            captured.update({"port": port, "lifecycle_state": lifecycle_state})
+            or HoumaoManagedAgentListResponse(agents=[])
+        ),
+    )
+
+    result = CliRunner().invoke(cli, ["--print-plain", "agents", "list", "--state", "stopped"])
+
+    assert result.exit_code == 0, result.output
+    assert captured == {"port": None, "lifecycle_state": "stopped"}
+
+
 def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2008,7 +2026,7 @@ def test_agents_relaunch_with_explicit_target_uses_managed_agent_helper(
     target = SimpleNamespace(agent_ref="published-alpha")
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.agents.core.resolve_relaunch_managed_agent_target",
         lambda **kwargs: (captured.setdefault("resolve_kwargs", kwargs), target)[1],
     )
     monkeypatch.setattr(
@@ -2049,7 +2067,7 @@ def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
     target = SimpleNamespace(agent_ref="published-alpha")
 
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        "houmao.srv_ctrl.commands.agents.core.resolve_relaunch_managed_agent_target",
         lambda **kwargs: target,
     )
 

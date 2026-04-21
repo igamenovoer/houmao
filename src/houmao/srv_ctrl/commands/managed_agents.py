@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 import uuid
 
 import click
@@ -94,13 +94,22 @@ from houmao.agents.realm_controller.mail_commands import (
     prepare_mail_prompt,
     run_mail_prompt,
 )
-from houmao.agents.realm_controller.registry_models import LiveAgentRegistryRecordV2
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.agents.realm_controller.registry_storage import (
     global_registry_paths,
+    is_live_agent_record_fresh,
+    load_managed_agent_record_by_agent_id,
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
+    resolve_managed_agent_records_by_name,
+    resolve_relaunchable_managed_agent_record_by_agent_id,
+    resolve_relaunchable_managed_agent_records_by_name,
 )
-from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
+from houmao.agents.realm_controller.runtime import (
+    RuntimeSessionController,
+    resume_runtime_session,
+    resume_stopped_runtime_session,
+)
 from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -136,6 +145,7 @@ from houmao.server.models import (
     HoumaoManagedAgentTuiDetailView,
     HoumaoManagedAgentTurnView,
     ManagedAgentAvailability,
+    ManagedAgentLifecycleState,
     ManagedAgentLastTurnResult,
     ManagedAgentTransportKind,
     ManagedAgentTurnStatus,
@@ -159,6 +169,7 @@ _SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "codex": ("codex",),
     "gemini": ("gemini",),
 }
+ManagedAgentListState = Literal["active", "stopped", "relaunching", "retired", "all"]
 
 
 @dataclass(frozen=True)
@@ -170,7 +181,7 @@ class ManagedAgentTarget:
     identity: HoumaoManagedAgentIdentity
     client: PairAuthorityClientProtocol | None = None
     controller: RuntimeSessionController | None = None
-    record: LiveAgentRegistryRecordV2 | None = None
+    record: ManagedAgentRegistryRecordV3 | None = None
 
 
 class GatewayPromptControlCliError(RuntimeError):
@@ -186,7 +197,7 @@ class _LocalManagedAgentSelectorMiss:
     """One preserved local friendly-name selector miss."""
 
     agent_name: str
-    alias_match: LiveAgentRegistryRecordV2 | None = None
+    alias_match: ManagedAgentRegistryRecordV3 | None = None
 
 
 @dataclass(frozen=True)
@@ -246,19 +257,34 @@ def _require_headless_execution_override_target(
     )
 
 
-def list_managed_agents(*, port: int | None) -> HoumaoManagedAgentListResponse:
+def list_managed_agents(
+    *,
+    port: int | None,
+    lifecycle_state: ManagedAgentListState = "active",
+) -> HoumaoManagedAgentListResponse:
     """List managed agents from the registry first, with optional server enrichment."""
 
     if port is not None:
+        if lifecycle_state not in {"active", "all"}:
+            raise click.ClickException(
+                f"`--state {lifecycle_state}` is only supported for local registry-backed listing without `--port`."
+            )
         client = require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
         return pair_request(client.list_managed_agents)
 
     merged: dict[str, HoumaoManagedAgentIdentity] = {}
-    for identity in _list_registry_identities():
+    registry_identities = (
+        _list_registry_identities()
+        if lifecycle_state == "active"
+        else _list_registry_identities(lifecycle_state=lifecycle_state)
+    )
+    for identity in registry_identities:
         merged[_identity_merge_key(identity)] = identity
 
-    pair_client: PairAuthorityClientProtocol | None = _optional_pair_client(
-        base_url=resolve_server_base_url()
+    pair_client: PairAuthorityClientProtocol | None = (
+        _optional_pair_client(base_url=resolve_server_base_url())
+        if lifecycle_state in {"active", "all"}
+        else None
     )
     if pair_client is not None:
         for identity in pair_request(pair_client.list_managed_agents).agents:
@@ -333,6 +359,85 @@ def resolve_managed_agent_target(
     )
 
 
+def resolve_relaunch_managed_agent_target(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    port: int | None,
+) -> ManagedAgentTarget:
+    """Resolve one managed-agent relaunch target, including stopped relaunchable records."""
+
+    normalized_agent_id, normalized_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    normalized_ref = normalized_agent_id or normalized_agent_name
+    assert normalized_ref is not None
+    if port is not None:
+        client = require_supported_houmao_pair(base_url=resolve_server_base_url(port=port))
+        identity = resolve_managed_agent_identity(client, agent_ref=normalized_ref)
+        return ManagedAgentTarget(
+            mode="server",
+            agent_ref=normalized_ref,
+            identity=identity,
+            client=client,
+        )
+
+    record, miss_context = _resolve_local_relaunch_record_with_miss_context(
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+    )
+    if record is not None:
+        if record.lifecycle.state == "stopped":
+            return ManagedAgentTarget(
+                mode="local",
+                agent_ref=normalized_ref,
+                identity=_identity_from_record(record),
+                record=record,
+            )
+        if record.identity.backend == "houmao_server_rest":
+            client = require_supported_houmao_pair(base_url=_api_base_url_from_record(record))
+            identity = _resolve_server_identity_from_record(client=client, record=record)
+            return ManagedAgentTarget(
+                mode="server",
+                agent_ref=normalized_ref,
+                identity=identity,
+                client=client,
+                record=record,
+            )
+        controller = _resume_controller_from_record(record)
+        identity = _identity_from_controller(controller)
+        return ManagedAgentTarget(
+            mode="local",
+            agent_ref=normalized_ref,
+            identity=identity,
+            controller=controller,
+            record=record,
+        )
+
+    stopped_fallback_target = _resolve_stopped_relaunch_manifest_fallback_target(
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+    )
+    if stopped_fallback_target is not None:
+        return stopped_fallback_target
+
+    if miss_context is not None:
+        return _resolve_default_pair_target_with_local_miss(
+            agent_ref=normalized_ref,
+            miss_context=miss_context,
+        )
+
+    client = require_supported_houmao_pair(base_url=resolve_server_base_url())
+    identity = resolve_managed_agent_identity(client, agent_ref=normalized_ref)
+    return ManagedAgentTarget(
+        mode="server",
+        agent_ref=normalized_ref,
+        identity=identity,
+        client=client,
+    )
+
+
 def resolve_managed_agent_mail_target(
     *,
     agent_id: str | None,
@@ -380,7 +485,7 @@ def _resolve_local_managed_agent_record(
     *,
     agent_id: str | None,
     agent_name: str | None,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Resolve one local registry-backed managed-agent record."""
 
     record, _ = _resolve_local_managed_agent_record_with_miss_context(
@@ -394,11 +499,22 @@ def _resolve_local_managed_agent_record_with_miss_context(
     *,
     agent_id: str | None,
     agent_name: str | None,
-) -> tuple[LiveAgentRegistryRecordV2 | None, _LocalManagedAgentSelectorMiss | None]:
+) -> tuple[ManagedAgentRegistryRecordV3 | None, _LocalManagedAgentSelectorMiss | None]:
     """Resolve one local record and preserve friendly-name miss diagnostics."""
 
     if agent_id is not None:
-        return resolve_live_agent_record_by_agent_id(agent_id), None
+        record = load_managed_agent_record_by_agent_id(agent_id)
+        if record is None:
+            return None, None
+        if record.lifecycle.state != "active" or not is_live_agent_record_fresh(record):
+            raise click.ClickException(
+                _format_inactive_local_registry_match(
+                    selector_name="--agent-id",
+                    selector_value=agent_id,
+                    record=record,
+                )
+            )
+        return record, None
 
     assert agent_name is not None
     name_matches = resolve_live_agent_records_by_name(agent_name)
@@ -410,9 +526,27 @@ def _resolve_local_managed_agent_record_with_miss_context(
                 resolution_kind="friendly name",
                 matches=name_matches,
             )
-        )
+    )
     if len(name_matches) == 1:
         return name_matches[0], None
+    all_matches = resolve_managed_agent_records_by_name(agent_name)
+    if all_matches:
+        if len(all_matches) > 1:
+            raise click.ClickException(
+                _format_ambiguous_local_registry_matches(
+                    selector_name="--agent-name",
+                    selector_value=agent_name,
+                    resolution_kind="friendly name",
+                    matches=all_matches,
+                )
+            )
+        raise click.ClickException(
+            _format_inactive_local_registry_match(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                record=all_matches[0],
+            )
+        )
     return (
         None,
         _LocalManagedAgentSelectorMiss(
@@ -424,15 +558,92 @@ def _resolve_local_managed_agent_record_with_miss_context(
 
 def _resolve_local_managed_agent_alias_hint(
     agent_name: str,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Return one exact unique tmux/session alias hint for a missed friendly name."""
 
-    alias_matches = [
-        record for record in _list_registry_records() if record.terminal.session_name == agent_name
-    ]
+    alias_matches = [record for record in _list_registry_records() if record.terminal.session_name == agent_name]
     if len(alias_matches) == 1:
         return alias_matches[0]
     return None
+
+
+def _resolve_local_relaunch_record_with_miss_context(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> tuple[ManagedAgentRegistryRecordV3 | None, _LocalManagedAgentSelectorMiss | None]:
+    """Resolve one local registry record for relaunch, including stopped relaunchable state."""
+
+    if agent_id is not None:
+        active_record = resolve_live_agent_record_by_agent_id(agent_id)
+        if active_record is not None:
+            return active_record, None
+        relaunchable_record = resolve_relaunchable_managed_agent_record_by_agent_id(agent_id)
+        if relaunchable_record is not None:
+            return relaunchable_record, None
+        record = load_managed_agent_record_by_agent_id(agent_id)
+        if record is None:
+            return None, None
+        raise click.ClickException(
+            _format_unavailable_local_relaunch_record(
+                selector_name="--agent-id",
+                selector_value=agent_id,
+                record=record,
+            )
+        )
+
+    assert agent_name is not None
+    active_matches = resolve_live_agent_records_by_name(agent_name)
+    if len(active_matches) > 1:
+        raise click.ClickException(
+            _format_ambiguous_local_registry_matches(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                resolution_kind="friendly name",
+                matches=active_matches,
+            )
+        )
+    if len(active_matches) == 1:
+        return active_matches[0], None
+
+    relaunchable_matches = resolve_relaunchable_managed_agent_records_by_name(agent_name)
+    if len(relaunchable_matches) > 1:
+        raise click.ClickException(
+            _format_ambiguous_local_registry_matches(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                resolution_kind="friendly name",
+                matches=relaunchable_matches,
+            )
+        )
+    if len(relaunchable_matches) == 1:
+        return relaunchable_matches[0], None
+
+    all_matches = resolve_managed_agent_records_by_name(agent_name)
+    if all_matches:
+        if len(all_matches) > 1:
+            raise click.ClickException(
+                _format_ambiguous_local_registry_matches(
+                    selector_name="--agent-name",
+                    selector_value=agent_name,
+                    resolution_kind="friendly name",
+                    matches=all_matches,
+                )
+            )
+        raise click.ClickException(
+            _format_unavailable_local_relaunch_record(
+                selector_name="--agent-name",
+                selector_value=agent_name,
+                record=all_matches[0],
+            )
+        )
+    return (
+        None,
+        _LocalManagedAgentSelectorMiss(
+            agent_name=agent_name,
+            alias_match=_resolve_local_managed_agent_alias_hint(agent_name),
+        ),
+    )
 
 
 def _resolve_default_pair_target_with_local_miss(
@@ -458,6 +669,92 @@ def _resolve_default_pair_target_with_local_miss(
         identity=identity,
         client=client,
     )
+
+
+def _resolve_stopped_relaunch_manifest_fallback_target(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> ManagedAgentTarget | None:
+    """Resolve one pre-registry stopped manifest as a relaunch recovery fallback."""
+
+    from .runtime_cleanup import _resolve_effective_runtime_root, discover_runtime_session_envelopes
+
+    runtime_root = _resolve_effective_runtime_root(None)
+    matches = [
+        envelope
+        for envelope in discover_runtime_session_envelopes(runtime_root)
+        if _stopped_relaunch_envelope_matches_selector(
+            envelope=envelope,
+            agent_id=agent_id,
+            agent_name=agent_name,
+        )
+    ]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        candidates = ", ".join(_format_stopped_relaunch_candidate(match) for match in matches)
+        selector_name = "--agent-id" if agent_id is not None else "--agent-name"
+        selector_value = agent_id if agent_id is not None else agent_name
+        assert selector_value is not None
+        raise click.ClickException(
+            "Stopped-session relaunch recovery is ambiguous under the effective runtime root "
+            f"`{runtime_root}` for {selector_name} `{selector_value}`. Use an explicit "
+            f"manifest/session-root recovery path with one candidate: {candidates}"
+        )
+
+    match = matches[0]
+    assert match.payload is not None
+    agent_def_dir_value = match.payload.runtime.agent_def_dir
+    if agent_def_dir_value is None or not agent_def_dir_value.strip():
+        raise click.ClickException(
+            "Stopped-session relaunch recovery matched a persisted manifest, but "
+            "`runtime.agent_def_dir` is missing from that manifest."
+        )
+    try:
+        controller = resume_stopped_runtime_session(
+            agent_def_dir=Path(agent_def_dir_value).resolve(),
+            session_manifest_path=match.manifest_path,
+        )
+    except BrainLaunchRuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return ManagedAgentTarget(
+        mode="local_stopped",
+        agent_ref=agent_id or agent_name or match.manifest_path.as_posix(),
+        identity=_identity_from_controller(controller),
+        controller=controller,
+    )
+
+
+def _stopped_relaunch_envelope_matches_selector(
+    *,
+    envelope: object,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> bool:
+    """Return whether one stopped runtime envelope matches a relaunch selector."""
+
+    payload = getattr(envelope, "payload", None)
+    if getattr(envelope, "live", True) or payload is None:
+        return False
+    if agent_id is not None:
+        return getattr(payload, "agent_id", None) == agent_id
+    assert agent_name is not None
+    return getattr(payload, "agent_name", None) == agent_name
+
+
+def _format_stopped_relaunch_candidate(envelope: object) -> str:
+    """Format one stopped-manifest relaunch candidate for ambiguity diagnostics."""
+
+    payload = getattr(envelope, "payload", None)
+    parts = [
+        f"agent_id={getattr(payload, 'agent_id', None)!r}",
+        f"agent_name={getattr(payload, 'agent_name', None)!r}",
+        f"manifest_path={getattr(envelope, 'manifest_path', None)!r}",
+        f"session_root={getattr(envelope, 'session_root', None)!r}",
+        f"tmux_session_name={getattr(envelope, 'tmux_session_name', None)!r}",
+    ]
+    return "{" + ", ".join(parts) + "}"
 
 
 def _format_local_managed_agent_selector_failure(
@@ -492,7 +789,7 @@ def _format_local_managed_agent_selector_failure(
     return "\n".join(lines)
 
 
-def resolve_live_agent_record(agent_identity: str) -> LiveAgentRegistryRecordV2 | None:
+def resolve_live_agent_record(agent_identity: str) -> ManagedAgentRegistryRecordV3 | None:
     """Backward-compatible local record resolution without explicit ambiguity errors."""
 
     record = resolve_live_agent_record_by_agent_id(agent_identity)
@@ -509,7 +806,7 @@ def _format_ambiguous_local_registry_matches(
     selector_name: str,
     selector_value: str,
     resolution_kind: str,
-    matches: Sequence[LiveAgentRegistryRecordV2],
+    matches: Sequence[ManagedAgentRegistryRecordV3],
 ) -> str:
     """Format one explicit local-registry ambiguity error."""
 
@@ -517,7 +814,10 @@ def _format_ambiguous_local_registry_matches(
         (
             f"- agent_id={record.agent_id} "
             f"agent_name={record.agent_name} "
-            f"tmux_session_name={record.terminal.session_name}"
+            f"lifecycle_state={_record_lifecycle_state(record)} "
+            f"tmux_session_name={record.terminal.session_name} "
+            f"manifest_path={_record_manifest_path(record)} "
+            f"session_root={_record_session_root(record)}"
         )
         for record in matches
     )
@@ -526,6 +826,120 @@ def _format_ambiguous_local_registry_matches(
         f"({resolution_kind}).\nCandidates:\n{candidate_lines}\n"
         "Retry with `--agent-id <id>`."
     )
+
+
+def _format_inactive_local_registry_match(
+    *,
+    selector_name: str,
+    selector_value: str,
+    record: ManagedAgentRegistryRecordV3,
+) -> str:
+    """Format one explicit inactive local-registry match error."""
+
+    lines = [
+        f"Local managed-agent resolution for {selector_name} `{selector_value}` matched "
+        f"an inactive registry record.",
+        (
+            f"agent_id={record.agent_id} agent_name={record.agent_name} "
+            f"lifecycle_state={_record_lifecycle_state(record)} "
+            f"tmux_session_name={record.terminal.session_name} "
+            f"manifest_path={_record_manifest_path(record)} "
+            f"session_root={_record_session_root(record)}"
+        ),
+        "Live state/prompt/interrupt/stop/gateway operations require an active managed agent.",
+    ]
+    lifecycle_state = _record_lifecycle_state(record)
+    if lifecycle_state == "stopped":
+        lines.append(
+            f"Use `houmao-mgr agents relaunch --agent-id {record.agent_id}` to revive it or "
+            f"`houmao-mgr agents cleanup session --agent-id {record.agent_id}` to remove its stopped artifacts."
+        )
+    elif lifecycle_state == "retired":
+        lines.append(
+            "The record is retired and no longer participates in live routing; inspect lifecycle-aware listings instead."
+        )
+    elif lifecycle_state == "relaunching":
+        lines.append("The record is currently relaunching; retry after the relaunch transition completes.")
+    return "\n".join(lines)
+
+
+def _format_unavailable_local_relaunch_record(
+    *,
+    selector_name: str,
+    selector_value: str,
+    record: ManagedAgentRegistryRecordV3,
+) -> str:
+    """Format one explicit local-registry relaunch error."""
+
+    lines = [
+        f"Managed-agent relaunch for {selector_name} `{selector_value}` matched a registry record "
+        "that cannot be relaunched.",
+        (
+            f"agent_id={record.agent_id} agent_name={record.agent_name} "
+            f"lifecycle_state={_record_lifecycle_state(record)} "
+            f"relaunchable={record.lifecycle.relaunchable} "
+            f"tmux_session_name={record.terminal.session_name} "
+            f"manifest_path={_record_manifest_path(record)} "
+            f"session_root={_record_session_root(record)}"
+        ),
+    ]
+    lifecycle_state = _record_lifecycle_state(record)
+    if lifecycle_state == "stopped":
+        lines.append(
+            "The stopped record exists, but it does not retain supported local relaunch "
+            "authority for stopped-session revival."
+        )
+        lines.append(
+            f"Use `houmao-mgr agents cleanup session --agent-id {record.agent_id}` to remove "
+            "the stopped runtime artifacts, or relaunch from an explicit manifest/session-root "
+            "recovery path once the missing authority is repaired."
+        )
+    elif lifecycle_state == "active":
+        lines.append(
+            "The record still claims active lifecycle state, but no fresh live tmux authority "
+            "was available for active relaunch."
+        )
+    elif lifecycle_state == "retired":
+        lines.append(
+            "The record is retired and no longer participates in relaunch routing."
+        )
+    elif lifecycle_state == "relaunching":
+        lines.append(
+            "The record is already in a relaunch transition; retry after it completes."
+        )
+    return "\n".join(lines)
+
+
+def _record_lifecycle_state(record: object) -> ManagedAgentLifecycleState | None:
+    """Return one lifecycle-state string when the record exposes it."""
+
+    lifecycle = getattr(record, "lifecycle", None)
+    raw_value: object = getattr(lifecycle, "state", None)
+    if raw_value == "active":
+        return "active"
+    if raw_value == "stopped":
+        return "stopped"
+    if raw_value == "relaunching":
+        return "relaunching"
+    if raw_value == "retired":
+        return "retired"
+    return None
+
+
+def _record_manifest_path(record: object) -> str:
+    """Return one manifest-path string for diagnostics when present."""
+
+    runtime = getattr(record, "runtime", None)
+    value = getattr(runtime, "manifest_path", None)
+    return value if isinstance(value, str) else "-"
+
+
+def _record_session_root(record: object) -> str:
+    """Return one session-root string for diagnostics when present."""
+
+    runtime = getattr(record, "runtime", None)
+    value = getattr(runtime, "session_root", None)
+    return value if isinstance(value, str) and value.strip() else "-"
 
 
 def managed_agent_identity_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentIdentity:
@@ -694,17 +1108,34 @@ def relaunch_managed_agent(
                 "Managed-agent relaunch requires local manifest authority on the owning host. "
                 "This target is only resolvable through pair HTTP metadata."
             )
-        controller = _resume_controller_from_record(target.record)
+        if _record_lifecycle_state(target.record) == "stopped":
+            controller = _resume_stopped_controller_from_record(target.record)
+        else:
+            controller = _resume_controller_from_record(target.record)
         tracked_agent_id = target.identity.tracked_agent_id
-    else:
+    elif target.mode == "local_stopped":
         assert target.controller is not None
         controller = target.controller
         tracked_agent_id = target.identity.tracked_agent_id
+    else:
+        if target.record is not None and _record_lifecycle_state(target.record) == "stopped":
+            controller = _resume_stopped_controller_from_record(target.record)
+        else:
+            assert target.controller is not None
+            controller = target.controller
+        tracked_agent_id = target.identity.tracked_agent_id
 
     result = (
-        controller.relaunch(chat_session=relaunch_chat_session)
-        if relaunch_chat_session is not None
-        else controller.relaunch()
+        controller.revive_stopped_session(chat_session=relaunch_chat_session)
+        if (
+            target.mode == "local_stopped"
+            or (target.record is not None and _record_lifecycle_state(target.record) == "stopped")
+        )
+        else (
+            controller.relaunch(chat_session=relaunch_chat_session)
+            if relaunch_chat_session is not None
+            else controller.relaunch()
+        )
     )
     return HoumaoManagedAgentActionResponse(
         success=result.status == "ok",
@@ -2458,25 +2889,44 @@ def headless_turn_artifact_text(
     return artifact_path.read_text(encoding="utf-8")
 
 
-def _list_registry_identities() -> list[HoumaoManagedAgentIdentity]:
+def _list_registry_identities(
+    *,
+    lifecycle_state: ManagedAgentListState = "active",
+) -> list[HoumaoManagedAgentIdentity]:
     """Return current fresh registry identities."""
 
-    return [_identity_from_record(record) for record in _list_registry_records()]
+    return [
+        _identity_from_record(record)
+        for record in _list_registry_records(lifecycle_state=lifecycle_state)
+    ]
 
 
-def _list_registry_records() -> list[LiveAgentRegistryRecordV2]:
-    """Return current fresh shared-registry records."""
+def _list_registry_records(
+    *,
+    lifecycle_state: ManagedAgentListState = "active",
+) -> list[ManagedAgentRegistryRecordV3]:
+    """Return lifecycle-filtered shared-registry records."""
 
     paths = global_registry_paths()
     if not paths.live_agents_dir.exists():
         return []
-    records: list[LiveAgentRegistryRecordV2] = []
+    records: list[ManagedAgentRegistryRecordV3] = []
     for candidate in sorted(paths.live_agents_dir.iterdir()):
         if not candidate.is_dir():
             continue
-        record = resolve_live_agent_record_by_agent_id(candidate.name)
-        if record is not None:
-            records.append(record)
+        if lifecycle_state == "active":
+            record = resolve_live_agent_record_by_agent_id(candidate.name)
+            if record is not None:
+                records.append(record)
+            continue
+        record = load_managed_agent_record_by_agent_id(candidate.name)
+        if record is None:
+            continue
+        if record.lifecycle.state == "active" and not is_live_agent_record_fresh(record):
+            continue
+        if lifecycle_state != "all" and record.lifecycle.state != lifecycle_state:
+            continue
+        records.append(record)
     return records
 
 
@@ -2494,7 +2944,7 @@ def _identity_merge_key(identity: HoumaoManagedAgentIdentity) -> str:
     return identity.tracked_agent_id
 
 
-def _identity_from_record(record: LiveAgentRegistryRecordV2) -> HoumaoManagedAgentIdentity:
+def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManagedAgentIdentity:
     """Project one registry record into the shared identity payload."""
 
     transport: ManagedAgentTransportKind = (
@@ -2522,10 +2972,11 @@ def _identity_from_record(record: LiveAgentRegistryRecordV2) -> HoumaoManagedAge
         session_root=record.runtime.session_root,
         agent_name=record.agent_name,
         agent_id=record.agent_id,
+        lifecycle_state=_record_lifecycle_state(record),
     )
 
 
-def _resume_controller_from_record(record: LiveAgentRegistryRecordV2) -> RuntimeSessionController:
+def _resume_controller_from_record(record: ManagedAgentRegistryRecordV3) -> RuntimeSessionController:
     """Resume one local runtime controller from a registry record."""
 
     agent_def_dir_raw = record.runtime.agent_def_dir
@@ -2546,6 +2997,40 @@ def _resume_controller_from_record(record: LiveAgentRegistryRecordV2) -> Runtime
             f"Managed agent `{tracked_name}` is registered in the shared registry but "
             f"its local tmux-backed runtime authority is no longer live or otherwise "
             f"unusable: {exc}"
+        ) from exc
+
+
+def _resume_stopped_controller_from_record(record: ManagedAgentRegistryRecordV3) -> RuntimeSessionController:
+    """Prepare one stopped local runtime controller for stopped-session revival."""
+
+    agent_def_dir_raw = record.runtime.agent_def_dir
+    if agent_def_dir_raw is None:
+        raise click.ClickException(
+            f"Managed agent `{record.agent_name}` cannot be relaunched because "
+            "`runtime.agent_def_dir` is missing from the stopped registry record."
+        )
+    manifest_path = Path(record.runtime.manifest_path).resolve()
+    if not manifest_path.is_file():
+        raise click.ClickException(
+            f"Managed agent `{record.agent_name}` cannot be relaunched because its manifest "
+            f"`{manifest_path}` is unavailable."
+        )
+    agent_def_dir = Path(agent_def_dir_raw).resolve()
+    if not agent_def_dir.is_dir():
+        raise click.ClickException(
+            f"Managed agent `{record.agent_name}` cannot be relaunched because its persisted "
+            f"agent-definition directory `{agent_def_dir}` is unavailable."
+        )
+    try:
+        return resume_stopped_runtime_session(
+            agent_def_dir=agent_def_dir,
+            session_manifest_path=manifest_path,
+        )
+    except BrainLaunchRuntimeError as exc:
+        tracked_name = record.agent_name or record.agent_id or record.terminal.session_name
+        raise click.ClickException(
+            f"Managed agent `{tracked_name}` is registered as a stopped relaunchable runtime, "
+            f"but its preserved local authority could not be reconstructed: {exc}"
         ) from exc
 
 
@@ -2594,7 +3079,7 @@ def _optional_pair_client(*, base_url: str) -> PairAuthorityClientProtocol | Non
 def _resolve_server_identity_from_record(
     *,
     client: PairAuthorityClientProtocol,
-    record: LiveAgentRegistryRecordV2,
+    record: ManagedAgentRegistryRecordV3,
 ) -> HoumaoManagedAgentIdentity:
     """Resolve the server-side identity described by one registry record."""
 
@@ -2648,7 +3133,7 @@ def _local_gateway_target_for_passive_pair(
 
 def _resolve_local_gateway_record_for_passive_pair(
     target: ManagedAgentTarget,
-) -> LiveAgentRegistryRecordV2 | None:
+) -> ManagedAgentRegistryRecordV3 | None:
     """Resolve one local registry record for passive-server gateway attach and detach."""
 
     if target.identity.agent_id is not None:
@@ -2659,7 +3144,7 @@ def _resolve_local_gateway_record_for_passive_pair(
     )
 
 
-def _api_base_url_from_record(record: LiveAgentRegistryRecordV2) -> str:
+def _api_base_url_from_record(record: ManagedAgentRegistryRecordV3) -> str:
     """Extract one `houmao-server` base URL from a registry-backed manifest."""
 
     handle = load_session_manifest(Path(record.runtime.manifest_path))

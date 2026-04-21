@@ -118,12 +118,22 @@ For supported tmux-backed managed sessions, including sessions adopted through `
 
 If `agents mailbox register` would replace existing shared mailbox state, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
 
+Managed-agent lifecycle listing rules:
+
+- `agents list` shows active lifecycle records by default.
+- Use `agents list --state stopped`, `--state retired`, or `--state all` when you intentionally want lifecycle-inclusive discovery instead of the normal live-control view.
+- Live control surfaces such as prompt, interrupt, gateway, mail, and stop still require active records. Stopped and retired records are for relaunch, cleanup, inspection, and explicit lifecycle-aware listings.
+
 Cleanup targeting rules:
 
 - `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
-- Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus fresh shared-registry metadata second.
-- Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority; prefer those path locators for explicit post-stop cleanup because the live shared-registry record may be gone.
-- When `--agent-id` or `--agent-name` cleanup finds no fresh shared-registry record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match.
+- Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus cleanup-capable lifecycle registry metadata second.
+- Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority, and tmux-backed relaunchable local stops preserve a stopped lifecycle record with the same locators plus last-known tmux authority. Prefer those durable locators for explicit post-stop cleanup.
+- When `--agent-id` or `--agent-name` cleanup finds a matching cleanup-capable lifecycle record, cleanup uses that record as the authoritative locator source and does not let a runtime-root scan replace it.
+- When `--agent-id` or `--agent-name` cleanup finds no matching lifecycle record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match. This bounded scan is the migration fallback for pre-change stopped sessions that predate lifecycle-aware registry persistence.
+- `agents cleanup session` retires stopped lifecycle records by default after successful session-root removal or validated absence. Use `--purge-registry` only when you explicitly want to delete the lifecycle record entirely.
+- `agents cleanup logs` and `agents cleanup mailbox` never retire or purge the lifecycle record because they preserve the durable session identity and runtime authority.
+- `agents cleanup session` does not retire or purge active lifecycle records; stop the agent first.
 - Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
 
 `agents launch` source-selector and launch-profile rules:
@@ -150,12 +160,14 @@ Cleanup targeting rules:
 
 `agents relaunch` chat-session selection:
 
+- `agents relaunch` accepts both active records and stopped relaunchable records. When the selected record is stopped, relaunch revives the same managed-agent identity, runtime home, and session root on a fresh tmux container instead of treating the request as a fresh launch.
 - `agents relaunch` accepts optional `--chat-session-mode {new|tool_last_or_new|exact}` and `--chat-session-id <provider-session-id>`.
 - When omitted, relaunch uses the stored launch-profile relaunch policy when the running agent was launched from one; otherwise it starts a fresh provider chat.
 - `--chat-session-mode new` forces a fresh provider chat for this relaunch only.
 - `--chat-session-mode tool_last_or_new` translates to provider-native latest-chat continuation for supported TUI and headless surfaces: Codex uses `resume --last`, Claude uses `--continue`, and Gemini uses `--resume latest`.
 - `--chat-session-mode exact --chat-session-id <id>` resumes a provider session id exactly for this relaunch only. `--chat-session-id` is rejected unless the mode is `exact`.
 - For TUI relaunch, Houmao starts the provider TUI with native continuation flags and suppresses replay of bootstrap-message role injection when the selected mode resumes an existing provider chat. For headless relaunch, Houmao records the selector for the next submitted prompt rather than starting a provider turn during relaunch.
+- Retired records and stopped non-relaunchable records fail explicitly and are not silently replaced with a fresh launch flow.
 
 `agents prompt` request-scoped headless execution overrides:
 

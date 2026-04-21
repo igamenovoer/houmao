@@ -8,7 +8,7 @@ Use this action only when the user wants to stop one live managed agent. This re
 2. Recover the managed-agent target from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the live managed-agent name or id.
 4. Run `agents stop` against that target.
-5. Report the stop result returned by the command, including `manifest_path` and `session_root` when present because those are the preferred durable locators for any explicit post-stop cleanup request.
+5. Report the stop result returned by the command, including `manifest_path` and `session_root` when present because those are the preferred durable locators for any explicit post-stop cleanup request. For tmux-backed relaunchable local sessions, stop now preserves a stopped lifecycle record so later relaunch or cleanup keeps the same managed-agent identity instead of behaving like a fresh launch.
 
 ## Command Shape
 
