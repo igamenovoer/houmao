@@ -2,8 +2,28 @@
 
 from __future__ import annotations
 
+import click
+
 # ruff: noqa: F403,F405
 from .project_common import *
+from .mailbox_support import MAILBOX_ROOT_FAILURE_TYPES, format_mailbox_root_failure
+
+
+def _call_project_mailbox_action(
+    roots: ProjectAwareLocalRoots,
+    action: Any,
+    /,
+    **kwargs: object,
+) -> dict[str, object]:
+    """Run one project mailbox action with selected-overlay-aware failure text."""
+
+    try:
+        return action(mailbox_root=roots.mailbox_root, **kwargs)
+    except MAILBOX_ROOT_FAILURE_TYPES as exc:
+        detail = format_mailbox_root_failure(exc, init_command="houmao-mgr project mailbox init")
+        raise click.ClickException(
+            f"Selected overlay mailbox root `{roots.mailbox_root}`: {detail}"
+        ) from exc
 
 
 @click.group(name="mailbox")
@@ -16,7 +36,11 @@ def init_project_mailbox_command() -> None:
     """Bootstrap or validate `mailbox/` under the selected project overlay."""
 
     roots = _ensure_project_mailbox_roots()
-    emit(_project_mailbox_payload(roots=roots, payload=init_mailbox_root(roots.mailbox_root)))
+    emit(
+        _project_mailbox_payload(
+            roots=roots, payload=_call_project_mailbox_action(roots, init_mailbox_root)
+        )
+    )
 
 
 @project_mailbox_group.command(name="status")
@@ -26,7 +50,7 @@ def status_project_mailbox_command() -> None:
     roots = _resolve_existing_project_mailbox_roots()
     emit(
         _project_mailbox_payload(
-            roots=roots, payload=mailbox_root_status_payload(roots.mailbox_root)
+            roots=roots, payload=_call_project_mailbox_action(roots, mailbox_root_status_payload)
         )
     )
 
@@ -49,8 +73,9 @@ def register_project_mailbox_command(address: str, principal_id: str, mode: str,
     emit(
         _project_mailbox_payload(
             roots=roots,
-            payload=register_mailbox_at_root(
-                mailbox_root=roots.mailbox_root,
+            payload=_call_project_mailbox_action(
+                roots,
+                register_mailbox_at_root,
                 address=address,
                 principal_id=principal_id,
                 mode=mode,
@@ -83,8 +108,9 @@ def unregister_project_mailbox_command(address: str, mode: str) -> None:
     emit(
         _project_mailbox_payload(
             roots=roots,
-            payload=unregister_mailbox_at_root(
-                mailbox_root=roots.mailbox_root,
+            payload=_call_project_mailbox_action(
+                roots,
+                unregister_mailbox_at_root,
                 address=address,
                 mode=mode,
             ),
@@ -112,8 +138,9 @@ def repair_project_mailbox_command(cleanup_staging: bool, quarantine_staging: bo
     emit(
         _project_mailbox_payload(
             roots=roots,
-            payload=repair_mailbox_root(
-                mailbox_root=roots.mailbox_root,
+            payload=_call_project_mailbox_action(
+                roots,
+                repair_mailbox_root,
                 cleanup_staging=cleanup_staging,
                 quarantine_staging=quarantine_staging,
             ),
@@ -152,8 +179,9 @@ def cleanup_project_mailbox_command(
     emit_cleanup_payload(
         _project_mailbox_payload(
             roots=roots,
-            payload=cleanup_mailbox_root(
-                mailbox_root=roots.mailbox_root,
+            payload=_call_project_mailbox_action(
+                roots,
+                cleanup_mailbox_root,
                 inactive_older_than_seconds=inactive_older_than_seconds,
                 stashed_older_than_seconds=stashed_older_than_seconds,
                 dry_run=dry_run,
@@ -193,8 +221,9 @@ def clear_project_mailbox_messages_command(dry_run: bool, yes: bool) -> None:
     emit_cleanup_payload(
         _project_mailbox_payload(
             roots=roots,
-            payload=clear_mailbox_messages_at_root(
-                mailbox_root=roots.mailbox_root,
+            payload=_call_project_mailbox_action(
+                roots,
+                clear_mailbox_messages_at_root,
                 dry_run=dry_run,
             ),
         )
@@ -238,8 +267,9 @@ def export_project_mailbox_command(
     emit(
         _project_mailbox_payload(
             roots=roots,
-            payload=export_mailbox_root(
-                mailbox_root=roots.mailbox_root,
+            payload=_call_project_mailbox_action(
+                roots,
+                export_mailbox_root,
                 output_dir=output_dir,
                 all_accounts=all_accounts,
                 addresses=addresses,
@@ -261,7 +291,7 @@ def list_project_mailbox_accounts_command() -> None:
     roots = _resolve_existing_project_mailbox_roots()
     emit(
         _project_mailbox_payload(
-            roots=roots, payload=list_mailbox_accounts(mailbox_root=roots.mailbox_root)
+            roots=roots, payload=_call_project_mailbox_action(roots, list_mailbox_accounts)
         )
     )
 
@@ -272,10 +302,11 @@ def get_project_mailbox_account_command(address: str) -> None:
     """Inspect one mailbox account under `mailbox/` in the selected overlay."""
 
     roots = _resolve_existing_project_mailbox_roots()
-    try:
-        payload = get_mailbox_account(mailbox_root=roots.mailbox_root, address=address)
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    payload = _call_project_mailbox_action(
+        roots,
+        get_mailbox_account,
+        address=address,
+    )
     emit(_project_mailbox_payload(roots=roots, payload=payload))
 
 
@@ -290,10 +321,11 @@ def list_project_mailbox_messages_command(address: str) -> None:
     """List structurally projected messages for one project-local mailbox address."""
 
     roots = _resolve_existing_project_mailbox_roots()
-    try:
-        payload = list_mailbox_messages(mailbox_root=roots.mailbox_root, address=address)
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    payload = _call_project_mailbox_action(
+        roots,
+        list_mailbox_messages,
+        address=address,
+    )
     emit(_project_mailbox_payload(roots=roots, payload=payload))
 
 
@@ -304,14 +336,12 @@ def get_project_mailbox_message_command(address: str, message_id: str) -> None:
     """Get one structurally projected message for a project-local mailbox address."""
 
     roots = _resolve_existing_project_mailbox_roots()
-    try:
-        payload = get_mailbox_message(
-            mailbox_root=roots.mailbox_root,
-            address=address,
-            message_id=message_id,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    payload = _call_project_mailbox_action(
+        roots,
+        get_mailbox_message,
+        address=address,
+        message_id=message_id,
+    )
     emit(_project_mailbox_payload(roots=roots, payload=payload))
 
 

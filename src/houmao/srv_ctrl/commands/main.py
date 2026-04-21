@@ -46,6 +46,13 @@ cli.add_command(server_group)
 cli.add_command(system_skills_group)
 
 
+def _render_uncaught_exception(exc: Exception) -> click.ClickException:
+    """Convert one uncaught maintained-command exception into CLI error text."""
+
+    detail = str(exc).strip() or exc.__class__.__name__
+    return click.ClickException(detail)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the click CLI and return an exit code."""
 
@@ -64,4 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         code = exc.code
         return int(code) if isinstance(code, int) else 1
+    except Exception as exc:
+        rendered = _render_uncaught_exception(exc)
+        rendered.show()
+        return rendered.exit_code
     return 0

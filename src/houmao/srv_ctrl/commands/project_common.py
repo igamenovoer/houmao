@@ -327,7 +327,7 @@ def _list_named_preset_summaries(
     for preset_file in sorted(path for path in presets_root.iterdir() if path.is_file()):
         if preset_file.suffix not in {".yaml", ".yml"}:
             continue
-        parsed_preset = parse_agent_preset(preset_file)
+        parsed_preset = _parse_preset_or_click(preset_file)
         if role_name is not None and parsed_preset.role_name != role_name:
             continue
         if tool is not None and parsed_preset.tool != tool:
@@ -346,7 +346,7 @@ def _preset_summary(
     preset_file = _preset_path(overlay=overlay, preset_name=preset_name)
     if not preset_file.is_file():
         raise click.ClickException(f"Preset not found: {preset_file}")
-    parsed_preset = parse_agent_preset(preset_file)
+    parsed_preset = _parse_preset_or_click(preset_file)
     raw_payload = _load_yaml_mapping(preset_file)
     launch_payload = raw_payload.get("launch")
     return {
@@ -643,10 +643,7 @@ def _load_recipe_or_click(*, overlay: HoumaoProjectOverlay, name: str) -> Any:
     recipe_path = _preset_path(overlay=overlay, preset_name=recipe_name)
     if not recipe_path.is_file():
         raise click.ClickException(f"Recipe not found: {recipe_path}")
-    try:
-        return parse_agent_preset(recipe_path)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    return _parse_preset_or_click(recipe_path)
 
 
 def _profile_lane_label(profile_lane: str) -> str:
@@ -1876,12 +1873,26 @@ def _default_role_prompt(role_name: str) -> str:
 def _load_yaml_mapping(path: Path) -> dict[str, object]:
     """Load one YAML mapping payload from disk."""
 
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise click.ClickException(f"Failed to read `{path}`: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise click.ClickException(f"Malformed YAML `{path}`: {exc}") from exc
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
         raise click.ClickException(f"{path}: expected a top-level YAML mapping.")
     return loaded
+
+
+def _parse_preset_or_click(path: Path) -> Any:
+    """Parse one preset definition or raise one operator-facing error."""
+
+    try:
+        return parse_agent_preset(path)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _write_yaml_mapping(path: Path, payload: dict[str, object]) -> None:
@@ -2111,6 +2122,7 @@ __all__ = [
     "_role_summary",
     "_list_named_preset_summaries",
     "_preset_summary",
+    "_parse_preset_or_click",
     "_write_role_prompt",
     "_canonical_preset_name",
     "_ensure_role_exists",

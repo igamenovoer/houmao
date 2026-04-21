@@ -1303,6 +1303,124 @@ def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_p
     assert promptless_payload["system_prompt_text"] == ""
 
 
+def test_main_renders_project_agents_recipes_list_malformed_preset_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    broken_path = repo_root / ".houmao" / "agents" / "presets" / "broken.yaml"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "unknown_field: nope",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = command_main.main(["project", "agents", "recipes", "list"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(broken_path) in captured.err
+    assert "unsupported top-level field(s): unknown_field" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_project_agents_presets_get_malformed_preset_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    broken_path = repo_root / ".houmao" / "agents" / "presets" / "broken.yaml"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "unknown_field: nope",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = command_main.main(["project", "agents", "presets", "get", "--name", "broken"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(broken_path) in captured.err
+    assert "unsupported top-level field(s): unknown_field" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_project_agents_roles_get_malformed_preset_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            ["project", "agents", "roles", "init", "--name", "researcher"],
+        ).exit_code
+        == 0
+    )
+
+    broken_path = repo_root / ".houmao" / "agents" / "presets" / "broken.yaml"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text(
+        "\n".join(
+            [
+                "role: researcher",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "unknown_field: nope",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = command_main.main(["project", "agents", "roles", "get", "--name", "researcher"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert str(broken_path) in captured.err
+    assert "unsupported top-level field(s): unknown_field" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_project_agents_presets_set_preserves_advanced_blocks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -14,7 +14,9 @@ The pipeline SHALL follow this sequence:
 5. Resolve the selected preset to its effective tool, role, setup, skills, launch settings, and effective auth as one resolved launch/build specification.
 6. Build the brain home using the effective runtime root selected from the launch source context.
 7. Start the runtime session using the effective runtime root and jobs root from the launch source context together with the runtime workdir from step 2.
-8. Publish a `LiveAgentRegistryRecordV2` to the shared registry.
+8. Publish an active lifecycle-aware managed-agent registry record to the shared registry.
+
+The published record SHALL include durable managed-agent identity and runtime locator metadata sufficient for later lifecycle commands, including stop, relaunch, and cleanup.
 
 When the launch source belongs to a Houmao project and no stronger runtime-root or jobs-root override is supplied, maintained local `agents launch` SHALL use that source project's overlay-local defaults rather than deriving project roots from `--workdir`.
 
@@ -32,7 +34,7 @@ When the command is operating in project context and no stronger runtime-root or
 - **THEN** the command builds brain state under `/repo-a/.houmao/runtime`
 - **AND THEN** it starts the session with a job dir derived under `/repo-a/.houmao/jobs/<session-id>/`
 - **AND THEN** it records `/repo-b` as the runtime workdir for the launched session
-- **AND THEN** it still publishes the launched agent to the shared registry
+- **AND THEN** it publishes the launched agent as an active lifecycle-aware managed-agent registry record
 
 #### Scenario: Explicit preset path launch uses the preset source project rather than `--workdir`
 - **WHEN** an explicit preset path resolves under source project `/source-repo/.houmao/agents/presets/`
@@ -46,6 +48,12 @@ When the command is operating in project context and no stronger runtime-root or
 - **AND WHEN** an operator runs `houmao-mgr agents launch --agents gpu-kernel-coder --provider claude_code --workdir /repo-b`
 - **THEN** the command ensures the selected source overlay candidate exists before parsing presets and building brain state
 - **AND THEN** it does not bootstrap `/repo-b/.houmao` only because `/repo-b` was selected as the runtime workdir
+
+#### Scenario: Launch publishes active lifecycle registry metadata
+- **WHEN** `houmao-mgr agents launch` successfully starts a local tmux-backed managed agent
+- **THEN** the shared registry record has lifecycle state `active`
+- **AND THEN** the record includes active liveness metadata for live command routing
+- **AND THEN** the record includes durable manifest, session-root, and agent-definition locators for later stop, relaunch, and cleanup
 
 ### Requirement: `houmao-mgr agents launch` accepts the established launch options
 
@@ -645,4 +653,3 @@ Direct launch-time overrides for other launch fields, such as `--agent-name`, `-
 - **AND WHEN** an operator runs `houmao-mgr agents launch --launch-profile reviewer-default`
 - **THEN** Houmao replaces only the launched agent's contained pages
 - **AND THEN** it leaves the launched agent's `houmao-memo.md` unchanged
-

@@ -21,9 +21,11 @@ from .common import (
     overwrite_confirm_option,
 )
 from .mailbox_support import (
+    MAILBOX_ROOT_FAILURE_TYPES,
     clear_mailbox_messages_at_root,
     cleanup_mailbox_root,
     export_mailbox_root,
+    format_mailbox_root_failure,
     get_mailbox_account,
     get_mailbox_message,
     init_mailbox_root,
@@ -39,6 +41,22 @@ from .project_aware_wording import (
     describe_mailbox_root_selection,
     mailbox_root_option_help,
 )
+
+
+def _call_mailbox_action(
+    mailbox_root: Path | None,
+    action: Callable[..., dict[str, object]],
+    /,
+    **kwargs: object,
+) -> dict[str, object]:
+    """Run one mailbox action and normalize expected root-state failures."""
+
+    try:
+        return action(mailbox_root=_resolve_effective_mailbox_root(mailbox_root), **kwargs)
+    except MAILBOX_ROOT_FAILURE_TYPES as exc:
+        raise click.ClickException(
+            format_mailbox_root_failure(exc, init_command="houmao-mgr mailbox init")
+        ) from exc
 
 
 def _resolve_effective_mailbox_root(mailbox_root: Path | None) -> Path:
@@ -84,7 +102,7 @@ def init_mailbox_command(mailbox_root: Path | None) -> None:
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=init_mailbox_root(_resolve_effective_mailbox_root(mailbox_root)),
+        payload=_call_mailbox_action(mailbox_root, init_mailbox_root),
     )
 
 
@@ -95,7 +113,7 @@ def status_mailbox_command(mailbox_root: Path | None) -> None:
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=mailbox_root_status_payload(_resolve_effective_mailbox_root(mailbox_root)),
+        payload=_call_mailbox_action(mailbox_root, mailbox_root_status_payload),
     )
 
 
@@ -126,8 +144,9 @@ def register_mailbox_command(
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=register_mailbox_at_root(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+        payload=_call_mailbox_action(
+            mailbox_root,
+            register_mailbox_at_root,
             address=address,
             principal_id=principal_id,
             mode=mode,
@@ -162,8 +181,9 @@ def unregister_mailbox_command(mailbox_root: Path | None, address: str, mode: st
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=unregister_mailbox_at_root(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+        payload=_call_mailbox_action(
+            mailbox_root,
+            unregister_mailbox_at_root,
             address=address,
             mode=mode,
         ),
@@ -193,8 +213,9 @@ def repair_mailbox_command(
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=repair_mailbox_root(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+        payload=_call_mailbox_action(
+            mailbox_root,
+            repair_mailbox_root,
             cleanup_staging=cleanup_staging,
             quarantine_staging=quarantine_staging,
         ),
@@ -232,8 +253,9 @@ def cleanup_mailbox_command(
 
     emit_cleanup_payload(
         {
-            **cleanup_mailbox_root(
-                mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+            **_call_mailbox_action(
+                mailbox_root,
+                cleanup_mailbox_root,
                 inactive_older_than_seconds=inactive_older_than_seconds,
                 stashed_older_than_seconds=stashed_older_than_seconds,
                 dry_run=dry_run,
@@ -277,8 +299,9 @@ def clear_mailbox_messages_command(
         )
     emit_cleanup_payload(
         {
-            **clear_mailbox_messages_at_root(
-                mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+            **_call_mailbox_action(
+                mailbox_root,
+                clear_mailbox_messages_at_root,
                 dry_run=dry_run,
             ),
             "mailbox_root_detail": describe_mailbox_root_selection(explicit_root=mailbox_root),
@@ -323,8 +346,9 @@ def export_mailbox_command(
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=export_mailbox_root(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
+        payload=_call_mailbox_action(
+            mailbox_root,
+            export_mailbox_root,
             output_dir=output_dir,
             all_accounts=all_accounts,
             addresses=addresses,
@@ -345,7 +369,7 @@ def list_mailbox_accounts_command(mailbox_root: Path | None) -> None:
 
     _emit_mailbox_payload(
         mailbox_root=mailbox_root,
-        payload=list_mailbox_accounts(mailbox_root=_resolve_effective_mailbox_root(mailbox_root)),
+        payload=_call_mailbox_action(mailbox_root, list_mailbox_accounts),
     )
 
 
@@ -355,13 +379,11 @@ def list_mailbox_accounts_command(mailbox_root: Path | None) -> None:
 def get_mailbox_account_command(mailbox_root: Path | None, address: str) -> None:
     """Inspect one mailbox registration as an operator-facing account."""
 
-    try:
-        payload = get_mailbox_account(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
-            address=address,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    payload = _call_mailbox_action(
+        mailbox_root,
+        get_mailbox_account,
+        address=address,
+    )
     _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)
 
 
@@ -376,13 +398,11 @@ def mailbox_messages_group() -> None:
 def list_mailbox_messages_command(mailbox_root: Path | None, address: str) -> None:
     """List structurally projected messages for one selected address."""
 
-    try:
-        payload = list_mailbox_messages(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
-            address=address,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    payload = _call_mailbox_action(
+        mailbox_root,
+        list_mailbox_messages,
+        address=address,
+    )
     _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)
 
 
@@ -397,12 +417,10 @@ def get_mailbox_message_command(
 ) -> None:
     """Get one structurally projected message for a selected address."""
 
-    try:
-        payload = get_mailbox_message(
-            mailbox_root=_resolve_effective_mailbox_root(mailbox_root),
-            address=address,
-            message_id=message_id,
-        )
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    payload = _call_mailbox_action(
+        mailbox_root,
+        get_mailbox_message,
+        address=address,
+        message_id=message_id,
+    )
     _emit_mailbox_payload(mailbox_root=mailbox_root, payload=payload)

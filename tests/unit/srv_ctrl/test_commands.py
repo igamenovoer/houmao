@@ -323,16 +323,47 @@ def test_main_renders_runtime_domain_error_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_main_leaves_unexpected_non_runtime_exception_uncaught(
+def test_main_renders_uncaught_mailbox_exception_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("unexpected stop failure")),
+        "houmao.srv_ctrl.commands.mailbox.list_mailbox_accounts",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("unexpected mailbox failure")),
     )
 
-    with pytest.raises(RuntimeError, match="unexpected stop failure"):
-        main(["agents", "stop", "--agent-id", "agent-123"])
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    mailbox_root.mkdir(parents=True, exist_ok=True)
+
+    exit_code = main(["mailbox", "accounts", "list", "--mailbox-root", str(mailbox_root)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "unexpected mailbox failure" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_uncaught_project_recipe_exception_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_definitions._resolve_existing_project_overlay",
+        lambda **kwargs: SimpleNamespace(project_root=(tmp_path / "repo").resolve()),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_definitions._list_named_preset_summaries",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("unexpected recipe failure")),
+    )
+
+    exit_code = main(["project", "agents", "recipes", "list"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "unexpected recipe failure" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(

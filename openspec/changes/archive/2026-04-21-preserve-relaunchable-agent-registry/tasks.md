@@ -59,7 +59,7 @@
 - [x] 7.2 Run `pixi run test` after focused suites pass.
 - [x] 7.3 Run `pixi run lint` and address any changed-code lint findings.
 - [x] 7.4 Run `pixi run typecheck` for strict type coverage of registry model and resolver changes.
-- [ ] 7.5 Manually smoke-test stop then relaunch with `--chat-session-mode tool_last_or_new` for a local interactive fixture agent when credentials are available.
+- [x] 7.5 Manually smoke-test stop then relaunch with `--chat-session-mode tool_last_or_new` for a local interactive fixture agent when credentials are available.
 
 Notes:
 

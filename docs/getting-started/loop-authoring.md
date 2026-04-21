@@ -37,17 +37,24 @@ Because routing packets are authored at plan time — not delivered over the wir
 
 `initialize` is the prestart action for pairwise-v2 runs. The default strategy is `precomputed_routing_packets`:
 
-```
-plan authored      initialize (validate packets)     start
-      │                         │                      │
-      ▼                         ▼                      ▼
- routing packets         confirm root packet      send start
- embedded in plan        + child packets          charter to
-                         are present and          master only
-                         structurally valid
+```text
+plan authored      initialize (validate packets   start (write
+      │            + write durable initialize     start-charter page
+      │            pages and memo references)     + send compact trigger)
+      ▼                         │                      │
+ routing packets                ▼                      ▼
+ embedded in plan        participants get        master receives page-
+                         durable per-run         backed start contract
+                         guidance before start   before dispatch
 ```
 
-The `operator_preparation_wave` strategy is an explicit opt-in in the plan. It sends standalone preparation mail to targeted participants and optionally waits for acknowledgement replies before the master trigger. Use it for complex warmup scenarios, acknowledgement-gated preflight, or explicit participant confirmation before the run.
+Default `initialize` validates the routing-packet set and writes durable run material into managed memory when those supported surfaces are available:
+- one run-scoped participant initialize page under `pages/`, using a namespace such as `loop-runs/pairwise-v2/<run_id>/initialize.md`
+- one compact memo reference block that links to that page and can be refreshed by exact `run_id` plus slot sentinels
+
+`start` then writes the master-facing `start-charter` page under the same run-scoped namespace, refreshes the matching memo reference block, and sends a compact control-plane trigger that points the master at that durable page.
+
+The `operator_preparation_wave` strategy is an explicit opt-in in the plan. It sends standalone preparation mail to targeted participants and optionally waits for acknowledgement replies before the master trigger, but it is no longer the default carrier for initialize guidance. Use it for complex warmup scenarios, acknowledgement-gated preflight, or explicit participant confirmation before the run.
 
 ### CLI helpers for routing packets
 

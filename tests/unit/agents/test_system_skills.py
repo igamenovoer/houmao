@@ -332,6 +332,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v2_prepare_run = (pairwise_loop_v2_prestart / "prepare-run.md").read_text(
         encoding="utf-8"
     )
+    pairwise_loop_v2_start = (pairwise_loop_v2_operating / "start.md").read_text(
+        encoding="utf-8"
+    )
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
@@ -623,9 +626,20 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
     assert "houmao-agent-inspect" in pairwise_loop_v2_skill
+    assert "default `precomputed_routing_packets` validates routing packets" in pairwise_loop_v2_skill
+    assert "durable start-charter page" in pairwise_loop_v2_skill
+    assert "houmao-memory-mgr" in pairwise_loop_v2_skill
+    assert "ask for the output directory before drafting or revising files" in pairwise_loop_v2_skill
+    assert "## Plan Output Directory" in pairwise_loop_v2_skill
+    assert "<plan-output-dir>/" in pairwise_loop_v2_skill
+    assert "Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v2 write surfaces" in pairwise_loop_v2_skill
     assert "memo page index" not in pairwise_loop_v2_prepare_run
     assert "pages/<relative-page>" in pairwise_loop_v2_prepare_run
     assert "path-discovery output" in pairwise_loop_v2_prepare_run
+    assert "HOUMAO_PAIRWISE_V2_BEGIN" in pairwise_loop_v2_prepare_run
+    assert "loop-runs/pairwise-v2/<run_id>/initialize.md" in pairwise_loop_v2_prepare_run
+    assert "treat that as a `houmao-memory-mgr` task" in pairwise_loop_v2_prepare_run
+    assert "route that work to `houmao-memory-mgr`" in pairwise_loop_v2_start
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
@@ -1383,6 +1397,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "No free delegation is allowed unless the plan says so explicitly."
         in pairwise_loop_formulate
     )
+    assert "Resolve the plan output directory before drafting files" in pairwise_loop_formulate
+    assert "canonical entrypoint path: `<plan-output-dir>/plan.md`" in pairwise_loop_formulate
+    assert "Write the generated plan into the selected output directory" in pairwise_loop_formulate
     assert "first-class structural preflight before authoring packets" in pairwise_loop_formulate
     assert "houmao-mgr internals graph high analyze --input <graph.json>" in (
         pairwise_loop_formulate
@@ -1394,6 +1411,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_formulate
     assert "after `analyze` and any needed `slice` calls" in pairwise_loop_formulate
     assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_revise
+    assert "Preserve the current output directory unless the user explicitly asks to move the plan." in (
+        pairwise_loop_revise
+    )
+    assert "Write the revised plan back under the selected output directory" in pairwise_loop_revise
     assert "by running graph analysis after `start`" in pairwise_loop_revise
     assert "```mermaid" in pairwise_loop_graph
     assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
@@ -1407,32 +1428,35 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     assert "reply_policy=operator_mailbox" in pairwise_loop_prepare
     assert "canonical `initialize` action" in pairwise_loop_prepare
-    assert "Initialization targets are all named participants by default" in pairwise_loop_prepare
-    assert "include every named participant by default, including leaf participants" in (
+    assert "loop-runs/pairwise-v2/<run_id>/initialize.md" in pairwise_loop_prepare
+    assert "exact begin sentinel and one exact end sentinel keyed by `run_id` and slot" in (
         pairwise_loop_prepare
     )
-    assert "Narrow the recipient set only when the user or plan explicitly names" in (
+    assert "Preparation-mail targets are delegating or non-leaf participants by default" in (
+        pairwise_loop_prepare
+    )
+    assert "point the participant at its durable initialize page" in pairwise_loop_prepare
+    assert "Do not treat standalone participant preparation mail as the default initialize path." in (
         pairwise_loop_prepare
     )
     assert (
-        "missing acknowledgements from targeted initialization recipients block `ready`"
-        in pairwise_loop_prepare
-    )
-    assert (
-        "Do not guess packet coverage or initialization email targets when the topology is unclear"
+        "Do not guess packet coverage, initialize page paths, or explicit preparation-wave targets when the topology is unclear"
         in (pairwise_loop_prepare)
     )
     assert "`awaiting_ack`" in pairwise_loop_prepare
     assert "`ready`" in pairwise_loop_prepare
     assert "After the master accepts the run, the master owns liveness" in pairwise_loop_start
     assert "houmao-agent-inspect" in pairwise_loop_start
+    assert "`<plan-output-dir>/plan.md` for the single-file form" in pairwise_loop_start
     assert "`initialize` remains separate from `start`." in pairwise_loop_start
-    assert "initialization email has been sent to the resolved initialization recipients" in (
+    assert "durable initialize pages and exact-sentinel memo reference blocks have been written or refreshed" in (
         pairwise_loop_start
     )
-    assert "required replies from targeted initialization recipients have arrived" in (
+    assert "required replies from targeted preparation recipients have arrived" in (
         pairwise_loop_start
     )
+    assert "compact start trigger" in pairwise_loop_start
+    assert "loop-runs/pairwise-v2/<run_id>/start-charter.md" in pairwise_loop_start
     assert "Do not treat acknowledgement replies as readiness blockers" in pairwise_loop_start
     assert (
         "Later `peek` remains unintrusive, read-only, and does not keep the run alive."
@@ -1460,10 +1484,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
     assert "`peek master <run_id>`" in pairwise_loop_charter
     assert "`pause <run_id>`" in pairwise_loop_charter
-    assert "prestart strategy: <email_initialization | packet_only_initialization>" in (
+    assert "path: <canonical plan path such as <plan-output-dir>/plan.md>" in pairwise_loop_charter
+    assert "prestart strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_charter
     )
     assert "root routing packet: <inline packet text or exact packet reference>" in (
+        pairwise_loop_charter
+    )
+    assert "Read the durable start-charter page at `pages/<relative-page>`." in (
         pairwise_loop_charter
     )
     assert "delegate_freely_within_named_set" in pairwise_loop_policy
@@ -1473,13 +1501,22 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
     )
     assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
-    assert "Every plan using the default `email_initialization` strategy should record" in (
+    assert "## Output Directory Contract" in pairwise_loop_plan_structure
+    assert "Every authored pairwise-v2 plan should live under one user-chosen output directory." in (
+        pairwise_loop_plan_structure
+    )
+    assert "`<plan-output-dir>/plan.md`" in pairwise_loop_plan_structure
+    assert "## Durable Initialize Material" in pairwise_loop_plan_structure
+    assert "Every plan using pairwise-v2 durable initialize pages should record" in (
+        pairwise_loop_plan_structure
+    )
+    assert "Do not describe explicit `operator_preparation_wave` as the default prestart strategy." in (
         pairwise_loop_plan_structure
     )
     assert "NetworkX node-link graph artifact location" in pairwise_loop_plan_structure
     assert "packet JSON document location" in pairwise_loop_plan_structure
     assert "optional `houmao-mgr internals graph high slice" in pairwise_loop_plan_structure
-    assert "initialization email target policy and delivery procedure" in (
+    assert "preparation-mail target policy and delivery procedure" in (
         pairwise_loop_plan_structure
     )
     assert "`hard-kill`" in pairwise_loop_plan_structure
@@ -1488,7 +1525,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         in pairwise_loop_stop_modes_path.read_text(encoding="utf-8")
     )
     assert "# Prestart Procedure" in pairwise_loop_single_template
-    assert "prestart_strategy: <email_initialization | packet_only_initialization>" in (
+    assert "Write this template as `<plan-output-dir>/plan.md`." in pairwise_loop_single_template
+    assert "## Expected Output Directory" in pairwise_loop_single_template
+    assert "prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
         pairwise_loop_single_template
     )
     assert "graph-tool preflight: <analyze, optional slice, and packet-expectations results" in (
@@ -1497,13 +1536,16 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "routing packet validation: <validate-packets result when graph and packet JSON" in (
         pairwise_loop_single_template
     )
-    assert (
-        "Initialize<br/>enable email notifier<br/>send init mail" in pairwise_loop_single_template
-    )
+    assert "Initialize<br/>validate packets<br/>write durable pages" in pairwise_loop_single_template
     assert "# Routing Packets" in pairwise_loop_single_template
     assert "`stop`, `hard-kill`" in pairwise_loop_single_template
+    assert "The generated single-file output directory should contain only `plan.md`." in (
+        pairwise_loop_single_template
+    )
     assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
-    assert "selected `prestart_strategy`: default `email_initialization`" in (
+    assert "Ask for the output directory if it is not already known" in pairwise_loop_bundle_template
+    assert "<plan-output-dir>/" in pairwise_loop_bundle_template
+    assert "selected `prestart_strategy`: default `precomputed_routing_packets`" in (
         pairwise_loop_bundle_template
     )
     assert "graph artifact and packet JSON artifact locations when available" in (

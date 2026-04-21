@@ -397,7 +397,7 @@ def set_project_preset_command(
         raise click.ClickException("No recipe updates were requested.")
 
     raw_payload = _load_yaml_mapping(preset_path)
-    parsed_preset = parse_agent_preset(preset_path)
+    parsed_preset = _parse_preset_or_click(preset_path)
     role_name = (
         _require_non_empty_name(role, field_name="--role")
         if role is not None
