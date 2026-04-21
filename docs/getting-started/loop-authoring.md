@@ -143,6 +143,8 @@ Accepted `start` also creates or refreshes the runtime-owned recovery record und
 
 The `operator_preparation_wave` strategy is an explicit opt-in in the plan. It sends standalone preparation mail to targeted participants and optionally waits for acknowledgement replies before the master trigger, but it is no longer the default carrier for initialize guidance. Use it for complex warmup scenarios, acknowledgement-gated preflight, or explicit participant confirmation before the run.
 
+Pairwise-v3 keeps the same routing-packet preflight model, but changes how the run contract is materialized. In pairwise-v3, `initialize` may first launch missing participants from provided launch profiles, then writes the durable per-agent run guidance directly into memo blocks, including workspace posture and local obligations. It also verifies that every required participant has email/mailbox support and refuses to reach `ready` when any required participant lacks it. Ordinary `start` does not write a durable `start-charter` page and does not wait for `accepted` or `rejected`; it sends a compact master-only trigger telling the master to read its memo and begin, and that kickoff goes through mail by default unless the user explicitly asks for direct prompt delivery.
+
 ### `resume` versus `recover_and_continue`
 
 `resume` is pause-only. Use it when the participant set and wakeup posture remained logically live and the run simply needs its paused clock restarted.

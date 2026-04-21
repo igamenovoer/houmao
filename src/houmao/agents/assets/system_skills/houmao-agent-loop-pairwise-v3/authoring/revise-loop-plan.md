@@ -21,8 +21,9 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - authored topology or descendant relationships
 - prestart procedure
 - prestart strategy
+- launch-profile references for participants
 - routing packet inventory, root packet location, packet freshness marker, or child dispatch tables
-- durable initialize page namespace or durable start-charter page namespace
+- initialize memo-slot expectations or continuation page namespace
 - memo sentinel convention for run-owned blocks
 - explicit `operator_preparation_wave` target policy
 - gateway mail-notifier interval for `operator_preparation_wave`
@@ -68,7 +69,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
 - Do not leave the workspace contract ambiguous when `initialize`, `start`, or `recover_and_continue` must point participants at specific workspace or bookkeeping paths.
 - Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
-- Do not skip durable initialize page and memo reference-block materialization when managed memory is being used.
+- Do not skip initialize memo materialization when managed memory is being used.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text.
 - Do not require acknowledgement by default; use `fire_and_proceed` unless the plan explicitly selects `require_ack`.
 - Do not use a gateway mail-notifier interval other than `5s` for `operator_preparation_wave` unless the user or plan specifies another interval.

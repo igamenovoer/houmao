@@ -97,10 +97,13 @@ Record:
 
 - selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
 - workspace contract summary or `workspace-contract.md` reference
-- durable initialize page namespace and durable start-charter page namespace
+- optional launch-profile references for required participants that `initialize` may launch after mailbox-association precheck
+- email/mailbox verification rule for the designated master and every required participant
+- ordinary `start` mail-delivery rule, with direct prompt only by explicit user request
+- initialize memo-slot expectations for the designated master and other participants
 - continuation page namespace and runtime-owned recovery record path family
 - memo sentinel convention for run-owned reference blocks
-- durable initialize page and memo reference-block write procedure
+- initialize memo write procedure
 - notifier preflight procedure for `operator_preparation_wave`
 - gateway mail-notifier interval: `5s` unless the user specified otherwise for `operator_preparation_wave`
 - preparation-mail target policy: delegating or non-leaf participants by default, or an explicit target set when provided
@@ -114,7 +117,7 @@ Record:
 - in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
 - readiness behavior for the selected strategy
-- how the master trigger remains separate from `initialize`
+- how the master trigger remains separate from `initialize` and tells the master to read its memo and start
 
 ## `routing-packets.md`
 

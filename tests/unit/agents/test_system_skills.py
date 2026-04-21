@@ -697,14 +697,26 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         pairwise_loop_v3_skill
     )
     assert "Do not prescribe a fixed subtree under per-agent `kb/`" in pairwise_loop_v3_skill
-    assert "loop-runs/pairwise-v3/<run_id>/initialize.md" in pairwise_loop_v3_prepare_run
+    assert "optional launch-profile references for participants that `initialize` may need to launch" in (
+        pairwise_loop_v3_prepare_run
+    )
+    assert "memo slot: `initialize`" in pairwise_loop_v3_prepare_run
+    assert "email/mailbox-capable designated master and participant set" in (
+        pairwise_loop_v3_prepare_run
+    )
     assert "when mode is `standard`, record the selected standard posture" in (
         pairwise_loop_v3_prepare_run
     )
     assert "when mode is `custom`, record the explicit operator-owned paths" in (
         pairwise_loop_v3_prepare_run
     )
-    assert "loop-runs/pairwise-v3/<run_id>/start-charter.md" in pairwise_loop_v3_start
+    assert "designated master's initialize memo block" in pairwise_loop_v3_start
+    assert "tell the designated master to read its initialize memo and begin work" in (
+        pairwise_loop_v3_start
+    )
+    assert "send the kickoff trigger to the designated master through `houmao-agent-email-comms`" in (
+        pairwise_loop_v3_start
+    )
     assert "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`" in (
         pairwise_loop_v3_start
     )
@@ -1780,8 +1792,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "Preserve the current output directory unless the user explicitly asks to move the plan."
         in pairwise_loop_v3_revise
     )
-    assert "loop-runs/pairwise-v3/<run_id>/initialize.md" in pairwise_loop_v3_prepare
-    assert "loop-runs/pairwise-v3/<run_id>/start-charter.md" in pairwise_loop_v3_start
+    assert "memo slot: `initialize`" in pairwise_loop_v3_prepare
+    assert "launch profiles: <none | participant -> launch-profile mapping" in (
+        pairwise_loop_v3_single_template
+    )
+    assert "designated master's initialize memo block" in pairwise_loop_v3_start
+    assert "mail-delivery rule" in pairwise_loop_v3_plan_structure
     assert "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`" in (
         pairwise_loop_v3_start
     )
