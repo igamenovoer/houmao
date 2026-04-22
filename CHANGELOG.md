@@ -4,6 +4,26 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.8.2] - 2026-04-22
+
+### Added
+
+- **Plan-owned pairwise-v3 template bundles**: `houmao-agent-loop-pairwise-v3` bundle plans can now generate a `<plan-output-dir>/templates/` tree with reusable reporting and bookkeeping scaffolds. Reporting templates are derived from the reporting contract, bookkeeping templates remain task-shaped, and the skill now makes bundle form the default whenever reusable templates are part of the run contract.
+
+### Changed
+
+- **Preserved-home reuse is now stopped-agent restart continuity**: `--reuse-home` on `houmao-mgr agents launch` and `houmao-mgr project easy instance launch` now restarts one stopped logical managed agent on its preserved home instead of treating the path as a fresh launch variant. Restart uses current profile or specialist inputs, preserves non-destructive continuity boundaries, restores the prior tmux session name by default when available, and fails clearly if a live owner or occupied prior tmux session blocks the restart.
+
+### Fixed
+
+- **Gateway notifier compaction is one-shot per eligibility stretch**: when `pre_notification_context_action=compact` is enabled, the mail notifier now remembers which currently eligible messages already triggered successful compaction and avoids re-running compaction on every later poll while those same messages remain eligible. Repeated wake-up prompts may still occur, but they no longer imply repeated compaction for unchanged mail.
+- **Pairwise-v3 preparation mail requires notifier readiness first**: explicit `operator_preparation_wave` guidance now makes gateway mail-notifier setup a hard pre-mail gate before standalone preparation mail is sent to targeted participants, closing the gap between pairwise-v3 initialization guidance and the gateway notifier contract.
+
+### Notes
+
+- This release bumps the patch segment for the stopped reuse-home restart contract, pairwise-v3 template-bundle guidance, and the notifier compaction safety fix.
+- The `gh release create v0.8.2` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.8.1] - 2026-04-21
 
 ### Changed
