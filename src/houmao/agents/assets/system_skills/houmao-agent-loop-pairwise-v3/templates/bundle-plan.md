@@ -13,6 +13,12 @@ Use this form when the run needs supporting Markdown files or scripts but still 
   graph.md
   delegation.md
   reporting.md
+  templates/
+    README.md
+    reporting/
+      <report-template>.md
+    bookkeeping/
+      <task-shaped-template>.md
   scripts/
     README.md
     <script files>
@@ -68,6 +74,9 @@ Default stop mode: interrupt-first
 # Reporting Contract
 See `reporting.md`.
 
+# Template Inventory
+See `templates/README.md` when the run uses reusable reporting or bookkeeping templates.
+
 # Supporting Files
 - `workspace-contract.md`
 - `prestart.md`
@@ -75,6 +84,7 @@ See `reporting.md`.
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
+- `templates/README.md`, when the run uses reusable templates
 - `scripts/README.md`
 
 # Mermaid Control Graph
@@ -89,7 +99,45 @@ Record:
 - for `standard`, the selected posture plus any required fields such as `task-name`
 - for `custom`, the explicit operator-owned launch cwd, source write paths, shared writable paths, bookkeeping paths, read-only paths, and ad hoc worktree posture
 - the relevant `workspace.md` reference when standard mode points at a prepared standard workspace contract
+- any declared bookkeeping ownership boundaries that generated bookkeeping templates must respect
 - the rule that runtime-owned recovery files stay outside the authored workspace contract
+
+## `templates/README.md`
+
+When the run needs reusable reporting or bookkeeping scaffolds, inventory them here.
+
+Record:
+
+- why the bundle needs reusable templates
+- which templates live under `templates/reporting/`
+- which templates live under `templates/bookkeeping/`
+- which participants may instantiate or fill copies of each template
+- where mutable filled-in outputs belong during execution
+- the rule that files under `templates/` are authored reusable source artifacts, not runtime-owned state
+
+## `templates/reporting/<file>.md`
+
+Use reporting templates for the report surfaces the run actually needs.
+
+Typical examples:
+- `peek.md`
+- `completion.md`
+- `recovery-summary.md`
+- `stop-summary.md`
+- `hard-kill-summary.md`
+
+Each reporting template should reflect the relevant field set from `reporting.md` and may add task-local prompts or placeholders for the run.
+
+## `templates/bookkeeping/<file>.md`
+
+Use bookkeeping templates for task-shaped scaffolds derived from:
+
+- the objective
+- the topology
+- participant responsibilities
+- declared bookkeeping paths
+
+These templates may describe status ledgers, handoff notes, review checklists, result ledgers, or other task-specific bookkeeping aids, but they must not impose one fixed subtree or one universal template set for all runs.
 
 ## `prestart.md`
 
@@ -112,6 +160,7 @@ Record:
 - graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
 - routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
 - validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
+- generated template inventory or `templates/README.md` reference when reusable templates are part of the run contract
 - preparation-mail procedure for targeted preparation recipients when `operator_preparation_wave` is selected
 - operator reply policy for preparation mail: `none` for default `fire_and_proceed`, or `operator_mailbox` for explicit `require_ack`
 - in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
@@ -159,5 +208,6 @@ List each script with:
 - Do not leave routing packets only in a shared upstream-aware matrix that runtime agents must reinterpret.
 - Do not ask intermediate runtime agents to recompute child packet content from the full plan.
 - Do not ask intermediate runtime agents to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets.
+- Do not describe files under `templates/` as live mutable bookkeeping outputs; those belong in declared bookkeeping paths during execution.
 - Do not leave script behavior undocumented when scripts are part of the plan.
 - Do not treat runtime-owned recovery files as authored workspace files.

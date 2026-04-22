@@ -156,4 +156,4 @@ flowchart TD
 ```
 ````
 
-Use this form when one file is enough. If the plan starts accumulating large support notes or multiple scripts, switch to the bundle form. The generated single-file output directory should contain only `plan.md`.
+Use this form when one file is enough. If the plan starts accumulating large support notes, multiple scripts, or reusable reporting or bookkeeping templates, switch to the bundle form. The generated single-file output directory should contain only `plan.md`.

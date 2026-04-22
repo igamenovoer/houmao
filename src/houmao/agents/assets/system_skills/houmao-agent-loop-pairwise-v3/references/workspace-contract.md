@@ -84,6 +84,8 @@ Record:
 - who may write them
 - what they are for, when relevant
 
+When the authored plan bundle includes reusable bookkeeping templates, keep those templates under `<plan-output-dir>/templates/bookkeeping/` as authored source artifacts. Mutable filled-in copies, run notes, ledgers, or checklists belong in the declared bookkeeping paths during execution.
+
 Do not impose one fixed subtree under per-agent `kb/`.
 
 ## Runtime-Owned Recovery Boundary
@@ -102,4 +104,5 @@ Participants may inspect declared workspace and bookkeeping paths during recover
 - Do not treat `custom` as shorthand for an unspecified workspace.
 - Do not use the standard workspace-preparation skill as a custom-workspace translation layer.
 - Do not prescribe a fixed bookkeeping subtree under per-agent `kb/`.
+- Do not confuse authored bookkeeping templates with mutable bookkeeping outputs written during the run.
 - Do not describe runtime-owned recovery files as authored workspace artifacts.

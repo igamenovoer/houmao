@@ -32,6 +32,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - completion condition
 - stop posture
 - reporting contract
+- generated template inventory or bundle template layout
 - timeout-watch policy
 - scripts or bundle layout
 
@@ -51,11 +52,12 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
    - durable initialize or charter material
    - lifecycle vocabulary
    - reporting or stop posture
+   - generated report or bookkeeping templates under the plan bundle
    - scripts or supporting files
 5. If the workspace contract is changing, normalize it again through `references/workspace-contract.md`.
 6. If topology or packet coverage changes, revisit graph-tool structural preflight and packet expectations before the plan returns to `ready`.
 7. If a current field is materially unclear or would need invention, stop and ask for that exact field.
-8. Rewrite the plan so the canonical plan path remains stable and the control fields stay synchronized across `plan.md`, `workspace-contract.md` when present, `prestart.md`, routing packets, reporting, and scripts.
+8. Rewrite the plan so the canonical plan path remains stable and the control fields stay synchronized across `plan.md`, `workspace-contract.md` when present, `prestart.md`, routing packets, reporting, generated templates, and scripts.
 9. Keep runtime-owned recovery files outside the authored workspace contract. If the requested revision would blur that boundary, reject the change or rewrite it explicitly.
 10. Write the revised plan back under the selected output directory.
 11. Report the canonical revised plan path and any supporting files that changed.
@@ -66,8 +68,10 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - Do not move the plan to a new directory unless the user asked for relocation.
 - Do not leave the single-file form without `plan.md`.
 - Do not leave the bundle form without `plan.md`.
+- Do not leave a template-bearing run in single-file form; move it to bundle form if the revision adds reusable reporting or bookkeeping templates.
 - Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
 - Do not leave the workspace contract ambiguous when `initialize`, `start`, or `recover_and_continue` must point participants at specific workspace or bookkeeping paths.
+- Do not confuse authored template files with mutable bookkeeping outputs or runtime-owned recovery files.
 - Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
 - Do not skip initialize memo materialization when managed memory is being used.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text.

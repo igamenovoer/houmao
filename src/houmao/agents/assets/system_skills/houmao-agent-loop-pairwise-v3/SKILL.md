@@ -97,7 +97,7 @@ Observed states:
    - authoring: `authoring/formulate-loop-plan.md`, `authoring/revise-loop-plan.md`, `authoring/render-loop-graph.md`
    - prestart: `prestart/prepare-run.md`
    - operations: one page under `operating/`
-5. Use references and templates only to normalize the plan, workspace contract, or charter.
+5. Use references and templates to normalize the plan, workspace contract, or charter, and when the run needs reusable reporting or bookkeeping scaffolds, synthesize a plan-owned template bundle under the selected output directory.
 6. Route lower-level operations to the owning Houmao skills.
 
 ## Plan Output Directory
@@ -125,6 +125,12 @@ Bundle form:
   graph.md
   delegation.md
   reporting.md
+  templates/
+    README.md
+    reporting/
+      <report-template>.md
+    bookkeeping/
+      <task-shaped-template>.md
   scripts/
     README.md
     <script files>
@@ -162,7 +168,7 @@ References:
 
 Templates:
 - Read [templates/single-file-plan.md](templates/single-file-plan.md) for the compact one-file form written as `<plan-output-dir>/plan.md`.
-- Read [templates/bundle-plan.md](templates/bundle-plan.md) for the bundle form written under `<plan-output-dir>/`.
+- Read [templates/bundle-plan.md](templates/bundle-plan.md) for the bundle form written under `<plan-output-dir>/`, including plan-owned reporting and bookkeeping templates when the run needs reusable scaffolds.
 
 ## Routing Guidance
 
@@ -208,6 +214,8 @@ Plan, workspace, and memory:
 - Do not scatter one authored plan across multiple unrelated directories; keep `plan.md` and supporting files under the selected plan output directory.
 - Do not omit the authored workspace contract from the v3 plan.
 - Do not silently translate a custom workspace contract into `houmao-ws/...`.
+- Do not leave a run in single-file form when its reporting contract or bookkeeping posture clearly needs reusable plan-owned templates; switch that run to bundle form.
+- Do not treat files under `<plan-output-dir>/templates/` as live runtime state; they are authored reusable source artifacts for the run.
 - Do not prescribe a fixed subtree under per-agent `kb/`; custom bookkeeping paths are task-specific and must be declared explicitly.
 - Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v3 write surfaces; route them to `houmao-memory-mgr`.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text; use exact `run_id` plus slot sentinels.

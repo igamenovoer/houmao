@@ -7,4 +7,4 @@ Gateway: `{{GATEWAY_BASE_URL}}`
 
 {{MAILBOX_API_SUMMARY}}{{APPENDIX_BLOCK}}
 
-Process relevant inbox mail, archive only completed messages, then stop.
+Use the mailbox skill or API above for this round.

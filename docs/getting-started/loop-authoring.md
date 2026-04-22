@@ -40,6 +40,8 @@ That means a pairwise-v3 plan owns three different storage classes:
 
 The runtime-owned recovery files remain Houmao-owned state, not ordinary workspace or bookkeeping paths.
 
+When the run needs reusable report forms or bookkeeping scaffolds, those files live inside the authored plan bundle under `<plan-output-dir>/templates/`. They are still authored plan files, not a fourth runtime storage class.
+
 ### `standard` versus `custom`
 
 When the workspace contract uses `standard`, the plan records which Houmao-standard posture the run expects.
@@ -98,6 +100,37 @@ Do not route custom operator-owned workspace contracts through workspace-manager
 Pairwise-v3 plans can declare bookkeeping paths, but Houmao does not impose one fixed subtree under per-agent `kb/`.
 
 The plan should say which bookkeeping paths are valid for the run. It should not assume that every task uses the same note or log layout.
+
+### Plan-owned template bundles
+
+Use bundle form for pairwise-v3 when the run needs reusable reporting or bookkeeping templates.
+
+Typical bundle additions:
+
+```text
+<plan-output-dir>/
+  plan.md
+  ...
+  templates/
+    README.md
+    reporting/
+      peek.md
+      completion.md
+      stop-summary.md
+    bookkeeping/
+      <task-shaped-template>.md
+```
+
+These files are reusable authored scaffolds:
+
+- `templates/reporting/` mirrors the plan's reporting contract for the report surfaces the run actually uses
+- `templates/bookkeeping/` carries task-shaped checklists, ledgers, handoff outlines, or other bookkeeping aids derived from the run objective, topology, roles, and declared bookkeeping paths
+
+Keep the boundary clear:
+
+- files under `templates/` are authored source artifacts in the plan bundle
+- mutable filled-in copies belong in declared bookkeeping paths during execution
+- runtime-owned recovery files stay under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`
 
 ---
 

@@ -21,13 +21,16 @@ Bundle output shape:
 - `<plan-output-dir>/graph.md`
 - `<plan-output-dir>/delegation.md`
 - `<plan-output-dir>/reporting.md`
+- `<plan-output-dir>/templates/README.md`, when the run needs reusable reporting or bookkeeping scaffolds
+- `<plan-output-dir>/templates/reporting/<files>`
+- `<plan-output-dir>/templates/bookkeeping/<files>`
 - `<plan-output-dir>/scripts/README.md`
 - `<plan-output-dir>/scripts/<files>`
 - `<plan-output-dir>/agents/<participant>.md`
 
 ## Single-File Form
 
-Use one output directory containing only `plan.md` when the run is compact and does not need many supporting notes or scripts.
+Use one output directory containing only `plan.md` when the run is compact and does not need many supporting notes, scripts, or reusable reporting/bookkeeping templates.
 
 Minimum sections:
 - Objective
@@ -50,7 +53,7 @@ Minimum sections:
 
 ## Bundle Form
 
-Use one directory when the run needs supporting Markdown files, script documentation, or agent-specific notes.
+Use one directory when the run needs supporting Markdown files, script documentation, agent-specific notes, or reusable reporting/bookkeeping templates.
 
 Canonical entrypoint:
 - `plan.md`
@@ -64,9 +67,14 @@ Suggested bundle contents:
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
+- `templates/README.md`, when the run needs reusable reporting or bookkeeping scaffolds
+- `templates/reporting/<files>`
+- `templates/bookkeeping/<files>`
 - `scripts/README.md`
 - `scripts/<files>`
 - `agents/<participant>.md`
+
+When the run needs reusable reporting or bookkeeping scaffolds, use bundle form rather than single-file form.
 
 ## Workspace Contract
 
@@ -95,6 +103,16 @@ For `custom`, record:
 - explicit ad hoc worktree posture
 
 The workspace contract should describe allowed surfaces and ownership, not prescribe one fixed subtree under per-agent `kb/`.
+
+## Template Bundle
+
+When a bundle plan includes reusable templates, keep them under `<plan-output-dir>/templates/`.
+
+Use discoverable categories:
+- `templates/reporting/` for report forms derived from the reporting contract
+- `templates/bookkeeping/` for task-shaped bookkeeping scaffolds derived from the objective, topology, participant roles, and declared bookkeeping paths
+
+Record those templates as authored reusable source artifacts. Filled-in copies or mutable run artifacts belong in declared bookkeeping paths during execution, not back inside the authored template bundle.
 
 ## Standard In-Repo Workspace Contract
 
@@ -209,6 +227,7 @@ For bundle plans, `prestart.md` should record:
 - operator reply policy for preparation mail
 - routing packet validation rules, root packet location, packet inventory, and child dispatch-table expectations when routing packets are part of the plan
 - authored topology or descendant relationships used to verify packet coverage
+- generated template inventory or a reference to `templates/README.md`, when reusable templates are part of the bundle
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
 - readiness rules for the selected strategy
 - how the master trigger is kept separate from `initialize`
@@ -230,8 +249,10 @@ For each script, record:
 - Do not leave the single-file form without `plan.md`.
 - Do not leave the bundle form without `plan.md`.
 - Do not leave the bundle form without `prestart.md` when prestart strategy is part of the run contract.
+- Do not keep a reusable template inventory only in conversation state; record it in the authored bundle.
 - Do not leave the workspace contract implicit.
 - Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`.
+- Do not describe files under `<plan-output-dir>/templates/` as mutable bookkeeping outputs or runtime-owned recovery state.
 - Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
 - Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
 - Do not invent launch-profile references for participants the plan did not specify.
