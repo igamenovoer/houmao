@@ -7312,7 +7312,7 @@ def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_c
         "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: (_ for _ in ()).throw(
             click.ClickException(
-                "Managed launch `--reuse-home` requires one compatible preserved home for "
+                "Managed launch `--reuse-home` requires one compatible stopped preserved home for "
                 "managed agent `repo-research-1` (agent_id `agent-repo-research-1`), but none "
                 "was found."
             )
@@ -7336,7 +7336,7 @@ def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_c
     )
 
     assert result.exit_code != 0
-    assert "requires one compatible preserved home" in result.output
+    assert "requires one compatible stopped preserved home" in result.output
 
 
 def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
@@ -7432,6 +7432,104 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
     assert captured["force_mode"] == "clean"
     assert captured["managed_header_section_overrides"] == {"automation-notice": "disabled"}
     assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
+
+
+def test_project_easy_instance_launch_profile_forwards_reuse_home_with_current_profile_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    overlay = SimpleNamespace(project_root=tmp_path.resolve())
+    preset_path = (tmp_path / "preset.yaml").resolve()
+    preset_path.write_text("role: researcher\n", encoding="utf-8")
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    source_agent_def_dir.mkdir(parents=True, exist_ok=True)
+    specialist = SimpleNamespace(
+        tool="codex",
+        provider="codex",
+        resolved_preset_path=lambda project_overlay: preset_path,
+    )
+    resolved_profile = SimpleNamespace(
+        specialist=specialist,
+        source_exists=True,
+        recipe_name="researcher",
+        prompt_overlay_text="Prefer review summaries first.",
+        gateway_mail_notifier_appendix_text=None,
+        memo_seed=None,
+        entry=SimpleNamespace(
+            name="alice",
+            profile_lane="easy_profile",
+            source_kind="specialist",
+            source_name="researcher",
+            mailbox_payload=None,
+            operator_prompt_mode="unattended",
+            env_payload={"PROJECT_CONTEXT": "alice"},
+            model_name="gpt-5.4-mini",
+            reasoning_level=4,
+            managed_header_policy="inherit",
+            prompt_overlay_mode="append",
+            posture_payload={"headless": True},
+            managed_agent_name="profile-agent",
+            auth_name="alice-creds",
+            workdir=None,
+            managed_header_section_policy={},
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
+        lambda: overlay,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy._load_launch_profile_or_click",
+        lambda **kwargs: resolved_profile,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="profile-agent",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "instance",
+            "launch",
+            "--profile",
+            "alice",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["reuse_home"] is True
+    assert captured["agent_name"] == "profile-agent"
+    assert captured["auth"] == "alice-creds"
+    assert captured["operator_prompt_mode"] == "unattended"
+    assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
+    assert captured["prompt_overlay_mode"] == "append"
+    assert captured["prompt_overlay_text"] == "Prefer review summaries first."
+    assert captured["launch_profile_model_config"].name == "gpt-5.4-mini"
+    assert captured["launch_profile_model_config"].reasoning.level == 4
 
 
 def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_delegation(

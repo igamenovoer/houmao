@@ -994,6 +994,52 @@ def test_resolve_start_session_identity_preserves_explicit_tmux_session_name_ove
     assert resolved.tmux_session_name == "custom-gpu"
 
 
+def test_resolve_start_session_identity_uses_default_tmux_session_name_when_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"HOUMAO-other"},
+    )
+
+    resolved = _resolve_start_session_identity(
+        manifest={},
+        tool="codex",
+        role_name="gpu-kernel-coder",
+        requested_agent_name="gpu",
+        requested_agent_identity=None,
+        requested_agent_id=derive_agent_id_from_name("gpu"),
+        default_tmux_session_name="HOUMAO-gpu-preserved",
+    )
+
+    assert resolved.agent_name == "gpu"
+    assert resolved.canonical_agent_name == "HOUMAO-gpu"
+    assert resolved.tmux_session_name == "HOUMAO-gpu-preserved"
+
+
+def test_resolve_start_session_identity_fails_when_default_tmux_session_name_is_occupied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.list_tmux_sessions_shared",
+        lambda: {"HOUMAO-gpu-preserved"},
+    )
+
+    with pytest.raises(
+        SessionManifestError,
+        match="Managed reused-home restart cannot restore preserved tmux session name",
+    ):
+        _resolve_start_session_identity(
+            manifest={},
+            tool="codex",
+            role_name="gpu-kernel-coder",
+            requested_agent_name="gpu",
+            requested_agent_identity=None,
+            requested_agent_id=derive_agent_id_from_name("gpu"),
+            default_tmux_session_name="HOUMAO-gpu-preserved",
+        )
+
+
 def test_tmux_backed_manifest_build_rejects_suffixed_handle_without_explicit_identity(
     tmp_path: Path,
 ) -> None:

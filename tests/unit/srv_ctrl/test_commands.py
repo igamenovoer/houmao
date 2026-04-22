@@ -2959,7 +2959,7 @@ def test_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
         "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
         lambda **kwargs: (_ for _ in ()).throw(
             click.ClickException(
-                "Managed launch `--reuse-home` requires one compatible preserved home for "
+                "Managed launch `--reuse-home` requires one compatible stopped preserved home for "
                 "managed agent `worker-a` (agent_id `agent-worker-a`), but none was found."
             )
         ),
@@ -2979,7 +2979,7 @@ def test_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
     )
 
     assert result.exit_code != 0
-    assert "requires one compatible preserved home" in result.output
+    assert "requires one compatible stopped preserved home" in result.output
 
 
 def test_agents_launch_reuse_home_live_owner_conflict_requires_force(
@@ -2993,8 +2993,7 @@ def test_agents_launch_reuse_home_live_owner_conflict_requires_force(
         lambda **kwargs: (_ for _ in ()).throw(
             click.ClickException(
                 "Managed agent `worker-a` (agent_id `agent-worker-a`) already owns a live "
-                "registry record. Rerun with `--force` to replace it. `--reuse-home` alone "
-                "does not replace a live owner."
+                "registry record. Stop the live owner before attempting `--reuse-home` restart."
             )
         ),
     )
@@ -3013,8 +3012,107 @@ def test_agents_launch_reuse_home_live_owner_conflict_requires_force(
     )
 
     assert result.exit_code != 0
-    assert "Rerun with `--force`" in result.output
-    assert "`--reuse-home` alone does not replace a live owner." in result.output
+    assert "Stop the live owner before attempting `--reuse-home` restart." in result.output
+
+
+def test_agents_launch_launch_profile_forwards_reuse_home_with_current_profile_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    invocation_directory = (tmp_path / "invoke").resolve()
+    project_root = (tmp_path / "repo").resolve()
+    source_agent_def_dir = (project_root / ".houmao" / "agents").resolve()
+    recipe_path = (source_agent_def_dir / "presets" / "researcher-codex-default.yaml").resolve()
+    invocation_directory.mkdir(parents=True, exist_ok=True)
+    project_root.mkdir(parents=True, exist_ok=True)
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
+    recipe_path.write_text("role: researcher\n", encoding="utf-8")
+
+    overlay = SimpleNamespace(project_root=project_root)
+    resolved_profile = SimpleNamespace(
+        entry=SimpleNamespace(
+            name="alice",
+            profile_lane="launch_profile",
+            source_kind="recipe",
+            source_name="researcher-codex-default",
+            managed_agent_name="alice",
+            managed_agent_id="agent-alice",
+            workdir=str(project_root / "profile-workdir"),
+            auth_name="alice-creds",
+            model_name="gpt-5.4-mini",
+            reasoning_level=4,
+            operator_prompt_mode="unattended",
+            env_payload={"PROJECT_CONTEXT": "alice"},
+            mailbox_payload=None,
+            posture_payload={"headless": True},
+            managed_header_policy="inherit",
+            managed_header_section_policy={},
+            prompt_overlay_mode="append",
+        ),
+        source_exists=True,
+        recipe_path=recipe_path,
+        provider="codex",
+        recipe_name="researcher-codex-default",
+        prompt_overlay_text="Prefer Alice repository conventions.",
+        gateway_mail_notifier_appendix_text=None,
+        memo_seed=None,
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.chdir(invocation_directory)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
+        lambda **kwargs: SimpleNamespace(project_overlay=overlay),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
+        lambda **kwargs: resolved_profile,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
+        lambda project_overlay: source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-1234",
+                tmux_session_name="alice-session",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "launch",
+            "--launch-profile",
+            "alice",
+            "--provider",
+            "codex",
+            "--reuse-home",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["reuse_home"] is True
+    assert captured["agent_name"] == "alice"
+    assert captured["agent_id"] == "agent-alice"
+    assert captured["operator_prompt_mode"] == "unattended"
+    assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
+    assert captured["prompt_overlay_mode"] == "append"
+    assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
+    assert captured["launch_profile_model_config"].name == "gpt-5.4-mini"
+    assert captured["launch_profile_model_config"].reasoning.level == 4
 
 
 def test_agents_launch_rejects_reuse_home_clean_force_before_delegation(

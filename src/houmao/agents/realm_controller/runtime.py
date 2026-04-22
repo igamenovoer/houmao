@@ -1242,6 +1242,7 @@ def start_runtime_session(
     gateway_execution_mode_override: GatewayCurrentExecutionMode | None = None,
     gateway_tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     tmux_session_name: str | None = None,
+    default_tmux_session_name: str | None = None,
     launch_env_overrides: dict[str, str] | None = None,
     managed_force_mode: ManagedLaunchForceMode | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
@@ -1312,6 +1313,7 @@ def start_runtime_session(
             requested_agent_identity=agent_identity,
             requested_agent_id=agent_id,
             requested_tmux_session_name=tmux_session_name,
+            default_tmux_session_name=default_tmux_session_name,
         )
         agent_identity_warnings = resolved_runtime_identity.warnings
         existing_record = resolve_live_agent_record_by_agent_id(resolved_runtime_identity.agent_id)
@@ -1422,7 +1424,7 @@ def start_runtime_session(
         cao_profile_store_dir=cao_profile_store_dir,
         session_manifest_path=manifest_path,
         agent_identity=(
-            tmux_session_name or resolved_runtime_identity.tmux_session_name
+            resolved_runtime_identity.tmux_session_name
             if resolved_runtime_identity is not None
             else None
         ),
@@ -3016,6 +3018,7 @@ def _resolve_start_session_identity(
     requested_agent_identity: str | None,
     requested_agent_id: str | None,
     requested_tmux_session_name: str | None = None,
+    default_tmux_session_name: str | None = None,
 ) -> ResolvedRuntimeIdentity:
     """Resolve canonical name, authoritative id, and tmux handle for session start."""
 
@@ -3075,8 +3078,27 @@ def _resolve_start_session_identity(
         if requested_tmux_session_name is not None and requested_tmux_session_name.strip()
         else None
     )
+    stripped_default_tmux_session_name = (
+        default_tmux_session_name.strip()
+        if default_tmux_session_name is not None and default_tmux_session_name.strip()
+        else None
+    )
     if stripped_requested_tmux_session_name is not None:
         resolved_tmux_session_name = stripped_requested_tmux_session_name
+    elif stripped_default_tmux_session_name is not None:
+        try:
+            occupied_session_names = list_tmux_sessions_shared()
+        except TmuxCommandError as exc:
+            raise SessionManifestError(
+                "start-session requires `tmux` on PATH for tmux-backed backends."
+            ) from exc
+        if stripped_default_tmux_session_name in occupied_session_names:
+            raise SessionManifestError(
+                "Managed reused-home restart cannot restore preserved tmux session name "
+                f"`{stripped_default_tmux_session_name}` because a live tmux session already "
+                "uses it. Stop that session or pass an explicit `--session-name` override."
+            )
+        resolved_tmux_session_name = stripped_default_tmux_session_name
     else:
         try:
             occupied_session_names = list_tmux_sessions_shared()
@@ -3705,7 +3727,9 @@ def _build_stopped_shared_registry_record_for_controller(
 
     session_root = runtime_owned_session_root_from_manifest_path(controller.manifest_path)
     stopped_at = datetime.now(UTC)
-    last_session_name = last_tmux_session_name or controller.tmux_session_name or canonical_agent_name
+    last_session_name = (
+        last_tmux_session_name or controller.tmux_session_name or canonical_agent_name
+    )
     return ManagedAgentRegistryRecordV3(
         agent_name=canonicalize_registry_agent_name(canonical_agent_name),
         agent_id=agent_id,
@@ -3750,7 +3774,9 @@ def _shared_registry_runtime_payload(
         manifest_path=str(controller.manifest_path.resolve()),
         session_root=str(session_root.resolve()) if session_root is not None else None,
         agent_def_dir=(
-            str(controller.agent_def_dir.resolve()) if controller.agent_def_dir is not None else None
+            str(controller.agent_def_dir.resolve())
+            if controller.agent_def_dir is not None
+            else None
         ),
     )
 

@@ -1528,7 +1528,7 @@ def easy_instance_group() -> None:
 @click.option(
     "--reuse-home",
     is_flag=True,
-    help="Rebuild onto one compatible preserved home for the resolved managed identity.",
+    help="Restart on one compatible stopped preserved home for the resolved managed identity.",
 )
 @managed_launch_force_option
 def launch_easy_instance_command(

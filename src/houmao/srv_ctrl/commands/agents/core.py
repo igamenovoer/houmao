@@ -233,10 +233,21 @@ class _ManagedPredecessorHomeContext:
     home_id: str
     home_path: Path
     runtime_root: Path
+    last_tmux_session_name: str | None
     force_mode: ManagedLaunchForceMode | None
     target: ManagedAgentTarget | None
     session_root: Path | None
     mailbox_cleanup_paths: tuple[Path, ...]
+
+
+def _last_tmux_session_name_from_record(record: ManagedAgentRegistryRecordV3) -> str | None:
+    """Return the normalized last tmux session name from one registry record."""
+
+    terminal = getattr(record, "terminal", None)
+    last_session_name = getattr(terminal, "last_session_name", None)
+    if not isinstance(last_session_name, str) or not last_session_name.strip():
+        return None
+    return last_session_name.strip()
 
 
 def _load_brain_home_identity_from_manifest(
@@ -286,7 +297,7 @@ def _load_managed_predecessor_home_context(
         )
     if require_same_tool and record.identity.tool != requested_tool:
         raise RuntimeError(
-            "Managed preserved-home launch requires matching tool families. Existing managed "
+            "Managed preserved-home launch requires the same CLI tool type. Existing managed "
             f"agent `{managed_launch_identity.agent_name}` uses tool `{record.identity.tool}`, "
             f"but this launch resolved `{requested_tool}`."
         )
@@ -344,6 +355,7 @@ def _load_managed_predecessor_home_context(
         home_id=predecessor_home_id,
         home_path=predecessor_home_path,
         runtime_root=predecessor_runtime_root,
+        last_tmux_session_name=_last_tmux_session_name_from_record(record),
         force_mode=force_mode,
         target=target,
         session_root=session_root,
@@ -394,6 +406,13 @@ def _resolve_managed_predecessor_home_context(
 
     existing_record = resolve_live_agent_record_by_agent_id(managed_launch_identity.agent_id)
     if existing_record is not None:
+        if reuse_home:
+            raise RuntimeError(
+                "Managed agent "
+                f"`{managed_launch_identity.agent_name}` (agent_id "
+                f"`{managed_launch_identity.agent_id}`) already owns a live registry record. "
+                "Stop the live owner before attempting `--reuse-home` restart."
+            )
         if force_mode is None:
             detail = (
                 "Managed agent "
@@ -401,8 +420,6 @@ def _resolve_managed_predecessor_home_context(
                 f"`{managed_launch_identity.agent_id}`) already owns a live registry record. "
                 "Rerun with `--force` to replace it."
             )
-            if reuse_home:
-                detail += " `--reuse-home` alone does not replace a live owner."
             raise RuntimeError(detail)
         return _load_managed_predecessor_home_context(
             managed_launch_identity=managed_launch_identity,
@@ -422,7 +439,7 @@ def _resolve_managed_predecessor_home_context(
     )
     if relaunchable_record is None:
         raise RuntimeError(
-            "Managed launch `--reuse-home` requires one compatible preserved home for managed "
+            "Managed launch `--reuse-home` requires one compatible stopped preserved home for "
             f"agent `{managed_launch_identity.agent_name}` (agent_id "
             f"`{managed_launch_identity.agent_id}`), but none was found."
         )
@@ -793,6 +810,11 @@ def launch_managed_agent_locally(
             prefer_local_interactive=not headless,
         )
         resolved_backend_name = resolved_backend
+        default_tmux_session_name = (
+            predecessor_context.last_tmux_session_name
+            if reuse_home and session_name is None and predecessor_context is not None
+            else None
+        )
         controller = start_runtime_session(
             agent_def_dir=target.agent_def_dir,
             brain_manifest_path=build_result.manifest_path.resolve(),
@@ -804,6 +826,7 @@ def launch_managed_agent_locally(
             agent_name=agent_name,
             agent_id=agent_id,
             tmux_session_name=session_name,
+            default_tmux_session_name=default_tmux_session_name,
             launch_env_overrides=launch_env_overrides,
             gateway_auto_attach=gateway_auto_attach,
             gateway_host=gateway_host,
@@ -1021,7 +1044,7 @@ def agents_group() -> None:
 @click.option(
     "--reuse-home",
     is_flag=True,
-    help="Rebuild onto one compatible preserved home for the resolved managed identity.",
+    help="Restart on one compatible stopped preserved home for the resolved managed identity.",
 )
 @managed_launch_force_option
 def launch_agents_command(
