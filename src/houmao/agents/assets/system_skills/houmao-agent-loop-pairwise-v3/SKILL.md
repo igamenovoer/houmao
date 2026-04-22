@@ -22,7 +22,7 @@ It extends `houmao-agent-loop-pairwise-v2` instead of replacing the stable `houm
 
 Use this skill when the user needs one of these:
 - `plan`: create or revise a workspace-aware enriched pairwise loop plan
-- `initialize`: validate routing packets and write durable per-agent memo guidance
+- `initialize`: validate routing packets, write durable per-agent memo guidance, and when explicit `operator_preparation_wave` is selected, treat gateway mail-notifier enablement before preparation mail as mandatory
 - `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`: operate a prepared or active run
 
 Do not use this skill for:
@@ -42,6 +42,7 @@ Do not use this skill for:
 - When the plan provides launch profiles for missing participants, `initialize` first checks mailbox association on those profiles, then may launch them before mail-capability checks and memo materialization continue.
 - Pairwise-v3 requires email/mailbox support for the designated master and every required participant; if any required participant lacks it, `initialize` and `recover_and_continue` fail closed.
 - `operator_preparation_wave` is explicit opt-in.
+- When `operator_preparation_wave` is selected, `initialize` must verify or enable gateway mail notification for each targeted participant before any preparation mail is sent.
 - `resume` is pause-only.
 - `recover_and_continue` preserves the same `run_id` after participant stop, kill, or relaunch when the runtime-owned recovery record still marks the run recoverable.
 - `hard-kill` is terminal.
@@ -179,7 +180,7 @@ Workspace posture:
 Messaging and mail:
 - Route ordinary `start` to `houmao-agent-email-comms` by default, and use `houmao-agent-messaging` only when the user explicitly asks for direct prompt delivery.
 - Route `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and participant interrupts within `hard-kill` to `houmao-agent-messaging`.
-- Route explicit `operator_preparation_wave` mail-notifier enablement, agent email-notification re-enable work during `recover_and_continue`, declarative notifier restoration, and `hard-kill` notifier shutdown to `houmao-agent-gateway`.
+- Route explicit `operator_preparation_wave` mail-notifier enablement as a required pre-mail initialize step, agent email-notification re-enable work during `recover_and_continue`, declarative notifier restoration, and `hard-kill` notifier shutdown to `houmao-agent-gateway`.
 - Route explicit `operator_preparation_wave` preparation mail, in-loop pairwise email traffic, and `hard-kill` mail archiving to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr`.
 
@@ -213,6 +214,7 @@ Plan, workspace, and memory:
 
 Runtime behavior:
 - Do not treat standalone participant preparation mail as the default initialize path; it belongs only to explicit `operator_preparation_wave`.
+- Do not send `operator_preparation_wave` preparation mail before gateway mail-notifier behavior has been verified or enabled for each targeted participant that supports it.
 - Do not invent launch profiles for missing participants during `initialize`.
 - Do not skip run-owned initialize memo materialization or exact-sentinel memo blocks for participants whose managed memory is being used.
 - Do not proceed with pairwise-v3 when any required participant lacks email/mailbox support.
