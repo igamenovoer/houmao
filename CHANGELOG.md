@@ -4,8 +4,20 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
-## [0.8.2] - 2026-04-22
+## [0.8.3] - 2026-04-24
 
+### Fixed
+
+- **`--with-skill` no longer risks deleting caller-owned source trees**: project skill import/update flows now treat user-provided skill paths as read-only sources, mutating only Houmao-managed lexical paths under `.houmao/`. Symlink-backed managed artifacts are unlinked or replaced safely instead of recursively deleting through the symlink target.
+- **`project migrate` no longer rewrites repo-owned skill directories through symlinked compatibility paths**: migration now preserves caller-owned skill trees while canonicalizing managed project content, closing the self-symlink / symlink-loop failure mode reported against pending-migration overlays.
+- **Owned-path cleanup is enforced across credentials, runtime cleanup, registry cleanup, and server-managed headless storage**: destructive operations now require declared Houmao-owned roots and refuse to follow symlink escapes outside those roots.
+
+### Notes
+
+- This release bumps the patch segment for the `--with-skill` source-deletion fix, the `project migrate` self-symlink fix, and the broader owned-path mutation hardening work.
+- The `gh release create v0.8.3` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
+## [0.8.2] - 2026-04-22
 ### Added
 
 - **Plan-owned pairwise-v3 template bundles**: `houmao-agent-loop-pairwise-v3` bundle plans can now generate a `<plan-output-dir>/templates/` tree with reusable reporting and bookkeeping scaffolds. Reporting templates are derived from the reporting contract, bookkeeping templates remain task-shaped, and the skill now makes bundle form the default whenever reusable templates are part of the run contract.
