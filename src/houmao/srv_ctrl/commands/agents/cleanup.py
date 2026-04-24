@@ -26,13 +26,13 @@ def _cleanup_target_options(function: Callable[..., Any]) -> Callable[..., Any]:
         "--session-root",
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
-        help="Explicit runtime-owned session root for a stopped managed session.",
+        help="Explicit runtime-owned session root for a stopped managed session; symlink escapes outside Houmao-owned runtime roots are rejected.",
     )(function)
     function = click.option(
         "--manifest-path",
         type=click.Path(path_type=Path, file_okay=True, dir_okay=False),
         default=None,
-        help="Explicit runtime-owned session manifest path for a stopped managed session.",
+        help="Explicit runtime-owned session manifest path for a stopped managed session; cleanup never deletes outside Houmao-owned runtime roots.",
     )(function)
     return managed_agent_selector_options(function)
 

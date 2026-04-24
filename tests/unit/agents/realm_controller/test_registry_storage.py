@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Literal
@@ -571,17 +570,23 @@ def test_cleanup_reports_failed_removals_and_continues(
         encoding="utf-8",
     )
 
-    original_rmtree = shutil.rmtree
-
-    def _fake_rmtree(path: Path, *, ignore_errors: bool = False) -> None:
-        del ignore_errors
+    def _fake_remove_tree_or_path(path: Path, *, allowed_roots: tuple[Path, ...] | None = None) -> None:
+        del allowed_roots
         if Path(path).name == "stale-failure":
             raise OSError("directory busy")
-        original_rmtree(path)
+        if Path(path).is_symlink() or Path(path).is_file():
+            Path(path).unlink()
+        else:
+            for child in sorted(Path(path).iterdir()):
+                if child.is_dir() and not child.is_symlink():
+                    _fake_remove_tree_or_path(child)
+                else:
+                    child.unlink()
+            Path(path).rmdir()
 
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.registry_storage.shutil.rmtree",
-        _fake_rmtree,
+        "houmao.agents.realm_controller.registry_storage.remove_tree_or_path",
+        _fake_remove_tree_or_path,
     )
 
     result = cleanup_stale_live_agent_records(
@@ -786,3 +791,45 @@ def test_cleanup_no_tmux_check_preserves_fresh_record_without_local_probe(
     assert result.planned_agent_ids == ()
     assert result.preserved_agent_ids == (fresh_record.agent_id,)
     assert result.actions[0].reason == "lease remains fresh and local tmux checking was disabled"
+
+
+def test_registry_publish_replaces_symlinked_entry_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record = _sample_record()
+    external_entry = (tmp_path / "external-entry").resolve()
+    external_entry.mkdir(parents=True, exist_ok=True)
+    (external_entry / "record.json").write_text('{"external": true}\n', encoding="utf-8")
+    entry_path = registry_root / "live_agents" / record.agent_id
+    entry_path.parent.mkdir(parents=True, exist_ok=True)
+    entry_path.symlink_to(external_entry, target_is_directory=True)
+
+    publish_live_agent_record(record)
+
+    assert entry_path.is_dir()
+    assert not entry_path.is_symlink()
+    assert json.loads((entry_path / "record.json").read_text(encoding="utf-8"))["agent_id"] == record.agent_id
+    assert json.loads((external_entry / "record.json").read_text(encoding="utf-8")) == {"external": True}
+
+
+def test_registry_cleanup_unlinks_symlinked_entry_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    external_entry = (tmp_path / "external-entry").resolve()
+    external_entry.mkdir(parents=True, exist_ok=True)
+    (external_entry / "record.json").write_text('{"external": true}\n', encoding="utf-8")
+    symlink_entry = registry_root / "live_agents" / "stale-link"
+    symlink_entry.parent.mkdir(parents=True, exist_ok=True)
+    symlink_entry.symlink_to(external_entry, target_is_directory=True)
+
+    result = cleanup_stale_live_agent_records(dry_run=False)
+
+    assert result.removed_agent_ids == ("stale-link",)
+    assert not symlink_entry.exists()
+    assert (external_entry / "record.json").is_file()

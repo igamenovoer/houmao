@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -12,6 +11,7 @@ from typing import Callable, Literal, Mapping
 
 from pydantic import ValidationError
 
+from houmao.owned_mutation import remove_tree_or_path
 from houmao.owned_paths import resolve_registry_root
 
 from houmao.agents.realm_controller.agent_identity import normalize_managed_agent_id
@@ -77,7 +77,7 @@ def global_registry_paths(*, env: Mapping[str, str] | None = None) -> GlobalRegi
     """Return the resolved shared-registry directory layout."""
 
     root = resolve_global_registry_root(env=env)
-    return GlobalRegistryPaths(root=root, live_agents_dir=(root / "live_agents").resolve())
+    return GlobalRegistryPaths(root=root, live_agents_dir=root / "live_agents")
 
 
 def new_registry_generation_id() -> str:
@@ -95,7 +95,7 @@ def record_path_for_agent_id(
 
     normalized_agent_id = _normalize_agent_id_component(agent_id)
     paths = global_registry_paths(env=env)
-    return (paths.live_agents_dir / normalized_agent_id / "record.json").resolve()
+    return paths.live_agents_dir / normalized_agent_id / "record.json"
 
 
 def load_managed_agent_record_by_agent_id(
@@ -106,6 +106,8 @@ def load_managed_agent_record_by_agent_id(
     """Load one strict registry record regardless of lifecycle state or freshness."""
 
     path = record_path_for_agent_id(agent_id, env=env)
+    if path.parent.is_symlink() or path.is_symlink():
+        return None
     if not path.is_file():
         return None
     return _read_managed_agent_record(path)
@@ -345,6 +347,12 @@ def publish_managed_agent_record(
         ) from exc
 
     path = record_path_for_agent_id(publish_record.agent_id, env=env)
+    live_agents_dir = global_registry_paths(env=env).live_agents_dir
+    if live_agents_dir.is_symlink():
+        remove_tree_or_path(live_agents_dir, allowed_roots=(global_registry_paths(env=env).root,))
+    if path.parent.is_symlink():
+        remove_tree_or_path(path.parent, allowed_roots=(live_agents_dir,))
+    live_agents_dir.mkdir(parents=True, exist_ok=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_json_atomically(path, payload)
 
@@ -388,7 +396,7 @@ def remove_managed_agent_record(
     if not record_dir.exists():
         return False
 
-    shutil.rmtree(record_dir, ignore_errors=False)
+    remove_tree_or_path(record_dir, allowed_roots=(global_registry_paths(env=env).live_agents_dir,))
     return True
 
 
@@ -404,6 +412,31 @@ def cleanup_stale_managed_agent_records(
 
     current_time = _coerce_now(now)
     paths = global_registry_paths(env=env)
+    if paths.live_agents_dir.is_symlink():
+        action = RegistryCleanupAction(
+            agent_id="live_agents",
+            path=paths.live_agents_dir,
+            outcome="planned" if dry_run else "removed",
+            reason="shared-registry live_agents root is a symlink",
+        )
+        if dry_run:
+            return RegistryCleanupResult(
+                registry_root=paths.root,
+                removed_agent_ids=(),
+                preserved_agent_ids=(),
+                failed_agent_ids=(),
+                planned_agent_ids=("live_agents",),
+                actions=(action,),
+            )
+        remove_tree_or_path(paths.live_agents_dir, allowed_roots=(paths.root,))
+        return RegistryCleanupResult(
+            registry_root=paths.root,
+            removed_agent_ids=("live_agents",),
+            preserved_agent_ids=(),
+            failed_agent_ids=(),
+            planned_agent_ids=(),
+            actions=(action,),
+        )
     if not paths.live_agents_dir.exists():
         return RegistryCleanupResult(
             registry_root=paths.root,
@@ -420,52 +453,60 @@ def cleanup_stale_managed_agent_records(
     planned: list[str] = []
     actions: list[RegistryCleanupAction] = []
     for candidate in sorted(paths.live_agents_dir.iterdir()):
-        if not candidate.is_dir():
-            continue
-
-        record_path = candidate / "record.json"
-        should_remove = False
-        remove_reason = ""
-        preserve_reason = "registry record remains valid"
-        if not record_path.is_file():
+        if candidate.is_symlink():
             should_remove = True
-            remove_reason = "shared-registry record.json is missing"
+            remove_reason = "shared-registry entry is a symlink"
+            preserve_reason = ""
+            record_path = candidate / "record.json"
+        elif not candidate.is_dir():
+            continue
         else:
-            try:
-                record = _read_managed_agent_record(record_path)
-            except SessionManifestError:
+            record_path = candidate / "record.json"
+            should_remove = False
+            remove_reason = ""
+            preserve_reason = "registry record remains valid"
+            if record_path.is_symlink():
                 should_remove = True
-                remove_reason = "shared-registry record.json is malformed"
+                remove_reason = "shared-registry record.json is a symlink"
+            elif not record_path.is_file():
+                should_remove = True
+                remove_reason = "shared-registry record.json is missing"
             else:
-                if record.lifecycle.state in {"stopped", "retired"}:
-                    preserve_reason = f"lifecycle state `{record.lifecycle.state}` is durable"
+                try:
+                    record = _read_managed_agent_record(record_path)
+                except SessionManifestError:
+                    should_remove = True
+                    remove_reason = "shared-registry record.json is malformed"
                 else:
-                    should_remove = _record_expired_beyond_grace(
-                        record,
-                        now=current_time,
-                        grace_period=grace_period,
-                    )
-                    if should_remove:
-                        remove_reason = (
-                            "registry lease expired beyond the cleanup grace period"
+                    if record.lifecycle.state in {"stopped", "retired"}:
+                        preserve_reason = f"lifecycle state `{record.lifecycle.state}` is durable"
+                    else:
+                        should_remove = _record_expired_beyond_grace(
+                            record,
+                            now=current_time,
+                            grace_period=grace_period,
                         )
-                    elif (
-                        probe_local_tmux
-                        and record.terminal.current_session_name is not None
-                        and not tmux_session_exists(
-                            session_name=record.terminal.current_session_name,
-                        )
-                    ):
-                        should_remove = True
-                        remove_reason = "local tmux liveness probe found no owning session"
-                    elif probe_local_tmux and record.terminal.current_session_name is not None:
-                        preserve_reason = (
-                            "local tmux liveness probe confirmed the owning session"
-                        )
-                    elif not probe_local_tmux:
-                        preserve_reason = (
-                            "lease remains fresh and local tmux checking was disabled"
-                        )
+                        if should_remove:
+                            remove_reason = (
+                                "registry lease expired beyond the cleanup grace period"
+                            )
+                        elif (
+                            probe_local_tmux
+                            and record.terminal.current_session_name is not None
+                            and not tmux_session_exists(
+                                session_name=record.terminal.current_session_name,
+                            )
+                        ):
+                            should_remove = True
+                            remove_reason = "local tmux liveness probe found no owning session"
+                        elif probe_local_tmux and record.terminal.current_session_name is not None:
+                            preserve_reason = (
+                                "local tmux liveness probe confirmed the owning session"
+                            )
+                        elif not probe_local_tmux:
+                            preserve_reason = (
+                                "lease remains fresh and local tmux checking was disabled"
+                            )
 
         if should_remove:
             if dry_run:
@@ -473,20 +514,20 @@ def cleanup_stale_managed_agent_records(
                 actions.append(
                     RegistryCleanupAction(
                         agent_id=candidate.name,
-                        path=candidate.resolve(),
+                        path=candidate,
                         outcome="planned",
                         reason=remove_reason,
                     )
                 )
                 continue
             try:
-                shutil.rmtree(candidate, ignore_errors=False)
+                remove_tree_or_path(candidate, allowed_roots=(paths.live_agents_dir,))
             except OSError as exc:
                 failed.append(candidate.name)
                 actions.append(
                     RegistryCleanupAction(
                         agent_id=candidate.name,
-                        path=candidate.resolve(),
+                        path=candidate,
                         outcome="failed",
                         reason=f"{remove_reason}; removal failed: {exc}",
                     )
@@ -496,7 +537,7 @@ def cleanup_stale_managed_agent_records(
                 actions.append(
                     RegistryCleanupAction(
                         agent_id=candidate.name,
-                        path=candidate.resolve(),
+                        path=candidate,
                         outcome="removed",
                         reason=remove_reason,
                     )
@@ -507,7 +548,7 @@ def cleanup_stale_managed_agent_records(
         actions.append(
             RegistryCleanupAction(
                 agent_id=candidate.name,
-                path=candidate.resolve(),
+                path=candidate,
                 outcome="preserved",
                 reason=preserve_reason,
             )

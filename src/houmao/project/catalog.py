@@ -10,7 +10,6 @@ from importlib import resources
 from importlib.resources.abc import Traversable
 import json
 from pathlib import Path
-import shutil
 import sqlite3
 from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import uuid4
@@ -22,6 +21,14 @@ from houmao.agents.managed_prompt_header import (
     ManagedHeaderSectionPolicy,
     normalize_managed_header_policy,
     normalize_managed_header_section_policy_mapping,
+)
+from houmao.owned_mutation import (
+    remove_tree_or_path as _remove_tree_or_path,
+    replace_file as _replace_file,
+    replace_path_with_text as _replace_path_with_text,
+    replace_symlink as _replace_symlink,
+    replace_tree as _replace_tree,
+    require_owned_mutation_path as _require_owned_mutation_path,
 )
 
 if TYPE_CHECKING:
@@ -269,6 +276,46 @@ class ProjectCatalog:
             content_root=overlay.content_root,
             projection_root=overlay.agents_root,
         )
+
+    def _managed_skill_content_root(self) -> Path:
+        """Return the canonical managed skill root for this overlay."""
+
+        return self.m_content_root / "skills"
+
+    def _managed_skill_projection_root(self) -> Path:
+        """Return the derived managed skill projection root for this overlay."""
+
+        return self.m_projection_root / "skills"
+
+    def _managed_skill_content_path(self, name: str) -> Path:
+        """Return one lexical canonical project-skill path."""
+
+        return self._managed_skill_content_root() / name
+
+    def _managed_skill_projection_path(self, name: str) -> Path:
+        """Return one lexical derived project-skill projection path."""
+
+        return self._managed_skill_projection_root() / name
+
+    def _managed_auth_content_root(self, tool: str) -> Path:
+        """Return the canonical managed auth root for one tool."""
+
+        return self.m_content_root / "auth" / tool
+
+    def _managed_auth_content_path(self, *, tool: str, bundle_ref: str) -> Path:
+        """Return one lexical canonical auth bundle path."""
+
+        return self._managed_auth_content_root(tool) / bundle_ref
+
+    def _managed_auth_projection_root(self, tool: str) -> Path:
+        """Return the derived managed auth root for one tool."""
+
+        return self.m_projection_root / "tools" / tool / "auth"
+
+    def _managed_auth_projection_path(self, *, tool: str, bundle_ref: str) -> Path:
+        """Return one lexical derived auth bundle path."""
+
+        return self._managed_auth_projection_root(tool) / bundle_ref
 
     def initialize(self, *, allow_pending_migration: bool = False) -> None:
         """Create the catalog schema and managed content roots when missing."""
@@ -542,10 +589,11 @@ class ProjectCatalog:
         """Remove one existing auth profile and its managed auth content."""
 
         profile = self.load_auth_profile(tool=tool, name=name)
-        content_path = profile.content_ref.resolve_under_content_root(self.m_content_root)
-        projection_path = (
-            self.m_projection_root / "tools" / profile.tool / "auth" / profile.bundle_ref
-        ).resolve()
+        content_path = self._managed_auth_content_path(tool=profile.tool, bundle_ref=profile.bundle_ref)
+        projection_path = self._managed_auth_projection_path(
+            tool=profile.tool,
+            bundle_ref=profile.bundle_ref,
+        )
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -575,10 +623,8 @@ class ProjectCatalog:
                 "DELETE FROM content_refs WHERE id = ?",
                 (int(row["content_ref_id"]),),
             )
-        if content_path.is_dir():
-            shutil.rmtree(content_path)
-        if projection_path.is_dir():
-            shutil.rmtree(projection_path)
+        _remove_tree_or_path(content_path, allowed_roots=(self.m_content_root,))
+        _remove_tree_or_path(projection_path, allowed_roots=(self.m_projection_root,))
         return profile
 
     def project_skill_exists(
@@ -710,8 +756,8 @@ class ProjectCatalog:
         """Remove one project skill registry entry when no specialist still references it."""
 
         skill = self.load_project_skill(name)
-        content_path = skill.content_ref.resolve_under_content_root(self.m_content_root)
-        projection_path = self.m_projection_root / "skills" / skill.name
+        content_path = self._managed_skill_content_path(skill.name)
+        projection_path = self._managed_skill_projection_path(skill.name)
         with self._connect() as connection:
             row = connection.execute(
                 """
@@ -752,9 +798,15 @@ class ProjectCatalog:
                 content_ref_id=int(row["content_ref_id"]),
             )
         if content_path.exists() or content_path.is_symlink():
-            _remove_tree_or_path(content_path)
+            _remove_tree_or_path(
+                content_path,
+                allowed_roots=(self._managed_skill_content_root(),),
+            )
         if projection_path.exists() or projection_path.is_symlink():
-            _remove_tree_or_path(projection_path)
+            _remove_tree_or_path(
+                projection_path,
+                allowed_roots=(self._managed_skill_projection_root(),),
+            )
         return skill
 
     def specialist_exists(self, name: str) -> bool:
@@ -1059,12 +1111,13 @@ class ProjectCatalog:
             if delete_role_projection:
                 connection.execute("DELETE FROM roles WHERE id = ?", (role_id,))
         if delete_preset_projection:
-            (self.m_projection_root / "presets" / f"{specialist.preset_name}.yaml").unlink(
-                missing_ok=True
+            _remove_tree_or_path(
+                self.m_projection_root / "presets" / f"{specialist.preset_name}.yaml",
+                allowed_roots=(self.m_projection_root,),
             )
         role_root = self.m_projection_root / "roles" / specialist.role_name
-        if delete_role_projection and role_root.is_dir():
-            shutil.rmtree(role_root)
+        if delete_role_projection:
+            _remove_tree_or_path(role_root, allowed_roots=(self.m_projection_root,))
         return self.m_catalog_path
 
     def list_launch_profiles(self) -> list[LaunchProfileCatalogEntry]:
@@ -1409,8 +1462,9 @@ class ProjectCatalog:
                     f"Launch profile `{name}` was not found: {self.m_catalog_path}"
                 )
             connection.execute("DELETE FROM launch_profiles WHERE name = ?", (name,))
-        (self.m_projection_root / "launch-profiles" / f"{profile.name}.yaml").unlink(
-            missing_ok=True
+        _remove_tree_or_path(
+            self.m_projection_root / "launch-profiles" / f"{profile.name}.yaml",
+            allowed_roots=(self.m_projection_root,),
         )
         return self.m_catalog_path
 
@@ -1424,22 +1478,21 @@ class ProjectCatalog:
         auth_profiles = self.list_auth_profiles()
         for entry in entries:
             prompt_source = entry.prompt_ref.resolve_under_content_root(self.m_content_root)
-            prompt_target = (
-                self.m_projection_root / "roles" / entry.role_name / "system-prompt.md"
-            ).resolve()
-            prompt_target.parent.mkdir(parents=True, exist_ok=True)
-            prompt_target.write_text(prompt_source.read_text(encoding="utf-8"), encoding="utf-8")
-
-            preset_target = (
-                self.m_projection_root / "presets" / f"{entry.preset_name}.yaml"
-            ).resolve()
-            preset_target.parent.mkdir(parents=True, exist_ok=True)
-            preset_target.write_text(
-                _render_preset_yaml(entry=entry),
-                encoding="utf-8",
+            prompt_target = self.m_projection_root / "roles" / entry.role_name / "system-prompt.md"
+            _replace_path_with_text(
+                destination=prompt_target,
+                text=prompt_source.read_text(encoding="utf-8"),
+                allowed_roots=(self.m_projection_root,),
             )
 
-        skills_root = (self.m_projection_root / "skills").resolve()
+            preset_target = self.m_projection_root / "presets" / f"{entry.preset_name}.yaml"
+            _replace_path_with_text(
+                destination=preset_target,
+                text=_render_preset_yaml(entry=entry),
+                allowed_roots=(self.m_projection_root,),
+            )
+
+        skills_root = self._managed_skill_projection_root()
         skills_root.mkdir(parents=True, exist_ok=True)
         project_skills = self.list_project_skills()
         desired_skill_names = {skill.name for skill in project_skills}
@@ -1454,47 +1507,47 @@ class ProjectCatalog:
                         "Registered project skill symlink target is missing or not a directory: "
                         f"{skill_source}"
                     )
-            skill_target = skills_root / project_skill.name
-            _replace_symlink(target=skill_source, destination=skill_target)
+            skill_target = self._managed_skill_projection_path(project_skill.name)
+            _replace_symlink(
+                target=skill_source,
+                destination=skill_target,
+                allowed_roots=(skills_root,),
+            )
         for child in sorted(skills_root.iterdir(), key=lambda path: path.name):
             if child.name in desired_skill_names:
                 continue
-            _remove_tree_or_path(child)
+            _remove_tree_or_path(child, allowed_roots=(skills_root,))
         desired_auth_dirs: dict[str, set[str]] = {}
         for auth_profile in auth_profiles:
             auth_source = auth_profile.content_ref.resolve_under_content_root(self.m_content_root)
-            auth_target = (
-                self.m_projection_root
-                / "tools"
-                / auth_profile.tool
-                / "auth"
-                / auth_profile.bundle_ref
-            ).resolve()
-            _replace_tree(source=auth_source, destination=auth_target)
+            auth_root = self._managed_auth_projection_root(auth_profile.tool)
+            auth_target = self._managed_auth_projection_path(
+                tool=auth_profile.tool,
+                bundle_ref=auth_profile.bundle_ref,
+            )
+            _replace_tree(source=auth_source, destination=auth_target, allowed_roots=(auth_root,))
             desired_auth_dirs.setdefault(auth_profile.tool, set()).add(auth_profile.bundle_ref)
-        tools_root = (self.m_projection_root / "tools").resolve()
+        tools_root = self.m_projection_root / "tools"
         if tools_root.is_dir():
             for tool_dir in sorted(path for path in tools_root.iterdir() if path.is_dir()):
-                auth_root = (tool_dir / "auth").resolve()
+                auth_root = tool_dir / "auth"
                 auth_root.mkdir(parents=True, exist_ok=True)
                 desired = desired_auth_dirs.get(tool_dir.name, set())
                 for child in sorted(auth_root.iterdir(), key=lambda path: path.name):
                     if child.name in desired:
                         continue
-                    if child.is_dir() and not child.is_symlink():
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink(missing_ok=True)
-        launch_profiles_root = (self.m_projection_root / "launch-profiles").resolve()
+                    _remove_tree_or_path(child, allowed_roots=(auth_root,))
+        launch_profiles_root = self.m_projection_root / "launch-profiles"
         launch_profiles_root.mkdir(parents=True, exist_ok=True)
         for launch_profile in launch_profiles:
-            profile_target = (launch_profiles_root / f"{launch_profile.name}.yaml").resolve()
-            profile_target.write_text(
-                _render_launch_profile_yaml(
+            profile_target = launch_profiles_root / f"{launch_profile.name}.yaml"
+            _replace_path_with_text(
+                destination=profile_target,
+                text=_render_launch_profile_yaml(
                     entry=launch_profile,
                     content_root=self.m_content_root,
                 ),
-                encoding="utf-8",
+                allowed_roots=(launch_profiles_root,),
             )
         return self.m_projection_root
 
@@ -1607,8 +1660,12 @@ class ProjectCatalog:
                 key=lambda item: item.name,
             ):
                 relative_path = f"setups/{tool_dir.name}/{setup_dir.name}"
-                destination = (self.m_content_root / relative_path).resolve()
-                _copy_traversable_tree(source=setup_dir, destination=destination)
+                destination = self.m_content_root / relative_path
+                _copy_traversable_tree(
+                    source=setup_dir,
+                    destination=destination,
+                    allowed_roots=(self.m_content_root,),
+                )
                 content_ref = ManagedContentRef(
                     content_kind=_CONTENT_KIND_SETUP,
                     storage_kind=_STORAGE_KIND_TREE,
@@ -1670,8 +1727,11 @@ class ProjectCatalog:
         if not resolved_source.is_file():
             raise ValueError(f"Managed content file does not exist: {resolved_source}")
         destination = self.m_content_root / relative_path
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(resolved_source, destination)
+        _replace_file(
+            source=resolved_source,
+            destination=destination,
+            allowed_roots=(self.m_content_root,),
+        )
         return ManagedContentRef(
             content_kind=content_kind,
             storage_kind=_STORAGE_KIND_FILE,
@@ -1687,9 +1747,12 @@ class ProjectCatalog:
     ) -> ManagedContentRef:
         """Write one managed text payload into content storage."""
 
-        destination = (self.m_content_root / relative_path).resolve()
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text.rstrip() + "\n" if text.strip() else "", encoding="utf-8")
+        destination = self.m_content_root / relative_path
+        _replace_path_with_text(
+            destination=destination,
+            text=text.rstrip() + "\n" if text.strip() else "",
+            allowed_roots=(self.m_content_root,),
+        )
         return ManagedContentRef(
             content_kind=content_kind,
             storage_kind=_STORAGE_KIND_FILE,
@@ -1708,8 +1771,12 @@ class ProjectCatalog:
         resolved_source = source_path.resolve()
         if not resolved_source.is_dir():
             raise ValueError(f"Managed content tree does not exist: {resolved_source}")
-        destination = (self.m_content_root / relative_path).resolve()
-        _replace_tree(source=resolved_source, destination=destination)
+        destination = self.m_content_root / relative_path
+        _replace_tree(
+            source=resolved_source,
+            destination=destination,
+            allowed_roots=(self.m_content_root,),
+        )
         return ManagedContentRef(
             content_kind=content_kind,
             storage_kind=_STORAGE_KIND_TREE,
@@ -1756,8 +1823,12 @@ class ProjectCatalog:
         """Write one inline memo-seed text payload into managed content storage."""
 
         _validate_memo_seed_text_content(text, source="inline memo seed")
-        destination = (self.m_content_root / relative_path).resolve()
-        _replace_path_with_text(destination=destination, text=text)
+        destination = self.m_content_root / relative_path
+        _replace_path_with_text(
+            destination=destination,
+            text=text,
+            allowed_roots=(self.m_content_root,),
+        )
         return ManagedContentRef(
             content_kind=_CONTENT_KIND_MEMO_SEED,
             storage_kind=_STORAGE_KIND_FILE,
@@ -1770,8 +1841,12 @@ class ProjectCatalog:
         """Copy one memo-seed Markdown file into managed content storage."""
 
         text = _read_memo_seed_text_file(source_path, source=str(source_path))
-        destination = (self.m_content_root / relative_path).resolve()
-        _replace_path_with_text(destination=destination, text=text)
+        destination = self.m_content_root / relative_path
+        _replace_path_with_text(
+            destination=destination,
+            text=text,
+            allowed_roots=(self.m_content_root,),
+        )
         return ManagedContentRef(
             content_kind=_CONTENT_KIND_MEMO_SEED,
             storage_kind=_STORAGE_KIND_FILE,
@@ -1784,8 +1859,12 @@ class ProjectCatalog:
         """Copy one validated memo-seed directory into managed content storage."""
 
         _validate_memo_seed_tree(source_path)
-        destination = (self.m_content_root / relative_path).resolve()
-        _replace_tree(source=source_path.resolve(), destination=destination)
+        destination = self.m_content_root / relative_path
+        _replace_tree(
+            source=source_path.resolve(),
+            destination=destination,
+            allowed_roots=(self.m_content_root,),
+        )
         return ManagedContentRef(
             content_kind=_CONTENT_KIND_MEMO_SEED,
             storage_kind=_STORAGE_KIND_TREE,
@@ -1943,11 +2022,19 @@ class ProjectCatalog:
         """Materialize one canonical project skill entry under `.houmao/content/skills/`."""
 
         relative_path = f"skills/{name}"
-        destination = (self.m_content_root / relative_path).resolve()
+        destination = self._managed_skill_content_path(name)
         if mode == _PROJECT_SKILL_MODE_COPY:
-            _replace_tree(source=source_path, destination=destination)
+            _replace_tree(
+                source=source_path,
+                destination=destination,
+                allowed_roots=(self._managed_skill_content_root(),),
+            )
         else:
-            _replace_symlink(target=source_path, destination=destination)
+            _replace_symlink(
+                target=source_path,
+                destination=destination,
+                allowed_roots=(self._managed_skill_content_root(),),
+            )
         return ManagedContentRef(
             content_kind=_CONTENT_KIND_SKILL,
             storage_kind=_STORAGE_KIND_TREE,
@@ -3046,53 +3133,33 @@ def _render_launch_profile_yaml(
     return rendered
 
 
-def _copy_traversable_tree(*, source: Traversable, destination: Path) -> None:
+def _copy_traversable_tree(
+    *,
+    source: Traversable,
+    destination: Path,
+    allowed_roots: tuple[Path, ...] | None = None,
+) -> None:
     """Copy one package-resource tree without overwriting existing files."""
 
     if source.is_dir():
+        if allowed_roots is not None:
+            _require_owned_mutation_path(path=destination, allowed_roots=allowed_roots)
+        if destination.is_symlink():
+            raise ValueError(f"Refusing to seed starter content into symlink-backed path: {destination}")
         destination.mkdir(parents=True, exist_ok=True)
         for child in sorted(source.iterdir(), key=lambda item: item.name):
-            _copy_traversable_tree(source=child, destination=destination / child.name)
+            _copy_traversable_tree(
+                source=child,
+                destination=destination / child.name,
+                allowed_roots=allowed_roots,
+            )
         return
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         return
+    if allowed_roots is not None:
+        _require_owned_mutation_path(path=destination, allowed_roots=allowed_roots)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(source.read_bytes())
-
-
-def _replace_symlink(*, target: Path, destination: Path) -> None:
-    """Replace one path with a symlink to the selected target."""
-
-    _remove_tree_or_path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.symlink_to(target)
-
-
-def _replace_tree(*, source: Path, destination: Path) -> None:
-    """Replace one directory tree atomically enough for local overlay use."""
-
-    _remove_tree_or_path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, symlinks=True)
-
-
-def _replace_path_with_text(*, destination: Path, text: str) -> None:
-    """Replace one file-or-tree destination with UTF-8 text content."""
-
-    _remove_tree_or_path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(text, encoding="utf-8")
-
-
-def _remove_tree_or_path(path: Path) -> None:
-    """Remove one file, symlink, or directory path when present."""
-
-    if not path.exists() and not path.is_symlink():
-        return
-    if path.is_symlink() or path.is_file():
-        path.unlink(missing_ok=True)
-        return
-    shutil.rmtree(path)
 
 
 def _utcnow_iso() -> str:

@@ -540,6 +540,38 @@ def test_managed_session_cleanup_recovers_stopped_session_by_agent_name(
     assert payload["scope"]["session_root"] == str(manifest_path.parent)
 
 
+def test_managed_session_cleanup_unlinks_session_root_symlink_without_touching_target(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    external_runtime_root = (tmp_path / "external-runtime").resolve()
+    manifest_path = _write_runtime_manifest(tmp_path, runtime_root=external_runtime_root)
+    session_symlink = runtime_root / "sessions" / "codex_headless" / "session-1"
+    session_symlink.parent.mkdir(parents=True, exist_ok=True)
+    session_symlink.symlink_to(manifest_path.parent, target_is_directory=True)
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_effective_runtime_root",
+        lambda runtime_root: (tmp_path / "runtime").resolve(),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_symlink,
+        dry_run=False,
+    )
+
+    assert payload["applied_actions"][0]["artifact_kind"] == "session_root"
+    assert payload["applied_actions"][0]["path"] == str(session_symlink)
+    assert not session_symlink.exists()
+    assert manifest_path.parent.exists()
+
+
 def test_managed_session_cleanup_registry_name_ambiguity_lists_lifecycle_candidates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

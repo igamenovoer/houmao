@@ -646,7 +646,7 @@ def easy_specialist_group() -> None:
     "skill_dirs",
     multiple=True,
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    help="Repeatable skill directory to register in the project skill registry and bind.",
+    help="Repeatable skill directory to register in the project skill registry and bind without mutating the source directory.",
 )
 @click.option(
     "--env-set",
@@ -1272,7 +1272,7 @@ def _store_specialist_patch_from_cli(
     "skill_dirs",
     multiple=True,
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    help="Repeatable skill directory to register in the project skill registry and bind.",
+    help="Repeatable skill directory to register in the project skill registry and bind without mutating the source directory.",
 )
 @click.option("--add-skill", "add_skill_names", multiple=True, help="Add a project skill by name.")
 @click.option(

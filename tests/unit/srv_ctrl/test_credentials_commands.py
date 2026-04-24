@@ -548,6 +548,97 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
     assert not _direct_auth_root(agent_def_dir, tool="codex", name="sandbox").exists()
 
 
+def test_credentials_direct_dir_remove_unlinks_symlinked_bundle_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    bundle_root = _direct_auth_root(agent_def_dir, tool="codex", name="sandbox")
+    external_bundle = (tmp_path / "external-bundle").resolve()
+    (external_bundle / "env").mkdir(parents=True, exist_ok=True)
+    (external_bundle / "files").mkdir(parents=True, exist_ok=True)
+    (external_bundle / "env" / "vars.env").write_text("OPENAI_API_KEY=sk-openai\n", encoding="utf-8")
+    bundle_root.parent.mkdir(parents=True, exist_ok=True)
+    bundle_root.symlink_to(external_bundle, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+
+    remove_result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "remove",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "sandbox",
+        ],
+    )
+
+    assert remove_result.exit_code == 0, remove_result.output
+    assert not bundle_root.exists()
+    assert (external_bundle / "env" / "vars.env").is_file()
+
+
+def test_credentials_direct_dir_set_replaces_symlinked_auth_file_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    agent_def_dir = _copy_agent_def_fixture(tmp_path)
+    auth_json = (tmp_path / "auth.json").resolve()
+    auth_json.write_text('{"logged_in": true}\n', encoding="utf-8")
+    replacement_auth = (tmp_path / "replacement-auth.json").resolve()
+    replacement_auth.write_text('{"logged_in": "replacement"}\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "add",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "sandbox",
+            "--api-key",
+            "sk-test",
+            "--auth-json",
+            str(auth_json),
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    bundled_auth_json = _direct_auth_root(agent_def_dir, tool="codex", name="sandbox") / "files" / "auth.json"
+    external_auth = (tmp_path / "external-auth.json").resolve()
+    external_auth.write_text('{"logged_in": "external"}\n', encoding="utf-8")
+    bundled_auth_json.unlink()
+    bundled_auth_json.symlink_to(external_auth)
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "credentials",
+            "codex",
+            "set",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--name",
+            "sandbox",
+            "--auth-json",
+            str(replacement_auth),
+        ],
+    )
+
+    assert set_result.exit_code == 0, set_result.output
+    assert bundled_auth_json.is_file()
+    assert not bundled_auth_json.is_symlink()
+    assert json.loads(bundled_auth_json.read_text(encoding="utf-8")) == {"logged_in": "replacement"}
+    assert json.loads(external_auth.read_text(encoding="utf-8")) == {"logged_in": "external"}
+
+
 def test_credentials_direct_dir_rename_rewrites_managed_yaml_references(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

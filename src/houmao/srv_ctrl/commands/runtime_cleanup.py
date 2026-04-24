@@ -28,6 +28,7 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_cleanup_managed_agent_record_by_agent_id,
     resolve_cleanup_managed_agent_records_by_name,
 )
+from houmao.owned_mutation import require_owned_mutation_path
 from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
 from houmao.project.overlay import (
     ensure_project_aware_local_roots,
@@ -123,7 +124,7 @@ def resolve_managed_session_cleanup_target(
         return _load_cleanup_target_from_session_root(
             session_root=session_root,
             authority="session_root",
-            authority_value=str(session_root.resolve()),
+            authority_value=str(session_root.absolute()),
         )
     if agent_id is not None or agent_name is not None:
         record = _resolve_local_cleanup_registry_record(
@@ -219,24 +220,26 @@ def cleanup_managed_session(
     applied_actions: list[CleanupAction] = []
     blocked_actions: list[CleanupAction] = []
     preserved_actions: list[CleanupAction] = []
+    session_action_path = _cleanup_target_session_action_path(target)
+    runtime_root = _runtime_root_for_session_path(session_action_path)
 
     session_action = CleanupAction(
         artifact_kind="session_root",
-        path=target.session_root,
+        path=session_action_path,
         proposed_action="remove",
         reason="managed session no longer appears live on the local host",
         details=session_details,
     )
 
     registry_record = target.registry_record
-    session_root_present = target.session_root.exists() or target.session_root.is_symlink()
+    session_root_present = session_action_path.exists() or session_action_path.is_symlink()
     session_cleanup_complete = False
 
     if _cleanup_target_has_active_registry_record(target):
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
-                path=target.session_root,
+                path=session_action_path,
                 proposed_action="remove",
                 reason="shared-registry record still claims active lifecycle state; stop the agent first",
                 details=session_details,
@@ -246,7 +249,7 @@ def cleanup_managed_session(
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
-                path=target.session_root,
+                path=session_action_path,
                 proposed_action="remove",
                 reason="managed session is still live on the local host",
                 details={"tmux_session_name": session_name},
@@ -262,6 +265,7 @@ def cleanup_managed_session(
                 planned_actions=planned_actions,
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
+                allowed_roots=(runtime_root,),
             )
             if dry_run:
                 session_cleanup_complete = len(planned_actions) > planned_count
@@ -362,12 +366,13 @@ def cleanup_managed_session_mailbox(
     )
     live = _cleanup_target_is_live(target)
     session_details = _cleanup_target_details(target)
-    mailbox_secret_dir = (target.session_root / "mailbox-secrets").resolve()
+    mailbox_secret_dir = target.session_root / "mailbox-secrets"
 
     planned_actions: list[CleanupAction] = []
     applied_actions: list[CleanupAction] = []
     blocked_actions: list[CleanupAction] = []
     preserved_actions: list[CleanupAction] = []
+    runtime_root = _runtime_root_for_session_path(_cleanup_target_session_action_path(target))
 
     mailbox = target.payload.launch_plan.mailbox if target.payload is not None else None
     if target.payload is not None and (
@@ -405,6 +410,7 @@ def cleanup_managed_session_mailbox(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=(runtime_root,),
         )
     else:
         preserved_actions.append(
@@ -472,6 +478,7 @@ def cleanup_runtime_sessions(
                 planned_actions=planned_actions,
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
+                allowed_roots=(resolved_runtime_root,),
             )
             continue
 
@@ -583,6 +590,7 @@ def cleanup_runtime_builds(
                 planned_actions=planned_actions,
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
+                allowed_roots=(resolved_runtime_root,),
             )
             continue
 
@@ -604,6 +612,7 @@ def cleanup_runtime_builds(
                 planned_actions=planned_actions,
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
+                allowed_roots=(resolved_runtime_root,),
             )
             continue
 
@@ -654,6 +663,7 @@ def cleanup_runtime_builds(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=(resolved_runtime_root,),
         )
 
     for home_path in sorted(_iter_directories(homes_dir)):
@@ -685,6 +695,7 @@ def cleanup_runtime_builds(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=(resolved_runtime_root,),
         )
 
     return build_cleanup_payload(
@@ -811,6 +822,7 @@ def cleanup_runtime_mailbox_credentials(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=(resolved_runtime_root,),
         )
 
     return build_cleanup_payload(
@@ -1123,6 +1135,7 @@ def _cleanup_session_logs(
     applied_actions: list[CleanupAction] = []
     blocked_actions: list[CleanupAction] = []
     preserved_actions: list[CleanupAction] = []
+    runtime_root = _runtime_root_for_session_path(session_root)
 
     paths = gateway_paths_from_session_root(session_root=session_root)
     durable_paths = (
@@ -1198,6 +1211,7 @@ def _cleanup_session_logs(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=(runtime_root,),
         )
 
     for candidate in (paths.current_instance_path, paths.pid_path):
@@ -1230,6 +1244,7 @@ def _cleanup_session_logs(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=(runtime_root,),
         )
 
     return planned_actions, applied_actions, blocked_actions, preserved_actions
@@ -1242,6 +1257,7 @@ def _plan_or_apply_paths(
     planned_actions: list[CleanupAction],
     applied_actions: list[CleanupAction],
     blocked_actions: list[CleanupAction],
+    allowed_roots: tuple[Path, ...],
 ) -> None:
     """Apply or plan several cleanup actions in order."""
 
@@ -1252,6 +1268,7 @@ def _plan_or_apply_paths(
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            allowed_roots=allowed_roots,
         )
 
 
@@ -1262,17 +1279,32 @@ def _apply_cleanup_action(
     planned_actions: list[CleanupAction],
     applied_actions: list[CleanupAction],
     blocked_actions: list[CleanupAction],
+    allowed_roots: tuple[Path, ...],
 ) -> None:
     """Plan or apply one cleanup action and record the outcome."""
 
     if not action.path.exists() and not action.path.is_symlink():
         return
+    if not _cleanup_action_mutable(action, allowed_roots=allowed_roots):
+        blocked_actions.append(
+            CleanupAction(
+                artifact_kind=action.artifact_kind,
+                path=action.path,
+                proposed_action=action.proposed_action,
+                reason=(
+                    f"{action.reason}; refusing to mutate path outside owned cleanup roots: "
+                    f"{action.path}"
+                ),
+                details=action.details,
+            )
+        )
+        return
     if dry_run:
         planned_actions.append(action)
         return
     try:
-        remove_path(action.path)
-    except OSError as exc:
+        remove_path(action.path, allowed_roots=allowed_roots)
+    except (OSError, ValueError) as exc:
         blocked_actions.append(
             CleanupAction(
                 artifact_kind=action.artifact_kind,
@@ -1286,6 +1318,16 @@ def _apply_cleanup_action(
         applied_actions.append(action)
 
 
+def _cleanup_action_mutable(action: CleanupAction, *, allowed_roots: tuple[Path, ...]) -> bool:
+    """Return whether one planned cleanup action stays within owned cleanup roots."""
+
+    try:
+        require_owned_mutation_path(path=action.path, allowed_roots=allowed_roots)
+    except ValueError:
+        return False
+    return True
+
+
 def _cleanup_target_tmux_session_name(target: ResolvedManagedSessionCleanupTarget) -> str | None:
     """Return the best available tmux session name for one cleanup target."""
 
@@ -1294,6 +1336,24 @@ def _cleanup_target_tmux_session_name(target: ResolvedManagedSessionCleanupTarge
     if target.registry_record is not None:
         return target.registry_record.terminal.session_name
     return None
+
+
+def _cleanup_target_session_action_path(target: ResolvedManagedSessionCleanupTarget) -> Path:
+    """Return the lexical path cleanup should mutate for the session-root artifact."""
+
+    if target.resolution.get("authority") == "session_root":
+        raw_value = target.resolution.get("value")
+        if isinstance(raw_value, str) and raw_value.strip():
+            return Path(raw_value)
+    return target.session_root
+
+
+def _runtime_root_for_session_path(session_root: Path) -> Path:
+    """Return the owning runtime root for one runtime-owned session path."""
+
+    if session_root.parent.parent.name == "sessions":
+        return session_root.parent.parent.parent
+    return session_root
 
 
 def _cleanup_target_is_live(target: ResolvedManagedSessionCleanupTarget) -> bool:

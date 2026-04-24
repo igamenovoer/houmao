@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-import shutil
 from typing import Any
+
+from houmao.owned_mutation import remove_tree_or_path
 
 from .output import emit
 from .renderers.cleanup import render_cleanup_payload_fancy, render_cleanup_payload_plain
@@ -36,15 +37,10 @@ class CleanupAction:
         return payload
 
 
-def remove_path(path: Path) -> None:
+def remove_path(path: Path, *, allowed_roots: Sequence[Path] | None = None) -> None:
     """Remove one filesystem path whether it is a file, symlink, or directory."""
 
-    candidate = path.expanduser()
-    if candidate.is_symlink() or candidate.is_file():
-        candidate.unlink(missing_ok=True)
-        return
-    if candidate.exists():
-        shutil.rmtree(candidate, ignore_errors=False)
+    remove_tree_or_path(path.expanduser(), allowed_roots=allowed_roots)
 
 
 def build_cleanup_payload(

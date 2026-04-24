@@ -411,6 +411,56 @@ def test_project_skills_add_get_set_list_and_remove(
     assert not canonical_path.is_symlink()
 
 
+def test_project_skills_set_copy_from_symlink_preserves_source_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(notes_skill_dir),
+            "--mode",
+            "symlink",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "set",
+            "--name",
+            "notes",
+            "--source",
+            str(notes_skill_dir),
+            "--mode",
+            "copy",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+
+    overlay = require_project_overlay(repo_root)
+    canonical_path = overlay.content_root / "skills" / "notes"
+    assert canonical_path.is_dir()
+    assert not canonical_path.is_symlink()
+    assert (notes_skill_dir / "SKILL.md").is_file()
+
+
 def test_project_skills_remove_rejects_referenced_skill_and_specialist_get_reports_bindings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -522,6 +572,39 @@ def test_project_migrate_plans_and_applies_supported_legacy_overlay(
     )
     assert get_result.exit_code == 0, get_result.output
     assert json.loads(get_result.output)["skills"] == ["notes"]
+
+
+def test_project_migrate_replaces_symlinked_legacy_skill_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    _seed_legacy_easy_specialist_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    legacy_skill_path = overlay.agents_root / "skills" / "notes"
+    external_skill = (tmp_path / "external-skill").resolve()
+    external_skill.mkdir(parents=True, exist_ok=True)
+    (external_skill / "SKILL.md").write_text("# notes\n\nExternal notes.\n", encoding="utf-8")
+
+    shutil.rmtree(legacy_skill_path)
+    legacy_skill_path.symlink_to(external_skill, target_is_directory=True)
+
+    apply_result = runner.invoke(cli, ["project", "migrate", "--apply"])
+
+    assert apply_result.exit_code == 0, apply_result.output
+    canonical_skill_path = overlay.content_root / "skills" / "notes"
+    projected_skill_path = overlay.agents_root / "skills" / "notes"
+    assert canonical_skill_path.is_dir()
+    assert canonical_skill_path.is_symlink()
+    assert canonical_skill_path.resolve() == external_skill
+    assert projected_skill_path.is_symlink()
+    assert projected_skill_path.readlink() == canonical_skill_path
+    assert (external_skill / "SKILL.md").read_text(encoding="utf-8") == "# notes\n\nExternal notes.\n"
 
 
 def test_project_migrate_reports_unsupported_legacy_overlay(
@@ -2755,6 +2838,67 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
 
+def test_project_easy_specialist_create_with_skill_preserves_registered_symlink_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(notes_skill_dir),
+            "--mode",
+            "symlink",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Preserve source content",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--with-skill",
+            str(notes_skill_dir),
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    assert (notes_skill_dir / "SKILL.md").is_file()
+    get_result = runner.invoke(
+        cli,
+        ["project", "easy", "specialist", "get", "--name", "researcher"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    assert json.loads(get_result.output)["skills"] == ["notes"]
+
+
 def test_project_easy_specialist_create_persists_env_records(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2915,6 +3059,75 @@ def test_project_easy_specialist_set_patches_prompt_skills_and_launch_payload(
     )
     assert (repo_root / ".houmao" / "agents" / "skills" / "docs" / "SKILL.md").is_file()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
+
+
+def test_project_easy_specialist_set_with_skill_preserves_registered_symlink_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(notes_skill_dir),
+            "--mode",
+            "symlink",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--system-prompt",
+            "Initial prompt",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--with-skill",
+            str(notes_skill_dir),
+        ],
+    )
+
+    assert set_result.exit_code == 0, set_result.output
+    assert (notes_skill_dir / "SKILL.md").is_file()
+    assert json.loads(set_result.output)["skills"] == ["notes"]
 
 
 def test_project_easy_specialist_set_changes_setup_and_removes_old_projection_preset(

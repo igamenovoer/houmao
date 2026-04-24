@@ -52,7 +52,7 @@ def get_project_skill_command(name: str) -> None:
     "--source",
     required=True,
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    help="Source skill directory containing `SKILL.md`.",
+    help="Read-only source skill directory containing `SKILL.md`.",
 )
 @click.option(
     "--mode",
@@ -85,7 +85,7 @@ def add_project_skill_command(name: str, source: Path, mode: str) -> None:
     "--source",
     required=True,
     type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
-    help="Replacement source skill directory containing `SKILL.md`.",
+    help="Read-only replacement source skill directory containing `SKILL.md`.",
 )
 @click.option(
     "--mode",

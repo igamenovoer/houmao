@@ -73,7 +73,7 @@ Key options:
 | `--api-key` | None | API key for the selected tool. |
 | `--setup` | `default` | Preset setup name within the tool's setup bundles. |
 | `--skill` | None | Repeatable. Bind one already registered project skill by name. |
-| `--with-skill` | None | Repeatable. Convenience path: register or update one skill directory (must contain `SKILL.md`) and then bind that resulting project skill name. |
+| `--with-skill` | None | Repeatable. Convenience path: register or update one skill directory (must contain `SKILL.md`) and then bind that resulting project skill name; Houmao reads the provided source directory but does not mutate it. |
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 | `--model` | None | Optional launch-owned default model name. |
@@ -154,7 +154,7 @@ Common patch options:
 |---|---|
 | `--system-prompt` / `--system-prompt-file` | Replace the stored prompt from inline text or a file. |
 | `--clear-system-prompt` | Store an empty prompt. |
-| `--with-skill <dir>` | Register or update a skill directory and then add that project skill to the specialist. |
+| `--with-skill <dir>` | Register or update a skill directory and then add that project skill to the specialist. The provided source directory is treated as read-only input. |
 | `--add-skill <name>` / `--remove-skill <name>` | Add or remove an already registered project skill by name. |
 | `--clear-skills` | Remove all skills from this specialist. Shared skill content remains available to other specialists. |
 | `--setup <name>` | Switch to a different setup bundle for the specialist's current tool lane. |

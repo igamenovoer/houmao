@@ -231,6 +231,81 @@ def test_project_catalog_reports_broken_symlinked_skill_targets(
     assert catalog.validate_integrity().missing_content == ("skills/review",)
 
 
+def test_project_catalog_updates_symlinked_skill_to_copy_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    notes_source = _make_skill_dir(tmp_path, "notes")
+
+    catalog.create_project_skill_from_source(
+        name="notes",
+        source_path=notes_source,
+        mode="symlink",
+    )
+
+    updated_skill = catalog.update_project_skill_from_source(
+        name="notes",
+        source_path=notes_source,
+        mode="copy",
+    )
+
+    canonical_path = updated_skill.resolved_canonical_path(overlay)
+    assert canonical_path.is_dir()
+    assert not canonical_path.is_symlink()
+    assert (notes_source / "SKILL.md").is_file()
+    assert (notes_source / "SKILL.md").read_text(encoding="utf-8").startswith("# notes")
+
+
+def test_project_catalog_remove_auth_profile_unlinks_symlinked_managed_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+    auth_source = (tmp_path / "auth-source").resolve()
+    (auth_source / "env").mkdir(parents=True, exist_ok=True)
+    (auth_source / "files").mkdir(parents=True, exist_ok=True)
+    (auth_source / "env" / "vars.env").write_text("OPENAI_API_KEY=sk-openai\n", encoding="utf-8")
+    created = catalog.create_auth_profile_from_source(
+        tool="codex",
+        display_name="sandbox",
+        source_path=auth_source,
+    )
+    catalog.materialize_projection()
+
+    external_content = (tmp_path / "external-content").resolve()
+    external_projection = (tmp_path / "external-projection").resolve()
+    shutil.copytree(created.content_ref.resolve(overlay), external_content)
+    shutil.copytree(created.resolved_projection_path(overlay), external_projection)
+
+    content_path = created.content_ref.resolve(overlay)
+    projection_path = created.resolved_projection_path(overlay)
+    shutil.rmtree(content_path)
+    shutil.rmtree(projection_path)
+    content_path.symlink_to(external_content, target_is_directory=True)
+    projection_path.symlink_to(external_projection, target_is_directory=True)
+
+    removed = catalog.remove_auth_profile(tool="codex", name="sandbox")
+
+    assert removed.display_name == "sandbox"
+    assert not content_path.exists()
+    assert not projection_path.exists()
+    assert (external_content / "env" / "vars.env").is_file()
+    assert (external_projection / "files").is_dir()
+
+
 def test_project_catalog_persists_and_projects_launch_profiles(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -422,6 +497,72 @@ def test_project_catalog_persists_and_projects_launch_profiles(
         "prompts/launch-profiles/alice-mail-notifier-appendix.md",
         "prompts/launch-profiles/alice.md",
     )
+
+
+def test_project_catalog_replaces_symlinked_memo_seed_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    catalog = ProjectCatalog.from_overlay(overlay)
+
+    catalog.store_launch_profile(
+        name="alice",
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name="researcher-codex-default",
+        managed_agent_name=None,
+        managed_agent_id=None,
+        workdir=None,
+        auth_tool=None,
+        auth_name=None,
+        operator_prompt_mode=None,
+        env_mapping=None,
+        mailbox_mapping=None,
+        posture_mapping=None,
+        prompt_overlay_mode=None,
+        prompt_overlay_text=None,
+        memo_seed_source_kind="memo",
+        memo_seed_text="Initial memo seed.\n",
+        memo_seed_source_path=None,
+    )
+    managed_seed_path = overlay.content_root / "memo-seeds" / "launch-profiles" / "alice" / "seed"
+    external_seed = (tmp_path / "external-seed.md").resolve()
+    external_seed.write_text("External memo seed.\n", encoding="utf-8")
+
+    managed_seed_path.unlink()
+    managed_seed_path.symlink_to(external_seed)
+
+    catalog.store_launch_profile(
+        name="alice",
+        profile_lane="launch_profile",
+        source_kind="recipe",
+        source_name="researcher-codex-default",
+        managed_agent_name=None,
+        managed_agent_id=None,
+        workdir=None,
+        auth_tool=None,
+        auth_name=None,
+        operator_prompt_mode=None,
+        env_mapping=None,
+        mailbox_mapping=None,
+        posture_mapping=None,
+        prompt_overlay_mode=None,
+        prompt_overlay_text=None,
+        memo_seed_source_kind="memo",
+        memo_seed_text="Updated memo seed.\n",
+        memo_seed_source_path=None,
+    )
+
+    assert managed_seed_path.is_file()
+    assert not managed_seed_path.is_symlink()
+    assert managed_seed_path.read_text(encoding="utf-8") == "Updated memo seed.\n"
+    assert external_seed.read_text(encoding="utf-8") == "External memo seed.\n"
 
 
 @pytest.mark.parametrize(

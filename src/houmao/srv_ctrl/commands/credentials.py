@@ -16,6 +16,11 @@ import yaml
 
 from houmao.agents.definition_parser import AuthFileMapping, ToolAdapter, parse_tool_adapter
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.owned_mutation import (
+    remove_tree_or_path,
+    replace_file,
+    replace_path_with_text,
+)
 from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
@@ -247,7 +252,7 @@ def _credential_target_options(function: Callable[..., None]) -> Callable[..., N
         "--agent-def-dir",
         type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
         default=None,
-        help="Manage credentials in the selected plain agent-definition directory.",
+        help="Manage only Houmao-owned credential artifacts in the selected plain agent-definition directory.",
     )(function)
     function = click.option(
         "--project",
@@ -760,7 +765,7 @@ def _build_codex_add_command(*, project_only: bool) -> click.Command:
         "--auth-json",
         type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
         default=None,
-        help="Optional Codex `auth.json` login-state file to store in the credential bundle.",
+        help="Optional Codex `auth.json` login-state file to copy into the credential bundle without mutating the source file.",
     )
     def add_command(
         name: str,
@@ -820,7 +825,7 @@ def _build_codex_set_command(*, project_only: bool) -> click.Command:
         "--auth-json",
         type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
         default=None,
-        help="Optional Codex `auth.json` login-state file to store in the credential bundle.",
+        help="Optional Codex `auth.json` login-state file to copy into the credential bundle without mutating the source file.",
     )
     @click.option("--clear-api-key", is_flag=True, help="Remove `OPENAI_API_KEY` from the credential bundle.")
     @click.option("--clear-base-url", is_flag=True, help="Remove `OPENAI_BASE_URL` from the credential bundle.")
@@ -1618,9 +1623,12 @@ def _remove_credential_bundle(
         tool=tool,
         name=resolved_name,
     )
-    if not bundle_root.is_dir():
+    if not bundle_root.exists() and not bundle_root.is_symlink():
         raise click.ClickException(f"Credential bundle not found: {bundle_root}")
-    shutil.rmtree(bundle_root)
+    remove_tree_or_path(
+        bundle_root,
+        allowed_roots=(_agent_def_dir_auth_root(agent_def_dir=target.agent_def_dir, tool=tool),),
+    )
     return {
         "target_kind": "agent_def_dir",
         "agent_def_dir": str(target.agent_def_dir),
@@ -1807,16 +1815,16 @@ def _write_credential_bundle(
         env_file_path.parent.mkdir(parents=True, exist_ok=True)
         files_root.mkdir(parents=True, exist_ok=True)
         for source_name in clear_file_sources:
-            target_path = (files_root / source_name).resolve()
-            if target_path.is_dir():
-                shutil.rmtree(target_path)
-            elif target_path.exists():
-                target_path.unlink()
+            target_path = files_root / source_name
+            remove_tree_or_path(target_path, allowed_roots=(files_root,))
 
         for source_name, source_path in file_sources.items():
-            destination_path = (files_root / source_name).resolve()
-            destination_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_path.resolve(), destination_path)
+            destination_path = files_root / source_name
+            replace_file(
+                source=source_path.resolve(),
+                destination=destination_path,
+                allowed_roots=(files_root,),
+            )
 
         for mapping in adapter.auth_file_mappings:
             if mapping.required and not (files_root / mapping.source).exists():
@@ -1825,9 +1833,13 @@ def _write_credential_bundle(
                     f"`{resolved_name}`."
                 )
 
-        env_file_path.write_text(
-            _render_env_file(env_values=merged_env_values, allowlist=adapter.auth_env_allowlist),
-            encoding="utf-8",
+        replace_path_with_text(
+            destination=env_file_path,
+            text=_render_env_file(
+                env_values=merged_env_values,
+                allowlist=adapter.auth_env_allowlist,
+            ),
+            allowed_roots=(temp_auth_root,),
         )
 
         return _persist_credential_bundle(
@@ -2027,13 +2039,13 @@ def _project_auth_source_root(
 def _agent_def_dir_auth_root(*, agent_def_dir: Path, tool: str) -> Path:
     """Return the auth root for one tool inside one plain agent-definition directory."""
 
-    return (agent_def_dir.resolve() / "tools" / tool / "auth").resolve()
+    return agent_def_dir.resolve() / "tools" / tool / "auth"
 
 
 def _direct_auth_bundle_root(*, agent_def_dir: Path, tool: str, name: str) -> Path:
     """Return one plain-directory credential root."""
 
-    return (_agent_def_dir_auth_root(agent_def_dir=agent_def_dir, tool=tool) / name).resolve()
+    return _agent_def_dir_auth_root(agent_def_dir=agent_def_dir, tool=tool) / name
 
 
 def _claude_credential_file_sources(

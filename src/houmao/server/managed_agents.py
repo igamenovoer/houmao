@@ -8,12 +8,12 @@ tree and remain distinct from the delegated TUI registration bridge.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from houmao.owned_mutation import remove_tree_or_path, replace_path_with_text
 from houmao.server.config import HoumaoServerConfig
 
 
@@ -324,37 +324,34 @@ class ManagedHeadlessStore:
         """Delete one managed-agent authority subtree."""
 
         agent_root = self.agent_root(tracked_agent_id=tracked_agent_id)
-        if agent_root.exists():
-            shutil.rmtree(agent_root)
+        remove_tree_or_path(agent_root, allowed_roots=(self.root,))
 
     def agent_root(self, *, tracked_agent_id: str) -> Path:
         """Return the per-agent authority root."""
 
         safe_id = _safe_path_component(tracked_agent_id)
-        return (self.root / safe_id).resolve()
+        return self.root / safe_id
 
     def authority_path(self, *, tracked_agent_id: str) -> Path:
         """Return the authority-record path for one agent."""
 
-        return (self.agent_root(tracked_agent_id=tracked_agent_id) / "authority.json").resolve()
+        return self.agent_root(tracked_agent_id=tracked_agent_id) / "authority.json"
 
     def active_turn_path(self, *, tracked_agent_id: str) -> Path:
         """Return the active-turn authority path for one agent."""
 
-        return (self.agent_root(tracked_agent_id=tracked_agent_id) / "active_turn.json").resolve()
+        return self.agent_root(tracked_agent_id=tracked_agent_id) / "active_turn.json"
 
     def turns_dir(self, *, tracked_agent_id: str) -> Path:
         """Return the per-agent turn-record directory."""
 
-        return (self.agent_root(tracked_agent_id=tracked_agent_id) / "turns").resolve()
+        return self.agent_root(tracked_agent_id=tracked_agent_id) / "turns"
 
     def turn_record_path(self, *, tracked_agent_id: str, turn_id: str) -> Path:
         """Return the turn-record path for one server turn id."""
 
         safe_turn_id = _safe_path_component(turn_id)
-        return (
-            self.turns_dir(tracked_agent_id=tracked_agent_id) / f"{safe_turn_id}.json"
-        ).resolve()
+        return self.turns_dir(tracked_agent_id=tracked_agent_id) / f"{safe_turn_id}.json"
 
     def _read_model(self, path: Path, model: type[_ModelT]) -> _ModelT | None:
         """Read one optional JSON model from disk."""
@@ -370,10 +367,10 @@ class ManagedHeadlessStore:
     def _write_model(self, path: Path, model: _ManagedAgentStoreModel) -> None:
         """Write one JSON model to disk atomically enough for server use."""
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(model.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        replace_path_with_text(
+            destination=path,
+            text=json.dumps(model.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+            allowed_roots=(self.root,),
         )
 
 
