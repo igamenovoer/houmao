@@ -96,3 +96,4 @@ scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/
 # Ignore .github/ except workflows
 .github/*
 !.github/workflows/
+!.github/copilot-instructions.md
