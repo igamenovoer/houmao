@@ -142,6 +142,15 @@ def read_mail_command(
 @click.option("--body-content", default=None, help="Inline body content.")
 @click.option("--body-file", default=None, help="Body content file path.")
 @click.option("--attach", "attachments", multiple=True, help="Attachment file path.")
+@click.option(
+    "--notify-block",
+    "notify_block",
+    default=None,
+    help=(
+        "Sender-marked notification block. When omitted, the body is scanned for the "
+        "first ```houmao-notify fenced block."
+    ),
+)
 @pair_port_option()
 @managed_agent_selector_options
 def send_mail_command(
@@ -152,6 +161,7 @@ def send_mail_command(
     body_content: str | None,
     body_file: str | None,
     attachments: tuple[str, ...],
+    notify_block: str | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
@@ -166,6 +176,7 @@ def send_mail_command(
             subject=subject,
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             attachments=_resolve_attachment_uploads(attachments),
+            notify_block=notify_block,
         )
     )
 
@@ -185,6 +196,15 @@ def send_mail_command(
     help="Operator-origin reply policy.",
 )
 @click.option("--attach", "attachments", multiple=True, help="Attachment file path.")
+@click.option(
+    "--notify-block",
+    "notify_block",
+    default=None,
+    help=(
+        "Sender-marked notification block. When omitted, the body is scanned for the "
+        "first ```houmao-notify fenced block."
+    ),
+)
 @pair_port_option()
 @managed_agent_selector_options
 def post_mail_command(
@@ -194,6 +214,7 @@ def post_mail_command(
     body_file: str | None,
     reply_policy: str,
     attachments: tuple[str, ...],
+    notify_block: str | None,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
@@ -207,6 +228,7 @@ def post_mail_command(
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             reply_policy=cast(OperatorOriginReplyPolicy, reply_policy),
             attachments=_resolve_attachment_uploads(attachments),
+            notify_block=notify_block,
         )
     )
 

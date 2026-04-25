@@ -228,8 +228,9 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "| `<repo-root>/houmao-ws/<task-name>/<agent-name>/kb/**` | yes | yes | yes | no |" in (
         in_repo_text
     )
-    assert "| `<repo-root>/houmao-ws/workspaces.md` | yes | no by default | yes | no by default |" in (
-        in_repo_text
+    assert (
+        "| `<repo-root>/houmao-ws/workspaces.md` | yes | no by default | yes | no by default |"
+        in (in_repo_text)
     )
     assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
 
@@ -359,9 +360,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v3_prepare_run = (pairwise_loop_v3_prestart / "prepare-run.md").read_text(
         encoding="utf-8"
     )
-    pairwise_loop_v3_start = (pairwise_loop_v3_operating / "start.md").read_text(
-        encoding="utf-8"
-    )
+    pairwise_loop_v3_start = (pairwise_loop_v3_operating / "start.md").read_text(encoding="utf-8")
     pairwise_loop_v3_workspace_contract = (
         pairwise_loop_v3_references / "workspace-contract.md"
     ).read_text(encoding="utf-8")
@@ -697,8 +696,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         pairwise_loop_v3_skill
     )
     assert "Do not prescribe a fixed subtree under per-agent `kb/`" in pairwise_loop_v3_skill
-    assert "optional launch-profile references for participants that `initialize` may need to launch" in (
-        pairwise_loop_v3_prepare_run
+    assert (
+        "optional launch-profile references for participants that `initialize` may need to launch"
+        in (pairwise_loop_v3_prepare_run)
     )
     assert "memo slot: `initialize`" in pairwise_loop_v3_prepare_run
     assert "email/mailbox-capable designated master and participant set" in (
@@ -714,17 +714,20 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "tell the designated master to read its initialize memo and begin work" in (
         pairwise_loop_v3_start
     )
-    assert "send the kickoff trigger to the designated master through `houmao-agent-email-comms`" in (
-        pairwise_loop_v3_start
+    assert (
+        "send the kickoff trigger to the designated master through `houmao-agent-email-comms`"
+        in (pairwise_loop_v3_start)
     )
-    assert "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`" in (
-        pairwise_loop_v3_start
+    assert (
+        "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`"
+        in (pairwise_loop_v3_start)
     )
     assert "task-qualified branches such as `houmao/<task-name>/<agent-name>/main`" in (
         pairwise_loop_v3_workspace_contract
     )
-    assert "Do not use the standard workspace-preparation skill as a custom-workspace translation layer." in (
-        pairwise_loop_v3_workspace_contract
+    assert (
+        "Do not use the standard workspace-preparation skill as a custom-workspace translation layer."
+        in (pairwise_loop_v3_workspace_contract)
     )
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
@@ -1039,9 +1042,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_v3_stop_path = pairwise_loop_v3_operating / "stop.md"
     pairwise_loop_v3_hard_kill_path = pairwise_loop_v3_operating / "hard-kill.md"
     pairwise_loop_v3_charter_path = pairwise_loop_v3_references / "run-charter.md"
-    pairwise_loop_v3_workspace_contract_path = (
-        pairwise_loop_v3_references / "workspace-contract.md"
-    )
+    pairwise_loop_v3_workspace_contract_path = pairwise_loop_v3_references / "workspace-contract.md"
     pairwise_loop_v3_policy_path = pairwise_loop_v3_references / "delegation-policy.md"
     pairwise_loop_v3_stop_modes_path = pairwise_loop_v3_references / "stop-modes.md"
     pairwise_loop_v3_reporting_path = pairwise_loop_v3_references / "reporting-contract.md"
@@ -1405,11 +1406,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "Every authored plan records a `workspace_contract` with mode `standard` or `custom`."
         in pairwise_loop_v3_skill
     )
-    assert "Standard in-repo posture is task-scoped under `<repo-root>/houmao-ws/<task-name>/...`." in (
-        pairwise_loop_v3_skill
+    assert (
+        "Standard in-repo posture is task-scoped under `<repo-root>/houmao-ws/<task-name>/...`."
+        in (pairwise_loop_v3_skill)
     )
-    assert "Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`" in (
-        pairwise_loop_v3_skill
+    assert (
+        "Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`"
+        in (pairwise_loop_v3_skill)
     )
     assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
         pairwise_loop_v3_skill
@@ -1798,8 +1801,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     assert "designated master's initialize memo block" in pairwise_loop_v3_start
     assert "mail-delivery rule" in pairwise_loop_v3_plan_structure
-    assert "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`" in (
-        pairwise_loop_v3_start
+    assert (
+        "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`"
+        in (pairwise_loop_v3_start)
     )
     assert "mode: <standard | custom>" in pairwise_loop_v3_charter
     assert "posture: <in-repo | out-of-repo | custom>" in pairwise_loop_v3_charter
@@ -1810,8 +1814,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "task-qualified branches such as `houmao/<task-name>/<agent-name>/main`" in (
         pairwise_loop_v3_workspace_contract
     )
-    assert "Do not use the standard workspace-preparation skill as a custom-workspace translation layer." in (
-        pairwise_loop_v3_workspace_contract
+    assert (
+        "Do not use the standard workspace-preparation skill as a custom-workspace translation layer."
+        in (pairwise_loop_v3_workspace_contract)
     )
     assert "Every pairwise-v3 plan should record one authored workspace contract." in (
         pairwise_loop_v3_plan_structure
@@ -1819,8 +1824,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "The workspace contract should describe allowed surfaces and ownership" in (
         pairwise_loop_v3_plan_structure
     )
-    assert "Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`." in (
-        pairwise_loop_v3_plan_structure
+    assert (
+        "Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`."
+        in (pairwise_loop_v3_plan_structure)
     )
     assert "workspace_contract_mode: <standard | custom>" in pairwise_loop_v3_single_template
     assert "runtime-owned recovery files: remain outside this workspace contract" in (

@@ -1387,9 +1387,7 @@ def _cleanup_target_details(target: ResolvedManagedSessionCleanupTarget) -> dict
 def _cleanup_target_has_active_registry_record(target: ResolvedManagedSessionCleanupTarget) -> bool:
     """Return whether cleanup matched an active lifecycle registry record."""
 
-    return (
-        target.registry_record is not None and target.registry_record.lifecycle.state == "active"
-    )
+    return target.registry_record is not None and target.registry_record.lifecycle.state == "active"
 
 
 def _planned_cleanup_registry_action_name(

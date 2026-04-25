@@ -151,7 +151,9 @@ def _registry_record(
         liveness=(
             RegistryLivenessV1(
                 published_at=published_at.isoformat(timespec="seconds"),
-                lease_expires_at=(published_at + timedelta(minutes=5)).isoformat(timespec="seconds"),
+                lease_expires_at=(published_at + timedelta(minutes=5)).isoformat(
+                    timespec="seconds"
+                ),
             )
             if lifecycle_state == "active"
             else None
@@ -437,7 +439,9 @@ def test_managed_session_cleanup_prefers_registry_record_over_runtime_scan(
     tmp_path: Path,
 ) -> None:
     runtime_root = (tmp_path / "runtime").resolve()
-    scan_manifest = _write_runtime_manifest(tmp_path, runtime_root=runtime_root, session_id="session-scan")
+    scan_manifest = _write_runtime_manifest(
+        tmp_path, runtime_root=runtime_root, session_id="session-scan"
+    )
     registry_manifest = _write_runtime_manifest(
         tmp_path,
         runtime_root=runtime_root,
@@ -881,10 +885,9 @@ def test_managed_session_cleanup_purges_registry_record_when_requested(
     monkeypatch.setattr(
         runtime_cleanup,
         "remove_managed_agent_record",
-        lambda agent_id, generation_id=None: captured.update(
-            {"agent_id": agent_id, "generation_id": generation_id}
-        )
-        or True,
+        lambda agent_id, generation_id=None: (
+            captured.update({"agent_id": agent_id, "generation_id": generation_id}) or True
+        ),
     )
 
     payload = runtime_cleanup.cleanup_managed_session(
@@ -1037,17 +1040,19 @@ def test_agents_cleanup_session_command_forwards_purge_registry(
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.cleanup.cleanup_managed_session",
-        lambda **kwargs: captured.update(kwargs)
-        or {
-            "dry_run": True,
-            "scope": {},
-            "resolution": {},
-            "planned_actions": [],
-            "applied_actions": [],
-            "blocked_actions": [],
-            "preserved_actions": [],
-            "summary": {},
-        },
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or {
+                "dry_run": True,
+                "scope": {},
+                "resolution": {},
+                "planned_actions": [],
+                "applied_actions": [],
+                "blocked_actions": [],
+                "preserved_actions": [],
+                "summary": {},
+            }
+        ),
     )
 
     result = CliRunner().invoke(

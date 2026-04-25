@@ -589,7 +589,9 @@ class ProjectCatalog:
         """Remove one existing auth profile and its managed auth content."""
 
         profile = self.load_auth_profile(tool=tool, name=name)
-        content_path = self._managed_auth_content_path(tool=profile.tool, bundle_ref=profile.bundle_ref)
+        content_path = self._managed_auth_content_path(
+            tool=profile.tool, bundle_ref=profile.bundle_ref
+        )
         projection_path = self._managed_auth_projection_path(
             tool=profile.tool,
             bundle_ref=profile.bundle_ref,
@@ -3145,7 +3147,9 @@ def _copy_traversable_tree(
         if allowed_roots is not None:
             _require_owned_mutation_path(path=destination, allowed_roots=allowed_roots)
         if destination.is_symlink():
-            raise ValueError(f"Refusing to seed starter content into symlink-backed path: {destination}")
+            raise ValueError(
+                f"Refusing to seed starter content into symlink-backed path: {destination}"
+            )
         destination.mkdir(parents=True, exist_ok=True)
         for child in sorted(source.iterdir(), key=lambda item: item.name):
             _copy_traversable_tree(

@@ -19,7 +19,9 @@ import yaml
 
 from houmao.mailbox.errors import MailboxProtocolError
 
-MAILBOX_PROTOCOL_VERSION = 1
+MAILBOX_PROTOCOL_VERSION = 2
+NOTIFY_BLOCK_MAX_CHARS = 512
+NOTIFY_BLOCK_FENCE_INFO_STRING = "houmao-notify"
 HOUMAO_MAILBOX_DOMAIN = "houmao.localhost"
 HOUMAO_RESERVED_LOCAL_PART_PREFIX = "HOUMAO-"
 HOUMAO_OPERATOR_PRINCIPAL_ID = "HOUMAO-operator"
@@ -79,6 +81,45 @@ class MailboxPrincipal(_StrictMailboxModel):
     @classmethod
     def _validate_address(cls, value: str) -> str:
         return validate_mailbox_address(value)
+
+
+_NotifyAuthScheme = Literal["none", "shared-token", "hmac-sha256", "jws"]
+
+
+class MailboxNotifyAuth(_StrictMailboxModel):
+    """Sender-supplied authentication metadata for a notification block.
+
+    The protocol reserves four scheme names so future verifier work can land
+    without another envelope-level breaking change. In this protocol version
+    only ``scheme="none"`` is accepted at validation; non-``none`` schemes are
+    rejected with an explicit ``"verifier not yet supported"`` error.
+    """
+
+    scheme: _NotifyAuthScheme = "none"
+    token: str | None = None
+    iss: str | None = None
+    iat: str | None = None
+    exp: str | None = None
+
+    @field_validator("token", "iss", "iat", "exp")
+    @classmethod
+    def _optional_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be empty")
+        return normalized
+
+    @field_validator("scheme")
+    @classmethod
+    def _validate_scheme(cls, value: _NotifyAuthScheme) -> _NotifyAuthScheme:
+        if value != "none":
+            raise ValueError(
+                f"verifier not yet supported: notify_auth.scheme={value!r} cannot be "
+                "validated until the gateway notifier rendering change ships verifiers"
+            )
+        return value
 
 
 class MailboxAttachment(_StrictMailboxModel):
@@ -153,6 +194,8 @@ class MailboxMessage(_StrictMailboxModel):
     body_markdown: str
     attachments: list[MailboxAttachment] = Field(default_factory=list)
     headers: dict[str, object] = Field(default_factory=dict)
+    notify_block: str | None = None
+    notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("protocol_version")
     @classmethod
@@ -208,6 +251,39 @@ class MailboxMessage(_StrictMailboxModel):
                 raise ValueError("header keys must not be empty")
         return value
 
+    @field_validator("notify_block")
+    @classmethod
+    def _validate_notify_block(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if "\x00" in value:
+            raise ValueError("must not contain NUL bytes")
+        if not value.strip():
+            return None
+        if len(value) > NOTIFY_BLOCK_MAX_CHARS:
+            return value[: NOTIFY_BLOCK_MAX_CHARS - 1] + "…"
+        return value
+
+    @classmethod
+    def compose(cls, payload: Mapping[str, object]) -> "MailboxMessage":
+        """Construct a canonical mailbox message from a payload mapping.
+
+        When ``notify_block`` is absent from the payload, the first
+        ``houmao-notify`` fenced code block in ``body_markdown`` is extracted
+        and stored as ``notify_block``. The body source is left unchanged.
+        Callers that supply ``notify_block`` directly (including ``None``)
+        bypass body-fence extraction entirely.
+        """
+
+        composed = dict(payload)
+        if "notify_block" not in composed and "body_markdown" in composed:
+            body = composed["body_markdown"]
+            if isinstance(body, str):
+                extracted = extract_notify_block_from_body(body)
+                if extracted is not None:
+                    composed["notify_block"] = extracted
+        return cls.model_validate(composed)
+
     @model_validator(mode="after")
     def _validate_threading(self) -> "MailboxMessage":
         if self.in_reply_to is None:
@@ -222,6 +298,41 @@ class MailboxMessage(_StrictMailboxModel):
         if self.references[-1] != self.in_reply_to:
             raise MailboxProtocolError("references must end with in_reply_to")
         return self
+
+
+def extract_notify_block_from_body(body_markdown: str) -> str | None:
+    """Return the trimmed contents of the first ``houmao-notify`` body fence.
+
+    Parameters
+    ----------
+    body_markdown:
+        Mailbox message body source. The function does not modify this value.
+
+    Returns
+    -------
+    str or None
+        The trimmed contents of the first matching fenced code block, or
+        ``None`` when no fence is present, the closing fence is missing, or
+        the fence content is empty after trimming.
+    """
+
+    info_string = NOTIFY_BLOCK_FENCE_INFO_STRING
+    in_fence = False
+    fence_lines: list[str] = []
+    for line in body_markdown.splitlines():
+        rstripped = line.rstrip()
+        if not in_fence:
+            if rstripped.startswith("```"):
+                info = rstripped[3:].strip()
+                if info == info_string:
+                    in_fence = True
+                    fence_lines = []
+            continue
+        if rstripped == "```":
+            content = "\n".join(fence_lines).strip()
+            return content if content else None
+        fence_lines.append(line)
+    return None
 
 
 def generate_message_id(now: datetime | None = None) -> str:

@@ -177,8 +177,9 @@ def test_compose_managed_launch_prompt_can_enable_default_off_sections() -> None
     assert payload.prompt.index("<task_reminder>") < payload.prompt.index("<mail_ack>")
     assert "explicitly asked for a later self-reminder" in payload.prompt
     assert "concrete supervision or finalization check" in payload.prompt
-    assert "sending a required reply, writing a required file, or verifying agent or loop health" in (
-        payload.prompt
+    assert (
+        "sending a required reply, writing a required file, or verifying agent or loop health"
+        in (payload.prompt)
     )
     assert "keep using local todo, memo, or other working state" in payload.prompt
     assert "10 seconds" not in payload.prompt

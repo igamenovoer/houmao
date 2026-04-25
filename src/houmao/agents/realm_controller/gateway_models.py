@@ -27,6 +27,7 @@ from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+    MailboxNotifyAuth,
 )
 
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
@@ -1805,6 +1806,8 @@ class GatewayMailSendRequestV1(_StrictGatewayModel):
     subject: str
     body_content: str
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
+    notify_block: str | None = None
+    notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("to", "cc")
     @classmethod
@@ -1847,6 +1850,8 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
         default=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
     )
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
+    notify_block: str | None = None
+    notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("subject")
     @classmethod
@@ -1886,6 +1891,8 @@ class GatewayMailReplyRequestV1(_StrictGatewayModel):
     message_ref: str
     body_content: str
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
+    notify_block: str | None = None
+    notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("message_ref")
     @classmethod

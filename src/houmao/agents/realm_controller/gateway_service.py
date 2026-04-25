@@ -2708,6 +2708,8 @@ class GatewayServiceRuntime:
                     subject=request_payload.subject,
                     body_content=request_payload.body_content,
                     attachments=request_payload.attachments,
+                    notify_block=request_payload.notify_block,
+                    notify_auth=request_payload.notify_auth,
                 )
             except GatewayMailboxUnsupportedError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2737,6 +2739,8 @@ class GatewayServiceRuntime:
                     body_content=request_payload.body_content,
                     reply_policy=request_payload.reply_policy,
                     attachments=request_payload.attachments,
+                    notify_block=request_payload.notify_block,
+                    notify_auth=request_payload.notify_auth,
                 )
             except GatewayMailboxUnsupportedError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2765,6 +2769,8 @@ class GatewayServiceRuntime:
                     message_ref=request_payload.message_ref,
                     body_content=request_payload.body_content,
                     attachments=request_payload.attachments,
+                    notify_block=request_payload.notify_block,
+                    notify_auth=request_payload.notify_auth,
                 )
             except GatewayMailboxUnsupportedError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -3245,7 +3251,9 @@ class GatewayServiceRuntime:
                 return
 
             unread_digest = self._mail_notifier_digest(unread_messages)
-            current_eligible_message_refs = self._mail_notifier_eligible_message_refs(unread_messages)
+            current_eligible_message_refs = self._mail_notifier_eligible_message_refs(
+                unread_messages
+            )
             current_eligible_message_ref_set = set(current_eligible_message_refs)
             pruned_compacted_eligible_message_refs = tuple(
                 message_ref
@@ -3284,10 +3292,7 @@ class GatewayServiceRuntime:
                 for message_ref in current_eligible_message_refs
                 if message_ref not in set(record.compacted_eligible_message_refs)
             )
-            if (
-                record.pre_notification_context_action == "compact"
-                and newly_eligible_message_refs
-            ):
+            if record.pre_notification_context_action == "compact" and newly_eligible_message_refs:
                 try:
                     self._dispatch_tui_compaction_only(lock_held=True)
                     record = write_gateway_mail_notifier_record(
@@ -4093,7 +4098,8 @@ class GatewayServiceRuntime:
                     turn_id=payload.turn_id,
                     session_selection=session_selection,
                     execution_model=execution_model,
-                    note_prompt_submission=request_kind in {"submit_prompt", "mail_notifier_prompt"},
+                    note_prompt_submission=request_kind
+                    in {"submit_prompt", "mail_notifier_prompt"},
                 )
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)

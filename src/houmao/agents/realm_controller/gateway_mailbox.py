@@ -44,6 +44,7 @@ from houmao.mailbox.protocol import (
     HOUMAO_OPERATOR_ROLE,
     MailboxAttachment,
     MailboxMessage,
+    MailboxNotifyAuth,
     MailboxPrincipal,
     is_operator_origin_headers,
     operator_origin_reply_policy,
@@ -97,6 +98,8 @@ class GatewayMailboxAdapter(Protocol):
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         """Send one new mailbox message and return the normalized delivered record."""
 
@@ -106,6 +109,8 @@ class GatewayMailboxAdapter(Protocol):
         message_ref: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         """Reply to one existing message and return the normalized delivered record."""
 
@@ -116,6 +121,8 @@ class GatewayMailboxAdapter(Protocol):
         body_content: str,
         reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         """Deliver one operator-origin mailbox note into the current mailbox."""
 
@@ -264,6 +271,8 @@ class FilesystemGatewayMailboxAdapter:
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         now = datetime.now(UTC)
         message_id = _generate_filesystem_message_id(now)
@@ -279,6 +288,8 @@ class FilesystemGatewayMailboxAdapter:
             subject=subject,
             body_content=body_content,
             attachments=attachments,
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         try:
             deliver_message(self.m_mailbox.filesystem_root, request)
@@ -306,6 +317,8 @@ class FilesystemGatewayMailboxAdapter:
         body_content: str,
         reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         self._ensure_operator_registration()
         now = datetime.now(UTC)
@@ -329,6 +342,8 @@ class FilesystemGatewayMailboxAdapter:
                 else ()
             ),
             headers=operator_origin_headers(reply_policy=reply_policy),
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         try:
             deliver_message(self.m_mailbox.filesystem_root, request)
@@ -355,6 +370,8 @@ class FilesystemGatewayMailboxAdapter:
         message_ref: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         parent_message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
         parent_message = self._load_message_by_id(parent_message_id)
@@ -381,6 +398,8 @@ class FilesystemGatewayMailboxAdapter:
             subject=subject,
             body_content=body_content,
             attachments=attachments,
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         try:
             deliver_message(self.m_mailbox.filesystem_root, request)
@@ -484,6 +503,8 @@ class FilesystemGatewayMailboxAdapter:
         sender: ManagedPrincipal | None = None,
         reply_to: Sequence[ManagedPrincipal] = (),
         headers: Mapping[str, object] | None = None,
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> DeliveryRequest:
         staged_message_path = (
             self.m_mailbox.filesystem_root / "staging" / f"gateway-{uuid4().hex[:12]}.md"
@@ -519,7 +540,11 @@ class FilesystemGatewayMailboxAdapter:
             headers=dict(headers or {}),
         )
         self._write_staged_message(
-            staged_message_path=staged_message_path, request=request, body_content=body_content
+            staged_message_path=staged_message_path,
+            request=request,
+            body_content=body_content,
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         return request
 
@@ -529,26 +554,31 @@ class FilesystemGatewayMailboxAdapter:
         staged_message_path: Path,
         request: DeliveryRequest,
         body_content: str,
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> None:
-        message = MailboxMessage.model_validate(
-            {
-                "message_id": request.message_id,
-                "thread_id": request.thread_id,
-                "in_reply_to": request.in_reply_to,
-                "references": list(request.references),
-                "created_at_utc": request.created_at_utc,
-                "from": request.sender.to_mailbox_principal(),
-                "to": [principal.to_mailbox_principal() for principal in request.to],
-                "cc": [principal.to_mailbox_principal() for principal in request.cc],
-                "reply_to": [principal.to_mailbox_principal() for principal in request.reply_to],
-                "subject": request.subject,
-                "body_markdown": body_content,
-                "attachments": [
-                    attachment.to_mailbox_attachment() for attachment in request.attachments
-                ],
-                "headers": dict(request.headers),
-            }
-        )
+        payload: dict[str, object] = {
+            "message_id": request.message_id,
+            "thread_id": request.thread_id,
+            "in_reply_to": request.in_reply_to,
+            "references": list(request.references),
+            "created_at_utc": request.created_at_utc,
+            "from": request.sender.to_mailbox_principal(),
+            "to": [principal.to_mailbox_principal() for principal in request.to],
+            "cc": [principal.to_mailbox_principal() for principal in request.cc],
+            "reply_to": [principal.to_mailbox_principal() for principal in request.reply_to],
+            "subject": request.subject,
+            "body_markdown": body_content,
+            "attachments": [
+                attachment.to_mailbox_attachment() for attachment in request.attachments
+            ],
+            "headers": dict(request.headers),
+        }
+        if notify_block is not None:
+            payload["notify_block"] = notify_block
+        if notify_auth is not None:
+            payload["notify_auth"] = notify_auth
+        message = MailboxMessage.compose(payload)
         staged_message_path.parent.mkdir(parents=True, exist_ok=True)
         staged_message_path.write_text(
             serialize_message_document(message),
@@ -1026,7 +1056,10 @@ class StalwartGatewayMailboxAdapter:
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
+        _reject_stalwart_notify_fields(notify_block=notify_block, notify_auth=notify_auth)
         try:
             row = self._client().send(
                 sender_address=self.m_mailbox.address,
@@ -1046,7 +1079,10 @@ class StalwartGatewayMailboxAdapter:
         message_ref: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
+        _reject_stalwart_notify_fields(notify_block=notify_block, notify_auth=notify_auth)
         try:
             row = self._client().reply(
                 message_ref=_require_prefixed_ref(message_ref, prefix="stalwart"),
@@ -1065,8 +1101,10 @@ class StalwartGatewayMailboxAdapter:
         body_content: str,
         reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
+        notify_block: str | None = None,
+        notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
-        del subject, body_content, reply_policy, attachments
+        del subject, body_content, reply_policy, attachments, notify_block, notify_auth
         raise GatewayMailboxUnsupportedError(
             "operator-origin mailbox post is unsupported for stalwart mailbox bindings"
         )
@@ -1324,6 +1362,26 @@ def _parse_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _reject_stalwart_notify_fields(
+    *,
+    notify_block: str | None,
+    notify_auth: MailboxNotifyAuth | None,
+) -> None:
+    """Reject notify-block and notify-auth on Stalwart-bound sends in this version.
+
+    The Stalwart adapter does not yet project canonical envelope fields into
+    JMAP-native headers. Until that projection ships, callers that supply
+    these fields against a Stalwart binding receive an explicit unsupported
+    error rather than a silent drop of sender intent.
+    """
+
+    if notify_block is not None or notify_auth is not None:
+        raise GatewayMailboxUnsupportedError(
+            "notify_block and notify_auth are unsupported for stalwart mailbox bindings "
+            "in this protocol version"
+        )
 
 
 def _require_prefixed_ref(value: str, *, prefix: str) -> str:

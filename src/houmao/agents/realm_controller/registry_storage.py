@@ -306,8 +306,7 @@ def publish_managed_agent_record(
         agent_id = getattr(record, "agent_id", "<unknown>")
         raise SessionManifestError(
             format_registry_validation_error(
-                "Shared registry record schema validation failed before publish for "
-                f"`{agent_id}`",
+                f"Shared registry record schema validation failed before publish for `{agent_id}`",
                 exc,
             )
         ) from exc
@@ -487,9 +486,7 @@ def cleanup_stale_managed_agent_records(
                             grace_period=grace_period,
                         )
                         if should_remove:
-                            remove_reason = (
-                                "registry lease expired beyond the cleanup grace period"
-                            )
+                            remove_reason = "registry lease expired beyond the cleanup grace period"
                         elif (
                             probe_local_tmux
                             and record.terminal.current_session_name is not None

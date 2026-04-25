@@ -59,13 +59,20 @@ Addresses are full-form email-like strings such as `research@houmao.localhost`. 
 - Operator-origin messages use explicit provenance headers such as `x-houmao-origin: operator` plus `x-houmao-reply-policy: none` or `x-houmao-reply-policy: operator_mailbox`.
 - New operator-origin messages default to `x-houmao-reply-policy: operator_mailbox`; their `reply_to` targets the reserved system mailbox `HOUMAO-operator@houmao.localhost`. With `none`, replies to that operator-origin message are rejected.
 
+### Notification-prompt block
+
+- Optional `notify_block` is a short, sender-marked string intended for prominent receiver-side rendering by future notification surfaces. Senders may author it inline as a Markdown fenced code block with info-string `houmao-notify`; canonical-message construction extracts the first such fence into `notify_block` and leaves `body_markdown` unchanged. Callers may also supply `notify_block` directly through composition surfaces (`MailboxMessage.compose(...)`, `houmao-mgr agents mail send --notify-block ...`, gateway `/v1/mail/send` request body); explicit values bypass body-fence extraction.
+- `notify_block` is capped at 512 characters; longer values are truncated to 511 characters plus a single trailing `…` (U+2026) at composition time.
+- Optional `notify_auth` carries sender-supplied authentication metadata associated with `notify_block`. The protocol reserves the schemes `none`, `shared-token`, `hmac-sha256`, and `jws`; in the current protocol version only `scheme="none"` is accepted at validation. Non-`none` schemes are rejected with an explicit "verifier not yet supported" error so the slot can be carried forward without another envelope-level breaking change.
+- The gateway notifier prompt does **not** render `notify_block` content in this protocol version. Notifier rendering, verifier plug-ins, and gateway-side trust posture (`permissive-log` versus `required`) land in a follow-on change.
+
 ## Representative Canonical Message
 
 This is the shape serialized by `serialize_message_document()` and parsed by `parse_message_document()`.
 
 ```markdown
 ---
-protocol_version: 1
+protocol_version: 2
 message_id: msg-20260313T091530Z-a1b2c3d4e5f64798aabbccddeeff0011
 thread_id: msg-20260313T091530Z-a1b2c3d4e5f64798aabbccddeeff0011
 in_reply_to: null
@@ -88,11 +95,18 @@ attachments:
 headers:
   tags:
     - parser
+notify_block: re-run on official timing path before reporting
+notify_auth:
+  scheme: none
 ---
 
 # Summary
 
 The parser drift appears after the second transform stage.
+
+```houmao-notify
+re-run on official timing path before reporting
+```
 ```
 
 ## Immutable Versus Mutable Boundaries

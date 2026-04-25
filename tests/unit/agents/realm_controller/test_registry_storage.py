@@ -570,7 +570,9 @@ def test_cleanup_reports_failed_removals_and_continues(
         encoding="utf-8",
     )
 
-    def _fake_remove_tree_or_path(path: Path, *, allowed_roots: tuple[Path, ...] | None = None) -> None:
+    def _fake_remove_tree_or_path(
+        path: Path, *, allowed_roots: tuple[Path, ...] | None = None
+    ) -> None:
         del allowed_roots
         if Path(path).name == "stale-failure":
             raise OSError("directory busy")
@@ -811,8 +813,13 @@ def test_registry_publish_replaces_symlinked_entry_without_touching_source(
 
     assert entry_path.is_dir()
     assert not entry_path.is_symlink()
-    assert json.loads((entry_path / "record.json").read_text(encoding="utf-8"))["agent_id"] == record.agent_id
-    assert json.loads((external_entry / "record.json").read_text(encoding="utf-8")) == {"external": True}
+    assert (
+        json.loads((entry_path / "record.json").read_text(encoding="utf-8"))["agent_id"]
+        == record.agent_id
+    )
+    assert json.loads((external_entry / "record.json").read_text(encoding="utf-8")) == {
+        "external": True
+    }
 
 
 def test_registry_cleanup_unlinks_symlinked_entry_without_touching_source(

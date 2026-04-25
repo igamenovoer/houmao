@@ -6531,7 +6531,10 @@ def test_gateway_mail_notifier_pre_notification_compaction_does_not_repeat_for_u
     assert compact_prompts == ["/compact"]
     assert len(notifier_prompts) >= 2
     assert sum(1 for note in _FakeGatewayTrackingRuntime.m_prompt_notes if note == "/compact") == 1
-    assert len([note for note in _FakeGatewayTrackingRuntime.m_prompt_notes if note != "/compact"]) >= 2
+    assert (
+        len([note for note in _FakeGatewayTrackingRuntime.m_prompt_notes if note != "/compact"])
+        >= 2
+    )
     record = read_gateway_mail_notifier_record(paths.queue_path)
     assert record.compacted_eligible_message_refs == (f"filesystem:{message_id}",)
     enqueued_rows = [

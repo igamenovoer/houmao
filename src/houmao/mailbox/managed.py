@@ -42,6 +42,7 @@ from houmao.mailbox.protocol import (
     HOUMAO_OPERATOR_DISPLAY_NAME,
     HOUMAO_OPERATOR_PRINCIPAL_ID,
     HOUMAO_OPERATOR_ROLE,
+    MAILBOX_PROTOCOL_VERSION,
     MailboxAttachment,
     MailboxMessage,
     MailboxPrincipal,
@@ -54,7 +55,6 @@ from houmao.mailbox.protocol import (
     validate_message_id,
 )
 
-MAILBOX_PROTOCOL_VERSION = 1
 _MAILBOX_PLACEHOLDER_DIRS = ("inbox", "sent", "archive", "drafts")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _STASHED_ENTRY_RE = re.compile(r"^(?P<address>.+)--(?P<suffix>[0-9a-f]{32})$")

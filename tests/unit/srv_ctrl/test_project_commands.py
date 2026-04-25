@@ -604,7 +604,9 @@ def test_project_migrate_replaces_symlinked_legacy_skill_without_touching_source
     assert canonical_skill_path.resolve() == external_skill
     assert projected_skill_path.is_symlink()
     assert projected_skill_path.readlink() == canonical_skill_path
-    assert (external_skill / "SKILL.md").read_text(encoding="utf-8") == "# notes\n\nExternal notes.\n"
+    assert (external_skill / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "# notes\n\nExternal notes.\n"
 
 
 def test_project_migrate_reports_unsupported_legacy_overlay(

@@ -120,7 +120,7 @@ from houmao.agents.realm_controller.session_authority import resolve_manifest_se
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
-from houmao.mailbox.protocol import OperatorOriginReplyPolicy
+from houmao.mailbox.protocol import MailboxNotifyAuth, OperatorOriginReplyPolicy
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -526,7 +526,7 @@ def _resolve_local_managed_agent_record_with_miss_context(
                 resolution_kind="friendly name",
                 matches=name_matches,
             )
-    )
+        )
     if len(name_matches) == 1:
         return name_matches[0], None
     all_matches = resolve_managed_agent_records_by_name(agent_name)
@@ -561,7 +561,9 @@ def _resolve_local_managed_agent_alias_hint(
 ) -> ManagedAgentRegistryRecordV3 | None:
     """Return one exact unique tmux/session alias hint for a missed friendly name."""
 
-    alias_matches = [record for record in _list_registry_records() if record.terminal.session_name == agent_name]
+    alias_matches = [
+        record for record in _list_registry_records() if record.terminal.session_name == agent_name
+    ]
     if len(alias_matches) == 1:
         return alias_matches[0]
     return None
@@ -859,7 +861,9 @@ def _format_inactive_local_registry_match(
             "The record is retired and no longer participates in live routing; inspect lifecycle-aware listings instead."
         )
     elif lifecycle_state == "relaunching":
-        lines.append("The record is currently relaunching; retry after the relaunch transition completes.")
+        lines.append(
+            "The record is currently relaunching; retry after the relaunch transition completes."
+        )
     return "\n".join(lines)
 
 
@@ -900,13 +904,9 @@ def _format_unavailable_local_relaunch_record(
             "was available for active relaunch."
         )
     elif lifecycle_state == "retired":
-        lines.append(
-            "The record is retired and no longer participates in relaunch routing."
-        )
+        lines.append("The record is retired and no longer participates in relaunch routing.")
     elif lifecycle_state == "relaunching":
-        lines.append(
-            "The record is already in a relaunch transition; retry after it completes."
-        )
+        lines.append("The record is already in a relaunch transition; retry after it completes.")
     return "\n".join(lines)
 
 
@@ -1844,6 +1844,8 @@ def _local_manager_mail_send(
     subject: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Send mail through manager-owned local execution."""
 
@@ -1855,6 +1857,8 @@ def _local_manager_mail_send(
             subject=subject,
             body_content=body_content,
             attachments=attachments,
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         status = adapter.status()
     except GatewayMailboxError as exc:
@@ -1874,6 +1878,8 @@ def _local_manager_mail_reply(
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Reply through manager-owned local execution."""
 
@@ -1883,6 +1889,8 @@ def _local_manager_mail_reply(
             message_ref=message_ref,
             body_content=body_content,
             attachments=attachments,
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         status = adapter.status()
     except GatewayMailboxError as exc:
@@ -1903,6 +1911,8 @@ def _local_manager_mail_post(
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through manager-owned local execution."""
 
@@ -1913,6 +1923,8 @@ def _local_manager_mail_post(
             body_content=body_content,
             reply_policy=reply_policy,
             attachments=attachments,
+            notify_block=notify_block,
+            notify_auth=notify_auth,
         )
         status = adapter.status()
     except GatewayMailboxError as exc:
@@ -2032,6 +2044,8 @@ def _gateway_mail_send(
     subject: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Send mail through one live loopback gateway client."""
 
@@ -2043,6 +2057,8 @@ def _gateway_mail_send(
                 subject=subject,
                 body_content=body_content,
                 attachments=list(attachments),
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             )
         )
     except GatewayHttpError as exc:
@@ -2055,6 +2071,8 @@ def _gateway_mail_reply(
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Reply through one live loopback gateway client."""
 
@@ -2064,6 +2082,8 @@ def _gateway_mail_reply(
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=list(attachments),
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             )
         )
     except GatewayHttpError as exc:
@@ -2077,6 +2097,8 @@ def _gateway_mail_post(
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through one live loopback gateway client."""
 
@@ -2087,6 +2109,8 @@ def _gateway_mail_post(
                 body_content=body_content,
                 reply_policy=reply_policy,
                 attachments=list(attachments),
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             )
         )
     except GatewayHttpError as exc:
@@ -2295,6 +2319,8 @@ def mail_send(
     subject: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Send a mailbox message for one managed agent."""
 
@@ -2314,6 +2340,8 @@ def mail_send(
                     subject=subject,
                     body_content=body_content,
                     attachments=list(attachments),
+                    notify_block=notify_block,
+                    notify_auth=notify_auth,
                 ),
             ),
         )
@@ -2330,6 +2358,8 @@ def mail_send(
                 subject=subject,
                 body_content=body_content,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
 
@@ -2345,6 +2375,8 @@ def mail_send(
                 subject=subject,
                 body_content=body_content,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
 
@@ -2360,10 +2392,16 @@ def mail_send(
                 subject=subject,
                 body_content=body_content,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
     # Preserve the submission-only fallback when verified direct or gateway-backed
-    # execution is unavailable for a live TUI-managed session.
+    # execution is unavailable for a live TUI-managed session. The TUI submission
+    # path cannot deliver the typed `notify_block`/`notify_auth` envelope fields
+    # because the live agent composes the canonical envelope itself; senders that
+    # need that delivery path should encode the block as a `houmao-notify` body
+    # fence so the agent's send tooling extracts it at composition time.
     return _run_local_mail_prompt(
         controller=target.controller,
         operation="send",
@@ -2384,6 +2422,8 @@ def mail_post(
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Post one operator-origin mailbox note into one managed agent inbox."""
 
@@ -2402,6 +2442,8 @@ def mail_post(
                     body_content=body_content,
                     reply_policy=reply_policy,
                     attachments=list(attachments),
+                    notify_block=notify_block,
+                    notify_auth=notify_auth,
                 ),
             ),
         )
@@ -2417,6 +2459,8 @@ def mail_post(
                 body_content=body_content,
                 reply_policy=reply_policy,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
 
@@ -2431,6 +2475,8 @@ def mail_post(
                 body_content=body_content,
                 reply_policy=reply_policy,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
 
@@ -2445,6 +2491,8 @@ def mail_post(
                 body_content=body_content,
                 reply_policy=reply_policy,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
     raise click.ClickException(
@@ -2459,6 +2507,8 @@ def mail_reply(
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
+    notify_block: str | None = None,
+    notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Reply to a mailbox message for one managed agent."""
 
@@ -2476,6 +2526,8 @@ def mail_reply(
                     message_ref=message_ref,
                     body_content=body_content,
                     attachments=list(attachments),
+                    notify_block=notify_block,
+                    notify_auth=notify_auth,
                 ),
             ),
         )
@@ -2490,6 +2542,8 @@ def mail_reply(
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
 
@@ -2503,6 +2557,8 @@ def mail_reply(
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
 
@@ -2516,6 +2572,8 @@ def mail_reply(
                 message_ref=message_ref,
                 body_content=body_content,
                 attachments=attachments,
+                notify_block=notify_block,
+                notify_auth=notify_auth,
             ),
         )
     return _run_local_mail_prompt(
@@ -2976,7 +3034,9 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
     )
 
 
-def _resume_controller_from_record(record: ManagedAgentRegistryRecordV3) -> RuntimeSessionController:
+def _resume_controller_from_record(
+    record: ManagedAgentRegistryRecordV3,
+) -> RuntimeSessionController:
     """Resume one local runtime controller from a registry record."""
 
     agent_def_dir_raw = record.runtime.agent_def_dir
@@ -3000,7 +3060,9 @@ def _resume_controller_from_record(record: ManagedAgentRegistryRecordV3) -> Runt
         ) from exc
 
 
-def _resume_stopped_controller_from_record(record: ManagedAgentRegistryRecordV3) -> RuntimeSessionController:
+def _resume_stopped_controller_from_record(
+    record: ManagedAgentRegistryRecordV3,
+) -> RuntimeSessionController:
     """Prepare one stopped local runtime controller for stopped-session revival."""
 
     agent_def_dir_raw = record.runtime.agent_def_dir

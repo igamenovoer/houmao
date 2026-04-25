@@ -68,7 +68,7 @@ def test_canonical_message_serialization_round_trips() -> None:
     rendered = serialize_message_document(message)
     parsed = parse_message_document(rendered)
 
-    assert rendered.startswith("---\nprotocol_version: 1\n")
+    assert rendered.startswith("---\nprotocol_version: 2\n")
     assert "from:" in rendered
     assert parsed == message
 
