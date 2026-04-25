@@ -21,17 +21,19 @@ Use this page when a plan already exists, but the user wants to tighten delegati
 4. Preserve the canonical entrypoint:
    - the original plan file for single-file form
    - `plan.md` for bundle form
-5. Re-validate the delegation policy. Silence is not authorization.
-6. Re-validate the graph semantics:
+5. When the topology is represented as NetworkX node-link JSON, rerun `houmao-mgr internals graph high analyze --input <graph.json>` and any needed `slice` calls before revising topology or graph prose.
+6. Re-validate the delegation policy. Silence is not authorization.
+7. Re-validate the graph semantics:
    - the user agent stays outside the execution loop
    - the master owns the supervision loop
    - pairwise execution edges close locally
-7. Re-render the Mermaid graph if topology, completion, or stop posture changed.
-8. Refresh the normalized run-charter summary if any user-visible control field changed.
+8. Re-render the Mermaid graph if topology, completion, or stop posture changed.
+9. Refresh the normalized run-charter summary if any user-visible control field changed.
 
 ## Revision Guardrails
 
 - Do not quietly widen delegation authority while revising another part of the plan.
+- Do not treat stale or remembered graph structure as good enough when a graph artifact exists; rerun `houmao-mgr internals graph high` checks after topology changes.
 - Do not leave a stale graph in place after changing the run topology.
 - Do not move completion evaluation away from the designated master unless the plan explicitly changes the master.
 - Do not default a revised stop posture to graceful termination; keep `interrupt-first` unless the user explicitly changed it.

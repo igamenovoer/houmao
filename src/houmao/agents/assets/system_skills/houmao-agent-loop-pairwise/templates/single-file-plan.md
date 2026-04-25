@@ -12,6 +12,7 @@ participants:
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
 default_stop_mode: interrupt-first
 mail_notifier_interval_seconds: <5 unless user specified otherwise>
+graph_artifact: <none | NetworkX node-link graph path>
 ---
 
 # Objective
@@ -28,6 +29,11 @@ mail_notifier_interval_seconds: <5 unless user specified otherwise>
 
 # Reporting Contract
 <status, completion, and stop-summary expectations>
+
+# Graph-Tool Preflight
+- `analyze`: <none | summary or reference to `houmao-mgr internals graph high analyze` output>
+- `slice`: <none | summary or reference to descendant slice checks used during authoring>
+- `render-mermaid scaffold`: <none | summary or reference when `graph high render-mermaid` was used>
 
 # Scripts
 - `path`: <script path>

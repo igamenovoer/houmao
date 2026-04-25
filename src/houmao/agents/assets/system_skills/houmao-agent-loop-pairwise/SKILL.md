@@ -53,7 +53,8 @@ This packaged skill does not cover:
    - `references/plan-structure.md`
    - `templates/single-file-plan.md`
    - `templates/bundle-plan.md`
-7. Route execution to the maintained Houmao-owned skills that own the lower-level surfaces.
+7. When a NetworkX node-link graph representation is available, use `houmao-mgr internals graph high ...` as the first-class structural helper during authoring and revision.
+8. Route execution to the maintained Houmao-owned skills that own the lower-level surfaces.
 
 ## Authoring Pages
 
@@ -91,6 +92,8 @@ At run start, before delivering the start charter, enable gateway mail-notifier 
 - Route plan delivery, status requests, and stop requests to `houmao-agent-messaging`.
 - Route gateway mail-notifier enablement and master reminder work to `houmao-agent-gateway`.
 - Route mailbox receipt, result, or follow-up semantics referenced by the plan to `houmao-agent-email-comms`.
+- Route routine authoring-time structural graph checks and deterministic Mermaid scaffolding to `houmao-mgr internals graph high analyze|slice|render-mermaid` as the first-class helper surface when a NetworkX node-link graph representation is available; keep final pairwise semantics, delegation policy, and graph review in this skill.
+- Do not route normal pairwise loop planning to `houmao-mgr internals graph low`; keep routine loop-skill graph work on the Houmao-aware `graph high` surface.
 - Keep composed topology, recursive child-control edges, rendered graphs, run charters, and start/status/stop control in this skill.
 - Route only atomic immediate driver-worker edge execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.

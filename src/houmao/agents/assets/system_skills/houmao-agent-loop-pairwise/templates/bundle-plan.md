@@ -7,6 +7,7 @@ Use this form when the run needs supporting Markdown files or scripts but still 
 ```text
 loop-plan/
   plan.md
+  graph.json
   graph.md
   delegation.md
   reporting.md
@@ -48,7 +49,14 @@ Default stop mode: interrupt-first
 # Reporting Contract
 See `reporting.md`.
 
+# Graph-Tool Preflight
+- graph artifact: <none | `graph.json` or external NetworkX node-link graph path>
+- `analyze`: <none | summary or reference>
+- `slice`: <none | summary or reference>
+- `render-mermaid scaffold`: <none | summary or reference>
+
 # Supporting Files
+- `graph.json` when a graph artifact exists
 - `graph.md`
 - `delegation.md`
 - `reporting.md`

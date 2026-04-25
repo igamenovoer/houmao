@@ -16,6 +16,8 @@ Minimum sections:
 - Stop Policy
 - Reporting Contract
 - Mail-Notifier Setup: gateway mail-notifier interval `5s` unless the user specified otherwise
+- Graph Artifact, when a NetworkX node-link graph is available
+- Graph-Tool Preflight, when a graph artifact exists
 - Script Inventory, when scripts exist
 - Mermaid Control Graph
 
@@ -30,6 +32,7 @@ Canonical entrypoint:
 Suggested bundle contents:
 
 - `plan.md`
+- `graph.json`, when a NetworkX node-link graph artifact is available
 - `graph.md`
 - `delegation.md`
 - `reporting.md`
@@ -54,3 +57,4 @@ For each script, record:
 - Do not leave the bundle form without `plan.md`.
 - Do not hide plan-critical policy only inside an unreferenced support file.
 - Do not omit the Mermaid control graph from the canonical plan surface.
+- Do not omit the `houmao-mgr internals graph high` preflight record when a graph artifact was used during authoring.

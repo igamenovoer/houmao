@@ -4,6 +4,8 @@ Use this page when the authored plan needs the final Mermaid graph that shows wh
 
 The final plan must include one Mermaid fenced code block. Do not use ASCII art as the primary graph representation.
 
+When a NetworkX node-link graph artifact exists, use `houmao-mgr internals graph high render-mermaid --input <graph.json>` as the deterministic scaffold before the final semantic review in this skill.
+
 ## What The Graph Must Show
 
 At minimum, the top-level graph must show:
@@ -58,5 +60,6 @@ flowchart TD
 ## Guardrails
 
 - Do not imply that the user agent is an execution participant by drawing receipt or result ownership on the user agent.
+- Do not treat `houmao-mgr internals graph high render-mermaid` output as final until edge meaning, supervision semantics, and stop/completion posture have been reviewed in this skill.
 - Do not draw the loop as an arbitrary cyclic worker graph when the real loop is the master's supervision cycle.
 - Do not omit the stop condition or completion condition from the final plan graph.
