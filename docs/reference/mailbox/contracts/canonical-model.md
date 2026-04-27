@@ -61,10 +61,11 @@ Addresses are full-form email-like strings such as `research@houmao.localhost`. 
 
 ### Notification-prompt block
 
-- Optional `notify_block` is a short, sender-marked string intended for prominent receiver-side rendering by future notification surfaces. Senders may author it inline as a Markdown fenced code block with info-string `houmao-notify`; canonical-message construction extracts the first such fence into `notify_block` and leaves `body_markdown` unchanged. Callers may also supply `notify_block` directly through composition surfaces (`MailboxMessage.compose(...)`, `houmao-mgr agents mail send --notify-block ...`, gateway `/v1/mail/send` request body); explicit values bypass body-fence extraction.
-- `notify_block` is capped at 512 characters; longer values are truncated to 511 characters plus a single trailing `…` (U+2026) at composition time.
-- Optional `notify_auth` carries sender-supplied authentication metadata associated with `notify_block`. The protocol reserves the schemes `none`, `shared-token`, `hmac-sha256`, and `jws`; in the current protocol version only `scheme="none"` is accepted at validation. Non-`none` schemes are rejected with an explicit "verifier not yet supported" error so the slot can be carried forward without another envelope-level breaking change.
-- The gateway notifier prompt does **not** render `notify_block` content in this protocol version. Notifier rendering, verifier plug-ins, and gateway-side trust posture (`permissive-log` versus `required`) land in a follow-on change.
+- Optional `notify_block` is a typed sub-model `MailboxNotifyBlock` with fields `text: str` (the prominent sender-authored content) and `placement: Literal["append", "prepend"]` (defaults to `append`). Senders may author the text inline as a Markdown fenced code block with info-string `houmao-notify`; canonical-message construction extracts the first such fence into `notify_block.text` with `placement="append"` and leaves `body_markdown` unchanged. Callers may also supply `notify_block` directly through composition surfaces (`MailboxMessage.compose(...)`, `houmao-mgr agents mail send --notify-block ... --notify-block-placement [append|prepend]`, gateway `/v1/mail/send` request body); explicit values bypass body-fence extraction.
+- `notify_block.text` is capped at 512 characters; longer values are truncated to 511 characters plus a single trailing `…` (U+2026) at composition time.
+- **Auto-mirror invariant**: when `notify_block` is supplied directly and `body_markdown` does not already contain a `houmao-notify` fence, canonical-message construction synthesizes a fenced code block at the requested `placement` so the same text always appears verbatim somewhere in `body_markdown`. The body fence is the source of truth; `notify_block` is a typed convenience surface. This invariant lets `notify_block` work as a *priority surface* — sender content reaches the receiver's wake-up prompt earlier — without becoming a *covert channel* invisible to ordinary mail readers (Stalwart JMAP projection, plain SMTP-bridged delivery, archival exports).
+- Optional `notify_auth` carries sender-supplied authentication metadata associated with `notify_block`. The protocol reserves the schemes `none`, `shared-token`, `hmac-sha256`, and `jws`; in the current protocol version only `scheme="none"` is accepted at canonical-envelope validation. Non-`none` schemes are rejected with an explicit "verifier not yet supported" error. The gateway notifier consumes `notify_auth` through a pluggable verifier interface (`PermissiveVerifier` for `none`, `SharedTokenVerifier` for `shared-token`); both shipped implementations are described in [Gateway Protocol And State Contracts](../../gateway/contracts/protocol-and-state.md#mail-notifier-trust-posture).
+- The gateway notifier prompt **renders** `notify_block.text` at the requested `placement` (prepend slot before the inbox opener, append slot after the mailbox API summary), with sender-attribution prefix `Sender notice — from <address>: > <text>`, oldest-first ordering within each placement cluster, per-message and aggregate caps, and a `+ N more sender notice(s) — open inbox to read` summary line when the aggregate cap fires. The trust posture (`notify_block_render`, `notify_block_auth_mode`, `notify_block_auth_verifier`) is configurable per gateway notifier; defaults are `enabled` / `permissive-log` / `none`.
 
 ## Representative Canonical Message
 
@@ -72,7 +73,7 @@ This is the shape serialized by `serialize_message_document()` and parsed by `pa
 
 ```markdown
 ---
-protocol_version: 2
+protocol_version: 3
 message_id: msg-20260313T091530Z-a1b2c3d4e5f64798aabbccddeeff0011
 thread_id: msg-20260313T091530Z-a1b2c3d4e5f64798aabbccddeeff0011
 in_reply_to: null
@@ -95,7 +96,9 @@ attachments:
 headers:
   tags:
     - parser
-notify_block: re-run on official timing path before reporting
+notify_block:
+  text: re-run on official timing path before reporting
+  placement: append
 notify_auth:
   scheme: none
 ---

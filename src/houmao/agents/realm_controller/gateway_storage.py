@@ -1198,7 +1198,8 @@ def read_gateway_notifier_audit_records(
             pre_notification_context_action,
             context_action_outcome,
             degraded_tool_name,
-            degraded_error_type
+            degraded_error_type,
+            rendered_block_entries_json
         FROM gateway_notifier_audit
         ORDER BY audit_id DESC
     """
@@ -1835,6 +1836,7 @@ def _validate_current_gateway_queue_schema(connection: sqlite3.Connection) -> No
             "context_action_outcome",
             "degraded_tool_name",
             "degraded_error_type",
+            "rendered_block_entries_json",
         ),
     }
     for table_name, column_names in required_columns.items():
@@ -1932,7 +1934,38 @@ def _row_to_gateway_notifier_audit_record(
         context_action_outcome=None if row[13] is None else str(row[13]),
         degraded_tool_name=None if row[14] is None else str(row[14]),
         degraded_error_type=None if row[15] is None else str(row[15]),
+        rendered_block_entries=_parse_gateway_notifier_rendered_block_entries(row[16]),
     )
+
+
+def _parse_gateway_notifier_rendered_block_entries(
+    value: object,
+) -> tuple[GatewayNotifierAuditRenderedBlockEntry, ...]:
+    """Decode the per-rendered-block JSON column into typed entries."""
+
+    if value is None:
+        return ()
+    raw = json.loads(str(value))
+    if not isinstance(raw, list):
+        return ()
+    entries: list[GatewayNotifierAuditRenderedBlockEntry] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        entries.append(
+            GatewayNotifierAuditRenderedBlockEntry(
+                message_ref=str(item.get("message_ref", "")),
+                rendered=bool(item.get("rendered", False)),
+                auth_scheme=str(item.get("auth_scheme", "")),
+                auth_outcome=str(item.get("auth_outcome", "")),
+                auth_detail=(
+                    None if item.get("auth_detail") is None else str(item.get("auth_detail"))
+                ),
+                block_chars=int(item.get("block_chars", 0)),
+                block_truncated=bool(item.get("block_truncated", False)),
+            )
+        )
+    return tuple(entries)
 
 
 def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> GatewayMailNotifierRecord:

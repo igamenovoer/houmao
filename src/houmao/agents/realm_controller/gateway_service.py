@@ -398,6 +398,127 @@ def _render_notify_block_entry(*, sender_address: str, text: str) -> str:
     return f"Sender notice — from {sender_address}:\n{quoted}"
 
 
+def _render_notify_block_slots(
+    *,
+    unread_messages: list[_UnreadMailboxMessage],
+    record: GatewayMailNotifierRecord,
+) -> tuple[str, str, list[_RenderedNotifyBlockEntry]]:
+    """Render the prepend/append notify-block slots and audit entries.
+
+    Returns
+    -------
+    tuple
+        ``(prepend_text, append_text, block_entries)`` — slot text for
+        ``{{NOTIFY_BLOCKS_PREPEND}}`` and ``{{NOTIFY_BLOCKS_APPEND}}`` plus
+        per-rendered-block audit detail entries.
+    """
+
+    if record.notify_block_render == "disabled":
+        entries = [
+            _RenderedNotifyBlockEntry(
+                message_ref=message.message_ref,
+                rendered=False,
+                auth_scheme=record.notify_block_auth_verifier,
+                auth_outcome="skipped",
+                auth_detail="render disabled",
+                block_chars=0,
+                block_truncated=False,
+            )
+            for message in unread_messages
+            if message.notify_block is not None
+        ]
+        return "", "", entries
+
+    verifier: NotifyAuthVerifier = build_notify_auth_verifier(
+        verifier_kind=record.notify_block_auth_verifier,
+        shared_tokens=tuple(record.notify_block_shared_tokens),
+    )
+
+    prepend_lines: list[str] = []
+    append_lines: list[str] = []
+    block_entries: list[_RenderedNotifyBlockEntry] = []
+    per_message_cap = max(1, int(record.notify_block_per_message_chars))
+    total_cap_remaining = max(0, int(record.notify_block_total_chars))
+    suppressed_count = 0
+
+    for message in unread_messages:
+        nb = message.notify_block
+        if nb is None:
+            continue
+        verify_result: VerifyResult = verifier.verify(
+            notify_block=nb,
+            notify_auth=message.notify_auth,
+        )
+        should_render = record.notify_block_auth_mode == "permissive-log" or verify_result.passed
+
+        if not should_render:
+            block_entries.append(
+                _RenderedNotifyBlockEntry(
+                    message_ref=message.message_ref,
+                    rendered=False,
+                    auth_scheme=verify_result.scheme,
+                    auth_outcome=verify_result.outcome,
+                    auth_detail=verify_result.detail,
+                    block_chars=0,
+                    block_truncated=False,
+                )
+            )
+            continue
+
+        text = nb.text
+        block_truncated = False
+        if len(text) > per_message_cap:
+            text = text[: per_message_cap - 1] + "…"
+            block_truncated = True
+
+        entry_text = _render_notify_block_entry(
+            sender_address=message.sender_address,
+            text=text,
+        )
+        entry_chars = len(entry_text)
+
+        if total_cap_remaining < entry_chars:
+            suppressed_count += 1
+            block_entries.append(
+                _RenderedNotifyBlockEntry(
+                    message_ref=message.message_ref,
+                    rendered=False,
+                    auth_scheme=verify_result.scheme,
+                    auth_outcome=verify_result.outcome,
+                    auth_detail="aggregate cap reached",
+                    block_chars=0,
+                    block_truncated=block_truncated,
+                )
+            )
+            continue
+
+        total_cap_remaining -= entry_chars
+        target = prepend_lines if nb.placement == "prepend" else append_lines
+        target.append(entry_text)
+        block_entries.append(
+            _RenderedNotifyBlockEntry(
+                message_ref=message.message_ref,
+                rendered=True,
+                auth_scheme=verify_result.scheme,
+                auth_outcome=verify_result.outcome,
+                auth_detail=verify_result.detail,
+                block_chars=len(text),
+                block_truncated=block_truncated,
+            )
+        )
+
+    if suppressed_count > 0:
+        summary = f"+ {suppressed_count} more sender notice(s) — open inbox to read"
+        if append_lines:
+            append_lines.append(summary)
+        else:
+            prepend_lines.append(summary)
+
+    prepend_text = "\n".join(prepend_lines) + ("\n\n" if prepend_lines else "")
+    append_text = ("\n\n" + "\n".join(append_lines)) if append_lines else ""
+    return prepend_text, append_text, block_entries
+
+
 def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
     """Return compact mode-specific prompt guidance for a notifier round."""
 
@@ -3469,7 +3590,7 @@ class GatewayServiceRuntime:
         rendered = _load_mail_notifier_template()
         mode_guidance = _render_mail_notifier_mode_guidance(mode)
 
-        prepend_text, append_text, block_entries = self._render_notify_block_slots(
+        prepend_text, append_text, block_entries = _render_notify_block_slots(
             unread_messages=unread_messages,
             record=record,
         )
@@ -3487,121 +3608,6 @@ class GatewayServiceRuntime:
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)
         return rendered.rstrip(), block_entries
-
-    def _render_notify_block_slots(
-        self,
-        *,
-        unread_messages: list[_UnreadMailboxMessage],
-        record: GatewayMailNotifierRecord,
-    ) -> tuple[str, str, list[_RenderedNotifyBlockEntry]]:
-        """Render the prepend/append notify-block slots and audit entries."""
-
-        if record.notify_block_render == "disabled":
-            entries = [
-                _RenderedNotifyBlockEntry(
-                    message_ref=message.message_ref,
-                    rendered=False,
-                    auth_scheme=record.notify_block_auth_verifier,
-                    auth_outcome="skipped",
-                    auth_detail="render disabled",
-                    block_chars=0,
-                    block_truncated=False,
-                )
-                for message in unread_messages
-                if message.notify_block is not None
-            ]
-            return "", "", entries
-
-        verifier: NotifyAuthVerifier = build_notify_auth_verifier(
-            verifier_kind=record.notify_block_auth_verifier,
-            shared_tokens=tuple(record.notify_block_shared_tokens),
-        )
-
-        prepend_lines: list[str] = []
-        append_lines: list[str] = []
-        block_entries: list[_RenderedNotifyBlockEntry] = []
-        per_message_cap = max(1, int(record.notify_block_per_message_chars))
-        total_cap_remaining = max(0, int(record.notify_block_total_chars))
-        suppressed_count = 0
-
-        for message in unread_messages:
-            nb = message.notify_block
-            if nb is None:
-                continue
-            verify_result: VerifyResult = verifier.verify(
-                notify_block=nb,
-                notify_auth=message.notify_auth,
-            )
-            should_render = (
-                record.notify_block_auth_mode == "permissive-log" or verify_result.passed
-            )
-
-            if not should_render:
-                block_entries.append(
-                    _RenderedNotifyBlockEntry(
-                        message_ref=message.message_ref,
-                        rendered=False,
-                        auth_scheme=verify_result.scheme,
-                        auth_outcome=verify_result.outcome,
-                        auth_detail=verify_result.detail,
-                        block_chars=0,
-                        block_truncated=False,
-                    )
-                )
-                continue
-
-            text = nb.text
-            block_truncated = False
-            if len(text) > per_message_cap:
-                text = text[: per_message_cap - 1] + "…"
-                block_truncated = True
-
-            entry_text = _render_notify_block_entry(
-                sender_address=message.sender_address,
-                text=text,
-            )
-            entry_chars = len(entry_text)
-
-            if total_cap_remaining < entry_chars:
-                suppressed_count += 1
-                block_entries.append(
-                    _RenderedNotifyBlockEntry(
-                        message_ref=message.message_ref,
-                        rendered=False,
-                        auth_scheme=verify_result.scheme,
-                        auth_outcome=verify_result.outcome,
-                        auth_detail="aggregate cap reached",
-                        block_chars=0,
-                        block_truncated=block_truncated,
-                    )
-                )
-                continue
-
-            total_cap_remaining -= entry_chars
-            target = prepend_lines if nb.placement == "prepend" else append_lines
-            target.append(entry_text)
-            block_entries.append(
-                _RenderedNotifyBlockEntry(
-                    message_ref=message.message_ref,
-                    rendered=True,
-                    auth_scheme=verify_result.scheme,
-                    auth_outcome=verify_result.outcome,
-                    auth_detail=verify_result.detail,
-                    block_chars=len(text),
-                    block_truncated=block_truncated,
-                )
-            )
-
-        if suppressed_count > 0:
-            summary = f"+ {suppressed_count} more sender notice(s) — open inbox to read"
-            if append_lines:
-                append_lines.append(summary)
-            else:
-                prepend_lines.append(summary)
-
-        prepend_text = "\n".join(prepend_lines) + ("\n\n" if prepend_lines else "")
-        append_text = ("\n\n" + "\n".join(append_lines)) if append_lines else ""
-        return prepend_text, append_text, block_entries
 
     def _enqueue_internal_prompt(
         self,
