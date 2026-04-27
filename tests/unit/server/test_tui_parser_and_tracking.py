@@ -15,7 +15,7 @@ from houmao.server.models import (
     HoumaoTerminalStateResponse,
 )
 from houmao.server.tui import OfficialTuiParserAdapter
-from houmao.server.tui.tracking import LiveSessionTracker
+from houmao.server.tui.tracking import LiveSessionTracker, _rendered_surface_signature
 
 _CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
 _CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
@@ -452,7 +452,7 @@ def test_live_session_tracker_warning_failure_does_not_publish_candidate_complet
     assert failed.operator_state.completion_state != "candidate_complete"
 
 
-def test_live_session_tracker_retry_status_stays_active_under_parser_ready_projection() -> None:
+def test_live_session_tracker_retry_status_does_not_block_final_recovery() -> None:
     tracker = LiveSessionTracker(
         identity=_identity(),
         recent_transition_limit=4,
@@ -495,7 +495,7 @@ def test_live_session_tracker_retry_status_stays_active_under_parser_ready_proje
         parsed_surface=_ready_surface_with_projection("retry status prompt-visible"),
         output_text=_CODEX_RETRY_STATUS_RAW_SNAPSHOT,
     )
-    still_retrying = _record_cycle(
+    recovered = _record_cycle(
         tracker,
         observed_at_utc="2026-03-19T10:00:04+00:00",
         monotonic_ts=14.0,
@@ -513,14 +513,11 @@ def test_live_session_tracker_retry_status_stays_active_under_parser_ready_proje
     assert retrying.turn.phase == "active"
     assert retrying.last_turn.result == "none"
     assert retrying.operator_state.status == "processing"
-    assert retrying.operator_state.readiness_state == "waiting"
-    assert retrying.operator_state.completion_state == "in_progress"
 
-    assert still_retrying.surface.ready_posture == "no"
-    assert still_retrying.turn.phase == "active"
-    assert still_retrying.last_turn.result == "none"
-    assert still_retrying.operator_state.status == "processing"
-    assert still_retrying.operator_state.completion_state == "in_progress"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.turn.phase == "ready"
+    assert recovered.last_turn.result == "none"
+    assert "recovered a stable false-active phase" in recovered.operator_state.detail
 
 
 def test_live_session_tracker_detects_fast_ready_to_ready_completion_cycle() -> None:
@@ -1212,7 +1209,7 @@ def test_live_session_tracker_final_recovery_resets_when_raw_surface_changes() -
     assert not_yet_recovered.surface.ready_posture == "no"
 
 
-def test_live_session_tracker_final_recovery_requires_prompt_ready_parser_evidence() -> None:
+def test_live_session_tracker_final_recovery_fires_without_parser_ready_evidence() -> None:
     tracker = LiveSessionTracker(
         identity=_identity(),
         recent_transition_limit=4,
@@ -1242,7 +1239,7 @@ def test_live_session_tracker_final_recovery_requires_prompt_ready_parser_eviden
         parsed_surface=_processing_surface(),
         output_text="stable raw working surface",
     )
-    state = _record_cycle(
+    recovered = _record_cycle(
         tracker,
         observed_at_utc="2026-04-09T12:08:24+00:00",
         monotonic_ts=14.0,
@@ -1256,8 +1253,10 @@ def test_live_session_tracker_final_recovery_requires_prompt_ready_parser_eviden
         output_text="stable raw working surface",
     )
 
-    assert state.turn.phase == "active"
-    assert state.surface.ready_posture == "no"
+    assert recovered.turn.phase == "ready"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.last_turn.result == "none"
+    assert "recovered a stable false-active phase" in recovered.operator_state.detail
 
 
 def test_live_session_tracker_final_recovery_expires_anchor_without_success() -> None:
@@ -1575,3 +1574,96 @@ def test_live_session_tracker_bounds_snapshot_history_at_internal_cap() -> None:
     assert history.entries[0].parsed_surface.normalized_projection_text == "ready-3"
     assert history.entries[-1].parsed_surface is not None
     assert history.entries[-1].parsed_surface.normalized_projection_text == "ready-1002"
+
+
+def test_live_session_tracker_final_recovery_fires_under_persistent_tool_cell_active() -> None:
+    """Issue #51 shape: parser keeps emitting non-empty active_reasons every cycle while
+    the rendered tmux surface is byte-stable for the configured window. Recovery must
+    fire because it judges purely from rendered-surface stability, not from the
+    activity-detection pipeline."""
+
+    tracker = LiveSessionTracker(
+        identity=_identity(),
+        recent_transition_limit=4,
+        stability_threshold_seconds=1.0,
+        completion_stability_seconds=10.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+        final_stable_active_recovery_seconds=3.0,
+    )
+    tracker.m_tracker_session = _StaticTrackerSession(
+        state=_tracker_state(
+            surface_ready_posture="no",
+            turn_phase="active",
+            active_reasons=("tool_cell",),
+            notes=("active_turn_detected",),
+        )
+    )
+
+    stable_surface = (
+        "• Processed the inbox round and closed structural wave 0087.\n"
+        "  Sent reviewer round 0088 and the inbox is empty for this round.\n"
+        "\n"
+        "› Run /review on my current changes\n"
+        "\n"
+        "  gpt-5.4 high · /work\n"
+    )
+
+    first = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-26T07:47:15+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("inbox empty"),
+        output_text=stable_surface,
+    )
+    recovered = _record_cycle(
+        tracker,
+        observed_at_utc="2026-04-26T07:47:18+00:00",
+        monotonic_ts=13.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_ready_surface_with_projection("inbox empty"),
+        output_text=stable_surface,
+    )
+
+    assert first.turn.phase == "active"
+    assert recovered.turn.phase == "ready"
+    assert recovered.surface.ready_posture == "yes"
+    assert recovered.last_turn.result == "none"
+    assert "recovered a stable false-active phase" in recovered.operator_state.detail
+
+
+def test_rendered_surface_signature_ignores_ansi_styling_jitter() -> None:
+    plain = "› Run /review on my current changes\n  gpt-5.4 high · /work\n"
+    styled = (
+        "\x1b[36m› \x1b[0mRun /review on my current changes\n  \x1b[1mgpt-5.4 high\x1b[0m · /work\n"
+    )
+
+    assert _rendered_surface_signature(plain) == _rendered_surface_signature(styled)
+
+
+def test_rendered_surface_signature_ignores_trailing_whitespace_jitter() -> None:
+    tight = "› Run /review on my current changes\n  gpt-5.4 high · /work\n"
+    padded = "› Run /review on my current changes   \n  gpt-5.4 high · /work    \n"
+
+    assert _rendered_surface_signature(tight) == _rendered_surface_signature(padded)
+
+
+def test_rendered_surface_signature_flips_on_any_visible_text_change() -> None:
+    before = "› Run /review on my current changes\n  gpt-5.4 high · /work\n"
+    after = "› Run /review on my current changeS\n  gpt-5.4 high · /work\n"
+
+    assert _rendered_surface_signature(before) != _rendered_surface_signature(after)
+
+
+def test_rendered_surface_signature_returns_none_for_none_input() -> None:
+    assert _rendered_surface_signature(None) is None
