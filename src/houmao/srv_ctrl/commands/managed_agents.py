@@ -120,7 +120,11 @@ from houmao.agents.realm_controller.session_authority import resolve_manifest_se
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
-from houmao.mailbox.protocol import MailboxNotifyAuth, OperatorOriginReplyPolicy
+from houmao.mailbox.protocol import (
+    MailboxNotifyAuth,
+    MailboxNotifyBlock,
+    OperatorOriginReplyPolicy,
+)
 from houmao.shared_tui_tracking.ownership import SingleSessionTrackingRuntime
 from houmao.server.models import (
     HoumaoErrorDetail,
@@ -1844,7 +1848,7 @@ def _local_manager_mail_send(
     subject: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Send mail through manager-owned local execution."""
@@ -1878,7 +1882,7 @@ def _local_manager_mail_reply(
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Reply through manager-owned local execution."""
@@ -1911,7 +1915,7 @@ def _local_manager_mail_post(
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through manager-owned local execution."""
@@ -2044,7 +2048,7 @@ def _gateway_mail_send(
     subject: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Send mail through one live loopback gateway client."""
@@ -2071,7 +2075,7 @@ def _gateway_mail_reply(
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Reply through one live loopback gateway client."""
@@ -2097,7 +2101,7 @@ def _gateway_mail_post(
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> GatewayMailActionResponseV1:
     """Post operator-origin mail through one live loopback gateway client."""
@@ -2319,7 +2323,7 @@ def mail_send(
     subject: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Send a mailbox message for one managed agent."""
@@ -2422,7 +2426,7 @@ def mail_post(
     body_content: str,
     reply_policy: OperatorOriginReplyPolicy,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Post one operator-origin mailbox note into one managed agent inbox."""
@@ -2507,7 +2511,7 @@ def mail_reply(
     message_ref: str,
     body_content: str,
     attachments: Sequence[GatewayMailAttachmentUploadV1],
-    notify_block: str | None = None,
+    notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
 ) -> object:
     """Reply to a mailbox message for one managed agent."""

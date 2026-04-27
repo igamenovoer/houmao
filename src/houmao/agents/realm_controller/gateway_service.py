@@ -50,6 +50,15 @@ from houmao.agents.realm_controller.gateway_mailbox import (
     GatewayMailboxUnsupportedError,
     build_gateway_mailbox_adapter,
 )
+from houmao.agents.realm_controller.notify_auth_verifier import (
+    NotifyAuthVerifier,
+    VerifyResult,
+    build_notify_auth_verifier,
+)
+from houmao.mailbox.protocol import (
+    MailboxNotifyAuth,
+    MailboxNotifyBlock,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
@@ -132,6 +141,7 @@ from houmao.agents.realm_controller.boundary_models import SessionManifestPayloa
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayMailNotifierRecord,
     GatewayNotifierAuditOutcome,
+    GatewayNotifierAuditRenderedBlockEntry,
     GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
     append_gateway_notifier_audit_record,
@@ -280,6 +290,21 @@ class _UnreadMailboxMessage:
     sender_address: str
     sender_display_name: str | None
     subject: str
+    notify_block: MailboxNotifyBlock | None = None
+    notify_auth: MailboxNotifyAuth | None = None
+
+
+@dataclass(frozen=True)
+class _RenderedNotifyBlockEntry:
+    """Per-rendered notify-block audit detail captured during a notifier poll."""
+
+    message_ref: str
+    rendered: bool
+    auth_scheme: str
+    auth_outcome: str
+    auth_detail: str | None
+    block_chars: int
+    block_truncated: bool
 
 
 @dataclass
@@ -363,6 +388,14 @@ def _render_mail_notifier_mailbox_api_summary(_base_url: str) -> str:
         "Mailbox API: `GET /v1/mail/status`; "
         "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
     )
+
+
+def _render_notify_block_entry(*, sender_address: str, text: str) -> str:
+    """Render one notify-block entry with sender attribution."""
+
+    body_lines = text.splitlines() or [""]
+    quoted = "\n".join(f"> {line}" if line else ">" for line in body_lines)
+    return f"Sender notice — from {sender_address}:\n{quoted}"
 
 
 def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
@@ -2885,33 +2918,37 @@ class GatewayServiceRuntime:
             )
             if context_action_support_error is not None:
                 raise HTTPException(status_code=422, detail=context_action_support_error)
+            notify_block_kwargs: dict[str, object] = {}
+            for field_name in (
+                "notify_block_render",
+                "notify_block_auth_mode",
+                "notify_block_auth_verifier",
+                "notify_block_shared_tokens",
+                "notify_block_per_message_chars",
+                "notify_block_total_chars",
+            ):
+                if field_name in request_payload.model_fields_set:
+                    value = getattr(request_payload, field_name)
+                    if value is not None:
+                        notify_block_kwargs[field_name] = value
+            base_kwargs: dict[str, object] = {
+                "enabled": True,
+                "interval_seconds": request_payload.interval_seconds,
+                "mode": request_payload.mode,
+                "context_error_policy": request_payload.context_error_policy,
+                "pre_notification_context_action": (
+                    request_payload.pre_notification_context_action
+                ),
+                "last_notified_digest": None,
+                "last_error": None,
+            }
             if "appendix_text" in request_payload.model_fields_set:
-                record = write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    enabled=True,
-                    interval_seconds=request_payload.interval_seconds,
-                    mode=request_payload.mode,
-                    appendix_text=request_payload.appendix_text,
-                    context_error_policy=request_payload.context_error_policy,
-                    pre_notification_context_action=(
-                        request_payload.pre_notification_context_action
-                    ),
-                    last_notified_digest=None,
-                    last_error=None,
-                )
-            else:
-                record = write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    enabled=True,
-                    interval_seconds=request_payload.interval_seconds,
-                    mode=request_payload.mode,
-                    context_error_policy=request_payload.context_error_policy,
-                    pre_notification_context_action=(
-                        request_payload.pre_notification_context_action
-                    ),
-                    last_notified_digest=None,
-                    last_error=None,
-                )
+                base_kwargs["appendix_text"] = request_payload.appendix_text
+            record = write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                **base_kwargs,
+                **notify_block_kwargs,
+            )
             self._log(
                 "mail notifier enabled "
                 f"interval_seconds={request_payload.interval_seconds} mode={request_payload.mode}"
@@ -3199,6 +3236,8 @@ class GatewayServiceRuntime:
                             sender_address=message.sender.address,
                             sender_display_name=message.sender.display_name,
                             subject=message.subject,
+                            notify_block=message.notify_block,
+                            notify_auth=message.notify_auth,
                         )
                         for message in adapter.list_messages(
                             box="inbox",
@@ -3358,9 +3397,11 @@ class GatewayServiceRuntime:
             elif diagnostic is not None:
                 context_action_outcomes.append("degraded_context_continued")
 
-            prompt = self._build_mail_notifier_prompt(
+            prompt, rendered_block_entries = self._build_mail_notifier_prompt(
                 mode=record.mode,
                 appendix_text=record.appendix_text,
+                unread_messages=unread_messages,
+                record=record,
             )
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
@@ -3384,6 +3425,7 @@ class GatewayServiceRuntime:
                 ),
                 degraded_tool_name=degraded_tool_name,
                 degraded_error_type=degraded_error_type,
+                rendered_block_entries=rendered_block_entries,
             )
             self._log(
                 f"mail notifier enqueued request_id={request_id} "
@@ -3409,13 +3451,29 @@ class GatewayServiceRuntime:
         *,
         mode: GatewayMailNotifierMode,
         appendix_text: str,
-    ) -> str:
-        """Build the reminder prompt submitted through the internal notifier path."""
+        unread_messages: list[_UnreadMailboxMessage],
+        record: GatewayMailNotifierRecord,
+    ) -> tuple[str, list[_RenderedNotifyBlockEntry]]:
+        """Build the reminder prompt and capture per-block audit entries.
+
+        Returns
+        -------
+        tuple
+            ``(prompt, rendered_block_entries)`` — the rendered notifier prompt
+            text plus per-block audit detail for every eligible mailbox message
+            that carried a non-null ``notify_block`` (rendered or suppressed).
+        """
 
         mailbox = self._load_mailbox_config()
         base_url = f"http://{self.m_host}:{self.m_port}"
         rendered = _load_mail_notifier_template()
         mode_guidance = _render_mail_notifier_mode_guidance(mode)
+
+        prepend_text, append_text, block_entries = self._render_notify_block_slots(
+            unread_messages=unread_messages,
+            record=record,
+        )
+
         replacements = {
             "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
             "{{NOTIFIER_MODE}}": mode,
@@ -3423,10 +3481,127 @@ class GatewayServiceRuntime:
             "{{GATEWAY_BASE_URL}}": base_url,
             "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(base_url),
             "{{APPENDIX_BLOCK}}": _render_mail_notifier_appendix_block(appendix_text),
+            "{{NOTIFY_BLOCKS_PREPEND}}": prepend_text,
+            "{{NOTIFY_BLOCKS_APPEND}}": append_text,
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)
-        return rendered.rstrip()
+        return rendered.rstrip(), block_entries
+
+    def _render_notify_block_slots(
+        self,
+        *,
+        unread_messages: list[_UnreadMailboxMessage],
+        record: GatewayMailNotifierRecord,
+    ) -> tuple[str, str, list[_RenderedNotifyBlockEntry]]:
+        """Render the prepend/append notify-block slots and audit entries."""
+
+        if record.notify_block_render == "disabled":
+            entries = [
+                _RenderedNotifyBlockEntry(
+                    message_ref=message.message_ref,
+                    rendered=False,
+                    auth_scheme=record.notify_block_auth_verifier,
+                    auth_outcome="skipped",
+                    auth_detail="render disabled",
+                    block_chars=0,
+                    block_truncated=False,
+                )
+                for message in unread_messages
+                if message.notify_block is not None
+            ]
+            return "", "", entries
+
+        verifier: NotifyAuthVerifier = build_notify_auth_verifier(
+            verifier_kind=record.notify_block_auth_verifier,
+            shared_tokens=tuple(record.notify_block_shared_tokens),
+        )
+
+        prepend_lines: list[str] = []
+        append_lines: list[str] = []
+        block_entries: list[_RenderedNotifyBlockEntry] = []
+        per_message_cap = max(1, int(record.notify_block_per_message_chars))
+        total_cap_remaining = max(0, int(record.notify_block_total_chars))
+        suppressed_count = 0
+
+        for message in unread_messages:
+            nb = message.notify_block
+            if nb is None:
+                continue
+            verify_result: VerifyResult = verifier.verify(
+                notify_block=nb,
+                notify_auth=message.notify_auth,
+            )
+            should_render = (
+                record.notify_block_auth_mode == "permissive-log" or verify_result.passed
+            )
+
+            if not should_render:
+                block_entries.append(
+                    _RenderedNotifyBlockEntry(
+                        message_ref=message.message_ref,
+                        rendered=False,
+                        auth_scheme=verify_result.scheme,
+                        auth_outcome=verify_result.outcome,
+                        auth_detail=verify_result.detail,
+                        block_chars=0,
+                        block_truncated=False,
+                    )
+                )
+                continue
+
+            text = nb.text
+            block_truncated = False
+            if len(text) > per_message_cap:
+                text = text[: per_message_cap - 1] + "…"
+                block_truncated = True
+
+            entry_text = _render_notify_block_entry(
+                sender_address=message.sender_address,
+                text=text,
+            )
+            entry_chars = len(entry_text)
+
+            if total_cap_remaining < entry_chars:
+                suppressed_count += 1
+                block_entries.append(
+                    _RenderedNotifyBlockEntry(
+                        message_ref=message.message_ref,
+                        rendered=False,
+                        auth_scheme=verify_result.scheme,
+                        auth_outcome=verify_result.outcome,
+                        auth_detail="aggregate cap reached",
+                        block_chars=0,
+                        block_truncated=block_truncated,
+                    )
+                )
+                continue
+
+            total_cap_remaining -= entry_chars
+            target = prepend_lines if nb.placement == "prepend" else append_lines
+            target.append(entry_text)
+            block_entries.append(
+                _RenderedNotifyBlockEntry(
+                    message_ref=message.message_ref,
+                    rendered=True,
+                    auth_scheme=verify_result.scheme,
+                    auth_outcome=verify_result.outcome,
+                    auth_detail=verify_result.detail,
+                    block_chars=len(text),
+                    block_truncated=block_truncated,
+                )
+            )
+
+        if suppressed_count > 0:
+            summary = f"+ {suppressed_count} more sender notice(s) — open inbox to read"
+            if append_lines:
+                append_lines.append(summary)
+            else:
+                prepend_lines.append(summary)
+
+        prepend_text = "\n".join(prepend_lines) + ("\n\n" if prepend_lines else "")
+        append_text = ("\n\n" + "\n".join(append_lines)) if append_lines else ""
+        return prepend_text, append_text, block_entries
 
     def _enqueue_internal_prompt(
         self,
@@ -3491,6 +3666,7 @@ class GatewayServiceRuntime:
         context_action_outcome: str | None = None,
         degraded_tool_name: str | None = None,
         degraded_error_type: str | None = None,
+        rendered_block_entries: list[_RenderedNotifyBlockEntry] | None = None,
     ) -> None:
         """Persist one structured notifier audit row."""
 
@@ -3499,6 +3675,18 @@ class GatewayServiceRuntime:
         )
         pre_notification_context_action = (
             record.pre_notification_context_action if record is not None else "none"
+        )
+        rendered_entries_tuple = tuple(
+            GatewayNotifierAuditRenderedBlockEntry(
+                message_ref=entry.message_ref,
+                rendered=entry.rendered,
+                auth_scheme=entry.auth_scheme,
+                auth_outcome=entry.auth_outcome,
+                auth_detail=entry.auth_detail,
+                block_chars=entry.block_chars,
+                block_truncated=entry.block_truncated,
+            )
+            for entry in (rendered_block_entries or [])
         )
         append_gateway_notifier_audit_record(
             self.m_paths.queue_path,
@@ -3525,6 +3713,7 @@ class GatewayServiceRuntime:
             context_action_outcome=context_action_outcome,
             degraded_tool_name=degraded_tool_name,
             degraded_error_type=degraded_error_type,
+            rendered_block_entries=rendered_entries_tuple,
         )
 
     def _reminder_loop(self) -> None:

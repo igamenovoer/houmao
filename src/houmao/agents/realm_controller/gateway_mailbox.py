@@ -45,6 +45,7 @@ from houmao.mailbox.protocol import (
     MailboxAttachment,
     MailboxMessage,
     MailboxNotifyAuth,
+    MailboxNotifyBlock,
     MailboxPrincipal,
     is_operator_origin_headers,
     operator_origin_reply_policy,
@@ -98,7 +99,7 @@ class GatewayMailboxAdapter(Protocol):
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         """Send one new mailbox message and return the normalized delivered record."""
@@ -109,7 +110,7 @@ class GatewayMailboxAdapter(Protocol):
         message_ref: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         """Reply to one existing message and return the normalized delivered record."""
@@ -121,7 +122,7 @@ class GatewayMailboxAdapter(Protocol):
         body_content: str,
         reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         """Deliver one operator-origin mailbox note into the current mailbox."""
@@ -271,7 +272,7 @@ class FilesystemGatewayMailboxAdapter:
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         now = datetime.now(UTC)
@@ -317,7 +318,7 @@ class FilesystemGatewayMailboxAdapter:
         body_content: str,
         reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         self._ensure_operator_registration()
@@ -370,7 +371,7 @@ class FilesystemGatewayMailboxAdapter:
         message_ref: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         parent_message_id = _require_prefixed_ref(message_ref, prefix="filesystem")
@@ -503,7 +504,7 @@ class FilesystemGatewayMailboxAdapter:
         sender: ManagedPrincipal | None = None,
         reply_to: Sequence[ManagedPrincipal] = (),
         headers: Mapping[str, object] | None = None,
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> DeliveryRequest:
         staged_message_path = (
@@ -554,7 +555,7 @@ class FilesystemGatewayMailboxAdapter:
         staged_message_path: Path,
         request: DeliveryRequest,
         body_content: str,
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> None:
         payload: dict[str, object] = {
@@ -983,6 +984,8 @@ class FilesystemGatewayMailboxAdapter:
             cc=[_participant_from_mailbox_principal(item) for item in message.cc],
             reply_to=[_participant_from_mailbox_principal(item) for item in message.reply_to],
             attachments=[_attachment_from_mailbox_attachment(item) for item in message.attachments],
+            notify_block=message.notify_block,
+            notify_auth=message.notify_auth,
         )
 
 
@@ -1056,7 +1059,7 @@ class StalwartGatewayMailboxAdapter:
         subject: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         _reject_stalwart_notify_fields(notify_block=notify_block, notify_auth=notify_auth)
@@ -1079,7 +1082,7 @@ class StalwartGatewayMailboxAdapter:
         message_ref: str,
         body_content: str,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         _reject_stalwart_notify_fields(notify_block=notify_block, notify_auth=notify_auth)
@@ -1101,7 +1104,7 @@ class StalwartGatewayMailboxAdapter:
         body_content: str,
         reply_policy: OperatorOriginReplyPolicy,
         attachments: Sequence[GatewayMailAttachmentUploadV1],
-        notify_block: str | None = None,
+        notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
         del subject, body_content, reply_policy, attachments, notify_block, notify_auth
@@ -1366,7 +1369,7 @@ def _parse_timestamp(value: str) -> datetime:
 
 def _reject_stalwart_notify_fields(
     *,
-    notify_block: str | None,
+    notify_block: MailboxNotifyBlock | None,
     notify_auth: MailboxNotifyAuth | None,
 ) -> None:
     """Reject notify-block and notify-auth on Stalwart-bound sends in this version.

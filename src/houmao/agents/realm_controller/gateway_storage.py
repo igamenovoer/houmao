@@ -115,6 +115,11 @@ class GatewayLiveBindings:
     protocol_version: GatewayProtocolVersion
 
 
+NotifyBlockRender = Literal["enabled", "disabled"]
+NotifyBlockAuthMode = Literal["permissive-log", "required"]
+NotifyBlockAuthVerifier = Literal["none", "shared-token"]
+
+
 @dataclass(frozen=True)
 class GatewayMailNotifierRecord:
     """Durable gateway-owned notifier configuration and runtime state."""
@@ -130,6 +135,12 @@ class GatewayMailNotifierRecord:
     last_notified_digest: str | None
     compacted_eligible_message_refs: tuple[str, ...]
     last_error: str | None
+    notify_block_render: NotifyBlockRender = "enabled"
+    notify_block_auth_mode: NotifyBlockAuthMode = "permissive-log"
+    notify_block_auth_verifier: NotifyBlockAuthVerifier = "none"
+    notify_block_shared_tokens: tuple[str, ...] = ()
+    notify_block_per_message_chars: int = 512
+    notify_block_total_chars: int = 2048
 
 
 GatewayNotifierAuditOutcome = Literal[
@@ -154,6 +165,19 @@ class GatewayNotifierAuditUnreadMessage:
 
 
 @dataclass(frozen=True)
+class GatewayNotifierAuditRenderedBlockEntry:
+    """Per-rendered notify-block detail captured in notifier audit history."""
+
+    message_ref: str
+    rendered: bool
+    auth_scheme: str
+    auth_outcome: str
+    auth_detail: str | None
+    block_chars: int
+    block_truncated: bool
+
+
+@dataclass(frozen=True)
 class GatewayNotifierAuditRecord:
     """Durable per-poll gateway notifier audit record."""
 
@@ -173,6 +197,7 @@ class GatewayNotifierAuditRecord:
     context_action_outcome: str | None
     degraded_tool_name: str | None
     degraded_error_type: str | None
+    rendered_block_entries: tuple[GatewayNotifierAuditRenderedBlockEntry, ...] = ()
 
 
 class _TmuxEnvSetter(Protocol):
@@ -903,6 +928,12 @@ def write_gateway_mail_notifier_record(
     last_notified_digest: str | None | object = _UNSET,
     compacted_eligible_message_refs: Sequence[str] | object = _UNSET,
     last_error: str | None | object = _UNSET,
+    notify_block_render: NotifyBlockRender | object = _UNSET,
+    notify_block_auth_mode: NotifyBlockAuthMode | object = _UNSET,
+    notify_block_auth_verifier: NotifyBlockAuthVerifier | object = _UNSET,
+    notify_block_shared_tokens: Sequence[str] | object = _UNSET,
+    notify_block_per_message_chars: int | object = _UNSET,
+    notify_block_total_chars: int | object = _UNSET,
 ) -> GatewayMailNotifierRecord:
     """Persist selected notifier fields and return the resulting durable record."""
 
@@ -955,6 +986,36 @@ def write_gateway_mail_notifier_record(
                 )
             ),
             last_error=record.last_error if last_error is _UNSET else cast(str | None, last_error),
+            notify_block_render=(
+                record.notify_block_render
+                if notify_block_render is _UNSET
+                else cast(NotifyBlockRender, notify_block_render)
+            ),
+            notify_block_auth_mode=(
+                record.notify_block_auth_mode
+                if notify_block_auth_mode is _UNSET
+                else cast(NotifyBlockAuthMode, notify_block_auth_mode)
+            ),
+            notify_block_auth_verifier=(
+                record.notify_block_auth_verifier
+                if notify_block_auth_verifier is _UNSET
+                else cast(NotifyBlockAuthVerifier, notify_block_auth_verifier)
+            ),
+            notify_block_shared_tokens=(
+                record.notify_block_shared_tokens
+                if notify_block_shared_tokens is _UNSET
+                else tuple(cast(Sequence[str], notify_block_shared_tokens))
+            ),
+            notify_block_per_message_chars=(
+                record.notify_block_per_message_chars
+                if notify_block_per_message_chars is _UNSET
+                else int(cast(int, notify_block_per_message_chars))
+            ),
+            notify_block_total_chars=(
+                record.notify_block_total_chars
+                if notify_block_total_chars is _UNSET
+                else int(cast(int, notify_block_total_chars))
+            ),
         )
         _write_gateway_mail_notifier_record(connection, updated)
         connection.commit()
@@ -976,6 +1037,12 @@ def build_gateway_mail_notifier_status(
         appendix_text=record.appendix_text,
         context_error_policy=record.context_error_policy,
         pre_notification_context_action=record.pre_notification_context_action,
+        notify_block_render=record.notify_block_render,
+        notify_block_auth_mode=record.notify_block_auth_mode,
+        notify_block_auth_verifier=record.notify_block_auth_verifier,
+        notify_block_shared_tokens=list(record.notify_block_shared_tokens),
+        notify_block_per_message_chars=record.notify_block_per_message_chars,
+        notify_block_total_chars=record.notify_block_total_chars,
         supported=supported,
         support_error=support_error,
         last_poll_at_utc=record.last_poll_at_utc,
@@ -1006,9 +1073,11 @@ def append_gateway_notifier_audit_record(
     context_action_outcome: str | None = None,
     degraded_tool_name: str | None = None,
     degraded_error_type: str | None = None,
+    rendered_block_entries: Sequence[GatewayNotifierAuditRenderedBlockEntry] = (),
 ) -> GatewayNotifierAuditRecord:
     """Append one notifier audit row and return the persisted record."""
 
+    rendered_entries_tuple = tuple(rendered_block_entries)
     with sqlite3.connect(sqlite_path) as connection:
         _ensure_queue_schema(connection)
         connection.execute(
@@ -1028,9 +1097,10 @@ def append_gateway_notifier_audit_record(
                 pre_notification_context_action,
                 context_action_outcome,
                 degraded_tool_name,
-                degraded_error_type
+                degraded_error_type,
+                rendered_block_entries_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 poll_time_utc,
@@ -1048,6 +1118,7 @@ def append_gateway_notifier_audit_record(
                 context_action_outcome,
                 degraded_tool_name,
                 degraded_error_type,
+                _serialize_gateway_notifier_rendered_block_entries(rendered_entries_tuple),
             ),
         )
         row = connection.execute("SELECT last_insert_rowid()").fetchone()
@@ -1073,6 +1144,28 @@ def append_gateway_notifier_audit_record(
         context_action_outcome=context_action_outcome,
         degraded_tool_name=degraded_tool_name,
         degraded_error_type=degraded_error_type,
+        rendered_block_entries=rendered_entries_tuple,
+    )
+
+
+def _serialize_gateway_notifier_rendered_block_entries(
+    entries: Sequence[GatewayNotifierAuditRenderedBlockEntry],
+) -> str:
+    """Serialize per-rendered notify-block audit entries to JSON for storage."""
+
+    return json.dumps(
+        [
+            {
+                "message_ref": entry.message_ref,
+                "rendered": entry.rendered,
+                "auth_scheme": entry.auth_scheme,
+                "auth_outcome": entry.auth_outcome,
+                "auth_detail": entry.auth_detail,
+                "block_chars": entry.block_chars,
+                "block_truncated": entry.block_truncated,
+            }
+            for entry in entries
+        ]
     )
 
 
@@ -1457,6 +1550,48 @@ def _migrate_gateway_queue_schema(connection: sqlite3.Connection) -> None:
             column_name="compacted_eligible_message_refs_json",
             definition="compacted_eligible_message_refs_json TEXT NOT NULL DEFAULT '[]'",
         )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="notify_block_render",
+            definition="notify_block_render TEXT NOT NULL DEFAULT 'enabled'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="notify_block_auth_mode",
+            definition="notify_block_auth_mode TEXT NOT NULL DEFAULT 'permissive-log'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="notify_block_auth_verifier",
+            definition="notify_block_auth_verifier TEXT NOT NULL DEFAULT 'none'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="notify_block_shared_tokens_json",
+            definition="notify_block_shared_tokens_json TEXT NOT NULL DEFAULT '[]'",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="notify_block_per_message_chars",
+            definition="notify_block_per_message_chars INTEGER NOT NULL DEFAULT 512",
+        )
+        _add_column_if_missing(
+            connection,
+            table_name="gateway_mail_notifier",
+            present_columns=notifier_columns,
+            column_name="notify_block_total_chars",
+            definition="notify_block_total_chars INTEGER NOT NULL DEFAULT 2048",
+        )
 
     audit_columns = _sqlite_table_columns(connection, "gateway_notifier_audit")
     if audit_columns:
@@ -1477,6 +1612,16 @@ def _migrate_gateway_queue_schema(connection: sqlite3.Connection) -> None:
             or "pre_notification_context_error" not in audit_sql
         ):
             _rebuild_gateway_notifier_audit_table(connection, present_columns=audit_columns)
+        # Refresh after potential rebuild and add the rendered-block-entries column.
+        audit_columns = _sqlite_table_columns(connection, "gateway_notifier_audit")
+        if audit_columns:
+            _add_column_if_missing(
+                connection,
+                table_name="gateway_notifier_audit",
+                present_columns=audit_columns,
+                column_name="rendered_block_entries_json",
+                definition="rendered_block_entries_json TEXT NOT NULL DEFAULT '[]'",
+            )
 
 
 def _add_column_if_missing(
@@ -1573,6 +1718,15 @@ def _gateway_queue_schema_sql() -> str:
         last_notified_digest TEXT,
         compacted_eligible_message_refs_json TEXT NOT NULL DEFAULT '[]',
         last_error TEXT,
+        notify_block_render TEXT NOT NULL DEFAULT 'enabled'
+            CHECK (notify_block_render IN ('enabled', 'disabled')),
+        notify_block_auth_mode TEXT NOT NULL DEFAULT 'permissive-log'
+            CHECK (notify_block_auth_mode IN ('permissive-log', 'required')),
+        notify_block_auth_verifier TEXT NOT NULL DEFAULT 'none'
+            CHECK (notify_block_auth_verifier IN ('none', 'shared-token')),
+        notify_block_shared_tokens_json TEXT NOT NULL DEFAULT '[]',
+        notify_block_per_message_chars INTEGER NOT NULL DEFAULT 512,
+        notify_block_total_chars INTEGER NOT NULL DEFAULT 2048,
         updated_at_utc TEXT NOT NULL
     );
 
@@ -1613,7 +1767,8 @@ def _gateway_notifier_audit_schema_sql() -> str:
         pre_notification_context_action TEXT NOT NULL DEFAULT 'none',
         context_action_outcome TEXT,
         degraded_tool_name TEXT,
-        degraded_error_type TEXT
+        degraded_error_type TEXT,
+        rendered_block_entries_json TEXT NOT NULL DEFAULT '[]'
     );
     """
 
@@ -1797,7 +1952,13 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             last_notification_at_utc,
             last_notified_digest,
             compacted_eligible_message_refs_json,
-            last_error
+            last_error,
+            notify_block_render,
+            notify_block_auth_mode,
+            notify_block_auth_verifier,
+            notify_block_shared_tokens_json,
+            notify_block_per_message_chars,
+            notify_block_total_chars
         FROM gateway_mail_notifier
         WHERE singleton = 1
         """
@@ -1820,6 +1981,12 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
         )
         _write_gateway_mail_notifier_record(connection, record)
         return record
+    shared_tokens_value = row[14]
+    shared_tokens: tuple[str, ...] = ()
+    if shared_tokens_value:
+        loaded = json.loads(str(shared_tokens_value))
+        if isinstance(loaded, list):
+            shared_tokens = tuple(str(item) for item in loaded if isinstance(item, str))
     return GatewayMailNotifierRecord(
         enabled=bool(int(row[0])),
         interval_seconds=None if row[1] is None else int(row[1]),
@@ -1836,6 +2003,12 @@ def _read_gateway_mail_notifier_record(connection: sqlite3.Connection) -> Gatewa
             row[9]
         ),
         last_error=None if row[10] is None else str(row[10]),
+        notify_block_render=cast(NotifyBlockRender, str(row[11])),
+        notify_block_auth_mode=cast(NotifyBlockAuthMode, str(row[12])),
+        notify_block_auth_verifier=cast(NotifyBlockAuthVerifier, str(row[13])),
+        notify_block_shared_tokens=shared_tokens,
+        notify_block_per_message_chars=int(row[15]),
+        notify_block_total_chars=int(row[16]),
     )
 
 
@@ -1896,9 +2069,15 @@ def _write_gateway_mail_notifier_record(
             last_notified_digest,
             compacted_eligible_message_refs_json,
             last_error,
+            notify_block_render,
+            notify_block_auth_mode,
+            notify_block_auth_verifier,
+            notify_block_shared_tokens_json,
+            notify_block_per_message_chars,
+            notify_block_total_chars,
             updated_at_utc
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(singleton) DO UPDATE SET
             enabled = excluded.enabled,
             interval_seconds = excluded.interval_seconds,
@@ -1911,6 +2090,12 @@ def _write_gateway_mail_notifier_record(
             last_notified_digest = excluded.last_notified_digest,
             compacted_eligible_message_refs_json = excluded.compacted_eligible_message_refs_json,
             last_error = excluded.last_error,
+            notify_block_render = excluded.notify_block_render,
+            notify_block_auth_mode = excluded.notify_block_auth_mode,
+            notify_block_auth_verifier = excluded.notify_block_auth_verifier,
+            notify_block_shared_tokens_json = excluded.notify_block_shared_tokens_json,
+            notify_block_per_message_chars = excluded.notify_block_per_message_chars,
+            notify_block_total_chars = excluded.notify_block_total_chars,
             updated_at_utc = excluded.updated_at_utc
         """,
         (
@@ -1927,6 +2112,12 @@ def _write_gateway_mail_notifier_record(
                 record.compacted_eligible_message_refs
             ),
             record.last_error,
+            record.notify_block_render,
+            record.notify_block_auth_mode,
+            record.notify_block_auth_verifier,
+            json.dumps(list(record.notify_block_shared_tokens)),
+            record.notify_block_per_message_chars,
+            record.notify_block_total_chars,
             now_utc_iso(),
         ),
     )

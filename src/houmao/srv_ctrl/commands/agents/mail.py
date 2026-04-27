@@ -12,6 +12,8 @@ from houmao.agents.realm_controller.gateway_models import GatewayMailAttachmentU
 from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
+    MailboxNotifyBlock,
+    NotifyBlockPlacement,
     OperatorOriginReplyPolicy,
 )
 
@@ -135,6 +137,17 @@ def read_mail_command(
     emit(mail_read(target, message_ref=message_ref, box=box))
 
 
+def _build_notify_block(text: str | None, placement: str) -> MailboxNotifyBlock | None:
+    """Build the typed notify-block from CLI flag values, or return None."""
+
+    if text is None:
+        return None
+    return MailboxNotifyBlock(
+        text=text,
+        placement=cast(NotifyBlockPlacement, placement),
+    )
+
+
 @mail_group.command(name="send")
 @click.option("--to", "to_recipients", multiple=True, required=True, help="Recipient address.")
 @click.option("--cc", "cc_recipients", multiple=True, help="CC recipient address.")
@@ -151,6 +164,18 @@ def read_mail_command(
         "first ```houmao-notify fenced block."
     ),
 )
+@click.option(
+    "--notify-block-placement",
+    "notify_block_placement",
+    type=click.Choice(["append", "prepend"], case_sensitive=False),
+    default="append",
+    show_default=True,
+    help=(
+        "Placement metadata for the supplied notify-block. Controls where the auto-mirrored "
+        "body fence is inserted and where the notifier renders the block. Ignored when "
+        "--notify-block is omitted."
+    ),
+)
 @pair_port_option()
 @managed_agent_selector_options
 def send_mail_command(
@@ -162,6 +187,7 @@ def send_mail_command(
     body_file: str | None,
     attachments: tuple[str, ...],
     notify_block: str | None,
+    notify_block_placement: str,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
@@ -176,7 +202,7 @@ def send_mail_command(
             subject=subject,
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             attachments=_resolve_attachment_uploads(attachments),
-            notify_block=notify_block,
+            notify_block=_build_notify_block(notify_block, notify_block_placement),
         )
     )
 
@@ -205,6 +231,18 @@ def send_mail_command(
         "first ```houmao-notify fenced block."
     ),
 )
+@click.option(
+    "--notify-block-placement",
+    "notify_block_placement",
+    type=click.Choice(["append", "prepend"], case_sensitive=False),
+    default="append",
+    show_default=True,
+    help=(
+        "Placement metadata for the supplied notify-block. Controls where the auto-mirrored "
+        "body fence is inserted and where the notifier renders the block. Ignored when "
+        "--notify-block is omitted."
+    ),
+)
 @pair_port_option()
 @managed_agent_selector_options
 def post_mail_command(
@@ -215,6 +253,7 @@ def post_mail_command(
     reply_policy: str,
     attachments: tuple[str, ...],
     notify_block: str | None,
+    notify_block_placement: str,
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
@@ -228,7 +267,7 @@ def post_mail_command(
             body_content=resolve_body_text(body_content=body_content, body_file=body_file),
             reply_policy=cast(OperatorOriginReplyPolicy, reply_policy),
             attachments=_resolve_attachment_uploads(attachments),
-            notify_block=notify_block,
+            notify_block=_build_notify_block(notify_block, notify_block_placement),
         )
     )
 
