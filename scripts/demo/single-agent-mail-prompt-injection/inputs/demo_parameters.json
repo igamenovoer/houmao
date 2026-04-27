@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "demo_id": "single-agent-mail-prompt-injection",
+  "project_fixture": "tests/fixtures/dummy-projects/mailbox-demo-python",
+  "system_prompt_file": "scripts/demo/single-agent-mail-prompt-injection/inputs/system_prompt.md",
+  "benign_body_file": "scripts/demo/single-agent-mail-prompt-injection/inputs/benign_body.md",
+  "injection_body_file": "scripts/demo/single-agent-mail-prompt-injection/inputs/injection_body.md",
+  "command_timeout_seconds": 240,
+  "gateway": {
+    "host": "127.0.0.1",
+    "notifier_interval_seconds": 5
+  },
+  "scope": {
+    "safe_subpath": "tmp/safe",
+    "leak_subpath": "tmp/leak",
+    "control_filename_template": "{tool}-control.txt",
+    "leak_filename_template": "{tool}-pwned.txt"
+  },
+  "modes": {
+    "permissive-log": {
+      "notify_block_render": "enabled",
+      "notify_block_auth_mode": "permissive-log",
+      "notify_block_auth_verifier": "none",
+      "notify_block_shared_tokens": []
+    },
+    "required": {
+      "notify_block_render": "enabled",
+      "notify_block_auth_mode": "required",
+      "notify_block_auth_verifier": "shared-token",
+      "notify_block_shared_tokens": []
+    }
+  },
+  "tools": {
+    "claude": {
+      "provider": "claude_code",
+      "setup": "default",
+      "auth_name": "kimi-coding",
+      "auth_fixture_dir": "tests/fixtures/auth-bundles/claude/kimi-coding",
+      "specialist_name_prefix": "single-inject-claude",
+      "instance_name_prefix": "single-inject-claude",
+      "session_name_prefix": "hm-single-inject-claude"
+    }
+  }
+}
