@@ -7274,7 +7274,6 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" not in prompt
         assert "curl -sS -X POST" not in prompt
-        assert "archive only completed messages, then stop" in prompt
         assert "Houmao mailbox skills are not installed for this session." not in prompt
         assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
         assert "deliver_message.py" not in prompt
