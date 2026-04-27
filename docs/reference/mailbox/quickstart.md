@@ -162,6 +162,7 @@ Important details:
 - When Houmao can execute through pair-owned, gateway-backed, or manager-owned direct authority, the result is authoritative.
 - When a local live TUI fallback is used, the result is submission-only and returns `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error` without claiming mailbox success from transcript parsing.
 - Use `houmao-mgr agents mail status`, `houmao-mgr agents mail list`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative fallback results.
+- Optional `--notify-block "<text>"` (or a ` ```houmao-notify ` fenced block inside the body) attaches short sender-marked notification text to the canonical envelope. The field is stored alongside `body_markdown`; gateway notifier rendering of `notify_block` is intentionally deferred to a follow-on change. See [agents-mail CLI reference — Notification-prompt block](../cli/agents-mail.md#notification-prompt-block).
 
 ## Post Operator-Origin Mail
 
@@ -184,6 +185,7 @@ Important details:
 - `reply_policy=operator_mailbox` is the default and allows replies to that specific operator-origin message back to `HOUMAO-operator@houmao.localhost`.
 - `reply_policy=none` is the explicit no-reply opt-out for one-way operator-origin notes.
 - The reserved system mailbox is not a general-purpose free-send address; the receive-side contract here is reply-only for reply-enabled operator-origin threads.
+- `--notify-block` is also accepted on `post` and follows the same rules as `agents mail send`.
 
 ## Reply To Mail
 

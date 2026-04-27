@@ -231,6 +231,7 @@ Important boundary rules:
 - they coexist with `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
 - `gateway/mail-notifier` remains background notifier configuration, while `mail/*` is the foreground mailbox-operation surface
 - `POST /mail/read` reads one selected message and marks it read, while `POST /mail/mark`, `POST /mail/move`, and `POST /mail/archive` expose explicit foreground lifecycle updates for selected `message_ref` values
+- `POST /mail/send`, `POST /mail/post`, and `POST /mail/reply` accept the optional canonical-envelope fields `notify_block` (≤ 512 chars; auto-extracted from a ` ```houmao-notify ` body fence when omitted) and `notify_auth` (currently only `scheme="none"` is accepted; non-`none` schemes return HTTP `422` with the canonical `verifier not yet supported` error). See [`docs/reference/gateway/contracts/protocol-and-state.md`](gateway/contracts/protocol-and-state.md) for the underlying gateway request shapes and [`docs/reference/mailbox/contracts/canonical-model.md`](mailbox/contracts/canonical-model.md#notification-prompt-block) for the canonical envelope semantics. Notifier-side rendering of `notify_block` is intentionally deferred to a follow-on change.
 
 Observable availability semantics:
 

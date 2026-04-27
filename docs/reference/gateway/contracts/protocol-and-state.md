@@ -702,7 +702,9 @@ Representative request:
   "cc": [],
   "subject": "Investigate parser drift",
   "body_content": "Hello from the gateway facade",
-  "attachments": []
+  "attachments": [],
+  "notify_block": "re-run on official path before reporting",
+  "notify_auth": {"scheme": "none"}
 }
 ```
 
@@ -718,7 +720,8 @@ Representative request:
   "subject": "Resume after sync",
   "body_content": "Continue from the latest mailbox checkpoint.",
   "reply_policy": "operator_mailbox",
-  "attachments": []
+  "attachments": [],
+  "notify_block": "continue current task"
 }
 ```
 
@@ -736,6 +739,15 @@ Representative request:
   "attachments": []
 }
 ```
+
+#### Optional notification-prompt fields
+
+`/v1/mail/send`, `/v1/mail/post`, and `/v1/mail/reply` accept two optional canonical-envelope fields:
+
+- `notify_block` — short sender-marked notification text (≤ 512 characters). When omitted, the gateway scans `body_content` for the first ` ```houmao-notify ` fenced code block and extracts it at composition time. An explicit `notify_block` value bypasses body-fence extraction.
+- `notify_auth` — sender-supplied authentication metadata. The protocol reserves `scheme` values `none`, `shared-token`, `hmac-sha256`, and `jws`; in this protocol version only `scheme="none"` is accepted. Non-`none` schemes are rejected with HTTP `422` and the canonical `verifier not yet supported` validation error. Optional `token`, `iss`, `iat`, `exp` claims are preserved on the canonical envelope but are not yet consumed by any verifier.
+
+Both fields are optional and default to absent. Stalwart-bound sends reject these fields with HTTP `422` until JMAP-side projection ships in a follow-on change. The gateway notifier prompt does not yet render `notify_block` content; the field is stored in the canonical envelope and surfaces on the receiver only after the follow-on rendering change wires verifier plug-ins and the notifier template slot. See [`docs/reference/mailbox/contracts/canonical-model.md`](../../mailbox/contracts/canonical-model.md#notification-prompt-block) for the canonical envelope semantics.
 
 ### `POST /v1/mail/mark`
 
@@ -843,6 +855,7 @@ Support contract rules:
 - Each reminder includes the eligible `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every selected message in that snapshot.
 - If eligible inbox mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on current mailbox truth plus live prompt readiness rather than on reminder history.
 - Recoverable degraded chat context does not by itself cause a busy skip and does not force a clean-context notifier prompt. If the target is otherwise prompt-ready and queue admission passes, the notifier uses normal current-context prompt work unless `context_error_policy=clear_context` matches a recognized tool-owned compaction diagnostic.
+- The canonical envelope's `notify_block` and `notify_auth` fields are accepted on `/v1/mail/send|post|reply` and persisted with the stored message, but the notifier prompt does not yet render `notify_block` content. Verifier plug-ins, the notifier template slot, and the gateway-side trust posture (`permissive-log` default with `required` opt-in) ship in a follow-on change; until then `notify_block` round-trips through storage and surfaces only when the receiver opens the message body.
 
 Detailed inspection note:
 
