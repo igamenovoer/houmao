@@ -69,7 +69,7 @@ An empty fenced block (no non-whitespace content between the fence markers) SHAL
 - **AND WHEN** a receiver reads `body_markdown` through any transport-neutral mailbox surface
 - **THEN** the receiver finds the same `notify_block.text` inside a `houmao-notify` fenced block in the body
 
-### Requirement: Mailbox protocol version reflects the typed notify-block envelope
+### Requirement: Mailbox protocol version reflects the notify-aware canonical envelope
 The system SHALL set `MAILBOX_PROTOCOL_VERSION` to `3` to reflect the typed `MailboxNotifyBlock` shape, the placement metadata, and the auto-mirror invariant.
 
 Canonical envelopes that omit both `notify_block` and `notify_auth` SHALL remain valid under protocol version `3` because both fields are optional. Canonical-message validation under protocol version `3` SHALL reject envelopes whose `protocol_version` field does not match the current value.
