@@ -18,7 +18,7 @@ Houmao ships five packaged loop skills. This page helps you choose the right one
 
 **Use `houmao-agent-loop-pairwise-v3`** when you need the same enriched lifecycle as v2 and you also need the loop plan to declare where agents work and where they keep operator-visible bookkeeping. Pairwise-v3 is the workspace-aware extension of pairwise-v2.
 
-**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task or user-provided documents are rich enough that generated documents need strict templates. Pairwise-v4 keeps source-contract summaries, policy-bearing verbs, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
+**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task or user-provided documents are rich enough that generated documents need strict templates. Pairwise-v4 keeps source-contract summaries, policy-bearing source rules, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
 
 **Use `houmao-agent-loop-generic`** when your communication graph has both pairwise components (immediate driver-worker local-close edges) and relay lanes (agent that receives from one side and forwards to another). Generic decomposes your intent into typed components and manages them in one graph.
 
@@ -49,7 +49,7 @@ When the run needs reusable report forms or bookkeeping scaffolds, those files l
 
 `houmao-agent-loop-pairwise-v4` keeps the pairwise-v3 control and workspace model, then adds a template-driven source-contract layer for rich task notes and user-provided documents.
 
-Use v4 when the plan should preserve schema-like task or document language instead of loosely summarizing it. The v4 authoring flow extracts high-salience source constraints, preserves policy-bearing verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH` when they appear in task notes, rulebooks, commons files, or other user-provided documents, assigns stable source-constraint IDs, and projects those rules into the central plan, role-local agent notes, routing packets, reporting templates, bookkeeping templates, scripts, or an explicit unresolved entry.
+Use v4 when the plan should preserve schema-like task or document language instead of loosely summarizing it. The v4 authoring flow extracts high-salience source constraints, preserves policy-bearing source rules keyed by verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH` when they appear in task notes, rulebooks, commons files, or other user-provided documents, assigns stable source-constraint IDs, and projects those rules into the central plan, role-local agent notes, routing packets, reporting templates, bookkeeping templates, scripts, or an explicit unresolved entry.
 
 The generated bundle uses strict document templates for:
 
@@ -61,7 +61,26 @@ The generated bundle uses strict document templates for:
 
 The coverage audit maps each extracted source rule to a central projection and a runtime-facing projection, or marks it `UNRESOLVED - <reason>`. This makes v4 a better fit than v3 for tasks derived from structured commons files, tuned examples, instruction-heavy loop task notes, or user-supplied design documents that use schema-like policy verbs.
 
-### `standard` versus `custom`
+### V4 generated plan structure
+
+A v4 rich bundle should make the source contract visible in `plan.md` instead of scattering it across supporting notes. The canonical `plan.md` includes:
+
+- `# Source Contract Summary`
+- `## Referenced Sources`
+- `## Policy-Bearing Source Rules`
+- `## Source Constraints Carried Forward`
+- `## Unresolved Source Inputs`
+- `# Constraint Coverage Audit`
+
+The generated files should also include `constraint-coverage-audit.md` for bundle plans. That audit is the final checklist for whether each extracted `SC-*` rule appears in the central plan and in the runtime-facing surface that must enforce it. A rule that cannot be projected safely should remain visible as `UNRESOLVED - <reason>` rather than disappearing into prose.
+
+### V4 generated support files
+
+When v4 produces a bundle, the support files should be structured rather than reminder-shaped. Role notes under `agents/` should say what the participant owns, which source constraints apply locally, what hard gates must pass, what SOP verbs govern the work, and what evidence or reports must be returned. Reusable templates under `templates/reporting/` and `templates/bookkeeping/` should carry state schemas, evidence fields, ownership, update rules, and output format expectations from the source material.
+
+Use v3 when a workspace-aware plan only needs ordinary plan prose and routing packets. Use v4 when the source material itself has reusable structure that future agents must be able to inspect, audit, and fill section by section.
+
+### V3 and V4 `standard` versus `custom`
 
 When the workspace contract uses `standard`, the plan records which Houmao-standard posture the run expects.
 
@@ -74,7 +93,7 @@ When the workspace contract uses `custom`, the plan records operator-owned paths
 - read-only paths
 - ad hoc worktree posture
 
-Custom mode is deliberately direct. Pairwise-v3 does not silently translate those paths into `houmao-ws/...`, and `houmao-utils-workspace-mgr` does not become a custom-workspace abstraction layer. If the user wants a custom workspace, the loop plan owns it directly.
+Custom mode is deliberately direct. Pairwise-v3 and pairwise-v4 do not silently translate those paths into `houmao-ws/...`, and `houmao-utils-workspace-mgr` does not become a custom-workspace abstraction layer. If the user wants a custom workspace, the loop plan owns it directly.
 
 ### Standard in-repo posture is task-scoped
 
@@ -110,7 +129,7 @@ Agents still launch from `<repo-root>` by default for shared visibility, but the
 
 `houmao-utils-workspace-mgr` remains the standard workspace-preparation skill.
 
-Use it when pairwise-v3 chooses a standard workspace and you want Houmao to prepare or summarize that standard layout.
+Use it when pairwise-v3 or pairwise-v4 chooses a standard workspace and you want Houmao to prepare or summarize that standard layout.
 
 Do not route custom operator-owned workspace contracts through workspace-manager. Pairwise-v3 custom mode records those paths directly in the loop plan.
 
