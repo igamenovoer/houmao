@@ -997,6 +997,183 @@ def test_managed_session_cleanup_blocks_active_registry_record_even_without_live
     assert payload["summary"]["registry_lifecycle_action"] is None
 
 
+def test_managed_session_cleanup_purge_registry_retires_stale_active_broken_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Explicit --purge-registry retires an active record whose tmux session is gone."""
+
+    from houmao.agents.realm_controller.backends.tmux_runtime import (
+        TmuxBackedAuthorityHealth,
+    )
+
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="active",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "probe_tmux_backed_authority",
+        lambda *, session_name: TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        ),
+    )
+    cleanup_calls: list[str] = []
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "cleanup_tmux_session",
+        lambda *, session_name: cleanup_calls.append(session_name),
+    )
+    purge_calls: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "remove_managed_agent_record",
+        lambda agent_id, *, generation_id=None: (
+            purge_calls.append((agent_id, generation_id)),
+            True,
+        )[1],
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=False,
+        purge_registry=True,
+    )
+
+    assert cleanup_calls == []
+    assert not session_root.exists()
+    applied_kinds = {action["artifact_kind"] for action in payload["applied_actions"]}
+    assert "session_root" in applied_kinds
+    assert "managed_agent_registry_record" in applied_kinds
+    assert payload["blocked_actions"] == []
+    assert purge_calls == [(record.agent_id, record.generation_id)]
+
+
+def test_managed_session_cleanup_purge_registry_kills_degraded_active_remnant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Explicit --purge-registry kills the surviving tmux session for a degraded active."""
+
+    from houmao.agents.realm_controller.backends.tmux_runtime import (
+        TmuxBackedAuthorityHealth,
+    )
+
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="active",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: True)
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "probe_tmux_backed_authority",
+        lambda *, session_name: TmuxBackedAuthorityHealth(
+            state="degraded_missing_primary",
+            session_exists=True,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        ),
+    )
+    cleanup_calls: list[str] = []
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "cleanup_tmux_session",
+        lambda *, session_name: cleanup_calls.append(session_name),
+    )
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "remove_managed_agent_record",
+        lambda agent_id, *, generation_id=None: True,
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=False,
+        purge_registry=True,
+    )
+
+    assert cleanup_calls == ["join-sess"]
+    assert not session_root.exists()
+    applied_kinds = {action["artifact_kind"] for action in payload["applied_actions"]}
+    assert "session_root" in applied_kinds
+    assert "managed_agent_registry_record" in applied_kinds
+
+
+def test_managed_session_cleanup_without_purge_still_blocks_broken_active(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Without --purge-registry, broken active records still block cleanup."""
+
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    record = _registry_record(
+        manifest_path=manifest_path,
+        session_root=session_root,
+        lifecycle_state="active",
+    )
+
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "_resolve_local_cleanup_registry_record",
+        lambda *, agent_id, agent_name: (
+            record if agent_id == "agent-joined" and agent_name is None else None
+        ),
+    )
+    monkeypatch.setattr(runtime_cleanup, "tmux_session_exists", lambda *, session_name: False)
+    probe_calls: list[str] = []
+    monkeypatch.setattr(
+        runtime_cleanup,
+        "probe_tmux_backed_authority",
+        lambda *, session_name: probe_calls.append(session_name),
+    )
+
+    payload = runtime_cleanup.cleanup_managed_session(
+        agent_id="agent-joined",
+        agent_name=None,
+        manifest_path=None,
+        session_root=None,
+        dry_run=False,
+        purge_registry=False,
+    )
+
+    assert probe_calls == []
+    assert session_root.exists()
+    assert {action["artifact_kind"] for action in payload["blocked_actions"]} == {"session_root"}
+
+
 def test_managed_session_cleanup_explicit_session_root_blocks_live_removal_via_registry_evidence(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

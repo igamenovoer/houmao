@@ -45,6 +45,7 @@ The design therefore needs to distinguish persisted lifecycle from host-local tm
 - Reopen `--reuse-home` as a live-owner takeover shortcut.
 - Automatically "heal" every active session during ordinary inspection or discovery.
 - Generalize this change into server-owned remote recovery semantics beyond the local tmux-backed runtime path.
+- Improve operator-facing redirect messaging from `project easy instance launch --reuse-home --force ...` when the resolved target is a degraded or stale active local managed agent. The supported recovery path remains `agents stop` followed by `agents relaunch` or a fresh `agents launch`; teaching the launch CLI to detect this state and emit a contextual redirect is left to a follow-up change.
 
 ## Decisions
 
@@ -187,12 +188,47 @@ It does not turn `--reuse-home --force ...` back into a live-owner replacement t
 Alternatives considered:
 - Reuse this issue to reopen live-owner `--reuse-home` replacement: rejected because it conflicts with the newer stopped-only continuity model and would blur two different safety contracts.
 
+### Decision: Auxiliary gateway window is rebuilt with the primary surface during degraded relaunch
+
+When `agents relaunch` recovers `active + degraded_missing_primary`, any surviving auxiliary gateway window inside the same tmux session SHALL be killed before the contractual primary surface is rebuilt. The gateway is then reprovisioned through the existing post-startup gateway launch path that already runs in normal launch flows.
+
+Rebuilding gateway state from scratch is preferred over rewiring the surviving gateway window because:
+
+- the surviving gateway window represents partial state from a session that already lost its primary surface
+- gateway provisioning is an idempotent step in normal launch and reuses the same tmux session container
+- preserving the gateway window would force the rebuilt primary controller to rediscover and adopt gateway state mid-recovery, which is a separate failure surface
+
+For `agents stop` on `degraded_missing_primary`, killing the surviving tmux session by name removes the gateway window as a side effect; no separate gateway-window teardown is required beyond the best-effort gateway-state detach already called out in the stop decision.
+
+Alternatives considered:
+- Preserve the surviving gateway window across primary rebuild and rewire it to the new controller: rejected because it leaves gateway-side liveness state out of step with the freshly rebuilt primary controller and adds a recovery-only rewiring code path.
+- Tear down only the gateway window in `degraded_missing_primary` stop while leaving the surviving tmux container: rejected because the stop contract still needs to publish a clean stopped lifecycle record, which is simpler when the whole tmux session is removed.
+
+### Decision: Stale active without preserved manifest authority retires the lifecycle record
+
+When the selected lifecycle record is `active + stale_missing_session` and preserved manifest/relaunch authority is also unreadable or absent, recovery cannot publish a stopped lifecycle continuity record. The change still has to define what each supported recovery surface does so the operator does not bounce between a permanently un-actionable active record and a generic unusable-target error.
+
+Behavior by command:
+
+- `agents stop`: clear the stale active live claim and retire the registry record idempotently. The successful response identifies that retirement happened without preserved relaunch authority.
+- `agents relaunch`: fail explicitly with a clear CLI error pointing to `agents launch` as the supported path forward, since neither active nor stopped revival is available.
+- `agents cleanup session --purge-registry`: continue to retire or purge the record as already specified.
+
+This keeps `agents stop` as the primary recovery surface even for the most degraded shape and prevents the registry from accumulating active records that no supported command can clear.
+
+Alternatives considered:
+- Treat missing manifest authority as a hard error in stop: rejected because it preserves the original dead-end the issue describes.
+- Try to reconstruct manifest authority from registry-only metadata: rejected because the registry deliberately omits enough state to rebuild a runtime authority.
+- Allow relaunch to fall through to a fresh `agents launch` automatically: rejected because that loses managed-agent identity continuity silently and conflicts with the principle that fresh launch is an explicit operator action.
+
 ## Risks / Trade-offs
 
 - [Probe misclassifies an unusual tmux topology] -> Keep the health model narrow and contract-based: only the managed primary surface determines health, not incidental gateway windows or focus.
 - [Stop and cleanup recovery overlap in confusing ways] -> Keep `stop` as the preferred recovery path and require explicit `--purge-registry` before cleanup can retire broken active authority.
 - [Stale active relaunch becomes too magical] -> Route it through the existing stopped-session revival machinery rather than inventing an unrelated fresh-launch path.
 - [Registry continuity could be lost for badly corrupted sessions] -> Preserve stopped continuity whenever manifest/session authority is still readable; only retire or purge when continuity cannot be supported or the operator explicitly asks for purge cleanup.
+- [Surviving gateway window leaks state across primary rebuild] -> Always kill the surviving gateway window before rebuilding the contractual primary surface during degraded relaunch, then reprovision the gateway through normal post-startup gateway launch.
+- [Operator hits the same dead-end through the launch CLI] -> The `project easy instance launch --reuse-home --force ...` UX redirect is explicitly deferred; until that follow-up lands, document `agents stop` followed by `agents relaunch` (or fresh `agents launch`) as the supported recovery path for degraded and stale active local managed agents.
 
 ## Migration Plan
 

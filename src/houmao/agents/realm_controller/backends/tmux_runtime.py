@@ -204,6 +204,78 @@ def tmux_session_exists(*, session_name: str) -> bool:
     return has_tmux_session(session_name=session_name).returncode == 0
 
 
+@dataclass(frozen=True)
+class TmuxBackedAuthorityHealth:
+    """Derived local tmux-authority health for one tmux-backed managed session.
+
+    Attributes
+    ----------
+    state:
+        Three-class derived health classification.
+    session_exists:
+        Whether the named tmux session currently exists.
+    primary_window_exists:
+        Whether the contractual primary window index `0` is present.
+    primary_pane_exists:
+        Whether the contractual primary pane index `0` is present in window `0`.
+    """
+
+    state: Literal["healthy", "degraded_missing_primary", "stale_missing_session"]
+    session_exists: bool
+    primary_window_exists: bool
+    primary_pane_exists: bool
+
+
+def probe_tmux_backed_authority(*, session_name: str) -> TmuxBackedAuthorityHealth:
+    """Classify local tmux authority for one persisted managed session name.
+
+    Inspects tmux for the named session and the contractual primary surface
+    (window index `0`, pane index `0`) and returns a derived health
+    classification. The result is host-local runtime state and is never
+    persisted into shared registry state.
+    """
+
+    name = session_name.strip()
+    if not name or not tmux_session_exists(session_name=name):
+        return TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        )
+
+    try:
+        panes = list_tmux_panes(session_name=name)
+    except TmuxCommandError:
+        return TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        )
+
+    primary_window_present = any(
+        pane.window_index == HEADLESS_AGENT_WINDOW_INDEX for pane in panes
+    )
+    primary_pane_present = any(
+        pane.window_index == HEADLESS_AGENT_WINDOW_INDEX and pane.pane_index == "0"
+        for pane in panes
+    )
+    if primary_pane_present:
+        return TmuxBackedAuthorityHealth(
+            state="healthy",
+            session_exists=True,
+            primary_window_exists=True,
+            primary_pane_exists=True,
+        )
+    return TmuxBackedAuthorityHealth(
+        state="degraded_missing_primary",
+        session_exists=True,
+        primary_window_exists=primary_window_present,
+        primary_pane_exists=False,
+    )
+
+
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
     """Set multiple tmux session environment variables."""
 

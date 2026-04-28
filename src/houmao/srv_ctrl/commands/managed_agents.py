@@ -29,6 +29,9 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
+    TmuxBackedAuthorityHealth,
+    cleanup_tmux_session,
+    probe_tmux_backed_authority,
     tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import (
@@ -99,6 +102,7 @@ from houmao.agents.realm_controller.registry_storage import (
     global_registry_paths,
     is_live_agent_record_fresh,
     load_managed_agent_record_by_agent_id,
+    remove_managed_agent_record,
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
     resolve_managed_agent_records_by_name,
@@ -337,6 +341,22 @@ def resolve_managed_agent_target(
                 client=client,
                 record=record,
             )
+        if _is_local_tmux_backed_active_record(record):
+            health = _probe_local_tmux_authority_for_record(record)
+            if health.state == "degraded_missing_primary":
+                return ManagedAgentTarget(
+                    mode="local_degraded",
+                    agent_ref=normalized_ref,
+                    identity=_identity_from_record(record),
+                    record=record,
+                )
+            if health.state == "stale_missing_session":
+                return ManagedAgentTarget(
+                    mode="local_stale",
+                    agent_ref=normalized_ref,
+                    identity=_identity_from_record(record),
+                    record=record,
+                )
         controller = _resume_controller_from_record(record)
         identity = _identity_from_controller(controller)
         return ManagedAgentTarget(
@@ -409,6 +429,22 @@ def resolve_relaunch_managed_agent_target(
                 client=client,
                 record=record,
             )
+        if _is_local_tmux_backed_active_record(record):
+            health = _probe_local_tmux_authority_for_record(record)
+            if health.state == "degraded_missing_primary":
+                return ManagedAgentTarget(
+                    mode="local_degraded",
+                    agent_ref=normalized_ref,
+                    identity=_identity_from_record(record),
+                    record=record,
+                )
+            if health.state == "stale_missing_session":
+                return ManagedAgentTarget(
+                    mode="local_stale",
+                    agent_ref=normalized_ref,
+                    identity=_identity_from_record(record),
+                    record=record,
+                )
         controller = _resume_controller_from_record(record)
         identity = _identity_from_controller(controller)
         return ManagedAgentTarget(
@@ -1086,6 +1122,10 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
         assert target.client is not None
         return pair_request(target.client.stop_managed_agent, target.agent_ref)
 
+    if target.mode in {"local_degraded", "local_stale"}:
+        assert target.record is not None
+        return _stop_degraded_or_stale_local_managed_agent(target)
+
     assert target.controller is not None
     manifest_path = str(target.controller.manifest_path)
     session_root = str(target.controller.manifest_path.parent)
@@ -1099,12 +1139,120 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
     )
 
 
+def _stop_degraded_or_stale_local_managed_agent(
+    target: ManagedAgentTarget,
+) -> HoumaoManagedAgentActionResponse:
+    """Stop a local tmux-backed managed agent whose tmux authority is degraded or stale."""
+
+    assert target.record is not None
+    record = target.record
+    last_session_name = record.terminal.session_name or None
+
+    if target.mode == "local_degraded" and last_session_name:
+        cleanup_tmux_session(session_name=last_session_name)
+
+    if not _record_has_readable_manifest_authority(record):
+        retired = remove_managed_agent_record(
+            record.agent_id,
+            generation_id=record.generation_id,
+        )
+        detail = (
+            "Retired stale active managed-agent registry record without preserved relaunch "
+            f"authority for `{record.agent_name or record.agent_id}`."
+            if retired
+            else (
+                "Stale active managed-agent registry record for "
+                f"`{record.agent_name or record.agent_id}` was already gone; nothing to retire."
+            )
+        )
+        return HoumaoManagedAgentActionResponse(
+            success=True,
+            tracked_agent_id=target.identity.tracked_agent_id,
+            detail=detail,
+        )
+
+    try:
+        controller = _resume_stopped_controller_from_record(record)
+    except click.ClickException:
+        retired = remove_managed_agent_record(
+            record.agent_id,
+            generation_id=record.generation_id,
+        )
+        detail = (
+            "Retired stale active managed-agent registry record after preserved relaunch "
+            f"authority became unreadable for `{record.agent_name or record.agent_id}`."
+            if retired
+            else (
+                "Stale active managed-agent registry record for "
+                f"`{record.agent_name or record.agent_id}` was already gone; nothing to retire."
+            )
+        )
+        return HoumaoManagedAgentActionResponse(
+            success=True,
+            tracked_agent_id=target.identity.tracked_agent_id,
+            detail=detail,
+        )
+
+    manifest_path = str(controller.manifest_path)
+    session_root = str(controller.manifest_path.parent)
+    try:
+        stopped_record = controller.publish_stopped_shared_registry_record(
+            last_tmux_session_name=last_session_name
+        )
+    except (OSError, SessionManifestError) as exc:
+        return HoumaoManagedAgentActionResponse(
+            success=False,
+            tracked_agent_id=target.identity.tracked_agent_id,
+            detail=(
+                f"Failed to publish stopped shared-registry record for "
+                f"`{record.agent_name or record.agent_id}` after degraded-active recovery: {exc}"
+            ),
+            manifest_path=manifest_path,
+            session_root=session_root,
+        )
+
+    if stopped_record is None:
+        controller.clear_shared_registry_record()
+        detail = (
+            "Cleared shared-registry record for stale or degraded active managed agent "
+            f"`{record.agent_name or record.agent_id}` because stopped continuity could not "
+            "be published."
+        )
+    else:
+        detail = (
+            "Recovered stale or degraded active managed agent "
+            f"`{record.agent_name or record.agent_id}` into stopped lifecycle continuity; "
+            f"use `houmao-mgr agents relaunch` to revive."
+            if target.mode == "local_stale"
+            else (
+                "Recovered degraded active managed agent "
+                f"`{record.agent_name or record.agent_id}` by tearing down the broken tmux "
+                "session and publishing a stopped lifecycle record; use "
+                "`houmao-mgr agents relaunch` to revive."
+            )
+        )
+    return HoumaoManagedAgentActionResponse(
+        success=True,
+        tracked_agent_id=target.identity.tracked_agent_id,
+        detail=detail,
+        manifest_path=manifest_path,
+        session_root=session_root,
+    )
+
+
 def relaunch_managed_agent(
     target: ManagedAgentTarget,
     *,
     relaunch_chat_session: RelaunchChatSessionSelection | None = None,
 ) -> HoumaoManagedAgentActionResponse:
     """Relaunch one tmux-backed managed agent through the resolved runtime authority."""
+
+    if target.mode in {"local_degraded", "local_stale"}:
+        assert target.record is not None
+        return _relaunch_degraded_or_stale_local_managed_agent(
+            target,
+            relaunch_chat_session=relaunch_chat_session,
+        )
 
     if target.mode == "server":
         if target.record is None:
@@ -1144,6 +1292,47 @@ def relaunch_managed_agent(
     return HoumaoManagedAgentActionResponse(
         success=result.status == "ok",
         tracked_agent_id=tracked_agent_id,
+        detail=result.detail,
+    )
+
+
+def _relaunch_degraded_or_stale_local_managed_agent(
+    target: ManagedAgentTarget,
+    *,
+    relaunch_chat_session: RelaunchChatSessionSelection | None,
+) -> HoumaoManagedAgentActionResponse:
+    """Relaunch a local tmux-backed managed agent whose tmux authority is degraded or stale."""
+
+    assert target.record is not None
+    record = target.record
+    last_session_name = record.terminal.session_name or None
+
+    if not _record_has_readable_manifest_authority(record):
+        raise click.ClickException(
+            f"Managed agent `{record.agent_name or record.agent_id}` cannot be relaunched: "
+            "local tmux authority is no longer live and preserved manifest-owned relaunch "
+            "authority is unreadable. Neither active relaunch nor stopped revival is "
+            "available; use `houmao-mgr agents stop` to retire the registry record, then "
+            "`houmao-mgr agents launch` for a fresh launch."
+        )
+
+    if target.mode == "local_degraded" and last_session_name:
+        cleanup_tmux_session(session_name=last_session_name)
+
+    try:
+        controller = _resume_stopped_controller_from_record(record)
+    except click.ClickException as exc:
+        raise click.ClickException(
+            f"Managed agent `{record.agent_name or record.agent_id}` cannot be relaunched: "
+            f"preserved relaunch authority could not be reconstructed ({exc.message}). "
+            "Use `houmao-mgr agents stop` to retire the registry record, then "
+            "`houmao-mgr agents launch` for a fresh launch."
+        ) from exc
+
+    result = controller.revive_stopped_session(chat_session=relaunch_chat_session)
+    return HoumaoManagedAgentActionResponse(
+        success=result.status == "ok",
+        tracked_agent_id=target.identity.tracked_agent_id,
         detail=result.detail,
     )
 
@@ -3062,6 +3251,50 @@ def _resume_controller_from_record(
             f"its local tmux-backed runtime authority is no longer live or otherwise "
             f"unusable: {exc}"
         ) from exc
+
+
+def _probe_local_tmux_authority_for_record(
+    record: ManagedAgentRegistryRecordV3,
+) -> TmuxBackedAuthorityHealth:
+    """Classify local tmux authority for one active managed-agent registry record.
+
+    Inspects the tmux session named in ``record.terminal``. Only meaningful for
+    active local tmux-backed records; callers should branch on the persisted
+    lifecycle state before invoking this probe.
+    """
+
+    session_name = record.terminal.session_name
+    return probe_tmux_backed_authority(session_name=session_name)
+
+
+def _record_has_readable_manifest_authority(
+    record: ManagedAgentRegistryRecordV3,
+) -> bool:
+    """Return whether one registry record still exposes readable manifest authority."""
+
+    agent_def_dir_raw = record.runtime.agent_def_dir
+    if agent_def_dir_raw is None or not agent_def_dir_raw.strip():
+        return False
+    manifest_path_raw = record.runtime.manifest_path
+    if not manifest_path_raw or not manifest_path_raw.strip():
+        return False
+    manifest_path = Path(manifest_path_raw).expanduser().resolve()
+    if not manifest_path.is_file():
+        return False
+    agent_def_dir = Path(agent_def_dir_raw).expanduser().resolve()
+    if not agent_def_dir.is_dir():
+        return False
+    return True
+
+
+def _is_local_tmux_backed_active_record(record: ManagedAgentRegistryRecordV3) -> bool:
+    """Return whether one record represents an active local tmux-backed managed agent."""
+
+    if record.lifecycle.state != "active":
+        return False
+    if record.identity.backend == "houmao_server_rest":
+        return False
+    return True
 
 
 def _resume_stopped_controller_from_record(
