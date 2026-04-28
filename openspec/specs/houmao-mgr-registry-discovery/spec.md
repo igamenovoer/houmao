@@ -107,13 +107,43 @@ When a `houmao-server` is reachable, the list MAY be enriched with server-manage
 ### Requirement: Relaunch resolves active and stopped relaunchable registry records
 `houmao-mgr agents relaunch` SHALL resolve explicit local `--agent-id` and `--agent-name` selectors through lifecycle-aware registry records.
 
-When the selected registry record is active, relaunch SHALL use the existing active relaunch path.
+When the selected registry record is active and local tmux authority is healthy, relaunch SHALL use the existing active relaunch path.
+
+When the selected registry record is active but local tmux authority is degraded because the tmux session still exists while the contractual primary surface is missing, relaunch SHALL use the degraded-active recovery path for that same logical managed agent.
+
+When the selected registry record is active but local tmux authority is stale because the recorded tmux session no longer exists, relaunch SHALL use preserved local manifest authority to revive that same logical managed agent when supported relaunch metadata remains available.
+
+When the selected registry record is active, local tmux authority is stale, and preserved manifest-owned relaunch authority is no longer readable, relaunch SHALL fail explicitly. The failure SHALL identify that neither active relaunch nor stopped revival is available and SHALL point operators to `houmao-mgr agents stop` followed by fresh `houmao-mgr agents launch`.
 
 When the selected registry record is stopped and marked relaunchable, relaunch SHALL use the preserved local manifest authority to revive the stopped managed-agent session.
 
 When the selected registry record is stopped but not relaunchable, relaunch SHALL fail explicitly and SHALL identify why relaunch is unavailable.
 
 When no lifecycle-aware registry record exists for a selector, relaunch MAY use the pre-existing stopped-manifest scan as a migration/recovery fallback for sessions stopped before lifecycle-aware registry records were introduced.
+
+#### Scenario: Relaunch targets a degraded active record by friendly name
+- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-name reviewer`
+- **AND WHEN** exactly one registry record stores `agent_name = "reviewer"` with lifecycle state `active`
+- **AND WHEN** local tmux inspection shows that the tmux session still exists but the contractual primary surface is missing
+- **THEN** the command resolves that active record as a degraded-active recovery target
+- **AND THEN** the command rebuilds the same logical managed agent instead of requiring a fresh launch
+
+#### Scenario: Relaunch targets a stale active record by agent id
+- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-id agent-123`
+- **AND WHEN** the matching registry record still stores lifecycle state `active`
+- **AND WHEN** local tmux inspection shows that the recorded tmux session no longer exists
+- **AND WHEN** manifest-owned relaunch authority remains available
+- **THEN** the command resolves that record as stale active local authority
+- **AND THEN** the command revives the same logical managed agent rather than failing with a generic unusable-target error
+
+#### Scenario: Relaunch fails cleanly for stale active record without preserved authority
+- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-id agent-123`
+- **AND WHEN** the matching registry record still stores lifecycle state `active`
+- **AND WHEN** local tmux inspection shows that the recorded tmux session no longer exists
+- **AND WHEN** manifest-owned relaunch authority is no longer readable
+- **THEN** the command fails explicitly
+- **AND THEN** the error identifies that neither active relaunch nor stopped revival is available
+- **AND THEN** the error points operators to `houmao-mgr agents stop` followed by fresh `houmao-mgr agents launch`
 
 #### Scenario: Relaunch targets a stopped relaunchable record by friendly name
 - **WHEN** an operator runs `houmao-mgr agents relaunch --agent-name reviewer --chat-session-mode tool_last_or_new`
@@ -246,6 +276,8 @@ For relaunchable local tmux-backed managed agents, a successful stop SHALL updat
 
 The command SHALL clear active liveness and live gateway metadata from the registry record after stop succeeds. The stopped record SHALL NOT remain an active live target solely to support later cleanup by name or id.
 
+This same stop contract SHALL apply when the selected local tmux-backed active record is degraded or stale, as long as local manifest-owned stop authority still exists.
+
 #### Scenario: Local stop returns cleanup locators before lifecycle transition
 - **WHEN** an operator runs `houmao-mgr agents stop --agent-name reviewer`
 - **AND WHEN** the target resolves through a fresh local shared-registry record with manifest authority
@@ -257,6 +289,22 @@ The command SHALL clear active liveness and live gateway metadata from the regis
 - **THEN** the registry record for `agent-123` transitions to lifecycle state `stopped`
 - **AND THEN** the record preserves the manifest path, session root, agent-definition directory, and friendly agent name
 - **AND THEN** active liveness and live gateway metadata are cleared from the record
+
+#### Scenario: Degraded active stop still publishes cleanup locators
+- **WHEN** `houmao-mgr agents stop --agent-id agent-123` resolves an active local tmux-backed managed session
+- **AND WHEN** local tmux inspection shows that the session still exists but the contractual primary surface is missing
+- **THEN** the command still succeeds through degraded-active recovery
+- **AND THEN** the successful stop response includes `manifest_path` and `session_root`
+- **AND THEN** the registry record no longer remains an active live target after stop completes
+
+#### Scenario: Stale active stop retires registry record when manifest authority is unavailable
+- **WHEN** an operator runs `houmao-mgr agents stop --agent-id agent-123`
+- **AND WHEN** the matching registry record still stores lifecycle state `active`
+- **AND WHEN** local tmux inspection shows that the recorded tmux session no longer exists
+- **AND WHEN** manifest-owned relaunch authority is no longer readable
+- **THEN** the command clears the live lifecycle claim and retires the registry record idempotently
+- **AND THEN** the response indicates that retirement happened without preserved relaunch authority
+- **AND THEN** the response may omit `manifest_path` and `session_root` when local manifest authority is no longer readable
 
 #### Scenario: Missing local manifest authority omits cleanup locators
 - **WHEN** `houmao-mgr agents stop` resolves a target whose control path does not expose local manifest or session-root authority

@@ -10,7 +10,11 @@ from pathlib import Path
 
 import click
 
-from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    cleanup_tmux_session,
+    probe_tmux_backed_authority,
+    tmux_session_exists,
+)
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
@@ -235,7 +239,16 @@ def cleanup_managed_session(
     session_root_present = session_action_path.exists() or session_action_path.is_symlink()
     session_cleanup_complete = False
 
-    if _cleanup_target_has_active_registry_record(target):
+    broken_active_purge_allowed = False
+    if purge_registry and _cleanup_target_has_active_registry_record(target) and session_name:
+        probe = probe_tmux_backed_authority(session_name=session_name)
+        if probe.state in {"degraded_missing_primary", "stale_missing_session"}:
+            broken_active_purge_allowed = True
+            if probe.state == "degraded_missing_primary" and not dry_run:
+                cleanup_tmux_session(session_name=session_name)
+                live = False
+
+    if not broken_active_purge_allowed and _cleanup_target_has_active_registry_record(target):
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",
@@ -1204,7 +1217,7 @@ def _cleanup_session_logs(
                 artifact_kind="runtime_log_file",
                 path=candidate,
                 proposed_action="remove",
-                reason="gateway log output is disposable cleanup-sensitive runtime state",
+                reason="gateway running and diagnostic log output is disposable cleanup-sensitive runtime state",
                 details=session_details,
             ),
             dry_run=dry_run,

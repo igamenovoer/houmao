@@ -1,10 +1,10 @@
-You have mail in inbox.
+{{NOTIFY_BLOCKS_PREPEND}}You have mail in inbox.
 
 {{SKILL_USAGE_BLOCK}}
 
 Mode: `{{NOTIFIER_MODE}}` - {{MODE_GUIDANCE}}
 Gateway: `{{GATEWAY_BASE_URL}}`
 
-{{MAILBOX_API_SUMMARY}}{{APPENDIX_BLOCK}}
+{{MAILBOX_API_SUMMARY}}{{APPENDIX_BLOCK}}{{NOTIFY_BLOCKS_APPEND}}
 
 Use the mailbox skill or API above for this round.

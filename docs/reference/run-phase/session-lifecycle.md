@@ -166,6 +166,12 @@ For local interactive TUI sessions, the selector is translated into startup argu
 
 When a local interactive relaunch resumes an existing provider chat, the runtime does not replay bootstrap-message role injection into that resumed chat.
 
+## Degraded and stale recovery
+
+When a managed agent's registry record claims `active` but the underlying tmux session is broken, `agents stop` and `agents relaunch` route through dedicated recovery helpers instead of failing with a generic unusable-target error. The runtime probes tmux authority first, classifies the session as `healthy`, `degraded_missing_primary`, or `stale_missing_session`, and then dispatches to the appropriate recovery path.
+
+For degraded sessions, the gateway remnant is cleaned up and the primary surface is rebuilt. For stale sessions with unreadable manifest authority, the record is retired and the operator is directed to a fresh `agents launch`. See [Degraded and Stale Active Recovery](degraded-stale-recovery.md) for the full probe model, recovery paths, and cleanup integration.
+
 ## Lifecycle flow
 
 ```mermaid
@@ -267,3 +273,4 @@ sequenceDiagram
 - [Launch Plan](launch-plan.md) — how launch plans are composed from brain manifests and roles
 - [Backends](backends.md) — backend implementations that execute launch plans
 - [Role Injection](role-injection.md) — how role prompts are delivered to agents
+- [Degraded and Stale Active Recovery](degraded-stale-recovery.md) — recovery paths for broken active tmux-backed sessions

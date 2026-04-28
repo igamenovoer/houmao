@@ -76,6 +76,8 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
         headless=False,
         tmux_session_name="join-sess",
         tmux_window_name="manual",
+        tmux_window_id="@1",
+        tmux_pane_id="%1",
         working_directory=tmp_path,
         launch_args=(),
         launch_env=(),
@@ -91,6 +93,10 @@ def test_materialize_joined_tui_unavailable_publishes_sentinel_record(
     assert payload.agent_launch_authority.posture_kind == "unavailable"
     assert payload.tmux is not None
     assert payload.tmux.primary_window_name == "manual"
+    assert payload.tmux.primary_window_id == "@1"
+    assert payload.tmux.primary_pane_id == "%1"
+    assert payload.agent_launch_authority.primary_window_id == "@1"
+    assert payload.agent_launch_authority.primary_pane_id == "%1"
     assert result.runtime_root == tmp_path.resolve()
     assert (
         result.runtime_root_detail

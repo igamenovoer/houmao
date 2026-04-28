@@ -31,6 +31,7 @@ from houmao.shared_tui_tracking.session import TuiTrackerSession
 from houmao.shared_tui_tracking.public_state import (
     diagnostics_availability as shared_diagnostics_availability,
 )
+from houmao.shared_tui_tracking.surface import ANSI_ESCAPE_RE
 from houmao.server.models import (
     CompletionState,
     HoumaoDegradedChatContextDiagnostic,
@@ -687,12 +688,8 @@ class LiveSessionTracker:
                     },
                 )
             final_stable_active_candidate = _build_final_stable_active_recovery_candidate(
-                parsed_surface=parsed_surface,
-                diagnostics=diagnostics,
-                surface=surface,
                 turn=turn,
-                tracker_state=tracker_state,
-                raw_surface_signature=_raw_surface_signature(output_text),
+                rendered_surface_signature=_rendered_surface_signature(output_text),
             )
             final_stable_active_recovered = self._update_final_stable_active_recovery_locked(
                 candidate=final_stable_active_candidate,
@@ -1942,59 +1939,46 @@ def _build_stale_active_recovery_candidate(
 
 def _build_final_stable_active_recovery_candidate(
     *,
-    parsed_surface: HoumaoParsedSurface | None,
-    diagnostics: HoumaoTrackedDiagnostics,
-    surface: HoumaoTrackedSurface,
     turn: HoumaoTrackedTurn,
-    tracker_state: TrackedStateSnapshot,
-    raw_surface_signature: str | None,
+    rendered_surface_signature: str | None,
 ) -> _FinalStableActiveRecoveryCandidate | None:
-    """Return one final stable-active recovery candidate for a prompt-ready false active."""
+    """Return one final stable-active recovery candidate keyed only on rendered-surface stability.
 
-    if parsed_surface is None or diagnostics.availability != "available":
-        return None
-    if not _is_submit_ready(parsed_surface):
-        return None
-    if surface.accepting_input != "yes" or surface.editing_input != "no":
-        return None
+    The recovery is the parser-independent backstop for detector misclassification.
+    Its candidate signature is the rendered-surface signature alone, and the only
+    preconditions are that `turn.phase` is currently `active` (something to
+    recover) and that the rendered-surface signature is observable. Parser
+    output, tracker state, and active-reason flags are intentionally not
+    consulted so the recovery cannot be vetoed by the same activity-detection
+    pipeline whose faults it exists to repair.
+    """
+
     if turn.phase != "active":
         return None
-    active_reasons = tracker_state.active_reasons
-    if "stream_retry_status" in active_reasons:
+    if rendered_surface_signature is None:
         return None
-    signature_payload = json.dumps(
-        {
-            "raw_surface_signature": raw_surface_signature,
-            "tracker_stability_signature": tracker_state.stability_signature,
-            "parsed_surface": {
-                "availability": parsed_surface.availability,
-                "business_state": parsed_surface.business_state,
-                "input_mode": parsed_surface.input_mode,
-                "ui_context": parsed_surface.ui_context,
-                "normalized_projection_text": parsed_surface.normalized_projection_text,
-            },
-            "surface": surface.model_dump(mode="json"),
-            "turn_phase": turn.phase,
-            "last_turn_result": tracker_state.last_turn_result,
-            "last_turn_source": tracker_state.last_turn_source,
-            "active_reasons": list(active_reasons),
-            "notes": list(tracker_state.notes),
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
     return _FinalStableActiveRecoveryCandidate(
-        signature=hashlib.sha1(signature_payload.encode("utf-8")).hexdigest(),
-        active_reasons=active_reasons,
+        signature=rendered_surface_signature,
+        active_reasons=(),
     )
 
 
-def _raw_surface_signature(output_text: str | None) -> str | None:
-    """Return an internal raw-surface signature for recovery stability."""
+def _rendered_surface_signature(output_text: str | None) -> str | None:
+    """Return a parser-independent stability signature of the rendered surface.
+
+    The signature is a `sha256` hex of the tmux capture text after stripping
+    ANSI escape sequences and right-trimming each line. It survives styling
+    jitter and trailing-pad-width differences between captures while flipping
+    on any visible text change. It is intentionally independent of any
+    activity-detection or tracker output so that final stable-active recovery
+    can judge purely from rendered-surface stability.
+    """
 
     if output_text is None:
         return None
-    return hashlib.sha1(output_text.encode("utf-8")).hexdigest()
+    stripped = ANSI_ESCAPE_RE.sub("", output_text).replace(" ", " ")
+    normalized = "\n".join(line.rstrip() for line in stripped.splitlines())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _message_excerpt(message: str) -> str | None:

@@ -128,11 +128,11 @@ Prompt-adjacent Codex compact/server error cells are recoverable degraded-contex
 
 Explicit server-owned input acceptance is enough to arm an active turn immediately. Direct interactive prompting can still become `active` through shared-tracker raw-snapshot evidence without any parser-derived bridge.
 
-There are two host-owned corrections on top of the shared tracker. The narrow stale-active correction clears an unanchored session after it stays submit-ready for the configured stale-active recovery window while the shared tracker is still stuck on stale `status_row` evidence. The final stable-active correction uses a longer default 20-second window and clears a stable false-active posture when raw TUI evidence and published state stop changing while independent parser evidence still says the prompt is idle/freeform and input-ready. These recoveries:
+There are two host-owned corrections on top of the shared tracker. The narrow stale-active correction clears an unanchored session after it stays submit-ready for the configured stale-active recovery window while the shared tracker is still stuck on stale `status_row` evidence. The final stable-active correction uses a longer default 20-second window and clears a stable false-active posture when `turn.phase=active` and the rendered-surface signature derived from the tmux capture remains unchanged for that window. Unlike the narrow stale-active path, final stable-active recovery is parser-independent; it exists as the backstop for detector false positives, so parser-derived fields cannot veto its timer or participate in its recovery key. These recoveries:
 
-- require parsed submit-ready posture plus `surface.accepting_input=yes` and `surface.editing_input=no`
+- require parsed submit-ready posture plus `surface.accepting_input=yes` and `surface.editing_input=no` only for the narrow stale-active path
 - keep the 5-second narrow recovery limited to unanchored stale `status_row` evidence
-- allow the final 20-second recovery to correct `surface.ready_posture=no`
+- allow the final 20-second recovery to correct `surface.ready_posture=no` without consulting parser readiness, active reasons, or tracker stability fields
 - stop anchored completion monitoring when final recovery expires a stale active anchor
 - do not manufacture `last_turn.result=success`
 - preserve recoverable error diagnostics such as `chat_context=degraded` when recovery corrects a false active state

@@ -175,7 +175,7 @@ Whether the visible surface looks ready for an immediate submit — the prompt i
 
 **Derivation:** Raw-text detector profiles emit `yes` when a prompt is visible, the surface is not actively working, and no ambiguous overlay is present. Claude and Codex use their own prompt/activity heuristics; fallback profiles stay conservative.
 
-In the live server contract, `ready_posture=yes` may also appear after host-owned stale-active recovery for an unanchored session that stayed submit-ready through the configured recovery window, or after final stable-active recovery for a stable false-active surface with independent idle/freeform prompt-ready evidence. These recoveries correct stuck active posture; they are not success verdicts.
+In the live server contract, `ready_posture=yes` may also appear after host-owned stale-active recovery for an unanchored session that stayed submit-ready through the configured recovery window, or after final stable-active recovery for a false-active surface whose rendered tmux capture stayed unchanged through the configured final recovery window. The narrow stale-active path uses parser submit-readiness evidence; the final stable-active path intentionally does not. These recoveries correct stuck active posture; they are not success verdicts.
 
 Codex prompt-adjacent compact/server error surfaces can still publish `ready_posture=yes` when the prompt is otherwise ready. That error is exposed separately as current-error diagnostics plus `chat_context=degraded`, rather than as a reason to force the input surface to `unknown` or `active`.
 
@@ -222,7 +222,7 @@ stateDiagram-v2
 
 **Intuitive meaning:** The TUI appears ready for another turn — no active work is in progress, and the surface looks ready for submission.
 
-**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server can also publish `ready` after stale-active recovery when an unanchored session has remained submit-ready for the configured recovery window without stronger live evidence, or after the final stable-active recovery window when raw TUI evidence and published state are unchanged while parser evidence remains idle/freeform and input-ready.
+**Derivation:** The standalone tracker session returns `ready` when the current raw surface is classified as ready and there is no stronger active or ambiguous evidence. The live server can also publish `ready` after stale-active recovery when an unanchored session has remained submit-ready for the configured recovery window without stronger live evidence, or after the final stable-active recovery window when `turn.phase=active` and the rendered-surface signature derived from the tmux capture has remained unchanged. Final stable-active recovery is parser-independent by design: it does not require parsed idle/freeform/input-ready evidence, `surface.accepting_input=yes`, or `surface.editing_input=no`.
 
 **Operational implications:** It is safe to send a new prompt via `POST /houmao/terminals/{terminal_id}/input`. The terminal is idle and waiting for the next instruction.
 

@@ -271,6 +271,10 @@ That file is the operator-facing view for:
 
 For detailed per-poll notifier evidence, inspect `queue.sqlite.gateway_notifier_audit` instead of relying on the human log alone.
 
+Opt-in diagnostic logging is separate from this running log. When `desired-config.json` enables `desired_diagnostic_logging`, the gateway writes structured JSONL entries under `<session-root>/gateway/logs/diagnostics/gateway-diagnostic.log` with bounded rotation controlled by `max_bytes` and `backup_count`. Diagnostic logs are meant for postmortems around HTTP validation, mailbox facade operations, and repeated warning/error paths; `gateway.log` stays the compact tail-watch surface.
+
+Diagnostic entries are redacted by construction. They use explicit fields such as method, path, status code, duration, operation name, message counts, and repair hints, and they do not include mailbox bodies, raw prompt text, attachment contents, authorization headers, cookies, bearer tokens, credentials, or environment secrets by default. Consecutive warning/error entries with the same semantic key are summarized with a suppressed-count entry instead of being repeated indefinitely.
+
 Typical watch command:
 
 ```bash

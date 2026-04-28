@@ -6,12 +6,9 @@ Use this page when the user already has one authored pairwise-v3 plan and needs 
 
 Default `initialize` uses `precomputed_routing_packets`:
 - validate routing-packet coverage
+- verify or enable gateway mail-notifier behavior for required mail-driven participants
 - write run-owned memo blocks directly through `houmao-memory-mgr`
 - make those memo blocks the canonical participant-facing prestart contract
-
-Use `operator_preparation_wave` only when the plan or user explicitly asks for participant warmup, standalone preparation mail, or acknowledgement-gated readiness.
-
-When `operator_preparation_wave` is selected, enabling or verifying gateway mail-notifier behavior for each targeted participant is a required initialize gate before any preparation mail is sent.
 
 ## Inputs
 
@@ -24,8 +21,7 @@ Before starting, confirm the plan defines:
 - selected `prestart_strategy`
 - exact memo sentinel convention keyed by `run_id` and slot
 - initialize memo-slot expectations when managed memory is being used
-- explicit `operator_preparation_wave` target policy and gateway mail-notifier interval when that strategy is selected
-- acknowledgement posture, defaulting to `fire_and_proceed` unless `require_ack` is selected explicitly
+- gateway mail-notifier interval, defaulting to `5s`
 - routing packet inventory and root packet location when routing packets are part of the plan
 - email/mailbox-capable designated master and participant set
 
@@ -54,40 +50,25 @@ Before starting, confirm the plan defines:
 6. Verify that the designated master and every required participant have email/mailbox support before continuing:
    - use the supported Houmao email or mailbox inspection surfaces to confirm that each required participant can participate in the run's default email/mailbox communication posture
    - if any required participant lacks that support, fail clearly and do not enter `ready`
-7. For every targeted participant whose managed memory is being used, write or replace one run-owned memo block through `houmao-memory-mgr`:
+7. Verify or enable gateway mail-notifier behavior for every required participant with supported live gateway and mailbox binding:
+   - use interval `5s` by default
+   - use the user-specified or plan-specified interval when one is provided
+   - record participants whose notifier setup is unsupported or blocked instead of pretending they are covered
+   - if the plan depends on automatic mailbox wakeups for a participant and notifier setup is blocked, fail clearly and do not enter `ready`
+8. For every targeted participant whose managed memory is being used, write or replace one run-owned memo block through `houmao-memory-mgr`:
    - use one exact begin sentinel and one exact end sentinel keyed by `run_id` and slot `initialize`
    - include local role, local objective, allowed delegation targets or allowed delegation set, task-handling rules, obligations, forbidden actions, mailbox and result-return expectations, and any routing-packet or child-dispatch references that the participant must keep easy to reopen
    - include the participant's declared workspace posture, writable source surfaces, shared writable surfaces, and bookkeeping paths
    - include the participant's exact routing packet or exact routing packet reference when routing packets are part of the plan
    - for the designated master, include the organization rules, participant set, completion posture, stop posture, and the routing or dispatch guidance needed to supervise the run
-8. Replacement rules for that memo block:
+9. Replacement rules for that memo block:
    - replace only the bounded block when exactly one matching begin/end pair exists
    - append one new bounded block when no matching begin/end pair exists
    - fail closed and report a conflict when more than one matching begin/end pair exists
-9. If the selected strategy is explicit `operator_preparation_wave`, resolve the preparation-mail recipient set:
-   - target delegating or non-leaf participants by default
-   - include leaf participants only when the user explicitly asks to prepare leaf agents, prepare all participants, or names those leaf participants in the target set
-10. Treat notifier setup as a hard pre-mail gate for explicit `operator_preparation_wave`.
-11. For every targeted `operator_preparation_wave` participant with a supported live gateway and mailbox binding, verify or enable gateway mail-notifier behavior through `houmao-agent-gateway` before sending preparation mail:
-   - use interval `5s` by default
-   - use the user-specified or plan-specified interval when one is provided
-   - record participants whose notifier setup is unsupported or blocked instead of pretending they are covered
-12. Choose acknowledgement posture for `operator_preparation_wave`:
-   - default `fire_and_proceed`
-   - optional `require_ack`
-13. When `operator_preparation_wave` is selected, send one standalone preparation email to each targeted recipient only after the notifier gate above is satisfied for the supported participants and any unsupported or blocked cases are reported explicitly:
-   - point the participant at its run-owned initialize memo block and exact routing packet or exact routing packet reference rather than making the mail the only copy of the run guidance
-   - advise the participant to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results
-   - do not assume the participant already knows which upstream participant may later contact it
-14. Match operator-origin reply policy to the acknowledgement posture:
-   - `fire_and_proceed` -> `reply_policy=none`
-   - `require_ack` -> `reply_policy=operator_mailbox`
-15. When acknowledgement is required, instruct targeted recipients to reply to `HOUMAO-operator@houmao.localhost` and review those replies through the reserved operator mailbox before the master trigger is sent.
-16. Track the observed initialization state explicitly:
-   - enter `initializing` when routing-packet validation, launch-profile-backed participant launch, email/mailbox verification, initialize memo materialization, or explicit `operator_preparation_wave` notifier or mail work is still in progress
-   - enter `awaiting_ack` only when explicit `operator_preparation_wave` selected `require_ack` and required replies from targeted preparation recipients are still outstanding
-   - enter `ready` after the selected prestart strategy is complete
-17. Keep `initialize` separate from the master trigger. This page handles `initialize`; it does not itself perform `start`.
+10. Track the observed initialization state explicitly:
+   - enter `initializing` when routing-packet validation, launch-profile-backed participant launch, email/mailbox verification, notifier setup, or initialize memo materialization is still in progress
+   - enter `ready` after routing-packet validation, required participant launch, email/mailbox verification, notifier setup, and memo materialization are complete
+11. Keep `initialize` separate from the master trigger. This page handles `initialize`; it does not itself perform `start`.
 
 ## Routing Packets
 
@@ -133,16 +114,6 @@ Replacement rules:
 - fail closed and report a conflict when more than one matching begin/end pair exists
 - do not infer replacement boundaries from headings, nearby prose, or fuzzy text matches
 
-## Operator Preparation Wave
-
-Use this strategy only when the plan or user explicitly selects `operator_preparation_wave`.
-
-- Preparation-mail targets are delegating or non-leaf participants by default.
-- The acknowledgement posture is `fire_and_proceed` by default.
-- When `require_ack` is active, missing acknowledgements block `ready`.
-- Verifying or enabling gateway mail-notifier behavior for supported targets happens before any preparation mail is sent.
-- Each standalone preparation mail should point at the participant's initialize memo block and exact routing packet or exact packet reference when routing packets are part of the plan.
-
 ## Workspace Contract
 
 Use the authored workspace contract as part of initialize guidance:
@@ -155,30 +126,27 @@ Use the authored workspace contract as part of initialize guidance:
 ## Initialize Contract
 
 - `initialize` is the prestart action, not the master trigger.
-- Default `precomputed_routing_packets` validates routing packets first, launches missing participants from provided launch profiles when needed, and then writes run-owned initialize memo blocks for participants whose managed memory is being used.
-- Standalone preparation mail belongs only to explicit `operator_preparation_wave`.
-- Default acknowledgement posture is `fire_and_proceed`; explicit `require_ack` may remain in `awaiting_ack` until required replies arrive.
+- Default `precomputed_routing_packets` validates routing packets first, launches missing participants from provided launch profiles when needed, verifies or enables notifier posture for required mail-driven participants, and then writes run-owned initialize memo blocks for participants whose managed memory is being used.
+- Standalone preparation mail is not part of pairwise-v3 initialize.
 - Missing required participants without provided launch profiles are an initialization blocker.
 - Missing email/mailbox support for any required participant is an initialization blocker.
 - Routing packet validation remains an initialization blocker when routing packets are part of the plan.
-- `ready` means the selected prestart strategy is complete and the operator may proceed to `start`.
+- `ready` means routing-packet validation, required participant launch, email/mailbox verification, notifier setup, and memo materialization are complete and the operator may proceed to `start`.
 
 ## Guardrails
 
 - Do not treat standalone participant preparation mail as the default initialize path.
-- Do not treat gateway mail-notifier setup as optional when explicit `operator_preparation_wave` is selected.
-- Do not send `operator_preparation_wave` preparation mail before notifier setup has been checked through `houmao-agent-gateway` for each targeted participant with supported live gateway and mailbox surfaces.
+- Do not send standalone participant preparation mail during pairwise-v3 `initialize`.
+- Do not treat gateway mail-notifier setup as optional for required mail-driven participants with supported live gateway and mailbox surfaces.
 - Do not invent launch profiles for missing participants during `initialize`.
 - Do not skip the run-owned initialize memo block for participants whose managed memory is being used.
 - Do not proceed toward `ready` when a required participant is still missing after the launch-profile-backed launch step.
 - Do not proceed toward `ready` when the designated master or any required participant lacks email/mailbox support.
 - Do not rewrite runtime-owned recovery files as ordinary workspace or bookkeeping paths.
 - Do not infer memo replacement boundaries from headings or nearby prose; use exact begin/end sentinels keyed by `run_id` and slot.
-- Do not use a notifier interval other than `5s` for explicit `operator_preparation_wave` unless the user or plan specifies another interval.
 - Do not require acknowledgement by default.
 - Do not send one shared upstream-aware matrix as the only routing artifact.
 - Do not ask runtime participants to infer hidden downstream routing shapes; packets must be precomputed.
 - Do not ask runtime participants to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets prepared before `ready`.
-- Do not guess packet coverage, initialize memo-slot expectations, or explicit preparation-wave targets when the topology is unclear; return to authoring or revision first.
+- Do not guess packet coverage or initialize memo-slot expectations when the topology is unclear; return to authoring or revision first.
 - Do not trigger the master before the selected prestart strategy is complete.
-- Do not treat `require_ack` as permission to silently widen or narrow the explicit `operator_preparation_wave` target set.

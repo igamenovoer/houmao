@@ -91,15 +91,20 @@ def test_compose_extracts_when_notify_block_key_absent() -> None:
     body = "intro\n\n```houmao-notify\nfrom body fence\n```\n"
     message = MailboxMessage.compose(_base_payload(body))
 
-    assert message.notify_block == "from body fence"
+    assert message.notify_block is not None
+    assert message.notify_block.text == "from body fence"
+    assert message.notify_block.placement == "append"
     assert "```houmao-notify" in message.body_markdown
 
 
 def test_compose_caller_supplied_value_bypasses_body_extraction() -> None:
     body = "intro\n\n```houmao-notify\nfrom body fence\n```\n"
-    message = MailboxMessage.compose(_base_payload(body, notify_block="caller wins"))
+    message = MailboxMessage.compose(
+        _base_payload(body, notify_block={"text": "caller wins", "placement": "append"})
+    )
 
-    assert message.notify_block == "caller wins"
+    assert message.notify_block is not None
+    assert message.notify_block.text == "caller wins"
 
 
 def test_compose_explicit_none_bypasses_body_extraction() -> None:
@@ -111,11 +116,11 @@ def test_compose_explicit_none_bypasses_body_extraction() -> None:
 
 def test_compose_oversize_caller_value_truncates_visibly() -> None:
     long_value = "x" * (NOTIFY_BLOCK_MAX_CHARS + 50)
-    message = MailboxMessage.compose(_base_payload("plain body", notify_block=long_value))
+    message = MailboxMessage.compose(_base_payload("plain body", notify_block={"text": long_value}))
 
     assert message.notify_block is not None
-    assert len(message.notify_block) == NOTIFY_BLOCK_MAX_CHARS
-    assert message.notify_block.endswith("…")
+    assert len(message.notify_block.text) == NOTIFY_BLOCK_MAX_CHARS
+    assert message.notify_block.text.endswith("…")
 
 
 def test_compose_oversize_body_fence_truncates_visibly() -> None:
@@ -124,8 +129,51 @@ def test_compose_oversize_body_fence_truncates_visibly() -> None:
     message = MailboxMessage.compose(_base_payload(body))
 
     assert message.notify_block is not None
-    assert len(message.notify_block) == NOTIFY_BLOCK_MAX_CHARS
-    assert message.notify_block.endswith("…")
+    assert len(message.notify_block.text) == NOTIFY_BLOCK_MAX_CHARS
+    assert message.notify_block.text.endswith("…")
+
+
+def test_compose_auto_mirrors_notify_block_into_body_with_append_placement() -> None:
+    message = MailboxMessage.compose(
+        _base_payload(
+            "Hello, please review.",
+            notify_block={"text": "continue current task", "placement": "append"},
+        )
+    )
+
+    assert message.notify_block is not None
+    assert message.notify_block.placement == "append"
+    assert "```houmao-notify\ncontinue current task\n```" in message.body_markdown
+    assert message.body_markdown.startswith("Hello, please review.")
+    assert message.body_markdown.endswith("```")
+
+
+def test_compose_auto_mirrors_notify_block_into_body_with_prepend_placement() -> None:
+    message = MailboxMessage.compose(
+        _base_payload(
+            "Hello, please review.",
+            notify_block={"text": "OPERATOR DIRECTIVE", "placement": "prepend"},
+        )
+    )
+
+    assert message.notify_block is not None
+    assert message.notify_block.placement == "prepend"
+    assert message.body_markdown.startswith("```houmao-notify\nOPERATOR DIRECTIVE\n```")
+    assert "Hello, please review." in message.body_markdown
+
+
+def test_compose_does_not_duplicate_existing_body_fence_when_notify_block_supplied() -> None:
+    body = "intro\n\n```houmao-notify\nin body\n```\n\nrest"
+    message = MailboxMessage.compose(
+        _base_payload(body, notify_block={"text": "X", "placement": "prepend"})
+    )
+
+    # Body unchanged; the explicit notify_block records the caller's metadata
+    # but does NOT relocate or duplicate the existing fence.
+    assert message.body_markdown == body
+    assert message.notify_block is not None
+    assert message.notify_block.text == "X"
+    assert message.notify_block.placement == "prepend"
 
 
 def test_pure_validate_does_not_extract_from_body() -> None:

@@ -121,7 +121,8 @@ houmao-mgr agents mail send [OPTIONS]
 | `--body-content TEXT` | Inline body content. |
 | `--body-file TEXT` | Body content file path. |
 | `--attach TEXT` | Attachment file path. Repeatable. |
-| `--notify-block TEXT` | Sender-marked notification block; capped at 512 chars. When omitted, the body is scanned for the first ` ```houmao-notify ` fenced block. See [Notification-prompt block](#notification-prompt-block). |
+| `--notify-block TEXT` | Sender-marked notification block text; capped at 512 chars. When omitted, the body is scanned for the first ` ```houmao-notify ` fenced block. See [Notification-prompt block](#notification-prompt-block). |
+| `--notify-block-placement [append\|prepend]` | Placement metadata for `--notify-block`. Controls where the auto-mirrored body fence is inserted (prepend before existing body, append after) and where the gateway notifier renders the block (prepend before the inbox opener, append after the mailbox API summary). Defaults to `append`. Ignored when `--notify-block` is omitted. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
@@ -141,7 +142,8 @@ houmao-mgr agents mail post [OPTIONS]
 | `--body-file TEXT` | Body content file path. |
 | `--reply-policy [none\|operator_mailbox]` | Operator-origin reply policy. Defaults to `operator_mailbox`. |
 | `--attach TEXT` | Attachment file path. Repeatable. |
-| `--notify-block TEXT` | Sender-marked notification block; capped at 512 chars. When omitted, the body is scanned for the first ` ```houmao-notify ` fenced block. See [Notification-prompt block](#notification-prompt-block). |
+| `--notify-block TEXT` | Sender-marked notification block text; capped at 512 chars. When omitted, the body is scanned for the first ` ```houmao-notify ` fenced block. See [Notification-prompt block](#notification-prompt-block). |
+| `--notify-block-placement [append\|prepend]` | Placement metadata for `--notify-block`. Controls where the auto-mirrored body fence is inserted (prepend before existing body, append after) and where the gateway notifier renders the block (prepend before the inbox opener, append after the mailbox API summary). Defaults to `append`. Ignored when `--notify-block` is omitted. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 | `--agent-id TEXT` | Authoritative managed-agent id. |
 | `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
@@ -228,9 +230,9 @@ houmao-mgr agents mail archive [OPTIONS]
 
 ## Notification-prompt block
 
-`send` and `post` carry an optional `notify_block` string in the canonical mailbox envelope, intended for prominent receiver-side rendering by future notification surfaces. There are two authoring paths:
+`send` and `post` carry an optional typed `notify_block` field in the canonical mailbox envelope. The shape is `MailboxNotifyBlock(text, placement)` where `text` is the prominent sender-authored content and `placement` is `append` or `prepend`. The gateway notifier renders `text` into the receiver's wake-up prompt at the requested placement (prepend slot before the inbox opener, append slot after the mailbox API summary). There are two authoring paths:
 
-**Body fence (default authoring path)** — write a Markdown fenced code block with info-string `houmao-notify` inside `--body-content` (or the file passed to `--body-file`). The first such fence is extracted into the canonical `notify_block` field at composition time. The fence text remains in the body source so receivers reading the full message see the same content.
+**Body fence (default authoring path)** — write a Markdown fenced code block with info-string `houmao-notify` inside `--body-content` (or the file passed to `--body-file`). The first such fence is extracted into the canonical `notify_block` field at composition time, with `placement="append"` by default. The fence text remains in the body source so receivers reading the full message see the same content.
 
 ```bash
 pixi run houmao-mgr agents mail send \
@@ -240,24 +242,24 @@ pixi run houmao-mgr agents mail send \
   --body-content $'see attached numbers.\n\n```houmao-notify\nIf speedup ≥ 50x, re-run on official timing path before reporting.\n```'
 ```
 
-**Explicit `--notify-block` flag** — supply the value out of band. The CLI uses the explicit value directly; body-fence extraction is bypassed.
+**Explicit `--notify-block` + `--notify-block-placement` flags** — supply the value out of band. The CLI uses the explicit value directly; body-fence extraction is bypassed. The protocol-side **auto-mirror invariant** synthesizes a `houmao-notify` fenced block in the body at the requested placement when the body does not already contain one, so the receiver always finds the same text in the message body even though the channel reaches the wake-up prompt earlier.
 
 ```bash
 pixi run houmao-mgr agents mail post \
   --agent-name alice \
   --subject "Continue current task" \
   --body-content "Operator note from supervisor." \
-  --notify-block "continue current task"
+  --notify-block "continue current task" \
+  --notify-block-placement prepend
 ```
 
 Constraints to know:
 
-- Maximum extracted block length is 512 characters; longer values are truncated to 511 characters plus a trailing `…`.
+- Maximum `notify_block.text` length is 512 characters; longer values are truncated to 511 characters plus a trailing `…`.
 - When the body contains more than one `houmao-notify` fence, only the first is extracted; later fences remain in the body but are not added to `notify_block`.
-- An empty fence produces no `notify_block` (treated as absent rather than an empty string).
+- An empty fence produces no `notify_block` (treated as absent rather than empty text).
+- The gateway notifier configuration controls whether sender-supplied notify-blocks are rendered at all and how their authentication metadata is verified. See [Gateway Protocol And State Contracts: Mail-notifier trust posture](../gateway/contracts/protocol-and-state.md#mail-notifier-trust-posture). Defaults are `notify_block_render=enabled`, `notify_block_auth_mode=permissive-log`, `notify_block_auth_verifier=none`; flipping `notify_block_auth_mode` to `required` causes the verifier to suppress unauthenticated blocks from the rendered prompt.
 - Stalwart-bound mailbox sends currently reject `notify_block`; the JMAP-side projection lands in a follow-on change.
-
-In this protocol version, gateway notifier prompts do not yet render `notify_block`; the field is stored in the canonical envelope and surfaces in the receiver's notification context only after the follow-on rendering change ships verifiers and template slots.
 
 ## Examples
 

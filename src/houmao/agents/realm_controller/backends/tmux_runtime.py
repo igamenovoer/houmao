@@ -67,6 +67,21 @@ class TmuxPaneRecord:
     pane_pid: int | None = None
 
 
+@dataclass(frozen=True)
+class TmuxPrimarySurfaceRecord:
+    """Structured identity for the contractual primary managed-agent surface."""
+
+    session_name: str
+    window_id: str
+    window_index: str
+    window_name: str
+    pane_id: str
+    pane_index: str
+    pane_active: bool
+    pane_dead: bool = False
+    pane_pid: int | None = None
+
+
 _TMUX_SPECIAL_KEY_TOKEN_RE = re.compile(r"<\[([^\s<>\[\]]+)\]>")
 _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
     {
@@ -84,6 +99,7 @@ _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
     }
 )
 HEADLESS_AGENT_WINDOW_INDEX: Final[str] = "0"
+HEADLESS_AGENT_PANE_INDEX: Final[str] = "0"
 HEADLESS_AGENT_WINDOW_NAME: Final[str] = "agent"
 _TMUX_PANE_DEAD_FORMAT: Final[str] = "#{pane_dead}"
 _TMUX_PANE_PID_FORMAT: Final[str] = "#{pane_pid}"
@@ -144,31 +160,247 @@ def headless_agent_window_target(*, session_name: str) -> str:
 def headless_agent_pane_target(*, session_name: str) -> str:
     """Return the stable tmux pane target for one headless agent surface."""
 
-    return f"{headless_agent_window_target(session_name=session_name)}.0"
+    return f"{headless_agent_window_target(session_name=session_name)}.{HEADLESS_AGENT_PANE_INDEX}"
 
 
-def prepare_headless_agent_window(*, session_name: str) -> None:
-    """Rename and select the stable primary tmux surface for headless sessions."""
+def prepare_headless_agent_window(
+    *,
+    session_name: str,
+    fresh_session: bool = False,
+) -> TmuxPrimarySurfaceRecord:
+    """Normalize, rename, select, and return the primary tmux surface handles."""
 
-    window_target = headless_agent_window_target(session_name=session_name)
+    panes = list_tmux_panes(session_name=session_name)
+    if not panes:
+        raise TmuxCommandError(f"No tmux panes are available for `{session_name}`.")
+
+    window_id = _select_primary_window_id_for_preparation(
+        session_name=session_name,
+        panes=panes,
+        fresh_session=fresh_session,
+    )
+    surface = _surface_from_pane(
+        _select_single_live_pane(
+            panes=tuple(pane for pane in panes if pane.window_id == window_id),
+            selector_detail=f"window id `{window_id}`",
+            session_name=session_name,
+        )
+    )
+    if surface.window_index != HEADLESS_AGENT_WINDOW_INDEX:
+        _run_tmux_step(
+            [
+                "move-window",
+                "-s",
+                surface.window_id,
+                "-t",
+                headless_agent_window_target(session_name=session_name),
+            ],
+            description="move",
+            target=surface.window_id,
+        )
+
     for args, description in (
         (
-            ["rename-window", "-t", window_target, HEADLESS_AGENT_WINDOW_NAME],
+            [
+                "set-window-option",
+                "-t",
+                window_id,
+                "pane-base-index",
+                HEADLESS_AGENT_PANE_INDEX,
+            ],
+            "normalize pane-base-index for",
+        ),
+        (
+            ["rename-window", "-t", window_id, HEADLESS_AGENT_WINDOW_NAME],
             "rename",
         ),
         (
-            ["select-window", "-t", window_target],
+            ["select-window", "-t", window_id],
             "select",
         ),
     ):
-        result = run_tmux(args)
-        if result.returncode == 0:
-            continue
-        detail = tmux_error_detail(result)
+        _run_tmux_step(args, description=description, target=window_id)
+
+    return resolve_primary_tmux_surface(
+        session_name=session_name,
+        window_id=window_id,
+        window_name=HEADLESS_AGENT_WINDOW_NAME,
+    )
+
+
+def _run_tmux_step(args: list[str], *, description: str, target: str) -> None:
+    """Run one tmux surface-preparation command with contextual errors."""
+
+    result = run_tmux(args)
+    if result.returncode == 0:
+        return
+    detail = tmux_error_detail(result)
+    raise TmuxCommandError(
+        f"Failed to {description} tmux headless agent window `{target}`: "
+        f"{detail or 'unknown tmux error'}"
+    )
+
+
+def _select_primary_window_id_for_preparation(
+    *,
+    session_name: str,
+    panes: tuple[TmuxPaneRecord, ...],
+    fresh_session: bool,
+) -> str:
+    """Return the only safe window id to normalize as the primary surface."""
+
+    window_ids = tuple(dict.fromkeys(pane.window_id for pane in panes))
+    if fresh_session and len(window_ids) != 1:
         raise TmuxCommandError(
-            f"Failed to {description} tmux headless agent window `{window_target}`: "
-            f"{detail or 'unknown tmux error'}"
+            f"Fresh tmux session `{session_name}` has unexpected extra windows; "
+            "refusing to choose a primary managed-agent surface."
         )
+
+    primary_window_ids = tuple(
+        dict.fromkeys(
+            pane.window_id for pane in panes if pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
+        )
+    )
+    if len(primary_window_ids) == 1:
+        return primary_window_ids[0]
+    if len(primary_window_ids) > 1:
+        raise TmuxCommandError(
+            f"Tmux session `{session_name}` has multiple windows at index "
+            f"`{HEADLESS_AGENT_WINDOW_INDEX}`; refusing to choose one."
+        )
+    if len(window_ids) == 1:
+        return window_ids[0]
+    raise TmuxCommandError(
+        f"Tmux session `{session_name}` is missing primary window "
+        f"`{HEADLESS_AGENT_WINDOW_INDEX}` and has {len(window_ids)} windows; "
+        "refusing to guess which window is the managed-agent surface."
+    )
+
+
+def resolve_primary_tmux_surface(
+    *,
+    session_name: str,
+    pane_id: str | None = None,
+    window_id: str | None = None,
+    window_name: str | None = None,
+    require_pane_index_zero: bool = False,
+) -> TmuxPrimarySurfaceRecord:
+    """Resolve and validate one primary tmux surface from persisted handles."""
+
+    return _surface_from_pane(
+        resolve_primary_tmux_pane(
+            session_name=session_name,
+            pane_id=pane_id,
+            window_id=window_id,
+            window_name=window_name,
+            require_pane_index_zero=require_pane_index_zero,
+        )
+    )
+
+
+def resolve_primary_tmux_pane(
+    *,
+    session_name: str,
+    pane_id: str | None = None,
+    window_id: str | None = None,
+    window_name: str | None = None,
+    require_pane_index_zero: bool = False,
+) -> TmuxPaneRecord:
+    """Resolve one live primary pane without falling back to current focus."""
+
+    panes = list_tmux_panes(session_name=session_name)
+    if not panes:
+        raise TmuxCommandError(f"No tmux panes are available for `{session_name}`.")
+
+    matching = panes
+    selectors: list[str] = []
+    if pane_id is not None:
+        selectors.append(f"pane id `{pane_id}`")
+        matching = tuple(pane for pane in matching if pane.pane_id == pane_id)
+    if window_id is not None:
+        selectors.append(f"window id `{window_id}`")
+        matching = tuple(pane for pane in matching if pane.window_id == window_id)
+    if window_name is not None:
+        selectors.append(f"window name `{window_name}`")
+        matching = tuple(pane for pane in matching if pane.window_name == window_name)
+
+    matching = tuple(pane for pane in matching if pane.window_index == HEADLESS_AGENT_WINDOW_INDEX)
+    selector_detail = (
+        " and ".join(selectors) if selectors else (f"window index `{HEADLESS_AGENT_WINDOW_INDEX}`")
+    )
+    if not matching:
+        raise TmuxCommandError(
+            f"No tmux panes matched primary {selector_detail} in `{session_name}`."
+        )
+
+    pane = _select_single_live_pane(
+        panes=matching,
+        selector_detail=f"primary {selector_detail}",
+        session_name=session_name,
+    )
+    if require_pane_index_zero and pane.pane_index != HEADLESS_AGENT_PANE_INDEX:
+        raise TmuxCommandError(
+            f"Primary tmux pane `{pane.pane_id}` in `{session_name}` has pane index "
+            f"`{pane.pane_index}`, expected `{HEADLESS_AGENT_PANE_INDEX}`."
+        )
+    return pane
+
+
+def find_primary_tmux_surface(
+    *,
+    session_name: str,
+    pane_id: str | None = None,
+    window_id: str | None = None,
+    window_name: str | None = None,
+    require_pane_index_zero: bool = False,
+) -> TmuxPrimarySurfaceRecord | None:
+    """Return the primary surface when handles are valid, otherwise ``None``."""
+
+    try:
+        return resolve_primary_tmux_surface(
+            session_name=session_name,
+            pane_id=pane_id,
+            window_id=window_id,
+            window_name=window_name,
+            require_pane_index_zero=require_pane_index_zero,
+        )
+    except TmuxCommandError:
+        return None
+
+
+def _select_single_live_pane(
+    *,
+    panes: tuple[TmuxPaneRecord, ...],
+    selector_detail: str,
+    session_name: str,
+) -> TmuxPaneRecord:
+    """Return the only actionable pane from a primary-surface candidate set."""
+
+    live = tuple(pane for pane in panes if not pane.pane_dead)
+    if len(live) == 1:
+        return live[0]
+    if len(live) == 0 and len(panes) == 1:
+        return panes[0]
+    raise TmuxCommandError(
+        f"Ambiguous tmux primary surface for `{session_name}`: {len(live)} live panes "
+        f"matched {selector_detail}."
+    )
+
+
+def _surface_from_pane(pane: TmuxPaneRecord) -> TmuxPrimarySurfaceRecord:
+    """Project a pane record into the persisted primary-surface identity."""
+
+    return TmuxPrimarySurfaceRecord(
+        session_name=pane.session_name,
+        window_id=pane.window_id,
+        window_index=pane.window_index,
+        window_name=pane.window_name,
+        pane_id=pane.pane_id,
+        pane_index=pane.pane_index,
+        pane_active=pane.pane_active,
+        pane_dead=pane.pane_dead,
+        pane_pid=pane.pane_pid,
+    )
 
 
 def cleanup_tmux_session(*, session_name: str) -> None:
@@ -202,6 +434,126 @@ def tmux_session_exists(*, session_name: str) -> bool:
     """Return whether one tmux session currently exists."""
 
     return has_tmux_session(session_name=session_name).returncode == 0
+
+
+@dataclass(frozen=True)
+class TmuxBackedAuthorityHealth:
+    """Derived local tmux-authority health for one tmux-backed managed session.
+
+    Attributes
+    ----------
+    state:
+        Three-class derived health classification.
+    session_exists:
+        Whether the named tmux session currently exists.
+    primary_window_exists:
+        Whether the contractual primary window index `0` is present.
+    primary_pane_exists:
+        Whether the contractual primary pane index `0` is present in window `0`.
+    primary_window_handle_valid:
+        Whether a supplied primary window id still resolves to window index `0`.
+    primary_pane_handle_valid:
+        Whether a supplied primary pane id still resolves under window index `0`.
+    """
+
+    state: Literal[
+        "healthy",
+        "degraded_missing_primary",
+        "degraded_stale_primary_handles",
+        "stale_missing_session",
+    ]
+    session_exists: bool
+    primary_window_exists: bool
+    primary_pane_exists: bool
+    primary_window_handle_valid: bool | None = None
+    primary_pane_handle_valid: bool | None = None
+
+
+def probe_tmux_backed_authority(
+    *,
+    session_name: str,
+    primary_window_id: str | None = None,
+    primary_pane_id: str | None = None,
+) -> TmuxBackedAuthorityHealth:
+    """Classify local tmux authority for one persisted managed session name.
+
+    Inspects tmux for the named session and the contractual primary surface
+    (window index `0`, pane index `0`), plus optional persisted tmux handles,
+    and returns a derived health classification. The result is host-local
+    runtime state and is never persisted into shared registry state.
+    """
+
+    name = session_name.strip()
+    if not name or not tmux_session_exists(session_name=name):
+        return TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+            primary_window_handle_valid=False if primary_window_id else None,
+            primary_pane_handle_valid=False if primary_pane_id else None,
+        )
+
+    try:
+        panes = list_tmux_panes(session_name=name)
+    except TmuxCommandError:
+        return TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+            primary_window_handle_valid=False if primary_window_id else None,
+            primary_pane_handle_valid=False if primary_pane_id else None,
+        )
+
+    primary_window_present = any(pane.window_index == HEADLESS_AGENT_WINDOW_INDEX for pane in panes)
+    primary_pane_present = any(
+        pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
+        and pane.pane_index == HEADLESS_AGENT_PANE_INDEX
+        for pane in panes
+    )
+    primary_window_handle_valid = (
+        any(
+            pane.window_id == primary_window_id and pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
+            for pane in panes
+        )
+        if primary_window_id is not None
+        else None
+    )
+    primary_pane_handle_valid = (
+        any(
+            pane.pane_id == primary_pane_id and pane.window_index == HEADLESS_AGENT_WINDOW_INDEX
+            for pane in panes
+        )
+        if primary_pane_id is not None
+        else None
+    )
+    if primary_window_handle_valid is False or primary_pane_handle_valid is False:
+        return TmuxBackedAuthorityHealth(
+            state="degraded_stale_primary_handles",
+            session_exists=True,
+            primary_window_exists=primary_window_present,
+            primary_pane_exists=primary_pane_present,
+            primary_window_handle_valid=primary_window_handle_valid,
+            primary_pane_handle_valid=primary_pane_handle_valid,
+        )
+    if primary_pane_present:
+        return TmuxBackedAuthorityHealth(
+            state="healthy",
+            session_exists=True,
+            primary_window_exists=True,
+            primary_pane_exists=True,
+            primary_window_handle_valid=primary_window_handle_valid,
+            primary_pane_handle_valid=primary_pane_handle_valid,
+        )
+    return TmuxBackedAuthorityHealth(
+        state="degraded_missing_primary",
+        session_exists=True,
+        primary_window_exists=primary_window_present,
+        primary_pane_exists=False,
+        primary_window_handle_valid=primary_window_handle_valid,
+        primary_pane_handle_valid=primary_pane_handle_valid,
+    )
 
 
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:

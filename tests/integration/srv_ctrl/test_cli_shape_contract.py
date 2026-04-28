@@ -1679,11 +1679,9 @@ def _fake_joined_session_artifacts(
         session_root=Path("/tmp/runtime"),
         agent_name=agent_name,
         agent_id=agent_id,
-        workspace_root=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}"),
+        memory_root=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}"),
         memo_file=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}/houmao-memo.md"),
-        scratch_dir=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}/scratch"),
-        persist_binding="auto",
-        persist_dir=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}/persist"),
+        pages_dir=Path(f"/tmp/project/.houmao/memory/agents/{agent_id}/pages"),
         runtime_root=Path("/tmp/runtime"),
         runtime_root_detail="Selected runtime root from the explicit `--runtime-root` override.",
         overlay_root=Path("/tmp/project/.houmao"),
@@ -1725,6 +1723,8 @@ def test_houmao_mgr_agents_join_tui_auto_detects_provider(monkeypatch: pytest.Mo
     assert captured["install_houmao_skills"] is True
     assert captured["tmux_session_name"] == "join-sess"
     assert captured["tmux_window_name"] == "manual"
+    assert captured["tmux_window_id"] == "@1"
+    assert captured["tmux_pane_id"] == "%1"
     assert captured["working_directory"] == Path("/tmp/project")
     assert "Managed agent join complete" in result.output
 

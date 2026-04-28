@@ -2998,6 +2998,29 @@ When local interactive relaunch resumes an existing provider chat, runtime SHALL
 - **THEN** runtime does not submit the bootstrap message into the resumed provider chat as a user turn
 - **AND THEN** the resumed provider conversation is not polluted with a duplicate launch bootstrap prompt
 
+### Requirement: Local tmux-backed managed runtime derives authority health separately from lifecycle state
+For local tmux-backed managed-agent sessions, the runtime SHALL derive local tmux-authority health from tmux inspection rather than persisting additional shared lifecycle states.
+
+At minimum, the derived local authority health model SHALL distinguish:
+
+- `healthy`: the tmux session exists and the contractual primary window `0` and pane `0` exist
+- `degraded_missing_primary`: the tmux session exists but the contractual primary surface is missing
+- `stale_missing_session`: the persisted active authority points at a tmux session that no longer exists
+
+This derived health classification SHALL be host-local runtime state. The shared registry lifecycle state SHALL remain limited to `active`, `stopped`, `relaunching`, and `retired`.
+
+#### Scenario: Existing tmux session missing the primary agent surface is classified as degraded
+- **WHEN** a local tmux-backed managed-agent record still points at an existing tmux session
+- **AND WHEN** tmux inspection shows that primary window `0` or pane `0` is missing for that session
+- **THEN** the runtime classifies the local authority as `degraded_missing_primary`
+- **AND THEN** it does not persist a new shared lifecycle-state value for that host-local condition
+
+#### Scenario: Missing tmux session behind an active record is classified as stale
+- **WHEN** a local tmux-backed managed-agent record still claims lifecycle state `active`
+- **AND WHEN** tmux inspection shows that the recorded tmux session no longer exists
+- **THEN** the runtime classifies the local authority as `stale_missing_session`
+- **AND THEN** the shared lifecycle state remains a separate concern from that derived local health result
+
 ### Requirement: Runtime stop preserves relaunch metadata for lifecycle-aware registry records
 For local tmux-backed managed-agent sessions with runtime-owned manifest authority, runtime stop SHALL preserve enough metadata for a later stopped-session relaunch before live process/container metadata is cleared.
 
@@ -3014,11 +3037,39 @@ At minimum, the preserved metadata SHALL include:
 
 When stop removes a tmux session, the runtime manifest SHALL no longer claim that the removed tmux session is an active live authority, but it SHALL preserve or reconstruct relaunch authority needed by the lifecycle registry.
 
+When the selected local tmux-backed managed-agent authority is `degraded_missing_primary`, runtime stop SHALL still be able to tear down the surviving tmux session remnant and preserve stopped-session continuity metadata.
+
+When the selected local tmux-backed managed-agent authority is `stale_missing_session`, runtime stop SHALL still be able to clear live lifecycle claims and preserve stopped-session continuity metadata when relaunch authority remains readable from manifest-owned state.
+
+When the selected local tmux-backed managed-agent authority is `stale_missing_session` and manifest-owned relaunch authority is no longer readable, runtime stop SHALL still clear the live lifecycle claim and SHALL retire the registry record idempotently rather than leaving a permanently un-actionable active record. The successful stop response SHALL identify that retirement happened without preserved relaunch authority.
+
 #### Scenario: Force cleanup stop preserves relaunch metadata
 - **WHEN** a local interactive managed agent is stopped with force cleanup
 - **AND WHEN** the runtime kills the provider tmux session
 - **THEN** the stopped session manifest and lifecycle registry record preserve the agent identity, runtime home, manifest path, session root, and agent-definition directory
 - **AND THEN** live liveness metadata for the killed tmux session is cleared
+
+#### Scenario: Degraded active stop preserves relaunch metadata after removing tmux remnant
+- **WHEN** a local tmux-backed managed agent still has an active lifecycle record
+- **AND WHEN** its tmux session still exists but the contractual primary surface is missing
+- **AND WHEN** runtime stop is requested
+- **THEN** the runtime removes the surviving tmux session remnant
+- **AND THEN** the resulting stopped metadata preserves relaunch authority for the same logical managed agent
+
+#### Scenario: Stale active stop can retire live claims without a remaining tmux session
+- **WHEN** a local tmux-backed managed agent still has an active lifecycle record
+- **AND WHEN** the recorded tmux session no longer exists
+- **AND WHEN** manifest-owned relaunch authority remains readable
+- **THEN** runtime stop clears the live lifecycle claim without requiring tmux teardown
+- **AND THEN** the resulting stopped metadata preserves relaunch authority for later recovery
+
+#### Scenario: Stale active stop retires lifecycle when manifest authority is unavailable
+- **WHEN** a local tmux-backed managed agent still has an active lifecycle record
+- **AND WHEN** the recorded tmux session no longer exists
+- **AND WHEN** preserved manifest-owned relaunch authority is no longer readable
+- **THEN** runtime stop clears the live lifecycle claim
+- **AND THEN** the registry record is retired without publishing a stopped lifecycle continuity record
+- **AND THEN** the stop response identifies that retirement happened without preserved relaunch authority
 
 #### Scenario: Stop preserves launch-profile relaunch policy
 - **WHEN** a managed agent was launched from a profile with relaunch chat-session mode `tool_last_or_new`
@@ -3060,15 +3111,43 @@ Stopped-session revival SHALL apply the effective relaunch chat-session selector
 - **AND THEN** the error does not silently fall back to creating a fresh launch
 
 ### Requirement: Active relaunch remains distinct from stopped-session revival
-The existing active relaunch operation SHALL continue to require a valid live tmux-backed authority for the selected managed agent.
+The existing active relaunch operation SHALL continue to use live tmux-backed authority for the selected managed agent when that authority is healthy.
 
-Stopped-session revival SHALL be a separate runtime path or an explicitly separated branch that first recreates live authority and repairs manifest/registry liveness before using provider-start relaunch behavior.
+Stopped-session revival SHALL remain a separate runtime path that recreates live authority from preserved relaunch metadata when the selected lifecycle record is stopped or when active local authority has become `stale_missing_session`.
 
-#### Scenario: Active relaunch rejects stale active authority
-- **WHEN** a runtime controller is asked to perform ordinary active relaunch
-- **AND WHEN** its current live tmux session binding is missing or does not match active authority
-- **THEN** ordinary active relaunch fails with a stale-authority error
-- **AND THEN** the caller must use stopped-session revival when the selected lifecycle record is stopped and relaunchable
+When active local authority is `degraded_missing_primary`, active relaunch SHALL rebuild the contractual primary tmux surface inside the existing tmux session before continuing provider-start relaunch behavior. Any surviving auxiliary gateway window in that tmux session SHALL be killed before the primary surface is rebuilt, and the gateway SHALL be reprovisioned through the existing post-startup gateway launch path.
+
+When active local authority is `stale_missing_session` and preserved relaunch authority remains available, relaunch SHALL transition through the stopped-session revival path instead of failing with a generic stale-authority error.
+
+When active local authority is `stale_missing_session` and preserved manifest-owned relaunch authority is no longer readable, relaunch SHALL fail explicitly without attempting stopped-session revival. The failure SHALL identify that neither active relaunch nor stopped revival is available and SHALL point operators to fresh `agents launch`.
+
+#### Scenario: Active relaunch rebuilds a degraded primary surface
+- **WHEN** a runtime controller is asked to perform active relaunch
+- **AND WHEN** the selected local tmux session still exists
+- **AND WHEN** the contractual primary surface is missing from that tmux session
+- **THEN** relaunch rebuilds the stable primary tmux surface in the existing session
+- **AND THEN** provider-start relaunch continues for the same logical managed agent
+
+#### Scenario: Degraded relaunch rebuilds gateway alongside the primary surface
+- **WHEN** active relaunch recovers `degraded_missing_primary` for a local tmux-backed managed agent
+- **AND WHEN** an auxiliary gateway window still exists in the surviving tmux session
+- **THEN** the runtime kills the surviving gateway window before rebuilding the contractual primary surface
+- **AND THEN** the gateway is reprovisioned through the existing post-startup gateway launch path in the same tmux session
+
+#### Scenario: Stale active relaunch without preserved authority fails explicitly
+- **WHEN** a runtime controller is asked to perform relaunch for a local managed-agent record that still claims lifecycle state `active`
+- **AND WHEN** the recorded tmux session no longer exists
+- **AND WHEN** preserved manifest-owned relaunch authority is no longer readable
+- **THEN** relaunch fails explicitly without attempting stopped-session revival
+- **AND THEN** the failure identifies that neither active relaunch nor stopped revival is available
+- **AND THEN** the failure points operators to fresh `agents launch` as the supported next step
+
+#### Scenario: Stale active relaunch uses stopped-session revival semantics
+- **WHEN** a runtime controller is asked to perform relaunch for a local managed-agent record that still claims lifecycle state `active`
+- **AND WHEN** the recorded tmux session no longer exists
+- **AND WHEN** preserved relaunch authority remains available
+- **THEN** the runtime uses stopped-session revival semantics to create a fresh live tmux container
+- **AND THEN** a successful relaunch republishes active lifecycle metadata for the same logical managed agent
 
 #### Scenario: Stopped-session revival publishes a fresh active authority
 - **WHEN** stopped-session revival succeeds

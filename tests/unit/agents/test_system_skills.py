@@ -37,6 +37,7 @@ CORE_SYSTEM_SKILLS = (
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-pairwise-v2",
     "houmao-agent-loop-pairwise-v3",
+    "houmao-agent-loop-pairwise-v4",
     "houmao-agent-loop-generic",
     "houmao-agent-instance",
     "houmao-agent-inspect",
@@ -96,6 +97,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-pairwise-v3",
+        "houmao-agent-loop-pairwise-v4",
         "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",
@@ -305,6 +307,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v3_prestart = home_path / "skills/houmao-agent-loop-pairwise-v3/prestart"
     pairwise_loop_v3_operating = home_path / "skills/houmao-agent-loop-pairwise-v3/operating"
     pairwise_loop_v3_references = home_path / "skills/houmao-agent-loop-pairwise-v3/references"
+    pairwise_loop_v4_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
+    pairwise_loop_v4_authoring = home_path / "skills/houmao-agent-loop-pairwise-v4/authoring"
+    pairwise_loop_v4_prestart = home_path / "skills/houmao-agent-loop-pairwise-v4/prestart"
+    pairwise_loop_v4_operating = home_path / "skills/houmao-agent-loop-pairwise-v4/operating"
+    pairwise_loop_v4_references = home_path / "skills/houmao-agent-loop-pairwise-v4/references"
+    pairwise_loop_v4_document_templates = (
+        home_path / "skills/houmao-agent-loop-pairwise-v4/document-templates"
+    )
     relay_loop_skill_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
@@ -343,6 +353,15 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert (pairwise_loop_v3_operating / "start.md").is_file()
     assert (pairwise_loop_v3_operating / "recover-and-continue.md").is_file()
     assert (pairwise_loop_v3_references / "workspace-contract.md").is_file()
+    assert pairwise_loop_v4_skill_path.is_file()
+    assert (pairwise_loop_v4_authoring / "formulate-loop-plan.md").is_file()
+    assert (pairwise_loop_v4_prestart / "prepare-run.md").is_file()
+    assert (pairwise_loop_v4_operating / "start.md").is_file()
+    assert (pairwise_loop_v4_operating / "recover-and-continue.md").is_file()
+    assert (pairwise_loop_v4_references / "workspace-contract.md").is_file()
+    assert (pairwise_loop_v4_document_templates / "plan.md").is_file()
+    assert (pairwise_loop_v4_document_templates / "agent-note.md").is_file()
+    assert (pairwise_loop_v4_document_templates / "constraint-coverage-audit.md").is_file()
     assert relay_loop_skill_path.is_file()
     assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
     assert (relay_loop_operating / "start.md").is_file()
@@ -363,6 +382,19 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v3_start = (pairwise_loop_v3_operating / "start.md").read_text(encoding="utf-8")
     pairwise_loop_v3_workspace_contract = (
         pairwise_loop_v3_references / "workspace-contract.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v4_skill = pairwise_loop_v4_skill_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_formulate = (pairwise_loop_v4_authoring / "formulate-loop-plan.md").read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_plan_template = (pairwise_loop_v4_document_templates / "plan.md").read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_agent_note_template = (
+        pairwise_loop_v4_document_templates / "agent-note.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v4_audit_template = (
+        pairwise_loop_v4_document_templates / "constraint-coverage-audit.md"
     ).read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
@@ -729,6 +761,29 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "Do not use the standard workspace-preparation skill as a custom-workspace translation layer."
         in (pairwise_loop_v3_workspace_contract)
     )
+    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v4_skill
+    assert "document-templates/plan.md" in pairwise_loop_v4_skill
+    assert (
+        "Use this Houmao skill only when the user explicitly asks for "
+        "`houmao-agent-loop-pairwise-v4`." in pairwise_loop_v4_skill
+    )
+    assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
+    assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
+    assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
+    assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
+    assert (
+        "ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, "
+        "`OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`" in pairwise_loop_v4_skill
+    )
+    assert "strict document templates" in pairwise_loop_v4_formulate
+    assert "other user-provided source document paths" in pairwise_loop_v4_formulate
+    assert "user-provided source documents" in pairwise_loop_v4_formulate
+    assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
+    assert "Source Contract Summary" in pairwise_loop_v4_plan_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_plan_template
+    assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
+    assert "Coverage Table" in pairwise_loop_v4_audit_template
+    assert "UNRESOLVED - <reason>" in pairwise_loop_v4_audit_template
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
@@ -912,6 +967,15 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_v3_operating = home_path / "skills/houmao-agent-loop-pairwise-v3/operating"
     pairwise_loop_v3_references = home_path / "skills/houmao-agent-loop-pairwise-v3/references"
     pairwise_loop_v3_templates = home_path / "skills/houmao-agent-loop-pairwise-v3/templates"
+    pairwise_loop_v4_path = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
+    pairwise_loop_v4_authoring = home_path / "skills/houmao-agent-loop-pairwise-v4/authoring"
+    pairwise_loop_v4_prestart = home_path / "skills/houmao-agent-loop-pairwise-v4/prestart"
+    pairwise_loop_v4_operating = home_path / "skills/houmao-agent-loop-pairwise-v4/operating"
+    pairwise_loop_v4_references = home_path / "skills/houmao-agent-loop-pairwise-v4/references"
+    pairwise_loop_v4_templates = home_path / "skills/houmao-agent-loop-pairwise-v4/templates"
+    pairwise_loop_v4_document_templates = (
+        home_path / "skills/houmao-agent-loop-pairwise-v4/document-templates"
+    )
     relay_loop_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
@@ -938,6 +1002,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert stable_pairwise_loop_path.is_file()
     assert pairwise_loop_path.is_file()
     assert pairwise_loop_v3_path.is_file()
+    assert pairwise_loop_v4_path.is_file()
     assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
     memory_mgr_skill = memory_mgr_path.read_text(encoding="utf-8")
@@ -950,6 +1015,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     stable_pairwise_loop_skill = stable_pairwise_loop_path.read_text(encoding="utf-8")
     pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
     pairwise_loop_v3_skill = pairwise_loop_v3_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_skill = pairwise_loop_v4_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     specialist_launch_action_path = specialist_mgr_actions / "launch.md"
@@ -1049,6 +1115,41 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_v3_plan_structure_path = pairwise_loop_v3_references / "plan-structure.md"
     pairwise_loop_v3_single_template_path = pairwise_loop_v3_templates / "single-file-plan.md"
     pairwise_loop_v3_bundle_template_path = pairwise_loop_v3_templates / "bundle-plan.md"
+    pairwise_loop_v4_formulate_path = pairwise_loop_v4_authoring / "formulate-loop-plan.md"
+    pairwise_loop_v4_revise_path = pairwise_loop_v4_authoring / "revise-loop-plan.md"
+    pairwise_loop_v4_graph_path = pairwise_loop_v4_authoring / "render-loop-graph.md"
+    pairwise_loop_v4_prepare_path = pairwise_loop_v4_prestart / "prepare-run.md"
+    pairwise_loop_v4_start_path = pairwise_loop_v4_operating / "start.md"
+    pairwise_loop_v4_peek_path = pairwise_loop_v4_operating / "peek.md"
+    pairwise_loop_v4_ping_path = pairwise_loop_v4_operating / "ping.md"
+    pairwise_loop_v4_pause_path = pairwise_loop_v4_operating / "pause.md"
+    pairwise_loop_v4_resume_path = pairwise_loop_v4_operating / "resume.md"
+    pairwise_loop_v4_recover_and_continue_path = (
+        pairwise_loop_v4_operating / "recover-and-continue.md"
+    )
+    pairwise_loop_v4_stop_path = pairwise_loop_v4_operating / "stop.md"
+    pairwise_loop_v4_hard_kill_path = pairwise_loop_v4_operating / "hard-kill.md"
+    pairwise_loop_v4_charter_path = pairwise_loop_v4_references / "run-charter.md"
+    pairwise_loop_v4_workspace_contract_path = pairwise_loop_v4_references / "workspace-contract.md"
+    pairwise_loop_v4_policy_path = pairwise_loop_v4_references / "delegation-policy.md"
+    pairwise_loop_v4_stop_modes_path = pairwise_loop_v4_references / "stop-modes.md"
+    pairwise_loop_v4_reporting_path = pairwise_loop_v4_references / "reporting-contract.md"
+    pairwise_loop_v4_plan_structure_path = pairwise_loop_v4_references / "plan-structure.md"
+    pairwise_loop_v4_single_template_path = pairwise_loop_v4_templates / "single-file-plan.md"
+    pairwise_loop_v4_bundle_template_path = pairwise_loop_v4_templates / "bundle-plan.md"
+    pairwise_loop_v4_plan_document_template_path = pairwise_loop_v4_document_templates / "plan.md"
+    pairwise_loop_v4_agent_note_template_path = (
+        pairwise_loop_v4_document_templates / "agent-note.md"
+    )
+    pairwise_loop_v4_reporting_template_path = (
+        pairwise_loop_v4_document_templates / "reporting-template.md"
+    )
+    pairwise_loop_v4_bookkeeping_template_path = (
+        pairwise_loop_v4_document_templates / "bookkeeping-template.md"
+    )
+    pairwise_loop_v4_audit_template_path = (
+        pairwise_loop_v4_document_templates / "constraint-coverage-audit.md"
+    )
     relay_loop_formulate_path = relay_loop_authoring / "formulate-loop-plan.md"
     relay_loop_revise_path = relay_loop_authoring / "revise-loop-plan.md"
     relay_loop_graph_path = relay_loop_authoring / "render-loop-graph.md"
@@ -1147,6 +1248,70 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     pairwise_loop_v3_bundle_template = pairwise_loop_v3_bundle_template_path.read_text(
         encoding="utf-8"
+    )
+    pairwise_loop_v4_formulate = pairwise_loop_v4_formulate_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_revise = pairwise_loop_v4_revise_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_prepare = pairwise_loop_v4_prepare_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_start = pairwise_loop_v4_start_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_charter = pairwise_loop_v4_charter_path.read_text(encoding="utf-8")
+    pairwise_loop_v4_workspace_contract = pairwise_loop_v4_workspace_contract_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_plan_structure = pairwise_loop_v4_plan_structure_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_single_template = pairwise_loop_v4_single_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_bundle_template = pairwise_loop_v4_bundle_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_plan_document_template = (
+        pairwise_loop_v4_plan_document_template_path.read_text(encoding="utf-8")
+    )
+    pairwise_loop_v4_agent_note_template = pairwise_loop_v4_agent_note_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_reporting_template = pairwise_loop_v4_reporting_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_bookkeeping_template = pairwise_loop_v4_bookkeeping_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v4_audit_template = pairwise_loop_v4_audit_template_path.read_text(
+        encoding="utf-8"
+    )
+    pairwise_loop_v3_contract_text = "\n".join(
+        (
+            pairwise_loop_v3_skill,
+            pairwise_loop_v3_formulate,
+            pairwise_loop_v3_revise,
+            pairwise_loop_v3_prepare,
+            pairwise_loop_v3_start,
+            pairwise_loop_v3_charter,
+            pairwise_loop_v3_plan_structure,
+            pairwise_loop_v3_single_template,
+            pairwise_loop_v3_bundle_template,
+        )
+    )
+    pairwise_loop_v4_contract_text = "\n".join(
+        (
+            pairwise_loop_v4_skill,
+            pairwise_loop_v4_formulate,
+            pairwise_loop_v4_revise,
+            pairwise_loop_v4_prepare,
+            pairwise_loop_v4_start,
+            pairwise_loop_v4_charter,
+            pairwise_loop_v4_workspace_contract,
+            pairwise_loop_v4_plan_structure,
+            pairwise_loop_v4_single_template,
+            pairwise_loop_v4_bundle_template,
+            pairwise_loop_v4_plan_document_template,
+            pairwise_loop_v4_agent_note_template,
+            pairwise_loop_v4_reporting_template,
+            pairwise_loop_v4_bookkeeping_template,
+            pairwise_loop_v4_audit_template,
+        )
     )
     relay_loop_formulate = relay_loop_formulate_path.read_text(encoding="utf-8")
     relay_loop_revise = relay_loop_revise_path.read_text(encoding="utf-8")
@@ -1326,6 +1491,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-agent-loop-pairwise" in touring_skill
     assert "houmao-agent-loop-pairwise-v2" in touring_skill
     assert "houmao-agent-loop-pairwise-v3" in touring_skill
+    assert "houmao-agent-loop-pairwise-v4" in touring_skill
     assert "houmao-agent-instance" in touring_skill
     assert "## Welcome Message" in touring_skill
     assert "framework and CLI toolkit for orchestrating teams" in touring_skill
@@ -1345,6 +1511,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "stable pairwise loop" in touring_advanced_usage
     assert "enriched pairwise loop" in touring_advanced_usage
     assert "Workspace-aware pairwise loop" in touring_advanced_usage
+    assert "Template-driven workspace-aware pairwise loop" in touring_advanced_usage
     assert "authored `standard` or `custom` workspace contract" in touring_advanced_usage
     assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
     assert (
@@ -1414,6 +1581,10 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`"
         in (pairwise_loop_v3_skill)
     )
+    assert "operator_preparation_wave" not in pairwise_loop_v3_contract_text
+    assert "`awaiting_ack`" not in pairwise_loop_v3_contract_text
+    assert "baseline initialize mail-notifier setup" in pairwise_loop_v3_skill
+    assert "gateway mail-notifier behavior has been verified or enabled" in (pairwise_loop_v3_start)
     assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
         pairwise_loop_v3_skill
     )
@@ -1501,6 +1672,31 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_v3_plan_structure_path.is_file()
     assert pairwise_loop_v3_single_template_path.is_file()
     assert pairwise_loop_v3_bundle_template_path.is_file()
+    assert pairwise_loop_v4_formulate_path.is_file()
+    assert pairwise_loop_v4_revise_path.is_file()
+    assert pairwise_loop_v4_graph_path.is_file()
+    assert pairwise_loop_v4_prepare_path.is_file()
+    assert pairwise_loop_v4_start_path.is_file()
+    assert pairwise_loop_v4_peek_path.is_file()
+    assert pairwise_loop_v4_ping_path.is_file()
+    assert pairwise_loop_v4_pause_path.is_file()
+    assert pairwise_loop_v4_resume_path.is_file()
+    assert pairwise_loop_v4_recover_and_continue_path.is_file()
+    assert pairwise_loop_v4_stop_path.is_file()
+    assert pairwise_loop_v4_hard_kill_path.is_file()
+    assert pairwise_loop_v4_charter_path.is_file()
+    assert pairwise_loop_v4_workspace_contract_path.is_file()
+    assert pairwise_loop_v4_policy_path.is_file()
+    assert pairwise_loop_v4_stop_modes_path.is_file()
+    assert pairwise_loop_v4_reporting_path.is_file()
+    assert pairwise_loop_v4_plan_structure_path.is_file()
+    assert pairwise_loop_v4_single_template_path.is_file()
+    assert pairwise_loop_v4_bundle_template_path.is_file()
+    assert pairwise_loop_v4_plan_document_template_path.is_file()
+    assert pairwise_loop_v4_agent_note_template_path.is_file()
+    assert pairwise_loop_v4_reporting_template_path.is_file()
+    assert pairwise_loop_v4_bookkeeping_template_path.is_file()
+    assert pairwise_loop_v4_audit_template_path.is_file()
     assert relay_loop_formulate_path.is_file()
     assert relay_loop_revise_path.is_file()
     assert relay_loop_graph_path.is_file()
@@ -1836,6 +2032,38 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "for `custom`, the explicit operator-owned launch cwd" in (
         pairwise_loop_v3_bundle_template
     )
+    assert "document-templates/plan.md" in pairwise_loop_v4_skill
+    assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
+    assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
+    assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
+    assert "strict generated document templates" in pairwise_loop_v4_skill
+    assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
+    assert (
+        "ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, "
+        "`OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`" in pairwise_loop_v4_contract_text
+    )
+    assert "source task note path" in pairwise_loop_v4_formulate
+    assert "other user-provided source document paths" in pairwise_loop_v4_formulate
+    assert "user-provided source documents" in pairwise_loop_v4_formulate
+    assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
+    assert "constraint-coverage-audit.md" in pairwise_loop_v4_bundle_template
+    assert "Source Contract Summary" in pairwise_loop_v4_plan_structure
+    assert "schema-like policy verb patterns" in pairwise_loop_v4_plan_structure
+    assert "Source Contract Summary" in pairwise_loop_v4_single_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_single_template
+    assert "Source Contract Summary" in pairwise_loop_v4_bundle_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_bundle_template
+    assert "Source Constraints Carried Forward" in pairwise_loop_v4_plan_document_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_plan_document_template
+    assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
+    assert "Reporting And Evidence Duties" in pairwise_loop_v4_agent_note_template
+    assert "Source Constraints Applied" in pairwise_loop_v4_reporting_template
+    assert "Record Schema" in pairwise_loop_v4_bookkeeping_template
+    assert "Coverage Table" in pairwise_loop_v4_audit_template
+    assert "user-provided document" in pairwise_loop_v4_audit_template
+    assert "Central Projection" in pairwise_loop_v4_audit_template
+    assert "Runtime Projection" in pairwise_loop_v4_audit_template
+    assert "UNRESOLVED - <reason>" in pairwise_loop_v4_contract_text
     assert (
         "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly."
         in relay_loop_formulate

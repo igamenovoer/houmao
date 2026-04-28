@@ -2393,6 +2393,50 @@ def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
     assert tmux_calls == [["send-keys", "-t", "HOUMAO-fallback:0.0", "C-c"]]
 
 
+def test_interrupt_headless_tmux_target_prefers_persisted_pane_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = HoumaoServerConfig(
+        api_base_url="http://127.0.0.1:9889",
+        runtime_root=tmp_path,
+        startup_child=False,
+    )
+    service = HoumaoServerService(
+        config=config,
+        transport=_FakeTransport({}),
+        child_manager=_FakeChildManager(),
+    )
+    active_turn = ManagedHeadlessActiveTurnRecord(
+        tracked_agent_id="claude-headless-fallback",
+        turn_id="turn-live",
+        turn_index=1,
+        turn_artifact_dir=str(tmp_path / "turn-artifacts" / "turn-live"),
+        started_at_utc="2026-03-23T12:00:00+00:00",
+        tmux_session_name="HOUMAO-fallback",
+        tmux_window_name="agent",
+        tmux_window_id="@4",
+        tmux_pane_id="%4",
+    )
+    tmux_calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "houmao.server.service.resolve_primary_tmux_surface",
+        lambda **_kwargs: type("Surface", (), {"pane_id": "%4"})(),
+    )
+    monkeypatch.setattr(
+        "houmao.server.service.run_tmux",
+        lambda args: (
+            tmux_calls.append(list(args))
+            or subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        ),
+    )
+
+    service._interrupt_headless_tmux_target(active_turn=active_turn)
+
+    assert tmux_calls == [["send-keys", "-t", "%4", "C-c"]]
+
+
 def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
     tmp_path: Path,
 ) -> None:

@@ -16,7 +16,11 @@ from houmao.agents.realm_controller.gateway_mailbox import (
     _generate_filesystem_message_id,
 )
 from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal
-from houmao.mailbox.protocol import MailboxNotifyAuth, parse_message_document
+from houmao.mailbox.protocol import (
+    MailboxNotifyAuth,
+    MailboxNotifyBlock,
+    parse_message_document,
+)
 
 
 def _make_request(*, message_id: str, sender: ManagedPrincipal) -> DeliveryRequest:
@@ -68,7 +72,9 @@ def test_write_staged_message_extracts_body_fence_into_notify_block(
     )
 
     parsed = parse_message_document(staged.read_text(encoding="utf-8"))
-    assert parsed.notify_block == "re-run on official path"
+    assert parsed.notify_block is not None
+    assert parsed.notify_block.text == "re-run on official path"
+    assert parsed.notify_block.placement == "append"
     assert parsed.notify_auth is None
     assert "```houmao-notify" in parsed.body_markdown
 
@@ -87,11 +93,39 @@ def test_write_staged_message_caller_value_overrides_body_fence(tmp_path: Path) 
         staged_message_path=staged,
         request=_make_request(message_id=message_id, sender=sender),
         body_content=body,
-        notify_block="explicit caller value",
+        notify_block=MailboxNotifyBlock(text="explicit caller value", placement="append"),
     )
 
     parsed = parse_message_document(staged.read_text(encoding="utf-8"))
-    assert parsed.notify_block == "explicit caller value"
+    assert parsed.notify_block is not None
+    assert parsed.notify_block.text == "explicit caller value"
+
+
+def test_write_staged_message_auto_mirrors_into_body_when_fence_absent(
+    tmp_path: Path,
+) -> None:
+    sender = ManagedPrincipal(
+        principal_id="HOUMAO-alice",
+        address="alice@houmao.localhost",
+    )
+    message_id = _generate_filesystem_message_id(datetime.now(UTC))
+    staged = tmp_path / "staged.md"
+
+    adapter = _adapter()
+    adapter._write_staged_message(  # type: ignore[attr-defined]
+        staged_message_path=staged,
+        request=_make_request(message_id=message_id, sender=sender),
+        body_content="Operator note inline.",
+        notify_block=MailboxNotifyBlock(text="continue current task", placement="prepend"),
+    )
+
+    parsed = parse_message_document(staged.read_text(encoding="utf-8"))
+    assert parsed.notify_block is not None
+    assert parsed.notify_block.text == "continue current task"
+    assert parsed.notify_block.placement == "prepend"
+    # The synthesized fence rides at the start of body_markdown (prepend).
+    assert parsed.body_markdown.startswith("```houmao-notify\ncontinue current task\n```")
+    assert "Operator note inline." in parsed.body_markdown
 
 
 def test_write_staged_message_preserves_notify_auth(tmp_path: Path) -> None:
@@ -108,10 +142,11 @@ def test_write_staged_message_preserves_notify_auth(tmp_path: Path) -> None:
         staged_message_path=staged,
         request=_make_request(message_id=message_id, sender=sender),
         body_content="ordinary body",
-        notify_block="continue current task",
+        notify_block=MailboxNotifyBlock(text="continue current task"),
         notify_auth=auth,
     )
 
     parsed = parse_message_document(staged.read_text(encoding="utf-8"))
-    assert parsed.notify_block == "continue current task"
+    assert parsed.notify_block is not None
+    assert parsed.notify_block.text == "continue current task"
     assert parsed.notify_auth == auth

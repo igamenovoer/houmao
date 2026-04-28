@@ -13,12 +13,16 @@ import socket
 import sqlite3
 import threading
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, NoReturn, Protocol, TypeVar, cast
+from typing import Literal, NoReturn, Protocol, TypeVar, cast
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
 from houmao.agents.agent_workspace import (
@@ -50,6 +54,19 @@ from houmao.agents.realm_controller.gateway_mailbox import (
     GatewayMailboxUnsupportedError,
     build_gateway_mailbox_adapter,
 )
+from houmao.agents.realm_controller.gateway_diagnostics import (
+    GatewayDiagnosticLevel,
+    GatewayDiagnosticLogger,
+)
+from houmao.agents.realm_controller.notify_auth_verifier import (
+    NotifyAuthVerifier,
+    VerifyResult,
+    build_notify_auth_verifier,
+)
+from houmao.mailbox.protocol import (
+    MailboxNotifyAuth,
+    MailboxNotifyBlock,
+)
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayAdmissionState,
@@ -62,6 +79,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
+    GatewayDiagnosticLoggingConfigV1,
     GatewayExecutionOverrideV1,
     GatewayExecutionState,
     GatewayHeadlessChatSessionStateV1,
@@ -132,6 +150,7 @@ from houmao.agents.realm_controller.boundary_models import SessionManifestPayloa
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayMailNotifierRecord,
     GatewayNotifierAuditOutcome,
+    GatewayNotifierAuditRenderedBlockEntry,
     GatewayNotifierAuditUnreadMessage,
     append_gateway_event,
     append_gateway_notifier_audit_record,
@@ -141,6 +160,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_session_root,
     generate_gateway_request_id,
     load_gateway_current_instance,
+    load_gateway_desired_config,
     read_gateway_mail_notifier_record,
     now_utc_iso,
     queue_depth_from_sqlite,
@@ -204,6 +224,7 @@ _CODEX_DEGRADED_COMPACT_ERROR_TYPES = frozenset(
 _SEND_KEYS_ENTER_TOKEN = "<[Enter]>"
 _GatewayRequestTerminalState = Literal["completed", "failed"]
 _MemoryResponseT = TypeVar("_MemoryResponseT")
+_MailRouteResponseT = TypeVar("_MailRouteResponseT")
 _GatewayControlIntentAction = Literal["interrupt", "context"]
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
@@ -280,6 +301,21 @@ class _UnreadMailboxMessage:
     sender_address: str
     sender_display_name: str | None
     subject: str
+    notify_block: MailboxNotifyBlock | None = None
+    notify_auth: MailboxNotifyAuth | None = None
+
+
+@dataclass(frozen=True)
+class _RenderedNotifyBlockEntry:
+    """Per-rendered notify-block audit detail captured during a notifier poll."""
+
+    message_ref: str
+    rendered: bool
+    auth_scheme: str
+    auth_outcome: str
+    auth_detail: str | None
+    block_chars: int
+    block_truncated: bool
 
 
 @dataclass
@@ -363,6 +399,135 @@ def _render_mail_notifier_mailbox_api_summary(_base_url: str) -> str:
         "Mailbox API: `GET /v1/mail/status`; "
         "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
     )
+
+
+def _render_notify_block_entry(*, sender_address: str, text: str) -> str:
+    """Render one notify-block entry with sender attribution."""
+
+    body_lines = text.splitlines() or [""]
+    quoted = "\n".join(f"> {line}" if line else ">" for line in body_lines)
+    return f"Sender notice — from {sender_address}:\n{quoted}"
+
+
+def _render_notify_block_slots(
+    *,
+    unread_messages: list[_UnreadMailboxMessage],
+    record: GatewayMailNotifierRecord,
+) -> tuple[str, str, list[_RenderedNotifyBlockEntry]]:
+    """Render the prepend/append notify-block slots and audit entries.
+
+    Returns
+    -------
+    tuple
+        ``(prepend_text, append_text, block_entries)`` — slot text for
+        ``{{NOTIFY_BLOCKS_PREPEND}}`` and ``{{NOTIFY_BLOCKS_APPEND}}`` plus
+        per-rendered-block audit detail entries.
+    """
+
+    if record.notify_block_render == "disabled":
+        entries = [
+            _RenderedNotifyBlockEntry(
+                message_ref=message.message_ref,
+                rendered=False,
+                auth_scheme=record.notify_block_auth_verifier,
+                auth_outcome="skipped",
+                auth_detail="render disabled",
+                block_chars=0,
+                block_truncated=False,
+            )
+            for message in unread_messages
+            if message.notify_block is not None
+        ]
+        return "", "", entries
+
+    verifier: NotifyAuthVerifier = build_notify_auth_verifier(
+        verifier_kind=record.notify_block_auth_verifier,
+        shared_tokens=tuple(record.notify_block_shared_tokens),
+    )
+
+    prepend_lines: list[str] = []
+    append_lines: list[str] = []
+    block_entries: list[_RenderedNotifyBlockEntry] = []
+    per_message_cap = max(1, int(record.notify_block_per_message_chars))
+    total_cap_remaining = max(0, int(record.notify_block_total_chars))
+    suppressed_count = 0
+
+    for message in unread_messages:
+        nb = message.notify_block
+        if nb is None:
+            continue
+        verify_result: VerifyResult = verifier.verify(
+            notify_block=nb,
+            notify_auth=message.notify_auth,
+        )
+        should_render = record.notify_block_auth_mode == "permissive-log" or verify_result.passed
+
+        if not should_render:
+            block_entries.append(
+                _RenderedNotifyBlockEntry(
+                    message_ref=message.message_ref,
+                    rendered=False,
+                    auth_scheme=verify_result.scheme,
+                    auth_outcome=verify_result.outcome,
+                    auth_detail=verify_result.detail,
+                    block_chars=0,
+                    block_truncated=False,
+                )
+            )
+            continue
+
+        text = nb.text
+        block_truncated = False
+        if len(text) > per_message_cap:
+            text = text[: per_message_cap - 1] + "…"
+            block_truncated = True
+
+        entry_text = _render_notify_block_entry(
+            sender_address=message.sender_address,
+            text=text,
+        )
+        entry_chars = len(entry_text)
+
+        if total_cap_remaining < entry_chars:
+            suppressed_count += 1
+            block_entries.append(
+                _RenderedNotifyBlockEntry(
+                    message_ref=message.message_ref,
+                    rendered=False,
+                    auth_scheme=verify_result.scheme,
+                    auth_outcome=verify_result.outcome,
+                    auth_detail="aggregate cap reached",
+                    block_chars=0,
+                    block_truncated=block_truncated,
+                )
+            )
+            continue
+
+        total_cap_remaining -= entry_chars
+        target = prepend_lines if nb.placement == "prepend" else append_lines
+        target.append(entry_text)
+        block_entries.append(
+            _RenderedNotifyBlockEntry(
+                message_ref=message.message_ref,
+                rendered=True,
+                auth_scheme=verify_result.scheme,
+                auth_outcome=verify_result.outcome,
+                auth_detail=verify_result.detail,
+                block_chars=len(text),
+                block_truncated=block_truncated,
+            )
+        )
+
+    if suppressed_count > 0:
+        summary = f"+ {suppressed_count} more sender notice(s) — open inbox to read"
+        if append_lines:
+            append_lines.append(summary)
+        else:
+            prepend_lines.append(summary)
+
+    prepend_text = "\n".join(prepend_lines) + ("\n\n" if prepend_lines else "")
+    append_text = ("\n\n" + "\n".join(append_lines)) if append_lines else ""
+    return prepend_text, append_text, block_entries
 
 
 def _render_mail_notifier_mode_guidance(mode: GatewayMailNotifierMode) -> str:
@@ -967,6 +1132,11 @@ class GatewayServiceRuntime:
         self.m_tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 = (
             resolve_gateway_tui_tracking_timing_config(explicit=tui_tracking_timings)
         )
+        diagnostic_logging_config = self._load_diagnostic_logging_config()
+        self.m_diagnostic_logger: GatewayDiagnosticLogger = GatewayDiagnosticLogger(
+            config=diagnostic_logging_config,
+            log_path=self.m_paths.diagnostic_log_path,
+        )
         self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
         self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
             attach_contract=self.m_attach_contract
@@ -993,6 +1163,16 @@ class GatewayServiceRuntime:
         self.m_headless_next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
         self.m_reminders: dict[str, _GatewayReminderRecord] = {}
         self.m_active_reminder_id: str | None = None
+
+    def _load_diagnostic_logging_config(self) -> GatewayDiagnosticLoggingConfigV1:
+        """Load persisted diagnostic logging config, defaulting to disabled."""
+
+        if not self.m_paths.desired_config_path.is_file():
+            return GatewayDiagnosticLoggingConfigV1()
+        desired_config = load_gateway_desired_config(self.m_paths.desired_config_path)
+        if desired_config.desired_diagnostic_logging is None:
+            return GatewayDiagnosticLoggingConfigV1()
+        return desired_config.desired_diagnostic_logging
 
     @classmethod
     def from_gateway_root(
@@ -1098,6 +1278,7 @@ class GatewayServiceRuntime:
                 self.m_tui_tracking = None
             self._flush_rate_limited_logs()
             self._log("gateway stopping")
+            self.m_diagnostic_logger.close()
             delete_gateway_current_instance(self.m_paths)
 
     def health(self) -> GatewayHealthResponseV1:
@@ -2885,33 +3066,37 @@ class GatewayServiceRuntime:
             )
             if context_action_support_error is not None:
                 raise HTTPException(status_code=422, detail=context_action_support_error)
+            notify_block_kwargs: dict[str, object] = {}
+            for field_name in (
+                "notify_block_render",
+                "notify_block_auth_mode",
+                "notify_block_auth_verifier",
+                "notify_block_shared_tokens",
+                "notify_block_per_message_chars",
+                "notify_block_total_chars",
+            ):
+                if field_name in request_payload.model_fields_set:
+                    value = getattr(request_payload, field_name)
+                    if value is not None:
+                        notify_block_kwargs[field_name] = value
+            base_kwargs: dict[str, object] = {
+                "enabled": True,
+                "interval_seconds": request_payload.interval_seconds,
+                "mode": request_payload.mode,
+                "context_error_policy": request_payload.context_error_policy,
+                "pre_notification_context_action": (
+                    request_payload.pre_notification_context_action
+                ),
+                "last_notified_digest": None,
+                "last_error": None,
+            }
             if "appendix_text" in request_payload.model_fields_set:
-                record = write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    enabled=True,
-                    interval_seconds=request_payload.interval_seconds,
-                    mode=request_payload.mode,
-                    appendix_text=request_payload.appendix_text,
-                    context_error_policy=request_payload.context_error_policy,
-                    pre_notification_context_action=(
-                        request_payload.pre_notification_context_action
-                    ),
-                    last_notified_digest=None,
-                    last_error=None,
-                )
-            else:
-                record = write_gateway_mail_notifier_record(
-                    self.m_paths.queue_path,
-                    enabled=True,
-                    interval_seconds=request_payload.interval_seconds,
-                    mode=request_payload.mode,
-                    context_error_policy=request_payload.context_error_policy,
-                    pre_notification_context_action=(
-                        request_payload.pre_notification_context_action
-                    ),
-                    last_notified_digest=None,
-                    last_error=None,
-                )
+                base_kwargs["appendix_text"] = request_payload.appendix_text
+            record = write_gateway_mail_notifier_record(
+                self.m_paths.queue_path,
+                **base_kwargs,
+                **notify_block_kwargs,
+            )
             self._log(
                 "mail notifier enabled "
                 f"interval_seconds={request_payload.interval_seconds} mode={request_payload.mode}"
@@ -3199,6 +3384,8 @@ class GatewayServiceRuntime:
                             sender_address=message.sender.address,
                             sender_display_name=message.sender.display_name,
                             subject=message.subject,
+                            notify_block=message.notify_block,
+                            notify_auth=message.notify_auth,
                         )
                         for message in adapter.list_messages(
                             box="inbox",
@@ -3358,9 +3545,11 @@ class GatewayServiceRuntime:
             elif diagnostic is not None:
                 context_action_outcomes.append("degraded_context_continued")
 
-            prompt = self._build_mail_notifier_prompt(
+            prompt, rendered_block_entries = self._build_mail_notifier_prompt(
                 mode=record.mode,
                 appendix_text=record.appendix_text,
+                unread_messages=unread_messages,
+                record=record,
             )
             request_id = self._enqueue_internal_prompt(prompt=prompt)
             write_gateway_mail_notifier_record(
@@ -3384,6 +3573,7 @@ class GatewayServiceRuntime:
                 ),
                 degraded_tool_name=degraded_tool_name,
                 degraded_error_type=degraded_error_type,
+                rendered_block_entries=rendered_block_entries,
             )
             self._log(
                 f"mail notifier enqueued request_id={request_id} "
@@ -3409,13 +3599,29 @@ class GatewayServiceRuntime:
         *,
         mode: GatewayMailNotifierMode,
         appendix_text: str,
-    ) -> str:
-        """Build the reminder prompt submitted through the internal notifier path."""
+        unread_messages: list[_UnreadMailboxMessage],
+        record: GatewayMailNotifierRecord,
+    ) -> tuple[str, list[_RenderedNotifyBlockEntry]]:
+        """Build the reminder prompt and capture per-block audit entries.
+
+        Returns
+        -------
+        tuple
+            ``(prompt, rendered_block_entries)`` — the rendered notifier prompt
+            text plus per-block audit detail for every eligible mailbox message
+            that carried a non-null ``notify_block`` (rendered or suppressed).
+        """
 
         mailbox = self._load_mailbox_config()
         base_url = f"http://{self.m_host}:{self.m_port}"
         rendered = _load_mail_notifier_template()
         mode_guidance = _render_mail_notifier_mode_guidance(mode)
+
+        prepend_text, append_text, block_entries = _render_notify_block_slots(
+            unread_messages=unread_messages,
+            record=record,
+        )
+
         replacements = {
             "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
             "{{NOTIFIER_MODE}}": mode,
@@ -3423,10 +3629,12 @@ class GatewayServiceRuntime:
             "{{GATEWAY_BASE_URL}}": base_url,
             "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(base_url),
             "{{APPENDIX_BLOCK}}": _render_mail_notifier_appendix_block(appendix_text),
+            "{{NOTIFY_BLOCKS_PREPEND}}": prepend_text,
+            "{{NOTIFY_BLOCKS_APPEND}}": append_text,
         }
         for placeholder, replacement in replacements.items():
             rendered = rendered.replace(placeholder, replacement)
-        return rendered.rstrip()
+        return rendered.rstrip(), block_entries
 
     def _enqueue_internal_prompt(
         self,
@@ -3491,6 +3699,7 @@ class GatewayServiceRuntime:
         context_action_outcome: str | None = None,
         degraded_tool_name: str | None = None,
         degraded_error_type: str | None = None,
+        rendered_block_entries: list[_RenderedNotifyBlockEntry] | None = None,
     ) -> None:
         """Persist one structured notifier audit row."""
 
@@ -3499,6 +3708,18 @@ class GatewayServiceRuntime:
         )
         pre_notification_context_action = (
             record.pre_notification_context_action if record is not None else "none"
+        )
+        rendered_entries_tuple = tuple(
+            GatewayNotifierAuditRenderedBlockEntry(
+                message_ref=entry.message_ref,
+                rendered=entry.rendered,
+                auth_scheme=entry.auth_scheme,
+                auth_outcome=entry.auth_outcome,
+                auth_detail=entry.auth_detail,
+                block_chars=entry.block_chars,
+                block_truncated=entry.block_truncated,
+            )
+            for entry in (rendered_block_entries or [])
         )
         append_gateway_notifier_audit_record(
             self.m_paths.queue_path,
@@ -3525,6 +3746,7 @@ class GatewayServiceRuntime:
             context_action_outcome=context_action_outcome,
             degraded_tool_name=degraded_tool_name,
             degraded_error_type=degraded_error_type,
+            rendered_block_entries=rendered_entries_tuple,
         )
 
     def _reminder_loop(self) -> None:
@@ -4444,6 +4666,26 @@ class GatewayServiceRuntime:
 
         return os.getpid()
 
+    def emit_diagnostic(
+        self,
+        *,
+        level: GatewayDiagnosticLevel,
+        event: str,
+        fields: dict[str, object] | None = None,
+        dedup_key: str | None = None,
+    ) -> None:
+        """Emit one gateway diagnostic entry when diagnostic logging is enabled."""
+
+        try:
+            self.m_diagnostic_logger.emit(
+                level=level,
+                event=event,
+                fields=fields,
+                dedup_key=dedup_key,
+            )
+        except Exception:
+            return
+
     def _log(self, message: str) -> None:
         """Emit one tail-friendly gateway log line to the stable gateway log."""
 
@@ -4453,6 +4695,15 @@ class GatewayServiceRuntime:
             with self.m_paths.log_path.open("a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
         print(line, flush=True)
+        gateway_log_diagnostic = _gateway_log_diagnostic(message)
+        if gateway_log_diagnostic is not None:
+            level, fields, dedup_key = gateway_log_diagnostic
+            self.emit_diagnostic(
+                level=level,
+                event="gateway.running_log_warning",
+                fields=fields,
+                dedup_key=dedup_key,
+            )
 
     def _log_rate_limited(self, key: str, message: str) -> None:
         """Emit one gateway log line with coarse repetition suppression."""
@@ -4476,6 +4727,187 @@ class GatewayServiceRuntime:
             self.m_rate_limited_logs[key] = (time.monotonic(), 0)
 
 
+def _gateway_log_diagnostic(
+    message: str,
+) -> tuple[GatewayDiagnosticLevel, dict[str, object], str] | None:
+    """Return a compact diagnostic projection for warning-like gateway log lines."""
+
+    level = _gateway_log_diagnostic_level(message)
+    if level is None:
+        return None
+    message_code = _gateway_log_message_code(message)
+    fields: dict[str, object] = {
+        "message_code": message_code,
+    }
+    fields.update(_gateway_log_context_fields(message))
+    if "suppressed " in message.lower():
+        fields["suppression_notice"] = True
+    return level, fields, f"gateway-log:{level}:{message_code}"
+
+
+def _gateway_log_diagnostic_level(message: str) -> GatewayDiagnosticLevel | None:
+    """Classify one gateway log line for diagnostic warning/error projection."""
+
+    normalized = f" {message.lower()} "
+    if " failed" in normalized or " failure" in normalized or " error" in normalized:
+        return "error"
+    if (
+        " disabled:" in normalized
+        or " deferred" in normalized
+        or " lost " in normalized
+        or " refused" in normalized
+        or " suppressed " in normalized
+    ):
+        return "warning"
+    return None
+
+
+def _gateway_log_message_code(message: str) -> str:
+    """Return a stable non-secret code from one gateway log message."""
+
+    prefix = message.split(" detail=", 1)[0].split(": ", 1)[0].strip().lower()
+    code = "".join(character if character.isalnum() else "_" for character in prefix)
+    while "__" in code:
+        code = code.replace("__", "_")
+    return code.strip("_")[:120] or "gateway_log_warning"
+
+
+def _gateway_log_context_fields(message: str) -> dict[str, object]:
+    """Extract safe key-value context from one gateway log line."""
+
+    allowed_keys = {
+        "kind",
+        "mode",
+        "reminder_id",
+        "request_id",
+        "turn_id",
+    }
+    fields: dict[str, object] = {}
+    for token in message.replace(",", " ").split():
+        if "=" not in token:
+            continue
+        key, raw_value = token.split("=", 1)
+        if key not in allowed_keys:
+            continue
+        fields[key] = raw_value.strip("'\"`")
+    return fields
+
+
+def _diagnostic_http_level(status_code: int) -> GatewayDiagnosticLevel:
+    """Return the diagnostic severity for one HTTP status code."""
+
+    if status_code >= 500:
+        return "error"
+    if status_code >= 400:
+        return "warning"
+    return "info"
+
+
+def _diagnostic_validation_errors(errors: Sequence[object]) -> list[dict[str, object]]:
+    """Return validation error summaries without raw request input values."""
+
+    summaries: list[dict[str, object]] = []
+    for error in errors:
+        if not isinstance(error, dict):
+            summaries.append({"type": "unknown", "loc": []})
+            continue
+        raw_loc = error.get("loc", ())
+        loc = (
+            [str(part) for part in raw_loc]
+            if isinstance(raw_loc, Sequence) and not isinstance(raw_loc, str | bytes)
+            else []
+        )
+        summaries.append(
+            {
+                "type": str(error.get("type", "unknown")),
+                "loc": loc,
+            }
+        )
+    return summaries
+
+
+def _mailbox_request_diagnostic_fields(operation: str, payload: object | None) -> dict[str, object]:
+    """Return safe diagnostic fields for one mailbox request payload."""
+
+    fields: dict[str, object] = {"operation": operation}
+    if payload is None:
+        return fields
+    _copy_optional_attr(fields, payload, "box")
+    _copy_optional_attr(fields, payload, "read_state")
+    _copy_optional_attr(fields, payload, "answered_state")
+    _copy_optional_attr(fields, payload, "archived")
+    _copy_optional_attr(fields, payload, "limit")
+    _copy_optional_attr(fields, payload, "include_body")
+    _copy_optional_attr(fields, payload, "destination_box")
+    _copy_optional_attr(fields, payload, "read")
+    _copy_optional_attr(fields, payload, "answered")
+    _copy_optional_attr(fields, payload, "message_ref")
+    _copy_optional_count(fields, payload, "message_refs", "message_ref_count")
+    _copy_optional_count(fields, payload, "to", "to_count")
+    _copy_optional_count(fields, payload, "cc", "cc_count")
+    _copy_optional_count(fields, payload, "attachments", "attachment_count")
+    fields["subject_present"] = bool(getattr(payload, "subject", None))
+    fields["body_present"] = bool(getattr(payload, "body_content", None))
+    fields["notify_block_present"] = getattr(payload, "notify_block", None) is not None
+    fields["notify_auth_present"] = getattr(payload, "notify_auth", None) is not None
+    return fields
+
+
+def _mailbox_response_diagnostic_fields(response: object) -> dict[str, object]:
+    """Return safe diagnostic fields for one mailbox response model."""
+
+    fields: dict[str, object] = {}
+    _copy_optional_attr(fields, response, "operation")
+    _copy_optional_attr(fields, response, "transport")
+    _copy_optional_attr(fields, response, "principal_id")
+    _copy_optional_attr(fields, response, "address")
+    _copy_optional_attr(fields, response, "message_count")
+    _copy_optional_attr(fields, response, "open_count")
+    _copy_optional_attr(fields, response, "unread_count")
+    message = getattr(response, "message", None)
+    if message is not None:
+        _copy_optional_attr(fields, message, "message_ref")
+        _copy_optional_attr(fields, message, "thread_ref")
+    messages = getattr(response, "messages", None)
+    if isinstance(messages, Sequence) and not isinstance(messages, str | bytes):
+        fields["message_count"] = len(messages)
+    return fields
+
+
+def _copy_optional_attr(fields: dict[str, object], source: object, attr_name: str) -> None:
+    """Copy one non-None scalar attribute into diagnostic fields."""
+
+    value = getattr(source, attr_name, None)
+    if value is None:
+        return
+    if isinstance(value, str | int | bool | float):
+        fields[attr_name] = value
+
+
+def _copy_optional_count(
+    fields: dict[str, object],
+    source: object,
+    attr_name: str,
+    field_name: str,
+) -> None:
+    """Copy the length of one sequence attribute into diagnostic fields."""
+
+    value = getattr(source, attr_name, None)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        fields[field_name] = len(value)
+
+
+def _mailbox_repair_hint(detail: str) -> str | None:
+    """Return repair guidance when a mailbox-local failure is likely repairable."""
+
+    normalized = detail.lower()
+    if "run mailbox repair" in normalized or "mailbox-local" in normalized:
+        return "run mailbox repair"
+    if "mailbox local" in normalized and "state" in normalized:
+        return "run mailbox repair"
+    return None
+
+
 def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     """Create the FastAPI app bound to one gateway runtime.
 
@@ -4491,6 +4923,77 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     """
 
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _diagnostic_http_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        """Record HTTP completion diagnostics without reading request bodies."""
+
+        request_id = f"http-{time.time_ns():x}"
+        start_monotonic = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - start_monotonic) * 1000)
+            runtime.emit_diagnostic(
+                level="error",
+                event="gateway.http_request_failed",
+                fields={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": 500,
+                    "duration_ms": duration_ms,
+                    "request_id": request_id,
+                    "error_category": type(exc).__name__,
+                },
+                dedup_key=f"http-request-failed:{request.method}:{request.url.path}:{type(exc).__name__}",
+            )
+            raise
+        duration_ms = int((time.monotonic() - start_monotonic) * 1000)
+        runtime.emit_diagnostic(
+            level=_diagnostic_http_level(response.status_code),
+            event="gateway.http_request_completed",
+            fields={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+                "request_id": request_id,
+            },
+            dedup_key=f"http-request:{request.method}:{request.url.path}:{response.status_code}",
+        )
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def _diagnostic_validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """Record request validation failures without raw request bodies."""
+
+        validation_errors = _diagnostic_validation_errors(exc.errors())
+        runtime.emit_diagnostic(
+            level="warning",
+            event="gateway.http_validation_failed",
+            fields={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 422,
+                "error_count": len(validation_errors),
+                "validation_errors": validation_errors,
+            },
+            dedup_key=(
+                "http-validation:"
+                f"{request.method}:{request.url.path}:"
+                f"{json.dumps(validation_errors, sort_keys=True, separators=(',', ':'))}"
+            ),
+        )
+        return JSONResponse(
+            status_code=422,
+            content=jsonable_encoder({"detail": exc.errors()}),
+        )
 
     @app.get("/health", response_model=GatewayHealthResponseV1)
     def _health() -> GatewayHealthResponseV1:
@@ -4686,6 +5189,63 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.delete_reminder(reminder_id=reminder_id)
 
+    def _mailbox_call(
+        *,
+        operation: str,
+        request_payload: object | None,
+        callback: Callable[[], _MailRouteResponseT],
+    ) -> _MailRouteResponseT:
+        """Run one mailbox route with safe diagnostic lifecycle entries."""
+
+        request_fields = _mailbox_request_diagnostic_fields(operation, request_payload)
+        runtime.emit_diagnostic(
+            level="info",
+            event="gateway.mailbox_operation_started",
+            fields=request_fields,
+        )
+        try:
+            response = callback()
+        except HTTPException as exc:
+            detail = str(exc.detail)
+            failure_fields = {
+                **request_fields,
+                "status_code": exc.status_code,
+                "error_category": "HTTPException",
+                "error_detail": detail,
+            }
+            repair_hint = _mailbox_repair_hint(detail)
+            if repair_hint is not None:
+                failure_fields["repair_hint"] = repair_hint
+            runtime.emit_diagnostic(
+                level=_diagnostic_http_level(exc.status_code),
+                event="gateway.mailbox_operation_failed",
+                fields=failure_fields,
+                dedup_key=f"mailbox:{operation}:failed:{exc.status_code}:{repair_hint or 'http'}",
+            )
+            raise
+        except Exception as exc:
+            runtime.emit_diagnostic(
+                level="error",
+                event="gateway.mailbox_operation_failed",
+                fields={
+                    **request_fields,
+                    "status_code": 500,
+                    "error_category": type(exc).__name__,
+                },
+                dedup_key=f"mailbox:{operation}:failed:500:{type(exc).__name__}",
+            )
+            raise
+
+        runtime.emit_diagnostic(
+            level="info",
+            event="gateway.mailbox_operation_completed",
+            fields={
+                **request_fields,
+                **_mailbox_response_diagnostic_fields(response),
+            },
+        )
+        return response
+
     @app.get("/v1/mail/status", response_model=GatewayMailStatusV1)
     def _mail_status() -> GatewayMailStatusV1:
         """Serve shared mailbox availability for the attached session."""
@@ -4696,49 +5256,81 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     def _mail_list(request_payload: GatewayMailListRequestV1) -> GatewayMailListResponseV1:
         """Run one shared mailbox list request."""
 
-        return runtime.list_mail(request_payload)
+        return _mailbox_call(
+            operation="list",
+            request_payload=request_payload,
+            callback=lambda: runtime.list_mail(request_payload),
+        )
 
     @app.post("/v1/mail/peek", response_model=GatewayMailMessageResponseV1)
     def _mail_peek(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox peek request."""
 
-        return runtime.peek_mail(request_payload)
+        return _mailbox_call(
+            operation="peek",
+            request_payload=request_payload,
+            callback=lambda: runtime.peek_mail(request_payload),
+        )
 
     @app.post("/v1/mail/read", response_model=GatewayMailMessageResponseV1)
     def _mail_read(request_payload: GatewayMailMessageRequestV1) -> GatewayMailMessageResponseV1:
         """Run one shared mailbox read request."""
 
-        return runtime.read_mail(request_payload)
+        return _mailbox_call(
+            operation="read",
+            request_payload=request_payload,
+            callback=lambda: runtime.read_mail(request_payload),
+        )
 
     @app.post("/v1/mail/send", response_model=GatewayMailActionResponseV1)
     def _mail_send(request_payload: GatewayMailSendRequestV1) -> GatewayMailActionResponseV1:
         """Run one shared mailbox send request."""
 
-        return runtime.send_mail(request_payload)
+        return _mailbox_call(
+            operation="send",
+            request_payload=request_payload,
+            callback=lambda: runtime.send_mail(request_payload),
+        )
 
     @app.post("/v1/mail/post", response_model=GatewayMailActionResponseV1)
     def _mail_post(request_payload: GatewayMailPostRequestV1) -> GatewayMailActionResponseV1:
         """Run one shared mailbox operator-origin post request."""
 
-        return runtime.post_mail(request_payload)
+        return _mailbox_call(
+            operation="post",
+            request_payload=request_payload,
+            callback=lambda: runtime.post_mail(request_payload),
+        )
 
     @app.post("/v1/mail/reply", response_model=GatewayMailActionResponseV1)
     def _mail_reply(request_payload: GatewayMailReplyRequestV1) -> GatewayMailActionResponseV1:
         """Run one shared mailbox reply request."""
 
-        return runtime.reply_mail(request_payload)
+        return _mailbox_call(
+            operation="reply",
+            request_payload=request_payload,
+            callback=lambda: runtime.reply_mail(request_payload),
+        )
 
     @app.post("/v1/mail/mark", response_model=GatewayMailLifecycleResponseV1)
     def _mail_mark(request_payload: GatewayMailMarkRequestV1) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox mark request."""
 
-        return runtime.mark_mail(request_payload)
+        return _mailbox_call(
+            operation="mark",
+            request_payload=request_payload,
+            callback=lambda: runtime.mark_mail(request_payload),
+        )
 
     @app.post("/v1/mail/move", response_model=GatewayMailLifecycleResponseV1)
     def _mail_move(request_payload: GatewayMailMoveRequestV1) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox move request."""
 
-        return runtime.move_mail(request_payload)
+        return _mailbox_call(
+            operation="move",
+            request_payload=request_payload,
+            callback=lambda: runtime.move_mail(request_payload),
+        )
 
     @app.post("/v1/mail/archive", response_model=GatewayMailLifecycleResponseV1)
     def _mail_archive(
@@ -4746,7 +5338,11 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     ) -> GatewayMailLifecycleResponseV1:
         """Run one shared mailbox archive request."""
 
-        return runtime.archive_mail(request_payload)
+        return _mailbox_call(
+            operation="archive",
+            request_payload=request_payload,
+            callback=lambda: runtime.archive_mail(request_payload),
+        )
 
     @app.get("/v1/mail-notifier", response_model=GatewayMailNotifierStatusV1)
     def _get_mail_notifier() -> GatewayMailNotifierStatusV1:

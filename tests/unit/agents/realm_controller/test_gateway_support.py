@@ -41,9 +41,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentInstanceV1,
     GatewayChatSessionSelectorV1,
     GatewayControlInputRequestV1,
+    GatewayDiagnosticLoggingConfigV1,
     GatewayExecutionModelReasoningV1,
     GatewayExecutionModelV1,
     GatewayExecutionOverrideV1,
+    GatewayMailActionResponseV1,
     GatewayMailArchiveRequestV1,
     GatewayMailListRequestV1,
     GatewayMailMarkRequestV1,
@@ -79,6 +81,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     GatewayPaths,
     ensure_gateway_capability,
     gateway_paths_from_manifest_path,
+    gateway_paths_from_session_root,
     load_gateway_current_instance,
     load_gateway_desired_config,
     load_gateway_manifest,
@@ -4628,6 +4631,37 @@ def _gateway_events(paths: GatewayPaths) -> list[dict[str, object]]:
     ]
 
 
+def _enable_gateway_diagnostics(
+    paths: GatewayPaths,
+    *,
+    max_bytes: int = 4096,
+    backup_count: int = 2,
+) -> None:
+    desired_config = load_gateway_desired_config(paths.desired_config_path)
+    write_gateway_desired_config(
+        paths.desired_config_path,
+        desired_config.model_copy(
+            update={
+                "desired_diagnostic_logging": GatewayDiagnosticLoggingConfigV1(
+                    enabled=True,
+                    max_bytes=max_bytes,
+                    backup_count=backup_count,
+                )
+            }
+        ),
+    )
+
+
+def _gateway_diagnostic_entries(paths: GatewayPaths) -> list[dict[str, object]]:
+    if not paths.diagnostic_log_path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in paths.diagnostic_log_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def _wait_for_gateway_queue_idle(runtime: GatewayServiceRuntime) -> None:
     def _is_idle() -> bool:
         status = runtime.status()
@@ -5210,6 +5244,137 @@ def test_gateway_mail_routes_support_filesystem_mailbox_without_runtime_roundtri
             (HOUMAO_OPERATOR_ADDRESS,),
         ).fetchone()
     assert operator_count == (1,)
+
+
+def test_gateway_diagnostics_capture_http_validation_without_raw_body(
+    tmp_path: Path,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    paths = gateway_paths_from_session_root(session_root=gateway_root.parent)
+    _enable_gateway_diagnostics(paths)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    response = client.post(
+        "/v1/mail/send",
+        json={
+            "schema_version": 1,
+            "to": "not-a-list",
+            "subject": "Diagnostic validation",
+            "body_content": "validation secret body",
+            "authorization": "Bearer validation-secret-token",
+        },
+    )
+
+    assert response.status_code == 422
+    entries = _gateway_diagnostic_entries(paths)
+    validation_entries = [
+        entry for entry in entries if entry["event"] == "gateway.http_validation_failed"
+    ]
+    assert validation_entries
+    assert validation_entries[-1]["path"] == "/v1/mail/send"
+    assert validation_entries[-1]["status_code"] == 422
+    assert validation_entries[-1]["validation_errors"]
+    diagnostic_text = paths.diagnostic_log_path.read_text(encoding="utf-8")
+    assert "validation secret body" not in diagnostic_text
+    assert "validation-secret-token" not in diagnostic_text
+    assert "input" not in json.dumps(validation_entries[-1], sort_keys=True)
+
+
+def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    paths = gateway_paths_from_session_root(session_root=gateway_root.parent)
+    _enable_gateway_diagnostics(paths)
+    _deliver_unread_mailbox_message(tmp_path)
+    secret_attachment = tmp_path / "secret-attachment.txt"
+    secret_attachment.write_text("attachment secret payload\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: _FakeCaoRestClient(base_url="http://localhost:9889"),
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    success_response = client.post(
+        "/v1/mail/send",
+        json=GatewayMailSendRequestV1(
+            to=["HOUMAO-sender@agents.localhost"],
+            subject="Diagnostic success",
+            body_content="mailbox success secret body",
+            attachments=[{"path": str(secret_attachment), "label": "secret attachment label"}],
+        ).model_dump(mode="json"),
+    )
+    assert success_response.status_code == 200
+
+    failure_response = client.post(
+        "/v1/mail/send",
+        json=GatewayMailSendRequestV1(
+            to=["bare-agent-name"],
+            subject="Diagnostic failure",
+            body_content="mailbox failure secret body",
+            attachments=[{"path": str(secret_attachment), "label": "secret attachment label"}],
+        ).model_dump(mode="json"),
+    )
+    assert failure_response.status_code == 502
+
+    def _raise_repairable_mailbox_error(
+        _request_payload: GatewayMailSendRequestV1,
+    ) -> GatewayMailActionResponseV1:
+        raise HTTPException(
+            status_code=502,
+            detail="mailbox-local state update failed; run mailbox repair",
+        )
+
+    monkeypatch.setattr(runtime, "send_mail", _raise_repairable_mailbox_error)
+    repair_response = client.post(
+        "/v1/mail/send",
+        json=GatewayMailSendRequestV1(
+            to=["HOUMAO-sender@agents.localhost"],
+            subject="Diagnostic repair",
+            body_content="mailbox repair secret body",
+        ).model_dump(mode="json"),
+    )
+    assert repair_response.status_code == 502
+
+    entries = _gateway_diagnostic_entries(paths)
+    send_starts = [
+        entry
+        for entry in entries
+        if entry["event"] == "gateway.mailbox_operation_started" and entry["operation"] == "send"
+    ]
+    send_completions = [
+        entry
+        for entry in entries
+        if entry["event"] == "gateway.mailbox_operation_completed" and entry["operation"] == "send"
+    ]
+    send_failures = [
+        entry
+        for entry in entries
+        if entry["event"] == "gateway.mailbox_operation_failed" and entry["operation"] == "send"
+    ]
+    assert send_starts
+    assert send_completions
+    assert send_failures
+    assert send_failures[-1]["repair_hint"] == "run mailbox repair"
+    diagnostic_text = paths.diagnostic_log_path.read_text(encoding="utf-8")
+    assert "mailbox success secret body" not in diagnostic_text
+    assert "mailbox failure secret body" not in diagnostic_text
+    assert "mailbox repair secret body" not in diagnostic_text
+    assert "attachment secret payload" not in diagnostic_text
+    assert str(secret_attachment) not in diagnostic_text
+    assert "secret attachment label" not in diagnostic_text
+    assert "attachment_count" in diagnostic_text
 
 
 def test_gateway_mail_send_reports_bare_agent_name_with_address_hint(
@@ -7274,7 +7439,6 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "- `GET http://127.0.0.1:43123/v1/mail/status`" not in prompt
         assert "- `POST http://127.0.0.1:43123/v1/mail/archive`" not in prompt
         assert "curl -sS -X POST" not in prompt
-        assert "archive only completed messages, then stop" in prompt
         assert "Houmao mailbox skills are not installed for this session." not in prompt
         assert "python -m houmao.agents.mailbox_runtime_support" not in prompt
         assert "deliver_message.py" not in prompt

@@ -160,10 +160,24 @@ Runtime log cleanup SHALL NOT treat these artifacts as disposable log output in 
 - `gateway/events.jsonl`
 - `gateway/state.json`
 
+`houmao-mgr admin cleanup runtime logs` and `houmao-mgr agents cleanup logs` SHALL classify gateway diagnostic log files under the gateway-owned log directory as cleanup-sensitive runtime log artifacts.
+
+Runtime log cleanup SHALL apply the same live-session safety posture to gateway diagnostic log files as it applies to other gateway log output.
+
 #### Scenario: Log cleanup preserves durable gateway state
 - **WHEN** an operator runs a supported runtime log cleanup command
 - **THEN** the command may remove human-oriented log files and ephemeral live-instance files
 - **AND THEN** it preserves durable gateway artifacts such as `queue.sqlite`, `events.jsonl`, `state.json`, and `manifest.json`
+
+#### Scenario: Stopped-session log cleanup removes diagnostic logs but preserves durable gateway state
+- **WHEN** an operator runs a supported runtime log cleanup command for a stopped session with gateway diagnostic log files
+- **THEN** the command may remove those diagnostic log files as runtime log artifacts
+- **AND THEN** it preserves durable gateway artifacts such as `queue.sqlite`, `events.jsonl`, `state.json`, and `manifest.json`
+
+#### Scenario: Active-session log cleanup follows existing live safeguards
+- **WHEN** an operator runs a supported runtime log cleanup command for an active session with gateway diagnostic log files
+- **THEN** the command applies the existing live-session safety checks before removing cleanup-sensitive gateway log artifacts
+- **AND THEN** the command does not retire or purge the active registry record merely because diagnostic log files were selected for cleanup
 
 ### Requirement: Runtime mailbox credential cleanup removes only unreferenced credential refs
 `houmao-mgr admin cleanup runtime mailbox-credentials` SHALL evaluate runtime-owned Stalwart credential files by `credential_ref`.
@@ -318,6 +332,36 @@ Retired registry records SHALL NOT be considered relaunchable and SHALL NOT be i
 - **AND WHEN** the selected stopped registry record would be retired or purged during execute mode
 - **THEN** the dry-run cleanup payload includes the planned registry lifecycle action
 - **AND THEN** the registry record is not mutated during dry-run
+
+### Requirement: Managed-session cleanup can purge broken active local authority
+`houmao-mgr agents cleanup session` SHALL continue treating stopped-session cleanup as the default contract.
+
+However, when the operator explicitly passes `--purge-registry`, the command SHALL allow cleanup of a resolved local managed-agent record that still claims lifecycle state `active` when local tmux-authority inspection proves that the selected session no longer has a usable contractual primary surface.
+
+For this explicit purge path:
+
+- a usable local primary surface requires the contractual primary window `0` and pane `0`
+- a leftover tmux session remnant without that primary surface SHALL NOT be treated as healthy live session authority
+- if such a tmux session remnant still exists, cleanup SHALL terminate it before removing the session root
+- cleanup SHALL then remove the session root and purge or retire the registry record according to the selected cleanup mode
+
+Without `--purge-registry`, cleanup SHALL remain conservative and MAY still block when lifecycle state remains `active`.
+
+#### Scenario: Purge cleanup removes a gateway-only tmux remnant for an active degraded record
+- **WHEN** an operator runs `houmao-mgr agents cleanup session --agent-id agent-123 --purge-registry`
+- **AND WHEN** the selected registry record still claims lifecycle state `active`
+- **AND WHEN** local tmux inspection shows that the tmux session still exists but the contractual primary surface is missing
+- **THEN** cleanup treats that target as broken local authority rather than as healthy live session authority
+- **AND THEN** cleanup terminates the leftover tmux session remnant before removing the session root
+- **AND THEN** the registry record is purged or retired according to the requested cleanup mode
+
+#### Scenario: Purge cleanup removes session artifacts for a stale active record with no tmux session
+- **WHEN** an operator runs `houmao-mgr agents cleanup session --agent-name reviewer --purge-registry`
+- **AND WHEN** the selected registry record still claims lifecycle state `active`
+- **AND WHEN** local tmux inspection shows that the recorded tmux session no longer exists
+- **THEN** cleanup treats that target as broken local authority eligible for explicit purge cleanup
+- **AND THEN** cleanup removes the session root without requiring a prior successful `agents stop`
+- **AND THEN** the registry record is purged or retired according to the requested cleanup mode
 
 ### Requirement: Cleanup preserves active lifecycle records unless explicitly forced through supported live safeguards
 Cleanup commands SHALL NOT remove or retire active lifecycle registry records merely because they match an agent name or id.

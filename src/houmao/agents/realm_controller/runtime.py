@@ -120,6 +120,7 @@ from .gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayCurrentInstanceV1,
     GatewayDesiredConfigV1,
+    GatewayDiagnosticLoggingConfigV1,
     GatewayHost,
     GatewayJsonObject,
     GatewayPromptControlRequestV1,
@@ -896,6 +897,10 @@ class RuntimeSessionController:
 
         backend_state = _backend_state_for_session(self.backend_session)
         self.tmux_session_name = _tmux_session_name_for_controller(self)
+        self.agent_launch_authority = _agent_launch_authority_with_primary_handles(
+            self.agent_launch_authority,
+            backend_state=backend_state,
+        )
         payload = build_session_manifest_payload(
             SessionManifestRequest(
                 launch_plan=self.launch_plan,
@@ -1954,6 +1959,8 @@ def _resume_headless_state(
             else (tmux_session_name.strip() if tmux_session_name is not None else None)
         ),
         tmux_window_name=tmux_window_name,
+        tmux_window_id=None if stopped_revival else _manifest_primary_tmux_window_id(payload),
+        tmux_pane_id=None if stopped_revival else _manifest_primary_tmux_pane_id(payload),
         resume_selection_kind=headless.resume_selection_kind,
         resume_selection_value=headless.resume_selection_value,
         joined_session=_is_joined_tmux_manifest(payload),
@@ -1999,6 +2006,8 @@ def _resume_local_interactive_state(
             else (tmux_session_name.strip() if tmux_session_name is not None else None)
         ),
         tmux_window_name=tmux_window_name,
+        tmux_window_id=None if stopped_revival else _manifest_primary_tmux_window_id(payload),
+        tmux_pane_id=None if stopped_revival else _manifest_primary_tmux_pane_id(payload),
         joined_session=_is_joined_tmux_manifest(payload),
     )
 
@@ -2107,6 +2116,36 @@ def _manifest_primary_tmux_window_name(
     if isinstance(backend_window_name, str) and backend_window_name.strip():
         return backend_window_name.strip()
     return None
+
+
+def _manifest_primary_tmux_window_id(
+    payload: SessionManifestPayloadV4,
+) -> str | None:
+    """Return the best persisted primary tmux window id from one manifest payload."""
+
+    if payload.tmux is not None and payload.tmux.primary_window_id is not None:
+        return payload.tmux.primary_window_id
+    if (
+        payload.agent_launch_authority is not None
+        and payload.agent_launch_authority.primary_window_id is not None
+    ):
+        return payload.agent_launch_authority.primary_window_id
+    return _optional_backend_state_str(payload, "tmux_window_id")
+
+
+def _manifest_primary_tmux_pane_id(
+    payload: SessionManifestPayloadV4,
+) -> str | None:
+    """Return the best persisted primary tmux pane id from one manifest payload."""
+
+    if payload.tmux is not None and payload.tmux.primary_pane_id is not None:
+        return payload.tmux.primary_pane_id
+    if (
+        payload.agent_launch_authority is not None
+        and payload.agent_launch_authority.primary_pane_id is not None
+    ):
+        return payload.agent_launch_authority.primary_pane_id
+    return _optional_backend_state_str(payload, "tmux_pane_id")
 
 
 def _joined_launch_plan_tmux_window_name(launch_plan: LaunchPlan) -> str | None:
@@ -2246,6 +2285,36 @@ def _optional_backend_state_str(
     return stripped or None
 
 
+def _agent_launch_authority_with_primary_handles(
+    authority: SessionManifestAgentLaunchAuthorityV1 | None,
+    *,
+    backend_state: dict[str, Any],
+) -> SessionManifestAgentLaunchAuthorityV1 | None:
+    """Refresh optional primary tmux handles on a persisted launch authority."""
+
+    if authority is None:
+        return None
+    updates: dict[str, str | None] = {}
+    window_id = _optional_non_empty_backend_value(backend_state.get("tmux_window_id"))
+    pane_id = _optional_non_empty_backend_value(backend_state.get("tmux_pane_id"))
+    if window_id is not None or authority.primary_window_id is not None:
+        updates["primary_window_id"] = window_id
+    if pane_id is not None or authority.primary_pane_id is not None:
+        updates["primary_pane_id"] = pane_id
+    if not updates:
+        return authority
+    return authority.model_copy(update=updates)
+
+
+def _optional_non_empty_backend_value(value: object) -> str | None:
+    """Return a stripped backend-state string when present."""
+
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _resolve_manifest_relaunch_authority(
     controller: RuntimeSessionController,
 ) -> SessionManifestAgentLaunchAuthorityV1:
@@ -2266,6 +2335,8 @@ def _resolve_manifest_relaunch_authority(
         tool=payload.tool,
         tmux_session_name=tmux_session_name,
         primary_window_index=_PRIMARY_AGENT_WINDOW_INDEX,
+        primary_window_id=_manifest_primary_tmux_window_id(payload),
+        primary_pane_id=_manifest_primary_tmux_pane_id(payload),
         working_directory=payload.working_directory,
         posture_kind="runtime_launch_plan",
         session_id=(
@@ -4777,6 +4848,7 @@ def _start_gateway_process(
                         desired_port=endpoint.port,
                         desired_execution_mode=execution_mode,
                         desired_tui_tracking_timings=tui_tracking_timings,
+                        desired_diagnostic_logging=_load_desired_diagnostic_logging(paths),
                     ),
                 )
                 refresh_internal_gateway_publication(paths)
@@ -4867,6 +4939,7 @@ def _start_gateway_process(
                     desired_port=endpoint.port,
                     desired_execution_mode=execution_mode,
                     desired_tui_tracking_timings=tui_tracking_timings,
+                    desired_diagnostic_logging=_load_desired_diagnostic_logging(paths),
                 ),
             )
             refresh_internal_gateway_publication(paths)
@@ -5030,6 +5103,17 @@ def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1
     if not paths.desired_config_path.is_file():
         return None
     return load_gateway_desired_config(paths.desired_config_path)
+
+
+def _load_desired_diagnostic_logging(
+    paths: GatewayPaths,
+) -> GatewayDiagnosticLoggingConfigV1 | None:
+    """Load persisted gateway diagnostic logging config when present."""
+
+    desired_config = _load_optional_desired_config(paths)
+    if desired_config is None:
+        return None
+    return desired_config.desired_diagnostic_logging
 
 
 def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, port: int) -> str:

@@ -68,6 +68,15 @@ Start here:
 - [Guide: single-agent-gateway-wakeup-headless/README.md](single-agent-gateway-wakeup-headless/README.md)
 - Runner: [single-agent-gateway-wakeup-headless/run_demo.sh](single-agent-gateway-wakeup-headless/run_demo.sh)
 
+### `single-agent-mail-prompt-injection/`
+
+Defensive-security demo (CLI-only minimal runner). Drives operator-origin notify-block injection through the gateway notifier wake-up surface and observes whether the managed agent's behavior is steered outside its declared safe scope. Two notifier modes are exercised: `permissive-log` (the channel renders sender-marked content unconditionally) and `required` (the verifier rejects unauthenticated notify-blocks and suppresses them from rendering). One supported lane (`claude`); a `codex` parallel and a full Python-module driver are tracked as follow-on work in the OpenSpec change `render-mailbox-notify-block-channel`.
+
+Start here:
+
+- [Guide: single-agent-mail-prompt-injection/README.md](single-agent-mail-prompt-injection/README.md)
+- Runner: [single-agent-mail-prompt-injection/run_demo.sh](single-agent-mail-prompt-injection/run_demo.sh)
+
 ## Archived Reference
 
 ### `legacy/`

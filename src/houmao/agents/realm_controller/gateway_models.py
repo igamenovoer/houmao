@@ -28,6 +28,7 @@ from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
     MailboxNotifyAuth,
+    MailboxNotifyBlock,
 )
 
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
@@ -95,6 +96,10 @@ DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS = 1.0
 DEFAULT_GATEWAY_TUI_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS = 30.0
 DEFAULT_GATEWAY_TUI_STALE_ACTIVE_RECOVERY_SECONDS = 5.0
 DEFAULT_GATEWAY_TUI_FINAL_STABLE_ACTIVE_RECOVERY_SECONDS = 20.0
+DEFAULT_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES = 1_048_576
+DEFAULT_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT = 5
+MAX_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES = 1_073_741_824
+MAX_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT = 100
 
 
 def default_gateway_execution_mode_for_backend(
@@ -165,11 +170,46 @@ class _StrictGatewayModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class GatewayDiagnosticLoggingConfigV1(_StrictGatewayModel):
+    """Resolved gateway diagnostic logging configuration."""
+
+    enabled: bool = False
+    max_bytes: int = DEFAULT_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES
+    backup_count: int = DEFAULT_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT
+
+    @field_validator("max_bytes")
+    @classmethod
+    def _validate_max_bytes(cls, value: int) -> int:
+        """Validate the bounded active diagnostic log size."""
+
+        if isinstance(value, bool):
+            raise ValueError("must be an integer")
+        if value < 1:
+            raise ValueError("must be >= 1")
+        if value > MAX_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES:
+            raise ValueError(f"must be <= {MAX_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES}")
+        return value
+
+    @field_validator("backup_count")
+    @classmethod
+    def _validate_backup_count(cls, value: int) -> int:
+        """Validate the bounded rotated diagnostic log count."""
+
+        if isinstance(value, bool):
+            raise ValueError("must be an integer")
+        if value < 0:
+            raise ValueError("must be >= 0")
+        if value > MAX_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT:
+            raise ValueError(f"must be <= {MAX_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT}")
+        return value
+
+
 class BlueprintGatewayDefaults(_StrictGatewayModel):
     """Optional gateway defaults accepted from an agent blueprint."""
 
     host: GatewayHost | None = None
     port: int | None = None
+    diagnostic_logging: GatewayDiagnosticLoggingConfigV1 | None = None
 
     @field_validator("port")
     @classmethod
@@ -634,6 +674,7 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
     desired_port: int | None = None
     desired_execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
     desired_tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 | None = None
+    desired_diagnostic_logging: GatewayDiagnosticLoggingConfigV1 | None = None
 
     @field_validator("desired_port")
     @classmethod
@@ -1371,6 +1412,11 @@ class GatewayReminderDeleteResultV1(_StrictGatewayModel):
         return self
 
 
+NotifyBlockRender = Literal["enabled", "disabled"]
+NotifyBlockAuthMode = Literal["permissive-log", "required"]
+NotifyBlockAuthVerifier = Literal["none", "shared-token"]
+
+
 class GatewayMailNotifierPutV1(_StrictGatewayModel):
     """`PUT /v1/mail-notifier` request body."""
 
@@ -1385,6 +1431,12 @@ class GatewayMailNotifierPutV1(_StrictGatewayModel):
     pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction = Field(
         default=DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION
     )
+    notify_block_render: NotifyBlockRender | None = None
+    notify_block_auth_mode: NotifyBlockAuthMode | None = None
+    notify_block_auth_verifier: NotifyBlockAuthVerifier | None = None
+    notify_block_shared_tokens: list[str] | None = None
+    notify_block_per_message_chars: int | None = None
+    notify_block_total_chars: int | None = None
 
     @field_validator("interval_seconds")
     @classmethod
@@ -1418,6 +1470,12 @@ class GatewayMailNotifierStatusV1(_StrictGatewayModel):
     pre_notification_context_action: GatewayMailNotifierPreNotificationContextAction = Field(
         default=DEFAULT_GATEWAY_MAIL_NOTIFIER_PRE_NOTIFICATION_CONTEXT_ACTION
     )
+    notify_block_render: NotifyBlockRender = "enabled"
+    notify_block_auth_mode: NotifyBlockAuthMode = "permissive-log"
+    notify_block_auth_verifier: NotifyBlockAuthVerifier = "none"
+    notify_block_shared_tokens: list[str] = Field(default_factory=list)
+    notify_block_per_message_chars: int = 512
+    notify_block_total_chars: int = 2048
     supported: bool
     support_error: str | None = None
     last_poll_at_utc: str | None = None
@@ -1528,6 +1586,8 @@ class GatewayMailboxMessageV1(_StrictGatewayModel):
     cc: list[GatewayMailboxParticipantV1] = Field(default_factory=list)
     reply_to: list[GatewayMailboxParticipantV1] = Field(default_factory=list)
     attachments: list[GatewayMailboxAttachmentV1] = Field(default_factory=list)
+    notify_block: MailboxNotifyBlock | None = None
+    notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("message_ref", "thread_ref", "created_at_utc", "subject", "box")
     @classmethod
@@ -1806,7 +1866,7 @@ class GatewayMailSendRequestV1(_StrictGatewayModel):
     subject: str
     body_content: str
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
-    notify_block: str | None = None
+    notify_block: MailboxNotifyBlock | None = None
     notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("to", "cc")
@@ -1850,7 +1910,7 @@ class GatewayMailPostRequestV1(_StrictGatewayModel):
         default=HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
     )
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
-    notify_block: str | None = None
+    notify_block: MailboxNotifyBlock | None = None
     notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("subject")
@@ -1891,7 +1951,7 @@ class GatewayMailReplyRequestV1(_StrictGatewayModel):
     message_ref: str
     body_content: str
     attachments: list[GatewayMailAttachmentUploadV1] = Field(default_factory=list)
-    notify_block: str | None = None
+    notify_block: MailboxNotifyBlock | None = None
     notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("message_ref")

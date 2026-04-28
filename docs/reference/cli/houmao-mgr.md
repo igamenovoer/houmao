@@ -76,7 +76,7 @@ For dedicated coverage of complex nested command families, see:
 | `join` | Adopt an existing tmux-backed TUI or native headless logical session into Houmao managed-agent control. |
 | `list`, `state` | Inspect locally discovered or pair-backed managed agents. |
 | `prompt` | Send a prompt to a running agent session. |
-| `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. |
+| `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. `stop` and `relaunch` probe tmux authority first and route through recovery helpers when the session is degraded or stale. |
 | `mail` | Resolve live mailbox bindings, inspect status, check, send, reply, or mark messages read. |
 | `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
 | `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material without calling `houmao-server`. |
@@ -131,7 +131,7 @@ Cleanup targeting rules:
 - Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority, and tmux-backed relaunchable local stops preserve a stopped lifecycle record with the same locators plus last-known tmux authority. Prefer those durable locators for explicit post-stop cleanup.
 - When `--agent-id` or `--agent-name` cleanup finds a matching cleanup-capable lifecycle record, cleanup uses that record as the authoritative locator source and does not let a runtime-root scan replace it.
 - When `--agent-id` or `--agent-name` cleanup finds no matching lifecycle record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match. This bounded scan is the migration fallback for pre-change stopped sessions that predate lifecycle-aware registry persistence.
-- `agents cleanup session` retires stopped lifecycle records by default after successful session-root removal or validated absence. Use `--purge-registry` only when you explicitly want to delete the lifecycle record entirely.
+- `agents cleanup session` retires stopped lifecycle records by default after successful session-root removal or validated absence. Use `--purge-registry` only when you explicitly want to delete the lifecycle record entirely; this flag is intended for confirmed broken active local authority after tmux inspection reveals a degraded or stale session. See [Degraded and Stale Active Recovery](../run-phase/degraded-stale-recovery.md).
 - `agents cleanup logs` and `agents cleanup mailbox` never retire or purge the lifecycle record because they preserve the durable session identity and runtime authority.
 - `agents cleanup session` does not retire or purge active lifecycle records; stop the agent first.
 - Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
@@ -164,7 +164,7 @@ Cleanup targeting rules:
 
 `agents relaunch` chat-session selection:
 
-- `agents relaunch` accepts both active records and stopped relaunchable records. When the selected record is stopped, relaunch revives the same managed-agent identity, runtime home, and session root on a fresh tmux container instead of treating the request as a fresh launch.
+- `agents relaunch` accepts active records, stopped relaunchable records, and degraded or stale active records. When the selected record is stopped, relaunch revives the same managed-agent identity, runtime home, and session root on a fresh tmux container instead of treating the request as a fresh launch. When the selected active record has a broken tmux session, relaunch routes through the degraded/stale recovery path: degraded sessions have the gateway remnant killed and the primary surface rebuilt; stale sessions with unreadable manifest authority fail with an explicit error directing the operator to `agents stop` followed by fresh `agents launch`. See [Degraded and Stale Active Recovery](../run-phase/degraded-stale-recovery.md).
 - `agents relaunch` accepts optional `--chat-session-mode {new|tool_last_or_new|exact}` and `--chat-session-id <provider-session-id>`.
 - When omitted, relaunch uses the stored launch-profile relaunch policy when the running agent was launched from one; otherwise it starts a fresh provider chat.
 - `--chat-session-mode new` forces a fresh provider chat for this relaunch only.

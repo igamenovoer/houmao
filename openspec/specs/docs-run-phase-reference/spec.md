@@ -58,6 +58,21 @@ That page SHALL describe:
 - **THEN** the page reflects the current runtime lifecycle surfaces and current persistence model
 - **AND THEN** it does not describe outdated function signatures or job-dir manifest placement as the current implementation
 
+#### Scenario: Reader understands degraded and stale recovery in the lifecycle diagram
+
+- **WHEN** a reader opens the session-lifecycle page and views the lifecycle diagram
+- **THEN** the diagram or accompanying text indicates that `stop` and `relaunch` may route through recovery when the tmux session is degraded or stale
+
+### Requirement: Session lifecycle includes degraded and stale recovery paths
+
+The session-lifecycle reference page SHALL include a subsection covering degraded and stale recovery as a first-class lifecycle path. The subsection SHALL state that when a registry record claims `active` but tmux inspection reveals a broken session, `agents stop` and `agents relaunch` route through dedicated recovery helpers instead of failing with a generic unusable-target error. The subsection SHALL link to the dedicated degraded-stale recovery reference page.
+
+#### Scenario: Reader discovers recovery from session-lifecycle page
+
+- **WHEN** a reader reads the session-lifecycle page
+- **THEN** they see recovery mentioned alongside start, resume, prompt, and stop
+- **AND THEN** they can follow a link to the dedicated recovery page for full details
+
 ### Requirement: Backend model documented with per-backend notes
 
 The run-phase reference SHALL include a page documenting the `BackendKind` type and each backend implementation with the current public posture: `local_interactive` as primary, native headless backends as direct CLI alternatives, and `cao_rest` plus `houmao_server_rest` as legacy or compatibility paths. Content SHALL be derived from `models.py` and per-backend module docstrings.

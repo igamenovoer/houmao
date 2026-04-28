@@ -434,6 +434,8 @@ def _build_manifest_tmux_section(
         "primary_window_index": "0",
         "primary_window_role": "managed_agent_surface",
         "primary_window_name": request.backend_state.get("tmux_window_name"),
+        "primary_window_id": _optional_non_empty_str(request.backend_state.get("tmux_window_id")),
+        "primary_pane_id": _optional_non_empty_str(request.backend_state.get("tmux_pane_id")),
     }
 
 
@@ -490,6 +492,8 @@ def _build_manifest_agent_launch_authority(
         "tool": request.launch_plan.tool,
         "tmux_session_name": tmux_session_name,
         "primary_window_index": "0",
+        "primary_window_id": _optional_non_empty_str(request.backend_state.get("tmux_window_id")),
+        "primary_pane_id": _optional_non_empty_str(request.backend_state.get("tmux_pane_id")),
         "working_directory": str(request.launch_plan.working_directory),
         "session_id": session_id,
         "profile_name": _optional_non_empty_str(request.backend_state.get("profile_name")),

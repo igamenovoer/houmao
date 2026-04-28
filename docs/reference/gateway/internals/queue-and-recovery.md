@@ -25,6 +25,8 @@ Current stored request states:
 
 Current queue-depth reporting counts only `accepted` and `running` items. Completed, failed, and coalesced records remain useful for history and diagnostics, but they are not part of active queue depth.
 
+Opt-in gateway diagnostic logs do not live in `queue.sqlite`. They are cleanup-sensitive JSONL files under `logs/diagnostics/` and are useful for route-boundary and mailbox-operation postmortems. The queue database remains the durable authority for accepted work, terminal state, and gateway-owned notifier audit history.
+
 ## Current-Instance State
 
 The gateway writes `run/current-instance.json` with:

@@ -30,9 +30,12 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-loop-pairwise` for the restored stable pairwise loop surface: authoring master-owned pairwise loop plans and operating accepted runs through `start`, `status`, and `stop` while the user agent stays outside the execution loop
 - `houmao-agent-loop-pairwise-v2` for the versioned enriched pairwise workflow: authoring master-owned pairwise loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
 - `houmao-agent-loop-pairwise-v3` for the workspace-aware enriched pairwise workflow: pairwise-v2 lifecycle plus authored `standard` or `custom` workspace contracts, including task-scoped standard in-repo posture
+- `houmao-agent-loop-pairwise-v4` for the template-driven workspace-aware enriched pairwise workflow: pairwise-v3 lifecycle plus strict generated document templates, source-contract summaries, policy-bearing source rules, and constraint coverage audits
 - `houmao-agent-loop-generic` for decomposing generic loop graphs into typed pairwise and relay components and operating accepted root-owned runs through start, status, and stop
 
-The three pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow, and `houmao-agent-loop-pairwise-v3` extends v2 with authored workspace contracts.
+The four pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow, `houmao-agent-loop-pairwise-v3` extends v2 with authored workspace contracts, and `houmao-agent-loop-pairwise-v4` extends v3 with strict generated document templates, policy-bearing source-rule projection, and source-constraint coverage audits.
+
+For pairwise-v4, generated `plan.md` files should expose source-derived structure directly. Rich bundles should include `# Source Contract Summary`, `## Policy-Bearing Source Rules`, `## Source Constraints Carried Forward`, and `# Constraint Coverage Audit`, plus a bundle-level `constraint-coverage-audit.md` when the plan has supporting files. The audit maps each extracted `SC-*` rule to a central plan projection and a runtime-facing projection, or keeps it visible as `UNRESOLVED - <reason>`.
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -118,6 +121,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
 - `houmao-agent-loop-pairwise-v3`
+- `houmao-agent-loop-pairwise-v4`
 - `houmao-agent-loop-generic`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`

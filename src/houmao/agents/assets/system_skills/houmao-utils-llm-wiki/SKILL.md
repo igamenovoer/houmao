@@ -136,7 +136,7 @@ See `references/audit-guide.md` for the full file format and processing workflow
 
 ## The five operations
 
-Every action on the wiki is one of these five. Each appends an entry to the current day's log file (`log/YYYYMMDD.md`).
+Every action on the wiki is one of these five. Structural and maintenance operations append an entry to the current day's log file (`log/YYYYMMDD.md`). The `query` operation saves its answer under `outputs/queries/` but does **not** write a log entry unless the user explicitly asks for query logging.
 
 ### 1. `compile`
 
@@ -180,7 +180,7 @@ Answer a question **grounded in the wiki**, not general knowledge.
 4. Synthesize the answer, citing pages inline with canonical links such as `[[wiki/concepts/page-slug|Page Name]]`.
 5. Save to `outputs/queries/<YYYY-MM-DD>-<question-slug>.md`.
 6. If the answer is durable (a comparison, analysis, or new synthesis) → promote a cleaned-up version to `wiki/concepts/`, add to `index.md`.
-7. Log: `## [HH:MM] query | <question-slug>` (and a separate `## [HH:MM] promote | ...` line if promoted).
+7. Do **not** add a `query` log entry by default. Only add a `promote` log entry if the answer is promoted into the maintained wiki, or if the user explicitly asks to log the query itself.
 
 ### 4. `lint`
 
@@ -318,7 +318,9 @@ See `references/log-guide.md` for full details. Minimum:
 
 - One file per day: `log/YYYYMMDD.md`
 - H1 = the date; H2 per entry with `## [HH:MM] <op> | <one-line description>`
-- Ops: `compile`, `ingest`, `query`, `lint`, `audit`, `promote`, `split`, `scaffold`
+- Ops: `compile`, `ingest`, `lint`, `audit`, `promote`, `split`, `scaffold`
+
+`query` outputs live in `outputs/queries/` and are not logged by default.
 
 Quick grep across history: `grep -rh "^## \[" log/ | tail -20`.
 

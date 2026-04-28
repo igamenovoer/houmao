@@ -43,12 +43,13 @@ Rules:
 |---|---|---|
 | `compile`  | Structural edits, splits, merges, index rebuild | `## [10:00] compile \| split Claude Code page into 7 sub-pages` |
 | `ingest`   | New source added to `raw/`, wiki updated | `## [09:15] ingest \| google-gemma-4-article` |
-| `query`    | Question answered, output file written | `## [11:20] query \| rag-vs-llm-wiki-tradeoffs` |
 | `promote`  | Output promoted to `wiki/concepts/` | `## [11:35] promote \| RAG vs LLM Wiki (from query)` |
 | `lint`     | Lint run with issues fixed | `## [15:05] lint \| 2 dead links found, 2 fixed` |
 | `audit`    | Feedback applied and moved to `audit/resolved/` | `## [14:30] audit \| resolved 20260409-143022-a1b2` |
 | `split`    | A single page split into a folder | `## [10:00] split \| Claude Code → claude-code/` |
 | `scaffold` | Initial wiki setup | `## [08:00] scaffold \| Initialized Topic knowledge base` |
+
+`query` is intentionally omitted here. Query answers are written to `outputs/queries/` and are not logged by default. Log a query only if the user explicitly asks for query logging or if you are recording a later `promote` step that turns the query into maintained wiki content.
 
 ## Quick grep
 
@@ -83,4 +84,3 @@ This is a one-time manual operation; the skill doesn't automate it.
 - **Long rationale**: put design decisions and rationale in `README.md` "Notes for the LLM", not in the log.
 - **Secrets / credentials**: never.
 - **Audit file bodies**: only the audit ID and a one-liner. The audit file itself already has the full content.
-

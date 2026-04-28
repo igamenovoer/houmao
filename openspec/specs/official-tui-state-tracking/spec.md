@@ -468,7 +468,7 @@ When multiple candidate panes exist and the tracked contract does not include ex
 - **AND THEN** it does not silently choose the current active window as the observed TUI surface
 
 ### Requirement: Live tracked state recovers stale active turns after stable submit-ready posture
-The authoritative live tracked-state layer SHALL recover a stuck `turn.phase=active` posture when the current surface has remained submit-ready for a bounded recovery window without live active evidence.
+The authoritative live tracked-state layer SHALL recover a stuck `turn.phase=active` posture through one of two recovery paths: a fast stale-active recovery that consults the parser-readiness evidence, and a final stable-active recovery that judges purely from rendered-surface stability so that no parser fault can disable it.
 
 For the existing fast stale-active recovery path, submit-ready posture SHALL require at minimum:
 - `parsed_surface.business_state=idle`,
@@ -479,24 +479,21 @@ For the existing fast stale-active recovery path, submit-ready posture SHALL req
 - no blocking interactive surface, and
 - no current active-turn evidence from the live edge or recent transcript growth.
 
-The authoritative live tracked-state layer SHALL also provide a final stable-active recovery path for detector false positives where the TUI is still published as `turn.phase=active` after a longer stable unchanged window.
+The authoritative live tracked-state layer SHALL also provide a final stable-active recovery path for detector false positives where the TUI is still published as `turn.phase=active` after a longer stable unchanged window. This path is the parser-independent backstop for the recovery contract.
 
-For the final stable-active recovery path, readiness evidence SHALL require at minimum:
-- parsed surface diagnostics are available,
-- `parsed_surface.business_state=idle`,
-- `parsed_surface.input_mode=freeform`,
-- `surface.accepting_input=yes`,
-- `surface.editing_input=no`,
-- no unsupported, disconnected, blocked, or ambiguous interactive surface, and
-- stable unchanged evidence for the configured final recovery window.
+For the final stable-active recovery path, the recovery SHALL fire when both of the following hold:
+- the published `turn.phase` is currently `active`, and
+- a rendered-surface stability signature derived from the current tmux capture has remained unchanged for the configured final recovery window.
 
-The final stable-active recovery path SHALL NOT require `surface.ready_posture=yes`, because the condition it corrects includes detector false positives that may have downgraded `surface.ready_posture` to `no` while independent parser and input-mode evidence still indicate prompt readiness.
+The final stable-active recovery path SHALL NOT consult `parsed_surface`, `tracker_state.active_reasons`, `tracker_state.stability_signature`, `tracker_state.notes`, `surface.ready_posture`, `surface.accepting_input`, `surface.editing_input`, blocking-interactive-surface diagnostics, or any other activity-detection-pipeline output when deciding whether to settle the recovery timer or fire recovery. The recovery exists to repair detector misclassification and SHALL NOT be vetoed by the same detector pipeline whose faults it is designed to correct.
 
-Stable unchanged evidence for final stable-active recovery SHALL include the selected profile's current raw surface signature when that signature is available, plus the relevant published tracked-state and parser-readiness evidence used by the recovery candidate.
+The rendered-surface stability signature SHALL be derived deterministically from the raw tmux capture text by stripping ANSI escape sequences, right-trimming each line, and hashing the resulting normalized text. The signature SHALL be independent of the active detector profile, parser version, temporal-hint state, and any published tracked-state field.
+
+The final stable-active recovery path SHALL NOT require `surface.ready_posture=yes`, `surface.accepting_input=yes`, `parsed_surface.business_state=idle`, or any other parser-derived precondition. The only required precondition besides `turn.phase=active` is that the rendered-surface stability signature is observable for the current cycle.
 
 The system SHALL keep the normal success-settlement path as the primary way to produce `last_turn.result=success`.
 
-When stale-active or final stable-active recovery fires, the tracker SHALL clear the stuck active phase to `ready` without manufacturing `last_turn.result=success` unless the normal success rules already established that outcome independently.
+When stale-active or final stable-active recovery fires, the tracker SHALL clear the stuck active phase to `ready` without manufacturing `last_turn.result=success` unless the normal success rules already established that outcome independently. Final stable-active recovery SHALL also lift `surface.ready_posture` to `yes` for the recovered cycle so that prompt-ready consumers are unblocked even when the parser had downgraded that posture under false active evidence.
 
 When final stable-active recovery fires while server-owned turn-anchor authority is active, the tracker SHALL expire that stale anchor and stop its completion monitoring before publishing the recovered ready posture.
 
@@ -512,26 +509,36 @@ The default final stable-active recovery window SHALL be 20 seconds.
 - **THEN** the tracker recovers the current turn posture to `turn.phase=ready`
 - **AND THEN** prompt-ready consumers are no longer blocked by the stale active phase
 
-#### Scenario: Stable idle/freeform prompt clears a false active phase after the final recovery window
+#### Scenario: Stable rendered surface clears a false active phase after the final recovery window
 - **WHEN** the tracker is currently publishing `turn.phase=active`
-- **AND WHEN** the selected profile raw surface signature and relevant published state remain unchanged for 20 continuous seconds
-- **AND WHEN** the parsed surface reports `business_state=idle` and `input_mode=freeform`
-- **AND WHEN** the surface reports `accepting_input=yes` and `editing_input=no`
+- **AND WHEN** the rendered-surface stability signature remains unchanged for 20 continuous seconds
 - **THEN** the tracker recovers the current turn posture to `turn.phase=ready`
 - **AND THEN** the tracker recovers `surface.ready_posture` to `yes` if it had been downgraded by the false active evidence
 
-#### Scenario: Final recovery does not fire while the raw surface keeps changing
+#### Scenario: Final recovery fires even while the parser keeps re-emitting active evidence
+- **WHEN** the tracker is currently publishing `turn.phase=active` because the activity-detection pipeline keeps producing non-empty `active_reasons` on every snapshot
+- **AND WHEN** the rendered-surface stability signature remains unchanged for 20 continuous seconds
+- **THEN** the tracker fires final stable-active recovery and recovers the public state to `turn.phase=ready`
+- **AND THEN** the recovery decision does not consult `tracker_state.active_reasons`, `parsed_surface`, or any other activity-detection output
+
+#### Scenario: Final recovery is not vetoed by parser-reported readiness gaps
 - **WHEN** the tracker is currently publishing `turn.phase=active`
-- **AND WHEN** the detector continues to produce different raw surface signatures before the final recovery window elapses
+- **AND WHEN** the rendered-surface stability signature has remained unchanged for the final recovery window
+- **AND WHEN** the parser reports `parsed_surface.business_state` as `working`, `unknown`, or unavailable
+- **THEN** the tracker still fires final stable-active recovery
+- **AND THEN** prompt-ready consumers are unblocked because the rendered surface alone established stability
+
+#### Scenario: Final recovery does not fire while the rendered surface keeps changing
+- **WHEN** the tracker is currently publishing `turn.phase=active`
+- **AND WHEN** the rendered-surface stability signature changes at least once before the final recovery window elapses
 - **THEN** the tracker does not fire final stable-active recovery
 - **AND THEN** the final recovery timer restarts from the latest stable candidate
 
-#### Scenario: Final recovery does not fire without independent prompt-ready evidence
-- **WHEN** the tracker is currently publishing `turn.phase=active`
-- **AND WHEN** the published active state is stable for the final recovery window
-- **AND WHEN** the parsed surface is working, unknown, awaiting operator, not freeform, or unavailable
-- **THEN** the tracker does not fire final stable-active recovery
-- **AND THEN** prompt-ready consumers remain blocked until stronger readiness evidence appears
+#### Scenario: Final recovery is robust to ANSI styling and trailing-whitespace jitter
+- **WHEN** the rendered text content of the tmux capture is identical across cycles
+- **AND WHEN** ANSI escape sequences, cursor styling codes, or trailing-whitespace padding differ between cycles
+- **THEN** the rendered-surface stability signature remains unchanged across those cycles
+- **AND THEN** the final stable-active recovery timer accumulates uninterrupted
 
 #### Scenario: Final recovery expires stale turn anchors without manufacturing success
 - **WHEN** final stable-active recovery clears a stuck `turn.phase=active` posture while server-owned turn-anchor authority is active
@@ -543,7 +550,7 @@ The default final stable-active recovery window SHALL be 20 seconds.
 - **WHEN** the visible Codex running row has disappeared
 - **AND WHEN** the latest-turn transcript is still growing within the recent temporal window
 - **THEN** the tracker does not fire stale-active recovery
-- **AND THEN** the turn remains active until the live activity evidence clears or normal completion settles
+- **AND THEN** the turn remains active until the live activity evidence clears, the rendered surface stabilizes long enough for final stable-active recovery, or normal completion settles
 
 #### Scenario: Stale-active recovery does not manufacture success
 - **WHEN** stale-active recovery clears a stuck `turn.phase=active` posture
@@ -555,33 +562,6 @@ The default final stable-active recovery window SHALL be 20 seconds.
 - **WHEN** the tracker evaluates whether a recovery window has elapsed
 - **THEN** that timing is derived through the existing ReactiveX scheduler and tracker-owned observable pipeline
 - **AND THEN** the implementation does not require a second imperative manual timeout mechanism for stale-active or final stable-active recovery
-
-### Requirement: Stable promptable error surfaces recover from false active state
-For supported live TUI sessions, a stable promptable surface with current recoverable error evidence SHALL be eligible for non-active ready state when independent prompt-ready evidence is present.
-
-If stale or false active evidence leaves `turn.phase=active` while the parsed surface is submit-ready, the surface accepts input, the surface is not editing input, no blocking overlay is present, and the raw surface remains stable for the configured final stable-active recovery dwell, the live tracker SHALL recover the public state to `turn.phase=ready`.
-
-That recovery SHALL NOT settle `last_turn.result=success`, SHALL NOT emit `known_failure`, and SHALL preserve diagnostic evidence that the current surface includes recoverable error context.
-
-#### Scenario: Stable promptable compact-error surface becomes ready
-- **WHEN** a supported live Codex TUI session shows a prompt-adjacent recoverable compact/server error
-- **AND WHEN** the parsed surface is submit-ready
-- **AND WHEN** the tracked surface reports `surface.accepting_input=yes` and `surface.editing_input=no`
-- **AND WHEN** stale or false active evidence keeps `turn.phase=active`
-- **AND WHEN** the surface remains stable for the configured final stable-active recovery dwell
-- **THEN** the live tracked state reports `turn.phase=ready`
-- **AND THEN** the live tracked state reports prompt-ready surface posture for prompt admission
-- **AND THEN** the live tracked state does not report `last_turn.result=success`
-
-#### Scenario: Promptable error surface does not manufacture terminal success
-- **WHEN** a supported live TUI session recovers a stable promptable error surface from false active state
-- **THEN** the recovery does not settle the previous turn as successful
-- **AND THEN** the recovery does not report the recoverable error as a known failure unless a narrower known-failure signature is present
-
-#### Scenario: Recovery does not apply while prompt readiness is ambiguous
-- **WHEN** a supported live TUI session has recoverable error evidence
-- **AND WHEN** the prompt surface is not accepting input, is editing input, has a blocking overlay, or lacks submit-ready parsed-surface evidence
-- **THEN** the final stable-active recovery path does not publish ready state solely because an error is visible
 
 ### Requirement: Degraded diagnostics are profile-owned and tool-scoped
 The shared tracked-TUI contract SHALL allow supported profiles to publish structured degraded-context diagnostic metadata alongside chat-context state.

@@ -38,6 +38,8 @@ Representative default layout:
           events.jsonl
           logs/
             gateway.log
+            diagnostics/
+              gateway-diagnostic.log
           run/
             current-instance.json
             gateway.pid
@@ -127,11 +129,12 @@ Runtime-managed sessions are centered on one runtime-owned session root:
 | `<session-root>/gateway/attach.json` | gateway-capability publication | runtime refresh | Internal bootstrap artifact used by runtime and gateway internals to seed startup, offline status, and metadata transfer for the same logical session | Internal runtime artifact | Durable |
 | `<session-root>/gateway/gateway_manifest.json` | gateway-capability publication | runtime refresh and attach or detach lifecycle | Derived outward-facing gateway bookkeeping regenerated from manifest-backed authority plus current listener state | Derived operator-facing publication | Durable |
 | `<session-root>/gateway/protocol-version.txt` | gateway-capability publication | runtime refresh if protocol changes | Local version marker for gateway artifacts | Stable path, simple payload | Durable |
-| `<session-root>/gateway/desired-config.json` | gateway-capability publication | attach/detach lifecycle | Desired host/port reuse hints for later gateway starts | Stable operator-facing artifact | Durable |
+| `<session-root>/gateway/desired-config.json` | gateway-capability publication | attach/detach lifecycle | Desired host/port reuse hints, execution mode, TUI tracking timing, and optional diagnostic logging settings for later gateway starts | Stable operator-facing artifact | Durable |
 | `<session-root>/gateway/state.json` | gateway-capability publication | gateway status refresh | Read-optimized last known gateway status, seeded before first live attach | Stable operator-facing artifact | Durable, but reflects current status |
 | `<session-root>/gateway/queue.sqlite` | gateway-capability publication | live gateway process | Durable request queue state plus gateway-owned notifier audit history | Stable path, implementation-owned contents | Treat as durable while the session is active |
 | `<session-root>/gateway/events.jsonl` | gateway-capability publication | live gateway process | Append-only gateway event log | Stable path, implementation-owned contents | Safe to inspect; not the source of truth for queue state |
 | `<session-root>/gateway/logs/gateway.log` | live gateway process | live gateway process | Append-only running log for lifecycle, queue execution, and notifier polling | Stable operator-facing artifact | Log-style cleanup only after the session is stopped; `houmao-mgr agents cleanup logs` and `houmao-mgr admin cleanup runtime logs` remove this without deleting durable queue or manifest state |
+| `<session-root>/gateway/logs/diagnostics/gateway-diagnostic.log` and rotated siblings | live gateway process when diagnostic logging is enabled | live gateway process | Opt-in structured JSONL diagnostics for HTTP boundary outcomes, mailbox facade operations, validation failures, and selected warning/error paths | Internal diagnostic artifact | Log-style cleanup only after the session is stopped; not durable gateway state |
 | `<session-root>/gateway/run/current-instance.json` | live gateway lifecycle | live gateway lifecycle | Current live gateway process and listener snapshot, including the authoritative same-session tmux execution handle for `houmao_server_rest` auxiliary-window mode | Current implementation detail with active lifecycle semantics | Ephemeral; cleanup is valid only after the session is stopped |
 | `<session-root>/gateway/run/gateway.pid` | live gateway lifecycle | live gateway lifecycle | Pidfile mirror for the live gateway process; same-session mode still writes it, but detach and cleanup rely on the current-instance execution handle rather than pid alone | Current implementation detail | Ephemeral; cleanup is valid only after the session is stopped |
 

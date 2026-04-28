@@ -366,18 +366,26 @@ def test_main_renders_uncaught_project_recipe_exception_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(
+def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """A stale active local record now retires through stop instead of bubbling a runtime error."""
+
+    from houmao.agents.realm_controller.backends.tmux_runtime import (
+        TmuxBackedAuthorityHealth,
+    )
+
     record = SimpleNamespace(
         agent_name="gpu",
         agent_id="agent-1234",
+        generation_id="gen-1",
+        lifecycle=SimpleNamespace(state="active"),
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(
             agent_def_dir=str((tmp_path / "agent-def").resolve()),
-            manifest_path=str((tmp_path / "manifest.json").resolve()),
+            manifest_path=str((tmp_path / "missing-manifest.json").resolve()),
             session_root=str((tmp_path / "session-root").resolve()),
         ),
         terminal=SimpleNamespace(session_name="gpu-session"),
@@ -388,12 +396,22 @@ def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(
         lambda **kwargs: (record, None),
     )
     monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
+        lambda **kwargs: TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.remove_managed_agent_record",
+        lambda agent_id, *, generation_id=None: True,
+    )
+    monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
         lambda **kwargs: (_ for _ in ()).throw(
-            BackendExecutionError(
-                "Tmux-backed resume requires existing tmux session `gpu-session` but it is "
-                "unavailable: no server running on /tmp/tmux-stale/default"
-            )
+            AssertionError("resume should not run for stale active record")
         ),
     )
     monkeypatch.setattr(
@@ -404,16 +422,8 @@ def test_main_renders_stale_local_managed_agent_stop_failure_without_traceback(
     exit_code = main(["agents", "stop", "--agent-name", "gpu"])
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "Managed agent `gpu` is registered in the shared registry" in captured.err
-    assert (
-        "its local tmux-backed runtime authority is no longer live or otherwise unusable"
-        in captured.err
-    )
-    assert (
-        "Tmux-backed resume requires existing tmux session `gpu-session` but it is unavailable"
-        in captured.err
-    )
+    assert exit_code == 0
+    assert "Retired stale active managed-agent registry record" in captured.out
     assert "Traceback" not in captured.err
 
 

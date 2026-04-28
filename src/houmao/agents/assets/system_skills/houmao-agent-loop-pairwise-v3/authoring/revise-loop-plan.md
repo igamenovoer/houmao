@@ -25,9 +25,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - routing packet inventory, root packet location, packet freshness marker, or child dispatch tables
 - initialize memo-slot expectations or continuation page namespace
 - memo sentinel convention for run-owned blocks
-- explicit `operator_preparation_wave` target policy
-- gateway mail-notifier interval for `operator_preparation_wave`
-- acknowledgement posture
+- gateway mail-notifier interval
 - lifecycle vocabulary or reporting-state terminology
 - completion condition
 - stop posture
@@ -69,14 +67,12 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - Do not leave the single-file form without `plan.md`.
 - Do not leave the bundle form without `plan.md`.
 - Do not leave a template-bearing run in single-file form; move it to bundle form if the revision adds reusable reporting or bookkeeping templates.
-- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
+- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage.
 - Do not leave the workspace contract ambiguous when `initialize`, `start`, or `recover_and_continue` must point participants at specific workspace or bookkeeping paths.
 - Do not confuse authored template files with mutable bookkeeping outputs or runtime-owned recovery files.
-- Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
 - Do not skip initialize memo materialization when managed memory is being used.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text.
-- Do not require acknowledgement by default; use `fire_and_proceed` unless the plan explicitly selects `require_ack`.
-- Do not use a gateway mail-notifier interval other than `5s` for `operator_preparation_wave` unless the user or plan specifies another interval.
+- Do not require acknowledgement replies before ordinary `start`.
 - Do not require runtime intermediate agents to recompute subtree slices that should have been prepared during authoring.
 - Do not mix lifecycle action names and observed state names into one ambiguous status field.
 - Do not hide plan-critical policy only inside an unreferenced support file.

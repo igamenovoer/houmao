@@ -703,7 +703,7 @@ Representative request:
   "subject": "Investigate parser drift",
   "body_content": "Hello from the gateway facade",
   "attachments": [],
-  "notify_block": "re-run on official path before reporting",
+  "notify_block": {"text": "re-run on official path before reporting", "placement": "append"},
   "notify_auth": {"scheme": "none"}
 }
 ```
@@ -721,7 +721,7 @@ Representative request:
   "body_content": "Continue from the latest mailbox checkpoint.",
   "reply_policy": "operator_mailbox",
   "attachments": [],
-  "notify_block": "continue current task"
+  "notify_block": {"text": "continue current task", "placement": "prepend"}
 }
 ```
 
@@ -744,10 +744,11 @@ Representative request:
 
 `/v1/mail/send`, `/v1/mail/post`, and `/v1/mail/reply` accept two optional canonical-envelope fields:
 
-- `notify_block` — short sender-marked notification text (≤ 512 characters). When omitted, the gateway scans `body_content` for the first ` ```houmao-notify ` fenced code block and extracts it at composition time. An explicit `notify_block` value bypasses body-fence extraction.
-- `notify_auth` — sender-supplied authentication metadata. The protocol reserves `scheme` values `none`, `shared-token`, `hmac-sha256`, and `jws`; in this protocol version only `scheme="none"` is accepted. Non-`none` schemes are rejected with HTTP `422` and the canonical `verifier not yet supported` validation error. Optional `token`, `iss`, `iat`, `exp` claims are preserved on the canonical envelope but are not yet consumed by any verifier.
+- `notify_block` — typed sub-model `{"text": str, "placement": "append" | "prepend"}` carrying short sender-marked notification text (≤ 512 characters) plus placement metadata. `placement` defaults to `"append"`. When `notify_block` is omitted, the gateway scans `body_content` for the first ` ```houmao-notify ` fenced code block and extracts it into `notify_block.text` at composition time with `placement="append"`. An explicit `notify_block` value bypasses body-fence extraction.
+- The protocol-side **auto-mirror invariant** synthesizes a `houmao-notify` fenced block in `body_markdown` at the requested placement when the body does not already contain one, so the receiver always finds the same text in the message body even though the channel reaches the wake-up prompt earlier.
+- `notify_auth` — sender-supplied authentication metadata. The protocol reserves `scheme` values `none`, `shared-token`, `hmac-sha256`, and `jws`; in this protocol version only `scheme="none"` is accepted at canonical-envelope validation. Non-`none` schemes are rejected with HTTP `422` and the canonical `verifier not yet supported` validation error. The gateway notifier consumes `notify_auth` through a pluggable verifier interface; see [Mail-notifier trust posture](#mail-notifier-trust-posture) for the configurable knobs.
 
-Both fields are optional and default to absent. Stalwart-bound sends reject these fields with HTTP `422` until JMAP-side projection ships in a follow-on change. The gateway notifier prompt does not yet render `notify_block` content; the field is stored in the canonical envelope and surfaces on the receiver only after the follow-on rendering change wires verifier plug-ins and the notifier template slot. See [`docs/reference/mailbox/contracts/canonical-model.md`](../../mailbox/contracts/canonical-model.md#notification-prompt-block) for the canonical envelope semantics.
+Both fields are optional and default to absent. Stalwart-bound sends reject these fields with HTTP `422` until JMAP-side projection ships in a follow-on change. See [`docs/reference/mailbox/contracts/canonical-model.md`](../../mailbox/contracts/canonical-model.md#notification-prompt-block) for the canonical envelope semantics.
 
 ### `POST /v1/mail/mark`
 
@@ -855,13 +856,27 @@ Support contract rules:
 - Each reminder includes the eligible `message_ref`, optional `thread_ref`, sender context, subject, and creation timestamp for every selected message in that snapshot.
 - If eligible inbox mail remains unchanged after an earlier reminder, later prompt-ready polls may enqueue another reminder because reminder eligibility depends on current mailbox truth plus live prompt readiness rather than on reminder history.
 - Recoverable degraded chat context does not by itself cause a busy skip and does not force a clean-context notifier prompt. If the target is otherwise prompt-ready and queue admission passes, the notifier uses normal current-context prompt work unless `context_error_policy=clear_context` matches a recognized tool-owned compaction diagnostic.
-- The canonical envelope's `notify_block` and `notify_auth` fields are accepted on `/v1/mail/send|post|reply` and persisted with the stored message, but the notifier prompt does not yet render `notify_block` content. Verifier plug-ins, the notifier template slot, and the gateway-side trust posture (`permissive-log` default with `required` opt-in) ship in a follow-on change; until then `notify_block` round-trips through storage and surfaces only when the receiver opens the message body.
+- The canonical envelope's `notify_block` and `notify_auth` fields are accepted on `/v1/mail/send|post|reply`, persisted with the stored message, and rendered into the gateway notifier wake-up prompt at the requested `placement` subject to the configured trust posture (see [Mail-notifier trust posture](#mail-notifier-trust-posture)).
 
 Detailed inspection note:
 
-- `GET /v1/mail-notifier` stays a compact snapshot surface and includes effective `appendix_text`, `context_error_policy`, and `pre_notification_context_action`.
-- Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`.
-- Detailed per-poll decision history can be inspected via the `gateway_notifier_audit` table inside `queue.sqlite`.
+- `GET /v1/mail-notifier` stays a compact snapshot surface and includes effective `appendix_text`, `context_error_policy`, `pre_notification_context_action`, plus the notify-block configuration (`notify_block_render`, `notify_block_auth_mode`, `notify_block_auth_verifier`, `notify_block_shared_tokens`, `notify_block_per_message_chars`, `notify_block_total_chars`).
+- Detailed per-poll decision history lives in the `gateway_notifier_audit` table inside `queue.sqlite`. The per-poll row includes `rendered_block_entries_json`, a JSON array of per-rendered-block audit entries (`message_ref`, `rendered`, `auth_scheme`, `auth_outcome`, `auth_detail`, `block_chars`, `block_truncated`).
+
+#### Mail-notifier trust posture
+
+The notifier configuration carries six fields that govern notify-block rendering:
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `notify_block_render` | `enabled` \| `disabled` | `enabled` | When `disabled`, every notify_block is suppressed from the rendered prompt regardless of verifier outcome; audit records `rendered=false` with detail `"render disabled"`. |
+| `notify_block_auth_mode` | `permissive-log` \| `required` | `permissive-log` | `permissive-log` runs the verifier and records the outcome in audit but renders the block regardless. `required` suppresses rendering when the verifier reports `passed=false`. |
+| `notify_block_auth_verifier` | `none` \| `shared-token` | `none` | `none` selects the always-pass `PermissiveVerifier`. `shared-token` selects `SharedTokenVerifier`, which compares `notify_auth.token` against `notify_block_shared_tokens`; rejection details never echo the supplied token text. |
+| `notify_block_shared_tokens` | `list[str]` | `[]` | Allowlist consulted by `SharedTokenVerifier`. With `notify_block_auth_mode=required` and an empty allowlist, every notify-block is suppressed. |
+| `notify_block_per_message_chars` | `int` | `512` | Per-rendered-block size cap. Oversized text is truncated to this length minus one plus a trailing `…`. |
+| `notify_block_total_chars` | `int` | `2048` | Aggregate cap across all rendered blocks per notifier prompt. When the cap fires, additional blocks are suppressed and a `+ N more sender notice(s) — open inbox to read` summary line is emitted instead. |
+
+`PUT /v1/mail-notifier` accepts these fields with the same omit-preserves-current behavior as `appendix_text`. `GET /v1/mail-notifier` surfaces the effective values in the status response.
 
 ## Current-Instance Execution Handle
 
@@ -926,6 +941,8 @@ Representative gateway tree:
   events.jsonl
   logs/
     gateway.log
+    diagnostics/
+      gateway-diagnostic.log
   run/
     current-instance.json
     gateway.pid
@@ -936,11 +953,12 @@ Artifact roles:
 - `attach.json`: internal bootstrap state
 - `gateway_manifest.json`: derived outward-facing gateway bookkeeping
 - `protocol-version.txt`: simple version marker for local artifacts
-- `desired-config.json`: desired host and port to reuse on later starts
+- `desired-config.json`: desired host, port, execution mode, TUI tracking timings, and optional diagnostic logging settings to reuse on later starts
 - `state.json`: read-optimized current status contract
 - `queue.sqlite`: durable queue records, the singleton gateway-owned mail notifier record, and the `gateway_notifier_audit` table that records one structured notifier decision row per enabled poll cycle
 - `events.jsonl`: append-only event log
 - `logs/gateway.log`: append-only line-oriented running log for lifecycle, notifier polling, busy deferrals, and execution outcomes
+- `logs/diagnostics/gateway-diagnostic.log`: opt-in structured JSONL diagnostic log. Rotated siblings use numeric suffixes such as `gateway-diagnostic.log.1`. These files are cleanup-sensitive log artifacts, not durable gateway state.
 - `run/current-instance.json`: current process id, host, port, upstream epoch and instance id, plus same-session execution-handle fields when the gateway is hosted in a tmux auxiliary window
 - `run/gateway.pid`: pidfile mirror; still written for same-session mode, but the tmux execution handle in `current-instance.json` is the authoritative stop or cleanup target for pair-managed `houmao_server_rest`
 
@@ -951,6 +969,10 @@ tail -f <session-root>/gateway/logs/gateway.log
 ```
 
 That log is the stable tail-watch surface for the running gateway. Request lifecycle history still lives in `events.jsonl`, while detailed mail-notifier decision history now lives in `queue.sqlite.gateway_notifier_audit`. `gateway.log` remains the human-oriented running log for day-to-day observation.
+
+When `desired-config.json` includes `desired_diagnostic_logging.enabled=true`, the gateway also writes structured diagnostic lines to `<session-root>/gateway/logs/diagnostics/gateway-diagnostic.log`. Diagnostic entries cover HTTP completion status, request-body validation failures before route handlers run, mailbox facade operation start/success/failure, and selected queue/control/reminder/notifier warning or error paths. The diagnostic logger builds entries from explicit safe fields: it does not write mailbox bodies, raw prompt text, attachment contents, authorization headers, cookies, bearer tokens, credential material, or environment secrets by default. Consecutive warning/error diagnostics with the same semantic key are suppressed after the first entry and later summarized with a `diagnostic.dedup_summary` entry reporting `suppressed_count`.
+
+Diagnostic logs are bounded by `max_bytes` and `backup_count`. They are useful postmortem evidence, but they do not replace durable contracts: `queue.sqlite` remains authoritative for queued request and notifier audit state, `events.jsonl` remains append-only gateway event history, `state.json` remains the status snapshot, and manifest files remain the durable session authority.
 
 ## Current Implementation Notes
 

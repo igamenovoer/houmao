@@ -14,6 +14,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     canonical_headless_event_artifact_path,
 )
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.tmux_runtime import TmuxBackedAuthorityHealth
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
@@ -109,6 +110,17 @@ from houmao.srv_ctrl.commands.managed_agents import (
 from houmao.srv_ctrl.commands import runtime_artifacts as runtime_artifacts_module
 
 
+def _healthy_tmux_authority_probe() -> "TmuxBackedAuthorityHealth":
+    """Return a healthy tmux-authority probe result for resolver tests."""
+
+    return TmuxBackedAuthorityHealth(
+        state="healthy",
+        session_exists=True,
+        primary_window_exists=True,
+        primary_pane_exists=True,
+    )
+
+
 def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -116,6 +128,7 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     record = SimpleNamespace(
         agent_name="gpu",
         agent_id="agent-1234",
+        lifecycle=SimpleNamespace(state="active"),
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(
             agent_def_dir=str((tmp_path / "agent-def").resolve()),
@@ -135,6 +148,10 @@ def test_resolve_managed_agent_target_prefers_shared_registry_for_local_records(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
         lambda **kwargs: (record, None),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
+        lambda **kwargs: _healthy_tmux_authority_probe(),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -215,6 +232,7 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
     record = SimpleNamespace(
         agent_name="gpu",
         agent_id="agent-1234",
+        lifecycle=SimpleNamespace(state="active"),
         identity=SimpleNamespace(backend="codex_headless", tool="codex"),
         runtime=SimpleNamespace(
             agent_def_dir=str((tmp_path / "agent-def").resolve()),
@@ -227,6 +245,10 @@ def test_resolve_managed_agent_target_wraps_unusable_local_runtime_authority(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
         lambda **kwargs: (record, None),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
+        lambda **kwargs: _healthy_tmux_authority_probe(),
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
@@ -961,6 +983,335 @@ def test_stop_managed_agent_returns_cleanup_locators(tmp_path: Path) -> None:
     assert response.tracked_agent_id == "tracked-alpha"
     assert response.manifest_path == str(manifest_path)
     assert response.session_root == str(manifest_path.parent)
+
+
+def _degraded_or_stale_record(
+    *,
+    tmp_path: Path,
+    manifest_present: bool,
+    session_name: str,
+) -> SimpleNamespace:
+    """Build a SimpleNamespace stand-in for an active local tmux-backed registry record."""
+
+    runtime_dir = tmp_path / "session-root"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = runtime_dir / "manifest.json"
+    if manifest_present:
+        manifest_path.write_text("{}", encoding="utf-8")
+    agent_def_dir = tmp_path / "agent-def"
+    agent_def_dir.mkdir(parents=True, exist_ok=True)
+    return SimpleNamespace(
+        agent_name="gpu",
+        agent_id="agent-degraded-1",
+        generation_id="gen-1",
+        lifecycle=SimpleNamespace(state="active"),
+        identity=SimpleNamespace(backend="codex_headless", tool="codex"),
+        runtime=SimpleNamespace(
+            agent_def_dir=str(agent_def_dir.resolve()),
+            manifest_path=str(manifest_path.resolve()),
+            session_root=str(runtime_dir.resolve()),
+        ),
+        terminal=SimpleNamespace(session_name=session_name),
+    )
+
+
+def test_stop_managed_agent_recovers_degraded_active_local_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-degraded",
+    )
+    cleanup_calls: list[str] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        lambda *, session_name: cleanup_calls.append(session_name),
+    )
+    publish_calls: list[str | None] = []
+    controller = SimpleNamespace(
+        manifest_path=Path(record.runtime.manifest_path),
+        publish_stopped_shared_registry_record=lambda *, last_tmux_session_name: (
+            publish_calls.append(last_tmux_session_name),
+            SimpleNamespace(),
+        )[1],
+        clear_shared_registry_record=lambda: True,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resume_stopped_controller_from_record",
+        lambda _record: controller,
+    )
+
+    target = ManagedAgentTarget(
+        mode="local_degraded",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+    response = stop_managed_agent(target)
+
+    assert cleanup_calls == ["HOUMAO-degraded"]
+    assert publish_calls == ["HOUMAO-degraded"]
+    assert response.success is True
+    assert response.manifest_path == str(record.runtime.manifest_path)
+    assert response.session_root == str(record.runtime.session_root)
+    assert "Recovered" in response.detail
+
+
+def test_stop_managed_agent_recovers_stale_active_local_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    cleanup_calls: list[str] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        lambda *, session_name: cleanup_calls.append(session_name),
+    )
+    controller = SimpleNamespace(
+        manifest_path=Path(record.runtime.manifest_path),
+        publish_stopped_shared_registry_record=lambda *, last_tmux_session_name: SimpleNamespace(),
+        clear_shared_registry_record=lambda: True,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resume_stopped_controller_from_record",
+        lambda _record: controller,
+    )
+
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+    response = stop_managed_agent(target)
+
+    assert cleanup_calls == []
+    assert response.success is True
+    assert response.manifest_path == str(record.runtime.manifest_path)
+    assert response.session_root == str(record.runtime.session_root)
+
+
+def test_stop_managed_agent_retires_stale_active_record_without_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=False,
+        session_name="HOUMAO-stale-no-manifest",
+    )
+    removed: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.remove_managed_agent_record",
+        lambda agent_id, *, generation_id=None: (
+            removed.append((agent_id, generation_id)),
+            True,
+        )[1],
+    )
+
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+    response = stop_managed_agent(target)
+
+    assert removed == [(record.agent_id, record.generation_id)]
+    assert response.success is True
+    assert response.manifest_path is None
+    assert response.session_root is None
+    assert "Retired stale active managed-agent registry record" in response.detail
+
+
+def test_relaunch_managed_agent_revives_degraded_active_local_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-degraded",
+    )
+    cleanup_calls: list[str] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        lambda *, session_name: cleanup_calls.append(session_name),
+    )
+    revive_calls: list[RelaunchChatSessionSelection | None] = []
+    controller = SimpleNamespace(
+        manifest_path=Path(record.runtime.manifest_path),
+        revive_stopped_session=lambda *, chat_session=None: (
+            revive_calls.append(chat_session),
+            SessionControlResult(status="ok", action="relaunch", detail="revived"),
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resume_stopped_controller_from_record",
+        lambda _record: controller,
+    )
+
+    target = ManagedAgentTarget(
+        mode="local_degraded",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+    response = relaunch_managed_agent(target)
+
+    assert cleanup_calls == ["HOUMAO-degraded"]
+    assert revive_calls == [None]
+    assert response.success is True
+    assert response.detail == "revived"
+
+
+def test_relaunch_managed_agent_revives_stale_active_local_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    cleanup_calls: list[str] = []
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.cleanup_tmux_session",
+        lambda *, session_name: cleanup_calls.append(session_name),
+    )
+    controller = SimpleNamespace(
+        manifest_path=Path(record.runtime.manifest_path),
+        revive_stopped_session=lambda *, chat_session=None: SessionControlResult(
+            status="ok", action="relaunch", detail="revived"
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resume_stopped_controller_from_record",
+        lambda _record: controller,
+    )
+
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+    response = relaunch_managed_agent(target)
+
+    assert cleanup_calls == []
+    assert response.success is True
+
+
+def test_relaunch_managed_agent_fails_cleanly_for_stale_active_without_manifest(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=False,
+        session_name="HOUMAO-stale-no-manifest",
+    )
+
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+    with pytest.raises(click.ClickException) as exc_info:
+        relaunch_managed_agent(target)
+
+    message = str(exc_info.value)
+    assert "neither active relaunch nor stopped revival" in message.lower() or (
+        "neither active nor stopped" in message.lower()
+    )
+    assert "houmao-mgr agents stop" in message
+    assert "houmao-mgr agents launch" in message
+
+
+def test_resolve_managed_agent_target_routes_degraded_active_record_into_local_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-degraded",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (record, None),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
+        lambda **kwargs: TmuxBackedAuthorityHealth(
+            state="degraded_missing_primary",
+            session_exists=True,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("resume should not run for degraded record")
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    assert target.mode == "local_degraded"
+    assert target.controller is None
+    assert target.record is record
+
+
+def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents._resolve_local_managed_agent_record_with_miss_context",
+        lambda **kwargs: (record, None),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
+        lambda **kwargs: TmuxBackedAuthorityHealth(
+            state="stale_missing_session",
+            session_exists=False,
+            primary_window_exists=False,
+            primary_pane_exists=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.resume_runtime_session",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("resume should not run for stale record")
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
+    )
+
+    target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
+
+    assert target.mode == "local_stale"
+    assert target.controller is None
+    assert target.record is record
 
 
 def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -> None:

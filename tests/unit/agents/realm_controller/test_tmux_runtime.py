@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
+    TmuxBackedAuthorityHealth,
     TmuxCommandError,
     TmuxPaneRecord,
     attach_tmux_session,
@@ -17,7 +18,9 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     list_tmux_panes,
     list_tmux_sessions,
     paste_tmux_buffer,
+    probe_tmux_backed_authority,
     read_tmux_session_environment_value,
+    resolve_primary_tmux_surface,
     resolve_tmux_pane,
     set_tmux_session_environment,
     show_tmux_environment,
@@ -226,6 +229,38 @@ def test_prepare_headless_agent_window_renames_and_selects_window_zero(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[list[str]] = []
+    snapshots = [
+        (
+            TmuxPaneRecord(
+                pane_id="%1",
+                session_name="HOUMAO-gpu",
+                window_id="@0",
+                window_index="0",
+                window_name="bash",
+                pane_index="0",
+                pane_active=True,
+            ),
+        ),
+        (
+            TmuxPaneRecord(
+                pane_id="%1",
+                session_name="HOUMAO-gpu",
+                window_id="@0",
+                window_index="0",
+                window_name="agent",
+                pane_index="0",
+                pane_active=True,
+            ),
+        ),
+    ]
+    list_calls = 0
+
+    def _fake_list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
+        nonlocal list_calls
+        assert session_name == "HOUMAO-gpu"
+        index = min(list_calls, len(snapshots) - 1)
+        list_calls += 1
+        return snapshots[index]
 
     def _fake_run(
         cmd: list[str],
@@ -240,13 +275,338 @@ def test_prepare_headless_agent_window_renames_and_selects_window_zero(
         return _completed(cmd)
 
     monkeypatch.setattr("subprocess.run", _fake_run)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.list_tmux_panes",
+        _fake_list_tmux_panes,
+    )
 
-    prepare_headless_agent_window(session_name="HOUMAO-gpu")
+    surface = prepare_headless_agent_window(session_name="HOUMAO-gpu")
 
     assert captured == [
-        ["tmux", "rename-window", "-t", "HOUMAO-gpu:0", "agent"],
-        ["tmux", "select-window", "-t", "HOUMAO-gpu:0"],
+        ["tmux", "set-window-option", "-t", "@0", "pane-base-index", "0"],
+        ["tmux", "rename-window", "-t", "@0", "agent"],
+        ["tmux", "select-window", "-t", "@0"],
     ]
+    assert surface.window_id == "@0"
+    assert surface.pane_id == "%1"
+
+
+def test_prepare_headless_agent_window_moves_base_index_one_to_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    snapshots = [
+        (
+            TmuxPaneRecord(
+                pane_id="%7",
+                session_name="HOUMAO-gpu",
+                window_id="@7",
+                window_index="1",
+                window_name="bash",
+                pane_index="1",
+                pane_active=True,
+            ),
+        ),
+        (
+            TmuxPaneRecord(
+                pane_id="%7",
+                session_name="HOUMAO-gpu",
+                window_id="@7",
+                window_index="0",
+                window_name="agent",
+                pane_index="0",
+                pane_active=True,
+            ),
+        ),
+    ]
+    list_calls = 0
+
+    def _fake_list_tmux_panes(*, session_name: str) -> tuple[TmuxPaneRecord, ...]:
+        nonlocal list_calls
+        assert session_name == "HOUMAO-gpu"
+        index = min(list_calls, len(snapshots) - 1)
+        list_calls += 1
+        return snapshots[index]
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.list_tmux_panes",
+        _fake_list_tmux_panes,
+    )
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **_: captured.append(cmd) or _completed(cmd),
+    )
+
+    surface = prepare_headless_agent_window(session_name="HOUMAO-gpu", fresh_session=True)
+
+    assert captured == [
+        ["tmux", "move-window", "-s", "@7", "-t", "HOUMAO-gpu:0"],
+        ["tmux", "set-window-option", "-t", "@7", "pane-base-index", "0"],
+        ["tmux", "rename-window", "-t", "@7", "agent"],
+        ["tmux", "select-window", "-t", "@7"],
+    ]
+    assert surface.window_index == "0"
+    assert surface.pane_index == "0"
+    assert surface.window_id == "@7"
+    assert surface.pane_id == "%7"
+
+
+def test_prepare_headless_agent_window_fails_closed_on_fresh_extra_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = (
+        TmuxPaneRecord(
+            pane_id="%1",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="1",
+            window_name="bash",
+            pane_index="0",
+            pane_active=True,
+        ),
+        TmuxPaneRecord(
+            pane_id="%2",
+            session_name="HOUMAO-gpu",
+            window_id="@2",
+            window_index="2",
+            window_name="logs",
+            pane_index="0",
+            pane_active=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.list_tmux_panes",
+        lambda *, session_name: panes,
+    )
+
+    with pytest.raises(TmuxCommandError, match="unexpected extra windows"):
+        prepare_headless_agent_window(session_name="HOUMAO-gpu", fresh_session=True)
+
+
+def test_resolve_primary_tmux_surface_validates_persisted_handles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = (
+        TmuxPaneRecord(
+            pane_id="%1",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="0",
+            window_name="agent",
+            pane_index="1",
+            pane_active=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.list_tmux_panes",
+        lambda *, session_name: panes,
+    )
+
+    surface = resolve_primary_tmux_surface(
+        session_name="HOUMAO-gpu",
+        pane_id="%1",
+        window_id="@1",
+    )
+
+    assert surface.pane_id == "%1"
+    assert surface.pane_index == "1"
+
+
+def test_resolve_primary_tmux_surface_rejects_stale_handle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = (
+        TmuxPaneRecord(
+            pane_id="%1",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="0",
+            window_name="agent",
+            pane_index="0",
+            pane_active=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.list_tmux_panes",
+        lambda *, session_name: panes,
+    )
+
+    with pytest.raises(TmuxCommandError, match="No tmux panes matched primary pane id"):
+        resolve_primary_tmux_surface(session_name="HOUMAO-gpu", pane_id="%missing")
+
+
+def test_resolve_primary_tmux_surface_rejects_ambiguous_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = (
+        TmuxPaneRecord(
+            pane_id="%1",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="0",
+            window_name="agent",
+            pane_index="0",
+            pane_active=True,
+        ),
+        TmuxPaneRecord(
+            pane_id="%2",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="0",
+            window_name="agent",
+            pane_index="1",
+            pane_active=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime.list_tmux_panes",
+        lambda *, session_name: panes,
+    )
+
+    with pytest.raises(TmuxCommandError, match="Ambiguous tmux primary surface"):
+        resolve_primary_tmux_surface(session_name="HOUMAO-gpu", window_name="agent")
+
+
+def test_probe_tmux_backed_authority_classifies_healthy_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = [
+        _FakeLibtmuxPane(
+            pane_id="%1",
+            session_name="HOUMAO-gpu",
+            window_id="@0",
+            window_index="0",
+            window_name="agent",
+            pane_index="0",
+            pane_active="1",
+            pane_pid="100",
+        ),
+        _FakeLibtmuxPane(
+            pane_id="%2",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="1",
+            window_name="gateway",
+            pane_index="0",
+            pane_pid="200",
+        ),
+    ]
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **_: _completed(cmd),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
+        lambda: _FakeLibtmuxServer(
+            sessions=[_FakeLibtmuxSession(session_name="HOUMAO-gpu", panes=panes)]
+        ),
+    )
+
+    result = probe_tmux_backed_authority(session_name="HOUMAO-gpu")
+
+    assert result == TmuxBackedAuthorityHealth(
+        state="healthy",
+        session_exists=True,
+        primary_window_exists=True,
+        primary_pane_exists=True,
+    )
+
+
+def test_probe_tmux_backed_authority_classifies_gateway_only_remnant_as_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = [
+        _FakeLibtmuxPane(
+            pane_id="%2",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="1",
+            window_name="gateway",
+            pane_index="0",
+            pane_active="1",
+            pane_pid="200",
+        ),
+    ]
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **_: _completed(cmd),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
+        lambda: _FakeLibtmuxServer(
+            sessions=[_FakeLibtmuxSession(session_name="HOUMAO-gpu", panes=panes)]
+        ),
+    )
+
+    result = probe_tmux_backed_authority(session_name="HOUMAO-gpu")
+
+    assert result.state == "degraded_missing_primary"
+    assert result.session_exists is True
+    assert result.primary_window_exists is False
+    assert result.primary_pane_exists is False
+
+
+def test_probe_tmux_backed_authority_classifies_stale_primary_handles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    panes = [
+        _FakeLibtmuxPane(
+            pane_id="%1",
+            session_name="HOUMAO-gpu",
+            window_id="@1",
+            window_index="0",
+            window_name="agent",
+            pane_index="0",
+            pane_active="1",
+            pane_pid="100",
+        ),
+    ]
+    monkeypatch.setattr("subprocess.run", lambda cmd, **_: _completed(cmd))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.tmux_runtime._libtmux_server",
+        lambda: _FakeLibtmuxServer(
+            sessions=[_FakeLibtmuxSession(session_name="HOUMAO-gpu", panes=panes)]
+        ),
+    )
+
+    result = probe_tmux_backed_authority(
+        session_name="HOUMAO-gpu",
+        primary_window_id="@missing",
+        primary_pane_id="%missing",
+    )
+
+    assert result.state == "degraded_stale_primary_handles"
+    assert result.primary_window_exists is True
+    assert result.primary_pane_exists is True
+    assert result.primary_window_handle_valid is False
+    assert result.primary_pane_handle_valid is False
+
+
+def test_probe_tmux_backed_authority_classifies_missing_session_as_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **_: _completed(cmd, returncode=1, stderr="can't find session"),
+    )
+
+    result = probe_tmux_backed_authority(session_name="HOUMAO-gone")
+
+    assert result == TmuxBackedAuthorityHealth(
+        state="stale_missing_session",
+        session_exists=False,
+        primary_window_exists=False,
+        primary_pane_exists=False,
+    )
+
+
+def test_probe_tmux_backed_authority_classifies_blank_name_as_stale() -> None:
+    assert probe_tmux_backed_authority(session_name="   ") == TmuxBackedAuthorityHealth(
+        state="stale_missing_session",
+        session_exists=False,
+        primary_window_exists=False,
+        primary_pane_exists=False,
+    )
 
 
 def test_set_tmux_session_environment_surfaces_key_context(

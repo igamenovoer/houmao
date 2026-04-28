@@ -19,9 +19,11 @@ import yaml
 
 from houmao.mailbox.errors import MailboxProtocolError
 
-MAILBOX_PROTOCOL_VERSION = 2
+MAILBOX_PROTOCOL_VERSION = 3
 NOTIFY_BLOCK_MAX_CHARS = 512
 NOTIFY_BLOCK_FENCE_INFO_STRING = "houmao-notify"
+NotifyBlockPlacement = Literal["append", "prepend"]
+DEFAULT_NOTIFY_BLOCK_PLACEMENT: NotifyBlockPlacement = "append"
 HOUMAO_MAILBOX_DOMAIN = "houmao.localhost"
 HOUMAO_RESERVED_LOCAL_PART_PREFIX = "HOUMAO-"
 HOUMAO_OPERATOR_PRINCIPAL_ID = "HOUMAO-operator"
@@ -81,6 +83,33 @@ class MailboxPrincipal(_StrictMailboxModel):
     @classmethod
     def _validate_address(cls, value: str) -> str:
         return validate_mailbox_address(value)
+
+
+class MailboxNotifyBlock(_StrictMailboxModel):
+    """Sender-marked notification block carrying short prominent text.
+
+    The ``text`` portion is intended for prominent receiver-side rendering by
+    the gateway notifier. ``placement`` controls both the position of the
+    auto-mirrored body fence and the position of the rendered text in the
+    notifier wake-up prompt (``"prepend"`` before standard content,
+    ``"append"`` after). Content is capped at ``NOTIFY_BLOCK_MAX_CHARS``
+    characters with visible ``…`` truncation when oversized.
+    """
+
+    text: str
+    placement: NotifyBlockPlacement = DEFAULT_NOTIFY_BLOCK_PLACEMENT
+
+    @field_validator("text")
+    @classmethod
+    def _validate_text(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("must not contain NUL bytes")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        if len(value) > NOTIFY_BLOCK_MAX_CHARS:
+            return value[: NOTIFY_BLOCK_MAX_CHARS - 1] + "…"
+        return value
 
 
 _NotifyAuthScheme = Literal["none", "shared-token", "hmac-sha256", "jws"]
@@ -194,14 +223,19 @@ class MailboxMessage(_StrictMailboxModel):
     body_markdown: str
     attachments: list[MailboxAttachment] = Field(default_factory=list)
     headers: dict[str, object] = Field(default_factory=dict)
-    notify_block: str | None = None
+    notify_block: MailboxNotifyBlock | None = None
     notify_auth: MailboxNotifyAuth | None = None
 
     @field_validator("protocol_version")
     @classmethod
     def _validate_protocol_version(cls, value: int) -> int:
         if value != MAILBOX_PROTOCOL_VERSION:
-            raise ValueError(f"must be {MAILBOX_PROTOCOL_VERSION}")
+            raise ValueError(
+                f"protocol_version must be {MAILBOX_PROTOCOL_VERSION}; "
+                f"got {value}. Older v1 envelopes load through migration paths "
+                "that pre-fill missing fields; v2 was unreleased and is no "
+                "longer accepted."
+            )
         return value
 
     @field_validator("message_id", "thread_id", "in_reply_to")
@@ -251,28 +285,23 @@ class MailboxMessage(_StrictMailboxModel):
                 raise ValueError("header keys must not be empty")
         return value
 
-    @field_validator("notify_block")
-    @classmethod
-    def _validate_notify_block(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if "\x00" in value:
-            raise ValueError("must not contain NUL bytes")
-        if not value.strip():
-            return None
-        if len(value) > NOTIFY_BLOCK_MAX_CHARS:
-            return value[: NOTIFY_BLOCK_MAX_CHARS - 1] + "…"
-        return value
-
     @classmethod
     def compose(cls, payload: Mapping[str, object]) -> "MailboxMessage":
         """Construct a canonical mailbox message from a payload mapping.
 
-        When ``notify_block`` is absent from the payload, the first
-        ``houmao-notify`` fenced code block in ``body_markdown`` is extracted
-        and stored as ``notify_block``. The body source is left unchanged.
-        Callers that supply ``notify_block`` directly (including ``None``)
-        bypass body-fence extraction entirely.
+        Notify-block resolution rules:
+
+        - When ``notify_block`` is absent from the payload, the first
+          ``houmao-notify`` fenced code block in ``body_markdown`` is
+          extracted and stored as ``MailboxNotifyBlock(text=..., placement="append")``.
+          The body source is left unchanged.
+        - When ``notify_block`` is supplied directly (as a ``MailboxNotifyBlock``
+          instance, a typed mapping, or ``None``), it bypasses body-fence
+          extraction entirely.
+        - When the resolved ``notify_block`` is non-null, the auto-mirror
+          invariant SHALL hold: the text appears verbatim in ``body_markdown``
+          inside a ``houmao-notify`` fenced block. If no such fence exists,
+          composition synthesizes one at the requested ``placement``.
         """
 
         composed = dict(payload)
@@ -281,7 +310,25 @@ class MailboxMessage(_StrictMailboxModel):
             if isinstance(body, str):
                 extracted = extract_notify_block_from_body(body)
                 if extracted is not None:
-                    composed["notify_block"] = extracted
+                    composed["notify_block"] = MailboxNotifyBlock(
+                        text=extracted,
+                        placement=DEFAULT_NOTIFY_BLOCK_PLACEMENT,
+                    )
+
+        nb_value = composed.get("notify_block")
+        if nb_value is not None:
+            if isinstance(nb_value, MailboxNotifyBlock):
+                resolved = nb_value
+            else:
+                resolved = MailboxNotifyBlock.model_validate(nb_value)
+            composed["notify_block"] = resolved
+            body = composed.get("body_markdown")
+            if isinstance(body, str):
+                composed["body_markdown"] = _apply_notify_block_body_mirror(
+                    body_markdown=body,
+                    notify_block=resolved,
+                )
+
         return cls.model_validate(composed)
 
     @model_validator(mode="after")
@@ -333,6 +380,49 @@ def extract_notify_block_from_body(body_markdown: str) -> str | None:
             return content if content else None
         fence_lines.append(line)
     return None
+
+
+def body_has_notify_block_fence(body_markdown: str) -> bool:
+    """Return whether ``body_markdown`` contains a ``houmao-notify`` fence."""
+
+    info_string = NOTIFY_BLOCK_FENCE_INFO_STRING
+    for line in body_markdown.splitlines():
+        rstripped = line.rstrip()
+        if rstripped.startswith("```"):
+            info = rstripped[3:].strip()
+            if info == info_string:
+                return True
+    return False
+
+
+def render_notify_block_fence(text: str) -> str:
+    """Return one well-formed ``houmao-notify`` fenced code block."""
+
+    info_string = NOTIFY_BLOCK_FENCE_INFO_STRING
+    return f"```{info_string}\n{text}\n```"
+
+
+def _apply_notify_block_body_mirror(
+    *,
+    body_markdown: str,
+    notify_block: "MailboxNotifyBlock",
+) -> str:
+    """Return ``body_markdown`` with a synthesized ``houmao-notify`` fence when needed.
+
+    When ``body_markdown`` already contains a ``houmao-notify`` fence, the
+    body is returned unchanged so caller-authored fence positions are
+    preserved. Otherwise a new fence is inserted at ``notify_block.placement``
+    (``"prepend"`` before existing content, ``"append"`` after).
+    """
+
+    if body_has_notify_block_fence(body_markdown):
+        return body_markdown
+    fence = render_notify_block_fence(notify_block.text)
+    if not body_markdown:
+        return fence
+    if notify_block.placement == "prepend":
+        return f"{fence}\n\n{body_markdown}"
+    return f"{body_markdown}\n\n{fence}"
 
 
 def generate_message_id(now: datetime | None = None) -> str:

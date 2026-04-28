@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
+from houmao.mailbox.protocol import MailboxNotifyBlock
 from houmao.srv_ctrl.commands.agents.mail import mail_group
 
 
@@ -46,7 +47,48 @@ def test_send_passes_notify_block_through_to_mail_send(
     assert result.exit_code == 0, result.output
     mock_mail_send.assert_called_once()
     kwargs: dict[str, Any] = mock_mail_send.call_args.kwargs
-    assert kwargs["notify_block"] == "re-run on official path"
+    assert isinstance(kwargs["notify_block"], MailboxNotifyBlock)
+    assert kwargs["notify_block"].text == "re-run on official path"
+    assert kwargs["notify_block"].placement == "append"
+
+
+@patch("houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target")
+@patch("houmao.srv_ctrl.commands.agents.mail.mail_send")
+@patch("houmao.srv_ctrl.commands.agents.mail.emit")
+def test_send_passes_notify_block_with_prepend_placement(
+    mock_emit: MagicMock,
+    mock_mail_send: MagicMock,
+    mock_resolve: MagicMock,
+) -> None:
+    mock_resolve.return_value = _FAKE_TARGET
+    mock_mail_send.return_value = {"ok": True}
+    mock_emit.return_value = None
+
+    runner = CliRunner()
+    result = runner.invoke(
+        mail_group,
+        [
+            "send",
+            "--agent-name",
+            "alice",
+            "--to",
+            "bob@houmao.localhost",
+            "--subject",
+            "hello",
+            "--body-content",
+            "ordinary body",
+            "--notify-block",
+            "OPERATOR DIRECTIVE",
+            "--notify-block-placement",
+            "prepend",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    kwargs: dict[str, Any] = mock_mail_send.call_args.kwargs
+    assert isinstance(kwargs["notify_block"], MailboxNotifyBlock)
+    assert kwargs["notify_block"].text == "OPERATOR DIRECTIVE"
+    assert kwargs["notify_block"].placement == "prepend"
 
 
 @patch("houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target")
@@ -113,4 +155,6 @@ def test_post_passes_notify_block_through_to_mail_post(
 
     assert result.exit_code == 0, result.output
     kwargs: dict[str, Any] = mock_mail_post.call_args.kwargs
-    assert kwargs["notify_block"] == "continue current task"
+    assert isinstance(kwargs["notify_block"], MailboxNotifyBlock)
+    assert kwargs["notify_block"].text == "continue current task"
+    assert kwargs["notify_block"].placement == "append"

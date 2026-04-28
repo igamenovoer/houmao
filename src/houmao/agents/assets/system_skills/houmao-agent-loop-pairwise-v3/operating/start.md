@@ -19,7 +19,6 @@ Before sending `start`, confirm the plan defines:
 - plan revision, digest, or equivalent freshness marker
 - exact memo sentinel convention keyed by `run_id` and slot `initialize`
 - initialize memo-slot expectations for the designated master when managed memory is being used
-- explicit `operator_preparation_wave` target policy and acknowledgement posture when that strategy is selected
 - routing packet inventory and root packet location when routing packets are part of the plan
 - completion condition
 - stop posture
@@ -31,9 +30,8 @@ Before sending `start`, confirm the plan defines:
 2. Confirm that `initialize` is already complete:
    - when routing packets are part of the plan, root and child packet coverage is valid and the root packet is available for the designated master's initialize memo guidance
    - the designated master and every required participant have email/mailbox support for the run's default communication posture
+   - gateway mail-notifier behavior has been verified or enabled for required mail-driven participants with supported live gateway and mailbox surfaces
    - run-owned initialize memo blocks have been written or refreshed for participants whose managed memory is being used
-   - if explicit `operator_preparation_wave` is selected, targeted notifier and preparation-mail work is complete
-   - if explicit `require_ack` is selected for `operator_preparation_wave`, required replies from targeted preparation recipients have arrived
    - the run is `ready`
 3. If initialization is not yet complete, return to `prestart/prepare-run.md` instead of collapsing `initialize` into `start`.
 4. Derive or recover the user-visible `run_id`.
@@ -110,7 +108,7 @@ The live `start` trigger is intentionally compact. It should:
 - Do not use the compact start trigger as the only copy of the full run contract when the designated master's managed memory is being used.
 - Do not make the master or intermediate drivers run graph analysis or recompute child routing packets from the full plan at runtime.
 - Do not edit, merge, or summarize prepared child routing packets by default.
-- Do not treat acknowledgement replies as readiness blockers unless `require_ack` was explicitly selected.
+- Do not treat acknowledgement replies as readiness blockers for pairwise-v3 `start`.
 - Do not start when the topology is too unclear to validate routing-packet coverage or initialize memo material used by `initialize`.
 - Do not ask the user agent to keep the run alive after the master starts the run.
 - Do not block one live turn after downstream dispatch merely because timeout-watch policy exists.

@@ -92,6 +92,7 @@ class HeadlessCliRunner:
         display_style: HeadlessDisplayStyle = "plain",
         display_detail: HeadlessDisplayDetail = "concise",
         tmux_session_name: str | None = None,
+        tmux_pane_target: str | None = None,
         turn_artifacts_root: Path | None = None,
         turn_artifact_dir_name: str | None = None,
         completion_timeout_seconds: float = _DEFAULT_COMPLETION_TIMEOUT_SECONDS,
@@ -119,6 +120,7 @@ class HeadlessCliRunner:
                 turn_index=turn_index,
                 output_format=output_format,
                 tmux_session_name=tmux_session_name,
+                tmux_pane_target=tmux_pane_target,
                 turn_artifacts_root=turn_artifacts_root
                 if turn_artifacts_root is not None
                 else cwd / ".houmao" / "headless-turns",
@@ -137,6 +139,7 @@ class HeadlessCliRunner:
             display_style=display_style,
             display_detail=display_detail,
             tmux_session_name=tmux_session_name,
+            tmux_pane_target=tmux_pane_target,
             turn_artifacts_root=turn_artifacts_root
             if turn_artifacts_root is not None
             else cwd / ".houmao" / "headless-turns",
@@ -324,6 +327,7 @@ class HeadlessCliRunner:
         display_style: HeadlessDisplayStyle,
         display_detail: HeadlessDisplayDetail,
         tmux_session_name: str,
+        tmux_pane_target: str | None,
         turn_artifacts_root: Path,
         turn_artifact_dir_name: str | None,
         completion_timeout_seconds: float,
@@ -338,7 +342,7 @@ class HeadlessCliRunner:
         process_path = turn_dir / "process.json"
         canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
         wait_signal = f"houmao-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
-        pane_target = headless_agent_pane_target_shared(session_name=tmux_session_name)
+        pane_target = tmux_pane_target
         launched_at_utc = datetime.now(UTC).isoformat(timespec="seconds")
         bridge_args = [
             sys.executable,
@@ -378,12 +382,18 @@ class HeadlessCliRunner:
         )
         pane_command = f"sh -lc {shlex.quote(script)}"
 
-        try:
-            prepare_headless_agent_window_shared(session_name=tmux_session_name)
-        except TmuxCommandError as exc:
-            raise BackendExecutionError(
-                f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
-            ) from exc
+        if pane_target is None:
+            try:
+                surface = prepare_headless_agent_window_shared(session_name=tmux_session_name)
+                pane_target = (
+                    surface.pane_id
+                    if surface is not None
+                    else headless_agent_pane_target_shared(session_name=tmux_session_name)
+                )
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
+                ) from exc
 
         try:
             launch = run_tmux_shared(
@@ -483,6 +493,7 @@ class HeadlessCliRunner:
         turn_index: int,
         output_format: str,
         tmux_session_name: str,
+        tmux_pane_target: str | None,
         turn_artifacts_root: Path,
         turn_artifact_dir_name: str | None,
         completion_timeout_seconds: float,
@@ -502,7 +513,7 @@ class HeadlessCliRunner:
         stdout_pipe_path = turn_dir / f".stdout-{uuid.uuid4().hex}.pipe"
         stderr_pipe_path = turn_dir / f".stderr-{uuid.uuid4().hex}.pipe"
         wait_signal = f"houmao-headless-turn-{turn_index}-{uuid.uuid4().hex[:10]}".lower()
-        pane_target = headless_agent_pane_target_shared(session_name=tmux_session_name)
+        pane_target = tmux_pane_target
 
         command_text = shlex.join(command)
         script = "\n".join(
@@ -553,12 +564,18 @@ class HeadlessCliRunner:
         )
         pane_command = f"sh -lc {shlex.quote(script)}"
 
-        try:
-            prepare_headless_agent_window_shared(session_name=tmux_session_name)
-        except TmuxCommandError as exc:
-            raise BackendExecutionError(
-                f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
-            ) from exc
+        if pane_target is None:
+            try:
+                surface = prepare_headless_agent_window_shared(session_name=tmux_session_name)
+                pane_target = (
+                    surface.pane_id
+                    if surface is not None
+                    else headless_agent_pane_target_shared(session_name=tmux_session_name)
+                )
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to prepare tmux headless agent surface in `{tmux_session_name}`: {exc}"
+                ) from exc
 
         try:
             launch = run_tmux_shared(
