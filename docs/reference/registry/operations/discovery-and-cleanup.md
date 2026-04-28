@@ -117,7 +117,7 @@ For managed-agent cleanup commands:
 
 - `agents cleanup session` prefers lifecycle registry records over runtime-root scans,
 - `agents cleanup session` retires stopped records by default after successful session-root removal or validated absence,
-- `agents cleanup session --purge-registry` deletes the lifecycle record entirely,
+- `agents cleanup session --purge-registry` deletes the lifecycle record entirely. This flag is intended for confirmed broken active local authority after tmux inspection reveals a degraded or stale session. See [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md).
 - `agents cleanup logs` and `agents cleanup mailbox` preserve the lifecycle record,
 - active lifecycle records are not retired or purged through cleanup; stop the agent first.
 

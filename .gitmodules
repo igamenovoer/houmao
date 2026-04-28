@@ -22,3 +22,7 @@
 	path = extern/tracked/llm-wiki-skill
 	url = https://github.com/imsight-forks/llm-wiki-skill.git
 	branch = all-in-one
+[submodule "extern/tracked/houmao-agents"]
+	path = extern/tracked/houmao-agents
+	url = https://github.com/igamenovoer/houmao-agents.git
+	branch = main

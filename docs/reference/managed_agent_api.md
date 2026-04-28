@@ -190,7 +190,7 @@ Managed-agent gateway routes project the same gateway status, raw TUI tracking s
 Important attach behavior:
 
 - attach is idempotent when a healthy live gateway is already attached for the same managed agent
-- attach accepts optional `tui_tracking_timings` with positive-second overrides for `watch_poll_interval_seconds`, `stability_threshold_seconds`, `completion_stability_seconds`, `unknown_to_stalled_timeout_seconds`, `stale_active_recovery_seconds`, and `final_stable_active_recovery_seconds`
+- attach accepts optional `tui_tracking_timings` with positive-second overrides for `watch_poll_interval_seconds`, `stability_threshold_seconds`, `completion_stability_seconds`, `unknown_to_stalled_timeout_seconds`, `stale_active_recovery_seconds`, and `final_stable_active_recovery_seconds`. `stale_active_recovery_seconds` governs how long the gateway waits before treating a stuck active turn as stale; this is related to but distinct from the managed-agent recovery system that handles broken tmux sessions. See [Degraded and Stale Active Recovery](run-phase/degraded-stale-recovery.md).
 - attach returns HTTP `409` when reconciliation is required or the underlying attach reports an already-in-use conflict
 - attach returns HTTP `503` when runtime control is not resumable or gateway startup fails for an unavailable reason
 

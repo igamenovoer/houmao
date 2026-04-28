@@ -54,6 +54,8 @@ flowchart TD
 
 `src/houmao/agents/realm_controller/` reads the built manifest, pairs it with a role package, and resolves a backend-specific `LaunchPlan`.
 
+When a managed agent's registry record claims `active` but the underlying tmux session is broken, `agents stop` and `agents relaunch` route through dedicated recovery helpers rather than failing with a generic error. The runtime probes tmux authority, classifies the session as healthy, degraded, or stale, and dispatches to the appropriate recovery path. See [Degraded and Stale Active Recovery](../reference/run-phase/degraded-stale-recovery.md).
+
 ### Key Types
 
 **`LaunchPlanRequest`**

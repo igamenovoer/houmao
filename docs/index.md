@@ -45,6 +45,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 - [Launch Plan](reference/run-phase/launch-plan.md): Composing manifest + role into a backend-specific launch plan.
 - [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, stop, and [relaunch](reference/run-phase/session-lifecycle.md#relaunch-sequence) sessions — including the 0.8.0 `--reuse-home fresh` launch mode that reuses an existing brain home for fast restarts without rebuilding.
+- [Degraded and Stale Active Recovery](reference/run-phase/degraded-stale-recovery.md): Probe-first dispatch and recovery paths for local tmux-backed managed agents whose registry record claims `active` but whose tmux session is broken.
 - [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and server-backed.
 - [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
 - [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header with six independently controllable sections prepended to every managed launch by default — memo cue, content, per-section control, composition, opt-out flags, and stored launch-profile policy.
