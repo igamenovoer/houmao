@@ -32,13 +32,17 @@ from .headless_output import (
 )
 from .headless_runner import HeadlessCliRunner
 from .tmux_runtime import (
+    HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
+    TmuxPrimarySurfaceRecord,
     create_tmux_session as create_tmux_session_shared,
     ensure_tmux_available as ensure_tmux_available_shared,
     generate_tmux_session_name as generate_tmux_session_name_shared,
     has_tmux_session as has_tmux_session_shared,
+    headless_agent_pane_target as headless_agent_pane_target_shared,
     kill_tmux_session as kill_tmux_session_shared,
     prepare_headless_agent_window as prepare_headless_agent_window_shared,
+    resolve_primary_tmux_surface as resolve_primary_tmux_surface_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
 )
@@ -59,6 +63,8 @@ class HeadlessSessionState:
     working_directory: str = ""
     tmux_session_name: str | None = None
     tmux_window_name: str | None = None
+    tmux_window_id: str | None = None
+    tmux_pane_id: str | None = None
     resume_selection_kind: HeadlessResumeSelectionKind = "none"
     resume_selection_value: str | None = None
     joined_session: bool = False
@@ -171,6 +177,7 @@ class HeadlessInteractiveSession:
                 "display_style": self._display_style,
                 "display_detail": self._display_detail,
                 "tmux_session_name": session_name,
+                "tmux_pane_target": self._primary_tmux_pane_target(),
                 "turn_artifacts_root": self._turn_artifacts_root,
             }
             if turn_artifact_dir_name is not None:
@@ -306,7 +313,9 @@ class HeadlessInteractiveSession:
         try:
             self._apply_relaunch_chat_session(chat_session)
             if not self._uses_joined_surface():
-                prepare_headless_agent_window_shared(session_name=session_name)
+                self._prepare_primary_surface(session_name=session_name)
+            else:
+                self._refresh_primary_surface()
             self._publish_tmux_session_environment()
         except TmuxCommandError as exc:
             return SessionControlResult(
@@ -428,11 +437,13 @@ class HeadlessInteractiveSession:
                 )
             if not self._uses_joined_surface():
                 try:
-                    prepare_headless_agent_window_shared(session_name=persisted)
+                    self._prepare_primary_surface(session_name=persisted)
                 except TmuxCommandError as exc:
                     raise BackendExecutionError(
                         f"Failed to prepare tmux agent surface in `{persisted}`: {exc}"
                     ) from exc
+            else:
+                self._refresh_primary_surface_best_effort()
             self._state.tmux_session_name = persisted
             self._publish_tmux_session_environment()
             return
@@ -465,7 +476,7 @@ class HeadlessInteractiveSession:
                 working_directory=self._plan.working_directory,
             )
             created_session = True
-            prepare_headless_agent_window_shared(session_name=session_name)
+            surface = self._prepare_primary_surface(session_name=session_name, fresh_session=True)
         except TmuxCommandError as exc:
             if created_session:
                 try:
@@ -475,7 +486,90 @@ class HeadlessInteractiveSession:
             raise BackendExecutionError(str(exc)) from exc
 
         self._state.tmux_session_name = session_name
+        self._record_primary_surface(surface)
         self._publish_tmux_session_environment()
+
+    def _prepare_primary_surface(
+        self,
+        *,
+        session_name: str,
+        fresh_session: bool = False,
+    ) -> TmuxPrimarySurfaceRecord | None:
+        """Prepare the Houmao-owned primary tmux surface and store its handles."""
+
+        try:
+            surface = prepare_headless_agent_window_shared(
+                session_name=session_name,
+                fresh_session=fresh_session,
+            )
+        except TypeError as exc:
+            if "fresh_session" not in str(exc):
+                raise
+            surface = prepare_headless_agent_window_shared(session_name=session_name)
+        self._record_primary_surface(surface)
+        return surface
+
+    def _record_primary_surface(self, surface: TmuxPrimarySurfaceRecord | None) -> None:
+        """Persist one resolved primary tmux surface into backend state."""
+
+        if surface is None:
+            return
+        self._state.tmux_session_name = surface.session_name
+        self._state.tmux_window_name = surface.window_name
+        self._state.tmux_window_id = surface.window_id
+        self._state.tmux_pane_id = surface.pane_id
+
+    def _refresh_primary_surface_best_effort(self) -> TmuxPrimarySurfaceRecord | None:
+        """Refresh primary handles when tmux can be inspected, without blocking resume."""
+
+        try:
+            return self._refresh_primary_surface()
+        except TmuxCommandError:
+            return None
+
+    def _refresh_primary_surface(self) -> TmuxPrimarySurfaceRecord:
+        """Validate or lazily recover the primary tmux surface handles."""
+
+        session_name = self._require_tmux_session_name()
+        require_pane_index_zero = self._uses_joined_surface()
+        if self._state.tmux_pane_id is not None or self._state.tmux_window_id is not None:
+            try:
+                surface = resolve_primary_tmux_surface_shared(
+                    session_name=session_name,
+                    pane_id=self._state.tmux_pane_id,
+                    window_id=self._state.tmux_window_id,
+                    require_pane_index_zero=require_pane_index_zero,
+                )
+                self._record_primary_surface(surface)
+                return surface
+            except TmuxCommandError:
+                pass
+
+        window_name = (
+            None
+            if self._uses_joined_surface()
+            else (self._state.tmux_window_name or HEADLESS_AGENT_WINDOW_NAME)
+        )
+        surface = resolve_primary_tmux_surface_shared(
+            session_name=session_name,
+            window_name=window_name,
+            require_pane_index_zero=require_pane_index_zero,
+        )
+        self._record_primary_surface(surface)
+        return surface
+
+    def _primary_tmux_pane_target(self) -> str:
+        """Return the validated primary pane id, with a legacy target fallback."""
+
+        session_name = self._require_tmux_session_name()
+        try:
+            return self._refresh_primary_surface().pane_id
+        except TmuxCommandError as exc:
+            if self._state.tmux_pane_id is not None or self._state.tmux_window_id is not None:
+                raise BackendExecutionError(
+                    f"Failed to resolve primary tmux pane in `{session_name}`: {exc}"
+                ) from exc
+            return headless_agent_pane_target_shared(session_name=session_name)
 
     def _publish_tmux_session_environment(self) -> None:
         session_name = self._state.tmux_session_name
@@ -547,6 +641,8 @@ def headless_backend_state_payload(state: HeadlessSessionState) -> dict[str, Any
         "working_directory": state.working_directory,
         "tmux_session_name": state.tmux_session_name,
         "tmux_window_name": state.tmux_window_name,
+        "tmux_window_id": state.tmux_window_id,
+        "tmux_pane_id": state.tmux_pane_id,
         "resume_selection_kind": state.resume_selection_kind,
         "resume_selection_value": state.resume_selection_value,
     }

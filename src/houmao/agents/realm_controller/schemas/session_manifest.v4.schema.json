@@ -668,6 +668,30 @@
           "title": "Primary Window Index",
           "type": "string"
         },
+        "primary_window_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Window Id"
+        },
+        "primary_pane_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Pane Id"
+        },
         "working_directory": {
           "title": "Working Directory",
           "type": "string"
@@ -1114,6 +1138,30 @@
           ],
           "default": null,
           "title": "Primary Window Name"
+        },
+        "primary_window_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Window Id"
+        },
+        "primary_pane_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Pane Id"
         }
       },
       "required": [

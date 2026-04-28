@@ -360,8 +360,16 @@ class SessionManifestTmuxSectionV1(_StrictBoundaryModel):
     primary_window_index: str = "0"
     primary_window_role: Literal["managed_agent_surface"] = "managed_agent_surface"
     primary_window_name: str | None = None
+    primary_window_id: str | None = None
+    primary_pane_id: str | None = None
 
-    @field_validator("session_name", "primary_window_index", "primary_window_name")
+    @field_validator(
+        "session_name",
+        "primary_window_index",
+        "primary_window_name",
+        "primary_window_id",
+        "primary_pane_id",
+    )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:
         if value is None:
@@ -433,6 +441,8 @@ class SessionManifestAgentLaunchAuthorityV1(_StrictBoundaryModel):
     tool: str
     tmux_session_name: str | None = None
     primary_window_index: str = "0"
+    primary_window_id: str | None = None
+    primary_pane_id: str | None = None
     working_directory: str
     session_id: str | None = None
     profile_name: str | None = None
@@ -446,6 +456,8 @@ class SessionManifestAgentLaunchAuthorityV1(_StrictBoundaryModel):
         "tool",
         "tmux_session_name",
         "primary_window_index",
+        "primary_window_id",
+        "primary_pane_id",
         "working_directory",
         "session_id",
         "profile_name",

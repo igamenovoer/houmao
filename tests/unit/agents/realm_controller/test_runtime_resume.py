@@ -349,6 +349,8 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
             "working_directory": str(tmp_path),
             "tmux_session_name": "HOUMAO-r",
             "tmux_window_name": "manual",
+            "tmux_window_id": "@4",
+            "tmux_pane_id": "%4",
         },
     )
     session_path = tmp_path / "session-local-interactive.json"
@@ -378,6 +380,8 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     assert captured["state"].turn_index == 2
     assert captured["state"].tmux_session_name == "HOUMAO-r"
     assert captured["state"].tmux_window_name == "manual"
+    assert captured["state"].tmux_window_id == "@4"
+    assert captured["state"].tmux_pane_id == "%4"
     assert controller.launch_plan.backend == "local_interactive"
 
 

@@ -32,13 +32,10 @@ from .tmux_runtime import (
     TmuxCommandError,
     TmuxControlInputError,
     capture_tmux_pane as capture_tmux_pane_shared,
-    headless_agent_pane_target as headless_agent_pane_target_shared,
     kill_tmux_session as kill_tmux_session_shared,
     load_tmux_buffer as load_tmux_buffer_shared,
-    list_tmux_panes as list_tmux_panes_shared,
     parse_tmux_control_input as parse_tmux_control_input_shared,
     paste_tmux_buffer as paste_tmux_buffer_shared,
-    prepare_headless_agent_window as prepare_headless_agent_window_shared,
     run_tmux as run_tmux_shared,
     send_tmux_control_input as send_tmux_control_input_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -166,9 +163,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 
         try:
             send_tmux_control_input_shared(
-                target=headless_agent_pane_target_shared(
-                    session_name=self._require_tmux_session_name()
-                ),
+                target=self._primary_tmux_pane_target(),
                 segments=parse_tmux_control_input_shared(sequence="<[Escape]>"),
             )
         except (BackendExecutionError, TmuxCommandError, TmuxControlInputError) as exc:
@@ -240,9 +235,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
 
         try:
             send_tmux_control_input_shared(
-                target=headless_agent_pane_target_shared(
-                    session_name=self._require_tmux_session_name()
-                ),
+                target=self._primary_tmux_pane_target(),
                 segments=parse_tmux_control_input_shared(
                     sequence=sequence,
                     escape_special_keys=escape_special_keys,
@@ -331,7 +324,16 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
     ) -> None:
         self._prepare_tool_home()
         session_name = self._require_tmux_session_name()
-        pane_target = headless_agent_pane_target_shared(session_name=session_name)
+        if not self._uses_joined_surface():
+            try:
+                self._prepare_primary_surface(session_name=session_name)
+            except TmuxCommandError as exc:
+                raise BackendExecutionError(
+                    f"Failed to prepare tmux interactive agent surface in `{session_name}`: {exc}"
+                ) from exc
+        else:
+            self._refresh_primary_surface_best_effort()
+        pane_target = self._primary_tmux_pane_target()
         command_text = shlex.join(self._build_launch_command(chat_session=chat_session))
         script = "\n".join(
             [
@@ -345,14 +347,6 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             ]
         )
         pane_command = f"sh -lc {shlex.quote(script)}"
-
-        if not self._uses_joined_surface():
-            try:
-                prepare_headless_agent_window_shared(session_name=session_name)
-            except TmuxCommandError as exc:
-                raise BackendExecutionError(
-                    f"Failed to prepare tmux interactive agent surface in `{session_name}`: {exc}"
-                ) from exc
 
         try:
             result = run_tmux_shared(["respawn-pane", "-k", "-t", pane_target, pane_command])
@@ -421,7 +415,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         """Paste literal prompt text and submit it as a separate tmux phase."""
 
         session_name = self._require_tmux_session_name()
-        pane_target = headless_agent_pane_target_shared(session_name=session_name)
+        pane_target = self._primary_tmux_pane_target()
         buffer_name = self._prompt_buffer_name(session_name)
         try:
             load_tmux_buffer_shared(buffer_name=buffer_name, text=text)
@@ -455,11 +449,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         """Return the current tmux pane capture for the stable interactive surface."""
 
         try:
-            return capture_tmux_pane_shared(
-                target=headless_agent_pane_target_shared(
-                    session_name=self._require_tmux_session_name()
-                )
-            )
+            return capture_tmux_pane_shared(target=self._primary_tmux_pane_target())
         except TmuxCommandError as exc:
             raise BackendExecutionError(
                 f"Failed to capture local interactive pane output: {exc}"
@@ -571,25 +561,13 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
     def _ensure_provider_tui_alive(self) -> None:
         """Raise when the tracked provider process is no longer live."""
 
-        session_name = self._require_tmux_session_name()
         try:
-            panes = list_tmux_panes_shared(session_name=session_name)
+            pane = self._refresh_primary_surface()
         except TmuxCommandError as exc:
             raise BackendExecutionError(
-                f"Failed to inspect tmux panes for `{session_name}`: {exc}"
+                f"tmux session `{self._require_tmux_session_name()}` is missing the stable "
+                f"agent pane: {exc}"
             ) from exc
-        pane = next(
-            (
-                candidate
-                for candidate in panes
-                if candidate.window_index == "0" and candidate.pane_index == "0"
-            ),
-            None,
-        )
-        if pane is None:
-            raise BackendExecutionError(
-                f"tmux session `{session_name}` is missing the stable agent pane."
-            )
         inspection = self._process_inspector.inspect(tool=self._plan.tool, pane_pid=pane.pane_pid)
         if inspection.process_state == "tui_up":
             return
@@ -614,30 +592,17 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         poll_interval_seconds: float,
     ) -> None:
         session_name = self._require_tmux_session_name()
-        pane_target = headless_agent_pane_target_shared(session_name=session_name)
         deadline = time.monotonic() + max(timeout_seconds, 0.1)
         last_capture = ""
         while time.monotonic() < deadline:
             try:
-                panes = list_tmux_panes_shared(session_name=session_name)
+                pane = self._refresh_primary_surface()
             except TmuxCommandError as exc:
                 raise BackendExecutionError(
                     f"Failed to inspect tmux panes for `{session_name}`: {exc}"
                 ) from exc
-            pane = next(
-                (
-                    candidate
-                    for candidate in panes
-                    if candidate.window_index == "0" and candidate.pane_index == "0"
-                ),
-                None,
-            )
-            if pane is None:
-                raise BackendExecutionError(
-                    f"tmux session `{session_name}` is missing the stable agent pane."
-                )
             try:
-                last_capture = capture_tmux_pane_shared(target=pane_target)
+                last_capture = capture_tmux_pane_shared(target=pane.pane_id)
             except TmuxCommandError:
                 last_capture = ""
             inspection = self._process_inspector.inspect(

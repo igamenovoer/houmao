@@ -35,6 +35,8 @@ class ManagedHeadlessAuthorityRecord(_ManagedAgentStoreModel):
     manifest_path: str
     session_root: str
     tmux_session_name: str
+    tmux_window_id: str | None = None
+    tmux_pane_id: str | None = None
     agent_def_dir: str
     agent_name: str | None = None
     agent_id: str | None = None
@@ -48,6 +50,8 @@ class ManagedHeadlessAuthorityRecord(_ManagedAgentStoreModel):
         "manifest_path",
         "session_root",
         "tmux_session_name",
+        "tmux_window_id",
+        "tmux_pane_id",
         "agent_def_dir",
         "agent_name",
         "agent_id",
@@ -76,6 +80,8 @@ class ManagedHeadlessActiveTurnRecord(_ManagedAgentStoreModel):
     started_at_utc: str
     tmux_session_name: str
     tmux_window_name: str | None = None
+    tmux_window_id: str | None = None
+    tmux_pane_id: str | None = None
     process_path: str | None = None
     process_started_at_utc: str | None = None
     runner_pid: int | None = None
@@ -89,6 +95,8 @@ class ManagedHeadlessActiveTurnRecord(_ManagedAgentStoreModel):
         "started_at_utc",
         "tmux_session_name",
         "tmux_window_name",
+        "tmux_window_id",
+        "tmux_pane_id",
         "process_path",
         "process_started_at_utc",
         "interrupt_requested_at_utc",
@@ -137,6 +145,8 @@ class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
     turn_artifact_dir: str
     tmux_session_name: str
     tmux_window_name: str | None = None
+    tmux_window_id: str | None = None
+    tmux_pane_id: str | None = None
     process_path: str | None = None
     process_started_at_utc: str | None = None
     runner_pid: int | None = None
@@ -159,6 +169,8 @@ class ManagedHeadlessTurnRecord(_ManagedAgentStoreModel):
         "turn_artifact_dir",
         "tmux_session_name",
         "tmux_window_name",
+        "tmux_window_id",
+        "tmux_pane_id",
         "process_path",
         "process_started_at_utc",
         "stdout_path",

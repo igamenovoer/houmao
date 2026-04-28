@@ -132,6 +132,8 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
                 "role_bootstrap_applied": True,
                 "working_directory": str(tmp_path),
                 "tmux_session_name": "HOUMAO-claude",
+                "tmux_window_id": "@7",
+                "tmux_pane_id": "%7",
             },
             memory_root=(tmp_path / "memory" / "agents" / "agent-a").resolve(),
             memo_file=(tmp_path / "memory" / "agents" / "agent-a" / "houmao-memo.md").resolve(),
@@ -162,7 +164,11 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     )
     assert loaded.payload["runtime"]["agent_pid"] is None
     assert loaded.payload["tmux"]["session_name"] == "HOUMAO-claude"
+    assert loaded.payload["tmux"]["primary_window_id"] == "@7"
+    assert loaded.payload["tmux"]["primary_pane_id"] == "%7"
     assert loaded.payload["agent_launch_authority"]["primary_window_index"] == "0"
+    assert loaded.payload["agent_launch_authority"]["primary_window_id"] == "@7"
+    assert loaded.payload["agent_launch_authority"]["primary_pane_id"] == "%7"
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "HOUMAO-claude"
     assert loaded.payload["launch_policy_provenance"]["selected_strategy_id"] == (

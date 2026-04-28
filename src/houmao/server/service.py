@@ -104,6 +104,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     TmuxCommandError,
     headless_agent_pane_target,
+    resolve_primary_tmux_surface,
     run_tmux,
     tmux_session_exists,
     tmux_error_detail,
@@ -896,6 +897,8 @@ class HoumaoServerService:
             manifest_path=str(controller.manifest_path),
             session_root=str(controller.manifest_path.parent),
             tmux_session_name=self._require_controller_tmux_session_name(controller),
+            tmux_window_id=_controller_primary_tmux_window_id(controller),
+            tmux_pane_id=_controller_primary_tmux_pane_id(controller),
             agent_def_dir=str(agent_def_dir),
             agent_name=controller.agent_identity,
             agent_id=controller.agent_id,
@@ -3215,6 +3218,8 @@ class HoumaoServerService:
         turn_artifact_dir = self._headless_turn_artifacts_root(controller) / turn_id
         process_path = turn_artifact_dir / "process.json"
         tmux_window_name = HEADLESS_AGENT_WINDOW_NAME
+        tmux_window_id = _controller_primary_tmux_window_id(controller)
+        tmux_pane_id = _controller_primary_tmux_pane_id(controller)
         turn_record = ManagedHeadlessTurnRecord(
             tracked_agent_id=tracked_agent_id,
             turn_id=turn_id,
@@ -3224,6 +3229,8 @@ class HoumaoServerService:
             turn_artifact_dir=str(turn_artifact_dir),
             tmux_session_name=self._require_controller_tmux_session_name(controller),
             tmux_window_name=tmux_window_name,
+            tmux_window_id=tmux_window_id,
+            tmux_pane_id=tmux_pane_id,
             process_path=str(process_path),
             history_summary=f"Turn {turn_id} accepted.",
         )
@@ -3235,6 +3242,8 @@ class HoumaoServerService:
             started_at_utc=turn_record.started_at_utc,
             tmux_session_name=turn_record.tmux_session_name,
             tmux_window_name=tmux_window_name,
+            tmux_window_id=tmux_window_id,
+            tmux_pane_id=tmux_pane_id,
             process_path=str(process_path),
         )
         self.m_managed_headless_store.write_turn_record(turn_record)
@@ -4640,7 +4649,7 @@ class HoumaoServerService:
     ) -> None:
         """Interrupt one headless turn through tmux as a last-resort fallback."""
 
-        target = headless_agent_pane_target(session_name=active_turn.tmux_session_name)
+        target = _active_turn_primary_tmux_target(active_turn)
         try:
             result = run_tmux(["send-keys", "-t", target, "C-c"])
         except TmuxCommandError as exc:
@@ -4779,6 +4788,55 @@ def _message_sha1(message: str) -> str:
     """Return one stable digest for a submitted prompt payload."""
 
     return hashlib.sha1(message.encode("utf-8")).hexdigest()
+
+
+def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
+    """Return the controller's current primary tmux window id when available."""
+
+    backend_session = controller.backend_session
+    if not isinstance(backend_session, HeadlessInteractiveSession):
+        return None
+    try:
+        state = backend_session.state
+    except AttributeError:
+        return None
+    value = getattr(state, "tmux_window_id", None)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _controller_primary_tmux_pane_id(controller: RuntimeSessionController) -> str | None:
+    """Return the controller's current primary tmux pane id when available."""
+
+    backend_session = controller.backend_session
+    if not isinstance(backend_session, HeadlessInteractiveSession):
+        return None
+    try:
+        state = backend_session.state
+    except AttributeError:
+        return None
+    value = getattr(state, "tmux_pane_id", None)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _active_turn_primary_tmux_target(active_turn: ManagedHeadlessActiveTurnRecord) -> str:
+    """Return the best tmux target for interrupting one active headless turn."""
+
+    if active_turn.tmux_pane_id is not None:
+        try:
+            return resolve_primary_tmux_surface(
+                session_name=active_turn.tmux_session_name,
+                pane_id=active_turn.tmux_pane_id,
+                window_id=active_turn.tmux_window_id,
+            ).pane_id
+        except TmuxCommandError:
+            pass
+    try:
+        return resolve_primary_tmux_surface(
+            session_name=active_turn.tmux_session_name,
+            window_name=active_turn.tmux_window_name,
+        ).pane_id
+    except TmuxCommandError:
+        return headless_agent_pane_target(session_name=active_turn.tmux_session_name)
 
 
 TerminalWatchWorker = SessionWatchWorker

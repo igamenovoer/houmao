@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayCurrentInstanceV1
 from houmao.agents.realm_controller.gateway_storage import (
     delete_gateway_current_instance,
@@ -258,6 +258,42 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert stopped_record.terminal.last_session_name == started_record.terminal.current_session_name
     stopped_payload = json.loads(resumed.manifest_path.read_text(encoding="utf-8"))
     assert stopped_payload["tmux_session_name"] == started_record.terminal.current_session_name
+
+
+def test_start_runtime_session_does_not_publish_registry_when_surface_preparation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    registry_root = tmp_path / "registry"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(registry_root))
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            BackendExecutionError(
+                "Failed to prepare tmux agent surface in `HOUMAO-gpu`: base-index conflict"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime.publish_live_agent_record",
+        lambda _record: (_ for _ in ()).throw(AssertionError("registry publish must not run")),
+    )
+
+    with pytest.raises(BackendExecutionError, match="base-index conflict"):
+        start_runtime_session(
+            agent_def_dir=agent_def_dir,
+            brain_manifest_path=brain_manifest_path,
+            role_name="r",
+            runtime_root=tmp_path / "runtime",
+            backend="claude_headless",
+            working_directory=tmp_path,
+            agent_name="gpu",
+        )
+
+    assert resolve_live_agent_record("gpu") is None
 
 
 def test_resume_stopped_runtime_session_revives_headless_runtime(

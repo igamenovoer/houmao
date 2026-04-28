@@ -65,6 +65,32 @@ log = logging.getLogger(__name__)
 _HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "gemini_headless"})
 
 
+def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
+    """Return the controller primary tmux window id when state exposes it."""
+
+    if not isinstance(controller.backend_session, HeadlessInteractiveSession):
+        return None
+    try:
+        state = controller.backend_session.state
+    except AttributeError:
+        return None
+    value = getattr(state, "tmux_window_id", None)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _controller_primary_tmux_pane_id(controller: RuntimeSessionController) -> str | None:
+    """Return the controller primary tmux pane id when state exposes it."""
+
+    if not isinstance(controller.backend_session, HeadlessInteractiveSession):
+        return None
+    try:
+        state = controller.backend_session.state
+    except AttributeError:
+        return None
+    value = getattr(state, "tmux_pane_id", None)
+    return value if isinstance(value, str) and value.strip() else None
+
+
 class _StoreConfigAdapter:
     """Minimal adapter so ``ManagedHeadlessStore`` can use passive-server config."""
 
@@ -284,6 +310,8 @@ class HeadlessAgentService:
             manifest_path=str(controller_manifest_path),
             session_root=session_root,
             tmux_session_name=controller.tmux_session_name or tracked_agent_id,
+            tmux_window_id=_controller_primary_tmux_window_id(controller),
+            tmux_pane_id=_controller_primary_tmux_pane_id(controller),
             agent_def_dir=str(agent_def_dir),
             agent_name=controller.agent_identity,
             agent_id=controller.agent_id,
@@ -361,6 +389,8 @@ class HeadlessAgentService:
             turn_artifact_dir=turn_artifact_dir,
             started_at_utc=now_utc,
             tmux_session_name=handle.authority.tmux_session_name,
+            tmux_window_id=handle.authority.tmux_window_id,
+            tmux_pane_id=handle.authority.tmux_pane_id,
         )
         self.m_store.write_active_turn(active_turn)
 
@@ -372,6 +402,8 @@ class HeadlessAgentService:
             started_at_utc=now_utc,
             turn_artifact_dir=turn_artifact_dir,
             tmux_session_name=handle.authority.tmux_session_name,
+            tmux_window_id=handle.authority.tmux_window_id,
+            tmux_pane_id=handle.authority.tmux_pane_id,
         )
         self.m_store.write_turn_record(turn_record)
 

@@ -1367,6 +1367,8 @@ def join_agents_command(
             headless=headless,
             tmux_session_name=tmux_session_name,
             tmux_window_name=pane.window_name,
+            tmux_window_id=pane.window_id,
+            tmux_pane_id=pane.pane_id,
             working_directory=(workdir or pane_current_path).resolve(),
             launch_args=launch_args,
             launch_env=launch_env_bindings,

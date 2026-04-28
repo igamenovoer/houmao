@@ -348,10 +348,15 @@ def test_local_interactive_send_mail_prompt_observes_sentinel_result(
         lambda *, target: next(captures),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.local_interactive.list_tmux_panes_shared",
-        lambda *, session_name: [
-            SimpleNamespace(window_index="0", pane_index="0", pane_pid=123, pane_dead=False)
-        ],
+        "houmao.agents.realm_controller.backends.headless_base.resolve_primary_tmux_surface_shared",
+        lambda **_kwargs: SimpleNamespace(
+            session_name="HOUMAO-local",
+            window_name="agent",
+            window_id="@1",
+            pane_id="%1",
+            pane_pid=123,
+            pane_dead=False,
+        ),
     )
     monkeypatch.setattr(
         LocalInteractiveSession,
@@ -451,10 +456,15 @@ def test_local_interactive_send_mail_prompt_checks_one_final_capture_after_timeo
         lambda *, target: next(captures),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.local_interactive.list_tmux_panes_shared",
-        lambda *, session_name: [
-            SimpleNamespace(window_index="0", pane_index="0", pane_pid=123, pane_dead=False)
-        ],
+        "houmao.agents.realm_controller.backends.headless_base.resolve_primary_tmux_surface_shared",
+        lambda **_kwargs: SimpleNamespace(
+            session_name="HOUMAO-local",
+            window_name="agent",
+            window_id="@1",
+            pane_id="%1",
+            pane_pid=123,
+            pane_dead=False,
+        ),
     )
     monkeypatch.setattr(
         LocalInteractiveSession,
@@ -550,10 +560,15 @@ def test_local_interactive_send_mail_prompt_returns_submitted_without_sentinel(
         lambda *, target: next(captures),
     )
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.backends.local_interactive.list_tmux_panes_shared",
-        lambda *, session_name: [
-            SimpleNamespace(window_index="0", pane_index="0", pane_pid=123, pane_dead=False)
-        ],
+        "houmao.agents.realm_controller.backends.headless_base.resolve_primary_tmux_surface_shared",
+        lambda **_kwargs: SimpleNamespace(
+            session_name="HOUMAO-local",
+            window_name="agent",
+            window_id="@1",
+            pane_id="%1",
+            pane_pid=123,
+            pane_dead=False,
+        ),
     )
     monkeypatch.setattr(
         LocalInteractiveSession,
