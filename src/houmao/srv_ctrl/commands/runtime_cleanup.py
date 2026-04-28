@@ -1217,7 +1217,7 @@ def _cleanup_session_logs(
                 artifact_kind="runtime_log_file",
                 path=candidate,
                 proposed_action="remove",
-                reason="gateway log output is disposable cleanup-sensitive runtime state",
+                reason="gateway running and diagnostic log output is disposable cleanup-sensitive runtime state",
                 details=session_details,
             ),
             dry_run=dry_run,

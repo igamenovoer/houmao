@@ -84,10 +84,12 @@ class GatewayPaths:
     queue_path: Path
     events_path: Path
     logs_dir: Path
+    diagnostic_logs_dir: Path
     run_dir: Path
     current_instance_path: Path
     pid_path: Path
     log_path: Path
+    diagnostic_log_path: Path
 
 
 @dataclass(frozen=True)
@@ -234,6 +236,7 @@ def gateway_paths_from_session_root(*, session_root: Path) -> GatewayPaths:
     gateway_root = (session_root / "gateway").resolve()
     run_dir = (gateway_root / "run").resolve()
     logs_dir = (gateway_root / "logs").resolve()
+    diagnostic_logs_dir = (logs_dir / "diagnostics").resolve()
     return GatewayPaths(
         session_root=session_root.resolve(),
         gateway_root=gateway_root,
@@ -245,10 +248,12 @@ def gateway_paths_from_session_root(*, session_root: Path) -> GatewayPaths:
         queue_path=(gateway_root / "queue.sqlite").resolve(),
         events_path=(gateway_root / "events.jsonl").resolve(),
         logs_dir=logs_dir,
+        diagnostic_logs_dir=diagnostic_logs_dir,
         run_dir=run_dir,
         current_instance_path=(run_dir / "current-instance.json").resolve(),
         pid_path=(run_dir / "gateway.pid").resolve(),
         log_path=(logs_dir / "gateway.log").resolve(),
+        diagnostic_log_path=(diagnostic_logs_dir / "gateway-diagnostic.log").resolve(),
     )
 
 
@@ -274,6 +279,9 @@ def ensure_gateway_capability(
         if request.blueprint_gateway_defaults is not None
         else None,
         desired_execution_mode=default_gateway_execution_mode_for_backend(request.backend),
+        desired_diagnostic_logging=request.blueprint_gateway_defaults.diagnostic_logging
+        if request.blueprint_gateway_defaults is not None
+        else None,
     )
     if paths.desired_config_path.is_file():
         existing = load_gateway_desired_config(paths.desired_config_path)
@@ -286,6 +294,9 @@ def ensure_gateway_capability(
             else desired_defaults.desired_port,
             desired_execution_mode=existing.desired_execution_mode,
             desired_tui_tracking_timings=existing.desired_tui_tracking_timings,
+            desired_diagnostic_logging=existing.desired_diagnostic_logging
+            if existing.desired_diagnostic_logging is not None
+            else desired_defaults.desired_diagnostic_logging,
         )
     write_gateway_desired_config(paths.desired_config_path, desired_defaults)
 

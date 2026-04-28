@@ -41,14 +41,12 @@ Write the generated plan under the selected output directory:
    - template inventory, when the run needs reusable reporting or bookkeeping scaffolds
    - lifecycle vocabulary summary
    - authored topology and descendant relationships
-   - prestart strategy: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+   - prestart strategy: `precomputed_routing_packets`
    - optional launch-profile references for participants that `initialize` may launch
    - initialize memo-slot expectations when managed memory is being used
    - continuation page namespace and runtime-owned recovery path family when managed memory is being used
    - exact memo sentinel convention keyed by `run_id` and slot when managed memory is being used
-   - explicit `operator_preparation_wave` target policy
    - gateway mail-notifier interval
-   - acknowledgement posture
    - routing packet inventory
    - optional timeout-watch policy
    - scripts, if any
@@ -82,10 +80,9 @@ Write the generated plan under the selected output directory:
    - default `initialize` validates routing packets and writes run-owned participant memo blocks under exact sentinels
    - default `initialize` checks mailbox association on provided launch profiles, launches missing participants only from profiles that pass that precheck, and otherwise fails closed if required participants remain missing
    - default `initialize` verifies that the designated master and every required participant have email/mailbox support and fails closed when any required participant does not
+   - default `initialize` verifies or enables gateway mail-notifier behavior for every required mail-driven participant with supported live gateway and mailbox surfaces
    - ordinary `start` sends the kickoff through mail by default and uses direct prompt delivery only when the user explicitly requests it
-   - explicit `operator_preparation_wave` targets delegating or non-leaf participants by default, and adds standalone preparation mail only when selected
-   - gateway mail-notifier interval is `5s` unless the user specifies otherwise for `operator_preparation_wave`
-   - acknowledgement posture is `fire_and_proceed` unless the user explicitly selects `require_ack`
+   - gateway mail-notifier interval is `5s` unless the user specifies otherwise
    - advise all agents to use the email system for in-loop job communication by default, including pairwise edge requests, receipts, and results
 14. Render the final graph through `authoring/render-loop-graph.md`.
 15. Produce a master initialize-memo summary plus compact start-trigger summary through `references/run-charter.md`.
@@ -110,7 +107,7 @@ Write the generated plan under the selected output directory:
 - Treat `houmao-mgr internals graph high` output as structural evidence only.
 - Keep `initialize` separate from the master trigger.
 - Keep graph-tool usage before `ready`; runtime recipients use dispatch tables and exact child packets instead of running graph analysis or recomputing descendants.
-- Do not require acknowledgement by default; use `fire_and_proceed` unless the user explicitly selects `require_ack`.
+- Do not require acknowledgement replies before ordinary `start`.
 - Do not invent a plan output directory or write plan files outside the selected output directory.
 - Reject or rewrite any execution sketch that depends on child results bypassing the immediate driver.
 
@@ -129,9 +126,7 @@ The finalized authored plan should make these items easy to find:
 - initialize memo-slot expectations
 - continuation page namespace and runtime-owned recovery path family
 - memo sentinel convention
-- explicit `operator_preparation_wave` target policy
 - gateway mail-notifier interval
-- acknowledgement posture
 - routing packet inventory and root packet location
 - child dispatch tables and packet forwarding guardrails
 - in-loop job communication posture

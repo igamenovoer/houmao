@@ -63,7 +63,7 @@ See `routing-packets.md`.
 
 # Lifecycle Vocabulary
 - operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
-- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
+- observed states: `authoring`, `initializing`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
 
 # Completion Condition
 <user-defined operational success condition>
@@ -143,29 +143,25 @@ These templates may describe status ledgers, handoff notes, review checklists, r
 
 Record:
 
-- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- selected `prestart_strategy`: `precomputed_routing_packets`
 - workspace contract summary or `workspace-contract.md` reference
 - optional launch-profile references for required participants that `initialize` may launch after mailbox-association precheck
 - email/mailbox verification rule for the designated master and every required participant
+- gateway mail-notifier verification or enablement for every required mail-driven participant with supported live gateway and mailbox surfaces
+- gateway mail-notifier interval: `5s` unless the user specified otherwise
 - ordinary `start` mail-delivery rule, with direct prompt only by explicit user request
 - initialize memo-slot expectations for the designated master and other participants
 - continuation page namespace and runtime-owned recovery record path family
 - memo sentinel convention for run-owned reference blocks
 - initialize memo write procedure
-- notifier preflight procedure for `operator_preparation_wave`
-- gateway mail-notifier interval: `5s` unless the user specified otherwise for `operator_preparation_wave`
-- preparation-mail target policy: delegating or non-leaf participants by default, or an explicit target set when provided
-- acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
 - graph artifact and packet JSON artifact locations when available
 - graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
 - routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
 - validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
 - generated template inventory or `templates/README.md` reference when reusable templates are part of the run contract
-- preparation-mail procedure for targeted preparation recipients when `operator_preparation_wave` is selected
-- operator reply policy for preparation mail: `none` for default `fire_and_proceed`, or `operator_mailbox` for explicit `require_ack`
 - in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
-- initialization state transitions: `initializing`, `awaiting_ack`, `ready`
-- readiness behavior for the selected strategy
+- initialization state transitions: `initializing`, `ready`
+- readiness behavior for routing-packet validation, participant launch, email/mailbox verification, notifier setup, and memo materialization
 - how the master trigger remains separate from `initialize` and tells the master to read its memo and start
 
 ## `routing-packets.md`

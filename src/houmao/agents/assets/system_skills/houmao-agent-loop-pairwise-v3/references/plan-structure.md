@@ -39,10 +39,8 @@ Minimum sections:
 - Workspace Contract
 - Delegation Policy
 - Prestart Procedure
-- Prestart Strategy
 - Routing Packets
 - Durable Initialize Material
-- Operator Preparation Wave, when used
 - Lifecycle Vocabulary
 - Completion Condition
 - Stop Policy
@@ -146,7 +144,6 @@ Canonical operator actions:
 Canonical observed states:
 - `authoring`
 - `initializing`
-- `awaiting_ack`
 - `ready`
 - `running`
 - `paused`
@@ -155,8 +152,6 @@ Canonical observed states:
 - `stopping`
 - `stopped`
 - `dead`
-
-`awaiting_ack` belongs only to explicit `operator_preparation_wave` runs that selected `require_ack`; ordinary `start` itself is not an acknowledgement state.
 
 ## Run Memo Material
 
@@ -168,18 +163,6 @@ Every plan using pairwise-v3 managed memory should record:
 - exact begin and end sentinel convention for memo blocks keyed by `run_id` and slot
 - what each initialize memo block must contain for masters versus other participants
 - fail-closed replacement handling for duplicate memo blocks
-
-## Operator Preparation Wave
-
-Every plan using explicit `operator_preparation_wave` should record:
-- gateway mail-notifier setup before preparation mail
-- gateway mail-notifier interval: `5s` unless the user specified otherwise
-- preparation-mail target policy: delegating or non-leaf participants by default, leaf participants only when explicitly requested
-- acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
-- operator reply policy: `none` for `fire_and_proceed`, or `operator_mailbox` for `require_ack`
-- initialize memo posture for the preparation recipients
-- in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
-- fallback behavior for participants whose live gateway or mailbox binding does not support notifier polling
 
 ## Routing Packets
 
@@ -210,26 +193,23 @@ These commands validate structural coverage only; they do not replace semantic r
 ## `prestart.md`
 
 For bundle plans, `prestart.md` should record:
-- selected `prestart_strategy`: default `precomputed_routing_packets`, or explicit `operator_preparation_wave`
+- routing-packet validation as the pairwise-v3 prestart strategy
 - workspace contract summary or `workspace-contract.md` reference
 - graph artifact and packet JSON artifact locations when available
 - optional launch-profile references for required participants that `initialize` may launch, plus the rule that mailbox association is checked on those profiles before launch
 - email/mailbox verification rule for the designated master and every required participant
+- gateway mail-notifier verification or enablement for every required mail-driven participant with supported live gateway and mailbox surfaces
+- gateway mail-notifier interval: `5s` unless the user specified otherwise
 - ordinary `start` mail-delivery rule, with direct prompt only by explicit user request
 - initialize memo-slot expectations for the designated master and other participants
 - runtime-owned recovery record path family and continuation page namespace
 - exact begin/end sentinel convention for memo reference blocks keyed by `run_id` and slot
 - initialize memo write procedure
-- explicit `operator_preparation_wave` notifier preflight expectations, when that strategy is selected
-- gateway mail-notifier interval: `5s` unless the user specified otherwise for `operator_preparation_wave`
-- preparation-mail target policy and delivery procedure, when `operator_preparation_wave` is selected
-- acknowledgement posture: default `fire_and_proceed`, or explicit `require_ack` for `operator_preparation_wave`
-- operator reply policy for preparation mail
 - routing packet validation rules, root packet location, packet inventory, and child dispatch-table expectations when routing packets are part of the plan
 - authored topology or descendant relationships used to verify packet coverage
 - generated template inventory or a reference to `templates/README.md`, when reusable templates are part of the bundle
-- initialization state transitions: `initializing`, `awaiting_ack`, `ready`
-- readiness rules for the selected strategy
+- initialization state transitions: `initializing`, `ready`
+- readiness rules for routing-packet validation, participant launch, email/mailbox verification, notifier setup, and memo materialization
 - how the master trigger is kept separate from `initialize`
 
 ## Script Inventory Fields
@@ -253,14 +233,12 @@ For each script, record:
 - Do not leave the workspace contract implicit.
 - Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`.
 - Do not describe files under `<plan-output-dir>/templates/` as mutable bookkeeping outputs or runtime-owned recovery state.
-- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage or explicit preparation-wave targets.
-- Do not describe explicit `operator_preparation_wave` as the default prestart strategy.
+- Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage.
 - Do not invent launch-profile references for participants the plan did not specify.
 - Do not skip initialize memo materialization when managed memory is being used.
 - Do not let the run reach `ready` when the designated master or any required participant lacks email/mailbox support.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text.
-- Do not require acknowledgement by default; use `fire_and_proceed` unless the plan explicitly selects `require_ack`.
-- Do not use a gateway mail-notifier interval other than `5s` for `operator_preparation_wave` unless the user or plan specifies another interval.
+- Do not require acknowledgement replies before ordinary `start`.
 - Do not require runtime intermediate agents to recompute subtree slices that should have been prepared during authoring.
 - Do not mix lifecycle action names and observed state names into one ambiguous status field.
 - Do not hide plan-critical policy only inside an unreferenced support file.

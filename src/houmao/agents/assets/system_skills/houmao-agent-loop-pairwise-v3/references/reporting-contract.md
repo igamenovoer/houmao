@@ -8,7 +8,6 @@ When the authored bundle carries reusable reporting templates, generate those te
 
 - `authoring`
 - `initializing`
-- `awaiting_ack`
 - `ready`
 - `running`
 - `paused`

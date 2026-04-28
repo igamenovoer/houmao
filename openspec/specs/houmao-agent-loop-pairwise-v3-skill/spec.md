@@ -59,7 +59,7 @@ The standard in-repo contract SHALL identify:
 - **AND THEN** it does not describe the in-repo workspace as one flat repo-wide `houmao-ws/<agent-name>/...` layout
 
 ### Requirement: Pairwise-v3 standard workspace mode may rely on workspace-manager, but custom mode does not
-When `houmao-agent-loop-pairwise-v3` uses a standard workspace contract, the guidance MAY rely on a workspace prepared or summarized by `houmao-utils-workspace-mgr`.
+When `houmao-agent-loop-pairwise-v3` uses a standard workspace contract, the guidance SHALL permit relying on a workspace prepared or summarized by `houmao-utils-workspace-mgr`.
 
 When `houmao-agent-loop-pairwise-v3` uses a custom workspace contract, the guidance SHALL NOT require the workspace-manager skill to translate, prepare, or validate that custom layout as if it were a standard Houmao workspace.
 
@@ -102,6 +102,12 @@ Before pairwise-v3 `initialize` reaches `ready`, it SHALL verify that the design
 
 If any required participant lacks that email/mailbox support, pairwise-v3 `initialize` SHALL fail closed and SHALL NOT treat the run as ready for ordinary `start`.
 
+Before pairwise-v3 `initialize` reaches `ready`, it SHALL verify or enable gateway mail-notifier behavior for every required mail-driven participant that exposes supported live gateway and mailbox surfaces.
+
+If the run depends on automatic mailbox wakeups for a required participant and gateway mail-notifier setup is blocked for that participant, pairwise-v3 `initialize` SHALL fail closed and SHALL NOT treat the run as ready for ordinary `start`.
+
+Pairwise-v3 `initialize` SHALL NOT send standalone participant preparation mail as a separate prestart wave.
+
 The same email/mailbox capability check SHALL block `recover_and_continue` from returning the run to `running`.
 
 When `recover_and_continue` restores one run whose accepted posture included agent email notification, it SHALL re-enable that notification for rebound participants that expose the required live gateway and mailbox surfaces before the run returns to `running`.
@@ -140,6 +146,19 @@ Pairwise-v3 `initialize` SHALL NOT require a durable initialize page plus memo-p
 #### Scenario: Initialize refuses runs without email capability
 - **WHEN** a pairwise-v3 run is being initialized
 - **AND WHEN** the designated master or any required participant lacks email/mailbox support
+- **THEN** the system refuses to treat the run as ready
+- **AND THEN** ordinary `start` does not proceed
+
+#### Scenario: Initialize prepares notifier posture without a separate preparation wave
+- **WHEN** a pairwise-v3 run is being initialized
+- **AND WHEN** required mail-driven participants expose supported live gateway and mailbox surfaces
+- **THEN** the system verifies or enables their gateway mail-notifier behavior before the run reaches `ready`
+- **AND THEN** it does not send standalone participant preparation mail as a separate prestart wave
+
+#### Scenario: Initialize refuses blocked notifier setup
+- **WHEN** a pairwise-v3 run is being initialized
+- **AND WHEN** the run depends on automatic mailbox wakeups for one required participant
+- **AND WHEN** gateway mail-notifier setup is blocked for that participant
 - **THEN** the system refuses to treat the run as ready
 - **AND THEN** ordinary `start` does not proceed
 

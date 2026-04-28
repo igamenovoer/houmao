@@ -10,6 +10,10 @@ def test_loop_authoring_docs_cover_pairwise_v2_baseline_and_pairwise_v3_workspac
     """Guard loop-authoring docs for the pairwise-v2 baseline and pairwise-v3 extension."""
 
     guide = (REPO_ROOT / "docs/getting-started/loop-authoring.md").read_text(encoding="utf-8")
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    system_skills = (REPO_ROOT / "docs/getting-started/system-skills-overview.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "The default strategy is `precomputed_routing_packets`" in guide
     assert "Houmao ships four packaged loop skills." in guide
@@ -26,5 +30,7 @@ def test_loop_authoring_docs_cover_pairwise_v2_baseline_and_pairwise_v3_workspac
     assert "`recover_and_continue`" in guide
     assert "loop-runs/pairwise-v2/<run_id>/recover-and-continue.md" in guide
     assert "compact control-plane trigger" in guide
-    assert "it is no longer the default carrier for initialize guidance" in guide
+    assert "verifies or enables gateway mail-notifier behavior" in guide
+    assert "default initialize-time gateway mail-notifier readiness" in readme
+    assert "verify or enable gateway mail-notifier behavior" in system_skills
     assert "email_initialization" not in guide

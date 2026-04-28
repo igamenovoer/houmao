@@ -11,9 +11,9 @@ Use this reference when the user agent is ready to materialize the designated ma
 - allowed participants
 - workspace contract summary
 - delegation policy summary
-- prestart strategy summary
+- routing-packet initialization summary
 - initialize memo material summary
-- explicit `operator_preparation_wave` summary when that strategy is selected
+- gateway mail-notifier posture
 - routing packet validation summary, including graph artifact and packet JSON artifact used when available
 - root routing packet or exact root packet reference when routing packets are part of the plan
 - completion condition summary
@@ -56,13 +56,11 @@ Delegation policy:
 <normalized policy from references/delegation-policy.md>
 
 Prestart posture:
-- prestart strategy: <precomputed_routing_packets | operator_preparation_wave>
+- prestart strategy: precomputed_routing_packets
 - initialize memo material: <master run contract plus participant-local memo guidance written under exact sentinels | not applicable>
 - email/mailbox verification: <confirmed for every required participant | initialization blocked>
-- operator preparation wave: <not selected | targeted preparation mail sent to explicit target set>
-- gateway mail-notifier interval: <5s unless user specified otherwise when operator preparation wave is selected>
-- acknowledgement mode: <fire_and_proceed | require_ack>
-- required acknowledgements: <not applicable | completed for targeted preparation recipients>
+- gateway mail-notifier: <verified or enabled for required mail-driven participants | blocked with reason>
+- gateway mail-notifier interval: <5s unless user specified otherwise>
 - routing packet validation: <completed by validate-packets | completed by manual visible-coverage check | not applicable>
 - graph artifact: <none | NetworkX node-link graph path>
 - packet JSON artifact: <none | packet JSON path>

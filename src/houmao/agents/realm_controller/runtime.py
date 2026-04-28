@@ -120,6 +120,7 @@ from .gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayCurrentInstanceV1,
     GatewayDesiredConfigV1,
+    GatewayDiagnosticLoggingConfigV1,
     GatewayHost,
     GatewayJsonObject,
     GatewayPromptControlRequestV1,
@@ -4847,6 +4848,7 @@ def _start_gateway_process(
                         desired_port=endpoint.port,
                         desired_execution_mode=execution_mode,
                         desired_tui_tracking_timings=tui_tracking_timings,
+                        desired_diagnostic_logging=_load_desired_diagnostic_logging(paths),
                     ),
                 )
                 refresh_internal_gateway_publication(paths)
@@ -4937,6 +4939,7 @@ def _start_gateway_process(
                     desired_port=endpoint.port,
                     desired_execution_mode=execution_mode,
                     desired_tui_tracking_timings=tui_tracking_timings,
+                    desired_diagnostic_logging=_load_desired_diagnostic_logging(paths),
                 ),
             )
             refresh_internal_gateway_publication(paths)
@@ -5100,6 +5103,17 @@ def _load_optional_desired_config(paths: GatewayPaths) -> GatewayDesiredConfigV1
     if not paths.desired_config_path.is_file():
         return None
     return load_gateway_desired_config(paths.desired_config_path)
+
+
+def _load_desired_diagnostic_logging(
+    paths: GatewayPaths,
+) -> GatewayDiagnosticLoggingConfigV1 | None:
+    """Load persisted gateway diagnostic logging config when present."""
+
+    desired_config = _load_optional_desired_config(paths)
+    if desired_config is None:
+        return None
+    return desired_config.desired_diagnostic_logging
 
 
 def _gateway_process_start_failure_detail(*, log_path: Path, host: GatewayHost, port: int) -> str:

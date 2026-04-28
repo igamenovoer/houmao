@@ -21,7 +21,7 @@ At minimum, the top-level graph must show:
 - Draw the supervision loop as a review cycle owned by the master, not as a worker-to-worker cycle.
 - If a worker becomes a child driver, draw that child control edge beneath the worker and show the child result returning to the immediate parent.
 - When labeling operator controls, prefer the canonical names `initialize`, `start`, `peek master`, `pause`, `resume`, `recover_and_continue`, and `stop`.
-- Label the default `initialize` path as routing-packet validation plus durable page writes. Label standalone preparation mail only when the authored plan explicitly selects `operator_preparation_wave`.
+- Label the `initialize` path as routing-packet validation plus notifier preflight plus durable memo writes.
 - Keep labels short and wrap with `<br/>` when needed.
 - Split a very large topology into one top-level diagram plus supporting subtree diagrams instead of making one unreadable diagram.
 

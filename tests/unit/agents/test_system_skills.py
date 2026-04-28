@@ -1148,6 +1148,19 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_v3_bundle_template = pairwise_loop_v3_bundle_template_path.read_text(
         encoding="utf-8"
     )
+    pairwise_loop_v3_contract_text = "\n".join(
+        (
+            pairwise_loop_v3_skill,
+            pairwise_loop_v3_formulate,
+            pairwise_loop_v3_revise,
+            pairwise_loop_v3_prepare,
+            pairwise_loop_v3_start,
+            pairwise_loop_v3_charter,
+            pairwise_loop_v3_plan_structure,
+            pairwise_loop_v3_single_template,
+            pairwise_loop_v3_bundle_template,
+        )
+    )
     relay_loop_formulate = relay_loop_formulate_path.read_text(encoding="utf-8")
     relay_loop_revise = relay_loop_revise_path.read_text(encoding="utf-8")
     relay_loop_graph = relay_loop_graph_path.read_text(encoding="utf-8")
@@ -1413,6 +1426,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (
         "Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`"
         in (pairwise_loop_v3_skill)
+    )
+    assert "operator_preparation_wave" not in pairwise_loop_v3_contract_text
+    assert "`awaiting_ack`" not in pairwise_loop_v3_contract_text
+    assert "baseline initialize mail-notifier setup" in pairwise_loop_v3_skill
+    assert "gateway mail-notifier behavior has been verified or enabled" in (
+        pairwise_loop_v3_start
     )
     assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
         pairwise_loop_v3_skill

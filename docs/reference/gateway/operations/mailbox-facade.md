@@ -78,6 +78,8 @@ sequenceDiagram
 
 The adapter may be filesystem-backed or Stalwart-backed, but the gateway-facing contract stays the same. The precise payload shapes remain centralized in [Protocol And State Contracts](../contracts/protocol-and-state.md).
 
+When gateway diagnostic logging is enabled, each mailbox facade route records safe start, success, and failure entries. Those diagnostics include operation names, route/status context, message counts, and repair hints for repairable mailbox-local failures. They do not include mailbox bodies, raw prompt text, attachment contents, auth headers, cookies, bearer tokens, credential material, or environment secrets by default.
+
 ## Availability Rules
 
 The mailbox facade is deliberately narrower than generic gateway availability.

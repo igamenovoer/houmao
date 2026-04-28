@@ -96,6 +96,10 @@ DEFAULT_GATEWAY_TUI_COMPLETION_STABILITY_SECONDS = 1.0
 DEFAULT_GATEWAY_TUI_UNKNOWN_TO_STALLED_TIMEOUT_SECONDS = 30.0
 DEFAULT_GATEWAY_TUI_STALE_ACTIVE_RECOVERY_SECONDS = 5.0
 DEFAULT_GATEWAY_TUI_FINAL_STABLE_ACTIVE_RECOVERY_SECONDS = 20.0
+DEFAULT_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES = 1_048_576
+DEFAULT_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT = 5
+MAX_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES = 1_073_741_824
+MAX_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT = 100
 
 
 def default_gateway_execution_mode_for_backend(
@@ -166,11 +170,46 @@ class _StrictGatewayModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class GatewayDiagnosticLoggingConfigV1(_StrictGatewayModel):
+    """Resolved gateway diagnostic logging configuration."""
+
+    enabled: bool = False
+    max_bytes: int = DEFAULT_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES
+    backup_count: int = DEFAULT_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT
+
+    @field_validator("max_bytes")
+    @classmethod
+    def _validate_max_bytes(cls, value: int) -> int:
+        """Validate the bounded active diagnostic log size."""
+
+        if isinstance(value, bool):
+            raise ValueError("must be an integer")
+        if value < 1:
+            raise ValueError("must be >= 1")
+        if value > MAX_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES:
+            raise ValueError(f"must be <= {MAX_GATEWAY_DIAGNOSTIC_LOG_MAX_BYTES}")
+        return value
+
+    @field_validator("backup_count")
+    @classmethod
+    def _validate_backup_count(cls, value: int) -> int:
+        """Validate the bounded rotated diagnostic log count."""
+
+        if isinstance(value, bool):
+            raise ValueError("must be an integer")
+        if value < 0:
+            raise ValueError("must be >= 0")
+        if value > MAX_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT:
+            raise ValueError(f"must be <= {MAX_GATEWAY_DIAGNOSTIC_LOG_BACKUP_COUNT}")
+        return value
+
+
 class BlueprintGatewayDefaults(_StrictGatewayModel):
     """Optional gateway defaults accepted from an agent blueprint."""
 
     host: GatewayHost | None = None
     port: int | None = None
+    diagnostic_logging: GatewayDiagnosticLoggingConfigV1 | None = None
 
     @field_validator("port")
     @classmethod
@@ -635,6 +674,7 @@ class GatewayDesiredConfigV1(_StrictGatewayModel):
     desired_port: int | None = None
     desired_execution_mode: GatewayCurrentExecutionMode = Field(default="detached_process")
     desired_tui_tracking_timings: GatewayTuiTrackingTimingConfigV1 | None = None
+    desired_diagnostic_logging: GatewayDiagnosticLoggingConfigV1 | None = None
 
     @field_validator("desired_port")
     @classmethod

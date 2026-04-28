@@ -20,9 +20,8 @@ participants:
   - <worker-b>
 workspace_contract_mode: <standard | custom>
 delegation_policy: <delegate_none | delegate_to_named | delegate_freely_within_named_set | delegate_any>
-prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>
-mail_notifier_interval_seconds: <5 unless user specified otherwise for operator_preparation_wave>
-acknowledgement_posture: <fire_and_proceed | require_ack>
+prestart_strategy: precomputed_routing_packets
+mail_notifier_interval_seconds: <5 unless user specified otherwise>
 plan_revision: <revision or digest>
 default_stop_mode: interrupt-first
 ---
@@ -56,19 +55,17 @@ default_stop_mode: interrupt-first
 <normalized delegation rules>
 
 # Prestart Procedure
-- selected strategy: `precomputed_routing_packets` by default
+- selected strategy: `precomputed_routing_packets`
 - launch profiles: <none | participant -> launch-profile mapping that initialize may use after mailbox-association precheck>
 - initialize memo slot: <for example slot `initialize` keyed by exact run_id sentinels>
 - durable continuation page namespace: <for example loop-runs/pairwise-v3/<run_id>/recover-and-continue.md>
 - runtime-owned recovery record path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json>
 - runtime-owned recovery history path: <for example <runtime-root>/loop-runs/pairwise-v2/<run_id>/events.jsonl>
 - email/mailbox verification: refuse to proceed when the master or any required participant lacks email/mailbox support
+- notifier preflight: verify or enable gateway mail-notifier for required mail-driven participants, interval `5s` unless specified otherwise
 - start delivery: send the kickoff through mail by default; use direct prompt only when the user explicitly asks for it
 - memo sentinel convention: <exact begin/end sentinels keyed by run_id and slot>
 - initialize memo material: write master and participant run-owned memo blocks before `ready`
-- operator preparation wave: <not selected | targeted preparation mail to delegating/non-leaf participants | explicit target set>
-- notifier preflight: enable gateway mail-notifier for targeted preparation-wave participants before preparation mail, interval `5s` unless user specified otherwise
-- acknowledgement posture: `fire_and_proceed` by default
 - graph-tool preflight: <analyze, optional slice, and packet-expectations results when a graph artifact exists>
 - routing packet validation: <validate-packets result when graph and packet JSON artifacts exist, or manual visible-coverage check when they do not>
 - root routing packet: <packet id or section reference included in the designated master's initialize memo>
@@ -103,11 +100,11 @@ default_stop_mode: interrupt-first
 - child dispatch table: <none | child packet ids>
 
 # Run Memo Material
-Record the initialize memo slot expectations, continuation page namespace, runtime-owned recovery record path family, memo sentinel convention, and run-owned memo-block posture. Record standalone preparation mail only when `operator_preparation_wave` is selected explicitly.
+Record the initialize memo slot expectations, continuation page namespace, runtime-owned recovery record path family, memo sentinel convention, notifier posture, and run-owned memo-block posture.
 
 # Lifecycle Vocabulary
 - operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
-- observed states: `authoring`, `initializing`, `awaiting_ack`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
+- observed states: `authoring`, `initializing`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
 
 # Reporting Contract
 <peek, recovery-summary, completion, stop-summary, and hard-kill-summary expectations using canonical observed states; peek remains unintrusive and read-only>

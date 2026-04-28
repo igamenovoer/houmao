@@ -941,6 +941,8 @@ Representative gateway tree:
   events.jsonl
   logs/
     gateway.log
+    diagnostics/
+      gateway-diagnostic.log
   run/
     current-instance.json
     gateway.pid
@@ -951,11 +953,12 @@ Artifact roles:
 - `attach.json`: internal bootstrap state
 - `gateway_manifest.json`: derived outward-facing gateway bookkeeping
 - `protocol-version.txt`: simple version marker for local artifacts
-- `desired-config.json`: desired host and port to reuse on later starts
+- `desired-config.json`: desired host, port, execution mode, TUI tracking timings, and optional diagnostic logging settings to reuse on later starts
 - `state.json`: read-optimized current status contract
 - `queue.sqlite`: durable queue records, the singleton gateway-owned mail notifier record, and the `gateway_notifier_audit` table that records one structured notifier decision row per enabled poll cycle
 - `events.jsonl`: append-only event log
 - `logs/gateway.log`: append-only line-oriented running log for lifecycle, notifier polling, busy deferrals, and execution outcomes
+- `logs/diagnostics/gateway-diagnostic.log`: opt-in structured JSONL diagnostic log. Rotated siblings use numeric suffixes such as `gateway-diagnostic.log.1`. These files are cleanup-sensitive log artifacts, not durable gateway state.
 - `run/current-instance.json`: current process id, host, port, upstream epoch and instance id, plus same-session execution-handle fields when the gateway is hosted in a tmux auxiliary window
 - `run/gateway.pid`: pidfile mirror; still written for same-session mode, but the tmux execution handle in `current-instance.json` is the authoritative stop or cleanup target for pair-managed `houmao_server_rest`
 
@@ -966,6 +969,10 @@ tail -f <session-root>/gateway/logs/gateway.log
 ```
 
 That log is the stable tail-watch surface for the running gateway. Request lifecycle history still lives in `events.jsonl`, while detailed mail-notifier decision history now lives in `queue.sqlite.gateway_notifier_audit`. `gateway.log` remains the human-oriented running log for day-to-day observation.
+
+When `desired-config.json` includes `desired_diagnostic_logging.enabled=true`, the gateway also writes structured diagnostic lines to `<session-root>/gateway/logs/diagnostics/gateway-diagnostic.log`. Diagnostic entries cover HTTP completion status, request-body validation failures before route handlers run, mailbox facade operation start/success/failure, and selected queue/control/reminder/notifier warning or error paths. The diagnostic logger builds entries from explicit safe fields: it does not write mailbox bodies, raw prompt text, attachment contents, authorization headers, cookies, bearer tokens, credential material, or environment secrets by default. Consecutive warning/error diagnostics with the same semantic key are suppressed after the first entry and later summarized with a `diagnostic.dedup_summary` entry reporting `suppressed_count`.
+
+Diagnostic logs are bounded by `max_bytes` and `backup_count`. They are useful postmortem evidence, but they do not replace durable contracts: `queue.sqlite` remains authoritative for queued request and notifier audit state, `events.jsonl` remains append-only gateway event history, `state.json` remains the status snapshot, and manifest files remain the durable session authority.
 
 ## Current Implementation Notes
 

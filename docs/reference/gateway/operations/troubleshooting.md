@@ -35,6 +35,25 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
     houmao-mgr agents gateway attach --agent-name <friendly-name>
 ```
 
+## Need Postmortem Evidence For A Gateway Route
+
+`gateway.log` is still the first live tailing surface, but it intentionally stays compact. For richer local evidence, enable gateway diagnostic logging in the gateway root's `desired-config.json` before the next attach or restart:
+
+```json
+{
+  "schema_version": 1,
+  "desired_diagnostic_logging": {
+    "enabled": true,
+    "max_bytes": 1048576,
+    "backup_count": 5
+  }
+}
+```
+
+After the gateway restarts, structured diagnostic entries are written to `<session-root>/gateway/logs/diagnostics/gateway-diagnostic.log`, with rotated backups such as `gateway-diagnostic.log.1`. These entries capture HTTP completion status, request-body validation failures, mailbox facade starts/successes/failures, and selected queue/control/reminder/notifier warning or error paths.
+
+Diagnostic logs are cleanup-sensitive log artifacts. They are not authoritative queue or notifier state. Use `queue.sqlite` for queued request records and notifier audit rows, `events.jsonl` for append-only gateway events, and `state.json` for the latest status snapshot. Diagnostic logs also avoid mailbox bodies, raw prompts, attachment contents, authorization headers, cookies, bearer tokens, credential material, and environment secrets by default.
+
 ## `houmao-mgr agents gateway attach` Reports Missing Manifest Tmux Metadata
 
 If current-session attach says the tmux session does not publish `HOUMAO_MANIFEST_PATH` or a usable `HOUMAO_AGENT_ID`, the command is not running against a session that has published supported managed-agent discovery metadata yet.

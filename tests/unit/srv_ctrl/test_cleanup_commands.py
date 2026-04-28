@@ -1281,6 +1281,43 @@ def test_managed_session_logs_missing_manifest_still_cleans_remaining_artifacts(
     }
 
 
+def test_managed_session_logs_cleanup_removes_gateway_diagnostics_but_preserves_state(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_runtime_manifest(tmp_path)
+    session_root = manifest_path.parent.resolve()
+    paths = gateway_paths_from_session_root(session_root=session_root)
+    paths.diagnostic_logs_dir.mkdir(parents=True, exist_ok=True)
+    paths.diagnostic_log_path.write_text('{"event":"gateway.test"}\n', encoding="utf-8")
+    paths.queue_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.queue_path.write_text("durable queue placeholder\n", encoding="utf-8")
+    paths.state_path.write_text("{}\n", encoding="utf-8")
+    paths.events_path.write_text("{}\n", encoding="utf-8")
+
+    payload = runtime_cleanup.cleanup_managed_session_logs(
+        agent_id=None,
+        agent_name=None,
+        manifest_path=None,
+        session_root=session_root,
+        dry_run=False,
+    )
+
+    assert not paths.diagnostic_log_path.exists()
+    assert paths.queue_path.exists()
+    assert paths.state_path.exists()
+    assert paths.events_path.exists()
+    assert any(
+        action["artifact_kind"] == "runtime_log_file"
+        and action["path"] == str(paths.diagnostic_log_path)
+        for action in payload["applied_actions"]
+    )
+    assert {
+        action["path"]
+        for action in payload["preserved_actions"]
+        if action["artifact_kind"] == "durable_gateway_state"
+    } >= {str(paths.queue_path), str(paths.state_path), str(paths.events_path)}
+
+
 def test_managed_session_mailbox_missing_manifest_removes_session_local_secrets(
     tmp_path: Path,
 ) -> None:
