@@ -30,9 +30,10 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-loop-pairwise` for the restored stable pairwise loop surface: authoring master-owned pairwise loop plans and operating accepted runs through `start`, `status`, and `stop` while the user agent stays outside the execution loop
 - `houmao-agent-loop-pairwise-v2` for the versioned enriched pairwise workflow: authoring master-owned pairwise loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
 - `houmao-agent-loop-pairwise-v3` for the workspace-aware enriched pairwise workflow: pairwise-v2 lifecycle plus authored `standard` or `custom` workspace contracts, including task-scoped standard in-repo posture
+- `houmao-agent-loop-pairwise-v4` for the template-driven workspace-aware enriched pairwise workflow: pairwise-v3 lifecycle plus strict generated document templates, source-contract summaries, and constraint coverage audits
 - `houmao-agent-loop-generic` for decomposing generic loop graphs into typed pairwise and relay components and operating accepted root-owned runs through start, status, and stop
 
-The three pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow, and `houmao-agent-loop-pairwise-v3` extends v2 with authored workspace contracts.
+The four pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow, `houmao-agent-loop-pairwise-v3` extends v2 with authored workspace contracts, and `houmao-agent-loop-pairwise-v4` extends v3 with strict generated document templates and source-constraint coverage audits.
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -118,6 +119,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
 - `houmao-agent-loop-pairwise-v3`
+- `houmao-agent-loop-pairwise-v4`
 - `houmao-agent-loop-generic`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`

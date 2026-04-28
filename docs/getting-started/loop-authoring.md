@@ -1,14 +1,15 @@
 # Loop Authoring Guide
 
-Houmao ships four packaged loop skills. This page helps you choose the right one, explains the pairwise-v2 routing-packet prestart model that pairwise-v3 extends, and introduces the `houmao-mgr internals graph` tooling that supports loop plan authoring.
+Houmao ships five packaged loop skills. This page helps you choose the right one, explains the pairwise-v2 routing-packet prestart model that pairwise-v3 and pairwise-v4 extend, and introduces the `houmao-mgr internals graph` tooling that supports loop plan authoring.
 
 ## Choosing a Loop Skill
 
 | Skill | Lifecycle verbs | Prestart model | Topology |
 |---|---|---|---|
 | `houmao-agent-loop-pairwise` | `start`, `status`, `stop` | None — send start charter directly | Pairwise edges only (master → named workers) |
-| `houmao-agent-loop-pairwise-v2` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets (default) or operator preparation wave (opt-in) | Pairwise edges only — enriched lifecycle |
+| `houmao-agent-loop-pairwise-v2` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets | Pairwise edges only — enriched lifecycle |
 | `houmao-agent-loop-pairwise-v3` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets plus an authored workspace contract | Pairwise edges only — enriched lifecycle plus workspace posture |
+| `houmao-agent-loop-pairwise-v4` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets plus authored workspace and strict generated document templates | Pairwise edges only — enriched lifecycle plus source-contract coverage |
 | `houmao-agent-loop-generic` | `start`, `status`, `stop` | None — send start charter directly | Mixed: pairwise + relay components in one graph |
 
 **Use `houmao-agent-loop-pairwise`** when you want the simplest stable surface: author a plan, send a start charter to the master, poll status, and stop. No prestart ceremony.
@@ -16,6 +17,8 @@ Houmao ships four packaged loop skills. This page helps you choose the right one
 **Use `houmao-agent-loop-pairwise-v2`** when you need the enriched lifecycle: routing-packet-based initialization before start, mid-run peek and ping, pause-only `resume`, restart-aware `recover_and_continue`, or `hard-kill`. This is the right choice for complex or long-running pairwise runs where you want stronger runtime control and do not need the loop plan itself to own workspace posture.
 
 **Use `houmao-agent-loop-pairwise-v3`** when you need the same enriched lifecycle as v2 and you also need the loop plan to declare where agents work and where they keep operator-visible bookkeeping. Pairwise-v3 is the workspace-aware extension of pairwise-v2.
+
+**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task is rich enough that generated documents need strict templates. Pairwise-v4 keeps source-contract summaries, policy-bearing verbs, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
 
 **Use `houmao-agent-loop-generic`** when your communication graph has both pairwise components (immediate driver-worker local-close edges) and relay lanes (agent that receives from one side and forwards to another). Generic decomposes your intent into typed components and manages them in one graph.
 
@@ -41,6 +44,22 @@ That means a pairwise-v3 plan owns three different storage classes:
 The runtime-owned recovery files remain Houmao-owned state, not ordinary workspace or bookkeeping paths.
 
 When the run needs reusable report forms or bookkeeping scaffolds, those files live inside the authored plan bundle under `<plan-output-dir>/templates/`. They are still authored plan files, not a fourth runtime storage class.
+
+## Pairwise-v4: Strict Template Authoring
+
+`houmao-agent-loop-pairwise-v4` keeps the pairwise-v3 control and workspace model, then adds a template-driven source-contract layer for rich task notes.
+
+Use v4 when the plan should preserve schema-like task language instead of loosely summarizing it. The v4 authoring flow extracts high-salience source constraints, preserves policy-bearing verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`, assigns stable source-constraint IDs, and projects those rules into the central plan, role-local agent notes, routing packets, reporting templates, bookkeeping templates, scripts, or an explicit unresolved entry.
+
+The generated bundle uses strict document templates for:
+
+- canonical `plan.md`
+- participant notes under `agents/`
+- reusable reporting templates under `templates/reporting/`
+- reusable bookkeeping templates under `templates/bookkeeping/`
+- `constraint-coverage-audit.md`
+
+The coverage audit maps each extracted source rule to a central projection and a runtime-facing projection, or marks it `UNRESOLVED - <reason>`. This makes v4 a better fit than v3 for tasks derived from structured commons files, tuned examples, or instruction-heavy loop task notes.
 
 ### `standard` versus `custom`
 
@@ -237,7 +256,7 @@ All `graph high` commands accept NetworkX node-link JSON via `--input` and are d
 | Command | What it provides |
 |---|---|
 | `graph high analyze` | Root reachability, leaves, delegating nodes, cycle/DAG posture, shape warnings |
-| `graph high packet-expectations` | Expected pairwise-v2 and pairwise-v3 routing-packet structure from graph topology |
+| `graph high packet-expectations` | Expected pairwise-v2, pairwise-v3, and pairwise-v4 routing-packet structure from graph topology |
 | `graph high validate-packets` | Structural validation of a routing-packet document |
 | `graph high slice` | Ancestor, descendant, reachable, or component subgraph extraction |
 | `graph high render-mermaid` | Deterministic Mermaid scaffolding from graph structure |
@@ -253,6 +272,7 @@ For the full option reference for all graph commands, see [internals graph](../r
 | [`houmao-agent-loop-pairwise` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise/SKILL.md) | Full plan templates, authoring pages, and `start`/`status`/`stop` operating pages |
 | [`houmao-agent-loop-pairwise-v2` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v2/SKILL.md) | Enriched lifecycle vocabulary, routing-packet prestart, and all operating pages |
 | [`houmao-agent-loop-pairwise-v3` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v3/SKILL.md) | Workspace-aware extension of pairwise-v2, including `standard` versus `custom` workspace contracts |
+| [`houmao-agent-loop-pairwise-v4` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v4/SKILL.md) | Template-driven extension of pairwise-v3, including strict generated document templates and constraint coverage audits |
 | [`houmao-agent-loop-generic` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-generic/SKILL.md) | Generic graph decomposition, component types, plan templates, and operating pages |
 | [System Skills Overview](system-skills-overview.md) | All packaged skills, auto-install behavior, and skill set reference |
 | [internals graph reference](../reference/cli/internals.md) | Full `graph high` and `graph low` command reference |

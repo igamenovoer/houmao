@@ -1,0 +1,250 @@
+# Bundle Pairwise Loop Plan Template
+
+Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint. Ask for the output directory if it is not already known, then write the bundle there.
+
+## Suggested Layout
+
+```text
+<plan-output-dir>/
+  plan.md
+  workspace-contract.md
+  prestart.md
+  routing-packets.md
+  graph.md
+  delegation.md
+  reporting.md
+  constraint-coverage-audit.md
+  templates/
+    README.md
+    reporting/
+      <report-template>.md
+    bookkeeping/
+      <task-shaped-template>.md
+  scripts/
+    README.md
+    <script files>
+  agents/
+    <participant-a>.md
+    <participant-b>.md
+```
+
+## Canonical Entrypoint
+
+`plan.md` is the canonical entrypoint. The user agent should point the master at `<plan-output-dir>/plan.md`, or at the bundle root with an explicit instruction to open `plan.md` first.
+
+## `plan.md` Skeleton
+
+```md
+# Objective
+<summary>
+
+# Master
+<designated master>
+
+# Participants
+<named set>
+
+# Source Contract Summary
+## Referenced Sources
+- `<source path or explicit user instruction>`: <why it governs this plan>
+
+## Preserved Policy Verbs
+- `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, `DISPATCH`
+
+## Source Constraints Carried Forward
+| ID | Verb | Scope | Rule | Projected to |
+| --- | --- | --- | --- | --- |
+| SC-001 | `<VERB>` | `<central | role | reporting | bookkeeping | routing>` | `<source rule>` | `<plan.md section or support file>` |
+
+## Unresolved Source Inputs
+- `UNRESOLVED - <reason>`
+
+# Workspace Contract
+See `workspace-contract.md`.
+
+# Topology
+<descendant relationships that identify delegating/non-leaf participants and leaves>
+
+Graph artifact: <none | NetworkX node-link graph path>
+Packet JSON artifact: <none | packet JSON path for validate-packets>
+
+# Delegation Policy
+See `delegation.md`.
+
+# Prestart Procedure
+See `prestart.md`.
+
+# Routing Packets
+See `routing-packets.md`.
+
+# Lifecycle Vocabulary
+- operator actions: `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`
+- observed states: `authoring`, `initializing`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, `dead`
+
+# Completion Condition
+<user-defined operational success condition>
+
+# Stop Policy
+Default stop mode: interrupt-first
+
+# Reporting Contract
+See `reporting.md`.
+
+# Constraint Coverage Audit
+See `constraint-coverage-audit.md`.
+
+# Template Inventory
+See `templates/README.md` when the run uses reusable reporting or bookkeeping templates.
+
+# Supporting Files
+- `workspace-contract.md`
+- `prestart.md`
+- `routing-packets.md`
+- `graph.md`
+- `delegation.md`
+- `reporting.md`
+- `constraint-coverage-audit.md`
+- `templates/README.md`, when the run uses reusable templates
+- `scripts/README.md`
+
+# Mermaid Control Graph
+<top-level mermaid graph>
+```
+
+## `workspace-contract.md`
+
+Record:
+
+- workspace contract mode: `standard` or `custom`
+- for `standard`, the selected posture plus any required fields such as `task-name`
+- for `custom`, the explicit operator-owned launch cwd, source write paths, shared writable paths, bookkeeping paths, read-only paths, and ad hoc worktree posture
+- the relevant `workspace.md` reference when standard mode points at a prepared standard workspace contract
+- any declared bookkeeping ownership boundaries that generated bookkeeping templates must respect
+- the rule that runtime-owned recovery files stay outside the authored workspace contract
+
+## `templates/README.md`
+
+When the run needs reusable reporting or bookkeeping scaffolds, inventory them here. Generated files under `templates/reporting/` should follow `document-templates/reporting-template.md`; generated files under `templates/bookkeeping/` should follow `document-templates/bookkeeping-template.md`.
+
+Record:
+
+- why the bundle needs reusable templates
+- which templates live under `templates/reporting/`
+- which templates live under `templates/bookkeeping/`
+- which participants may instantiate or fill copies of each template
+- where mutable filled-in outputs belong during execution
+- the rule that files under `templates/` are authored reusable source artifacts, not runtime-owned state
+
+## `templates/reporting/<file>.md`
+
+Use `document-templates/reporting-template.md` for the report surfaces the run actually needs.
+
+Typical examples:
+- `peek.md`
+- `completion.md`
+- `recovery-summary.md`
+- `stop-summary.md`
+- `hard-kill-summary.md`
+
+Each reporting template should reflect the relevant field set from `reporting.md`, carry any source constraints that govern the report, and may add task-local prompts or placeholders for the run.
+
+## `templates/bookkeeping/<file>.md`
+
+Use `document-templates/bookkeeping-template.md` for task-shaped scaffolds derived from:
+
+- the objective
+- the topology
+- participant responsibilities
+- declared bookkeeping paths
+
+These templates may describe status ledgers, handoff notes, review checklists, result ledgers, or other task-specific bookkeeping aids, but they must not impose one fixed subtree or one universal template set for all runs. Each template must carry any source rule that governs state schema, evidence, update timing, ownership, or final output.
+
+## `constraint-coverage-audit.md`
+
+Use `document-templates/constraint-coverage-audit.md` to map every extracted high-salience source rule to:
+
+- the central projection in `plan.md`
+- the runtime projection in routing packets, agent notes, reporting templates, bookkeeping templates, scripts, or supporting files
+- a status of `covered`, `unresolved`, or `excluded`
+- an explicit `UNRESOLVED - <reason>` entry when the rule cannot be projected safely
+
+## `prestart.md`
+
+Record:
+
+- selected `prestart_strategy`: `precomputed_routing_packets`
+- workspace contract summary or `workspace-contract.md` reference
+- optional launch-profile references for required participants that `initialize` may launch after mailbox-association precheck
+- email/mailbox verification rule for the designated master and every required participant
+- gateway mail-notifier verification or enablement for every required mail-driven participant with supported live gateway and mailbox surfaces
+- gateway mail-notifier interval: `5s` unless the user specified otherwise
+- ordinary `start` mail-delivery rule, with direct prompt only by explicit user request
+- initialize memo-slot expectations for the designated master and other participants
+- continuation page namespace and runtime-owned recovery record path family
+- memo sentinel convention for run-owned reference blocks
+- initialize memo write procedure
+- graph artifact and packet JSON artifact locations when available
+- graph-tool preflight: `analyze`, optional `slice`, and `packet-expectations` during packet authoring when a graph artifact exists
+- routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
+- validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
+- generated template inventory or `templates/README.md` reference when reusable templates are part of the run contract
+- in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
+- initialization state transitions: `initializing`, `ready`
+- readiness behavior for routing-packet validation, participant launch, email/mailbox verification, notifier setup, and memo materialization
+- how the master trigger remains separate from `initialize` and tells the master to read its memo and start
+
+## `routing-packets.md`
+
+Record one root packet for the designated master and one child packet for each parent-to-child edge. Each packet should record:
+
+- packet id
+- run id or placeholder
+- plan id and revision or digest
+- intended recipient
+- immediate driver
+- local role and objective
+- allowed delegation targets
+- result-return contract back to the immediate driver
+- mailbox, reminder, receipt, result, or timeout-watch obligations
+- forbidden actions
+- child dispatch table for non-leaf recipients
+- exact child packet text or exact references to packet text
+- forwarding guardrails for verbatim append and fail-closed mismatch handling
+
+## `agents/<participant>.md`
+
+Use `document-templates/agent-note.md` for each generated participant note. Agent notes are supporting material that does not replace the routing packet contract.
+
+Each note must include:
+
+- role
+- source constraints carried forward
+- hard gates
+- SOP verbs
+- reporting and evidence duties
+- related skill posture
+
+## `scripts/README.md` Inventory
+
+List each script with:
+
+- purpose
+- allowed caller agents
+- inputs
+- outputs
+- side effects
+- failure behavior
+
+## Guardrails
+
+- Do not omit the top-level Mermaid graph from `plan.md`.
+- Do not omit the source contract summary from `plan.md`.
+- Do not make `graph.md` the only place where the topology is visible.
+- Do not leave routing packets only in a shared upstream-aware matrix that runtime agents must reinterpret.
+- Do not ask intermediate runtime agents to recompute child packet content from the full plan.
+- Do not ask intermediate runtime agents to run graph analysis or recompute descendant slices after `start`; they must use dispatch tables and exact child packets.
+- Do not describe files under `templates/` as live mutable bookkeeping outputs; those belong in declared bookkeeping paths during execution.
+- Do not generate short reminder-only agent notes when role-specific source constraints or hard gates exist.
+- Do not claim source-rule coverage when `constraint-coverage-audit.md` has unresolved items without reasons.
+- Do not leave script behavior undocumented when scripts are part of the plan.
+- Do not treat runtime-owned recovery files as authored workspace files.
