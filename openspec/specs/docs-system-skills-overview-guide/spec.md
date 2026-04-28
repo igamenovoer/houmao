@@ -132,6 +132,8 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-agent-definition`
 - `houmao-agent-loop-pairwise`
 - `houmao-agent-loop-pairwise-v2`
+- `houmao-agent-loop-pairwise-v3`
+- `houmao-agent-loop-pairwise-v4`
 - `houmao-agent-loop-generic`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`
@@ -139,6 +141,8 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-agent-gateway`
 
 The guide MAY group these skills into concern-oriented subsections such as automation, control, and utils, provided every catalog entry appears in exactly one subsection.
+
+The row for `houmao-agent-loop-pairwise-v4` SHALL describe it as the template-driven workspace-aware pairwise loop skill for rich task-note contracts, strict generated document templates, role-local hard gates, and constraint coverage audits.
 
 #### Scenario: Overview guide table tracks catalog membership
 - **WHEN** a reader compares the overview guide catalog table to `catalog.toml`
@@ -149,6 +153,11 @@ The guide MAY group these skills into concern-oriented subsections such as autom
 - **WHEN** a reader opens the overview guide
 - **THEN** the catalog table contains a row for `houmao-utils-workspace-mgr`
 - **AND THEN** the row describes workspace planning and execution before managed agents are launched
+
+#### Scenario: Pairwise-v4 appears in the overview guide
+- **WHEN** a reader opens the overview guide
+- **THEN** the catalog table contains a row for `houmao-agent-loop-pairwise-v4`
+- **AND THEN** the row describes template-driven pairwise planning with strict document templates and coverage audits
 
 ### Requirement: Overview guide narrative count matches the catalog
 The overview guide narrative SHALL NOT state a frozen skill count that does not match the current `catalog.toml` entry count and the resolved `[auto_install]` set contents.

@@ -1302,6 +1302,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
             pairwise_loop_v4_prepare,
             pairwise_loop_v4_start,
             pairwise_loop_v4_charter,
+            pairwise_loop_v4_workspace_contract,
             pairwise_loop_v4_plan_structure,
             pairwise_loop_v4_single_template,
             pairwise_loop_v4_bundle_template,

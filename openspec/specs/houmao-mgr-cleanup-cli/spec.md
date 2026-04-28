@@ -160,10 +160,24 @@ Runtime log cleanup SHALL NOT treat these artifacts as disposable log output in 
 - `gateway/events.jsonl`
 - `gateway/state.json`
 
+`houmao-mgr admin cleanup runtime logs` and `houmao-mgr agents cleanup logs` SHALL classify gateway diagnostic log files under the gateway-owned log directory as cleanup-sensitive runtime log artifacts.
+
+Runtime log cleanup SHALL apply the same live-session safety posture to gateway diagnostic log files as it applies to other gateway log output.
+
 #### Scenario: Log cleanup preserves durable gateway state
 - **WHEN** an operator runs a supported runtime log cleanup command
 - **THEN** the command may remove human-oriented log files and ephemeral live-instance files
 - **AND THEN** it preserves durable gateway artifacts such as `queue.sqlite`, `events.jsonl`, `state.json`, and `manifest.json`
+
+#### Scenario: Stopped-session log cleanup removes diagnostic logs but preserves durable gateway state
+- **WHEN** an operator runs a supported runtime log cleanup command for a stopped session with gateway diagnostic log files
+- **THEN** the command may remove those diagnostic log files as runtime log artifacts
+- **AND THEN** it preserves durable gateway artifacts such as `queue.sqlite`, `events.jsonl`, `state.json`, and `manifest.json`
+
+#### Scenario: Active-session log cleanup follows existing live safeguards
+- **WHEN** an operator runs a supported runtime log cleanup command for an active session with gateway diagnostic log files
+- **THEN** the command applies the existing live-session safety checks before removing cleanup-sensitive gateway log artifacts
+- **AND THEN** the command does not retire or purge the active registry record merely because diagnostic log files were selected for cleanup
 
 ### Requirement: Runtime mailbox credential cleanup removes only unreferenced credential refs
 `houmao-mgr admin cleanup runtime mailbox-credentials` SHALL evaluate runtime-owned Stalwart credential files by `credential_ref`.

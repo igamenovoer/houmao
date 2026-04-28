@@ -4,6 +4,23 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.9.0] - 2026-04-28
+
+### Added
+
+- **Gateway diagnostic logging**: gateways now support opt-in rotating diagnostic logs under the gateway-owned log directory. The new diagnostics capture safe HTTP, validation, mailbox, queue/control, reminder, and notifier evidence without raw prompt text, message bodies, attachments, auth headers, cookies, bearer tokens, credential material, or environment secrets. Consecutive warning/error duplicates are summarized with suppressed-count entries, and cleanup treats diagnostic logs as removable runtime log artifacts while preserving durable gateway state.
+- **`houmao-agent-loop-pairwise-v4` system skill**: new template-driven workspace-aware pairwise loop skill for rich task-note contracts. V4 keeps the pairwise-v3 memo-first lifecycle and workspace posture while adding strict generated document templates, role-local agent notes, reporting/bookkeeping scaffolds, source-constraint extraction/projection, and coverage audits for policy-bearing rules.
+
+### Changed
+
+- **Loop-skill docs and catalog guidance now include v4**: README, the loop authoring guide, system-skills overview, catalog/install specs, and default install wording now list all four pairwise variants plus the generic loop skill.
+- **Gateway reference and cleanup specs synced**: OpenSpec main specs now include the diagnostic logging contract, safe redaction boundary, deduplication behavior, documentation requirements, and runtime-log cleanup handling.
+
+### Notes
+
+- This release bumps the minor segment for the new gateway diagnostic logging surface and the new pairwise-v4 loop-authoring skill.
+- The `gh release create v0.9.0` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.8.3] - 2026-04-24
 
 ### Fixed
