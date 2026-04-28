@@ -240,11 +240,7 @@ def cleanup_managed_session(
     session_cleanup_complete = False
 
     broken_active_purge_allowed = False
-    if (
-        purge_registry
-        and _cleanup_target_has_active_registry_record(target)
-        and session_name
-    ):
+    if purge_registry and _cleanup_target_has_active_registry_record(target) and session_name:
         probe = probe_tmux_backed_authority(session_name=session_name)
         if probe.state in {"degraded_missing_primary", "stale_missing_session"}:
             broken_active_purge_allowed = True
@@ -252,10 +248,7 @@ def cleanup_managed_session(
                 cleanup_tmux_session(session_name=session_name)
                 live = False
 
-    if (
-        not broken_active_purge_allowed
-        and _cleanup_target_has_active_registry_record(target)
-    ):
+    if not broken_active_purge_allowed and _cleanup_target_has_active_registry_record(target):
         blocked_actions.append(
             CleanupAction(
                 artifact_kind="session_root",

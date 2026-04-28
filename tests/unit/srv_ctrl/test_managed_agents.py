@@ -1264,9 +1264,7 @@ def test_resolve_managed_agent_target_routes_degraded_active_record_into_local_d
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
-        lambda **kwargs: (_ for _ in ()).throw(
-            AssertionError("server fallback should not run")
-        ),
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
     )
 
     target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
@@ -1306,9 +1304,7 @@ def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stal
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.require_supported_houmao_pair",
-        lambda **kwargs: (_ for _ in ()).throw(
-            AssertionError("server fallback should not run")
-        ),
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
     )
 
     target = resolve_managed_agent_target(agent_id=None, agent_name="gpu", port=None)
