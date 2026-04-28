@@ -20,9 +20,13 @@ def test_loop_authoring_docs_cover_pairwise_v2_v3_and_v4_modes() -> None:
     assert "`houmao-agent-loop-pairwise-v3`" in guide
     assert "`houmao-agent-loop-pairwise-v4`" in guide
     assert "workspace-aware extension of pairwise-v2" in guide
-    assert "template-driven source-contract layer" in guide
+    assert (
+        "template-driven source-contract layer for rich task notes and user-provided documents"
+        in guide
+    )
     assert "strict generated document templates" in guide
     assert "constraint coverage audit" in guide
+    assert "other user-provided documents" in guide
     assert "workspace_contract:" in guide
     assert "mode: standard | custom" in guide
     assert "houmao-ws/<task-name>" in guide

@@ -80,7 +80,7 @@ When the run needs reusable reporting or bookkeeping scaffolds, use bundle form 
 
 ## Strict Generated Document Templates
 
-Pairwise-v4 authoring is template-first. When source task notes, commons, rulebooks, or manually tuned examples govern the run, generate documents by filling the strict templates under `document-templates/`:
+Pairwise-v4 authoring is template-first. When source task notes, user-provided documents with schema-like policy verb patterns, commons, rulebooks, or manually tuned examples govern the run, generate documents by filling the strict templates under `document-templates/`:
 
 - `document-templates/plan.md` for canonical `plan.md`
 - `document-templates/agent-note.md` for files under `agents/`
@@ -92,7 +92,7 @@ Keep required headings in order. Fill unknown required fields with `UNRESOLVED -
 
 ## Source Contract Summary
 
-Every v4 `plan.md` should include a central source-contract summary before the workspace contract when the run is derived from task notes, commons files, rulebooks, or user-provided constraints.
+Every v4 `plan.md` should include a central source-contract summary before the workspace contract when the run is derived from task notes, commons files, rulebooks, user-provided documents with schema-like policy verb patterns, or user-provided constraints.
 
 The source-contract summary must record:
 - referenced source paths or explicit user instructions
@@ -140,7 +140,7 @@ Use discoverable categories:
 
 Record those templates as authored reusable source artifacts. Filled-in copies or mutable run artifacts belong in declared bookkeeping paths during execution, not back inside the authored template bundle.
 
-Reporting and bookkeeping templates should carry any state schema, evidence requirement, cadence, owner, update rule, or output format that came from the source task. If a source rule cannot be safely converted into a reusable template slot, record it in `constraint-coverage-audit.md` as unresolved.
+Reporting and bookkeeping templates should carry any state schema, evidence requirement, cadence, owner, update rule, or output format that came from the source task or other user-provided source document. If a source rule cannot be safely converted into a reusable template slot, record it in `constraint-coverage-audit.md` as unresolved.
 
 ## Agent Notes
 
@@ -284,7 +284,7 @@ For each script, record:
 - Do not leave the bundle form without `prestart.md` when prestart strategy is part of the run contract.
 - Do not keep a reusable template inventory only in conversation state; record it in the authored bundle.
 - Do not leave the workspace contract implicit.
-- Do not leave the source contract summary implicit when source task notes or rulebooks drive the run.
+- Do not leave the source contract summary implicit when source task notes, user-provided documents with schema-like policy verb patterns, or rulebooks drive the run.
 - Do not freeform-organize generated files when a v4 strict document template exists for that file type.
 - Do not drop policy-bearing verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, or `DISPATCH`.
 - Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`.

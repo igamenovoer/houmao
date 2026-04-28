@@ -8,7 +8,7 @@ Fill this template as `<plan-output-dir>/constraint-coverage-audit.md` for bundl
 # Source Inputs
 | Source | Kind | Notes |
 | --- | --- | --- |
-| <path or instruction> | <task note | commons | rulebook | manual tuning | user instruction> | <why it matters> |
+| <path or instruction> | <task note | user-provided document | commons | rulebook | manual tuning | user instruction> | <why it matters> |
 
 # Coverage Table
 | ID | Source | Verb | Scope | Rule | Central Projection | Runtime Projection | Status |

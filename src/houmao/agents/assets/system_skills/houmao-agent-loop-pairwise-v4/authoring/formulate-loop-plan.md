@@ -7,7 +7,8 @@ Use this page when the user has described a goal, but the designated master stil
 Collect these first:
 - user goal and constraints
 - source task note path, when the user is planning from a rich task document
-- referenced rulebook or commons paths named by the task note, when available
+- other user-provided source document paths, when they contain schema-like policy verb patterns
+- referenced rulebook or commons paths named by the task note or user-provided documents, when available
 - named Houmao agents
 - completion and stop expectations
 - workspace contract expectations
@@ -28,8 +29,8 @@ Write the generated plan under the selected output directory:
    - single-file plan for a smaller run
    - bundle plan for a larger run
    - choose bundle form whenever the run needs reusable reporting or bookkeeping templates under `<plan-output-dir>/templates/`
-3. For rich task notes, perform the v4 source-contract extraction pass before drafting files:
-   - read the user task note and available explicitly referenced rulebooks or commons files
+3. For rich task notes or user-provided documents with schema-like policy verb patterns, perform the v4 source-contract extraction pass before drafting files:
+   - read the user task note, user-provided source documents, and available explicitly referenced rulebooks or commons files
    - extract high-salience constraints, hard gates, forbidden actions, state schemas, phase rules, evidence/reporting rules, role-scoped obligations, source-transfer boundaries, and workspace boundaries
    - preserve policy-bearing schema-like verbs when they encode operational policy: `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`
    - assign stable source-constraint ids such as `SC-001`
@@ -104,7 +105,7 @@ Write the generated plan under the selected output directory:
    - advise all agents to use the email system for in-loop job communication by default, including pairwise edge requests, receipts, and results
 16. Render the final graph through `authoring/render-loop-graph.md`.
 17. Produce a master initialize-memo summary plus compact start-trigger summary through `references/run-charter.md`.
-18. Write `constraint-coverage-audit.md` with `document-templates/constraint-coverage-audit.md` when the plan was generated from rich task notes or referenced rulebooks.
+18. Write `constraint-coverage-audit.md` with `document-templates/constraint-coverage-audit.md` when the plan was generated from rich task notes, user-provided documents with policy-bearing verb patterns, or referenced rulebooks.
 19. Review the coverage audit before reporting completion. Do not claim the generated bundle preserved the source contract when any high-salience rule remains unresolved without an explicit reason.
 20. Write the generated plan into the selected output directory.
 21. Report the canonical plan path, any generated template inventory, coverage-audit path when present, and the resulting output-directory structure to the user.
@@ -118,7 +119,7 @@ Write the generated plan under the selected output directory:
 - For `standard` in-repo posture, treat the task root as `<repo-root>/houmao-ws/<task-name>`.
 - For `custom` workspace posture, record explicit paths instead of translating them into Houmao-standard paths.
 - When reusable reporting or bookkeeping scaffolds are part of the run contract, use bundle form and keep them under `<plan-output-dir>/templates/`.
-- For rich task-note plans, fill the strict document templates instead of inventing new section names or freeform document organization.
+- For rich task-note plans or plans derived from user-provided documents with schema-like policy verb patterns, fill the strict document templates instead of inventing new section names or freeform document organization.
 - Preserve policy-bearing source verbs when they encode operational rules.
 - Keep source-constraint ids stable across `plan.md`, role-local agent notes, templates, and the coverage audit.
 - Keep generated template files discoverable and task-shaped rather than forcing one universal filename set.
@@ -143,7 +144,7 @@ The finalized authored plan should make these items easy to find:
 - canonical plan path
 - master
 - participants
-- referenced source task and rulebook inputs, when used
+- referenced source task, user-provided document, and rulebook inputs, when used
 - source constraints carried forward
 - constraint coverage audit, when rich source constraints were extracted
 - workspace contract

@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-loop-pairwise-v4
-description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v4` to author one template-driven workspace-aware enriched pairwise loop plan in a user-selected output directory, preserve source constraints from rich task notes through strict generated document templates and a coverage audit, run routing-packet-validated memo-first `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill`.
+description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v4` to author one template-driven workspace-aware enriched pairwise loop plan in a user-selected output directory, preserve source constraints from rich task notes or user-provided documents through strict generated document templates and a coverage audit, run routing-packet-validated memo-first `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill`.
 license: MIT
 ---
 
@@ -52,7 +52,7 @@ Do not use this skill for:
 - Durable memory work routes through `houmao-memory-mgr`.
 - Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...` and remains outside the authored workspace contract.
 - Pairwise-v4 planning is template-first: the planner fills strict document sections and required fields instead of freeform-organizing rich task contracts.
-- Pairwise-v4 extracts policy-bearing source constraints from the user task and referenced rulebooks, then projects them into central plan, role-local agent notes, reporting/bookkeeping templates, routing surfaces, or an explicit unresolved entry.
+- Pairwise-v4 extracts policy-bearing source constraints from the user task, referenced rulebooks, and user-provided documents that use schema-like policy verb patterns, then projects them into central plan, role-local agent notes, reporting/bookkeeping templates, routing surfaces, or an explicit unresolved entry.
 - Policy-bearing verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH` remain visible when they encode operational policy.
 - Rich bundle plans include a constraint coverage audit that maps source rules to generated bundle locations.
 
@@ -98,7 +98,7 @@ Observed states:
    - prestart: `prestart/prepare-run.md`
    - operations: one page under `operating/`
 5. For `plan`, run the v4 source-contract workflow before writing files:
-   - extract high-salience source constraints from the user task and available referenced rulebooks
+   - extract high-salience source constraints from the user task, available referenced rulebooks, and user-provided documents with schema-like policy verb patterns
    - project each constraint into central, role-local, reporting, bookkeeping, routing, or unresolved audit surfaces
    - fill strict generated document templates from `document-templates/`
    - review the coverage audit before reporting the bundle complete
@@ -181,7 +181,7 @@ Strict generated document templates:
 - Read [document-templates/agent-note.md](document-templates/agent-note.md) before generating any `agents/<participant>.md` note.
 - Read [document-templates/reporting-template.md](document-templates/reporting-template.md) before generating reusable reporting templates.
 - Read [document-templates/bookkeeping-template.md](document-templates/bookkeeping-template.md) before generating reusable bookkeeping templates.
-- Read [document-templates/constraint-coverage-audit.md](document-templates/constraint-coverage-audit.md) before finalizing rich bundle plans from task notes or referenced rulebooks.
+- Read [document-templates/constraint-coverage-audit.md](document-templates/constraint-coverage-audit.md) before finalizing rich bundle plans from task notes, referenced rulebooks, or user-provided documents with policy-bearing verb patterns.
 
 ## Routing Guidance
 

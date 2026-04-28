@@ -770,11 +770,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
     assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
     assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
+    assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
     assert (
         "ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, "
         "`OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`" in pairwise_loop_v4_skill
     )
     assert "strict document templates" in pairwise_loop_v4_formulate
+    assert "other user-provided source document paths" in pairwise_loop_v4_formulate
+    assert "user-provided source documents" in pairwise_loop_v4_formulate
     assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
     assert "Source Contract Summary" in pairwise_loop_v4_plan_template
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
@@ -2032,14 +2035,18 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
     assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
     assert "strict generated document templates" in pairwise_loop_v4_skill
+    assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
     assert (
         "ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, "
         "`OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`" in pairwise_loop_v4_contract_text
     )
     assert "source task note path" in pairwise_loop_v4_formulate
+    assert "other user-provided source document paths" in pairwise_loop_v4_formulate
+    assert "user-provided source documents" in pairwise_loop_v4_formulate
     assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
     assert "constraint-coverage-audit.md" in pairwise_loop_v4_bundle_template
     assert "Source Contract Summary" in pairwise_loop_v4_plan_structure
+    assert "schema-like policy verb patterns" in pairwise_loop_v4_plan_structure
     assert "Source Contract Summary" in pairwise_loop_v4_single_template
     assert "Source Contract Summary" in pairwise_loop_v4_bundle_template
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_plan_document_template
@@ -2048,6 +2055,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Source Constraints Applied" in pairwise_loop_v4_reporting_template
     assert "Record Schema" in pairwise_loop_v4_bookkeeping_template
     assert "Coverage Table" in pairwise_loop_v4_audit_template
+    assert "user-provided document" in pairwise_loop_v4_audit_template
     assert "Central Projection" in pairwise_loop_v4_audit_template
     assert "Runtime Projection" in pairwise_loop_v4_audit_template
     assert "UNRESOLVED - <reason>" in pairwise_loop_v4_contract_text

@@ -18,7 +18,7 @@ Houmao ships five packaged loop skills. This page helps you choose the right one
 
 **Use `houmao-agent-loop-pairwise-v3`** when you need the same enriched lifecycle as v2 and you also need the loop plan to declare where agents work and where they keep operator-visible bookkeeping. Pairwise-v3 is the workspace-aware extension of pairwise-v2.
 
-**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task is rich enough that generated documents need strict templates. Pairwise-v4 keeps source-contract summaries, policy-bearing verbs, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
+**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task or user-provided documents are rich enough that generated documents need strict templates. Pairwise-v4 keeps source-contract summaries, policy-bearing verbs, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
 
 **Use `houmao-agent-loop-generic`** when your communication graph has both pairwise components (immediate driver-worker local-close edges) and relay lanes (agent that receives from one side and forwards to another). Generic decomposes your intent into typed components and manages them in one graph.
 
@@ -47,9 +47,9 @@ When the run needs reusable report forms or bookkeeping scaffolds, those files l
 
 ## Pairwise-v4: Strict Template Authoring
 
-`houmao-agent-loop-pairwise-v4` keeps the pairwise-v3 control and workspace model, then adds a template-driven source-contract layer for rich task notes.
+`houmao-agent-loop-pairwise-v4` keeps the pairwise-v3 control and workspace model, then adds a template-driven source-contract layer for rich task notes and user-provided documents.
 
-Use v4 when the plan should preserve schema-like task language instead of loosely summarizing it. The v4 authoring flow extracts high-salience source constraints, preserves policy-bearing verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`, assigns stable source-constraint IDs, and projects those rules into the central plan, role-local agent notes, routing packets, reporting templates, bookkeeping templates, scripts, or an explicit unresolved entry.
+Use v4 when the plan should preserve schema-like task or document language instead of loosely summarizing it. The v4 authoring flow extracts high-salience source constraints, preserves policy-bearing verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH` when they appear in task notes, rulebooks, commons files, or other user-provided documents, assigns stable source-constraint IDs, and projects those rules into the central plan, role-local agent notes, routing packets, reporting templates, bookkeeping templates, scripts, or an explicit unresolved entry.
 
 The generated bundle uses strict document templates for:
 
@@ -59,7 +59,7 @@ The generated bundle uses strict document templates for:
 - reusable bookkeeping templates under `templates/bookkeeping/`
 - `constraint-coverage-audit.md`
 
-The coverage audit maps each extracted source rule to a central projection and a runtime-facing projection, or marks it `UNRESOLVED - <reason>`. This makes v4 a better fit than v3 for tasks derived from structured commons files, tuned examples, or instruction-heavy loop task notes.
+The coverage audit maps each extracted source rule to a central projection and a runtime-facing projection, or marks it `UNRESOLVED - <reason>`. This makes v4 a better fit than v3 for tasks derived from structured commons files, tuned examples, instruction-heavy loop task notes, or user-supplied design documents that use schema-like policy verbs.
 
 ### `standard` versus `custom`
 
