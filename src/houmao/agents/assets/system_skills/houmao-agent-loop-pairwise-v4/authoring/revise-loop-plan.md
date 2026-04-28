@@ -74,7 +74,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 - Do not leave descendant relationships ambiguous when `initialize` needs to validate routing-packet coverage.
 - Do not leave the workspace contract ambiguous when `initialize`, `start`, or `recover_and_continue` must point participants at specific workspace or bookkeeping paths.
 - Do not remove strict template sections just because a revision does not touch them.
-- Do not drop source-constraint IDs, preserved policy verbs, or `UNRESOLVED - <reason>` markers from a revised plan.
+- Do not drop source-constraint IDs, policy-bearing source rules, or `UNRESOLVED - <reason>` markers from a revised plan.
 - Do not claim coverage if `constraint-coverage-audit.md` is missing high-salience source rules or has unresolved rows without reasons.
 - Do not confuse authored template files with mutable bookkeeping outputs or runtime-owned recovery files.
 - Do not skip initialize memo materialization when managed memory is being used.

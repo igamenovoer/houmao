@@ -39,7 +39,7 @@ default_stop_mode: interrupt-first
 ## Referenced Sources
 - `<source path or explicit user instruction>`: <why it governs this plan>
 
-## Preserved Policy Verbs
+## Policy-Bearing Source Rules
 - `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, `DISPATCH`
 
 ## Source Constraints Carried Forward

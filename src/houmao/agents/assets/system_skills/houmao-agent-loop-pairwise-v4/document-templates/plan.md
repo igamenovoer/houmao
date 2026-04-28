@@ -22,7 +22,7 @@ Preserve policy-bearing verbs from source material when they define gates, requi
 ## Referenced Sources
 - `<source path or explicit user instruction>`: <why it governs this plan>
 
-## Preserved Policy Verbs
+## Policy-Bearing Source Rules
 - `<VERB>`: <source phrase or normalized rule>
 
 ## Source Constraints Carried Forward

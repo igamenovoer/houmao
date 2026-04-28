@@ -780,6 +780,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "user-provided source documents" in pairwise_loop_v4_formulate
     assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
     assert "Source Contract Summary" in pairwise_loop_v4_plan_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_plan_template
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
     assert "Coverage Table" in pairwise_loop_v4_audit_template
     assert "UNRESOLVED - <reason>" in pairwise_loop_v4_audit_template
@@ -2048,8 +2049,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "Source Contract Summary" in pairwise_loop_v4_plan_structure
     assert "schema-like policy verb patterns" in pairwise_loop_v4_plan_structure
     assert "Source Contract Summary" in pairwise_loop_v4_single_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_single_template
     assert "Source Contract Summary" in pairwise_loop_v4_bundle_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_bundle_template
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_plan_document_template
+    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_plan_document_template
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
     assert "Reporting And Evidence Duties" in pairwise_loop_v4_agent_note_template
     assert "Source Constraints Applied" in pairwise_loop_v4_reporting_template

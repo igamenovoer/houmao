@@ -96,7 +96,7 @@ Every v4 `plan.md` should include a central source-contract summary before the w
 
 The source-contract summary must record:
 - referenced source paths or explicit user instructions
-- preserved policy verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`
+- policy-bearing source rules keyed by verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`
 - a carried-forward constraints table with stable source-constraint IDs such as `SC-001`
 - unresolved source inputs with explicit reasons
 
