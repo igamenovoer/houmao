@@ -9,12 +9,12 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import click
 
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
-from houmao.agents.brain_builder import BuildRequest, build_brain_home
+from houmao.agents.brain_builder import BuildRequest, PrivateSkillProjection, build_brain_home
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.managed_launch_force import (
     ManagedLaunchForceMode,
@@ -621,6 +621,73 @@ def _seed_launch_profile_mail_notifier_appendix(
     write_gateway_mail_notifier_record(paths.queue_path, appendix_text=appendix_text)
 
 
+def _merge_launch_skill_names(
+    source_skill_names: list[str] | tuple[str, ...],
+    registered_skill_names: tuple[str, ...],
+) -> list[str]:
+    """Return source skills plus launch-profile registered skills without duplicates."""
+
+    if not registered_skill_names:
+        return cast(list[str], source_skill_names)
+    merged: list[str] = []
+    seen: set[str] = set()
+    for skill_name in (*source_skill_names, *registered_skill_names):
+        if skill_name in seen:
+            continue
+        merged.append(skill_name)
+        seen.add(skill_name)
+    return merged
+
+
+def _coerce_private_skill_projections(
+    private_skills: tuple[Any, ...],
+) -> tuple[PrivateSkillProjection, ...]:
+    """Convert resolved launch-profile private skill records into build projections."""
+
+    projections: list[PrivateSkillProjection] = []
+    for private_skill in private_skills:
+        mode = str(getattr(private_skill, "mode"))
+        if mode not in {"copy", "symlink"}:
+            raise ValueError(f"Unsupported launch-profile private skill mode: {mode}")
+        projections.append(
+            PrivateSkillProjection(
+                name=str(getattr(private_skill, "name")),
+                source_path=Path(getattr(private_skill, "source_path")).resolve(),
+                mode=cast(Literal["copy", "symlink"], mode),
+            )
+        )
+    return tuple(projections)
+
+
+def _with_launch_profile_skill_provenance(
+    *,
+    launch_profile_provenance: dict[str, Any] | None,
+    registered_skill_names: tuple[str, ...],
+    private_skill_projections: tuple[PrivateSkillProjection, ...],
+    effective_skill_names: list[str],
+) -> dict[str, Any] | None:
+    """Add launch-profile skill overlay provenance to a provenance payload."""
+
+    if launch_profile_provenance is None:
+        return None
+    payload = dict(launch_profile_provenance)
+    private_payloads = [
+        {
+            "name": private_skill.name,
+            "resolved_path": str(private_skill.source_path),
+            "mode": private_skill.mode,
+        }
+        for private_skill in private_skill_projections
+    ]
+    private_names = {private_skill.name for private_skill in private_skill_projections}
+    payload["skills"] = {
+        "registered": list(registered_skill_names),
+        "private": private_payloads,
+        "private_shadowed_names": sorted(private_names.intersection(effective_skill_names)),
+    }
+    return payload
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -663,6 +730,8 @@ def launch_managed_agent_locally(
     launch_profile_provenance: dict[str, Any] | None = None,
     launch_profile_memo_seed: ResolvedLaunchProfileMemoSeed | None = None,
     launch_profile_mail_notifier_appendix_text: str | None = None,
+    launch_profile_registered_skill_names: tuple[str, ...] = (),
+    launch_profile_private_skills: tuple[Any, ...] = (),
     force_mode: str | None = None,
     reuse_home: bool = False,
 ) -> LocalManagedAgentLaunchResult:
@@ -725,6 +794,19 @@ def launch_managed_agent_locally(
             working_directory=resolved_working_directory,
             agent_def_dir=effective_agent_def_dir,
         )
+        effective_skill_names = _merge_launch_skill_names(
+            target.preset.skills,
+            launch_profile_registered_skill_names,
+        )
+        private_skill_projections = _coerce_private_skill_projections(
+            launch_profile_private_skills
+        )
+        effective_launch_profile_provenance = _with_launch_profile_skill_provenance(
+            launch_profile_provenance=launch_profile_provenance,
+            registered_skill_names=launch_profile_registered_skill_names,
+            private_skill_projections=private_skill_projections,
+            effective_skill_names=effective_skill_names,
+        )
         effective_persistent_env_records = dict(target.preset.launch_env_records or {})
         if persistent_env_records is not None:
             effective_persistent_env_records.update(dict(persistent_env_records))
@@ -776,7 +858,8 @@ def launch_managed_agent_locally(
                 agent_def_dir=target.agent_def_dir,
                 runtime_root=resolved_runtime_root,
                 tool=target.preset.tool,
-                skills=target.preset.skills,
+                skills=effective_skill_names,
+                private_skills=private_skill_projections,
                 setup=target.preset.setup,
                 auth=auth or target.preset.auth,
                 preset_path=target.preset_path,
@@ -802,7 +885,7 @@ def launch_managed_agent_locally(
                     section_decisions=managed_header_section_decisions,
                 ),
                 houmao_system_prompt_layout=prompt_payload.layout,
-                launch_profile_provenance=launch_profile_provenance,
+                launch_profile_provenance=effective_launch_profile_provenance,
             )
         )
         resolved_backend = backend_for_tool(
@@ -1096,6 +1179,8 @@ def launch_agents_command(
     launch_profile_provenance = None
     launch_profile_memo_seed = None
     launch_profile_mail_notifier_appendix_text: str | None = None
+    launch_profile_registered_skill_names: tuple[str, ...] = ()
+    launch_profile_private_skills: tuple[Any, ...] = ()
     gateway_auto_attach = False
     gateway_host = None
     gateway_port = None
@@ -1169,6 +1254,8 @@ def launch_agents_command(
         )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
+        launch_profile_registered_skill_names = resolved_profile.entry.registered_skill_names
+        launch_profile_private_skills = resolved_profile.private_skills
         launch_profile_provenance = {
             "name": resolved_profile.entry.name,
             "lane": resolved_profile.entry.profile_lane,
@@ -1265,6 +1352,8 @@ def launch_agents_command(
         launch_profile_provenance=launch_profile_provenance,
         launch_profile_memo_seed=launch_profile_memo_seed,
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
+        launch_profile_registered_skill_names=launch_profile_registered_skill_names,
+        launch_profile_private_skills=launch_profile_private_skills,
         force_mode=force_mode,
         reuse_home=reuse_home,
     )

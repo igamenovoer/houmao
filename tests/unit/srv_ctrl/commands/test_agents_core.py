@@ -129,6 +129,114 @@ def _install_basic_launch_patches(
     )
 
 
+def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = (tmp_path / "runtime").resolve()
+    jobs_root = (tmp_path / "jobs").resolve()
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    overlay_root = (tmp_path / "overlay").resolve()
+    working_directory = (tmp_path / "workdir").resolve()
+    source_agent_def_dir = (tmp_path / "agents").resolve()
+    manifest_path = (tmp_path / "manifest.json").resolve()
+    private_source = (tmp_path / "private" / "notes").resolve()
+
+    for path in (
+        runtime_root,
+        jobs_root,
+        mailbox_root,
+        overlay_root,
+        working_directory,
+        source_agent_def_dir,
+        private_source,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+    (private_source / "SKILL.md").write_text("# notes\n\nPrivate.\n", encoding="utf-8")
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime_root,
+        jobs_root=jobs_root,
+        mailbox_root=mailbox_root,
+        overlay_root=overlay_root,
+        source_agent_def_dir=source_agent_def_dir,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
+        lambda **kwargs: SimpleNamespace(
+            agent_def_dir=source_agent_def_dir,
+            preset=SimpleNamespace(
+                tool="codex",
+                skills=("notes",),
+                setup="default",
+                auth="work",
+                launch_overrides=None,
+                operator_prompt_mode=None,
+                launch_env_records=None,
+                mailbox=None,
+                extra=None,
+            ),
+            preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
+            role_name="researcher",
+            role_prompt="You are a precise repo researcher.",
+            tool="codex",
+        ),
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
+        lambda request: (
+            captured.setdefault("build_request", request),
+            SimpleNamespace(manifest_path=manifest_path),
+        )[1],
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
+        lambda **kwargs: SimpleNamespace(
+            agent_identity="repo-research",
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-repo-research",
+            manifest_path=manifest_path,
+        ),
+    )
+
+    launch_managed_agent_locally(
+        agents="researcher",
+        agent_name="repo-research",
+        agent_id=None,
+        auth=None,
+        session_name=None,
+        headless=True,
+        provider="codex",
+        working_directory=working_directory,
+        source_agent_def_dir=source_agent_def_dir,
+        headless_display_style="plain",
+        headless_display_detail="concise",
+        launch_profile_registered_skill_names=("mailbox", "notes"),
+        launch_profile_private_skills=(
+            SimpleNamespace(name="notes", source_path=private_source, mode="copy"),
+        ),
+        launch_profile_provenance={"name": "alice", "lane": "launch_profile"},
+    )
+
+    build_request = captured["build_request"]
+    assert build_request.skills == ["notes", "mailbox"]
+    assert build_request.private_skills[0].name == "notes"
+    assert build_request.private_skills[0].source_path == private_source
+    assert build_request.launch_profile_provenance["skills"] == {
+        "registered": ["mailbox", "notes"],
+        "private": [
+            {
+                "name": "notes",
+                "resolved_path": str(private_source),
+                "mode": "copy",
+            }
+        ],
+        "private_shadowed_names": ["notes"],
+    }
+
+
 def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(
     monkeypatch,
     tmp_path: Path,

@@ -9,6 +9,7 @@ from typing import Any
 from houmao.agents.definition_parser import AgentPreset, parse_agent_preset
 from houmao.project.catalog import (
     LaunchProfileCatalogEntry,
+    LaunchProfilePrivateSkillCatalogEntry,
     LaunchProfileMemoSeed,
     ManagedContentRef,
     ProjectCatalog,
@@ -24,6 +25,16 @@ class ResolvedLaunchProfileMemoSeed:
     source_kind: str
     content_ref: ManagedContentRef
     source_path: Path
+
+
+@dataclass(frozen=True)
+class ResolvedLaunchProfilePrivateSkill:
+    """Resolved launch-profile private skill reference plus source path."""
+
+    name: str
+    source_path: Path
+    stored_source_path: str
+    mode: str
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,7 @@ class ResolvedProjectLaunchProfile:
     specialist: SpecialistMetadata | None = None
     recipe: AgentPreset | None = None
     gateway_mail_notifier_appendix_text: str | None = None
+    private_skills: tuple[ResolvedLaunchProfilePrivateSkill, ...] = ()
 
 
 def list_resolved_launch_profiles(
@@ -84,6 +96,10 @@ def resolve_launch_profile_entry(
         if appendix_path.is_file():
             gateway_mail_notifier_appendix_text = appendix_path.read_text(encoding="utf-8").rstrip()
     memo_seed = _resolve_launch_profile_memo_seed(overlay=overlay, memo_seed=entry.memo_seed)
+    private_skills = _resolve_launch_profile_private_skills(
+        overlay=overlay,
+        private_skills=entry.private_skill_entries,
+    )
 
     if entry.source_kind == "specialist":
         try:
@@ -101,6 +117,7 @@ def resolve_launch_profile_entry(
                 provider=None,
                 role_name=None,
                 memo_seed=memo_seed,
+                private_skills=private_skills,
             )
         recipe_path = specialist.resolved_preset_path(overlay)
         return ResolvedProjectLaunchProfile(
@@ -117,6 +134,7 @@ def resolve_launch_profile_entry(
             memo_seed=memo_seed,
             specialist=specialist,
             recipe=parse_agent_preset(recipe_path) if recipe_path.is_file() else None,
+            private_skills=private_skills,
         )
 
     recipe_path = (overlay.agents_root / "presets" / f"{entry.source_name}.yaml").resolve()
@@ -133,6 +151,7 @@ def resolve_launch_profile_entry(
             provider=None,
             role_name=None,
             memo_seed=memo_seed,
+            private_skills=private_skills,
         )
     recipe = parse_agent_preset(recipe_path)
     return ResolvedProjectLaunchProfile(
@@ -148,6 +167,7 @@ def resolve_launch_profile_entry(
         role_name=recipe.role_name,
         memo_seed=memo_seed,
         recipe=recipe,
+        private_skills=private_skills,
     )
 
 
@@ -189,6 +209,21 @@ def launch_profile_defaults_payload(
         payload["managed_header_sections"] = dict(
             sorted(entry.managed_header_section_policy.items())
         )
+    if entry.registered_skill_names or profile.private_skills:
+        skills_payload: dict[str, Any] = {}
+        if entry.registered_skill_names:
+            skills_payload["registered"] = list(entry.registered_skill_names)
+        if profile.private_skills:
+            skills_payload["private"] = [
+                {
+                    "name": private_skill.name,
+                    "path": private_skill.stored_source_path,
+                    "resolved_path": str(private_skill.source_path),
+                    "mode": private_skill.mode,
+                }
+                for private_skill in profile.private_skills
+            ]
+        payload["skills"] = skills_payload
     if entry.prompt_overlay_mode is not None:
         overlay_payload: dict[str, Any] = {
             "mode": entry.prompt_overlay_mode,
@@ -262,4 +297,22 @@ def _resolve_launch_profile_memo_seed(
         source_kind=memo_seed.source_kind,
         content_ref=memo_seed.content_ref,
         source_path=memo_seed.content_ref.resolve(overlay),
+    )
+
+
+def _resolve_launch_profile_private_skills(
+    *,
+    overlay: HoumaoProjectOverlay,
+    private_skills: tuple[LaunchProfilePrivateSkillCatalogEntry, ...],
+) -> tuple[ResolvedLaunchProfilePrivateSkill, ...]:
+    """Resolve profile-private skill source paths against one overlay."""
+
+    return tuple(
+        ResolvedLaunchProfilePrivateSkill(
+            name=private_skill.name,
+            source_path=private_skill.resolved_source_path(overlay),
+            stored_source_path=private_skill.source_path,
+            mode=private_skill.mode,
+        )
+        for private_skill in private_skills
     )

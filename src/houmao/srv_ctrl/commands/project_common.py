@@ -39,7 +39,12 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
-from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog, ProjectSkillCatalogEntry
+from houmao.project.catalog import (
+    AuthProfileCatalogEntry,
+    LaunchProfilePrivateSkillInput,
+    ProjectCatalog,
+    ProjectSkillCatalogEntry,
+)
 from houmao.project.easy import (
     SpecialistMetadata,
     TOOL_PROVIDER_MAP,
@@ -1125,6 +1130,183 @@ def _resolve_relaunch_chat_session_mapping_or_click(
     return payload
 
 
+def _resolve_launch_profile_skill_overlay_inputs_or_click(
+    *,
+    overlay: HoumaoProjectOverlay,
+    catalog: ProjectCatalog,
+    current: Any | None,
+    add_registered_skill: tuple[str, ...],
+    remove_registered_skill: tuple[str, ...],
+    add_private_skill: tuple[Path, ...],
+    add_private_skill_symlink: tuple[Path, ...],
+    remove_private_skill: tuple[Path, ...],
+) -> tuple[tuple[str, ...], tuple[LaunchProfilePrivateSkillInput, ...]]:
+    """Resolve final launch-profile skill overlays from CLI mutations."""
+
+    add_registered = _normalize_repeated_names_or_click(
+        add_registered_skill,
+        field_name="--add-registered-skill",
+    )
+    remove_registered = _normalize_repeated_names_or_click(
+        remove_registered_skill,
+        field_name="--remove-registered-skill",
+    )
+    registered_conflicts = sorted(set(add_registered).intersection(remove_registered))
+    if registered_conflicts:
+        joined = ", ".join(registered_conflicts)
+        raise click.ClickException(
+            "`--add-registered-skill` and `--remove-registered-skill` cannot reference the "
+            f"same skill(s): {joined}."
+        )
+
+    registered_skill_names = (
+        list(current.entry.registered_skill_names) if current is not None else []
+    )
+    if remove_registered:
+        registered_skill_names = [
+            skill_name for skill_name in registered_skill_names if skill_name not in remove_registered
+        ]
+    for skill_name in add_registered:
+        if skill_name not in registered_skill_names:
+            registered_skill_names.append(skill_name)
+    for skill_name in registered_skill_names:
+        try:
+            catalog.load_project_skill(skill_name)
+        except FileNotFoundError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+    private_records: list[tuple[str, str, LaunchProfilePrivateSkillInput]] = []
+    if current is not None:
+        private_records.extend(
+            (
+                private_skill.source_path,
+                private_skill.name,
+                LaunchProfilePrivateSkillInput(
+                    source_path=private_skill.resolved_source_path(overlay),
+                    mode=private_skill.mode,
+                ),
+            )
+            for private_skill in current.entry.private_skill_entries
+        )
+
+    remove_private_paths = {
+        catalog.normalize_launch_profile_private_skill_source_path(path)
+        for path in remove_private_skill
+    }
+    if remove_private_paths:
+        private_records = [
+            record for record in private_records if record[0] not in remove_private_paths
+        ]
+
+    added_private_records = [
+        *_private_skill_cli_records_or_click(
+            catalog=catalog,
+            project_root=overlay.project_root,
+            paths=add_private_skill,
+            mode="copy",
+            field_name="--add-private-skill",
+        ),
+        *_private_skill_cli_records_or_click(
+            catalog=catalog,
+            project_root=overlay.project_root,
+            paths=add_private_skill_symlink,
+            mode="symlink",
+            field_name="--add-private-skill-symlink",
+        ),
+    ]
+    add_private_paths = {record[0] for record in added_private_records}
+    private_conflicts = sorted(add_private_paths.intersection(remove_private_paths))
+    if private_conflicts:
+        joined = ", ".join(private_conflicts)
+        raise click.ClickException(
+            "Private skill add and remove options cannot reference the same source path(s): "
+            f"{joined}."
+        )
+
+    private_records = [record for record in private_records if record[0] not in add_private_paths]
+    private_records.extend(added_private_records)
+    _raise_for_duplicate_private_skill_names(private_records)
+    return tuple(registered_skill_names), tuple(record[2] for record in private_records)
+
+
+def _normalize_repeated_names_or_click(
+    values: tuple[str, ...],
+    *,
+    field_name: str,
+) -> tuple[str, ...]:
+    """Return de-duplicated non-empty repeated CLI names."""
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = _require_non_empty_name(value, field_name=field_name)
+        if item in seen:
+            raise click.ClickException(f"{field_name} contains duplicate value `{item}`.")
+        normalized.append(item)
+        seen.add(item)
+    return tuple(normalized)
+
+
+def _private_skill_cli_records_or_click(
+    *,
+    catalog: ProjectCatalog,
+    project_root: Path,
+    paths: tuple[Path, ...],
+    mode: Literal["copy", "symlink"],
+    field_name: str,
+) -> tuple[tuple[str, str, LaunchProfilePrivateSkillInput], ...]:
+    """Return normalized private skill records from repeated CLI paths."""
+
+    records: list[tuple[str, str, LaunchProfilePrivateSkillInput]] = []
+    seen_paths: set[str] = set()
+    for path in paths:
+        stored_path = catalog.normalize_launch_profile_private_skill_source_path(path)
+        if stored_path in seen_paths:
+            raise click.ClickException(
+                f"{field_name} contains duplicate private skill source `{stored_path}`."
+            )
+        resolved_path = (
+            Path(stored_path).resolve()
+            if Path(stored_path).is_absolute()
+            else (project_root / stored_path).resolve()
+        )
+        skill_markdown = resolved_path / "SKILL.md"
+        if not resolved_path.is_dir():
+            raise click.ClickException(
+                f"{field_name} must point to an existing skill directory: {resolved_path}"
+            )
+        if not skill_markdown.is_file():
+            raise click.ClickException(
+                f"{field_name} must point to a skill directory containing `SKILL.md`: "
+                f"{skill_markdown}"
+            )
+        records.append(
+            (
+                stored_path,
+                resolved_path.name,
+                LaunchProfilePrivateSkillInput(source_path=resolved_path, mode=mode),
+            )
+        )
+        seen_paths.add(stored_path)
+    return tuple(records)
+
+
+def _raise_for_duplicate_private_skill_names(
+    records: list[tuple[str, str, LaunchProfilePrivateSkillInput]],
+) -> None:
+    """Reject duplicate installed names among final private skill records."""
+
+    seen: dict[str, str] = {}
+    for stored_path, installed_name, _input in records:
+        existing_path = seen.get(installed_name)
+        if existing_path is not None and existing_path != stored_path:
+            raise click.ClickException(
+                "Launch-profile private skills must have unique directory names; "
+                f"`{installed_name}` is provided by both `{existing_path}` and `{stored_path}`."
+            )
+        seen[installed_name] = stored_path
+
+
 def _store_launch_profile_from_cli(
     *,
     overlay: HoumaoProjectOverlay,
@@ -1141,6 +1323,11 @@ def _store_launch_profile_from_cli(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
+    add_registered_skill: tuple[str, ...],
+    remove_registered_skill: tuple[str, ...],
+    add_private_skill: tuple[Path, ...],
+    add_private_skill_symlink: tuple[Path, ...],
+    remove_private_skill: tuple[Path, ...],
     mail_transport: str | None,
     mail_principal_id: str | None,
     mail_address: str | None,
@@ -1216,6 +1403,20 @@ def _store_launch_profile_from_cli(
     else:
         source = _load_recipe_or_click(overlay=overlay, name=source_name)
         adapter = _load_overlay_tool_adapter(overlay=overlay, tool=source.tool)
+
+    (
+        resolved_registered_skill_names,
+        resolved_private_skill_inputs,
+    ) = _resolve_launch_profile_skill_overlay_inputs_or_click(
+        overlay=overlay,
+        catalog=catalog,
+        current=current,
+        add_registered_skill=add_registered_skill,
+        remove_registered_skill=remove_registered_skill,
+        add_private_skill=add_private_skill,
+        add_private_skill_symlink=add_private_skill_symlink,
+        remove_private_skill=remove_private_skill,
+    )
 
     mailbox_mapping = (
         None
@@ -1496,6 +1697,11 @@ def _store_launch_profile_from_cli(
             clear_prompt_mode,
             bool(env_set),
             clear_env,
+            bool(add_registered_skill),
+            bool(remove_registered_skill),
+            bool(add_private_skill),
+            bool(add_private_skill_symlink),
+            bool(remove_private_skill),
             mail_transport is not None,
             clear_mailbox,
             headless,
@@ -1554,6 +1760,8 @@ def _store_launch_profile_from_cli(
         memo_seed_source_kind=resolved_memo_seed_source_kind,
         memo_seed_text=resolved_memo_seed_text,
         memo_seed_source_path=resolved_memo_seed_source_path,
+        registered_skill_names=resolved_registered_skill_names,
+        private_skill_inputs=resolved_private_skill_inputs,
     )
     materialize_project_agent_catalog_projection(overlay)
     return _launch_profile_payload(
@@ -1592,11 +1800,33 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
             if resolved.memo_seed is not None
             else {"present": False}
         ),
+        "skills": _launch_profile_skills_provenance_payload(resolved),
     }
     relaunch_payload = launch_profile_relaunch_payload(resolved)
     if relaunch_payload:
         payload["relaunch"] = relaunch_payload
     return payload
+
+
+def _launch_profile_skills_provenance_payload(resolved: Any) -> dict[str, Any]:
+    """Return launch-profile skill overlay provenance."""
+
+    private_skill_payloads = [
+        {
+            "name": private_skill.name,
+            "path": private_skill.stored_source_path,
+            "resolved_path": str(private_skill.source_path),
+            "mode": private_skill.mode,
+        }
+        for private_skill in getattr(resolved, "private_skills", ())
+    ]
+    private_names = {str(item["name"]) for item in private_skill_payloads}
+    registered_names = list(getattr(resolved.entry, "registered_skill_names", ()))
+    return {
+        "registered": registered_names,
+        "private": private_skill_payloads,
+        "private_shadowed_names": sorted(private_names.intersection(registered_names)),
+    }
 
 
 def _specialist_payload(

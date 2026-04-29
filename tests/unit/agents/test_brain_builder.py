@@ -10,6 +10,7 @@ import yaml
 from houmao.agents.brain_builder import (
     BuildError,
     BuildRequest,
+    PrivateSkillProjection,
     _load_tool_adapter,
     build_brain_home,
     load_brain_recipe,
@@ -1032,6 +1033,92 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
         "source_kind": "recipe",
         "source_name": "researcher-claude-default",
     }
+
+
+def test_build_brain_home_projects_private_skills_after_registered_skills(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    private_shadow = tmp_path / "private" / "skill-a"
+    private_live = tmp_path / "private" / "live-skill"
+    _write(private_shadow / "SKILL.md", "# skill-a\n\nPrivate shadow.\n")
+    _write(private_live / "SKILL.md", "# live-skill\n\nPrivate live.\n")
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a", "skill-b"],
+            private_skills=(
+                PrivateSkillProjection(
+                    name="skill-a",
+                    source_path=private_shadow,
+                    mode="copy",
+                ),
+                PrivateSkillProjection(
+                    name="live-skill",
+                    source_path=private_live,
+                    mode="symlink",
+                ),
+            ),
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-private-skills",
+        )
+    )
+
+    shadow_target = result.home_path / "skills/skill-a"
+    live_target = result.home_path / "skills/live-skill"
+    assert not shadow_target.is_symlink()
+    assert (shadow_target / "SKILL.md").read_text(encoding="utf-8") == (
+        "# skill-a\n\nPrivate shadow.\n"
+    )
+    assert live_target.is_symlink()
+    assert live_target.resolve() == private_live
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "private_skill_projections"
+    ] == [
+        {
+            "name": "skill-a",
+            "source_path": str(private_shadow),
+            "mode": "copy",
+        },
+        {
+            "name": "live-skill",
+            "source_path": str(private_live),
+            "mode": "symlink",
+        },
+    ]
+
+
+def test_build_brain_home_rejects_missing_private_skill_source(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    with pytest.raises(BuildError, match="Private skill projection source"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["skill-a"],
+                private_skills=(
+                    PrivateSkillProjection(
+                        name="missing-private",
+                        source_path=tmp_path / "missing-private",
+                        mode="copy",
+                    ),
+                ),
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="codex-home-missing-private-skill",
+            )
+        )
 
 
 def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path: Path) -> None:
