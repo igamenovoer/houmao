@@ -25,14 +25,15 @@ from pathlib import Path
 
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+FrontmatterValue = str | list[str]
 
 
-def parse_frontmatter(text: str) -> dict | None:
+def parse_frontmatter(text: str) -> dict[str, FrontmatterValue] | None:
     m = FRONTMATTER_RE.match(text)
     if not m:
         return None
     body = m.group(1)
-    result: dict = {}
+    result: dict[str, FrontmatterValue] = {}
     for line in body.split("\n"):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
@@ -53,6 +54,15 @@ def parse_frontmatter(text: str) -> dict | None:
     return result
 
 
+def _frontmatter_string(frontmatter: dict[str, FrontmatterValue], key: str, default: str) -> str:
+    """Return a scalar frontmatter value with a fallback."""
+
+    value = frontmatter.get(key, default)
+    if isinstance(value, str):
+        return value
+    return default
+
+
 def extract_comment_one_line(text: str) -> str:
     """Pull the first non-empty line of the # Comment section."""
     in_comment = False
@@ -71,7 +81,7 @@ def extract_comment_one_line(text: str) -> str:
     return "(no comment body)"
 
 
-SEVERITY_ORDER = {"error": 0, "warn": 1, "suggest": 2, "info": 3}
+SEVERITY_ORDER: dict[str, int] = {"error": 0, "warn": 1, "suggest": 2, "info": 3}
 
 
 def main(root: str, mode: str) -> int:
@@ -93,7 +103,7 @@ def main(root: str, mode: str) -> int:
         print(f"No {mode} audit files found.")
         return 0
 
-    grouped: dict[str, list[dict]] = defaultdict(list)
+    grouped: defaultdict[str, list[dict[str, FrontmatterValue]]] = defaultdict(list)
     for p in files:
         text = p.read_text(encoding="utf-8")
         fm = parse_frontmatter(text)
@@ -102,7 +112,7 @@ def main(root: str, mode: str) -> int:
             continue
         fm["_path"] = str(p.relative_to(root_path))
         fm["_one_liner"] = extract_comment_one_line(text)
-        grouped[fm.get("target", "(no-target)")].append(fm)
+        grouped[_frontmatter_string(fm, "target", "(no-target)")].append(fm)
 
     total = sum(len(v) for v in grouped.values())
     print(f"{mode.upper()} audits: {total} across {len(grouped)} target files\n")
@@ -111,17 +121,17 @@ def main(root: str, mode: str) -> int:
         entries = grouped[target]
         entries.sort(
             key=lambda e: (
-                SEVERITY_ORDER.get(e.get("severity", "info"), 99),
-                e.get("created", ""),
+                SEVERITY_ORDER.get(_frontmatter_string(e, "severity", "info"), 99),
+                _frontmatter_string(e, "created", ""),
             )
         )
         print(f"{target}  ({len(entries)} {mode})")
         for e in entries:
-            sev = e.get("severity", "?")
-            aid = e.get("id", "?")
-            author = e.get("author", "?")
-            created = e.get("created", "?")[:10]  # date only
-            line = e.get("_one_liner", "")
+            sev = _frontmatter_string(e, "severity", "?")
+            aid = _frontmatter_string(e, "id", "?")
+            author = _frontmatter_string(e, "author", "?")
+            created = _frontmatter_string(e, "created", "?")[:10]  # date only
+            line = _frontmatter_string(e, "_one_liner", "")
             print(f"   [{aid}] {sev}: {line}  —  {author}, {created}")
         print()
 

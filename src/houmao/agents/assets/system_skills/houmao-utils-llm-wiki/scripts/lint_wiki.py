@@ -53,6 +53,7 @@ AUDIT_REQUIRED_FIELDS = {
 VALID_SEVERITIES = {"info", "suggest", "warn", "error"}
 VALID_STATUSES = {"open", "resolved"}
 VALID_SOURCES = {"obsidian-plugin", "web-viewer", "manual"}
+FrontmatterValue = str | list[str | int]
 
 
 @dataclass(frozen=True)
@@ -177,7 +178,7 @@ def resolve_target(
     return ResolvedTarget(kind="unknown", exists=False, canonical=no_suffix, file_path=None)
 
 
-def parse_frontmatter(text: str) -> dict | None:
+def parse_frontmatter(text: str) -> dict[str, FrontmatterValue] | None:
     """Minimal YAML-ish frontmatter parser. Handles the flat key:value fields
     and one-level lists/arrays actually used by audit files. Does not handle
     arbitrary YAML — intentional, to avoid a pyyaml dependency."""
@@ -185,7 +186,7 @@ def parse_frontmatter(text: str) -> dict | None:
     if not m:
         return None
     body = m.group(1)
-    result: dict = {}
+    result: dict[str, FrontmatterValue] = {}
     # Track multi-line folded strings via simple heuristic: quoted scalars
     # can contain \n; unquoted values are single-line.
     i = 0
@@ -207,7 +208,7 @@ def parse_frontmatter(text: str) -> dict | None:
                 result[key] = []
             else:
                 parts = [p.strip() for p in inner.split(",")]
-                parsed: list = []
+                parsed: list[str | int] = []
                 for p in parts:
                     if p.isdigit() or (p.startswith("-") and p[1:].isdigit()):
                         parsed.append(int(p))
@@ -222,6 +223,17 @@ def parse_frontmatter(text: str) -> dict | None:
             result[key] = val
         i += 1
     return result
+
+
+def _frontmatter_string(
+    frontmatter: dict[str, FrontmatterValue], key: str, default: str = ""
+) -> str:
+    """Return a scalar frontmatter field value with a fallback."""
+
+    value = frontmatter.get(key, default)
+    if isinstance(value, str):
+        return value
+    return default
 
 
 def lint(root: str) -> int:
@@ -266,16 +278,16 @@ def lint(root: str) -> int:
 
     if dead_links:
         print(f"\n🔴 Dead wikilinks ({len(dead_links)}):")
-        for source, link in dead_links:
-            print(f"   {source} → [[{link}]]")
+        for source, link_text in dead_links:
+            print(f"   {source} → [[{link_text}]]")
         issues += len(dead_links)
     else:
         print("✅ No dead wikilinks")
 
     if noncanonical_links:
         print(f"\n🟡 Non-canonical wikilinks ({len(noncanonical_links)}):")
-        for source, link, canonical in noncanonical_links:
-            print(f"   {source} → [[{link}]] should use [[{canonical}]]")
+        for source, link_text, canonical in noncanonical_links:
+            print(f"   {source} → [[{link_text}]] should use [[{canonical}]]")
         issues += len(noncanonical_links)
     else:
         print("✅ Wikilinks use canonical vault-root targets")
@@ -331,8 +343,8 @@ def lint(root: str) -> int:
     ]
     if missing_pages:
         print(f"\n🟡 Frequently linked but no page ({len(missing_pages)}):")
-        for link, count in sorted(missing_pages, key=lambda x: -x[1]):
-            print(f"   [[{link}]] — mentioned {count}x")
+        for missing_target, count in sorted(missing_pages, key=lambda x: -x[1]):
+            print(f"   [[{missing_target}]] — mentioned {count}x")
         issues += len(missing_pages)
     else:
         print("✅ No frequently-linked missing pages")
@@ -382,19 +394,27 @@ def lint(root: str) -> int:
             if missing:
                 audit_issues.append(f"   {rel} — missing fields: {', '.join(sorted(missing))}")
                 continue
-            if fm["severity"] not in VALID_SEVERITIES:
+            severity = _frontmatter_string(fm, "severity")
+            source = _frontmatter_string(fm, "source")
+            status = _frontmatter_string(fm, "status")
+            if severity not in VALID_SEVERITIES:
                 audit_issues.append(
-                    f"   {rel} — invalid severity '{fm['severity']}' (expected {sorted(VALID_SEVERITIES)})"
+                    f"   {rel} — invalid severity '{severity}' (expected {sorted(VALID_SEVERITIES)})"
                 )
-            if fm["source"] not in VALID_SOURCES:
-                audit_issues.append(f"   {rel} — invalid source '{fm['source']}'")
+            if source not in VALID_SOURCES:
+                audit_issues.append(f"   {rel} — invalid source '{source}'")
             expected_status = "resolved" if "resolved" in p.parts else "open"
-            if fm["status"] != expected_status:
+            if status != expected_status:
                 audit_issues.append(
-                    f"   {rel} — status '{fm['status']}' doesn't match directory (expected '{expected_status}')"
+                    f"   {rel} — status '{status}' doesn't match directory (expected '{expected_status}')"
                 )
-            if fm["status"] == "open":
-                audit_targets_to_check.append((fm["id"], fm["target"]))
+            if status == "open":
+                audit_targets_to_check.append(
+                    (
+                        _frontmatter_string(fm, "id"),
+                        _frontmatter_string(fm, "target"),
+                    )
+                )
 
         if audit_issues:
             print(f"\n🔴 audit/ shape issues ({len(audit_issues)}):")

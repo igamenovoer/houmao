@@ -70,6 +70,19 @@ class _FakeResponse:
         return None
 
 
+@pytest.fixture(autouse=True)
+def _stub_unmaintained_cao_server_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep unit tests independent of the unmaintained external `cao-server` binary."""
+
+    def _fake_which(executable: str) -> str:
+        return f"/usr/bin/{executable}"
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.cao_rest.shutil.which",
+        _fake_which,
+    )
+
+
 def test_cao_preflight_reports_missing_executable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.cao_rest.shutil.which",

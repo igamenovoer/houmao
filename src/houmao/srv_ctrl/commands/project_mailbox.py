@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import click
 
 # ruff: noqa: F403,F405
@@ -11,7 +13,7 @@ from .mailbox_support import MAILBOX_ROOT_FAILURE_TYPES, format_mailbox_root_fai
 
 def _call_project_mailbox_action(
     roots: ProjectAwareLocalRoots,
-    action: Any,
+    action: Callable[..., dict[str, object]],
     /,
     **kwargs: object,
 ) -> dict[str, object]:

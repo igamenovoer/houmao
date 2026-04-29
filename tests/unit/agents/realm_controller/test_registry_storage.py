@@ -305,6 +305,17 @@ def test_registry_rejects_fresh_duplicate_generation(
         publish_live_agent_record(_sample_record(generation_id="generation-2"))
 
 
+def test_registry_rejects_fresh_lifecycle_duplicate_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    publish_live_agent_record(_sample_lifecycle_record(generation_id="generation-1"))
+
+    with pytest.raises(SessionManifestError, match="ownership conflict"):
+        publish_live_agent_record(_sample_lifecycle_record(generation_id="generation-2"))
+
+
 def test_registry_allows_new_active_generation_after_stopped_record(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

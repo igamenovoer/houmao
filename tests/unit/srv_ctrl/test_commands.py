@@ -423,7 +423,7 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Retired stale active managed-agent registry record" in captured.out
+    assert "Broken active managed-agent registry record for `gpu` was already gone" in captured.out
     assert "Traceback" not in captured.err
 
 

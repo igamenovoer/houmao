@@ -4,6 +4,7 @@ import ast
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from fastapi.routing import APIRoute
 from pydantic_core import PydanticUndefined
@@ -81,19 +82,23 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _extract_upstream_http_routes() -> set[tuple[str, str]]:
-    tree = ast.parse(
-        (
-            _repo_root()
-            / "extern"
-            / "tracked"
-            / "cli-agent-orchestrator"
-            / "src"
-            / "cli_agent_orchestrator"
-            / "api"
-            / "main.py"
-        ).read_text(encoding="utf-8")
+def _legacy_cao_upstream_main_path() -> Path:
+    """Return the retired pinned CAO upstream app path when it is present."""
+
+    return (
+        _repo_root()
+        / "extern"
+        / "tracked"
+        / "cli-agent-orchestrator"
+        / "src"
+        / "cli_agent_orchestrator"
+        / "api"
+        / "main.py"
     )
+
+
+def _extract_upstream_http_routes() -> set[tuple[str, str]]:
+    tree = ast.parse(_legacy_cao_upstream_main_path().read_text(encoding="utf-8"))
     routes: set[tuple[str, str]] = set()
     for node in tree.body:
         if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
@@ -901,6 +906,10 @@ def _query_contract(route: APIRoute) -> dict[str, dict[str, object]]:
     return contract
 
 
+@pytest.mark.skipif(
+    not _legacy_cao_upstream_main_path().is_file(),
+    reason="legacy cao-server upstream pin is no longer maintained; route inventory is historical",
+)
 def test_compat_route_inventory_matches_pinned_upstream() -> None:
     assert _compat_route_inventory() == _extract_namespaced_upstream_http_routes()
 
