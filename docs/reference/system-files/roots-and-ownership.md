@@ -21,8 +21,7 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 
 | Category | Meaning | Examples |
 | --- | --- | --- |
-| Houmao-owned | Houmao creates the path family and owns the persisted contract for its contents. | Runtime session manifests, shared-registry `record.json`, launcher `ownership.json` |
-| Houmao-selected | Houmao chooses the root path, but another tool owns the detailed contents under that root. | CAO `HOME` when launcher config omits `home_dir` |
+| Houmao-owned | Houmao creates the path family and owns the persisted contract for its contents. | Runtime session manifests, shared-registry `record.json`, server `current-instance.json` |
 | Repo-local project overlay | Houmao creates or discovers local operator state under one repo-local `.houmao/` root. | `.houmao/houmao-config.toml`, `.houmao/content/auth/<tool>/<bundle-ref>/`, `.houmao/agents/tools/<tool>/auth/<bundle-ref>/` |
 | Managed-agent memory | Houmao creates the memory root, fixed memo file, and `pages/` directory under the selected active overlay for one managed agent. | `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`, `<active-overlay>/memory/agents/<agent-id>/pages/` |
 
@@ -35,7 +34,6 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 | Runtime root | `<active-overlay>/runtime` for maintained project-aware command surfaces | explicit CLI/API/config override where supported, then `HOUMAO_GLOBAL_RUNTIME_DIR` | Houmao-owned | Stable root family |
 | Registry root | `~/.houmao/registry` | current operator-facing override `HOUMAO_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
 | Project memory root | `<active-overlay>/memory` for maintained project-aware command surfaces | selected project overlay only | Managed-agent memory | Stable root family |
-| Launcher-selected CAO home | `<runtime-root>/cao_servers/<host>-<port>/home/` when `home_dir` is omitted | explicit launcher config or CLI `home_dir` override | Houmao-selected | Stable placement, opaque CAO-owned contents |
 | Mailbox root | `<active-overlay>/mailbox` for maintained project-aware command surfaces | `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
 
 The active overlay root itself is selected from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`. `ancestor` remains the default nearest-ancestor lookup mode, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`.
@@ -48,10 +46,9 @@ The shared `~/.houmao` anchor is derived from a platformdirs-aware home lookup r
 
 ### Runtime root
 
-The runtime root is where Houmao stores generated homes, generated manifests, runtime session roots, and launcher-managed CAO server trees. In maintained project-aware command flows, the default runtime root is `<active-overlay>/runtime`. If no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao/runtime`. Different entrypoints expose the explicit override differently:
+The runtime root is where Houmao stores generated homes, generated manifests, runtime session roots, and Houmao server roots. In maintained project-aware command flows, the default runtime root is `<active-overlay>/runtime`. If no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao/runtime`. Different entrypoints expose the explicit override differently:
 
 - `houmao-mgr brains build` exposes `--runtime-root`,
-- launcher config exposes `runtime_root`,
 - programmatic calls expose `runtime_root=...`,
 - otherwise maintained project-aware surfaces fall back to the active overlay runtime root, while explicit `HOUMAO_GLOBAL_RUNTIME_DIR` or `--runtime-root ~/.houmao/runtime` still lets operators target the shared legacy root directly.
 
@@ -73,16 +70,6 @@ When the runtime starts, joins, resumes, or relaunches a managed session, it pub
 
 If no overlay exists yet and a maintained local-state command needs one, Houmao bootstraps `<cwd>/.houmao/memory/` along with the rest of the overlay.
 
-### Launcher-selected CAO home
-
-If launcher config provides `home_dir`, that absolute writable directory becomes `HOME` for the launched `cao-server` process. If config omits `home_dir`, Houmao derives a sibling path under the launcher server root:
-
-```text
-<runtime-root>/cao_servers/<host>-<port>/home/
-```
-
-Houmao owns that path selection, but CAO owns the contents it later writes under `HOME/.aws/cli-agent-orchestrator/`.
-
 ## Contract Strength
 
 The system-files pages use these labels consistently:
@@ -93,10 +80,9 @@ The system-files pages use these labels consistently:
 
 ## Out Of Scope: Mailbox
 
-Mailbox remains documented in [Mailbox Reference](../mailbox/index.md). This subtree may mention mailbox only when clarifying that mailbox roots are separate from runtime, registry, and launcher roots.
+Mailbox remains documented in [Mailbox Reference](../mailbox/index.md). This subtree may mention mailbox only when clarifying that mailbox roots are separate from runtime and registry roots.
 
 ## Source References
 
 - [`src/houmao/owned_paths.py`](../../../src/houmao/owned_paths.py)
 - [`src/houmao/agents/brain_builder.py`](../../../src/houmao/agents/brain_builder.py)
-- [`src/houmao/cao/server_launcher.py`](../../../src/houmao/cao/server_launcher.py)

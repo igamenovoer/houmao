@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib import parse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -33,13 +32,11 @@ class HoumaoServerConfig(BaseModel):
     supported_tui_processes: dict[str, tuple[str, ...]] = Field(
         default_factory=lambda: dict(_DEFAULT_SUPPORTED_TUI_PROCESSES)
     )
-    child_startup_timeout_seconds: float = 15.0
     compat_shell_ready_timeout_seconds: float = 10.0
     compat_shell_ready_poll_interval_seconds: float = 0.5
     compat_provider_ready_timeout_seconds: float = 45.0
     compat_provider_ready_poll_interval_seconds: float = 1.0
     compat_codex_warmup_seconds: float = 2.0
-    startup_child: bool = True
 
     @field_validator("api_base_url")
     @classmethod
@@ -56,7 +53,6 @@ class HoumaoServerConfig(BaseModel):
         "stability_threshold_seconds",
         "completion_stability_seconds",
         "unknown_to_stalled_timeout_seconds",
-        "child_startup_timeout_seconds",
         "compat_shell_ready_timeout_seconds",
         "compat_shell_ready_poll_interval_seconds",
         "compat_provider_ready_timeout_seconds",
@@ -115,13 +111,6 @@ class HoumaoServerConfig(BaseModel):
         return port
 
     @property
-    def child_api_base_url(self) -> str:
-        """Return the derived child CAO base URL."""
-
-        child_port = self.public_port + 1
-        return f"http://127.0.0.1:{child_port}"
-
-    @property
     def server_root(self) -> Path:
         """Return the Houmao-owned server root for this listener."""
 
@@ -158,24 +147,6 @@ class HoumaoServerConfig(BaseModel):
         """Return the session-registration directory."""
 
         return (self.server_root / "sessions").resolve()
-
-    @property
-    def child_root(self) -> Path:
-        """Return the child-CAO ownership root."""
-
-        return (self.server_root / "child_cao").resolve()
-
-    @property
-    def child_runtime_root(self) -> Path:
-        """Return the child launcher runtime root."""
-
-        return (self.child_root / "runtime").resolve()
-
-    @property
-    def child_launcher_config_path(self) -> Path:
-        """Return the generated child-launcher TOML path."""
-
-        return (self.child_root / "launcher.toml").resolve()
 
     @property
     def current_instance_path(self) -> Path:
@@ -254,8 +225,3 @@ class HoumaoServerConfig(BaseModel):
         """Return the append-only history root for per-terminal views."""
 
         return (self.history_dir / "terminals").resolve()
-
-    def child_bind_host(self) -> str:
-        """Return the loopback host used for the child CAO listener."""
-
-        return parse.urlsplit(self.child_api_base_url).hostname or "127.0.0.1"

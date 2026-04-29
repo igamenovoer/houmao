@@ -1,6 +1,6 @@
 # Probe, Parse, And Track Pipeline
 
-One live tracking cycle in `houmao-server` is implemented by `HoumaoServerService.poll_known_session()` in [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py). The service does not ask the child CAO for terminal status. It probes tmux directly, inspects the pane process tree, parses captured output, and records the result into the in-memory tracker.
+One live tracking cycle in `houmao-server` is implemented by `HoumaoServerService.poll_known_session()` in [`../../../../src/houmao/server/service.py`](../../../../src/houmao/server/service.py). The service does not ask a separate CAO process for terminal status. It probes tmux directly, inspects the pane process tree, parses captured output, and records the result into the in-memory tracker.
 
 ## Poll Cycle Overview
 

@@ -723,7 +723,6 @@ houmao-mgr server start [OPTIONS]
 | `--runtime-root PATH` | Root directory for runtime state. |
 | `--watch-poll-interval-seconds FLOAT` | Polling interval for the session watcher. |
 | `--supported-tui-process TEXT` | TUI process name the server should recognize. May be specified multiple times. |
-| `--startup-child TEXT` | Child process to launch on server startup. |
 
 #### `server status`
 
@@ -735,4 +734,4 @@ houmao-mgr server status [OPTIONS]
 
 ---
 
-**Deprecated entrypoints:** `houmao-cli` and `houmao-cao-server` are deprecated compatibility entrypoints. Use `houmao-mgr` and `houmao-server`/`houmao-passive-server` instead.
+**Deprecated entrypoints:** `houmao-cli` is deprecated. Use `houmao-mgr` and `houmao-server`/`houmao-passive-server` instead.

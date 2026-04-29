@@ -44,14 +44,6 @@ Representative registry-owned layout:
   live_agents/<agent-id>/record.json
 ```
 
-Representative launcher-owned layout:
-
-```text
-<runtime-root>/cao_servers/<host>-<port>/
-  launcher/
-  home/
-```
-
 ## Read By Goal
 
 For maintained local-state command surfaces, `runtime/`, managed-agent memory state under `memory/`, and `mailbox/` now default from one active project overlay. The shared `~/.houmao/` anchor remains the default home for registry state and the explicit legacy-root target for operators who intentionally override runtime or mailbox placement.
@@ -77,4 +69,3 @@ For maintained local-state command surfaces, `runtime/`, managed-agent memory st
 - [`src/houmao/agents/realm_controller/manifest.py`](../../../src/houmao/agents/realm_controller/manifest.py)
 - [`src/houmao/agents/realm_controller/gateway_storage.py`](../../../src/houmao/agents/realm_controller/gateway_storage.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../src/houmao/agents/realm_controller/registry_storage.py)
-- [`src/houmao/cao/server_launcher.py`](../../../src/houmao/cao/server_launcher.py)

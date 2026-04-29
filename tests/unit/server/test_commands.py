@@ -67,7 +67,6 @@ def test_serve_command_accepts_compatibility_timing_options(
         "compat_provider_ready_timeout_seconds": 90.0,
         "compat_provider_ready_poll_interval_seconds": 0.75,
         "compat_codex_warmup_seconds": 0.0,
-        "startup_child": True,
     }
     assert captured["uvicorn_host"] == "127.0.0.1"
     assert captured["uvicorn_port"] == 9991

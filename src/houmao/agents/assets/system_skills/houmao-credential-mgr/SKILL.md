@@ -107,7 +107,7 @@ This packaged skill does not cover:
 - Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for credential management.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for credential management.
 
 ## References
 

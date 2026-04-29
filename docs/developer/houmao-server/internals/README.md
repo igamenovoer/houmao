@@ -6,7 +6,7 @@ The key architectural boundary is:
 
 - `houmao-server` owns the `src/houmao/server/tui/` watch-plane module: discovery, polling, parsing, host-side lifecycle, and terminal-keyed live lookup.
 - `houmao.shared_tui_tracking` owns tracker semantics for raw-snapshot reduction, detector/profile resolution, and tracker-owned `surface` / `turn` / `last_turn`.
-- The supervised child `cao-server` still exists for CAO-compatible control routes, but it is no longer in the parsing or live-state authority path.
+- CAO-compatible control routes dispatch through the server-owned compatibility core, not through a supervised child `cao-server`.
 - Live tracker state is memory-primary. On restart, the server rebuilds watch authority from registration records plus current tmux liveness instead of replaying old tracker snapshots from disk.
 - The public tracked-state contract is now centered on `diagnostics`, foundational `surface` observables, current `turn`, and sticky `last_turn`, while lifecycle authority and settle timing remain internal tracker machinery.
 

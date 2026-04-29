@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
-from .commands.main import main
-
 __all__ = ["main"]
+
+
+def main() -> int:
+    """Run the service-management CLI entrypoint."""
+
+    from .commands.main import main as _main
+
+    return _main()

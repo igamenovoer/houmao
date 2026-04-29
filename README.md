@@ -465,7 +465,6 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 | `houmao-server` | Houmao-owned REST server for managed-agent session lifecycle | **Stabilizing — usable for the documented surfaces** |
 | `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **Stabilizing — usable for the documented surfaces** |
 | `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
-| `houmao-cao-server` | Legacy CAO server launcher | Deprecated — exits with migration guidance |
 
 `houmao-mgr` exposes a dedicated top-level `credentials` command group for Claude, Codex, and Gemini credential CRUD, alongside the project-scoped `project credentials` wrapper. See the [`credentials`](docs/reference/cli/houmao-mgr.md#credentials-dedicated-credential-management) section of the CLI reference for the full surface.
 
@@ -493,4 +492,4 @@ pixi run docs-serve          # local docs site with live reload
 
 ---
 
-> **Legacy note:** Houmao was originally inspired by [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Legacy `houmao-cli`, `houmao-cao-server`, and `cao_rest` backend paths are deprecated — use `houmao-mgr`, `houmao-server`, and `local_interactive` instead.
+> **Legacy note:** Houmao was originally inspired by [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Legacy `houmao-cli` and `cao_rest` backend paths are deprecated — use `houmao-mgr`, `houmao-server`, and `local_interactive` instead.

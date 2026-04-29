@@ -477,7 +477,6 @@ def _run_houmao_mgr_server_start(
         api_base_url,
         "--runtime-root",
         str(runtime_root),
-        "--no-startup-child",
     )
 
 
@@ -1604,7 +1603,6 @@ def test_houmao_mgr_server_start_defaults_to_project_overlay_runtime_root_in_sub
         "start",
         "--api-base-url",
         api_base_url,
-        "--no-startup-child",
         cwd=repo_root,
     )
     assert start_result.returncode == 0, start_result.stderr

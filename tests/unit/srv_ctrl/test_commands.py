@@ -2203,7 +2203,6 @@ def test_server_start_defaults_to_detached_startup_result(
             "http://127.0.0.1:9999",
             "--runtime-root",
             str((tmp_path / "runtime").resolve()),
-            "--no-startup-child",
         ],
     )
 
@@ -2246,7 +2245,6 @@ def test_server_start_foreground_keeps_direct_run_server_path(
             "--foreground",
             "--api-base-url",
             "http://127.0.0.1:9998",
-            "--no-startup-child",
         ],
     )
 
@@ -2254,7 +2252,7 @@ def test_server_start_foreground_keeps_direct_run_server_path(
     assert result.output == ""
     assert len(run_calls) == 1
     assert run_calls[0]["api_base_url"] == "http://127.0.0.1:9998"
-    assert run_calls[0]["startup_child"] is False
+    assert "startup_child" not in run_calls[0]
 
 
 def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(

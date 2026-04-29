@@ -2,12 +2,12 @@
 
 This page is historical reference only.
 
-The standalone CAO launcher workflow is retired:
+The standalone CAO launcher workflow has been removed:
 
 - `houmao-cao-server`
 - `python -m houmao.cao.tools.cao_server_launcher`
 
-Those entrypoints now fail fast with migration guidance to:
+Those entrypoints are no longer packaged. Use:
 
 ```text
 houmao-server + houmao-mgr

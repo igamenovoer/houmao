@@ -105,23 +105,10 @@ class _HoumaoModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
-class ChildCaoStatus(_HoumaoModel):
-    """Child-CAO health and lifecycle metadata."""
-
-    api_base_url: str
-    healthy: bool
-    health_status: str | None = None
-    service: str | None = None
-    error: str | None = None
-    derived_port: int
-    ownership_file: str | None = None
-
-
 class HoumaoHealthResponse(CaoHealthResponse):
     """Compatibility-safe health payload with Houmao extensions."""
 
     houmao_service: Literal["houmao-server"] = "houmao-server"
-    child_cao: ChildCaoStatus | None = None
 
 
 class HoumaoCurrentInstance(_HoumaoModel):
@@ -135,7 +122,6 @@ class HoumaoCurrentInstance(_HoumaoModel):
     started_at_utc: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )
-    child_cao: ChildCaoStatus | None = None
 
 
 class WorkingDirectoryResponse(_HoumaoModel):

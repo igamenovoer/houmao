@@ -28,7 +28,7 @@ The surrounding server service still owns:
 - HTTP routes
 - registration persistence under `sessions/<session-name>/registration.json`
 - terminal-alias maps and tracker lookup
-- integration with managed-agent and child-CAO compatibility surfaces
+- integration with managed-agent and CAO-compatible control surfaces
 
 ## Package Map
 

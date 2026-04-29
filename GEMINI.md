@@ -15,8 +15,8 @@ Houmao is a framework and CLI toolkit designed to orchestrate teams of loosely-c
 - **Main Technologies:**
     - **Language:** Python (3.11+)
     - **Environment Management:** [Pixi](https://pixi.sh/)
-    - **Agent Runtime:** [CAO (CLI Agent Orchestrator)](https://github.com/imsight-forks/cli-agent-orchestrator)
-    - **Orchestration Backend:** `tmux` (local), `cao_rest` (external/server-backed).
+    - **Agent Runtime:** Houmao-managed CLI processes, usually backed by `tmux`
+    - **Orchestration Backend:** `local_interactive` and native headless backends for maintained workflows; `cao_rest` remains only as a legacy backend.
     - **Data/Validation:** Pydantic v2, OmegaConf/Hydra.
 
 ## 2. Architecture & Lifecycle
@@ -52,8 +52,8 @@ Always prefer `pixi run ...` over direct command execution.
 ### Python Entry Points
 - `houmao-mgr`: Primary management CLI for local lifecycle, managed agents, and `houmao-server` control.
 - `houmao-server`: Supported Houmao-owned server entrypoint.
+- `houmao-passive-server`: Supported registry-driven passive server entrypoint.
 - `houmao-cli`: Deprecated compatibility CLI. Do not use for new workflows or docs; use `houmao-mgr` instead.
-- `houmao-cao-server`: Deprecated compatibility launcher. Do not use for new workflows or docs; use `houmao-server` with `houmao-mgr` instead.
 
 ## 4. Development Conventions
 

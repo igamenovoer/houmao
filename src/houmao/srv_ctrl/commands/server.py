@@ -55,7 +55,6 @@ def start_server_command(
     compat_provider_ready_timeout_seconds: float,
     compat_provider_ready_poll_interval_seconds: float,
     compat_codex_warmup_seconds: float,
-    startup_child: bool,
 ) -> None:
     """Start `houmao-server` in detached or explicit foreground mode."""
 
@@ -74,7 +73,6 @@ def start_server_command(
             compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
             compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
             compat_codex_warmup_seconds=compat_codex_warmup_seconds,
-            startup_child=startup_child,
         )
         return
 
@@ -92,7 +90,6 @@ def start_server_command(
         compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
         compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
-        startup_child=startup_child,
     )
     emit(
         {

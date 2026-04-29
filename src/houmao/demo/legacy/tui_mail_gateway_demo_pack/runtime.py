@@ -44,12 +44,6 @@ def runtime_cli_command(args: list[str]) -> list[str]:
     return ["pixi", "run", "python", "-m", "houmao.agents.realm_controller", *args]
 
 
-def cao_launcher_cli_command(args: list[str]) -> list[str]:
-    """Build a `cao_server_launcher` CLI subprocess command."""
-
-    return ["pixi", "run", "python", "-m", "houmao.cao.tools.cao_server_launcher", *args]
-
-
 def build_demo_environment(
     *,
     paths: DemoPaths,
@@ -86,23 +80,6 @@ def prepare_output_root(*, paths: DemoPaths, allow_reprovision: bool) -> None:
                 shutil.rmtree(target)
     for target in managed_paths:
         target.mkdir(parents=True, exist_ok=True)
-
-
-def write_launcher_config(*, paths: DemoPaths, cao_base_url: str) -> None:
-    """Write the pack-local CAO launcher config."""
-
-    content = "\n".join(
-        [
-            f'base_url = "{cao_base_url}"',
-            f'runtime_root = "{paths.cao_runtime_root}"',
-            f'home_dir = "{paths.cao_home_dir}"',
-            'proxy_policy = "clear"',
-            "startup_timeout_seconds = 15",
-            "",
-        ]
-    )
-    paths.launcher_config_path.parent.mkdir(parents=True, exist_ok=True)
-    paths.launcher_config_path.write_text(content, encoding="utf-8")
 
 
 def cao_profile_store(*, paths: DemoPaths) -> Path:
@@ -190,16 +167,11 @@ def start_cao_service(
 ) -> dict[str, Any]:
     """Start or reuse the demo-owned CAO service."""
 
-    write_launcher_config(paths=paths, cao_base_url=cao_base_url)
-    payload = run_json_command(
-        cao_launcher_cli_command(["start", "--config", str(paths.launcher_config_path)]),
-        cwd=repo_root,
-        stdout_path=paths.logs_dir / "cao-start.stdout",
-        stderr_path=paths.logs_dir / "cao-start.stderr",
-        timeout_seconds=timeout_seconds,
+    del repo_root, paths, cao_base_url, timeout_seconds
+    raise DemoRuntimeError(
+        "The legacy TUI mail gateway demo depended on the removed standalone CAO launcher. "
+        "Use the maintained houmao-server and houmao-mgr gateway demos instead."
     )
-    write_json(paths.control_dir / "cao_start.json", payload)
-    return payload
 
 
 def stop_cao_service(
@@ -210,26 +182,12 @@ def stop_cao_service(
 ) -> dict[str, Any]:
     """Best-effort stop for the demo-owned CAO service."""
 
-    if not paths.launcher_config_path.is_file():
-        return {"operation": "stop", "status": "skipped", "detail": "launcher config missing"}
-    result = run_command(
-        cao_launcher_cli_command(["stop", "--config", str(paths.launcher_config_path)]),
-        cwd=repo_root,
-        stdout_path=paths.logs_dir / "cao-stop.stdout",
-        stderr_path=paths.logs_dir / "cao-stop.stderr",
-        timeout_seconds=timeout_seconds,
-    )
-    payload_text = result.stdout.strip() or result.stderr.strip() or "{}"
-    try:
-        payload = _require_json_object(json.loads(payload_text))
-    except json.JSONDecodeError:
-        payload = {
-            "operation": "stop",
-            "status": "error" if result.returncode != 0 else "ok",
-            "detail": payload_text,
-        }
-    write_json(paths.control_dir / "cao_stop.json", payload)
-    return payload
+    del repo_root, paths, timeout_seconds
+    return {
+        "operation": "stop",
+        "status": "skipped",
+        "detail": "standalone CAO launcher workflow removed",
+    }
 
 
 def build_brain(

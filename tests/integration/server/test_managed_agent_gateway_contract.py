@@ -832,33 +832,6 @@ class _NoopTransport:
         )
 
 
-class _NoopChildManager:
-    """Child-manager stub for service integration tests."""
-
-    def start(self) -> None:
-        return None
-
-    def stop(self) -> None:
-        return None
-
-    def inspect(self) -> object:
-        config = type("Config", (), {"base_url": "http://127.0.0.1:9890"})()
-        status = type(
-            "Status",
-            (),
-            {
-                "healthy": True,
-                "health_status": "ok",
-                "service": "cli-agent-orchestrator",
-                "error": None,
-            },
-        )()
-        return type("Inspection", (), {"config": config, "status": status})()
-
-    def ownership_file_path(self) -> Path:
-        return Path("/tmp/houmao-server-integration-no-ownership")
-
-
 def _managed_agent_detail_payload(agent_ref: str) -> dict[str, object]:
     """Return one managed-agent detail payload for the fake server."""
 
@@ -989,13 +962,11 @@ def test_server_managed_gateway_attach_is_idempotent_and_projects_notifier_contr
             config=HoumaoServerConfig(
                 api_base_url=managed_api.base_url,
                 runtime_root=tmp_path,
-                startup_child=False,
             ),
             transport=_NoopTransport(),
-            child_manager=_NoopChildManager(),
         )
-        assert service.health_response().child_cao is None
-        assert service.current_instance_response().child_cao is None
+        assert "child_cao" not in service.health_response().model_dump(mode="json")
+        assert "child_cao" not in service.current_instance_response().model_dump(mode="json")
 
         response = service.launch_headless_agent(
             HoumaoHeadlessLaunchRequest(
@@ -1090,10 +1061,8 @@ def test_server_managed_gateway_attach_supports_explicit_background_request(
             config=HoumaoServerConfig(
                 api_base_url=managed_api.base_url,
                 runtime_root=tmp_path,
-                startup_child=False,
             ),
             transport=_NoopTransport(),
-            child_manager=_NoopChildManager(),
         )
 
         response = service.launch_headless_agent(
@@ -1151,10 +1120,8 @@ def test_tui_managed_agent_request_handoff_prefers_live_gateway_and_falls_back_a
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=transport,
-        child_manager=_NoopChildManager(),
         transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
@@ -1254,10 +1221,8 @@ def test_server_managed_headless_gateway_flow_covers_registry_and_degraded_contr
             config=HoumaoServerConfig(
                 api_base_url=managed_api.base_url,
                 runtime_root=tmp_path,
-                startup_child=False,
             ),
             transport=_NoopTransport(),
-            child_manager=_NoopChildManager(),
         )
 
         response = service.launch_headless_agent(

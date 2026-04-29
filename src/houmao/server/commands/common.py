@@ -34,7 +34,6 @@ def build_config(
     compat_provider_ready_timeout_seconds: float,
     compat_provider_ready_poll_interval_seconds: float,
     compat_codex_warmup_seconds: float,
-    startup_child: bool,
 ) -> HoumaoServerConfig:
     """Build one validated server config from CLI inputs."""
 
@@ -60,7 +59,6 @@ def build_config(
             compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
             compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
             compat_codex_warmup_seconds=compat_codex_warmup_seconds,
-            startup_child=startup_child,
         )
     return HoumaoServerConfig(
         api_base_url=api_base_url,
@@ -75,7 +73,6 @@ def build_config(
         compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
         compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
-        startup_child=startup_child,
     )
 
 

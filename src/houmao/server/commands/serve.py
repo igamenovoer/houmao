@@ -88,11 +88,6 @@ def server_serve_options(function: _FC) -> _FC:
         type=click.FloatRange(min=0.0),
         show_default=True,
     )(function)
-    function = click.option(
-        "--startup-child/--no-startup-child",
-        default=True,
-        show_default=True,
-    )(function)
     return function
 
 
@@ -111,7 +106,6 @@ def run_server(
     compat_provider_ready_timeout_seconds: float,
     compat_provider_ready_poll_interval_seconds: float,
     compat_codex_warmup_seconds: float,
-    startup_child: bool,
 ) -> None:
     """Run the shared `houmao-server` startup path."""
 
@@ -129,7 +123,6 @@ def run_server(
         compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
         compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
-        startup_child=startup_child,
     )
     uvicorn.run(
         create_app(config=config),
@@ -155,7 +148,6 @@ def serve_command(
     compat_provider_ready_timeout_seconds: float,
     compat_provider_ready_poll_interval_seconds: float,
     compat_codex_warmup_seconds: float,
-    startup_child: bool,
 ) -> None:
     """Run the local Houmao HTTP server."""
 
@@ -173,5 +165,4 @@ def serve_command(
         compat_provider_ready_timeout_seconds=compat_provider_ready_timeout_seconds,
         compat_provider_ready_poll_interval_seconds=compat_provider_ready_poll_interval_seconds,
         compat_codex_warmup_seconds=compat_codex_warmup_seconds,
-        startup_child=startup_child,
     )

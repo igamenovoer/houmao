@@ -82,7 +82,7 @@ This packaged skill does not cover:
 - Do not imply that this skill replaces `houmao-agent-instance` for broader live-agent lifecycle work.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for specialist management.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for specialist management.
 
 ## References
 

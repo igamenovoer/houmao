@@ -65,7 +65,7 @@ Validation failures such as missing required resolved launch fields or conflicti
 
 When a headless launch succeeds, `houmao-server` SHALL return the managed-agent identity plus server-owned manifest and session-root pointers for the launched headless agent.
 
-Native headless launch SHALL NOT require or depend on creating a child-CAO session or terminal first.
+Native headless launch SHALL NOT require or depend on creating an external CAO session or terminal first.
 
 `POST /houmao/agents/{agent_ref}/stop` SHALL stop a managed headless agent through the Houmao-owned headless lifecycle rather than through CAO terminal-stop semantics.
 

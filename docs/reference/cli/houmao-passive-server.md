@@ -17,7 +17,7 @@ houmao-passive-server [OPTIONS] COMMAND [ARGS]...
 | Architecture | Stateless, registry-driven discovery | Stateful, registration-backed session management |
 | Agent launch | Headless agents only (via `/houmao/agents/headless/launches`) | Full managed lifecycle: build, launch, stop, relaunch |
 | TUI agents | Observes existing TUI agents via registry + tmux polling | Owns and supervises TUI agent processes |
-| Child processes | None — does not spawn or supervise agent processes for TUI agents | Spawns and monitors child CAO processes |
+| Child processes | None — does not spawn or supervise agent processes for TUI agents | Does not supervise child CAO processes; compatibility routes dispatch through the server-owned core |
 | Gateway interaction | Proxies requests to agent-owned gateways | Owns gateways directly |
 | CAO compatibility | None | Full CAO compatibility layer |
 | Default port | 9891 | 9889 |

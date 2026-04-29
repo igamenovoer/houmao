@@ -53,7 +53,6 @@ def start_demo_server(
             api_base_url,
             "--runtime-root",
             str(paths.server_runtime_root),
-            "--no-startup-child",
         ],
         cwd=str(_repo_root()),
         env=dict(env),

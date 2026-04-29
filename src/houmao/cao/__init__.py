@@ -1,5 +1,15 @@
 """Shared CAO REST integration modules."""
 
+from .no_proxy import (
+    SUPPORTED_LOOPBACK_CAO_BASE_URLS,
+    describe_supported_loopback_cao_base_urls,
+    extract_cao_base_url_host_port,
+    inject_loopback_no_proxy_env,
+    inject_loopback_no_proxy_env_for_cao_base_url,
+    is_supported_loopback_cao_base_url,
+    normalize_cao_base_url,
+    scoped_loopback_no_proxy_for_cao_base_url,
+)
 from .models import (
     CaoHealthResponse,
     CaoInboxCreateResponse,
@@ -12,26 +22,6 @@ from .models import (
     CaoTerminalStatus,
 )
 from .rest_client import CaoApiError, CaoRestClient
-from .server_launcher import (
-    SUPPORTED_CAO_BASE_URLS,
-    CaoServerLauncherConfig,
-    CaoServerLauncherConfigOverrides,
-    CaoServerLauncherError,
-    CaoServerOwnership,
-    CaoServerRuntimeArtifacts,
-    CaoServerStartResult,
-    CaoServerStatusResult,
-    CaoServerStopResult,
-    ProxyPolicy,
-    build_cao_server_environment,
-    load_cao_server_launcher_config,
-    read_cao_server_pid,
-    resolve_cao_server_runtime_artifacts,
-    start_cao_server,
-    status_cao_server,
-    stop_cao_server,
-    write_cao_server_pid,
-)
 
 __all__ = [
     "CaoApiError",
@@ -45,22 +35,12 @@ __all__ = [
     "CaoTerminal",
     "CaoTerminalOutputResponse",
     "CaoTerminalStatus",
-    "SUPPORTED_CAO_BASE_URLS",
-    "CaoServerLauncherConfig",
-    "CaoServerLauncherConfigOverrides",
-    "CaoServerLauncherError",
-    "CaoServerOwnership",
-    "CaoServerRuntimeArtifacts",
-    "CaoServerStartResult",
-    "CaoServerStatusResult",
-    "CaoServerStopResult",
-    "ProxyPolicy",
-    "build_cao_server_environment",
-    "load_cao_server_launcher_config",
-    "read_cao_server_pid",
-    "resolve_cao_server_runtime_artifacts",
-    "start_cao_server",
-    "status_cao_server",
-    "stop_cao_server",
-    "write_cao_server_pid",
+    "SUPPORTED_LOOPBACK_CAO_BASE_URLS",
+    "describe_supported_loopback_cao_base_urls",
+    "extract_cao_base_url_host_port",
+    "inject_loopback_no_proxy_env",
+    "inject_loopback_no_proxy_env_for_cao_base_url",
+    "is_supported_loopback_cao_base_url",
+    "normalize_cao_base_url",
+    "scoped_loopback_no_proxy_for_cao_base_url",
 ]

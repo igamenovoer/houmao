@@ -10,7 +10,7 @@ from houmao.server.commands.common import build_config
 from houmao.server.config import HoumaoServerConfig
 
 
-def test_houmao_server_config_derives_child_url_and_roots(tmp_path: Path) -> None:
+def test_houmao_server_config_derives_public_listener_and_roots(tmp_path: Path) -> None:
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
@@ -18,9 +18,7 @@ def test_houmao_server_config_derives_child_url_and_roots(tmp_path: Path) -> Non
 
     assert config.public_host == "127.0.0.1"
     assert config.public_port == 9889
-    assert config.child_api_base_url == "http://127.0.0.1:9890"
     assert config.server_root == tmp_path / "houmao_servers" / "127.0.0.1-9889"
-    assert config.child_root == config.server_root / "child_cao"
     assert config.current_instance_path == config.server_root / "run" / "current-instance.json"
     assert config.terminal_state_root == config.server_root / "state" / "terminals"
     assert config.terminal_history_root == config.server_root / "history" / "terminals"
@@ -62,7 +60,6 @@ def test_build_config_applies_compatibility_timing_overrides(tmp_path: Path) -> 
         compat_provider_ready_timeout_seconds=90.0,
         compat_provider_ready_poll_interval_seconds=0.75,
         compat_codex_warmup_seconds=0.0,
-        startup_child=False,
     )
 
     assert config.runtime_root == tmp_path.resolve()
@@ -71,7 +68,6 @@ def test_build_config_applies_compatibility_timing_overrides(tmp_path: Path) -> 
     assert config.compat_provider_ready_timeout_seconds == 90.0
     assert config.compat_provider_ready_poll_interval_seconds == 0.75
     assert config.compat_codex_warmup_seconds == 0.0
-    assert config.startup_child is False
 
 
 def test_build_config_defaults_to_project_overlay_runtime_root(
@@ -97,7 +93,6 @@ def test_build_config_defaults_to_project_overlay_runtime_root(
         compat_provider_ready_timeout_seconds=45.0,
         compat_provider_ready_poll_interval_seconds=1.0,
         compat_codex_warmup_seconds=2.0,
-        startup_child=True,
     )
 
     assert config.runtime_root == (repo_root / ".houmao" / "runtime").resolve()

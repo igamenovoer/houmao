@@ -51,7 +51,6 @@ from houmao.server.managed_agents import (
     ManagedHeadlessAuthorityRecord,
     ManagedHeadlessTurnRecord,
 )
-from houmao.server.child_cao import ChildCaoInstallResult
 import houmao.server.service as service_module
 import houmao.server.tui.registry as tui_registry_module
 from houmao.server.config import HoumaoServerConfig
@@ -108,76 +107,6 @@ class _FakeTransport:
             return self.m_responses[key]
         except KeyError as exc:
             raise AssertionError(f"Unexpected proxy call: {key}") from exc
-
-
-class _FakeChildManager:
-    def __init__(
-        self,
-        *,
-        base_url: str = "http://127.0.0.1:9890",
-        healthy: bool = True,
-        health_status: str | None = "ok",
-        service_name: str | None = "cli-agent-orchestrator",
-        error: str | None = None,
-        ownership_file: Path | None = None,
-        install_returncode: int = 0,
-        install_stdout: str = "",
-        install_stderr: str = "",
-    ) -> None:
-        self.m_base_url = base_url
-        self.m_healthy = healthy
-        self.m_health_status = health_status
-        self.m_service_name = service_name
-        self.m_error = error
-        self.m_ownership_file = ownership_file or Path("/tmp/houmao-server-tests-no-ownership")
-        self.m_install_returncode = install_returncode
-        self.m_install_stdout = install_stdout
-        self.m_install_stderr = install_stderr
-        self.start_calls = 0
-        self.stop_calls = 0
-        self.inspect_calls = 0
-        self.install_calls: list[tuple[str, str, Path | None]] = []
-
-    def start(self) -> None:
-        self.start_calls += 1
-
-    def stop(self) -> None:
-        self.stop_calls += 1
-
-    def inspect(self) -> object:
-        self.inspect_calls += 1
-        config = type("Config", (), {"base_url": self.m_base_url})()
-        status = type(
-            "Status",
-            (),
-            {
-                "healthy": self.m_healthy,
-                "health_status": self.m_health_status,
-                "service": self.m_service_name,
-                "error": self.m_error,
-            },
-        )()
-        return type("Inspection", (), {"config": config, "status": status})()
-
-    def ownership_file_path(self) -> Path:
-        return self.m_ownership_file
-
-    def install_agent_profile(
-        self,
-        *,
-        agent_source: str,
-        provider: str,
-        working_directory: Path | None = None,
-    ) -> ChildCaoInstallResult:
-        self.install_calls.append((agent_source, provider, working_directory))
-        return ChildCaoInstallResult(
-            agent_source=agent_source,
-            provider=provider,
-            working_directory=working_directory,
-            returncode=self.m_install_returncode,
-            stdout=self.m_install_stdout,
-            stderr=self.m_install_stderr,
-        )
 
 
 class _FakeControlCore:
@@ -561,7 +490,6 @@ def test_register_launch_persists_registration_and_creates_dormant_tracker(tmp_p
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
     )
 
     response = service.register_launch(
@@ -611,10 +539,8 @@ def test_stop_managed_agent_deletes_pair_managed_tui_session(
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=transport,
-        child_manager=_FakeChildManager(),
     )
     session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
     session_root.mkdir(parents=True, exist_ok=True)
@@ -660,10 +586,8 @@ def test_stop_managed_agent_headless_returns_cleanup_locators(tmp_path: Path) ->
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     manifest_path = (
         tmp_path / "runtime" / "sessions" / "claude_headless" / "headless-1" / "manifest.json"
@@ -708,10 +632,8 @@ def test_managed_agent_gateway_request_rejects_missing_live_gateway(tmp_path: Pa
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
     (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
@@ -751,10 +673,8 @@ def test_control_managed_agent_gateway_prompt_requires_live_gateway_when_offline
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     session_root = tmp_path / "runtime" / "sessions" / "houmao_server_rest" / "cao-gpu"
     (session_root / "agent_def").mkdir(parents=True, exist_ok=True)
@@ -789,10 +709,8 @@ def test_managed_agent_mail_requires_pair_owned_mail_capability(tmp_path: Path) 
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     service.ensure_known_session(
         KnownSessionRecord(
@@ -826,10 +744,8 @@ def test_managed_agent_mail_archive_requires_pair_owned_mail_capability(tmp_path
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     service.ensure_known_session(
         KnownSessionRecord(
@@ -891,7 +807,6 @@ def test_refresh_terminal_state_uses_direct_tmux_process_and_parser(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
         transport_resolver=tmux_transport,
         process_inspector=process_inspector,
         parser_adapter=parser_adapter,
@@ -958,7 +873,6 @@ def test_note_prompt_submission_arms_turn_anchor_for_registered_tracker(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
         transport_resolver=_FakeTmuxTransportResolver(
             output_text=[
                 _CODEX_READY_RAW_SNAPSHOT,
@@ -1020,7 +934,6 @@ def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
                 )
             }
         ),
-        child_manager=_FakeChildManager(),
         transport_resolver=_FakeTmuxTransportResolver(output_text="unused"),
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
@@ -1070,7 +983,6 @@ def test_poll_known_session_marks_tmux_missing_and_requests_worker_exit(
                 )
             }
         ),
-        child_manager=_FakeChildManager(),
     )
     service.register_launch(
         HoumaoRegisterLaunchRequest(
@@ -1117,7 +1029,6 @@ def test_terminal_history_returns_recent_in_memory_transitions(
                 )
             }
         ),
-        child_manager=_FakeChildManager(),
         transport_resolver=_FakeTmuxTransportResolver(
             output_text=[_CODEX_READY_RAW_SNAPSHOT, _CODEX_ACTIVE_RAW_SNAPSHOT]
         ),
@@ -1181,14 +1092,14 @@ def test_startup_persists_current_instance_without_child_metadata(
     assert "child_cao" not in current_instance
     assert health.status == "ok"
     assert health.houmao_service == "houmao-server"
-    assert health.child_cao is None
+    assert "child_cao" not in health.model_dump(mode="json")
 
 
-def test_startup_ignores_legacy_child_startup_flag(
+def test_startup_keeps_child_metadata_out_of_health_surface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Legacy child-startup flags do not change the server-owned health surface."""
+    """Server startup should not expose child-CAO metadata."""
 
     control_core = _FakeControlCore()
     monkeypatch.setattr(
@@ -1202,7 +1113,6 @@ def test_startup_ignores_legacy_child_startup_flag(
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
         control_core=control_core,
@@ -1222,7 +1132,7 @@ def test_startup_ignores_legacy_child_startup_flag(
     assert "child_cao" not in current_instance
     assert health.status == "ok"
     assert health.houmao_service == "houmao-server"
-    assert health.child_cao is None
+    assert "child_cao" not in health.model_dump(mode="json")
 
 
 def test_shutdown_persists_core_state_without_prior_startup(tmp_path: Path) -> None:
@@ -1243,7 +1153,6 @@ def test_register_launch_rejects_invalid_registration_session_name(tmp_path: Pat
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
     )
 
     with pytest.raises(HTTPException, match="Invalid server-owned registration session name"):
@@ -1262,7 +1171,6 @@ def test_remove_registration_dir_stays_contained_under_sessions_root(tmp_path: P
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     escaped_root = tmp_path / "houmao_servers" / "escaped"
     escaped_root.mkdir(parents=True, exist_ok=True)
@@ -1291,7 +1199,6 @@ def test_handle_poll_exception_records_probe_error_state(tmp_path: Path) -> None
                 )
             }
         ),
-        child_manager=_FakeChildManager(),
     )
     service.register_launch(
         HoumaoRegisterLaunchRequest(
@@ -1333,7 +1240,6 @@ def test_supervisor_reconcile_releases_missing_session_from_live_lookup(
                 )
             }
         ),
-        child_manager=_FakeChildManager(),
         known_session_registry=registry,
     )
     service.register_launch(
@@ -1407,7 +1313,6 @@ def test_refresh_terminal_state_uses_registration_window_name(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
         transport_resolver=tmux_transport,
         process_inspector=process_inspector,
         parser_adapter=parser_adapter,
@@ -1470,7 +1375,6 @@ def test_refresh_terminal_state_prefers_window_zero_for_houmao_server_sessions(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
         transport_resolver=tmux_transport,
         process_inspector=process_inspector,
         parser_adapter=parser_adapter,
@@ -1524,7 +1428,6 @@ def test_register_launch_enriches_dormant_tracker_window_name_from_manifest(
                 )
             }
         ),
-        child_manager=_FakeChildManager(),
     )
 
     service.register_launch(
@@ -1565,7 +1468,6 @@ def test_submit_managed_agent_interrupt_dispatches_tui_signal_when_tracked_state
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
         transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
@@ -1622,7 +1524,6 @@ def test_submit_managed_agent_prompt_rejects_execution_override_for_tui_target(
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=transport,
-        child_manager=_FakeChildManager(),
         transport_resolver=_FakeTmuxTransportResolver(output_text=_CODEX_READY_RAW_SNAPSHOT),
         process_inspector=_FakeProcessInspector(
             PaneProcessInspection(
@@ -1663,7 +1564,6 @@ def test_submit_headless_interrupt_returns_no_op_when_no_active_work(tmp_path: P
     service = HoumaoServerService(
         config=HoumaoServerConfig(api_base_url="http://127.0.0.1:9889", runtime_root=tmp_path),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     handle = service_module._ManagedHeadlessAgentHandle(
         authority=ManagedHeadlessAuthorityRecord(
@@ -1736,10 +1636,8 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
 
     response = service.launch_headless_agent(
@@ -1828,10 +1726,8 @@ def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
         config=HoumaoServerConfig(
             api_base_url="http://127.0.0.1:9889",
             runtime_root=tmp_path,
-            startup_child=False,
         ),
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
 
     response = service.launch_headless_agent(
@@ -1869,12 +1765,10 @@ def test_startup_rebuilds_unresumable_headless_authority_as_unavailable(tmp_path
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     service.m_managed_headless_store.write_authority(
         ManagedHeadlessAuthorityRecord(
@@ -1912,12 +1806,10 @@ def test_restart_preserves_active_turn_conflict_for_headless_agent(
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     agent_def_dir = tmp_path / "agent-defs"
     manifest_path = (
@@ -2019,12 +1911,10 @@ def test_submit_managed_agent_gateway_internal_headless_prompt_forwards_executio
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     agent_def_dir = tmp_path / "agent-defs"
     manifest_path = (
@@ -2094,12 +1984,10 @@ def test_reconcile_keeps_headless_turn_active_while_worker_thread_is_live(tmp_pa
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     turn_dir = tmp_path / "turn-artifacts" / "turn-live"
     process_path = turn_dir / "process.json"
@@ -2173,12 +2061,10 @@ def test_finalize_headless_turn_record_fails_closed_without_completion_marker(
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     turn_dir = tmp_path / "turn-artifacts" / "turn-dead"
     process_path = turn_dir / "process.json"
@@ -2237,12 +2123,10 @@ def test_finalize_headless_turn_record_fails_closed_for_legacy_active_turn_metad
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     turn_dir = tmp_path / "turn-artifacts" / "turn-legacy"
     service.m_managed_headless_store.write_turn_record(
@@ -2292,12 +2176,10 @@ def test_interrupt_active_turn_uses_persisted_process_identity_before_tmux_fallb
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     turn_dir = tmp_path / "turn-artifacts" / "turn-interrupt"
     process_path = turn_dir / "process.json"
@@ -2362,12 +2244,10 @@ def test_interrupt_headless_tmux_target_uses_stable_agent_pane(
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     active_turn = ManagedHeadlessActiveTurnRecord(
         tracked_agent_id="claude-headless-fallback",
@@ -2400,12 +2280,10 @@ def test_interrupt_headless_tmux_target_prefers_persisted_pane_id(
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     active_turn = ManagedHeadlessActiveTurnRecord(
         tracked_agent_id="claude-headless-fallback",
@@ -2443,12 +2321,10 @@ def test_headless_turn_inspection_reads_persisted_events_artifacts_and_history(
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     service.m_managed_headless_store.write_authority(
         ManagedHeadlessAuthorityRecord(
@@ -2527,12 +2403,10 @@ def test_headless_turn_events_prefer_canonical_artifact_for_server_managed_agent
     config = HoumaoServerConfig(
         api_base_url="http://127.0.0.1:9889",
         runtime_root=tmp_path,
-        startup_child=False,
     )
     service = HoumaoServerService(
         config=config,
         transport=_FakeTransport({}),
-        child_manager=_FakeChildManager(),
     )
     service.m_managed_headless_store.write_authority(
         ManagedHeadlessAuthorityRecord(

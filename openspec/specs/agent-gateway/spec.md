@@ -133,7 +133,7 @@ When the gateway companion runs in the same tmux session, the runtime SHALL trea
 
 The gateway companion SHALL continue writing its own durable logs to gateway-owned storage even when its console output is visible in an auxiliary tmux window.
 
-The `houmao-server` process and its internal child-CAO support state SHALL remain outside the agent's tmux session even when the gateway companion runs in the same managed session as the agent.
+The `houmao-server` process and its internal compatibility support state SHALL remain outside the agent's tmux session even when the gateway companion runs in the same managed session as the agent.
 
 #### Scenario: Default pair-managed attach adds an auxiliary window without redefining the agent surface
 - **WHEN** a gateway companion attaches later to an already-running pair-managed `houmao_server_rest` session without an explicit background override

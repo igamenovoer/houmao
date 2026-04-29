@@ -405,7 +405,6 @@ class HoumaoServerService:
         config: HoumaoServerConfig,
         transport: ProxyTransport | None = None,
         control_core: CompatibilityControlCore | None = None,
-        child_manager: object | None = None,
         known_session_registry: KnownSessionRegistry | None = None,
         managed_headless_store: ManagedHeadlessStore | None = None,
         transport_resolver: TmuxTransportResolver | None = None,
@@ -415,7 +414,6 @@ class HoumaoServerService:
     ) -> None:
         """Initialize the service runtime."""
 
-        del child_manager
         self.m_config = config
         self.m_control_core = control_core or CompatibilityControlCore(config=config)
         self.m_transport = transport or LocalCompatibilityTransportBridge(

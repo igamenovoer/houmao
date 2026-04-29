@@ -205,7 +205,6 @@ def _background_server_command(config: HoumaoServerConfig) -> list[str]:
     ]
     for tool, names in sorted(config.supported_tui_processes.items()):
         args.extend(["--supported-tui-process", f"{tool}={','.join(names)}"])
-    args.append("--startup-child" if config.startup_child else "--no-startup-child")
     return args
 
 

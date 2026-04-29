@@ -142,16 +142,27 @@ The CLI reference SHALL explain that the helper invokes installed provider CLIs 
 - **THEN** the CLI reference identifies the provider home env var and expected auth artifact for each tool
 - **AND THEN** it explains that Gemini may require an interactive OAuth session rather than a fully headless login command
 
+### Requirement: CLI reference lists only retained server binaries
+The CLI reference SHALL present `houmao-server` and `houmao-passive-server` as the retained server binaries.
+
+The CLI reference SHALL NOT list `houmao-cao-server` as an active, deprecated, or installable package entrypoint. Historical references MAY mention the removed launcher only when explicitly framed as removed history or migration context.
+
+#### Scenario: Reader sees retained server binaries
+- **WHEN** a reader scans CLI reference entrypoint tables or server comparison sections
+- **THEN** the retained server binaries are `houmao-server` and `houmao-passive-server`
+- **AND THEN** `houmao-cao-server` is not presented as a command the current package installs
+
 ### Requirement: houmao-server reference documents serve and query commands
 
 The CLI reference SHALL include a page for `houmao-server` documenting its commands (`serve`, `health`, `current-instance`, `register-launch`, `sessions`, and `terminals`) derived from `server/commands/` module docstrings and live help output.
 
-The `serve` reference SHALL describe the implemented startup behavior and the current flag surface, including compatibility readiness and warmup flags when those flags are present in the live CLI.
+The `serve` reference SHALL describe the implemented startup behavior and the current flag surface, including compatibility readiness and warmup flags when those flags are present in the live CLI. It SHALL NOT document child-CAO startup flags or child-CAO process configuration.
 
 #### Scenario: Reader understands server startup
 
 - **WHEN** a reader looks up `houmao-server serve`
-- **THEN** they find the current startup behavior plus the live configuration options for startup-child behavior, compatibility readiness timeouts or poll intervals, warmup timing, runtime root, API base URL, and supported TUI process overrides
+- **THEN** they find the current startup behavior plus the live configuration options for compatibility readiness timeouts or poll intervals, warmup timing, runtime root, API base URL, and supported TUI process overrides
+- **AND THEN** they do not find `startup-child` options documented as live configuration
 
 #### Scenario: Reader finds query commands
 
@@ -176,17 +187,8 @@ The comparison table SHALL list the correct default ports: 9891 for `houmao-pass
 - **THEN** the default port for `houmao-passive-server` is listed as 9891
 - **AND THEN** the default port for `houmao-server` is listed as 9889
 
-### Requirement: Deprecated entrypoints noted briefly
-
-The CLI reference SHALL note that `houmao-cli` and `houmao-cao-server` are deprecated compatibility entrypoints. This SHALL be a brief note (1–2 sentences), not a full page.
-
-#### Scenario: Deprecated CLIs not prominently featured
-
-- **WHEN** a reader scans the CLI reference section
-- **THEN** `houmao-cli` and `houmao-cao-server` appear only as deprecation notes, not as primary documentation
-
 ### Requirement: CLI reference uses `.houmao` ambient resolution and deprecation-only legacy notes
-Repo-owned CLI reference docs that describe agent-definition-directory resolution for active commands, or that mention deprecated compatibility entrypoints, SHALL describe ambient agent-definition resolution as:
+Repo-owned CLI reference docs that describe agent-definition-directory resolution for active commands, or that mention deprecated or removed compatibility entrypoints, SHALL describe ambient agent-definition resolution as:
 
 1. explicit CLI `--agent-def-dir`,
 2. `HOUMAO_AGENT_DEF_DIR`,
@@ -204,7 +206,7 @@ When the CLI reference describes `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, it SHA
 The CLI reference SHALL describe `HOUMAO_PROJECT_OVERLAY_DIR` as an absolute-path env override that selects the overlay directory directly for CI and controlled automation.
 When the CLI reference explains the discovered project path, it SHALL describe `houmao-config.toml` as the discovery anchor at the selected overlay root and `agents/` as the compatibility projection used by file-tree consumers beneath that overlay root.
 It SHALL NOT present `<cwd>/.agentsys/agents` as a supported default or fallback path.
-The CLI reference SHALL keep `houmao-cli` and `houmao-cao-server` in explicit deprecation-only posture rather than re-elevating them to primary operator workflows.
+The CLI reference SHALL keep `houmao-cli` in explicit deprecation-only posture and SHALL keep `houmao-cao-server` only in explicit removed, historical, or migration context rather than presenting either surface as an active operator workflow.
 
 #### Scenario: Reader sees the project-overlay env contract in the CLI precedence documentation
 - **WHEN** a reader checks the CLI reference for agent-definition-directory resolution
@@ -218,9 +220,10 @@ The CLI reference SHALL keep `houmao-cli` and `houmao-cao-server` in explicit de
 - **AND THEN** it explains that cwd-only mode still falls back to `<cwd>/.houmao/agents`
 - **AND THEN** it does not present `<cwd>/.agentsys/agents` as a supported fallback
 
-#### Scenario: Deprecated entrypoints remain deprecation-only while using current precedence
+#### Scenario: Deprecated and removed entrypoints remain historical while using current precedence
 - **WHEN** a reader scans the CLI reference for mentions of `houmao-cli` or `houmao-cao-server`
-- **THEN** those mentions remain brief legacy and deprecation notes
+- **THEN** `houmao-cli` remains a brief deprecated compatibility note where needed
+- **AND THEN** `houmao-cao-server` appears only as a removed historical launcher, not as an installable current command
 - **AND THEN** any documented ambient agent-definition resolution uses the current `.houmao` precedence contract including the discovery-mode env rather than preserving `.agentsys`
 
 ### Requirement: CLI reference stubs completed for all agents subcommand pages

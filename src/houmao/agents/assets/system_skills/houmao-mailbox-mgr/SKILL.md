@@ -117,4 +117,4 @@ This packaged skill does not cover:
 - Do not hand-edit mailbox-root files when the maintained `houmao-mgr` surfaces already cover the task.
 - Do not use `mailbox cleanup` when the user asked to remove delivered email content while preserving accounts; use `mailbox clear-messages` or `project mailbox clear-messages` for that scope.
 - Do not recommend ad hoc recursive mailbox-root copying when the maintained export command covers the request.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for mailbox administration.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for mailbox administration.

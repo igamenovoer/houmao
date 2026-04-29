@@ -105,7 +105,6 @@ def test_background_server_command_replays_resolved_config_flags(tmp_path: Path)
         compat_provider_ready_timeout_seconds=8.0,
         compat_provider_ready_poll_interval_seconds=0.9,
         compat_codex_warmup_seconds=1.2,
-        startup_child=False,
     )
 
     command = server_startup._background_server_command(config)
@@ -117,4 +116,5 @@ def test_background_server_command_replays_resolved_config_flags(tmp_path: Path)
     assert "--supported-tui-process" in command
     assert "claude=claude" in command
     assert "codex=codex,codex-beta" in command
-    assert command[-1] == "--no-startup-child"
+    assert "--startup-child" not in command
+    assert "--no-startup-child" not in command

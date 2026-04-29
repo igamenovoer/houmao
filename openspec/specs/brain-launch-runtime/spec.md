@@ -1888,7 +1888,7 @@ At minimum, the persisted `houmao-server` section SHALL carry the public `houmao
 - server session identity
 - terminal identity
 
-The persisted public contract for `houmao_server_rest` SHALL keep child-CAO adapter details out of the runtime-owned manifest.
+The persisted public contract for `houmao_server_rest` SHALL keep CAO-compatible adapter internals out of the runtime-owned manifest.
 
 #### Scenario: Session manifest records `houmao_server_rest` rather than `cao_rest`
 - **WHEN** a developer starts a runtime-owned session through the `houmao-server` REST-backed mode
@@ -2040,7 +2040,7 @@ For pair-managed tmux sessions that place gateway or other support processes in 
 
 The runtime SHALL support that same-session auxiliary-window topology for `houmao_server_rest`.
 
-The runtime SHALL keep the `houmao-server` process and its internal child-CAO support state outside the agent's tmux session even when the gateway sidecar runs inside the managed agent session.
+The runtime SHALL keep the `houmao-server` process and its internal compatibility support state outside the agent's tmux session even when the gateway sidecar runs inside the managed agent session.
 
 Only tmux window `0` is contractual in that topology. The names, counts, and indices of non-zero tmux windows SHALL remain implementation details and SHALL NOT become part of the public attach or control contract.
 
@@ -2056,7 +2056,7 @@ If the agent process later disappears unexpectedly and the runtime relaunches it
 #### Scenario: Same-session gateway topology keeps the server process out of the agent tmux session
 - **WHEN** a pair-managed `houmao_server_rest` session runs a same-session gateway companion
 - **THEN** only the gateway sidecar is introduced into an auxiliary tmux window of the managed agent session
-- **AND THEN** the `houmao-server` process and child-CAO support state remain outside that tmux session
+- **AND THEN** the `houmao-server` process and compatibility support state remain outside that tmux session
 
 #### Scenario: Gateway lifecycle preserves the reserved agent window
 - **WHEN** a same-session gateway process attaches, detaches, exits unexpectedly, or is recreated

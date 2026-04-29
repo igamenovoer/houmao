@@ -1166,9 +1166,7 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     history_response = history_route.endpoint(terminal_id="abcd1234", limit=3)
 
     assert health_response.houmao_service == "houmao-server"
-    assert health_response.child_cao is None
     assert current_instance_response.api_base_url == "http://127.0.0.1:9889"
-    assert current_instance_response.child_cao is None
 
     assert register_response.success is True
     assert service.m_register_requests[0].session_name == "cao-gpu"
@@ -1179,15 +1177,14 @@ def test_houmao_extension_routes_delegate_to_service_methods() -> None:
     assert service.m_history_calls == [("abcd1234", 3)]
 
 
-def test_houmao_extension_routes_omit_child_metadata_when_service_returns_none() -> None:
-    """Wire responses should omit null child metadata for no-child mode."""
+def test_houmao_extension_routes_omit_child_metadata() -> None:
+    """Wire responses should omit child metadata."""
 
     class _NoChildServiceDouble(_AppServiceDouble):
         def health_response(self) -> HoumaoHealthResponse:
             return HoumaoHealthResponse(
                 status="ok",
                 service="cli-agent-orchestrator",
-                child_cao=None,
             )
 
         def current_instance_response(self) -> HoumaoCurrentInstance:
@@ -1195,7 +1192,6 @@ def test_houmao_extension_routes_omit_child_metadata_when_service_returns_none()
                 pid=12345,
                 api_base_url="http://127.0.0.1:9889",
                 server_root="/tmp/houmao-server",
-                child_cao=None,
             )
 
     with TestClient(create_app(service=_NoChildServiceDouble())) as client:

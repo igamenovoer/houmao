@@ -26,7 +26,6 @@ houmao-server serve [OPTIONS]
 |---|---|---|
 | `--api-base-url TEXT` | `http://127.0.0.1:9889` | Base URL the server listens on. |
 | `--runtime-root TEXT` | | Optional runtime root override for Houmao-owned server artifacts. |
-| `--startup-child / --no-startup-child` | `--startup-child` | Whether to start any configured startup child process. |
 | `--compat-codex-warmup-seconds FLOAT` | `2.0` | Warmup delay for Codex compatibility. Must be ≥ 0. |
 | `--compat-provider-ready-poll-interval-seconds FLOAT` | `1.0` | Poll interval for provider readiness detection. Must be > 0. |
 | `--compat-provider-ready-timeout-seconds FLOAT` | `45.0` | Timeout for provider readiness. Must be > 0. |
@@ -77,7 +76,7 @@ houmao-server register-launch [OPTIONS]
 
 ### `sessions list`
 
-List child-backed sessions through houmao-server.
+List server-owned sessions through houmao-server.
 
 ```
 houmao-server sessions list [OPTIONS]

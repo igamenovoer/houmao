@@ -238,7 +238,6 @@ def _load_turn_records(state: DemoState, *, role: str) -> list[ManagedHeadlessTu
     config = HoumaoServerConfig(
         api_base_url=state.api_base_url,
         runtime_root=state.server.runtime_root,
-        startup_child=False,
     )
     store = ManagedHeadlessStore(config=config)
     return store.list_turn_records(tracked_agent_id=participant.tracked_agent_id)

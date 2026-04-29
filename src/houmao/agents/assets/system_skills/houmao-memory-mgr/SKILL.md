@@ -70,4 +70,4 @@ It does not cover provider-native memory, mailbox state, gateway reminders, runt
 - Do not write arbitrary files beside `houmao-memo.md` at the memory root.
 - Do not store live runtime bookkeeping, retry counters, mailbox receipts, gateway state, or supervision state in managed memory pages.
 - Do not hand-edit `.houmao/agents/launch-profiles/<name>.yaml` when the maintained profile `create|add|set` command exposes memo seed operations.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows.

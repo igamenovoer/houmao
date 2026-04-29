@@ -97,4 +97,4 @@ This packaged skill does not cover:
 - Do not silently replace `agents relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for managed-agent lifecycle work.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for managed-agent lifecycle work.

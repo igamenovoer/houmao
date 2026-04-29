@@ -111,4 +111,4 @@ This packaged skill does not cover:
 - Do not treat this skill as the owner of ordinary mailbox operations; hand mailbox work to `houmao-agent-email-comms` or `houmao-process-emails-via-gateway`.
 - Do not restate filesystem mailbox layout, Stalwart transport detail, or the `/v1/mail/*` contract in full here; delegate that work to the mailbox skills.
 - Do not invent unsupported `houmao-mgr` reset-context flags.
-- Do not use deprecated `houmao-cli` or `houmao-cao-server` entrypoints for managed-agent messaging.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for managed-agent messaging.

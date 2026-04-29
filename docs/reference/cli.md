@@ -10,9 +10,8 @@ pixi install
 
 ## Primary Commands
 
-- Supported operator CLIs: `houmao-mgr`, `houmao-server`
+- Supported operator CLIs: `houmao-mgr`, `houmao-server`, `houmao-passive-server`
 - Legacy runtime-local CLI: `houmao-cli`
-- Deprecated standalone launcher: `houmao-cao-server`
 
 Legacy runtime CLI subcommands:
 
@@ -27,8 +26,8 @@ Module equivalents:
 
 ```bash
 pixi run python -m houmao.agents.realm_controller --help
-pixi run python -m houmao.cao.tools.cao_server_launcher   # deprecated: exits with migration guidance
 houmao-server --help
+houmao-passive-server --help
 houmao-mgr --help
 ```
 

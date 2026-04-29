@@ -478,12 +478,6 @@ def _runtime_cli_command(args: list[str]) -> list[str]:
     return ["pixi", "run", "python", "-m", "houmao.agents.realm_controller", *args]
 
 
-def _launcher_cli_command(args: list[str]) -> list[str]:
-    """Build a `cao_server_launcher` CLI subprocess command."""
-
-    return ["pixi", "run", "python", "-m", "houmao.cao.tools.cao_server_launcher", *args]
-
-
 def _cao_profile_store(launcher_home_dir: Path) -> Path:
     """Return the CAO profile store path derived from launcher home."""
 

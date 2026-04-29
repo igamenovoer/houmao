@@ -6,7 +6,9 @@ Define the public `houmao-server` contract as the Houmao-owned CAO-compatible HT
 ### Requirement: `houmao-server` serves `/cao/*` through a Houmao-owned control core
 `houmao-server` SHALL satisfy the supported `/cao/*` compatibility surface through the Houmao-owned CAO-compatible control core rather than by proxying to a separate child `cao-server`.
 
-`houmao-server` current-instance, health, and install behavior MAY expose Houmao-owned control-core status, but they SHALL NOT require or publish child-CAO process identity as part of the supported public contract.
+`houmao-server` current-instance and health behavior MAY expose Houmao-owned control-core status, but they SHALL NOT require or publish child-CAO process identity as part of the supported public contract.
+
+`houmao-server` startup and configuration surfaces SHALL NOT expose child-CAO process controls, including `startup_child`, `child_startup_timeout_seconds`, `--startup-child`, `--no-startup-child`, derived child listener URLs, child launcher config paths, or child ownership roots.
 
 In v1, `houmao-server` MAY preserve the existing `/cao/*` route-handler seam through a server-local compatibility transport that projects control-core results back into the current route surface.
 
@@ -18,12 +20,17 @@ In v1, `houmao-server` MAY preserve the existing `/cao/*` route-handler seam thr
 #### Scenario: Root health omits child-CAO process metadata after absorption
 - **WHEN** a caller queries `GET /health` or `GET /houmao/server/current-instance` on a running `houmao-server`
 - **THEN** those routes report Houmao-owned server state and any Houmao-owned control-core status that the server chooses to expose
-- **AND THEN** they do not require a `child_cao` process record to describe the supported server state
+- **AND THEN** they do not include a `child_cao` process record to describe the supported server state
 
 #### Scenario: Root health keeps pair compatibility identity fields
 - **WHEN** a pair-owned client queries `GET /health` on a running `houmao-server`
 - **THEN** the response still includes `service="cli-agent-orchestrator"` and `houmao_service="houmao-server"`
 - **AND THEN** child-CAO-specific metadata is absent
+
+#### Scenario: Server startup help omits child-CAO flags
+- **WHEN** an operator inspects `houmao-server serve --help` or `houmao-mgr server start --help`
+- **THEN** the command help does not list child-CAO startup flags
+- **AND THEN** detached server startup does not replay child-CAO startup arguments
 
 ### Requirement: `houmao-server` keeps root and `/houmao/*` namespaces Houmao-owned
 `houmao-server` SHALL reserve the server root and the `/houmao/*` route family for Houmao-owned pair behavior.
@@ -168,7 +175,7 @@ Shared live-agent registry records MAY be consulted as compatibility evidence or
 #### Scenario: Startup rebuild uses server-owned registration and live tmux
 - **WHEN** `houmao-server` restarts and finds a server-managed registration record whose tmux session is still live
 - **THEN** it rebuilds the known-session entry from that registration
-- **AND THEN** the resulting background watch worker resumes from that rebuilt entry instead of waiting for child-CAO polling
+- **AND THEN** the resulting background watch worker resumes from that rebuilt entry without waiting for an external child process
 
 #### Scenario: Shared registry evidence alone does not create a watched session
 - **WHEN** a shared live-agent registry record exists without a matching authoritative server registration record or a verifiable live tmux target
@@ -355,7 +362,7 @@ For headless agents, `houmao-server` SHALL create server authority through its H
 #### Scenario: Headless authority does not require delegated registration
 - **WHEN** a caller launches a headless managed agent through the native headless API
 - **THEN** `houmao-server` creates authority for that agent without requiring a delegated launch registration record
-- **AND THEN** headless lifecycle does not depend on child-CAO session or terminal discovery
+- **AND THEN** headless lifecycle does not depend on external CAO session or terminal discovery
 
 ### Requirement: `houmao-server` persists native headless authority under the server-owned state tree
 For each native headless agent launched through `houmao-server`, the server SHALL persist a dedicated managed-agent authority record under the server-owned state tree.
