@@ -213,6 +213,40 @@ def test_compose_tmux_launch_env_preserves_claude_model_vars_from_caller_env(
     assert launch_env["CLAUDE_CODE_SUBAGENT_MODEL"] == "sonnet"
 
 
+def test_compose_tmux_launch_env_applies_rich_color_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("COLORTERM", "")
+    monkeypatch.setenv("EXAMPLE_TOKEN", "abc")
+
+    launch_env = _compose_tmux_launch_env(_sample_launch_plan(tmp_path))
+
+    assert launch_env["TERM"] == "tmux-256color"
+    assert launch_env["COLORTERM"] == "truecolor"
+    assert "NO_COLOR" not in launch_env
+    assert launch_env["EXAMPLE_TOKEN"] == "abc"
+
+
+def test_compose_tmux_launch_env_preserves_color_env_when_injection_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", "0")
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("COLORTERM", "")
+
+    launch_env = _compose_tmux_launch_env(_sample_launch_plan(tmp_path))
+
+    assert launch_env["NO_COLOR"] == "1"
+    assert launch_env["TERM"] == "dumb"
+    assert launch_env["COLORTERM"] == ""
+
+
 def test_compose_tmux_launch_env_injects_loopback_no_proxy_by_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

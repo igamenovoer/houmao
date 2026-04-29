@@ -1803,15 +1803,17 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
             if resolved.memo_seed is not None
             else {"present": False}
         ),
-        "skills": _launch_profile_skills_provenance_payload(resolved),
     }
+    skills_provenance = _launch_profile_skills_provenance_payload(resolved)
+    if skills_provenance is not None:
+        payload["skills"] = skills_provenance
     relaunch_payload = launch_profile_relaunch_payload(resolved)
     if relaunch_payload:
         payload["relaunch"] = relaunch_payload
     return payload
 
 
-def _launch_profile_skills_provenance_payload(resolved: Any) -> dict[str, Any]:
+def _launch_profile_skills_provenance_payload(resolved: Any) -> dict[str, Any] | None:
     """Return launch-profile skill overlay provenance."""
 
     private_skill_payloads = [
@@ -1825,6 +1827,8 @@ def _launch_profile_skills_provenance_payload(resolved: Any) -> dict[str, Any]:
     ]
     private_names = {str(item["name"]) for item in private_skill_payloads}
     registered_names = list(getattr(resolved.entry, "registered_skill_names", ()))
+    if not registered_names and not private_skill_payloads:
+        return None
     return {
         "registered": registered_names,
         "private": private_skill_payloads,

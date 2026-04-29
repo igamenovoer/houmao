@@ -682,6 +682,9 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     agent_def_dir.mkdir(parents=True, exist_ok=True)
     captured_tmux_env: dict[str, object] = {}
     prepared_sessions: list[str] = []
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("EXAMPLE_TOKEN", "abc")
+    monkeypatch.delenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", raising=False)
 
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
@@ -711,6 +714,42 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
     assert env_vars[AGENT_DEF_DIR_ENV_VAR] == str(agent_def_dir.resolve())
+    assert env_vars["TERM"] == "tmux-256color"
+    assert env_vars["COLORTERM"] == "truecolor"
+    assert "NO_COLOR" not in env_vars
+    assert env_vars["EXAMPLE_TOKEN"] == "abc"
+
+
+def test_headless_resume_preserves_color_env_when_tmux_injection_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured_tmux_env: dict[str, object] = {}
+    monkeypatch.setenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", "0")
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("COLORTERM", "")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.headless_base.set_tmux_session_environment_shared",
+        lambda *, session_name, env_vars: captured_tmux_env.update(
+            {"session_name": session_name, "env_vars": dict(env_vars)}
+        ),
+    )
+
+    GeminiHeadlessSession(
+        launch_plan=_sample_gemini_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-gemini",
+        ),
+    )
+
+    env_vars = captured_tmux_env["env_vars"]
+    assert isinstance(env_vars, dict)
+    assert env_vars["NO_COLOR"] == "1"
+    assert env_vars["TERM"] == "dumb"
+    assert env_vars["COLORTERM"] == ""
 
 
 def test_headless_env_injects_loopback_no_proxy_by_default(

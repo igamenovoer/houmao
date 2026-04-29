@@ -1715,8 +1715,10 @@ def launch_easy_instance_command(
         )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
-        launch_profile_registered_skill_names = resolved_profile.entry.registered_skill_names
-        launch_profile_private_skills = resolved_profile.private_skills
+        launch_profile_registered_skill_names = tuple(
+            getattr(resolved_profile.entry, "registered_skill_names", ())
+        )
+        launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
         launch_profile_memo_seed = resolved_profile.memo_seed
         launch_profile_mail_notifier_appendix_text = (

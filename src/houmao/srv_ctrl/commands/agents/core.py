@@ -671,6 +671,8 @@ def _with_launch_profile_skill_provenance(
     if launch_profile_provenance is None:
         return None
     payload = dict(launch_profile_provenance)
+    if not registered_skill_names and not private_skill_projections:
+        return payload
     private_payloads = [
         {
             "name": private_skill.name,
@@ -1254,8 +1256,10 @@ def launch_agents_command(
         )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
-        launch_profile_registered_skill_names = resolved_profile.entry.registered_skill_names
-        launch_profile_private_skills = resolved_profile.private_skills
+        launch_profile_registered_skill_names = tuple(
+            getattr(resolved_profile.entry, "registered_skill_names", ())
+        )
+        launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
         launch_profile_provenance = {
             "name": resolved_profile.entry.name,
             "lane": resolved_profile.entry.profile_lane,

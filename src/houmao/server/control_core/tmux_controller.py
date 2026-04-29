@@ -10,6 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    TMUX_COLOR_ENV_UNSET_NAMES,
+    TMUX_CONFIG_INJECTION_ENV_VAR,
+    TMUX_RICH_COLOR_COLORTERM,
+    TMUX_RICH_COLOR_TERM,
+    tmux_config_injection_enabled,
+)
+
 
 @dataclass(frozen=True)
 class TmuxWindowRecord:
@@ -67,6 +75,14 @@ class CompatibilityTmuxController:
             raise CompatibilityTmuxError(
                 f"Failed to create tmux session `{session_name}`: {self._tmux_detail(result)}"
             )
+        try:
+            self._apply_config_injection(session_name=session_name)
+        except CompatibilityTmuxError:
+            try:
+                self.kill_session(session_name=session_name)
+            except CompatibilityTmuxError:
+                pass
+            raise
         return self._parse_window_record(result.stdout.strip(), context=session_name)
 
     def create_window(
@@ -276,6 +292,37 @@ class CompatibilityTmuxController:
             )
         except OSError as exc:
             raise CompatibilityTmuxError(f"Failed to run tmux command `{args}`: {exc}") from exc
+
+    def _apply_config_injection(self, *, session_name: str) -> None:
+        """Apply Houmao-owned tmux defaults to one compatibility session."""
+
+        if not tmux_config_injection_enabled():
+            return
+
+        commands = (
+            ["set-option", "-t", session_name, "mouse", "on"],
+            ["set-option", "-t", session_name, "default-terminal", TMUX_RICH_COLOR_TERM],
+            ["set-option", "-at", session_name, "terminal-overrides", ",*256col*:Tc"],
+            ["set-environment", "-t", session_name, "TERM", TMUX_RICH_COLOR_TERM],
+            [
+                "set-environment",
+                "-t",
+                session_name,
+                "COLORTERM",
+                TMUX_RICH_COLOR_COLORTERM,
+            ],
+            ["set-environment", "-t", session_name, "-u", TMUX_COLOR_ENV_UNSET_NAMES[0]],
+        )
+        for args in commands:
+            result = self._run_tmux(list(args))
+            if result.returncode == 0:
+                continue
+            raise CompatibilityTmuxError(
+                "Failed to apply Houmao tmux config injection to session "
+                f"`{session_name}` with command `tmux {' '.join(args)}`: "
+                f"{self._tmux_detail(result)}. Set {TMUX_CONFIG_INJECTION_ENV_VAR}=0 "
+                "to disable Houmao tmux config injection and retry."
+            )
 
     @staticmethod
     def _tmux_detail(result: subprocess.CompletedProcess[Any]) -> str:

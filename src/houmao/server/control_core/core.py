@@ -25,6 +25,11 @@ from houmao.agents.native_launch_resolver import resolve_native_launch_target
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import RolePackage, load_brain_manifest
 from houmao.agents.realm_controller.models import LaunchPlan
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    TMUX_COLOR_ENV_UNSET_NAMES,
+    overlay_tmux_rich_color_environment,
+    tmux_config_injection_enabled,
+)
 from houmao.cao.models import CaoInboxMessageStatus
 from houmao.project.overlay import resolve_project_aware_local_roots
 from houmao.server.config import HoumaoServerConfig
@@ -522,8 +527,13 @@ class CompatibilityControlCore:
                 f"export {compatibility_home_env_var}="
                 f"{shlex.quote(str(prepared_provider_profile.launch_plan.home_path))}"
             )
-        for env_var_name in sorted(prepared_provider_profile.launch_plan.env):
-            env_var_value = prepared_provider_profile.launch_plan.env[env_var_name]
+        launch_env = dict(prepared_provider_profile.launch_plan.env)
+        injection_enabled = tmux_config_injection_enabled()
+        overlay_tmux_rich_color_environment(launch_env)
+        if injection_enabled:
+            launch_exports.extend(f"unset {name}" for name in TMUX_COLOR_ENV_UNSET_NAMES)
+        for env_var_name in sorted(launch_env):
+            env_var_value = launch_env[env_var_name]
             if not env_var_value.strip():
                 continue
             launch_exports.append(f"export {env_var_name}={shlex.quote(env_var_value)}")

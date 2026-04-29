@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Final, Literal, Mapping, MutableMapping
 
 from ..agent_identity import (
     derive_auto_agent_name_base,
@@ -101,8 +102,16 @@ _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
 HEADLESS_AGENT_WINDOW_INDEX: Final[str] = "0"
 HEADLESS_AGENT_PANE_INDEX: Final[str] = "0"
 HEADLESS_AGENT_WINDOW_NAME: Final[str] = "agent"
+TMUX_CONFIG_INJECTION_ENV_VAR: Final[str] = "HOUMAO_ENABLE_TMUX_CONFIG_INJECTION"
+TMUX_RICH_COLOR_TERM: Final[str] = "tmux-256color"
+TMUX_RICH_COLOR_COLORTERM: Final[str] = "truecolor"
+TMUX_COLOR_ENV_UNSET_NAMES: Final[tuple[str, ...]] = ("NO_COLOR",)
 _TMUX_PANE_DEAD_FORMAT: Final[str] = "#{pane_dead}"
 _TMUX_PANE_PID_FORMAT: Final[str] = "#{pane_pid}"
+_TMUX_CONFIG_INJECTION_GUIDANCE: Final[str] = (
+    f"Set {TMUX_CONFIG_INJECTION_ENV_VAR}=0 to disable Houmao tmux config injection "
+    "and retry."
+)
 
 
 def ensure_tmux_available() -> None:
@@ -110,6 +119,50 @@ def ensure_tmux_available() -> None:
 
     if shutil.which("tmux") is None:
         raise TmuxCommandError("`tmux` was not found on PATH.")
+
+
+def tmux_config_injection_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Return whether Houmao should inject tmux session defaults."""
+
+    source = env if env is not None else os.environ
+    return source.get(TMUX_CONFIG_INJECTION_ENV_VAR, "").strip() != "0"
+
+
+def overlay_tmux_rich_color_environment(env: MutableMapping[str, str]) -> None:
+    """Overlay Houmao-owned rich color environment values when enabled."""
+
+    if not tmux_config_injection_enabled():
+        return
+    env["TERM"] = TMUX_RICH_COLOR_TERM
+    env["COLORTERM"] = TMUX_RICH_COLOR_COLORTERM
+    for variable_name in TMUX_COLOR_ENV_UNSET_NAMES:
+        env.pop(variable_name, None)
+
+
+def apply_tmux_config_injection(*, session_name: str) -> None:
+    """Apply Houmao-owned tmux defaults to one created session."""
+
+    if not tmux_config_injection_enabled():
+        return
+
+    commands = (
+        ["set-option", "-t", session_name, "mouse", "on"],
+        ["set-option", "-t", session_name, "default-terminal", TMUX_RICH_COLOR_TERM],
+        ["set-option", "-at", session_name, "terminal-overrides", ",*256col*:Tc"],
+        ["set-environment", "-t", session_name, "TERM", TMUX_RICH_COLOR_TERM],
+        ["set-environment", "-t", session_name, "COLORTERM", TMUX_RICH_COLOR_COLORTERM],
+        ["set-environment", "-t", session_name, "-u", "NO_COLOR"],
+    )
+    for args in commands:
+        result = run_tmux(list(args))
+        if result.returncode == 0:
+            continue
+        detail = tmux_error_detail(result)
+        raise TmuxCommandError(
+            "Failed to apply Houmao tmux config injection to session "
+            f"`{session_name}` with command `tmux {' '.join(args)}`: "
+            f"{detail or 'unknown tmux error'}. {_TMUX_CONFIG_INJECTION_GUIDANCE}"
+        )
 
 
 def list_tmux_sessions() -> set[str]:
@@ -144,6 +197,11 @@ def create_tmux_session(*, session_name: str, working_directory: Path) -> None:
         ]
     )
     if result.returncode == 0:
+        try:
+            apply_tmux_config_injection(session_name=session_name)
+        except TmuxCommandError:
+            cleanup_tmux_session(session_name=session_name)
+            raise
         return
     detail = tmux_error_detail(result)
     raise TmuxCommandError(

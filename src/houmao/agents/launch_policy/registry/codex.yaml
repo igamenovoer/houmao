@@ -16,9 +16,10 @@ strategies:
         - config-backed env-only provider with requires_openai_auth=false, wire_api=responses, and its declared env_key present
       requires_user_prepared_state: false
       notes:
-        - Runtime-owned config.toml synthesis force-overrides trust, approval, sandbox, and migration state in the runtime home.
+        - Runtime-owned config.toml synthesis force-overrides trust, approval, sandbox, and no-prompt startup surfaces in the runtime home.
+        - Missing Codex model selection remains provider-owned; only known legacy model pins may be migrated.
         - Caller launch args and config overrides that target unattended-owned no-prompt surfaces are canonicalized away.
-        - Final Codex CLI --config overrides force approval_policy, sandbox_mode, and notice.hide_full_access_warning over project-local config.
+        - Final Codex CLI --config overrides force approval_policy, sandbox_mode, notice.hide_full_access_warning, and tui.show_tooltips over project-local config.
         - User-authored no-prompt config files are not required.
     evidence:
       - kind: source_reference
@@ -26,19 +27,19 @@ strategies:
         note: Codex app-server tests document env-only custom-provider auth with requires_openai_auth=false and wire_api=responses.
       - kind: source_reference
         ref: extern/orphan/codex/codex-rs/core/src/config/edit.rs
-        note: Codex source defines project trust, notice.hide_full_access_warning, and model_migrations config edit surfaces.
+        note: Codex source defines project trust, notice.hide_full_access_warning, model_migrations, and TUI config edit surfaces.
       - kind: live_probe
         ref: codex --version
-        note: Fresh-home probe on installed codex-cli 0.116.0 required trust plus migration-state seeding to avoid startup prompts.
+        note: Fresh-home probe on installed codex-cli 0.116.0 required trust plus no-prompt state to avoid startup prompts.
     owned_paths:
       - path: config.toml
         keys:
           - approval_policy
           - sandbox_mode
           - notice.hide_full_access_warning
+          - tui.show_tooltips
           - notice.model_migrations.gpt-5.3-codex
           - projects.<resolved_workdir>.trust_level
-          - model
     actions:
       - kind: provider_hook.call
         params:
@@ -65,6 +66,13 @@ strategies:
             - notice
             - hide_full_access_warning
           value: true
+      - kind: toml.set
+        params:
+          path: config.toml
+          key_path:
+            - tui
+            - show_tooltips
+          value: false
       - kind: provider_hook.call
         params:
           hook_id: codex.ensure_project_trust

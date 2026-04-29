@@ -63,7 +63,10 @@ auth_projection:
 
     _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
     _write(agent_def_dir / "skills/skill-b/SKILL.md", "# skill-b\n")
-    _write(agent_def_dir / "tools/codex/setups/default/config.toml", "model='x'\n")
+    _write(
+        agent_def_dir / "tools/codex/setups/default/config.toml",
+        'model_reasoning_effort = "medium"\n\n[tui]\nshow_tooltips = false\n',
+    )
     _write(
         agent_def_dir / "tools/codex/auth/personal-a/files/auth.json",
         '{"token": "secret"}\n',
@@ -246,6 +249,10 @@ def test_build_brain_home_projects_selected_components_and_manifest(
 
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
+    config_payload = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
+    assert "model" not in config_payload
+    assert config_payload["model_reasoning_effort"] == "medium"
+    assert config_payload["tui"]["show_tooltips"] is False
     assert (home / "skills/skill-a").is_symlink()
     visible_gateway_skill = home / "skills/houmao-agent-email-comms/SKILL.md"
     visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
@@ -325,8 +332,11 @@ def test_build_brain_home_copies_selected_setup_bundle_verbatim(
     _seed_repo(agent_def_dir)
     custom_setup = (
         """
-model = "gpt-5.4"
 model_provider = "yunwu-openai"
+model_reasoning_effort = "medium"
+
+[tui]
+show_tooltips = false
 
 [model_providers.yunwu-openai]
 name = "Yunwu"
@@ -356,7 +366,7 @@ wire_api = "responses"
     codex_overrides = manifest["runtime"]["launch_contract"]["model_selection"][
         "codex_cli_config_overrides"
     ]
-    assert '--config=model="gpt-5.4"' in codex_overrides["args"]
+    assert not any(arg.startswith("--config=model=") for arg in codex_overrides["args"])
     assert '--config=model_provider="yunwu-openai"' in codex_overrides["args"]
     assert (
         '--config=model_providers.yunwu-openai.base_url="https://api.example.test/v1"'
@@ -1164,6 +1174,47 @@ def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path
         "effective": {"name": "gpt-5.4-nano", "reasoning": {"level": 10}},
         "sources": {
             "name": "direct_launch",
+            "reasoning_level": "direct_launch",
+        },
+    }
+
+
+def test_build_brain_home_projects_codex_reasoning_without_forcing_model(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-reasoning-only",
+            direct_model_config=ModelConfig(
+                reasoning=ModelReasoningConfig(level=2),
+            ),
+        )
+    )
+
+    payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
+
+    assert "model" not in payload
+    assert payload["model_reasoning_effort"] == "medium"
+    assert model_selection["codex_cli_config_overrides"]["args"] == [
+        '--config=model_reasoning_effort="medium"',
+    ]
+    assert model_selection["native_projection"]["reasoning"]["model_name"] is None
+    assert model_selection["resolved"] == {
+        "effective": {"reasoning": {"level": 2}},
+        "sources": {
+            "name": None,
             "reasoning_level": "direct_launch",
         },
     }

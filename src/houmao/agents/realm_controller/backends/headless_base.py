@@ -41,6 +41,7 @@ from .tmux_runtime import (
     has_tmux_session as has_tmux_session_shared,
     headless_agent_pane_target as headless_agent_pane_target_shared,
     kill_tmux_session as kill_tmux_session_shared,
+    overlay_tmux_rich_color_environment,
     prepare_headless_agent_window as prepare_headless_agent_window_shared,
     resolve_primary_tmux_surface as resolve_primary_tmux_surface_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
@@ -165,6 +166,7 @@ class HeadlessInteractiveSession:
             env.update(self._plan.env)
             env.update(execution_projection.env)
             env[self._plan.home_env_var] = str(self._plan.home_path)
+            overlay_tmux_rich_color_environment(env)
             inject_loopback_no_proxy_env(env)
 
             run_kwargs: dict[str, Any] = {
@@ -579,6 +581,7 @@ class HeadlessInteractiveSession:
         launch_env = dict(os.environ)
         launch_env.update(self._plan.env)
         launch_env[self._plan.home_env_var] = str(self._plan.home_path)
+        overlay_tmux_rich_color_environment(launch_env)
         inject_loopback_no_proxy_env(launch_env)
         launch_env[AGENT_MANIFEST_PATH_ENV_VAR] = str(self._session_manifest_path)
         if self._agent_def_dir is not None:

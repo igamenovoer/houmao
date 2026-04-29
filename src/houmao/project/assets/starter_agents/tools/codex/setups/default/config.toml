@@ -1,3 +1,5 @@
-model = "gpt-5.4"
 model_reasoning_effort = "medium"
 personality = "friendly"
+
+[tui]
+show_tooltips = false

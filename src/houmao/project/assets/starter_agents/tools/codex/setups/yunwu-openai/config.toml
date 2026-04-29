@@ -1,7 +1,9 @@
-model = "gpt-5.4"
 model_provider = "yunwu-openai"
 model_reasoning_effort = "medium"
 personality = "friendly"
+
+[tui]
+show_tooltips = false
 
 [model_providers]
 

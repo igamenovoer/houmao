@@ -78,11 +78,14 @@ sandbox_mode = "danger-full-access"
 [notice]
 hide_full_access_warning = true
 
+[tui]
+show_tooltips = false
+
 [notice.model_migrations]
 "gpt-5.3-codex" = "gpt-5.4"
 ```
 
-It also seeds trust under `[projects."<resolved-workdir>"].trust_level = "trusted"`.
+It also seeds trust under `[projects."<resolved-workdir>"].trust_level = "trusted"`. Missing Codex model selection remains provider-owned; Houmao only writes model migration state when a known legacy model pin is already present.
 
 ## Why This Works
 

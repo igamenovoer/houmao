@@ -66,17 +66,18 @@ from .shadow_parser_stack import (
     ShadowParserStack,
 )
 from .tmux_runtime import (
+    TmuxControlInputError,
     TmuxCommandError,
     cleanup_tmux_session as cleanup_tmux_session_shared,
     create_tmux_session as create_tmux_session_shared,
     ensure_tmux_available as ensure_tmux_available_shared,
     generate_tmux_session_name as generate_tmux_session_name_shared,
     list_tmux_sessions as list_tmux_sessions_shared,
+    overlay_tmux_rich_color_environment,
     parse_tmux_control_input as parse_tmux_control_input_shared,
     run_tmux as run_tmux_shared,
     send_tmux_control_input as send_tmux_control_input_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
-    TmuxControlInputError,
     tmux_error_detail as tmux_error_detail_shared,
 )
 
@@ -1992,6 +1993,7 @@ def _compose_tmux_launch_env(
     launch_env.update(_credential_env_overlay(plan))
     launch_env.update(plan.env)
     launch_env[plan.home_env_var] = str(plan.home_path)
+    overlay_tmux_rich_color_environment(launch_env)
     if api_base_url is not None:
         inject_loopback_no_proxy_env_for_cao_base_url(
             launch_env,
