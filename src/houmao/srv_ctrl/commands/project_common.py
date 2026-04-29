@@ -82,6 +82,7 @@ from .common import (
 )
 from .output import emit
 from .mailbox_support import (
+    clear_mailbox_account_messages_at_root,
     clear_mailbox_messages_at_root,
     cleanup_mailbox_root,
     export_mailbox_root,
@@ -1164,7 +1165,9 @@ def _resolve_launch_profile_skill_overlay_inputs_or_click(
     )
     if remove_registered:
         registered_skill_names = [
-            skill_name for skill_name in registered_skill_names if skill_name not in remove_registered
+            skill_name
+            for skill_name in registered_skill_names
+            if skill_name not in remove_registered
         ]
     for skill_name in add_registered:
         if skill_name not in registered_skill_names:
@@ -2355,6 +2358,7 @@ __all__ = [
     "managed_launch_force_option",
     "overwrite_confirm_option",
     "emit",
+    "clear_mailbox_account_messages_at_root",
     "clear_mailbox_messages_at_root",
     "cleanup_mailbox_root",
     "export_mailbox_root",

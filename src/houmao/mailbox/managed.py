@@ -585,6 +585,20 @@ class MailboxMessageClearResult:
 
 
 @dataclass(frozen=True)
+class MailboxAccountMessageClearResult:
+    """Structured account-scoped delivered-message clearing result."""
+
+    mailbox_root: Path
+    address: str
+    registration_id: str
+    dry_run: bool
+    planned: tuple[MailboxCleanupRecord, ...]
+    removed: tuple[MailboxCleanupRecord, ...]
+    preserved: tuple[MailboxCleanupRecord, ...]
+    blocked: tuple[MailboxCleanupRecord, ...]
+
+
+@dataclass(frozen=True)
 class MailboxExportAction:
     """One mailbox export copy, materialization, skip, or blocked outcome."""
 
@@ -648,6 +662,19 @@ class MailboxExportResult:
     preserved_symlinks: tuple[MailboxExportAction, ...]
     skipped: tuple[MailboxExportAction, ...]
     blocked: tuple[MailboxExportAction, ...]
+
+
+@dataclass(frozen=True)
+class _AccountMessageClearPlan:
+    """Account-scoped message clear planning result."""
+
+    selected_registration: MailboxRegistration
+    removable_message_ids: tuple[str, ...]
+    affected_thread_ids: tuple[str, ...]
+    removable_attachment_ids: tuple[str, ...]
+    removal_targets: tuple[MailboxCleanupRecord, ...]
+    preserved_targets: tuple[MailboxCleanupRecord, ...]
+    blocked_targets: tuple[MailboxCleanupRecord, ...]
 
 
 @dataclass(frozen=True)
@@ -2466,6 +2493,134 @@ def clear_mailbox_messages(
     )
 
 
+def clear_mailbox_account_messages(
+    mailbox_root: Path,
+    *,
+    address: str,
+    dry_run: bool = False,
+    lock_timeout_seconds: float = 5.0,
+) -> MailboxAccountMessageClearResult:
+    """Clear delivered messages visible to one active mailbox account."""
+
+    paths = _resolve_paths(mailbox_root)
+    _ensure_supported_mailbox_root(paths)
+    if not paths.sqlite_path.is_file():
+        raise ManagedMailboxOperationError(
+            "mailbox root needs repair before clearing account messages: "
+            f"missing index `{paths.sqlite_path}`"
+        )
+
+    try:
+        with sqlite3.connect(paths.sqlite_path) as seed_connection:
+            seed_connection.execute("PRAGMA foreign_keys = ON")
+            seed_registrations = _load_all_registrations(seed_connection)
+            seed_registration = _load_active_registration(seed_connection, address=address)
+    except sqlite3.DatabaseError as exc:
+        raise ManagedMailboxOperationError(
+            f"mailbox root needs repair before clearing account messages: {exc}"
+        ) from exc
+
+    if seed_registration is None:
+        raise ManagedMailboxOperationError(f"no active mailbox registration exists for `{address}`")
+
+    affected_addresses = tuple(
+        sorted({registration.address for registration in seed_registrations})
+    )
+    removed: list[MailboxCleanupRecord] = []
+    blocked: list[MailboxCleanupRecord] = []
+    plan: _AccountMessageClearPlan | None = None
+
+    with _acquired_lock_set(paths, affected_addresses, timeout_seconds=lock_timeout_seconds):
+        try:
+            with sqlite3.connect(paths.sqlite_path) as connection:
+                connection.execute("PRAGMA foreign_keys = ON")
+                selected_registration = _load_active_registration(connection, address=address)
+                if selected_registration is None:
+                    raise ManagedMailboxOperationError(
+                        f"no active mailbox registration exists for `{address}`"
+                    )
+                _validate_active_registration(selected_registration)
+                registrations = _load_all_registrations(connection)
+                plan = _account_message_clear_plan(
+                    paths=paths,
+                    connection=connection,
+                    registrations=registrations,
+                    selected_registration=selected_registration,
+                )
+
+                if dry_run:
+                    return MailboxAccountMessageClearResult(
+                        mailbox_root=paths.root,
+                        address=selected_registration.address,
+                        registration_id=selected_registration.registration_id,
+                        dry_run=True,
+                        planned=plan.removal_targets,
+                        removed=(),
+                        preserved=plan.preserved_targets,
+                        blocked=plan.blocked_targets,
+                    )
+
+                connection.execute("BEGIN IMMEDIATE")
+                _delete_account_message_index_rows(connection=connection, plan=plan)
+                connection.commit()
+        except sqlite3.DatabaseError as exc:
+            raise ManagedMailboxOperationError(
+                f"mailbox root needs repair before clearing account messages: {exc}"
+            ) from exc
+
+        blocked.extend(plan.blocked_targets)
+        for target in plan.removal_targets:
+            try:
+                if target.artifact_kind == "mailbox_local_state":
+                    _clear_existing_local_mailbox_database(target.path)
+                else:
+                    _remove_message_clear_artifact(target.path)
+                    if target.artifact_kind == "canonical_message":
+                        _remove_empty_descendant_dirs(paths.messages_dir)
+                    elif target.artifact_kind == "managed_attachment":
+                        _remove_empty_descendant_dirs(paths.attachments_managed_dir)
+            except (OSError, sqlite3.DatabaseError) as exc:
+                blocked.append(
+                    MailboxCleanupRecord(
+                        outcome="blocked",
+                        artifact_kind=target.artifact_kind,
+                        path=target.path,
+                        reason=f"{target.reason}; clear failed: {exc}",
+                        address=target.address,
+                        registration_id=target.registration_id,
+                        registration_status=target.registration_status,
+                        message_id=target.message_id,
+                        attachment_id=target.attachment_id,
+                    )
+                )
+            else:
+                removed.append(
+                    MailboxCleanupRecord(
+                        outcome="removed",
+                        artifact_kind=target.artifact_kind,
+                        path=target.path,
+                        reason=target.reason,
+                        address=target.address,
+                        registration_id=target.registration_id,
+                        registration_status=target.registration_status,
+                        message_id=target.message_id,
+                        attachment_id=target.attachment_id,
+                    )
+                )
+
+    assert plan is not None
+    return MailboxAccountMessageClearResult(
+        mailbox_root=paths.root,
+        address=plan.selected_registration.address,
+        registration_id=plan.selected_registration.registration_id,
+        dry_run=False,
+        planned=(),
+        removed=tuple(removed),
+        preserved=plan.preserved_targets,
+        blocked=tuple(blocked),
+    )
+
+
 def export_mailbox_archive(
     mailbox_root: Path,
     request: MailboxExportRequest,
@@ -3439,6 +3594,450 @@ def _sql_placeholders(count: int) -> str:
     if count <= 0:
         raise ValueError("SQL placeholder count must be positive")
     return ", ".join("?" for _ in range(count))
+
+
+def _account_message_clear_plan(
+    *,
+    paths: FilesystemMailboxPaths,
+    connection: sqlite3.Connection,
+    registrations: Sequence[MailboxRegistration],
+    selected_registration: MailboxRegistration,
+) -> _AccountMessageClearPlan:
+    """Return deterministic targets for clearing one mailbox account's messages."""
+
+    removal_targets: list[MailboxCleanupRecord] = []
+    preserved_targets: list[MailboxCleanupRecord] = []
+    blocked_targets: list[MailboxCleanupRecord] = []
+    seen_paths: set[Path] = set()
+
+    for registration in sorted(
+        registrations, key=lambda item: (item.address, item.registration_id)
+    ):
+        preserved_targets.append(
+            MailboxCleanupRecord(
+                outcome="preserved",
+                artifact_kind="mailbox_registration",
+                path=registration.mailbox_entry_path,
+                reason="mailbox registrations are intentionally preserved during account message clearing",
+                address=registration.address,
+                registration_id=registration.registration_id,
+                registration_status=registration.status,
+            )
+        )
+
+    selected_rows = connection.execute(
+        """
+        SELECT
+            projection.message_id,
+            projection.folder_name,
+            projection.projection_path,
+            message.canonical_path,
+            message.thread_id
+        FROM mailbox_projections AS projection
+        JOIN messages AS message ON message.message_id = projection.message_id
+        WHERE projection.registration_id = ?
+        ORDER BY message.created_at_utc ASC, projection.message_id ASC, projection.folder_name ASC
+        """,
+        (selected_registration.registration_id,),
+    ).fetchall()
+    selected_message_ids = tuple(sorted({str(row[0]) for row in selected_rows}))
+    message_metadata = {
+        str(row[0]): (_artifact_path(str(row[3])), str(row[4])) for row in selected_rows
+    }
+
+    for row in selected_rows:
+        message_id = str(row[0])
+        projection_path = _artifact_path(str(row[2]))
+        if not _path_is_relative_to(projection_path, selected_registration.mailbox_path):
+            blocked_targets.append(
+                MailboxCleanupRecord(
+                    outcome="blocked",
+                    artifact_kind="mailbox_projection",
+                    path=projection_path,
+                    reason=(
+                        "recorded mailbox projection is outside the selected registered "
+                        "mailbox path and will not be deleted automatically"
+                    ),
+                    address=selected_registration.address,
+                    registration_id=selected_registration.registration_id,
+                    registration_status=selected_registration.status,
+                    message_id=message_id,
+                )
+            )
+            continue
+        if projection_path.exists() or projection_path.is_symlink():
+            _append_unique_clear_target(
+                targets=removal_targets,
+                seen_paths=seen_paths,
+                target=MailboxCleanupRecord(
+                    outcome="planned",
+                    artifact_kind="mailbox_projection",
+                    path=projection_path,
+                    reason="selected account mailbox projection is in account message clear scope",
+                    address=selected_registration.address,
+                    registration_id=selected_registration.registration_id,
+                    registration_status=selected_registration.status,
+                    message_id=message_id,
+                ),
+            )
+
+    for record in _stale_projection_targets(
+        registrations=(selected_registration,),
+        already_seen_paths=seen_paths,
+    ):
+        _append_unique_clear_target(targets=removal_targets, seen_paths=seen_paths, target=record)
+
+    selected_local_sqlite_path = selected_registration.local_sqlite_path
+    if selected_local_sqlite_path.is_file():
+        try:
+            local_state_count = _local_mailbox_state_row_count(selected_local_sqlite_path)
+        except sqlite3.DatabaseError:
+            local_state_count = 1
+        if local_state_count > 0:
+            _append_unique_clear_target(
+                targets=removal_targets,
+                seen_paths=seen_paths,
+                target=MailboxCleanupRecord(
+                    outcome="planned",
+                    artifact_kind="mailbox_local_state",
+                    path=selected_local_sqlite_path,
+                    reason="selected account mailbox-local message and thread state is in clear scope",
+                    address=selected_registration.address,
+                    registration_id=selected_registration.registration_id,
+                    registration_status=selected_registration.status,
+                ),
+            )
+
+    retained_message_ids = _message_ids_with_other_projections(
+        connection=connection,
+        message_ids=selected_message_ids,
+        registration_id=selected_registration.registration_id,
+    )
+    removable_message_ids = tuple(
+        message_id for message_id in selected_message_ids if message_id not in retained_message_ids
+    )
+    affected_thread_ids = tuple(
+        sorted({message_metadata[message_id][1] for message_id in removable_message_ids})
+    )
+
+    _append_account_clear_canonical_targets(
+        paths=paths,
+        message_metadata=message_metadata,
+        retained_message_ids=retained_message_ids,
+        removable_message_ids=removable_message_ids,
+        selected_registration=selected_registration,
+        removal_targets=removal_targets,
+        preserved_targets=preserved_targets,
+        blocked_targets=blocked_targets,
+        seen_paths=seen_paths,
+    )
+    _append_retained_projection_preservations(
+        connection=connection,
+        registrations=registrations,
+        selected_registration=selected_registration,
+        retained_message_ids=tuple(sorted(retained_message_ids)),
+        preserved_targets=preserved_targets,
+    )
+    removable_attachment_ids = _append_account_clear_attachment_targets(
+        paths=paths,
+        connection=connection,
+        removable_message_ids=removable_message_ids,
+        removal_targets=removal_targets,
+        preserved_targets=preserved_targets,
+        blocked_targets=blocked_targets,
+        seen_paths=seen_paths,
+    )
+
+    return _AccountMessageClearPlan(
+        selected_registration=selected_registration,
+        removable_message_ids=removable_message_ids,
+        affected_thread_ids=affected_thread_ids,
+        removable_attachment_ids=removable_attachment_ids,
+        removal_targets=tuple(removal_targets),
+        preserved_targets=tuple(preserved_targets),
+        blocked_targets=tuple(blocked_targets),
+    )
+
+
+def _message_ids_with_other_projections(
+    *,
+    connection: sqlite3.Connection,
+    message_ids: Sequence[str],
+    registration_id: str,
+) -> set[str]:
+    """Return selected message ids still projected to another registration."""
+
+    if not message_ids:
+        return set()
+    placeholders = _sql_placeholders(len(message_ids))
+    rows = connection.execute(
+        f"""
+        SELECT DISTINCT message_id
+        FROM mailbox_projections
+        WHERE message_id IN ({placeholders}) AND registration_id <> ?
+        """,
+        (*message_ids, registration_id),
+    ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _append_account_clear_canonical_targets(
+    *,
+    paths: FilesystemMailboxPaths,
+    message_metadata: dict[str, tuple[Path, str]],
+    retained_message_ids: set[str],
+    removable_message_ids: Sequence[str],
+    selected_registration: MailboxRegistration,
+    removal_targets: list[MailboxCleanupRecord],
+    preserved_targets: list[MailboxCleanupRecord],
+    blocked_targets: list[MailboxCleanupRecord],
+    seen_paths: set[Path],
+) -> None:
+    """Append canonical message targets for one account-scoped clear plan."""
+
+    for message_id in removable_message_ids:
+        canonical_path, _thread_id = message_metadata[message_id]
+        if not _path_is_relative_to(canonical_path, paths.messages_dir):
+            blocked_targets.append(
+                MailboxCleanupRecord(
+                    outcome="blocked",
+                    artifact_kind="canonical_message",
+                    path=canonical_path,
+                    reason=(
+                        "canonical message path is outside the mailbox messages directory "
+                        "and will not be deleted automatically"
+                    ),
+                    address=selected_registration.address,
+                    registration_id=selected_registration.registration_id,
+                    registration_status=selected_registration.status,
+                    message_id=message_id,
+                )
+            )
+            continue
+        if canonical_path.exists() or canonical_path.is_symlink():
+            _append_unique_clear_target(
+                targets=removal_targets,
+                seen_paths=seen_paths,
+                target=MailboxCleanupRecord(
+                    outcome="planned",
+                    artifact_kind="canonical_message",
+                    path=canonical_path,
+                    reason="canonical message has no remaining mailbox projections after account clear",
+                    address=selected_registration.address,
+                    registration_id=selected_registration.registration_id,
+                    registration_status=selected_registration.status,
+                    message_id=message_id,
+                ),
+            )
+
+    for message_id in sorted(retained_message_ids):
+        canonical_path, _thread_id = message_metadata[message_id]
+        preserved_targets.append(
+            MailboxCleanupRecord(
+                outcome="preserved",
+                artifact_kind="canonical_message",
+                path=canonical_path,
+                reason="canonical message is preserved because another account retains a projection",
+                address=selected_registration.address,
+                registration_id=selected_registration.registration_id,
+                registration_status=selected_registration.status,
+                message_id=message_id,
+            )
+        )
+
+
+def _append_retained_projection_preservations(
+    *,
+    connection: sqlite3.Connection,
+    registrations: Sequence[MailboxRegistration],
+    selected_registration: MailboxRegistration,
+    retained_message_ids: Sequence[str],
+    preserved_targets: list[MailboxCleanupRecord],
+) -> None:
+    """Append preserved projection records for accounts that retain selected messages."""
+
+    if not retained_message_ids:
+        return
+    registration_by_id = {
+        registration.registration_id: registration for registration in registrations
+    }
+    placeholders = _sql_placeholders(len(retained_message_ids))
+    rows = connection.execute(
+        f"""
+        SELECT registration_id, message_id, projection_path
+        FROM mailbox_projections
+        WHERE message_id IN ({placeholders}) AND registration_id <> ?
+        ORDER BY registration_id, message_id, folder_name, projection_path
+        """,
+        (*retained_message_ids, selected_registration.registration_id),
+    ).fetchall()
+    for row in rows:
+        registration = registration_by_id.get(str(row[0]))
+        projection_path = _artifact_path(str(row[2]))
+        preserved_targets.append(
+            MailboxCleanupRecord(
+                outcome="preserved",
+                artifact_kind="mailbox_projection",
+                path=projection_path,
+                reason="mailbox projection is preserved because it belongs to another account",
+                address=None if registration is None else registration.address,
+                registration_id=str(row[0]),
+                registration_status=None if registration is None else registration.status,
+                message_id=str(row[1]),
+            )
+        )
+
+
+def _append_account_clear_attachment_targets(
+    *,
+    paths: FilesystemMailboxPaths,
+    connection: sqlite3.Connection,
+    removable_message_ids: Sequence[str],
+    removal_targets: list[MailboxCleanupRecord],
+    preserved_targets: list[MailboxCleanupRecord],
+    blocked_targets: list[MailboxCleanupRecord],
+    seen_paths: set[Path],
+) -> tuple[str, ...]:
+    """Append attachment targets for messages removed by account-scoped clearing."""
+
+    if not removable_message_ids:
+        return ()
+    placeholders = _sql_placeholders(len(removable_message_ids))
+    rows = connection.execute(
+        f"""
+        SELECT DISTINCT attachment.attachment_id, attachment.kind, attachment.locator
+        FROM attachments AS attachment
+        JOIN message_attachments AS link ON link.attachment_id = attachment.attachment_id
+        WHERE link.message_id IN ({placeholders})
+        ORDER BY attachment.attachment_id
+        """,
+        tuple(removable_message_ids),
+    ).fetchall()
+    removable_attachment_ids: list[str] = []
+    for attachment_id_value, kind_value, locator_value in rows:
+        attachment_id = str(attachment_id_value)
+        kind = str(kind_value)
+        attachment_path = _artifact_path(str(locator_value))
+        retained_reference = _attachment_has_retained_message_reference(
+            connection=connection,
+            attachment_id=attachment_id,
+            removable_message_ids=removable_message_ids,
+        )
+        if retained_reference:
+            preserved_targets.append(
+                MailboxCleanupRecord(
+                    outcome="preserved",
+                    artifact_kind="managed_attachment" if kind == "managed_copy" else "attachment",
+                    path=attachment_path,
+                    reason="attachment is preserved because a retained message still references it",
+                    attachment_id=attachment_id,
+                )
+            )
+            continue
+
+        removable_attachment_ids.append(attachment_id)
+        if kind == "path_ref":
+            preserved_targets.append(
+                MailboxCleanupRecord(
+                    outcome="preserved",
+                    artifact_kind="path_ref_attachment",
+                    path=attachment_path,
+                    reason="external path_ref attachment target is outside account message clear scope",
+                    attachment_id=attachment_id,
+                )
+            )
+            continue
+        if kind != "managed_copy":
+            blocked_targets.append(
+                MailboxCleanupRecord(
+                    outcome="blocked",
+                    artifact_kind="attachment",
+                    path=attachment_path,
+                    reason=f"unsupported attachment kind `{kind}`",
+                    attachment_id=attachment_id,
+                )
+            )
+            continue
+        if not _path_is_relative_to(attachment_path, paths.attachments_managed_dir):
+            blocked_targets.append(
+                MailboxCleanupRecord(
+                    outcome="blocked",
+                    artifact_kind="managed_attachment",
+                    path=attachment_path,
+                    reason=(
+                        "managed-copy attachment path is outside the mailbox managed "
+                        "attachment directory and will not be deleted automatically"
+                    ),
+                    attachment_id=attachment_id,
+                )
+            )
+            continue
+        if attachment_path.exists() or attachment_path.is_symlink():
+            _append_unique_clear_target(
+                targets=removal_targets,
+                seen_paths=seen_paths,
+                target=MailboxCleanupRecord(
+                    outcome="planned",
+                    artifact_kind="managed_attachment",
+                    path=attachment_path,
+                    reason="unreferenced mailbox-owned managed-copy attachment is in clear scope",
+                    attachment_id=attachment_id,
+                ),
+            )
+
+    return tuple(removable_attachment_ids)
+
+
+def _attachment_has_retained_message_reference(
+    *,
+    connection: sqlite3.Connection,
+    attachment_id: str,
+    removable_message_ids: Sequence[str],
+) -> bool:
+    """Return whether an attachment remains referenced after selected messages are removed."""
+
+    placeholders = _sql_placeholders(len(removable_message_ids))
+    row = connection.execute(
+        f"""
+        SELECT 1
+        FROM message_attachments
+        WHERE attachment_id = ? AND message_id NOT IN ({placeholders})
+        LIMIT 1
+        """,
+        (attachment_id, *removable_message_ids),
+    ).fetchone()
+    return row is not None
+
+
+def _delete_account_message_index_rows(
+    *,
+    connection: sqlite3.Connection,
+    plan: _AccountMessageClearPlan,
+) -> None:
+    """Delete selected-account index rows and orphaned shared rows."""
+
+    connection.execute(
+        "DELETE FROM mailbox_projections WHERE registration_id = ?",
+        (plan.selected_registration.registration_id,),
+    )
+    connection.execute(
+        "DELETE FROM mailbox_state WHERE registration_id = ?",
+        (plan.selected_registration.registration_id,),
+    )
+    if plan.removable_message_ids:
+        message_placeholders = _sql_placeholders(len(plan.removable_message_ids))
+        connection.execute(
+            f"DELETE FROM messages WHERE message_id IN ({message_placeholders})",
+            plan.removable_message_ids,
+        )
+    if plan.removable_attachment_ids:
+        attachment_placeholders = _sql_placeholders(len(plan.removable_attachment_ids))
+        connection.execute(
+            f"DELETE FROM attachments WHERE attachment_id IN ({attachment_placeholders})",
+            plan.removable_attachment_ids,
+        )
+    for thread_id in plan.affected_thread_ids:
+        _recompute_thread_summary(connection, thread_id)
 
 
 def _message_clear_targets(
@@ -4628,6 +5227,7 @@ def _recompute_thread_summary(connection: sqlite3.Connection, thread_id: str) ->
         (thread_id,),
     ).fetchone()
     if latest_row is None:
+        connection.execute("DELETE FROM thread_summaries WHERE thread_id = ?", (thread_id,))
         return
 
     connection.execute(

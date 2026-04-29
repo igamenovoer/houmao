@@ -1169,12 +1169,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     mailbox_clear_messages_action_path = mailbox_mgr_actions / "clear-messages.md"
     mailbox_export_action_path = mailbox_mgr_actions / "export.md"
     mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
+    mailbox_messages_clear_action_path = mailbox_mgr_actions / "messages-clear.md"
     mailbox_agent_binding_register_action_path = mailbox_mgr_actions / "agent-binding-register.md"
     mailbox_root_reference_path = mailbox_mgr_references / "root-selection.md"
     mailbox_mode_reference_path = mailbox_mgr_references / "mode-vocabulary.md"
     mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
     mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
     mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
+    mailbox_messages_clear_action = mailbox_messages_clear_action_path.read_text(encoding="utf-8")
     assert "description: \"Use when the user's intent is to read or write" in memory_mgr_skill
     assert "Necessary trigger: `memo` is mentioned." in memory_mgr_skill
     assert "Sufficient trigger: the prompt or context says `houmao memo`" in memory_mgr_skill
@@ -1328,6 +1330,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "actions/init.md" in mailbox_mgr_skill
     assert "actions/register.md" in mailbox_mgr_skill
     assert "actions/clear-messages.md" in mailbox_mgr_skill
+    assert "actions/messages-clear.md" in mailbox_mgr_skill
     assert "actions/export.md" in mailbox_mgr_skill
     assert "actions/agent-binding-register.md" in mailbox_mgr_skill
     assert "references/root-selection.md" in mailbox_mgr_skill
@@ -1347,6 +1350,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert mailbox_clear_messages_action_path.is_file()
     assert mailbox_export_action_path.is_file()
     assert mailbox_messages_get_action_path.is_file()
+    assert mailbox_messages_clear_action_path.is_file()
     assert mailbox_agent_binding_register_action_path.is_file()
     assert mailbox_root_reference_path.is_file()
     assert mailbox_mode_reference_path.is_file()
@@ -1366,6 +1370,11 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "mailbox export" in mailbox_export_action
     assert "--symlink-mode materialize|preserve" in mailbox_export_action
     assert "Do not recommend raw recursive mailbox-root copying" in mailbox_export_action
+    assert "mailbox messages clear --address <full-address>" in mailbox_messages_clear_action
+    assert (
+        "project mailbox messages clear --address <full-address>" in mailbox_messages_clear_action
+    )
+    assert "actions/clear-messages.md" in mailbox_messages_clear_action
     assert "actions/launch.md" in manage_agent_instance_skill
     assert "actions/join.md" in manage_agent_instance_skill
     assert "actions/list.md" in manage_agent_instance_skill

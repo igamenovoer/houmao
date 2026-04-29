@@ -19,10 +19,12 @@ from houmao.mailbox.managed import (
     DeliveryRequest,
     DeregisterMailboxRequest,
     MailboxExportRequest,
+    ManagedPrincipal,
     ManagedMailboxOperationError,
     RegisterMailboxRequest,
     RepairRequest,
     StateUpdateRequest,
+    clear_mailbox_account_messages,
     clear_mailbox_messages,
     cleanup_mailbox_registrations,
     deliver_message,
@@ -1239,6 +1241,201 @@ def test_clear_mailbox_messages_removes_mail_content_and_preserves_registrations
     assert not rerun_result.removed
     assert not rerun_result.blocked
     assert any(record.artifact_kind == "mailbox_registration" for record in rerun_result.preserved)
+
+
+def test_clear_mailbox_account_messages_preserves_shared_mail_and_removes_last_projection(
+    tmp_path: Path,
+) -> None:
+    alice = MailboxPrincipal(
+        principal_id="HOUMAO-alice",
+        address="alice@houmao.localhost",
+    )
+    bob = MailboxPrincipal(
+        principal_id="HOUMAO-bob",
+        address="bob@houmao.localhost",
+    )
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox", principal=alice)
+    external_attachment = tmp_path / "external" / "evidence.txt"
+    external_attachment.parent.mkdir(parents=True, exist_ok=True)
+    external_attachment.write_text("external\n", encoding="utf-8")
+    managed_attachment = paths.attachments_managed_dir / "managed-evidence.txt"
+    managed_attachment.write_text("managed\n", encoding="utf-8")
+
+    register_mailbox(
+        paths.root,
+        RegisterMailboxRequest(
+            mode="safe",
+            address=bob.address,
+            owner_principal_id=bob.principal_id,
+            mailbox_kind="in_root",
+            mailbox_path=paths.mailbox_entry_path(bob.address),
+        ),
+    )
+
+    shared_staged = paths.staging_dir / "shared-message.md"
+    shared_request = DeliveryRequest(
+        staged_message_path=shared_staged,
+        message_id="msg-20260311T061600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+        thread_id="msg-20260311T061600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+        created_at_utc="2026-03-11T06:16:00Z",
+        sender=ManagedPrincipal(principal_id=alice.principal_id, address=alice.address),
+        to=(ManagedPrincipal(principal_id=bob.principal_id, address=bob.address),),
+        subject="Shared clear test",
+    )
+    _write_canonical_staged_message(shared_staged, shared_request)
+    deliver_message(paths.root, shared_request)
+
+    private_staged = paths.staging_dir / "private-message.md"
+    private_request = DeliveryRequest.from_payload(
+        {
+            "staged_message_path": str(private_staged),
+            "message_id": "msg-20260311T071600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "thread_id": "msg-20260311T071600Z-a1b2c3d4e5f64798aabbccddeeff0011",
+            "in_reply_to": None,
+            "references": [],
+            "created_at_utc": "2026-03-11T07:16:00Z",
+            "sender": {"principal_id": alice.principal_id, "address": alice.address},
+            "to": [{"principal_id": alice.principal_id, "address": alice.address}],
+            "cc": [],
+            "reply_to": [],
+            "subject": "Private clear test",
+            "attachments": [
+                {
+                    "attachment_id": "att-path-ref",
+                    "kind": "path_ref",
+                    "path": str(external_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+                {
+                    "attachment_id": "att-managed",
+                    "kind": "managed_copy",
+                    "path": str(managed_attachment.resolve()),
+                    "media_type": "text/plain",
+                },
+            ],
+            "headers": {},
+        }
+    )
+    _write_canonical_staged_message(private_staged, private_request)
+    deliver_message(paths.root, private_request)
+
+    shared_canonical_path = paths.messages_dir / "2026-03-11" / f"{shared_request.message_id}.md"
+    private_canonical_path = paths.messages_dir / "2026-03-11" / f"{private_request.message_id}.md"
+    alice_shared_projection = (
+        paths.mailbox_entry_path(alice.address) / "sent" / f"{shared_request.message_id}.md"
+    )
+    bob_shared_projection = (
+        paths.mailbox_entry_path(bob.address) / "inbox" / f"{shared_request.message_id}.md"
+    )
+    alice_private_inbox_projection = (
+        paths.mailbox_entry_path(alice.address) / "inbox" / f"{private_request.message_id}.md"
+    )
+    alice_private_sent_projection = (
+        paths.mailbox_entry_path(alice.address) / "sent" / f"{private_request.message_id}.md"
+    )
+    assert shared_canonical_path.is_file()
+    assert private_canonical_path.is_file()
+    assert alice_shared_projection.is_symlink()
+    assert bob_shared_projection.is_symlink()
+    assert alice_private_inbox_projection.is_symlink()
+    assert alice_private_sent_projection.is_symlink()
+
+    dry_run_result = clear_mailbox_account_messages(paths.root, address=alice.address, dry_run=True)
+
+    planned_kinds = {record.artifact_kind for record in dry_run_result.planned}
+    preserved_message_ids = {
+        record.message_id
+        for record in dry_run_result.preserved
+        if record.artifact_kind == "canonical_message"
+    }
+    assert {
+        "canonical_message",
+        "mailbox_projection",
+        "mailbox_local_state",
+        "managed_attachment",
+    }.issubset(planned_kinds)
+    assert shared_request.message_id in preserved_message_ids
+    assert shared_canonical_path.is_file()
+    assert private_canonical_path.is_file()
+    assert managed_attachment.is_file()
+    assert external_attachment.is_file()
+
+    result = clear_mailbox_account_messages(paths.root, address=alice.address)
+
+    assert not result.blocked
+    removed_kinds = {record.artifact_kind for record in result.removed}
+    assert {
+        "canonical_message",
+        "mailbox_projection",
+        "mailbox_local_state",
+        "managed_attachment",
+    }.issubset(removed_kinds)
+    assert load_active_mailbox_registration(paths.root, address=alice.address).address == (
+        alice.address
+    )
+    assert load_active_mailbox_registration(paths.root, address=bob.address).address == bob.address
+    assert shared_canonical_path.is_file()
+    assert bob_shared_projection.is_symlink()
+    assert not alice_shared_projection.exists()
+    assert not private_canonical_path.exists()
+    assert not alice_private_inbox_projection.exists()
+    assert not alice_private_sent_projection.exists()
+    assert not managed_attachment.exists()
+    assert external_attachment.is_file()
+    assert (
+        _mailbox_state_for_address(
+            paths.sqlite_path,
+            address=alice.address,
+            message_id=shared_request.message_id,
+        )
+        is None
+    )
+    assert _mailbox_state_for_address(
+        paths.sqlite_path,
+        address=bob.address,
+        message_id=shared_request.message_id,
+    ) == (0, 0, 0, 0)
+
+    with sqlite3.connect(paths.sqlite_path) as connection:
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM mailbox_projections WHERE registration_id = ?",
+                (
+                    load_active_mailbox_registration(
+                        paths.root, address=alice.address
+                    ).registration_id,
+                ),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM messages WHERE message_id = ?",
+                (private_request.message_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM messages WHERE message_id = ?",
+                (shared_request.message_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM attachments WHERE attachment_id = ?",
+                ("att-managed",),
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_clear_mailbox_account_messages_requires_active_registration(tmp_path: Path) -> None:
+    paths = bootstrap_filesystem_mailbox(tmp_path / "mailbox")
+
+    with pytest.raises(ManagedMailboxOperationError, match="no active mailbox registration"):
+        clear_mailbox_account_messages(paths.root, address="missing@houmao.localhost")
 
 
 def test_export_mailbox_archive_materializes_selected_symlink_account_and_attachments(

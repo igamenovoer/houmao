@@ -36,6 +36,7 @@ This packaged skill does not cover:
 3. Keep mailbox ownership boundaries explicit:
    - use `mailbox init|status|repair|cleanup|clear-messages|export` to manage the shared mailbox root itself
    - use `mailbox clear-messages` or `project mailbox clear-messages` when the operator wants to remove delivered emails while keeping mailbox accounts registered
+   - use `mailbox messages clear --address` or `project mailbox messages clear --address` when the operator wants to remove delivered emails visible to one selected mailbox account while preserving other accounts
    - use `mailbox export` or `project mailbox export` when the operator wants to archive filesystem mailbox state; default export materializes symlinks so the archive can move to filesystems that do not support symlink artifacts
    - use `mailbox register|unregister` or `project mailbox register|unregister` for manual mailbox-account administration under that root
    - use `agents mailbox ...` when the task is adding or changing mailbox support for an already-running local managed agent
@@ -69,6 +70,7 @@ This packaged skill does not cover:
 - Read [actions/accounts-get.md](actions/accounts-get.md) to inspect one mailbox registration under one arbitrary mailbox root or one project mailbox root.
 - Read [actions/messages-list.md](actions/messages-list.md) to inspect structural message projections for one mailbox address under one arbitrary mailbox root or one project mailbox root.
 - Read [actions/messages-get.md](actions/messages-get.md) to inspect one structurally projected message for one mailbox address under one arbitrary mailbox root or one project mailbox root.
+- Read [actions/messages-clear.md](actions/messages-clear.md) to clear delivered mailbox messages visible to one selected mailbox address while preserving registrations and other accounts.
 - Read [actions/agent-binding-status.md](actions/agent-binding-status.md) to inspect late filesystem mailbox posture for one existing local managed agent.
 - Read [actions/agent-binding-register.md](actions/agent-binding-register.md) to add or update one late filesystem mailbox binding for one existing local managed agent.
 - Read [actions/agent-binding-unregister.md](actions/agent-binding-unregister.md) to remove one late filesystem mailbox binding from one existing local managed agent.
@@ -92,11 +94,12 @@ This packaged skill does not cover:
 
 ## Routing Guidance
 
-- Use `actions/init.md`, `actions/status.md`, `actions/register.md`, `actions/unregister.md`, `actions/repair.md`, `actions/cleanup.md`, `actions/clear-messages.md`, `actions/export.md`, `actions/accounts-list.md`, `actions/accounts-get.md`, `actions/messages-list.md`, or `actions/messages-get.md` only when the task is mailbox-root administration or structural mailbox inspection.
+- Use `actions/init.md`, `actions/status.md`, `actions/register.md`, `actions/unregister.md`, `actions/repair.md`, `actions/cleanup.md`, `actions/clear-messages.md`, `actions/export.md`, `actions/accounts-list.md`, `actions/accounts-get.md`, `actions/messages-list.md`, `actions/messages-get.md`, or `actions/messages-clear.md` only when the task is mailbox-root administration or structural mailbox inspection.
 - Use `actions/agent-binding-status.md`, `actions/agent-binding-register.md`, or `actions/agent-binding-unregister.md` only when the task is late mailbox binding for one existing local managed agent.
 - Use the project mailbox lane when the operator explicitly wants `.houmao/mailbox` or the current active project overlay mailbox root.
 - Use the arbitrary mailbox-root lane when the task targets one explicit filesystem mailbox root outside the project mailbox default.
 - Route requests to remove all delivered emails while preserving mailbox accounts to `actions/clear-messages.md`; do not route that request to registration cleanup or account unregister.
+- Route requests to remove delivered emails for one selected mailbox account while preserving other accounts to `actions/messages-clear.md`; do not route that request to all-account `clear-messages`, registration cleanup, or account unregister.
 - Route requests to archive or export filesystem mailbox state to `actions/export.md`; preserve selected-account scope with repeated `--address` values and expose `--symlink-mode preserve` only when the user explicitly wants symlink preservation.
 - Treat `project mailbox register` as manual mailbox-account administration, not as the default preparation step for every future mailbox-enabled easy launch.
 - When the task is preparing a new specialist-backed easy instance whose same-root ordinary mailbox address will be derived from the managed-agent instance name, explain that the later `project easy instance launch --mail-transport filesystem --mail-root ...` step may own that address instead of preregistering it here.
@@ -115,6 +118,6 @@ This packaged skill does not cover:
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not hand-edit mailbox-root files when the maintained `houmao-mgr` surfaces already cover the task.
-- Do not use `mailbox cleanup` when the user asked to remove delivered email content while preserving accounts; use `mailbox clear-messages` or `project mailbox clear-messages` for that scope.
+- Do not use `mailbox cleanup` when the user asked to remove delivered email content while preserving accounts; use `mailbox clear-messages` or `project mailbox clear-messages` for all-account scope, and use `mailbox messages clear --address` or `project mailbox messages clear --address` for one selected account.
 - Do not recommend ad hoc recursive mailbox-root copying when the maintained export command covers the request.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for mailbox administration.
