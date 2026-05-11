@@ -1,5 +1,8 @@
-## ADDED Requirements
+# houmao-agent-loop-pairwise-v5-skill Specification
 
+## Purpose
+TBD - created by archiving change add-general-pairwise-v5-loop-skill. Update Purpose after archive.
+## Requirements
 ### Requirement: Houmao provides a packaged manual `houmao-agent-loop-pairwise-v5` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pairwise-v5` under the maintained system-skill asset root.
 
@@ -7,7 +10,7 @@ That packaged skill SHALL use `houmao-agent-loop-pairwise-v5` as both its skill 
 
 The packaged `houmao-agent-loop-pairwise-v5` skill SHALL be manual-invocation-only. It SHALL only activate when the user explicitly requests `houmao-agent-loop-pairwise-v5` or an explicitly named v5 loop operation.
 
-The packaged skill SHALL describe itself as a general v5 loop authoring and execution skill rather than as a CUDA, Hopper, or domain-specific optimization skill.
+The packaged skill SHALL describe itself as a general loop authoring and execution skill.
 
 #### Scenario: User explicitly invokes v5
 - **WHEN** a user explicitly asks to use `houmao-agent-loop-pairwise-v5`
@@ -154,19 +157,19 @@ ADR support MAY be added by a later change, but it SHALL remain outside the init
 - **AND WHEN** `<loop-dir>/adrs/` does not exist
 - **THEN** the v5 authoring workflow can still generate or validate `<loop-dir>/execplan/`
 
-### Requirement: V5 remains domain-neutral
-The packaged v5 skill SHALL NOT encode CUDA optimization, Hopper, SM90a, kernel-variant, or other domain-specific requirements as part of its general skill contract.
+### Requirement: V5 derives domain behavior from intention source
+The packaged v5 skill SHALL NOT encode domain-specific objectives, toolchains, topology, scheduling policy, evidence gates, or generated role behavior as part of its general skill contract.
 
 Domain-specific objectives, participants, policies, tools, evidence gates, or generated role behavior SHALL come from the user-provided intention source and generated per-loop execplan material.
 
-Domain-specific existing loop-plan directories MAY be referenced as examples or fixtures, but they SHALL NOT define mandatory behavior for all v5 loops.
+Existing loop-plan directories MAY be referenced as examples or fixtures, but they SHALL NOT define mandatory behavior for all v5 loops.
 
-#### Scenario: Non-CUDA loop can use v5
-- **WHEN** a user asks v5 to create a loop for a non-CUDA objective
+#### Scenario: Intention defines domain behavior
+- **WHEN** a user asks v5 to create a loop for a specific objective
 - **THEN** the skill can create intention material and generate an execplan for that objective
-- **AND THEN** the skill does not require Hopper, CUDA, kernel variants, or timing policy fields
+- **AND THEN** domain-specific fields are required only when the intention source introduces them
 
-#### Scenario: CUDA reference does not become global policy
-- **WHEN** a generated execplan example includes CUDA-specific policies
+#### Scenario: Reference example does not become global policy
+- **WHEN** a generated execplan example includes domain-specific policies
 - **THEN** those policies remain specific to that example loop
 - **AND THEN** the packaged v5 skill does not copy them into unrelated v5 loops as required global policy

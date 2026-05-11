@@ -192,7 +192,7 @@ Mail-received event skills:
 
 - Do not treat generated `execplan/` as editable source.
 - Do not require ADR discovery.
-- Do not copy CUDA/Hopper policies into unrelated loops.
+- Do not copy policies from examples or reference plans into unrelated loops.
 - Do not make one reference topology, state backend, scheduler, communication schema set, or harness command set mandatory for all loops.
 - Do not implement workspace creation mechanics in generated skills when `houmao-utils-workspace-mgr` can represent the layout.
 - Do not create platform launch side effects from this page.

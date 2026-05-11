@@ -12,10 +12,6 @@ description: Manual invocation only; use only when the user explicitly requests 
   - treat it as `init`;
   - ask for the output `<loop-dir>`;
   - do not create files until the user provides it.
-- Keep the skill general:
-  - not CUDA-specific;
-  - not Hopper-specific;
-  - not tied to any business domain.
 
 ## Required Root
 
@@ -123,7 +119,7 @@ Execution pages:
 - Do not auto-route generic loop requests here when the user did not explicitly select this skill.
 - Do not invent `<loop-dir>`.
 - Do not require `adrs/` for the initial workflow.
-- Do not encode CUDA, Hopper, kernel-variant, timing, or domain-specific policy as global behavior.
+- Do not import policy from examples or reference plans as global behavior.
 - Do not treat `execplan/` as the user-editable source of truth.
 - Do not create agent workspaces directly from these pages; use `houmao-utils-workspace-mgr` for workspace planning and execution.
 - Do not duplicate maintained Houmao platform-operation contracts; route launch, messaging, mailbox, gateway, memory, lifecycle, and inspection work to their owning Houmao skills.

@@ -19,7 +19,7 @@
 - [x] 3.1 Document the required v5 root layout: `<loop-dir>/intention/` plus generated `<loop-dir>/execplan/`.
 - [x] 3.2 Document the generated execplan layout with `manifest.toml`, `specs/`, `skills/`, `agents/`, `harness/`, and `docs/`.
 - [x] 3.3 Ensure v5 guidance explicitly excludes required `adrs/` discovery or validation in the initial workflow.
-- [x] 3.4 Ensure v5 guidance remains domain-neutral and does not encode CUDA, Hopper, kernel-variant, or timing-policy requirements.
+- [x] 3.4 Ensure guidance remains domain-neutral and does not encode reference-specific domain requirements.
 
 ## 4. Execution Subskills
 

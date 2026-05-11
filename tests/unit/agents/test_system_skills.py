@@ -831,10 +831,23 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "subskills/authoring/clarify-intent.md" in pairwise_loop_v5_skill
     assert "subskills/execution/prepare-agents.md" in pairwise_loop_v5_skill
     assert "Do not require `adrs/`" in pairwise_loop_v5_skill
-    assert "Do not encode CUDA, Hopper" in pairwise_loop_v5_skill
+    assert "Do not import policy from examples or reference plans as global behavior" in (
+        pairwise_loop_v5_skill
+    )
     assert "route workspace planning and creation through `houmao-utils-workspace-mgr`" in (
         pairwise_loop_v5_skill
     )
+    assert "Cross-agent participant communication defaults to Houmao mail" in (
+        pairwise_loop_v5_skill
+    )
+    assert "Generated loop material owns communication semantics" in pairwise_loop_v5_skill
+    assert "Maintained Houmao skills own mail mechanics" in pairwise_loop_v5_skill
+    assert "houmao-mailbox-mgr" in pairwise_loop_v5_skill
+    assert "houmao-agent-email-comms" in pairwise_loop_v5_skill
+    assert "houmao-process-emails-via-gateway" in pairwise_loop_v5_skill
+    assert "houmao-agent-messaging" in pairwise_loop_v5_skill
+    assert "houmao-agent-gateway" in pairwise_loop_v5_skill
+    assert not re.search(r"(?<!pairwise-)\bv5\b|\bV5\b", pairwise_loop_v5_skill)
     assert "If `<loop-dir>` is missing, ask the user to provide an output directory" in (
         pairwise_loop_v5_create_intention
     )
@@ -844,6 +857,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         pairwise_loop_v5_create_intention
     )
     assert "Ask exactly one focused decision question at a time" in pairwise_loop_v5_clarify_intent
+    assert "Do not ask whether to use mail by default" in pairwise_loop_v5_clarify_intent
+    assert "which participant role sends to which participant role" in (
+        pairwise_loop_v5_clarify_intent
+    )
+    assert "requested_reply_schema_id" in pairwise_loop_v5_clarify_intent
+    assert "on-tick skill instead of one mail-received event handler" in (
+        pairwise_loop_v5_clarify_intent
+    )
     assert "<loop-dir>/adrs/" in pairwise_loop_v5_clarify_intent
     assert "Do not generate, repair, or directly edit `execplan/`" in (
         pairwise_loop_v5_clarify_intent
@@ -854,15 +875,47 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Default generated workspace policy to Houmao `in-repo` style" in (
         pairwise_loop_v5_generate_execplan
     )
+    assert "TOML payload -> schema validation -> Markdown rendering" in (
+        pairwise_loop_v5_generate_execplan
+    )
+    assert "specs/comms/templates.toml" in pairwise_loop_v5_generate_execplan
+    assert "freeform-notice.schema.json" in pairwise_loop_v5_generate_execplan
+    assert "ack.schema.json" in pairwise_loop_v5_generate_execplan
+    assert "schema_id" in pairwise_loop_v5_generate_execplan
+    assert "schema_version" in pairwise_loop_v5_generate_execplan
+    assert "payload_id" in pairwise_loop_v5_generate_execplan
+    assert "kind" in pairwise_loop_v5_generate_execplan
+    assert "run_id" in pairwise_loop_v5_generate_execplan
+    assert "plan_revision" in pairwise_loop_v5_generate_execplan
+    assert "handoff_id" in pairwise_loop_v5_generate_execplan
+    assert "context" in pairwise_loop_v5_generate_execplan
+    assert "requested_reply_schema_id" in pairwise_loop_v5_generate_execplan
+    assert "houmao-email-metadata" in pairwise_loop_v5_generate_execplan
+    assert "email schema|validate|render|apply|query" in pairwise_loop_v5_generate_execplan
+    assert "source payload, status, optional platform message id" in (
+        pairwise_loop_v5_generate_execplan
+    )
+    assert "trigger on the received schema id or message family" in (
+        pairwise_loop_v5_generate_execplan
+    )
+    assert "archive the processed message only after required work" in (
+        pairwise_loop_v5_generate_execplan
+    )
     assert "generated skills under `execplan/skills/*/SKILL.md`" in (
         pairwise_loop_v5_validate_execplan
     )
     assert "workspace setup contracts route workspace planning or creation" in (
         pairwise_loop_v5_validate_execplan
     )
+    assert "execplan/specs/comms/templates.toml" in pairwise_loop_v5_validate_execplan
+    assert "houmao-email-metadata" in pairwise_loop_v5_validate_execplan
+    assert "payload lifecycle contracts" in pairwise_loop_v5_validate_execplan
+    assert "archive-after-success behavior" in pairwise_loop_v5_validate_execplan
     assert "houmao-utils-workspace-mgr" in pairwise_loop_v5_prepare_agents
     assert "houmao-specialist-mgr" in pairwise_loop_v5_prepare_agents
     assert "houmao-agent-instance" in pairwise_loop_v5_prepare_agents
+    assert "maintained mail support skills" in pairwise_loop_v5_prepare_agents
+    assert "houmao-process-emails-via-gateway" in pairwise_loop_v5_prepare_agents
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill

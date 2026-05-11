@@ -71,4 +71,4 @@ Report:
 
 - Do not fix validation failures unless the user asked for repair or regeneration.
 - Do not fail only because `<loop-dir>/adrs/` is absent.
-- Do not validate domain-specific CUDA or Hopper fields unless the intention source introduced that domain.
+- Do not validate domain-specific fields unless the intention source introduced that domain.

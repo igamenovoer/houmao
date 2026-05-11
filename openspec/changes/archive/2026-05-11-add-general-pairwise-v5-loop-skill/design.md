@@ -2,7 +2,7 @@
 
 Houmao currently packages a family of pairwise loop skills through v4. Those skills author and operate Markdown-centered loop plans, with v4 adding stricter document templates and source-constraint coverage. The next workflow needs a more explicit two-phase model: an editable source area where the user and agent shape loop intention, and a generated execution package that participant agents can consume through structured contracts, installable role skills, concrete agent bindings, generated docs, and a plan-local harness.
 
-The v7 Hopper loop-plan directory is useful as a reference for the generated execution package shape, but v5 itself must be domain-neutral. CUDA optimization, Hopper constraints, ADR harvesting, and task-specific loop policy are not part of the packaged v5 skill contract.
+A mature loop-plan directory is useful as a reference for the generated execution package shape, but packaged behavior must stay domain-neutral. Reference-specific constraints, ADR harvesting, and task-specific loop policy are not part of the packaged skill contract.
 
 Stakeholders are:
 
@@ -22,11 +22,11 @@ Stakeholders are:
 - Define `<loop-dir>/intention/` as a freeform editable source area with `README.md` and `loop-overview.md`.
 - Define `<loop-dir>/execplan/` as a generated package shaped like the current v5 loop-plan reference: `manifest.toml`, `specs/`, `skills/`, `agents/`, `harness/`, and `docs/`.
 - Split skill guidance into authoring and execution subskills so each operational mode has bounded instructions.
-- Keep v5 general across domains and independent from CUDA/Hopper assumptions.
+- Keep the skill general across domains and independent from reference-plan assumptions.
 
 **Non-Goals:**
 
-- Implement a CUDA-specific loop generator.
+- Implement a domain-specific loop generator.
 - Require or parse `adrs/` as part of the initial v5 workflow.
 - Preserve compatibility with the v4 generated Markdown bundle format.
 - Add a generic loop engine to Houmao core.
@@ -101,7 +101,7 @@ The initial v5 skill does not require an `adrs/` directory, does not scan ADRs, 
 
 Rationale: the first version should prove the `intention/` to `execplan/` model without coupling it to a specific design-document governance workflow.
 
-Alternative considered: require ADRs because the v7 Hopper reference uses them. Rejected because the user explicitly wants ADRs handled later.
+Alternative considered: require ADRs because a reference plan uses them. Rejected because the user explicitly wants ADRs handled later.
 
 ## Risks / Trade-offs
 

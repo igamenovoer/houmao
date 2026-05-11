@@ -29,4 +29,4 @@ Read first:
 - Do not rewrite user-authored freeform files into a rigid template.
 - Do not edit generated `execplan/` files from this page.
 - Do not require ADR files.
-- Do not silently convert non-domain-specific intention into CUDA, Hopper, or other domain policy.
+- Do not silently convert underspecified intention into unrelated domain policy.

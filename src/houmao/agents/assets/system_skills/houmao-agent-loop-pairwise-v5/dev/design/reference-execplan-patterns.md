@@ -297,7 +297,7 @@ Reference-specific details that should not become defaults:
 - evidence-field names or domain validation gates;
 - the exact scheduling algorithm or completion policy;
 - a required SQLite backend or database layout;
-- any specific toolchain, benchmark, artifact type, or optimization domain.
+- any specific toolchain, benchmark, artifact type, or specialized domain.
 
 ## State And Record Pattern
 

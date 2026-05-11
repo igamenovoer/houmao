@@ -1,6 +1,6 @@
 ## Why
 
-The current pairwise loop skills stop at authored Markdown run plans, while the next loop model needs a general source-to-execution workflow that separates editable user intention from generated operational contracts. A new manual-only v5 skill gives operators a deliberate entrypoint for complex loop authoring and execution without tying the model to CUDA optimization or any other domain-specific workflow.
+The current pairwise loop skills stop at authored Markdown run plans, while the next loop model needs a general source-to-execution workflow that separates editable user intention from generated operational contracts. A new manual-only skill gives operators a deliberate entrypoint for complex loop authoring and execution without tying the model to any domain-specific workflow.
 
 ## What Changes
 
@@ -12,7 +12,7 @@ The current pairwise loop skills stop at authored Markdown run plans, while the 
 - Split v5 guidance into authoring subskills and execution subskills so the top-level skill remains an index/router instead of a monolithic instruction file.
 - Require the implementation agent to invoke `$skill-creator` before creating or substantially updating the packaged v5 skill assets.
 - Keep ADR discovery and ADR-driven generation out of the initial v5 contract; ADR support can be added later.
-- Keep CUDA/Hopper material out of the skill requirements. Existing CUDA loop plans may be used as examples or fixtures, but v5 itself is general.
+- Keep domain-specific material out of the skill requirements. Existing loop plans may be used as examples or fixtures, but packaged behavior is general.
 
 ## Capabilities
 
@@ -28,4 +28,4 @@ None.
 - Affected skill assets under `src/houmao/agents/assets/system_skills/`, including a new `houmao-agent-loop-pairwise-v5/` directory.
 - Affected system-skill catalog and installation expectations so v5 can be discovered and installed like the existing pairwise skill family.
 - Affected unit tests for packaged system-skill inventory, catalog ordering, and v5 skill content.
-- Future implementation may add helper scripts under the v5 skill directory, but no domain-specific CUDA generator behavior is part of this change.
+- Future implementation may add helper scripts under the skill directory, but no domain-specific generator behavior is part of this change.
