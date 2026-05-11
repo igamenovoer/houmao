@@ -34,6 +34,7 @@ Before creating or changing files, require one user-selected `<loop-dir>`.
 
 Authoring:
 - `create-intention`: create the initial editable intention area.
+- `clarify intent`: interview the user about loop intent, record accepted decisions as ADRs, and update intention Markdown.
 - `refine-intention`: update existing intention Markdown from user edits or new direction.
 - `generate-execplan`: generate `execplan/` from `intention/`.
 - `validate-execplan`: validate generated execplan shape and generated-artifact posture.
@@ -54,6 +55,7 @@ Choose exactly one page:
 
 Authoring pages:
 - Read [subskills/authoring/create-intention.md](subskills/authoring/create-intention.md) when the user has an intention and wants to initialize `<loop-dir>/intention/`.
+- Read [subskills/authoring/clarify-intent.md](subskills/authoring/clarify-intent.md) when intention Markdown already exists and the user asks to `clarify intent` through decision questions and ADR capture.
 - Read [subskills/authoring/refine-intention.md](subskills/authoring/refine-intention.md) when intention Markdown already exists and needs revision.
 - Read [subskills/authoring/generate-execplan.md](subskills/authoring/generate-execplan.md) when generating `<loop-dir>/execplan/` from current intention source.
 - Read [subskills/authoring/validate-execplan.md](subskills/authoring/validate-execplan.md) when checking generated execplan artifacts.

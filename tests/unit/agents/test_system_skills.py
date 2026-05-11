@@ -373,6 +373,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert (pairwise_loop_v4_document_templates / "constraint-coverage-audit.md").is_file()
     assert pairwise_loop_v5_skill_path.is_file()
     assert (pairwise_loop_v5_authoring / "create-intention.md").is_file()
+    assert (pairwise_loop_v5_authoring / "clarify-intent.md").is_file()
     assert (pairwise_loop_v5_authoring / "generate-execplan.md").is_file()
     assert (pairwise_loop_v5_authoring / "validate-execplan.md").is_file()
     assert (pairwise_loop_v5_execution / "prepare-agents.md").is_file()
@@ -416,6 +417,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v5_skill = pairwise_loop_v5_skill_path.read_text(encoding="utf-8")
     pairwise_loop_v5_create_intention = (
         pairwise_loop_v5_authoring / "create-intention.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_clarify_intent = (
+        pairwise_loop_v5_authoring / "clarify-intent.md"
     ).read_text(encoding="utf-8")
     pairwise_loop_v5_generate_execplan = (
         pairwise_loop_v5_authoring / "generate-execplan.md"
@@ -819,12 +823,18 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<loop-dir>/intention/" in pairwise_loop_v5_skill
     assert "<loop-dir>/execplan/" in pairwise_loop_v5_skill
     assert "subskills/authoring/create-intention.md" in pairwise_loop_v5_skill
+    assert "subskills/authoring/clarify-intent.md" in pairwise_loop_v5_skill
     assert "subskills/execution/prepare-agents.md" in pairwise_loop_v5_skill
     assert "Do not require `adrs/`" in pairwise_loop_v5_skill
     assert "Do not encode CUDA, Hopper" in pairwise_loop_v5_skill
     assert "If `<loop-dir>` is missing, ask for it" in pairwise_loop_v5_create_intention
     assert "<loop-dir>/intention/README.md" in pairwise_loop_v5_create_intention
     assert "<loop-dir>/intention/loop-overview.md" in pairwise_loop_v5_create_intention
+    assert "Ask exactly one focused decision question at a time" in pairwise_loop_v5_clarify_intent
+    assert "<loop-dir>/adrs/" in pairwise_loop_v5_clarify_intent
+    assert "Do not generate, repair, or directly edit `execplan/`" in (
+        pairwise_loop_v5_clarify_intent
+    )
     assert "<loop-dir>/execplan/" in pairwise_loop_v5_generate_execplan
     assert "manifest.toml" in pairwise_loop_v5_generate_execplan
     assert "Do not require `adrs/`" in pairwise_loop_v5_generate_execplan
