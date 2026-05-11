@@ -1,9 +1,9 @@
-# Regenerate Execplan
+# Update Execplan
 
 ## Preconditions
 
 - Intention source changed.
-- Generated `execplan/` needs to be rebuilt.
+- Generated `execplan/` needs to be updated.
 
 ## Inputs
 
@@ -16,15 +16,15 @@ Require:
 
 1. Read current intention files.
 2. Check whether a loop run is active or in an uncertain execution state.
-3. If execution is active or uncertain, pause and ask the user whether to stop or recover before regeneration.
-4. Regenerate `execplan/` from intention source.
+3. If execution is active or uncertain, pause and ask the user whether to stop or recover before updating generated material.
+4. Update `execplan/` from intention source.
 5. Preserve stable generated names where the meaning is unchanged.
 6. Assign new identifiers or mark migration needs where generated meaning changes incompatibly.
 7. Run `validate-execplan`.
 
 ## Constraints
 
-- Do not silently live-migrate active agents onto regenerated material.
+- Do not silently live-migrate active agents onto updated material.
 - Do not preserve generated files merely because a user hand-edited `execplan/`; intention is the source.
 - Do not require ADR files.
 - Do not introduce domain policy that is absent from intention source.

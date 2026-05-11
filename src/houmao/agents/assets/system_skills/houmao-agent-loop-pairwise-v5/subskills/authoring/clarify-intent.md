@@ -82,7 +82,7 @@ Identifier rule:
 7. Update `<loop-dir>/intention/loop-overview.md` when the decision affects the top-level objective, participants, lifecycle, or operating model.
 8. Update or create focused intention Markdown files when the decision is too detailed for the overview, such as `participants.md`, `workflow.md`, `communication.md`, `state.md`, `harness.md`, `workspace.md`, or `constraints.md`.
 9. Ensure every accepted ADR is reflected in at least one intention file.
-10. If an existing `execplan/` may now be stale, report that it should be regenerated later; do not edit `execplan/` from this operation.
+10. If an existing `execplan/` may now be stale, report that it should be updated later with `update-execplan`; do not edit `execplan/` from this operation.
 11. Continue with the next most important question only when useful; stop when the current decision thread is complete or the user pauses.
 
 ## ADR Shape

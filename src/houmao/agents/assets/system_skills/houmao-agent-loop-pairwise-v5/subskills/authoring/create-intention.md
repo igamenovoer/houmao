@@ -2,7 +2,7 @@
 
 ## Preconditions
 
-- User asked for `init`, invoked `houmao-agent-loop-pairwise-v5` without another operation or prompt, or wants to scaffold one loop directory.
+- User asked for `init`, invoked this skill without another operation or prompt, or wants to scaffold one loop directory.
 - `create-intention` is a compatible alias.
 
 ## Inputs

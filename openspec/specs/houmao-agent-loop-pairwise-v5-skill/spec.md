@@ -91,7 +91,7 @@ The generated execplan package SHALL use the top-level generated layout:
 - `harness/`,
 - `docs/`.
 
-The skill SHALL label or describe execplan content as generated material and SHALL treat intention Markdown as the editable source of truth for regeneration.
+The skill SHALL label or describe execplan content as generated material and SHALL treat intention Markdown as the editable source of truth for later execplan updates.
 
 #### Scenario: Execplan uses the generated package layout
 - **WHEN** the skill generates an execplan for a v5 loop
@@ -102,22 +102,22 @@ The skill SHALL label or describe execplan content as generated material and SHA
 - **AND THEN** `<loop-dir>/execplan/harness/` exists
 - **AND THEN** `<loop-dir>/execplan/docs/` exists
 
-#### Scenario: Intention is the regeneration source
+#### Scenario: Intention is the execplan update source
 - **WHEN** a user changes the loop source after an execplan was generated
-- **THEN** the v5 regeneration workflow reads from `<loop-dir>/intention/`
+- **THEN** the v5 `update-execplan` workflow reads from `<loop-dir>/intention/`
 - **AND THEN** it updates `<loop-dir>/execplan/` as generated output
 
 ### Requirement: V5 skill guidance is split into authoring and execution subskills
 The top-level `houmao-agent-loop-pairwise-v5` skill SHALL act as an index and router for v5 subskills rather than carrying the whole workflow in one instruction file.
 
-The packaged v5 skill SHALL include authoring subskills for creating intention material, refining intention material, generating execplans, validating execplans, and regenerating execplans.
+The packaged v5 skill SHALL include authoring subskills for creating intention material, refining intention material, generating execplans, validating execplans, and updating generated execplans.
 
 The packaged v5 skill SHALL include execution subskills for preparing agents, starting a loop, checking status, pausing, resuming, recovering, and stopping.
 
 Each subskill SHALL define its trigger, inputs, outputs, and boundaries.
 
 #### Scenario: Top-level skill routes authoring work
-- **WHEN** a user asks v5 to create, refine, generate, validate, or regenerate loop material
+- **WHEN** a user asks v5 to create, refine, generate, validate, or update generated loop material
 - **THEN** the top-level skill routes to an authoring subskill
 - **AND THEN** the authoring subskill handles the requested authoring operation within the selected `<loop-dir>`
 

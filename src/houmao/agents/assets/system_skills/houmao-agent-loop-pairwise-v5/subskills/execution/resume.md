@@ -24,5 +24,5 @@ Require:
 ## Constraints
 
 - Do not use resume for interrupted, inconsistent, or partially relaunched runs; use `recover`.
-- Do not regenerate execplan during resume.
+- Do not update execplan during resume.
 - Do not bypass generated resume guidance when the execplan provides it.

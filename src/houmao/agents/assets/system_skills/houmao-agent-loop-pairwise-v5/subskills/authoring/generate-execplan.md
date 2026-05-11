@@ -21,7 +21,7 @@ Rules:
 
 ## Generated Shape
 
-Create or replace generated material under:
+Use this scaffold profile unless the intention source clearly needs a smaller equivalent shape. Create or replace generated material under:
 
 ```text
 <loop-dir>/execplan/
@@ -52,6 +52,25 @@ Minimum responsibilities:
 - `agents/` contains concrete agent bindings and prompt sources that map live Houmao agents to participant roles, installed skills, and workspace policy.
 - `harness/` contains the plan-local command surface for data-model validation, dynamic lookup, query, rendering, controlled record application, and other deterministic loop-local mechanics.
 - `docs/` contains generated human support views that explain generated contracts without becoming source authority.
+- When a default layer or file is intentionally unnecessary, record the omission in the manifest, generated docs, or validation notes.
+
+## Participant And State Defaults
+
+Participant model:
+- separate participant role templates, stable participant role instances, and concrete Houmao agent bindings;
+- avoid assuming a fixed topology, fixed role names, or fixed role count;
+- put concrete prompt sources, installed skills, maintained support skills, skill-install mode, memo seed policy, and workspace policy in `execplan/agents/` when those facts apply.
+
+Runtime bookkeeping:
+- generate state contracts only when the loop needs durable handoffs, scheduling decisions, recovery, audit, or other compact runtime facts;
+- default durable state to compact records for:
+  - plan metadata;
+  - process state;
+  - handoffs or exchanges;
+  - communication payload lifecycle;
+  - operator intent events;
+  - generic events;
+- add task-specific records, evidence models, scoring models, and domain tables only from intention source or accepted clarification decisions.
 
 ## Workspace Rules
 
@@ -60,6 +79,12 @@ Minimum responsibilities:
 - Use the standard in-repo layout as the base: `<repo-root>/houmao-ws/<task-name>/workspace.md`, per-agent `kb/`, per-agent `repo/` worktrees, and task `shared-kb/`.
 - Add loop bookkeeping directories only when useful, such as task-level `runs/` and `artifacts/`, per-agent `artifacts/`, and ignored per-agent `tmp/`.
 - Generate an operator-facing workspace-management skill only as a thin router that reads the execplan workspace contract and calls `houmao-utils-workspace-mgr`; do not embed Git worktree creation mechanics in generated skills.
+
+## Run Artifact Defaults
+
+- When execution produces durable artifacts, define a run artifact layout such as `<loop-dir>/runs/<run-id>/` or an explicit equivalent.
+- Preserve source payloads, rendered outputs, send or reply responses, record files, state files, logs, evidence, and operator notes when those artifacts exist.
+- Treat the run artifact layout as the audit and recovery surface; do not depend only on live mailbox state for later status or recovery.
 
 ## Communication Generation Defaults
 
@@ -180,13 +205,15 @@ Mail-received event skills:
 2. Derive the execplan from intention source only.
 3. Identify which generated contract layers are needed: objective, collaboration, communication, state, workspace, participants, skills, agents, harness, and docs.
 4. Generate domain-specific objectives, roles, policies, evidence gates, and tools only when intention source states them.
-5. Put dynamic values that agents need during work into generated specs, runtime state, or harness lookup surfaces rather than baking them into static skill prose.
-6. Generate on-event skills for concrete incoming events such as received schema-specific mail, and on-tick skills for scheduler-like responsibilities that do not belong to one incoming event.
-7. When workspace setup is needed, generate workspace contracts that route creation to `houmao-utils-workspace-mgr` and keep the default as in-repo plus explicitly listed bookkeeping directories.
-8. Mark generated Markdown with a clear generated-source note or metadata block.
-9. Keep generated skill files concise and progressively disclosed.
-10. Preserve unresolved assumptions as explicit `UNRESOLVED - <reason>` entries.
-11. Run the `validate-execplan` operation before reporting completion.
+5. Generate participant contracts separately from concrete Houmao agent bindings.
+6. Put dynamic values that agents need during work into generated specs, runtime state, or harness lookup surfaces rather than baking them into static skill prose.
+7. Generate on-event skills for concrete incoming events such as received schema-specific mail, and on-tick skills for scheduler-like responsibilities that do not belong to one incoming event.
+8. When workspace setup is needed, generate workspace contracts that route creation to `houmao-utils-workspace-mgr` and keep the default as in-repo plus explicitly listed bookkeeping directories.
+9. When durable runtime artifacts are expected, define the run artifact layout and what it preserves.
+10. Mark generated Markdown with a clear generated-source note or metadata block.
+11. Keep generated skill files concise and progressively disclosed.
+12. Preserve unresolved assumptions as explicit `UNRESOLVED - <reason>` entries.
+13. Run the `validate-execplan` operation before reporting completion.
 
 ## Constraints
 

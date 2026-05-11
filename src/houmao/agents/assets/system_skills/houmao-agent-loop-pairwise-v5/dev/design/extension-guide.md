@@ -7,7 +7,7 @@ This guide is for developers revising `houmao-agent-loop-pairwise-v5`. It is not
 Keep these responsibilities separate:
 
 - `SKILL.md`: activation, routing, global boundaries, and the required root vocabulary.
-- `subskills/authoring/`: source creation, source refinement, execplan generation, validation, and regeneration.
+- `subskills/authoring/`: source creation, source refinement, execplan generation, validation, and execplan updates.
 - `subskills/execution/`: operating a validated execplan through generated contracts and maintained Houmao surfaces.
 - `dev/design/`: rationale for maintainers only.
 
@@ -15,7 +15,7 @@ Do not put long design rationale into execution-facing pages. Those pages should
 
 ## Adding Source Inputs
 
-The first workflow intentionally uses `intention/README.md` and `intention/loop-overview.md` as the minimum source set. If a later change adds ADRs, templates, imported source directories, or reference-plan harvesting, keep that as an explicit authoring capability and preserve the rule that `intention/` remains the normal regeneration authority.
+The first workflow intentionally uses `intention/README.md` and `intention/loop-overview.md` as the minimum source set. If a later change adds ADRs, templates, imported source directories, or reference-plan harvesting, keep that as an explicit authoring capability and preserve the rule that `intention/` remains the normal source authority for execplan updates.
 
 If importing from an existing source-design directory, define a clear adapter step instead of silently treating arbitrary Markdown as a valid root.
 

@@ -19,7 +19,7 @@ The intended model is:
 - Manual invocation only: the workflow should run only when the operator explicitly selects this skill or a named operation.
 - User-selected root: the workflow must not invent `<loop-dir>`.
 - Editable source: `intention/` is the human-maintained source area.
-- Generated execution package: `execplan/` is generated from intention and should be safe to replace during regeneration.
+- Generated execution package: `execplan/` is generated from intention and should be safe to replace during `update-execplan`.
 - Domain neutrality: packaged behavior must not encode domain-specific goals, toolchains, topology, scheduling policy, or evidence gates.
 - Composed execution: platform operations should route through maintained Houmao skills and CLI surfaces instead of being duplicated here.
 - Progressive disclosure: top-level routing should remain short; operational detail belongs in subskills.

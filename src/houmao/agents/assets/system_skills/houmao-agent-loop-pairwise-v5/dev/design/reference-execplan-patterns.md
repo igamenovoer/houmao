@@ -164,6 +164,21 @@ agent work loop
 
 The harness should keep data and dynamic runtime knowledge out of static skills. Mail should be the normal process driver between participants. Generated skills should be thin role-specific handlers around events, ticks, harness calls, and maintained Houmao platform surfaces.
 
+## Default Scaffold Profile
+
+The reusable default is a scaffold profile, not a mandatory full template. Start from:
+
+- manifest-indexed generated package;
+- purpose-based specs;
+- role/event/tick skills;
+- concrete agent bindings;
+- plan-local harness;
+- generated support docs;
+- workspace contract when agents need work roots or shared resources;
+- run artifact layout when execution produces durable payloads, records, state, logs, or evidence.
+
+Small loops may omit unused default files. The omission should be explicit in the manifest, docs, or validation notes so a later agent can tell the difference between a deliberate small plan and an incomplete plan.
+
 ## Manifest Pattern
 
 `manifest.toml` is the package discovery surface. It should carry:
@@ -297,13 +312,24 @@ Reference-specific details that should not become defaults:
 - evidence-field names or domain validation gates;
 - the exact scheduling algorithm or completion policy;
 - a required SQLite backend or database layout;
-- any specific toolchain, benchmark, artifact type, or specialized domain.
+- any specific toolchain, evaluation input, artifact type, or specialized domain.
 
 ## State And Record Pattern
 
 When a loop needs runtime state, use state storage for compact bookkeeping and persisted communication for rich prose. State should store ids, refs, scalar gates, ownership markers, transition facts, artifact paths, and ranking or ordering facts. Persisted communication should store context, summaries, directives, rationale, analysis, and other human-readable content.
 
-Record schemas under `specs/collab/records/` can define controlled payloads such as handoffs, attempts, evidence, decisions, results, structural directions, promotion acceptance, and operator intent.
+The generic stateful-loop kernel is:
+
+- plan metadata;
+- process state;
+- handoffs or exchanges;
+- communication payload lifecycle;
+- operator intent events;
+- generic events.
+
+Record schemas under `specs/collab/records/` can define controlled payloads such as handoffs, attempts, evidence, decisions, results, and operator intent.
+
+Those task-specific record schemas are extensions. Do not promote a reference plan's evidence, scoring, ranking, or domain tables as default records for unrelated loops.
 
 The general lesson is:
 
@@ -354,6 +380,18 @@ A mature harness can expose commands for:
 
 The harness should use a common machine-readable envelope for agent workflows, collect diagnostics instead of mutating during validation, open runtime state read-only for inspection, and only write through schema-validated `apply` commands.
 
+The default envelope fields are:
+
+- `ok`;
+- `command`;
+- `run_id` when known;
+- `plan_revision` when known;
+- `data`;
+- `diagnostics`;
+- `warnings`.
+
+When generated TOML contracts carry structured comments such as `@doc`, `@rationale`, `@agent-guidance`, or `@not-for`, the harness may expose `--explain` or an equivalent explanation view. Explanations help agents use a contract, but the machine contract remains the authority.
+
 The general lesson is that generated role skills should ask the harness for objective, constraints, effective policy, configuration parameters, scheduler posture, schema details, validation diagnostics, and rendered views instead of copying constants into prompts.
 
 ## Explanation Comment Pattern
@@ -385,6 +423,7 @@ Promote these general patterns over time:
 - schema/render registries for mail and other human-readable structured artifacts;
 - compact runtime state plus rich persisted communication;
 - per-loop harness with data-model management, dynamic lookup, and common machine-readable diagnostics;
+- run artifact layouts for payloads, rendered outputs, responses, records, state, logs, and evidence;
 - generated Markdown metadata and source-authority disclaimers;
 - validation that checks contracts, not only directories.
 
@@ -394,6 +433,6 @@ Do not promote these reference-specific details:
 - a particular participant topology;
 - a particular toolchain or installed domain skill set;
 - a particular artifact type;
-- a particular benchmark, evaluation input, or evidence gate;
+- a particular evaluation input or evidence gate;
 - a particular scheduling algorithm or termination policy;
 - a particular runtime state backend unless the loop requires it.

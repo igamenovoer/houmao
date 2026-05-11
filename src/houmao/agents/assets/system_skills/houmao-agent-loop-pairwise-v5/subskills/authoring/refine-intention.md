@@ -22,7 +22,7 @@ Read first:
 2. Update `loop-overview.md` when the change affects the top-level objective, participants, lifecycle, or operating model.
 3. Update or add focused freeform Markdown files when the change is more specific than the overview.
 4. Keep unresolved choices explicit with `UNRESOLVED - <reason>`.
-5. If an existing `execplan/` may now be stale, tell the user to run the `regenerate-execplan` operation.
+5. If an existing `execplan/` may now be stale, tell the user to run the `update-execplan` operation.
 
 ## Constraints
 

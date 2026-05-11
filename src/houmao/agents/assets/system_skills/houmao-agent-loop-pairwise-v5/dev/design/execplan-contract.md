@@ -15,6 +15,52 @@ A generated execplan should separate these concerns:
 
 The top-level skill currently requires only the broad layout. Future improvements should tighten validation by adding explicit checks for artifact coverage, parseability, schema/render pairing, agent binding fields, and harness command behavior.
 
+## Default Scaffold Profile
+
+The default scaffold is a flexible profile, not a rigid template. A useful generated loop normally has:
+
+- a manifest-indexed generated package;
+- machine contracts under `specs/`;
+- generated role/event/tick skills under `skills/`;
+- concrete agent bindings under `agents/`;
+- a plan-local harness under `harness/`;
+- generated support views under `docs/`;
+- a workspace contract when agents need work roots or shared resources;
+- a run artifact layout when execution produces durable payloads, records, logs, or evidence.
+
+The generator may omit a default layer or file when the intention clearly does not need it. The omission should be explicit in the manifest, generated docs, or validation notes so later maintainers can distinguish a deliberate small loop from an incomplete plan.
+
+## Participant And Agent Boundary
+
+Generated plans should separate three identities:
+
+- participant role templates or role descriptions;
+- stable participant instances used by loop contracts and message routes;
+- concrete Houmao agent bindings used for launch profiles, prompts, installed skills, workspace policy, and maintained support skills.
+
+This separation lets one loop use a coordinator/worker pattern, another use peer reviewers, and another use a custom graph without changing the packaged skill. The topology is generated from intention source and clarification decisions, not from a built-in role set.
+
+## Runtime State Kernel
+
+When a loop needs durable state, start with compact generic bookkeeping:
+
+- plan metadata;
+- process state;
+- handoffs or exchanges;
+- communication payload lifecycle;
+- operator intent events;
+- generic events.
+
+Task-specific records, scoring, evidence models, and domain tables are extensions. They should be generated only when the intention introduces them. The default rule is that communication carries rich human meaning, state carries compact auditable facts, the harness validates/applies narrow records, and role skills decide which records should exist.
+
+## Harness Boundary
+
+The harness is a plan-local data-model and dynamic-lookup surface. It can validate contracts, render views, explain generated TOML fields, query state, check completion, and apply schema-validated records.
+
+The harness should not own Houmao platform operations. Mailbox delivery, mailbox administration, gateway posture, managed-agent launch, prompt transport, memory updates, inspection, and workspace creation remain delegated to maintained Houmao skills or supported CLI surfaces.
+
+Harness output intended for agents should use a stable machine-readable envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings. Explanation commands may derive agent-readable rationale from structured comments such as `@doc`, `@rationale`, `@agent-guidance`, and `@not-for`.
+
 ## Communication Default Contract
 
 Ordinary cross-agent participant handoffs default to Houmao mail unless the intention source explicitly selects a non-mail mechanism. The generator should not preserve a design gap that asks "should participants use mail?" when the source is silent; the useful questions are loop-specific: which roles communicate, which message families exist, which payload fields are required, which replies are expected, and which state or records change.
@@ -45,9 +91,21 @@ When runtime state exists, the harness may expose `email schema|validate|render|
 
 Generated mail-received skills should be one-event handlers keyed by schema id or message family. They should validate or interpret the received payload, perform one bounded role-owned action, send required replies through maintained mail support, archive only after success, then stop. Aggregation, scheduling, timeout handling, reconciliation, and completion checks belong in on-tick skills when they do not conceptually belong to one received-mail event.
 
+## Event And Tick Skill Boundary
+
+Generated skills should be scoped by role and trigger. On-event skills handle concrete events such as a received schema-specific mail family. On-tick skills handle scheduling, reconciliation, timeout, completion, and "what happens next" work that is not owned by one incoming event.
+
+Tick skills should inspect dynamic state through specs or harness commands, perform the first applicable bounded action or report no action, and stop. They should not become a hidden global runner.
+
+## Run Artifact Boundary
+
+When execution produces durable artifacts, the generated plan should preserve them under a run layout such as `<loop-dir>/runs/<run-id>/` or an explicit equivalent. Useful durable artifacts include structured payloads, rendered messages, send or reply responses, record files, state files, logs, evidence, and operator notes.
+
+Status and recovery should be able to refer to the run artifact layout without depending only on live mailbox state.
+
 ## Source Boundary
 
-`intention/` is the editable source of truth. `execplan/` is regenerated output.
+`intention/` is the editable source of truth. `execplan/` is generated output updated from that source.
 
 When generated material needs richer policy than the current intention states, the generator should preserve an explicit unresolved entry instead of copying assumptions from a domain-specific example.
 
