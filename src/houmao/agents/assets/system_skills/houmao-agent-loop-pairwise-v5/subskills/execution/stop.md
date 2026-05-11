@@ -1,6 +1,6 @@
 # Stop
 
-Use this page when the operator wants to end one v5 loop run.
+Use this page when the operator wants to end one loop run.
 
 ## Inputs
 

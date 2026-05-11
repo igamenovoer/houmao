@@ -26,6 +26,7 @@ from houmao.agents.system_skills import (
 CORE_SYSTEM_SKILLS = (
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     "houmao-mailbox-mgr",
     "houmao-memory-mgr",
     "houmao-adv-usage-pattern",
@@ -48,7 +49,6 @@ CORE_SYSTEM_SKILLS = (
 ALL_SYSTEM_SKILLS = (
     *CORE_SYSTEM_SKILLS,
     SYSTEM_SKILL_UTILS_LLM_WIKI,
-    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
 )
 
 
@@ -221,6 +221,10 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "Do not follow symlinked directories" in skill_text
     assert "skip if Git tracks any files under the source subtree" in skill_text
     assert "The repo root is the shared visibility surface." in in_repo_text
+    assert "Loop execplans may request additional task-scoped bookkeeping directories" in (
+        in_repo_text
+    )
+    assert "<repo-root>/houmao-ws/<task-name>/<agent-name>/artifacts/**" in in_repo_text
     assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
     assert "recursive local-state symlink decisions" in in_repo_text
     assert "hidden-path skips, symlink traversal skips, and tracked-content conflict skips" in (
@@ -820,6 +824,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "UNRESOLVED - <reason>" in pairwise_loop_v4_audit_template
     assert "Use this Houmao skill only when the user explicitly asks for" in pairwise_loop_v5_skill
     assert "`houmao-agent-loop-pairwise-v5`" in pairwise_loop_v5_skill
+    assert "treat it as `init`" in pairwise_loop_v5_skill
     assert "<loop-dir>/intention/" in pairwise_loop_v5_skill
     assert "<loop-dir>/execplan/" in pairwise_loop_v5_skill
     assert "subskills/authoring/create-intention.md" in pairwise_loop_v5_skill
@@ -827,9 +832,17 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "subskills/execution/prepare-agents.md" in pairwise_loop_v5_skill
     assert "Do not require `adrs/`" in pairwise_loop_v5_skill
     assert "Do not encode CUDA, Hopper" in pairwise_loop_v5_skill
-    assert "If `<loop-dir>` is missing, ask for it" in pairwise_loop_v5_create_intention
+    assert "route workspace planning and creation through `houmao-utils-workspace-mgr`" in (
+        pairwise_loop_v5_skill
+    )
+    assert "If `<loop-dir>` is missing, ask the user to provide an output directory" in (
+        pairwise_loop_v5_create_intention
+    )
     assert "<loop-dir>/intention/README.md" in pairwise_loop_v5_create_intention
     assert "<loop-dir>/intention/loop-overview.md" in pairwise_loop_v5_create_intention
+    assert "scaffold `loop-overview.md` with editable placeholder headings" in (
+        pairwise_loop_v5_create_intention
+    )
     assert "Ask exactly one focused decision question at a time" in pairwise_loop_v5_clarify_intent
     assert "<loop-dir>/adrs/" in pairwise_loop_v5_clarify_intent
     assert "Do not generate, repair, or directly edit `execplan/`" in (
@@ -838,9 +851,16 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<loop-dir>/execplan/" in pairwise_loop_v5_generate_execplan
     assert "manifest.toml" in pairwise_loop_v5_generate_execplan
     assert "Do not require `adrs/`" in pairwise_loop_v5_generate_execplan
+    assert "Default generated workspace policy to Houmao `in-repo` style" in (
+        pairwise_loop_v5_generate_execplan
+    )
     assert "generated skills under `execplan/skills/*/SKILL.md`" in (
         pairwise_loop_v5_validate_execplan
     )
+    assert "workspace setup contracts route workspace planning or creation" in (
+        pairwise_loop_v5_validate_execplan
+    )
+    assert "houmao-utils-workspace-mgr" in pairwise_loop_v5_prepare_agents
     assert "houmao-specialist-mgr" in pairwise_loop_v5_prepare_agents
     assert "houmao-agent-instance" in pairwise_loop_v5_prepare_agents
     assert (

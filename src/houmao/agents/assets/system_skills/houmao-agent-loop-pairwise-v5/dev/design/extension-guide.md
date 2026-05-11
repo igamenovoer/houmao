@@ -15,9 +15,9 @@ Do not put long design rationale into execution-facing pages. Those pages should
 
 ## Adding Source Inputs
 
-The first v5 workflow intentionally uses `intention/README.md` and `intention/loop-overview.md` as the minimum source set. If a later change adds ADRs, templates, imported source directories, or reference-plan harvesting, keep that as an explicit authoring capability and preserve the rule that `intention/` remains the normal regeneration authority.
+The first workflow intentionally uses `intention/README.md` and `intention/loop-overview.md` as the minimum source set. If a later change adds ADRs, templates, imported source directories, or reference-plan harvesting, keep that as an explicit authoring capability and preserve the rule that `intention/` remains the normal regeneration authority.
 
-If importing from an existing source-design directory, define a clear adapter step instead of silently treating arbitrary Markdown as a valid v5 root.
+If importing from an existing source-design directory, define a clear adapter step instead of silently treating arbitrary Markdown as a valid root.
 
 ## Tightening Generation
 
@@ -32,7 +32,7 @@ Prefer explicit unresolved entries over inferred behavior. A generated execplan 
 
 ## Execution Boundaries
 
-V5 execution should compose existing Houmao operation surfaces. Keep managed-agent launch, mailbox, gateway, memory, lifecycle, inspection, and platform setup routed to their owning skills or supported `houmao-mgr` surfaces.
+Execution should compose existing Houmao operation surfaces. Keep managed-agent launch, mailbox, gateway, memory, lifecycle, inspection, and platform setup routed to their owning skills or supported `houmao-mgr` surfaces.
 
 Loop-local behavior belongs in generated material:
 
@@ -45,6 +45,6 @@ Do not duplicate maintained Houmao platform contracts inside generated loop skil
 
 ## Domain Neutrality
 
-The packaged v5 skill must remain domain-neutral. Domain-specific material may appear in examples, fixtures, or generated artifacts for a specific loop, but never as required global v5 behavior.
+The packaged skill must remain domain-neutral. Domain-specific material may appear in examples, fixtures, or generated artifacts for a specific loop, but never as required global behavior.
 
 When a domain-specific reference reveals a general need, promote the general contract rather than the domain fact. For example, promote "evidence gates belong in `specs/` and participant skills must consult them" instead of promoting one loop's exact gate values.

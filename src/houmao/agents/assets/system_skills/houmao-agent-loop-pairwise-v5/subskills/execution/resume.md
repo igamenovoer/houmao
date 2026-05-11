@@ -1,6 +1,6 @@
 # Resume
 
-Use this page when a paused v5 loop should continue from known valid state.
+Use this page when a paused loop should continue from known valid state.
 
 ## Inputs
 

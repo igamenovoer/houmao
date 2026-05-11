@@ -1,6 +1,6 @@
 # Start
 
-Use this page when prepared agents and a validated execplan are ready to begin one v5 loop run.
+Use this page when prepared agents and a validated execplan are ready to begin one loop run.
 
 ## Inputs
 

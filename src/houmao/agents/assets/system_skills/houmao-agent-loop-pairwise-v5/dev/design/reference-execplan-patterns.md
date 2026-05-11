@@ -1,10 +1,10 @@
 # Reference Execplan Patterns
 
-This note records generic patterns extracted from a mature generated `execplan/` package. It is developer reference material only. It is not part of v5 skill execution and does not make any specific domain, topology, toolchain, scheduling policy, or evidence rule global v5 behavior.
+This note records generic patterns extracted from a mature generated `execplan/` package. It is developer reference material only. It is not part of skill execution and does not make any specific domain, topology, toolchain, scheduling policy, or evidence rule global behavior.
 
 ## Package Shape
 
-A mature `execplan/` package usually needs more than the minimum v5 directory shell:
+A mature `execplan/` package usually needs more than the minimum directory shell:
 
 ```text
 execplan/                         # Generated operational package; replaceable from intention source.
@@ -14,7 +14,7 @@ execplan/                         # Generated operational package; replaceable f
     collab/                       # Process topology, scheduling policy, handoff rules, and structured collaboration record schemas.
     comms/                        # Mail/message schemas, payload-to-renderer registry, and human-readable render templates.
     state/                        # Runtime state model: schema, migrations, seed data, and invariants when the loop needs state.
-    workspace/                    # Workdir, command, artifact, environment, and path contracts for participant work.
+    workspace/                    # Workdir, command, artifact, environment, path contracts, and workspace-manager inputs.
     participants/                 # Abstract roles and stable role instances; not concrete Houmao agent processes.
   skills/                         # Generated role/event/tick skills plus shared helper skills installed into concrete agents.
   agents/                         # Concrete Houmao agent bindings: participant id, prompt source, installed skills, and workspace policy.
@@ -80,7 +80,7 @@ execplan/
       invariants.toml             # Runtime consistency rules checked by the harness.
       README.md
     workspace/
-      workspace.toml              # Workdir, command, artifact, and runtime path contracts.
+      workspace.toml              # Workdir, command, artifact, runtime path, and workspace-manager contracts.
       README.md
     participants/
       participants.toml           # Role templates and stable role instances.
@@ -149,6 +149,8 @@ In this example, `implementation-request` mail is produced from a TOML payload, 
 
 The lead's tick skill is separate from mail-received handlers. It asks the harness for current state, policy, ownership, and completion posture, then performs one bounded scheduling action or reports no action. This keeps dynamic values in `specs/`, runtime state, and harness output instead of freezing them inside static skill text.
 
+Workspace setup in this abstract example is not implemented by the generated loop skill itself. The generated workspace contract should provide inputs for `houmao-utils-workspace-mgr`; the default is the standard `in-repo` flavor with explicit extra bookkeeping directories such as task `runs/`, task `artifacts/`, per-agent `artifacts/`, and ignored per-agent `tmp/` when the loop needs them.
+
 ## Core Runtime Patterns
 
 The three central execplan patterns are:
@@ -172,7 +174,7 @@ The harness should keep data and dynamic runtime knowledge out of static skills.
 - top-level `purpose_directories`;
 - repeated `[[artifacts]]` entries with `artifact_kind`, `id`, `path`, and `purpose`.
 
-A future stricter v5 validator should parse the manifest and check that every indexed file exists, every generated file has a coherent purpose, and every artifact kind is known or intentionally extension-owned.
+A future stricter validator should parse the manifest and check that every indexed file exists, every generated file has a coherent purpose, and every artifact kind is known or intentionally extension-owned.
 
 ## Specs Pattern
 
@@ -182,10 +184,10 @@ A mature execplan can use purpose-based specs instead of one monolithic contract
 - `specs/collab/`: scheduling policy, topology, collaboration records, and loop behavior.
 - `specs/comms/`: message template registry, JSON schemas, and Markdown renderers.
 - `specs/state/`: state schema, migrations, seed data, and invariants when runtime state is needed.
-- `specs/workspace/`: repository, command, workspace, artifact, and runtime path contracts.
+- `specs/workspace/`: repository, command, workspace, artifact, runtime path contracts, and inputs for `houmao-utils-workspace-mgr`.
 - `specs/participants/`: abstract role templates and stable role instances.
 
-The general v5 lesson is that runtime agents should consult structured contracts for policy and gates. They should not preserve important policy only in prose role instructions.
+The general lesson is that runtime agents should consult structured contracts for policy and gates. They should not preserve important policy only in prose role instructions.
 
 ## Participant And Agent Binding Pattern
 
@@ -196,7 +198,7 @@ Execplans should separate participant identity from concrete Houmao agents:
 - `agents/<agent-name>/config.toml` binds one concrete Houmao agent to one participant instance;
 - generated `definition.md` files provide prompt source material for those concrete agents.
 
-Concrete agent configs should include participant identity, role spec, definition source, installed skills, skill installation mode, memo seed policy, and workspace policy. Future v5 agent-binding validation should check for those concepts even when individual loops name or extend them differently.
+Concrete agent configs should include participant identity, role spec, definition source, installed skills, skill installation mode, memo seed policy, and workspace policy. Future agent-binding validation should check for those concepts even when individual loops name or extend them differently. When the workspace policy is a supported Houmao layout, the binding should point to facts created or verified by `houmao-utils-workspace-mgr`, not to ad hoc generated worktree setup steps.
 
 ## Skill Pattern
 
@@ -246,7 +248,7 @@ TOML payload
 
 The same pattern applies to any artifact that must be both structurally recorded and human-readable: define the structured payload, validate it, render it for humans, and preserve the structured data or a stable reference for later audit.
 
-The general v5 lesson is to preserve a schema/render registry for generated communication protocols whenever agents exchange operational work, rather than relying on freeform mail conventions alone. Freeform mail can still exist for operator notices, escalation, or unsupported cases, but ordinary loop work should prefer generated schemas and renderers.
+The general lesson is to preserve a schema/render registry for generated communication protocols whenever agents exchange operational work, rather than relying on freeform mail conventions alone. Freeform mail can still exist for operator notices, escalation, or unsupported cases, but ordinary loop work should prefer generated schemas and renderers.
 
 ## State And Record Pattern
 
@@ -254,7 +256,7 @@ When a loop needs runtime state, use state storage for compact bookkeeping and p
 
 Record schemas under `specs/collab/records/` can define controlled payloads such as handoffs, attempts, evidence, decisions, results, structural directions, promotion acceptance, and operator intent.
 
-The general v5 lesson is:
+The general lesson is:
 
 ```text
 communication carries meaning
@@ -303,7 +305,7 @@ A mature harness can expose commands for:
 
 The harness should use a common machine-readable envelope for agent workflows, collect diagnostics instead of mutating during validation, open runtime state read-only for inspection, and only write through schema-validated `apply` commands.
 
-The general v5 lesson is that generated role skills should ask the harness for objective, constraints, effective policy, configuration parameters, scheduler posture, schema details, validation diagnostics, and rendered views instead of copying constants into prompts.
+The general lesson is that generated role skills should ask the harness for objective, constraints, effective policy, configuration parameters, scheduler posture, schema details, validation diagnostics, and rendered views instead of copying constants into prompts.
 
 ## Explanation Comment Pattern
 
@@ -323,9 +325,9 @@ The harness can extract those comments into optional explanations. TOML remains 
 
 Generated docs are support views. They should start with generated metadata and explain the package for humans, but they must not become source authority. The most important doc pattern is explicit deference: operational truth remains in `specs/`, runtime posture remains in state, and command behavior remains in the harness.
 
-## What V5 Should Learn
+## What This Skill Should Learn
 
-Promote these general patterns into v5 over time:
+Promote these general patterns over time:
 
 - artifact-indexed generated packages;
 - purpose-based `specs/` taxonomy;
@@ -337,7 +339,7 @@ Promote these general patterns into v5 over time:
 - generated Markdown metadata and source-authority disclaimers;
 - validation that checks contracts, not only directories.
 
-Do not promote these reference-specific details into v5:
+Do not promote these reference-specific details:
 
 - a particular domain or objective;
 - a particular participant topology;

@@ -1,6 +1,6 @@
 # Validate Execplan
 
-Use this page to inspect a generated v5 execplan before execution or after regeneration.
+Use this page to inspect a generated execplan before execution or after regeneration.
 
 ## Inputs
 
@@ -22,6 +22,8 @@ Check:
 - generated on-event and on-tick skills state their trigger, role owner, bounded procedure, and output or handoff posture.
 - concrete agent bindings under `execplan/agents/` identify their intended participant or role.
 - concrete agent bindings identify prompt source, installed generated skills, and workspace or launch policy when the execplan defines those concepts.
+- workspace setup contracts route workspace planning or creation through `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
+- default workspace policy is `in-repo` plus any explicitly listed loop bookkeeping directories, unless intention source chooses a different supported flavor or a custom operator-owned workspace.
 - generated communication registries under `execplan/specs/comms/` connect schema ids, payload formats, and renderers coherently when the loop is mail-driven.
 - generated JSON schemas under `execplan/specs/comms/` or `execplan/specs/collab/records/` parse as JSON when present.
 - generated record contracts exist for structured bookkeeping that the harness or skills claim to apply.

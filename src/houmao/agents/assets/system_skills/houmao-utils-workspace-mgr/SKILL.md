@@ -26,6 +26,7 @@ Recover these from the prompt, current repo, launch profiles, and local Git stat
 - target repo bindings for `out-of-repo`
 - submodule materialization choices
 - local-state symlink choices
+- optional loop-requested bookkeeping directories for task, agent, artifact, run, or scratch state
 - whether to write a plan Markdown file
 - whether to adjust launch profiles during `execute`
 - whether to create memo-seed Markdown and merge workspace rules into profile memo seeds
@@ -59,7 +60,7 @@ Before executing, read the matching flavor page from `subskills/` and follow its
 
 Execute in this order:
 
-1. Create workspace scaffolding and `.gitignore` rules.
+1. Create workspace scaffolding, optional loop-requested bookkeeping directories, and `.gitignore` rules.
 2. Create or attach local-only shared repos.
 3. Create per-agent superproject worktrees and branches.
 4. Apply safe local-state symlinks.
@@ -240,7 +241,7 @@ For `in-repo`, maintain:
 - `<repo-root>/houmao-ws/workspaces.md` as the repo-level index across task workspaces
 - `<repo-root>/houmao-ws/<task-name>/workspace.md` as the authoritative task-local workspace contract
 
-For `in-repo`, record `<repo-root>` as the shared visibility surface and record read/write ownership for parent-checkout source paths, each agent's private worktree, each worktree copy of `houmao-ws/<task-name>/shared-kb`, parent-checkout `houmao-ws/<task-name>/shared-kb`, each agent's parent-checkout `kb`, sibling KB directories, sibling worktrees, task-local `workspace.md`, and repo-level `workspaces.md`.
+For `in-repo`, record `<repo-root>` as the shared visibility surface and record read/write ownership for parent-checkout source paths, each agent's private worktree, each worktree copy of `houmao-ws/<task-name>/shared-kb`, parent-checkout `houmao-ws/<task-name>/shared-kb`, each agent's parent-checkout `kb`, any loop-requested artifact, run, or scratch bookkeeping directories, sibling KB directories, sibling worktrees, task-local `workspace.md`, and repo-level `workspaces.md`.
 
 Treat these workspace docs as documentation, not as the only source of truth. Inspect Git and the filesystem for status.
 

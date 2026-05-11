@@ -93,6 +93,7 @@ description = "Closed core control and automation system-skill set."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
+  "houmao-utils-workspace-mgr",
   "houmao-mailbox-mgr",
   "houmao-memory-mgr",
   "houmao-adv-usage-pattern",
@@ -118,6 +119,7 @@ description = "All packaged Houmao system skills, including utility skills."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
+  "houmao-utils-workspace-mgr",
   "houmao-mailbox-mgr",
   "houmao-memory-mgr",
   "houmao-adv-usage-pattern",
@@ -137,7 +139,6 @@ skills = [
   "houmao-agent-messaging",
   "houmao-agent-gateway",
   "houmao-utils-llm-wiki",
-  "houmao-utils-workspace-mgr",
 ]
 
 [auto_install]

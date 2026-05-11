@@ -1,4 +1,4 @@
-# V5 Skill Developer Design Notes
+# Skill Developer Design Notes
 
 These files are developer reference material for maintainers of `houmao-agent-loop-pairwise-v5`.
 
@@ -6,7 +6,7 @@ They are not part of skill execution. Do not route user requests through this di
 
 ## Files
 
-- `intent.md`: design intent, boundaries, and source-of-truth rules for v5.
+- `intent.md`: design intent, boundaries, and source-of-truth rules.
 - `execplan-contract.md`: intended shape and completeness expectations for generated execplans.
 - `reference-execplan-patterns.md`: generic execplan patterns extracted from a mature generated reference package.
 - `extension-guide.md`: guidance for revising or extending the packaged skill without blurring authoring, generation, and execution responsibilities.

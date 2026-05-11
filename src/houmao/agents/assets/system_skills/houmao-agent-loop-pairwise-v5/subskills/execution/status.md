@@ -1,6 +1,6 @@
 # Status
 
-Use this page for read-only inspection of one v5 loop.
+Use this page for read-only inspection of one loop.
 
 ## Inputs
 

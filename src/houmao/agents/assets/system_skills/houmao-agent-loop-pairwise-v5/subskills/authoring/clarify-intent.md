@@ -1,6 +1,6 @@
 # Clarify Intent
 
-Use this page when the user explicitly asks to `clarify intent` for one v5 loop after the intention scaffold exists and the user has written initial source material.
+Use this page when the user explicitly asks to `clarify intent` for one loop after the intention scaffold exists and the user has written initial source material.
 
 This operation is a focused design interview. It clarifies intent, records accepted design decisions as ADRs, and updates editable intention files. It does not generate or repair `execplan/`.
 
@@ -29,7 +29,7 @@ Explore only the areas that are relevant to the current intention:
 - on-tick behaviors for scheduling, reconciliation, timeout, or completion checks
 - harness responsibilities for data-model validation, dynamic lookup, query, rendering, and controlled record application
 - runtime state and bookkeeping needs
-- workspace, artifact, and evidence expectations
+- workspace, artifact, and evidence expectations, including whether the default Houmao `in-repo` workspace flavor plus loop bookkeeping dirs is sufficient
 - completion, stop, override, and recovery posture
 
 ## Procedure

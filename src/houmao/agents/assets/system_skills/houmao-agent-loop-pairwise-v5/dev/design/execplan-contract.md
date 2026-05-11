@@ -1,6 +1,6 @@
 # Execplan Contract Intent
 
-This note records the intended direction for generated v5 execplans. It is not a validator and is not part of runtime skill routing.
+This note records the intended direction for generated execplans. It is not a validator and is not part of runtime skill routing.
 
 ## Contract Layers
 
@@ -13,7 +13,7 @@ A generated execplan should separate these concerns:
 - `harness/`: plan-local deterministic helpers for data-model management, validation, query, rendering, record application, dynamic information lookup, and other loop-local mechanics.
 - `docs/`: generated human support views that explain the generated contracts without becoming source authority.
 
-The top-level v5 skill currently requires only the broad layout. Future improvements should tighten validation by adding explicit checks for artifact coverage, parseability, schema/render pairing, agent binding fields, and harness command behavior.
+The top-level skill currently requires only the broad layout. Future improvements should tighten validation by adding explicit checks for artifact coverage, parseability, schema/render pairing, agent binding fields, and harness command behavior.
 
 ## Source Boundary
 
@@ -31,11 +31,12 @@ A mature generated loop plan is useful as a reference for the depth of a complet
 - participant role templates separated from concrete agent bindings;
 - generated skills scoped to role events, plus tick skills for periodic or scheduler-like responsibilities;
 - a narrow per-loop harness rather than new Houmao core commands;
+- workspace setup routed through `houmao-utils-workspace-mgr`, defaulting to the standard in-repo workspace flavor with explicit loop bookkeeping directories when needed;
 - generated Markdown metadata marking generated files.
 
 See `reference-execplan-patterns.md` for a more detailed maintainer-oriented reading of the generic pattern.
 
-Do not make any reference package's domain, topology, toolchain, evidence policy, or scheduling policy part of the global v5 contract. Those details belong in the loop intention and the generated per-loop execplan.
+Do not make any reference package's domain, topology, toolchain, evidence policy, or scheduling policy part of the global contract. Those details belong in the loop intention and the generated per-loop execplan.
 
 ## Validation Direction
 
@@ -47,6 +48,7 @@ Validation should grow from shape checks toward contract checks:
 - validate skill frontmatter for every generated skill;
 - validate generated communication and record registries connect schema ids, payload formats, and renderers coherently;
 - validate agent configs include participant identity, prompt source, installed skills, and workspace policy;
+- validate supported workspace setup routes through `houmao-utils-workspace-mgr` rather than generated ad hoc worktree mechanics;
 - run harness self-checks when present;
 - report stale or ambiguous generated-source metadata;
 - keep domain-specific validation opt-in and derived from the loop source.
