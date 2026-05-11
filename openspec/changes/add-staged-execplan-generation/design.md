@@ -44,7 +44,7 @@ Alternative considered: generate objective and participants first. That is reaso
 
 3. Keep `generate-execplan` and `update-execplan` as orchestration commands.
 
-Users should normally call `generate-execplan`; staged commands exist for inspection, repair, and partial regeneration. `update-execplan` should determine whether to restart from the process stage or a later stage based on which intention inputs changed.
+Users should normally call `generate-execplan`; staged commands exist for inspection, repair, and partial updates. `update-execplan` should determine whether to restart from the process stage or a later stage based on which intention inputs changed.
 
 Alternative considered: require users to call each stage manually. That would increase control but make the common path too verbose.
 
@@ -55,6 +55,6 @@ Human docs, README, final manifest, generated metadata, and explicit omission no
 ## Risks / Trade-offs
 
 - Stage names feel like implementation detail -> Mitigation: keep `generate-execplan` as the common command and present staged commands as advanced authoring controls.
-- Partial regeneration produces stale downstream artifacts -> Mitigation: each stage must name its prerequisites and downstream invalidation effects; `validate-execplan` should catch stale or missing generated artifacts.
+- Partial updates produce stale downstream artifacts -> Mitigation: each stage must name its prerequisites and downstream invalidation effects; `validate-execplan` should catch stale or missing generated artifacts.
 - Process model overfits one reference loop -> Mitigation: define the process model in generic terms: phases, events, handoffs, ticks, ownership, state effects, completion, recovery, and unresolved decisions.
 - Users edit generated intermediate files -> Mitigation: preserve the existing rule that `intention/` is source and generated execplan artifacts are replaceable.

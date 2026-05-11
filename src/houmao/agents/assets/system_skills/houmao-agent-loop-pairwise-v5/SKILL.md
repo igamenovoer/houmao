@@ -110,6 +110,12 @@ Authoring:
 - `clarify intent`: interview the user about loop intent, record accepted decisions as ADRs, and update intention Markdown.
 - `refine-intention`: update existing intention Markdown from user edits or new direction.
 - `generate-execplan`: generate `execplan/` from `intention/`.
+- `execplan-specs-process`: generate the canonical process model first.
+- `execplan-specs-contract`: derive objective, participant, topology, communication, state, record, workspace, and run contracts from the process model.
+- `execplan-harness`: generate loop-local harness surfaces from contracts.
+- `execplan-skills`: generate shared, event, tick, and operator skills from process/contracts/harness.
+- `execplan-agent-bindings`: generate concrete Houmao agent bindings after generated skills exist.
+- `execplan-finalize`: generate support docs, package README, final manifest, metadata, omission notes, and consistency notes.
 - `validate-execplan`: validate generated execplan shape and generated-artifact posture.
 - `update-execplan`: update generated material after intention changes.
 
@@ -131,6 +137,12 @@ Authoring pages:
 - Read [subskills/authoring/clarify-intent.md](subskills/authoring/clarify-intent.md) when intention Markdown already exists and the user asks to `clarify intent` through decision questions and ADR capture.
 - Read [subskills/authoring/refine-intention.md](subskills/authoring/refine-intention.md) when intention Markdown already exists and needs revision.
 - Read [subskills/authoring/generate-execplan.md](subskills/authoring/generate-execplan.md) when generating `<loop-dir>/execplan/` from current intention source.
+- Read [subskills/authoring/execplan-specs-process.md](subskills/authoring/execplan-specs-process.md) when generating or updating the process-first execplan model.
+- Read [subskills/authoring/execplan-specs-contract.md](subskills/authoring/execplan-specs-contract.md) when deriving concrete execplan contracts from the process model.
+- Read [subskills/authoring/execplan-harness.md](subskills/authoring/execplan-harness.md) when generating loop-local harness surfaces from generated contracts.
+- Read [subskills/authoring/execplan-skills.md](subskills/authoring/execplan-skills.md) when generating shared, event, tick, and operator skills.
+- Read [subskills/authoring/execplan-agent-bindings.md](subskills/authoring/execplan-agent-bindings.md) when generating concrete Houmao agent configs and definitions.
+- Read [subskills/authoring/execplan-finalize.md](subskills/authoring/execplan-finalize.md) when producing final docs, package README, manifest, metadata, omission notes, and consistency notes.
 - Read [subskills/authoring/validate-execplan.md](subskills/authoring/validate-execplan.md) when checking generated execplan artifacts.
 - Read [subskills/authoring/update-execplan.md](subskills/authoring/update-execplan.md) when updating generated execplan material after intention edits.
 

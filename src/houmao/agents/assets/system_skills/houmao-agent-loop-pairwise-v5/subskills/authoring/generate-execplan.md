@@ -202,18 +202,19 @@ Mail-received event skills:
 ## Actions
 
 1. Confirm `<loop-dir>` and intention files exist.
-2. Derive the execplan from intention source only.
-3. Identify which generated contract layers are needed: objective, collaboration, communication, state, workspace, participants, skills, agents, harness, and docs.
-4. Generate domain-specific objectives, roles, policies, evidence gates, and tools only when intention source states them.
-5. Generate participant contracts separately from concrete Houmao agent bindings.
-6. Put dynamic values that agents need during work into generated specs, runtime state, or harness lookup surfaces rather than baking them into static skill prose.
-7. Generate on-event skills for concrete incoming events such as received schema-specific mail, and on-tick skills for scheduler-like responsibilities that do not belong to one incoming event.
-8. When workspace setup is needed, generate workspace contracts that route creation to `houmao-utils-workspace-mgr` and keep the default as in-repo plus explicitly listed bookkeeping directories.
-9. When durable runtime artifacts are expected, define the run artifact layout and what it preserves.
-10. Mark generated Markdown with a clear generated-source note or metadata block.
-11. Keep generated skill files concise and progressively disclosed.
-12. Preserve unresolved assumptions as explicit `UNRESOLVED - <reason>` entries.
-13. Run the `validate-execplan` operation before reporting completion.
+2. Seed package identity, plan revision, directory shell, and a provisional manifest if useful.
+3. Run staged generation in this order:
+  - `execplan-specs-process`
+  - `execplan-specs-contract`
+  - `execplan-harness`
+  - `execplan-skills`
+  - `execplan-agent-bindings`
+  - `execplan-finalize`
+4. Treat `execplan-specs-process` as the first generated authority. Later stages must derive their process semantics from it rather than inventing independent behavior.
+5. Put dynamic values that agents need during work into generated specs, runtime state, or harness lookup surfaces rather than baking them into static skill prose.
+6. Mark generated Markdown with a clear generated-source note or metadata block.
+7. Preserve unresolved assumptions as explicit `UNRESOLVED - <reason>` entries.
+8. Run the `validate-execplan` operation before reporting completion.
 
 ## Constraints
 

@@ -30,6 +30,23 @@ The default scaffold is a flexible profile, not a rigid template. A useful gener
 
 The generator may omit a default layer or file when the intention clearly does not need it. The omission should be explicit in the manifest, generated docs, or validation notes so later maintainers can distinguish a deliberate small loop from an incomplete plan.
 
+## Staged Generation Order
+
+The process model is the first generated authority. The default staged order is:
+
+```text
+execplan-specs-process
+  -> execplan-specs-contract
+      -> execplan-harness
+          -> execplan-skills
+              -> execplan-agent-bindings
+                  -> execplan-finalize
+```
+
+`execplan-specs-process` captures phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. Later stages derive concrete contracts and operational surfaces from that model.
+
+`generate-execplan` should run all stages in order. `update-execplan` should choose the earliest affected stage and rerun downstream stages. `execplan-finalize` is last: it may finalize a manifest seeded earlier, but it should not add new authoritative behavior that bypasses process, contracts, harness, skills, or agent bindings.
+
 ## Participant And Agent Boundary
 
 Generated plans should separate three identities:

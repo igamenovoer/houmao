@@ -179,6 +179,23 @@ The reusable default is a scaffold profile, not a mandatory full template. Start
 
 Small loops may omit unused default files. The omission should be explicit in the manifest, docs, or validation notes so a later agent can tell the difference between a deliberate small plan and an incomplete plan.
 
+## Staged Generation Pattern
+
+The dependency-safe generation order is process-first:
+
+```text
+execplan-specs-process
+  -> execplan-specs-contract
+      -> execplan-harness
+          -> execplan-skills
+              -> execplan-agent-bindings
+                  -> execplan-finalize
+```
+
+The process stage captures how the loop moves work: phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. This stage is the first generated authority because downstream artifacts should not invent independent process semantics.
+
+The contract stage turns the process model into objective, participants, topology, communication, state, records, workspace, and run contracts. The harness reads those contracts. Skills read process/contracts/harness. Agent bindings install the generated skills. Final docs and manifest summarize what already exists.
+
 ## Manifest Pattern
 
 `manifest.toml` is the package discovery surface. It should carry:

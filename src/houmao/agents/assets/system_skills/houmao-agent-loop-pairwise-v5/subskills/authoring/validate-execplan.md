@@ -24,6 +24,13 @@ Check shape:
 - `execplan/docs/` exists.
 - optional specs for objective, collaboration, communication, state, workspace, and participants exist when generated skills, agent bindings, or harness commands depend on those concerns.
 
+Check staged generation posture:
+- generated material records or documents that process specs are the first generated authority when the loop uses staged generation.
+- process specs describe phases, events, handoffs or exchanges, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families when those concepts apply.
+- derived objective, participant, topology, communication, state, record, workspace, run, harness, skill, and agent-binding artifacts do not introduce process semantics that bypass the process specs.
+- final docs and final manifest are generated after authoritative artifacts exist, or they document the staged generation snapshot they summarize.
+- explicit omissions are reflected in the final manifest, generated docs, or validation notes.
+
 Check generated skills:
 - generated skills under `execplan/skills/*/SKILL.md` have valid skill frontmatter.
 - generated on-event and on-tick skills state their trigger, role owner, bounded procedure, and output or handoff posture.
