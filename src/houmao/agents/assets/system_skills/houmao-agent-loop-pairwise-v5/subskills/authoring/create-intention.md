@@ -1,8 +1,9 @@
 # Init
 
-Use this page when the user asks for `init`, invokes `houmao-agent-loop-pairwise-v5` without another operation or prompt, or wants to scaffold one loop directory.
+## Preconditions
 
-`create-intention` is a compatible alias for this scaffold operation.
+- User asked for `init`, invoked `houmao-agent-loop-pairwise-v5` without another operation or prompt, or wants to scaffold one loop directory.
+- `create-intention` is a compatible alias.
 
 ## Inputs
 
@@ -12,9 +13,10 @@ Require:
 Optional:
 - the user's loop intention, goal, or operating idea
 
-If `<loop-dir>` is missing, ask the user to provide an output directory and do not create files.
+Missing input rule:
+- If `<loop-dir>` is missing, ask the user to provide an output directory and do not create files.
 
-## Procedure
+## Actions
 
 1. Create `<loop-dir>/intention/`.
 2. Create `<loop-dir>/intention/README.md` with:
@@ -27,6 +29,12 @@ If `<loop-dir>` is missing, ask the user to provide an output directory and do n
 5. If the user did not provide current intention, scaffold `loop-overview.md` with editable placeholder headings for objective, participants, operating model, workspace expectations, constraints, and open questions.
 6. Add additional Markdown files under `intention/` only when they make the intention easier to edit, such as `participants.md`, `workflow.md`, `workspace.md`, or `constraints.md`.
 
+## Rules
+
+- Preserve user-provided uncertainty.
+- Keep intention files editable and freeform.
+- Treat `execplan/` as future generated output, not scaffold output.
+
 ## Output
 
 Report:
@@ -34,7 +42,7 @@ Report:
 - `<loop-dir>/intention/loop-overview.md`
 - any additional freeform intention files created
 
-## Boundaries
+## Constraints
 
 - Do not generate `execplan/` from this page.
 - Do not require or create `adrs/`.

@@ -1,6 +1,10 @@
 # Start
 
-Use this page when prepared agents and a validated execplan are ready to begin one loop run.
+## Preconditions
+
+- Agents are prepared.
+- Execplan is validated.
+- One loop run is ready to begin.
 
 ## Inputs
 
@@ -9,7 +13,7 @@ Require:
 - generated execplan validation pass
 - target run identity when the execplan or operator requires one
 
-## Procedure
+## Actions
 
 1. Validate `execplan/`.
 2. Confirm required agents are live or intentionally launchable.
@@ -21,7 +25,7 @@ Require:
 8. When the start path creates structured mail or records, follow the generated TOML payload, schema validation, renderer, and controlled-apply contracts.
 9. Record or report the run id, addressed agents, first expected event or tick skill, and first expected status or query surface.
 
-## Boundaries
+## Constraints
 
 - Do not start if `<loop-dir>` or `execplan/` is missing.
 - Do not bypass generated harness initialization when the execplan defines one.

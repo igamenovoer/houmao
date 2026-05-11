@@ -5,15 +5,26 @@ description: Manual invocation only; use only when the user explicitly requests 
 
 # Houmao Agent Loop Pairwise
 
-Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v5` or names a supported loop operation.
+## Activation
 
-If the user invokes `houmao-agent-loop-pairwise-v5` without another operation or prompt, treat it as `init`: ask for the output `<loop-dir>` and do not create files until the user provides it.
-
-This is a general loop authoring and execution skill. It is not CUDA-specific, Hopper-specific, or tied to any business domain.
+- Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v5` or names a supported loop operation.
+- If the user invokes `houmao-agent-loop-pairwise-v5` without another operation or prompt:
+  - treat it as `init`;
+  - ask for the output `<loop-dir>`;
+  - do not create files until the user provides it.
+- Keep the skill general:
+  - not CUDA-specific;
+  - not Hopper-specific;
+  - not tied to any business domain.
 
 ## Required Root
 
-Before creating or changing files, require one user-selected `<loop-dir>`.
+- Preconditions:
+  - require one user-selected `<loop-dir>` before creating or changing files;
+  - do not invent a loop root.
+- Source/output rule:
+  - `intention/` is editable source material;
+  - `execplan/` is generated operational material.
 
 ```text
 <loop-dir>/
@@ -30,9 +41,41 @@ Before creating or changing files, require one user-selected `<loop-dir>`.
     docs/
 ```
 
-`intention/` is editable source material. `execplan/` is generated operational material.
+Workspace rule:
+- when a generated loop needs agent workspaces, route workspace planning and creation through `houmao-utils-workspace-mgr`;
+- this skill may generate workspace contracts and an operator workspace-management skill;
+- do not duplicate workspace-manager setup mechanics.
 
-When a generated loop needs agent workspaces, route workspace planning and creation through `houmao-utils-workspace-mgr`. This skill may generate workspace contracts and an operator workspace-management skill, but it should not duplicate workspace-manager setup mechanics.
+## Communication Defaults
+
+- Cross-agent participant communication defaults to Houmao mail unless the intention source explicitly requests a non-mail communication mechanism.
+- Do not ask the user to decide whether ordinary participant handoffs should use mail when the intention source is silent.
+- Clarify loop-specific communication facts:
+  - routes;
+  - message families;
+  - payload fields;
+  - reply expectations;
+  - state or record effects.
+- Generated loop material owns communication semantics:
+  - participant routes;
+  - message families;
+  - structured payload schemas;
+  - Markdown render templates;
+  - reply expectations;
+  - loop-local state or record effects caused by mail.
+
+Maintained Houmao skills own mail mechanics:
+- `houmao-mailbox-mgr` for mailbox setup, inspection, repair, cleanup, export, registration, and late mailbox binding.
+- `houmao-agent-email-comms` for ordinary mail status, list, read, send, post, reply, mark, move, and archive operations.
+- `houmao-process-emails-via-gateway` for notifier-driven open-mail rounds when the current round provides the gateway base URL.
+- `houmao-agent-messaging` for managed-agent prompt, interrupt, mailbox handoff, and gateway-backed communication routing.
+- `houmao-agent-gateway` for gateway lifecycle and gateway posture.
+
+Generated loop skills must not implement:
+- custom mailbox storage;
+- custom mailbox state management;
+- ad hoc gateway discovery;
+- local substitutes for ordinary mail send, read, reply, and archive behavior owned by maintained Houmao skills.
 
 ## Operations
 
@@ -75,7 +118,7 @@ Execution pages:
 - Read [subskills/execution/recover.md](subskills/execution/recover.md) after interruption, partial handoff, failed setup, or inconsistent state.
 - Read [subskills/execution/stop.md](subskills/execution/stop.md) to stop a generated loop.
 
-## Boundaries
+## Constraints
 
 - Do not auto-route generic loop requests here when the user did not explicitly select this skill.
 - Do not invent `<loop-dir>`.

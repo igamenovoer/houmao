@@ -1,6 +1,9 @@
 # Refine Intention
 
-Use this page when `<loop-dir>/intention/` already exists and the user wants to revise the loop source.
+## Preconditions
+
+- `<loop-dir>/intention/` already exists.
+- The user wants to revise loop source material.
 
 ## Inputs
 
@@ -13,7 +16,7 @@ Read first:
 - `<loop-dir>/intention/loop-overview.md`
 - any intention Markdown files directly relevant to the requested edit
 
-## Procedure
+## Actions
 
 1. Preserve `intention/` as the editable source area.
 2. Update `loop-overview.md` when the change affects the top-level objective, participants, lifecycle, or operating model.
@@ -21,7 +24,7 @@ Read first:
 4. Keep unresolved choices explicit with `UNRESOLVED - <reason>`.
 5. If an existing `execplan/` may now be stale, tell the user to run the `regenerate-execplan` operation.
 
-## Boundaries
+## Constraints
 
 - Do not rewrite user-authored freeform files into a rigid template.
 - Do not edit generated `execplan/` files from this page.

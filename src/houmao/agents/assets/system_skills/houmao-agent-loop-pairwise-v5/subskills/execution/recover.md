@@ -1,6 +1,14 @@
 # Recover
 
-Use this page after interruption, failed setup, partial handoff, inconsistent runtime state, stopped participants, or uncertain loop posture.
+## Preconditions
+
+- Use after any of:
+  - interruption;
+  - failed setup;
+  - partial handoff;
+  - inconsistent runtime state;
+  - stopped participants;
+  - uncertain loop posture.
 
 ## Inputs
 
@@ -8,7 +16,7 @@ Require:
 - `<loop-dir>`
 - run identity or enough artifacts to identify the affected run
 
-## Procedure
+## Actions
 
 1. Stop ordinary scheduling before repair work.
 2. Inspect generated execplan, harness diagnostics, managed-agent state, mailbox state, gateway state, memory posture, and runtime artifacts through maintained surfaces.
@@ -18,7 +26,7 @@ Require:
 6. Validate after repair before resuming.
 7. Report recovered state, unresolved obligations, and whether `resume` or `start` is the correct next operation.
 
-## Boundaries
+## Constraints
 
 - Do not silently migrate an active run to a regenerated execplan.
 - Do not hide duplicate or partially sent mail; report it as recovery context.

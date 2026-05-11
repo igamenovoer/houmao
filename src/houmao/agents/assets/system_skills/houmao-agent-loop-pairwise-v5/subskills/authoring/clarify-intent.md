@@ -1,8 +1,14 @@
 # Clarify Intent
 
-Use this page when the user explicitly asks to `clarify intent` for one loop after the intention scaffold exists and the user has written initial source material.
+## Preconditions
 
-This operation is a focused design interview. It clarifies intent, records accepted design decisions as ADRs, and updates editable intention files. It does not generate or repair `execplan/`.
+- User explicitly asks to `clarify intent` for one loop.
+- The intention scaffold exists.
+- The user has written initial source material.
+- Goal:
+  - clarify intent;
+  - record accepted design decisions as ADRs;
+  - update editable intention files.
 
 ## Inputs
 
@@ -16,7 +22,8 @@ Read first:
 - directly relevant intention Markdown files
 - existing `<loop-dir>/adrs/*.md` when present
 
-If `<loop-dir>` or required intention files are missing, ask for the missing root or ask the user to run `create-intention` first.
+Missing input rule:
+- If `<loop-dir>` or required intention files are missing, ask for the missing root or ask the user to run `create-intention` first.
 
 ## Decision Areas
 
@@ -24,7 +31,7 @@ Explore only the areas that are relevant to the current intention:
 - objective, non-goals, and success posture
 - participant roles and role instances
 - collaboration topology and who may hand off work to whom
-- mail/message families and structured communication needs
+- mail/message families, participant routes, structured payload fields, reply expectations, and mail-caused state or record effects
 - on-event behaviors owned by each participant
 - on-tick behaviors for scheduling, reconciliation, timeout, or completion checks
 - harness responsibilities for data-model validation, dynamic lookup, query, rendering, and controlled record application
@@ -32,7 +39,39 @@ Explore only the areas that are relevant to the current intention:
 - workspace, artifact, and evidence expectations, including whether the default Houmao `in-repo` workspace flavor plus loop bookkeeping dirs is sufficient
 - completion, stop, override, and recovery posture
 
-## Procedure
+## Communication Defaults
+
+Rules:
+- Treat Houmao mail as the default communication mechanism for ordinary cross-agent participant handoffs unless the intention source explicitly selects a non-mail mechanism.
+- Do not ask whether to use mail by default.
+
+Clarify loop-specific communication decisions instead:
+- which participant role sends to which participant role;
+- which message family or template is needed;
+- which structured payload fields are required;
+- whether the message expects a reply, which reply schema or family should answer it, and whether the request should carry `requested_reply_schema_id`;
+- what state, record, aggregation, or scheduling effect happens after send or receive;
+- whether a scheduler-like responsibility belongs in an on-tick skill instead of one mail-received event handler.
+
+Mechanics boundary:
+- Assume maintained Houmao mail skills own:
+  - mailbox setup;
+  - ordinary send/read/reply/archive behavior;
+  - gateway-notified open-mail rounds;
+  - managed-agent communication routing;
+  - gateway posture.
+- Do not ask the user to design Houmao mailbox transport mechanics unless the intention source explicitly rejects the default.
+
+Mail-shape defaults:
+- participant-to-participant loop mail is templated by default;
+- operator-origin control, override, recovery, stop, resume, or unsupported instruction mail may remain freeform and high priority;
+- any durable loop effect should become an interpreted generated record or event when the loop needs state.
+
+Identifier rule:
+- Treat platform `message_ref` and `thread_ref` values as opaque identifiers.
+- Clarify what the loop needs to remember about them, not how Houmao stores or transports them.
+
+## Actions
 
 1. Read current intention source and existing ADRs.
 2. Identify ambiguities, missing decisions, weak assumptions, or terms that need sharper meaning before execplan generation.
@@ -79,23 +118,31 @@ The accepted answer.
 - Any unresolved follow-up questions.
 ```
 
-Keep ADRs concise. Do not create ADRs for minor wording edits that do not change intent, behavior, or generated-contract direction.
+Rules:
+- Keep ADRs concise.
+- Do not create ADRs for minor wording edits that do not change intent, behavior, or generated-contract direction.
 
 ## Question Style
 
-Ask one decision question, not a questionnaire dump.
+- Ask one decision question, not a questionnaire dump.
+- Include:
+  - the decision question;
+  - a recommended answer when context supports one;
+  - affected intention files;
+  - likely future execplan surfaces.
 
 Good shape:
 
 ```text
-Question: Should this loop use mail for participant handoffs, a tick-driven scheduler, or both?
+Question: For the work-request handoff from the coordinator role to the worker role, should the request require a structured result reply, a receipt-only acknowledgement, or no reply?
 
-Recommended answer: Use mail for cross-participant handoffs and a lead-owned tick for scheduling and completion checks. That keeps handoffs auditable while keeping dynamic scheduling out of mail-received handlers.
+Recommended answer: Require a structured result reply and allow a receipt-only acknowledgement only for deferred work.
+That gives the generated execplan a request-to-reply schema link while keeping scheduling and completion checks in a coordinator-owned tick.
 
-If accepted, I will record an ADR and update `workflow.md` plus `loop-overview.md`.
+If accepted, I will record an ADR and update `communication.md`, `workflow.md`, and `loop-overview.md`.
 ```
 
-## Boundaries
+## Constraints
 
 - Do not generate, repair, or directly edit `execplan/`.
 - Do not require ADRs for `create-intention`; ADRs are created by this clarify operation after the user has initial intent source.

@@ -1,6 +1,8 @@
 # Stop
 
-Use this page when the operator wants to end one loop run.
+## Preconditions
+
+- Operator wants to end one loop run.
 
 ## Inputs
 
@@ -9,7 +11,7 @@ Require:
 - run identity
 - desired stop posture when the user has one
 
-## Procedure
+## Actions
 
 1. Validate enough execplan context to identify generated stop guidance.
 2. Use generated harness or generated operator skill stop surfaces when available.
@@ -18,7 +20,7 @@ Require:
 5. Route gateway notifier shutdown or reminder cleanup through `houmao-agent-gateway`.
 6. Run a final read-only status check and report stopped participants, retained artifacts, and cleanup options.
 
-## Boundaries
+## Constraints
 
 - Do not delete `<loop-dir>/intention/` or `<loop-dir>/execplan/`.
 - Do not cleanup stopped-session artifacts unless the user asks for cleanup.

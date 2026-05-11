@@ -65,14 +65,14 @@ execplan/
         implementation-reply.schema.json
         review-request.schema.json
         review-reply.schema.json
-        notice.schema.json
+        freeform-notice.schema.json
         ack.schema.json
       renderers/
         implementation-request.md.j2
         implementation-reply.md.j2
         review-request.md.j2
         review-reply.md.j2
-        notice.md.j2
+        freeform-notice.md.j2
         ack.md.j2
     state/
       schema.sql                  # Runtime tables for compact bookkeeping; enough for the current generated revision.
@@ -229,13 +229,31 @@ Tick skills are useful when the loop has a role that coordinates process flow. T
 
 ## Communication Pattern
 
-Generated loop process is normally driven by mail communication between participants. Generated mail should be structured as payload plus rendered Markdown:
+Generated loop process is normally driven by mail communication between participants. This is a default, not a global restriction: an intention source may explicitly choose a non-mail mechanism, but ordinary participant handoffs should not require a fresh foundational transport decision.
+
+Generated mail should be structured as payload plus rendered Markdown:
 
 - JSON schemas define payload validity.
 - TOML payloads are validated against schemas.
 - Markdown renderers create human-readable mail or prompts.
 - `specs/comms/templates.toml` maps schema ids to schema paths and renderer paths.
 - Sender-side validation is explicit; receiver skills inspect rendered mail semantically and use state or record schemas for their own role action.
+
+The default generated package shape is:
+
+```text
+specs/comms/
+  comms-overview.md               # Generated human view of message families, routes, reply links, and lifecycle effects.
+  templates.toml                  # Registry from short template names and schema ids to schemas/renderers.
+  schemas/                        # JSON Schemas for TOML payloads.
+    freeform-notice.schema.json   # Generic validated notice for unsupported but loop-relevant content.
+    ack.schema.json               # Receipt-only acknowledgement family.
+    <message-family>.schema.json
+  renderers/                      # Markdown templates used before sending mail through maintained Houmao support.
+    freeform-notice.md.j2
+    ack.md.j2
+    <message-family>.md.j2
+```
 
 The creation flow should be:
 
@@ -248,7 +266,38 @@ TOML payload
 
 The same pattern applies to any artifact that must be both structurally recorded and human-readable: define the structured payload, validate it, render it for humans, and preserve the structured data or a stable reference for later audit.
 
+The default templated payload envelope should include `schema_id`, `schema_version`, `payload_id`, `kind`, `run_id`, `plan_revision`, an exchange or handoff id, and `context`. Requests that expect structured replies should include `requested_reply_schema_id` or an explicit equivalent. This lets a receiver know the right reply family without asking the operator to redesign the protocol.
+
+Rendered generated mail should include a fenced `houmao-email-metadata` block, a `Context` section, template-specific human-readable sections, and an explicit reply request section when a reply is expected. The metadata block should carry enough machine-readable identity to connect the rendered mail back to the generated schema and payload lifecycle.
+
+The default generic families are `freeform-notice` and `ack`. `freeform-notice` covers participant-facing or operator-origin content that does not fit a task-specific request/reply template but still needs validated context, requested action, and reply expectation fields. `ack` covers receipt-only acknowledgement without implying a substantive state transition unless another generated contract says so.
+
+When runtime state exists, the harness may expose `email schema|validate|render|apply|query` commands. Those commands inspect schemas, validate TOML payloads, render Markdown, apply loop-local payload lifecycle or mail-caused records, and query recorded payload posture. They must not become mailbox delivery; actual send, read, reply, archive, mailbox binding, and gateway behavior remain delegated to maintained Houmao mail skills.
+
+The maintained skill boundary is part of the default: `houmao-mailbox-mgr` owns mailbox administration, `houmao-agent-email-comms` owns ordinary mail operations, `houmao-process-emails-via-gateway` owns notifier-driven open-mail rounds, `houmao-agent-messaging` owns managed-agent communication routing, and `houmao-agent-gateway` owns gateway lifecycle and posture.
+
 The general lesson is to preserve a schema/render registry for generated communication protocols whenever agents exchange operational work, rather than relying on freeform mail conventions alone. Freeform mail can still exist for operator notices, escalation, or unsupported cases, but ordinary loop work should prefer generated schemas and renderers.
+
+### Defaults And Non-Defaults
+
+Defaults extracted from the reference pattern:
+- Houmao mail as the ordinary cross-agent participant transport.
+- TOML payloads validated by JSON Schema before Markdown rendering.
+- `specs/comms/templates.toml` as the schema/renderer registry.
+- a common payload envelope and explicit request-to-reply schema links.
+- metadata-bearing rendered Markdown.
+- payload lifecycle records when runtime state exists.
+- generated mail-received on-event skills triggered by schema id or message family.
+- on-tick skills for aggregation, scheduling, reconciliation, timeout, and completion checks.
+- maintained Houmao mail skills owning platform mechanics.
+
+Reference-specific details that should not become defaults:
+- the exact participant topology from the source plan;
+- domain message-family names such as implementation or review requests;
+- evidence-field names or domain validation gates;
+- the exact scheduling algorithm or completion policy;
+- a required SQLite backend or database layout;
+- any specific toolchain, benchmark, artifact type, or optimization domain.
 
 ## State And Record Pattern
 
