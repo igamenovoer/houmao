@@ -38,6 +38,7 @@ CORE_SYSTEM_SKILLS = (
     "houmao-agent-loop-pairwise-v2",
     "houmao-agent-loop-pairwise-v3",
     "houmao-agent-loop-pairwise-v4",
+    "houmao-agent-loop-pairwise-v5",
     "houmao-agent-loop-generic",
     "houmao-agent-instance",
     "houmao-agent-inspect",
@@ -98,6 +99,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-loop-pairwise-v2",
         "houmao-agent-loop-pairwise-v3",
         "houmao-agent-loop-pairwise-v4",
+        "houmao-agent-loop-pairwise-v5",
         "houmao-agent-loop-generic",
         "houmao-agent-instance",
         "houmao-agent-inspect",
@@ -315,6 +317,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v4_document_templates = (
         home_path / "skills/houmao-agent-loop-pairwise-v4/document-templates"
     )
+    pairwise_loop_v5_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
+    pairwise_loop_v5_authoring = (
+        home_path / "skills/houmao-agent-loop-pairwise-v5/subskills/authoring"
+    )
+    pairwise_loop_v5_execution = (
+        home_path / "skills/houmao-agent-loop-pairwise-v5/subskills/execution"
+    )
     relay_loop_skill_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
@@ -362,6 +371,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert (pairwise_loop_v4_document_templates / "plan.md").is_file()
     assert (pairwise_loop_v4_document_templates / "agent-note.md").is_file()
     assert (pairwise_loop_v4_document_templates / "constraint-coverage-audit.md").is_file()
+    assert pairwise_loop_v5_skill_path.is_file()
+    assert (pairwise_loop_v5_authoring / "create-intention.md").is_file()
+    assert (pairwise_loop_v5_authoring / "generate-execplan.md").is_file()
+    assert (pairwise_loop_v5_authoring / "validate-execplan.md").is_file()
+    assert (pairwise_loop_v5_execution / "prepare-agents.md").is_file()
+    assert (pairwise_loop_v5_execution / "start.md").is_file()
+    assert (pairwise_loop_v5_execution / "status.md").is_file()
+    assert (pairwise_loop_v5_execution / "recover.md").is_file()
     assert relay_loop_skill_path.is_file()
     assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
     assert (relay_loop_operating / "start.md").is_file()
@@ -395,6 +412,19 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     ).read_text(encoding="utf-8")
     pairwise_loop_v4_audit_template = (
         pairwise_loop_v4_document_templates / "constraint-coverage-audit.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_skill = pairwise_loop_v5_skill_path.read_text(encoding="utf-8")
+    pairwise_loop_v5_create_intention = (
+        pairwise_loop_v5_authoring / "create-intention.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_generate_execplan = (
+        pairwise_loop_v5_authoring / "generate-execplan.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_validate_execplan = (
+        pairwise_loop_v5_authoring / "validate-execplan.md"
+    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_prepare_agents = (
+        pairwise_loop_v5_execution / "prepare-agents.md"
     ).read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
@@ -784,6 +814,25 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
     assert "Coverage Table" in pairwise_loop_v4_audit_template
     assert "UNRESOLVED - <reason>" in pairwise_loop_v4_audit_template
+    assert "Use this Houmao skill only when the user explicitly asks for" in pairwise_loop_v5_skill
+    assert "`houmao-agent-loop-pairwise-v5`" in pairwise_loop_v5_skill
+    assert "<loop-dir>/intention/" in pairwise_loop_v5_skill
+    assert "<loop-dir>/execplan/" in pairwise_loop_v5_skill
+    assert "subskills/authoring/create-intention.md" in pairwise_loop_v5_skill
+    assert "subskills/execution/prepare-agents.md" in pairwise_loop_v5_skill
+    assert "Do not require `adrs/`" in pairwise_loop_v5_skill
+    assert "Do not encode CUDA, Hopper" in pairwise_loop_v5_skill
+    assert "If `<loop-dir>` is missing, ask for it" in pairwise_loop_v5_create_intention
+    assert "<loop-dir>/intention/README.md" in pairwise_loop_v5_create_intention
+    assert "<loop-dir>/intention/loop-overview.md" in pairwise_loop_v5_create_intention
+    assert "<loop-dir>/execplan/" in pairwise_loop_v5_generate_execplan
+    assert "manifest.toml" in pairwise_loop_v5_generate_execplan
+    assert "Do not require `adrs/`" in pairwise_loop_v5_generate_execplan
+    assert "generated skills under `execplan/skills/*/SKILL.md`" in (
+        pairwise_loop_v5_validate_execplan
+    )
+    assert "houmao-specialist-mgr" in pairwise_loop_v5_prepare_agents
+    assert "houmao-agent-instance" in pairwise_loop_v5_prepare_agents
     assert (
         "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
         in relay_loop_skill
@@ -976,6 +1025,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_v4_document_templates = (
         home_path / "skills/houmao-agent-loop-pairwise-v4/document-templates"
     )
+    pairwise_loop_v5_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
+    pairwise_loop_v5_authoring = (
+        home_path / "skills/houmao-agent-loop-pairwise-v5/subskills/authoring"
+    )
+    pairwise_loop_v5_execution = (
+        home_path / "skills/houmao-agent-loop-pairwise-v5/subskills/execution"
+    )
     relay_loop_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
     relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
     relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
@@ -1003,6 +1059,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_path.is_file()
     assert pairwise_loop_v3_path.is_file()
     assert pairwise_loop_v4_path.is_file()
+    assert pairwise_loop_v5_path.is_file()
+    assert (pairwise_loop_v5_authoring / "refine-intention.md").is_file()
+    assert (pairwise_loop_v5_authoring / "regenerate-execplan.md").is_file()
+    assert (pairwise_loop_v5_execution / "pause.md").is_file()
+    assert (pairwise_loop_v5_execution / "resume.md").is_file()
+    assert (pairwise_loop_v5_execution / "stop.md").is_file()
     assert relay_loop_path.is_file()
     mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
     memory_mgr_skill = memory_mgr_path.read_text(encoding="utf-8")
@@ -1016,6 +1078,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
     pairwise_loop_v3_skill = pairwise_loop_v3_path.read_text(encoding="utf-8")
     pairwise_loop_v4_skill = pairwise_loop_v4_path.read_text(encoding="utf-8")
+    pairwise_loop_v5_skill = pairwise_loop_v5_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
     specialist_launch_action_path = specialist_mgr_actions / "launch.md"
@@ -1501,6 +1564,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-agent-loop-pairwise-v2" in touring_skill
     assert "houmao-agent-loop-pairwise-v3" in touring_skill
     assert "houmao-agent-loop-pairwise-v4" in touring_skill
+    assert "Manual invocation only" in pairwise_loop_v5_skill
+    assert "execplan/" in pairwise_loop_v5_skill
     assert "houmao-agent-instance" in touring_skill
     assert "## Welcome Message" in touring_skill
     assert "framework and CLI toolkit for orchestrating teams" in touring_skill
