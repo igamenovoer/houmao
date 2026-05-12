@@ -12,6 +12,7 @@ Require:
 - generated harness surfaces when present;
 - generated skills;
 - generated agent bindings when present;
+- execplan ADRs under `execplan/adrs/` when present;
 - any explicit omission notes from earlier stages.
 
 ## Outputs
@@ -30,6 +31,8 @@ Use this final support shape:
 <loop-dir>/execplan/
   README.md
   manifest.toml
+  adrs/
+    0001-short-decision-slug.md
   docs/
     artifact-index.md
     operator-guide.md
@@ -45,8 +48,9 @@ Add narrower docs only when generated artifacts need them. Do not put authoritat
 2. Finalize `manifest.toml` after files exist so it indexes actual paths, artifact kinds, purposes, plan revision, and explicit omissions.
 3. Ensure docs defer authority to `specs/`, `harness/`, generated skills, and agent bindings.
 4. For mail-driven loops, ensure docs summarize the notifier-prompt-driven runtime: mail notifier wakes agents, on-event skills process mail, optional on-tick skills run after mail when instructed, and agents finish the chat turn.
-5. Record any intentionally skipped default layers.
-6. Run or request `validate-execplan` after finalization.
+5. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
+6. Record any intentionally skipped default layers.
+7. Run or request `validate-execplan` after finalization.
 
 ## Downstream Effects
 

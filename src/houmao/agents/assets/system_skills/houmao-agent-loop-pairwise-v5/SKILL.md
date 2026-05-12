@@ -30,6 +30,7 @@ description: Manual invocation only; use only when the user explicitly requests 
     ...
   execplan/
     manifest.toml
+    adrs/
     specs/
       objective/
       collab/
@@ -56,6 +57,7 @@ Use these defaults unless intention source or accepted clarification decisions c
 
 Execplan scaffold:
 - `manifest.toml` indexes generated artifacts, generated-source posture, and plan revision.
+- `adrs/` records accepted execplan-generation decisions when `execplan-step-by-step` is used.
 - `specs/collab/collab-overview.md` is the required process-first authority.
 - `specs/` separates objective, collaboration, communication, state, workspace, run-artifact, and participant contracts when those concerns apply.
 - `skills/` contains one flat directory of generated skills: `skills/<unique-skill-name>/SKILL.md`. Skill names must be unique after installation; encode purpose in the skill name or metadata, not in nested category directories.
@@ -136,7 +138,8 @@ Authoring:
 - `create-intention`: create the initial editable intention area.
 - `clarify intent`: interview the user about loop intent, record accepted decisions as ADRs, and update intention Markdown.
 - `refine-intention`: update existing intention Markdown from user edits or new direction.
-- `generate-execplan`: generate `execplan/` from `intention/`.
+- `execplan-fast-forward`: scaffold and generate all `execplan/` artifacts from `intention/` in one non-interactive pass.
+- `execplan-step-by-step`: scaffold and generate all `execplan/` artifacts interactively, asking one generation decision at a time and recording accepted decisions under `execplan/adrs/`.
 - `execplan-specs-process`: generate the canonical process model first at `execplan/specs/collab/collab-overview.md`, including Python-style pseudocode with inline comments and a high-level Mermaid sequence graph.
 - `execplan-specs-contract`: derive objective, participant, topology, communication, state, record, workspace, and run contracts from the process model.
 - `execplan-harness`: generate loop-local harness surfaces from contracts.
@@ -163,7 +166,8 @@ Authoring pages:
 - Read [subskills/authoring/create-intention.md](subskills/authoring/create-intention.md) when the user asks for `init`, invokes this skill without another operation or prompt, or wants to scaffold `<loop-dir>/intention/`.
 - Read [subskills/authoring/clarify-intent.md](subskills/authoring/clarify-intent.md) when intention Markdown already exists and the user asks to `clarify intent` through decision questions and ADR capture.
 - Read [subskills/authoring/refine-intention.md](subskills/authoring/refine-intention.md) when intention Markdown already exists and needs revision.
-- Read [subskills/authoring/generate-execplan.md](subskills/authoring/generate-execplan.md) when generating `<loop-dir>/execplan/` from current intention source.
+- Read [subskills/authoring/execplan-fast-forward.md](subskills/authoring/execplan-fast-forward.md) when generating all `<loop-dir>/execplan/` artifacts from current intention source without interactive generation decisions.
+- Read [subskills/authoring/execplan-step-by-step.md](subskills/authoring/execplan-step-by-step.md) when generating all `<loop-dir>/execplan/` artifacts through one-question-at-a-time decisions recorded under `execplan/adrs/`.
 - Read [subskills/authoring/execplan-specs-process.md](subskills/authoring/execplan-specs-process.md) when generating or updating the process-first execplan model.
 - Read [subskills/authoring/execplan-specs-contract.md](subskills/authoring/execplan-specs-contract.md) when deriving concrete execplan contracts from the process model.
 - Read [subskills/authoring/execplan-harness.md](subskills/authoring/execplan-harness.md) when generating loop-local harness surfaces from generated contracts.

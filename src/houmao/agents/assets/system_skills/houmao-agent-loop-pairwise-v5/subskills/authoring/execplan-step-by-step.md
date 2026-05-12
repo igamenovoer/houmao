@@ -1,0 +1,152 @@
+# Execplan Step By Step
+
+## Preconditions
+
+- User wants generated execution material with guided decisions.
+- Current intention source exists.
+- The user accepts an interactive flow where one decision question may pause generation.
+
+## Inputs
+
+Require:
+- `<loop-dir>`
+- `<loop-dir>/intention/README.md`
+- `<loop-dir>/intention/loop-overview.md`
+
+Read:
+- relevant files under `<loop-dir>/intention/`
+- accepted intention ADRs under `<loop-dir>/adrs/` when present
+- existing `<loop-dir>/execplan/` material when updating or resuming the stepwise generation
+- existing `<loop-dir>/execplan/adrs/*.md` when present
+
+## Outputs
+
+Generate all execplan artifacts through the standard staged order, but allow the user to decide generation choices one question at a time:
+
+```text
+scaffold execplan/
+  -> execplan-specs-process
+      -> execplan-specs-contract
+          -> execplan-harness
+              -> execplan-skills
+                  -> execplan-agent-bindings
+                      -> execplan-finalize
+                          -> validate-execplan
+```
+
+Record accepted generation decisions under:
+
+```text
+<loop-dir>/execplan/adrs/0001-short-decision-slug.md
+<loop-dir>/execplan/adrs/0002-short-decision-slug.md
+```
+
+`execplan/adrs/` is part of generated execplan material. It records decisions about generated artifact shape, defaults, omissions, bindings, harness surfaces, communication contracts, validation posture, or other execplan implementation choices. It does not replace editable intention source.
+
+## Decision Areas
+
+Ask only when a decision materially affects generated artifacts and cannot be derived from intention source, accepted intention ADRs, existing execplan ADRs, or documented defaults:
+- which optional execplan layers should be generated or explicitly omitted;
+- participant instance naming and generated skill naming when collisions or ambiguity are likely;
+- message family names, request/reply links, or renderer section choices not clear from intention source;
+- state, record, run artifact, or audit scope when the loop can reasonably choose more than one compact model;
+- harness command surface, relative-path or symlink posture, and command envelope choices;
+- agent binding details such as notifier prompt customization, support skills, memo seed policy, or workspace policy;
+- final docs and manifest omissions when a default layer is intentionally absent.
+
+Do not ask about ordinary defaults that the skill already defines, such as mail as the default participant handoff transport, notifier-prompt-driven mail processing, flat generated skill directories, or the canonical process overview path.
+
+## Actions
+
+1. Confirm `<loop-dir>` and required intention files exist.
+2. Scaffold `execplan/` before asking artifact-generation questions:
+  - create the standard top-level execplan directories;
+  - create `execplan/adrs/`;
+  - seed package identity, plan revision, and provisional manifest if useful.
+3. Start at the earliest missing or affected stage.
+4. For the active stage, read current upstream artifacts and existing `execplan/adrs/`.
+5. If a material generation decision is unresolved, ask exactly one focused question.
+6. Include a recommended answer when context supports one, and name the artifacts that will change if accepted.
+7. Stop after asking the question and wait for the user's answer.
+8. After the user accepts or edits the decision:
+  - write one ADR under `execplan/adrs/`;
+  - update or generate the affected execplan artifacts immediately;
+  - update manifest or validation notes when the decision records an omission or accepted equivalent.
+9. Continue to the next unresolved decision or next staged generation step.
+10. After all stages complete, run or request `validate-execplan`.
+
+## Execplan ADR Shape
+
+Use sequential numeric filenames scoped to `execplan/adrs/`:
+
+```text
+<loop-dir>/execplan/adrs/0001-short-decision-slug.md
+```
+
+Use this Markdown structure:
+
+```markdown
+# Execplan ADR 0001: Short Decision Title
+
+## Status
+
+Accepted
+
+## Stage
+
+execplan-specs-contract
+
+## Context
+
+Why this generation decision matters.
+
+## Decision
+
+The accepted answer.
+
+## Affected Artifacts
+
+- `execplan/specs/...`
+- `execplan/harness/...`
+
+## Consequences
+
+- What changed in generated artifacts.
+- Which downstream stages must use this decision.
+- Any unresolved follow-up decisions.
+```
+
+Rules:
+- Keep ADRs concise and artifact-focused.
+- Record only accepted decisions.
+- Do not create ADRs for routine defaults that did not require a user decision.
+- If a question reveals that editable intent is wrong or incomplete, tell the user to run `clarify intent` or explicitly update `intention/`; do not silently move source-of-truth intent into `execplan/adrs/`.
+
+## Question Style
+
+- Ask one decision question, not a checklist.
+- Include:
+  - the decision question;
+  - a recommended answer when context supports one;
+  - the stage being generated;
+  - affected artifacts;
+  - whether downstream stages will be regenerated.
+
+Good shape:
+
+```text
+Question: For generated worker-result mail, should the reply family include a structured `evidence_refs` field, or should evidence be captured only through a separate record apply command?
+
+Recommended answer: Include `evidence_refs` in the reply payload and let the harness validate referenced evidence records separately.
+That keeps the mail readable while preserving compact evidence bookkeeping in records.
+
+If accepted, I will record `execplan/adrs/0003-worker-result-evidence-link.md`, update `specs/comms/`, and rerun harness and skill generation downstream.
+```
+
+## Constraints
+
+- Do not perform platform launch, mailbox delivery, gateway, memory, lifecycle, or workspace creation side effects.
+- Do not ask multiple questions at once.
+- Do not treat an ADR as accepted until the user accepts or edits the decision.
+- Do not use `execplan/adrs/` for user-editable intent decisions that belong in `intention/` and `<loop-dir>/adrs/`.
+- Do not leave generated artifacts inconsistent with accepted execplan ADRs.

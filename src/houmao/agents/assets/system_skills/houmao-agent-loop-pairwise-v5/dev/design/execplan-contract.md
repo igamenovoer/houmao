@@ -35,6 +35,7 @@ Expected generated paths should be explicit whenever a layer is used:
 ```text
 execplan/
   manifest.toml
+  adrs/0001-short-decision-slug.md
   specs/
     collab/collab-overview.md
     objective/objective.toml
@@ -59,7 +60,7 @@ execplan/
     validation.md
 ```
 
-Optional files may be omitted, but the process overview path, flat generated skill-directory shape, agent binding registry, and harness command registry should not be left implicit when those stages emit artifacts. Generated skill names must be unique after installation; do not rely on nested directories to disambiguate role, trigger, or purpose.
+Optional files may be omitted, but the process overview path, flat generated skill-directory shape, agent binding registry, and harness command registry should not be left implicit when those stages emit artifacts. `execplan/adrs/` is optional and normally appears only for step-by-step generation decisions. Generated skill names must be unique after installation; do not rely on nested directories to disambiguate role, trigger, or purpose.
 
 ## Staged Generation Order
 
@@ -76,7 +77,7 @@ execplan-specs-process
 
 `execplan-specs-process` emits the canonical process overview at `execplan/specs/collab/collab-overview.md`. It captures phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. It should also include a human-readable process explanation in two executable-looking views: Python-style pseudocode in fenced `python` blocks with inline comments for conditions/actions/state effects/stopping points, and a high-level Mermaid `sequenceDiagram` in a fenced `mermaid` block. Later stages derive concrete contracts and operational surfaces from that model. Do not use a flat `execplan/specs/process.md` as the primary process document.
 
-`generate-execplan` should run all stages in order. `update-execplan` should choose the earliest affected stage and rerun downstream stages. `execplan-finalize` is last: it may finalize a manifest seeded earlier, but it should not add new authoritative behavior that bypasses process, contracts, harness, skills, or agent bindings.
+`execplan-fast-forward` should run all stages in order without optional design questions. `execplan-step-by-step` should scaffold first, then run all stages with one-question-at-a-time generation decisions recorded under `execplan/adrs/`. `update-execplan` should choose the earliest affected stage and rerun downstream stages. `execplan-finalize` is last: it may finalize a manifest seeded earlier, but it should not add new authoritative behavior that bypasses process, contracts, harness, skills, or agent bindings.
 
 ## Participant And Agent Boundary
 

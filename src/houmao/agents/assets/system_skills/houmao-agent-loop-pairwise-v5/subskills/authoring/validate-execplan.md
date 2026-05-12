@@ -24,6 +24,7 @@ Check shape:
 - `execplan/docs/` exists.
 - optional specs for objective, collaboration, communication, state, workspace, run artifacts, and participants exist when generated skills, agent bindings, or harness commands depend on those concerns.
 - generated artifact paths follow the canonical package shape unless an explicit omission or accepted equivalent is recorded in `manifest.toml`, generated docs, or validation notes.
+- `execplan/adrs/` is optional; when present, ADR entries are generated-decision records and are indexed by the manifest or summarized by final docs.
 
 Check staged generation posture:
 - generated material records or documents that process specs are the first generated authority when the loop uses staged generation.
@@ -79,6 +80,11 @@ Check run artifacts:
 Check final docs:
 - final support docs use named files under `execplan/docs/`, normally `artifact-index.md`, `operator-guide.md`, `runtime-model.md`, and `validation.md` when those views apply.
 - final support docs link or point back to authoritative `specs/`, `harness/`, `skills/`, and `agents/` artifacts rather than introducing standalone behavior.
+
+Check execplan ADRs:
+- execplan ADRs, when present, live under `execplan/adrs/` with sequential numeric filenames.
+- execplan ADRs record accepted generated-artifact decisions, not user-editable intent decisions that belong under `intention/` or `<loop-dir>/adrs/`.
+- affected artifacts named by execplan ADRs exist or are recorded as omitted or pending in the manifest, generated docs, or validation notes.
 
 Check mail-driven communication contracts:
 - mail-driven plans route mailbox setup, ordinary mail operations, gateway-notified rounds, managed-agent communication routing, and gateway lifecycle to maintained Houmao skills rather than generated platform mechanics.

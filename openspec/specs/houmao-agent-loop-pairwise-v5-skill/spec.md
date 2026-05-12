@@ -336,7 +336,7 @@ Each staged subcommand SHALL state its inputs, outputs, prerequisites, downstrea
 #### Scenario: Staged commands are discoverable
 - **WHEN** a user asks which execplan generation stages are available
 - **THEN** the skill lists the six staged subcommands in dependency order
-- **AND THEN** it explains that `generate-execplan` runs them as the common orchestration path
+- **AND THEN** it explains that `execplan-fast-forward` runs them as the non-interactive all-stage orchestration path
 
 ### Requirement: V5 generates execplan stages in process-first order
 The staged execplan generation order SHALL be:
@@ -373,7 +373,7 @@ Generated concrete agent bindings SHALL include a plan-local binding registry at
 Generated harnesses SHALL include an explicit command registry at `execplan/harness/commands.toml` unless the manifest records an accepted no-code or external harness surface.
 
 #### Scenario: Process model precedes derived contracts
-- **WHEN** `generate-execplan` creates a fresh generated execplan
+- **WHEN** `execplan-fast-forward` creates a fresh generated execplan
 - **THEN** it treats `execplan-specs-process` as the first generation stage
 - **AND THEN** it writes the canonical process overview to `execplan/specs/collab/collab-overview.md`
 - **AND THEN** objective, participant, topology, communication, state, workspace, harness, skill, agent-binding, docs, and final manifest artifacts are derived after the process model exists
@@ -398,8 +398,14 @@ Generated harnesses SHALL include an explicit command registry at `execplan/harn
 - **THEN** each emitted artifact is placed under the canonical path family for that stage
 - **AND THEN** any omitted default layer or accepted equivalent is recorded for validation and operator review
 
-### Requirement: Generate and update orchestration use staged execplan order
-The `generate-execplan` operation SHALL orchestrate the staged execplan subcommands in dependency order unless the user explicitly asks for one staged subcommand.
+### Requirement: All-stage generation and update orchestration use staged execplan order
+The `execplan-fast-forward` operation SHALL scaffold `execplan/` and orchestrate the staged execplan subcommands in dependency order without optional generation questions unless the user explicitly asks for one staged subcommand.
+
+The `execplan-step-by-step` operation SHALL scaffold `execplan/`, then orchestrate the same staged execplan subcommands in dependency order while asking at most one unresolved generation-decision question at a time.
+
+The `execplan-step-by-step` operation SHALL record accepted artifact-generation decisions under `<loop-dir>/execplan/adrs/` and SHALL revise affected execplan artifacts after each accepted decision.
+
+The packaged skill SHALL NOT expose `generate-execplan` as a separate operation name; all non-interactive full execplan generation SHALL route through `execplan-fast-forward`.
 
 The `update-execplan` operation SHALL determine the earliest affected stage from the changed intention source or explicit user request, then rerun that stage and downstream stages as needed.
 
@@ -407,10 +413,16 @@ The `execplan-finalize` stage SHALL produce final support docs, package README u
 
 The manifest MAY be seeded before finalization, but final manifest content SHALL be produced or checked during `execplan-finalize`.
 
-#### Scenario: Generate-execplan runs all stages
-- **WHEN** a user asks v5 to `generate-execplan`
+#### Scenario: Execplan-fast-forward runs all stages
+- **WHEN** a user asks v5 to `execplan-fast-forward`
 - **THEN** the operation runs `execplan-specs-process`, `execplan-specs-contract`, `execplan-harness`, `execplan-skills`, `execplan-agent-bindings`, and `execplan-finalize` in order
 - **AND THEN** it runs or requests `validate-execplan` before reporting the execplan ready
+
+#### Scenario: Execplan-step-by-step records accepted generation decisions
+- **WHEN** a user asks v5 to `execplan-step-by-step`
+- **THEN** the operation scaffolds `execplan/` including `execplan/adrs/`
+- **AND THEN** it asks one generation-decision question at a time only when a material artifact choice is not derivable from source or defaults
+- **AND THEN** each accepted decision is recorded under `execplan/adrs/` and reflected in affected generated artifacts before continuing downstream
 
 #### Scenario: Update-execplan reruns affected downstream stages
 - **WHEN** intention changes affect participant process flow or handoff semantics

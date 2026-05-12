@@ -3,7 +3,7 @@
 ## Preconditions
 
 - Current intention source exists.
-- User wants the first staged execplan generation step or `generate-execplan` is orchestrating all stages.
+- User wants the first staged execplan generation step or `execplan-fast-forward` / `execplan-step-by-step` is orchestrating all stages.
 
 ## Inputs
 

@@ -9,6 +9,7 @@ A mature `execplan/` package usually needs more than the minimum directory shell
 ```text
 execplan/                         # Generated operational package; replaceable from intention source.
   manifest.toml                   # Package index: artifact ids, paths, purposes, generated-source posture, and plan revision.
+  adrs/                           # Optional execplan-generation decision records for step-by-step generation.
   specs/                          # Machine-readable contracts. Agents should consult these through skills or harness commands.
     objective/                    # Goals, constraints, success posture, and references to policy sections.
     collab/                       # Process topology, scheduling policy, handoff rules, and structured collaboration record schemas.
@@ -29,6 +30,7 @@ The shape matters because each layer has a different authority:
 | Layer | Pattern |
 | --- | --- |
 | `manifest.toml` | Generated artifact index and plan revision anchor. |
+| `adrs/` | Optional accepted decisions about generated artifact shape, used by step-by-step generation. |
 | `specs/` | Machine contracts that role skills and harness commands consult. |
 | `skills/` | Flat generated skill directories with `SKILL.md`; trigger or responsibility is encoded in the unique skill name and metadata. |
 | `agents/` | Concrete Houmao agent bindings for participant instances, profile material, installed skills, workspace policy, and notifier prompt text. |
@@ -43,6 +45,8 @@ The following example is abstracted from a concrete lead/reviewer/worker referen
 execplan/
   manifest.toml
   README.md
+  adrs/
+    0001-message-family-shape.md
   specs/
     objective/
       objective.toml              # Goal and constraints rendered by the harness.
