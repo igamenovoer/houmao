@@ -1,5 +1,11 @@
 # Execplan Specs Process
 
+## Read First
+
+- `../reference/generation-pipeline.md`
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+
 ## Preconditions
 
 - Current intention source exists.

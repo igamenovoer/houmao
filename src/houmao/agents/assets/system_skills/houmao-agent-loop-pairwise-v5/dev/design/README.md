@@ -2,7 +2,14 @@
 
 These files are developer reference material for maintainers of `houmao-agent-loop-pairwise-v5`.
 
-They are not part of skill execution. Do not route user requests through this directory, do not install these files as generated role skills, and do not treat them as operator-facing workflow pages. Runtime behavior belongs in the top-level `SKILL.md`, `agents/openai.yaml`, and the routed `subskills/` pages.
+They are not part of skill execution. Do not route user requests through this directory, do not install these files as generated role skills, and do not treat them as operator-facing workflow pages. Runtime behavior belongs in `agents/openai.yaml`, the top-level `SKILL.md` router, the routed operation pages under `subskills/`, and the runtime reference pages under `subskills/reference/`.
+
+## Runtime Reference Boundary
+
+- `SKILL.md` should stay short: activation, required root, operation list, routing, and global constraints.
+- `subskills/reference/` contains shared runtime guidance that invoking agents read from routed operation pages.
+- `dev/design/` contains maintainer rationale and extension advice only.
+- If a detail is needed during normal skill execution, put it in `subskills/reference/` or the relevant operation page, then keep `dev/design/` as the explanation of why that rule exists.
 
 ## Files
 

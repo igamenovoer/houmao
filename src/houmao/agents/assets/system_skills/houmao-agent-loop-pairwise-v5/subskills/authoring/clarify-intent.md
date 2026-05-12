@@ -1,5 +1,10 @@
 # Clarify Intent
 
+## Read First
+
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - User explicitly asks to `clarify intent` for one loop.
@@ -23,7 +28,7 @@ Read first:
 - existing `<loop-dir>/adrs/*.md` when present
 
 Missing input rule:
-- If `<loop-dir>` or required intention files are missing, ask for the missing root or ask the user to run `create-intention` first.
+- If `<loop-dir>` or required intention files are missing, ask for the missing root or ask the user to run `init` or `create-intention` first.
 
 ## Decision Areas
 
@@ -40,40 +45,18 @@ Explore only the areas that are relevant to the current intention:
 - workspace, artifact, and evidence expectations, including whether the default Houmao `in-repo` workspace flavor plus loop bookkeeping dirs is sufficient
 - completion, stop, override, and recovery posture
 
-## Communication Defaults
+## Communication Clarification
 
-Rules:
-- Treat Houmao mail as the default communication mechanism for ordinary cross-agent participant handoffs unless the intention source explicitly selects a non-mail mechanism.
-- Do not ask whether to use mail by default.
-- Treat Houmao mail-driven agents as notifier-prompt-driven: a separate mail notifier detects open mail and prompts the target agent.
-- Do not design in-chat waiting, sleeps, polling, or periodic background ticks.
-
-Clarify loop-specific communication decisions instead:
-- which participant role sends to which participant role;
-- which message family or template is needed;
-- which structured payload fields are required;
-- whether the message expects a reply, which reply schema or family should answer it, and whether the request should carry `requested_reply_schema_id`;
-- what state, record, aggregation, or scheduling effect happens after send or receive;
-- whether a scheduler-like responsibility belongs in an on-tick skill instead of one mail-received event handler;
-- whether the mail notification prompt should instruct the agent to run an on-tick skill after mail processing.
-
-Mechanics boundary:
-- Assume maintained Houmao mail skills own:
-  - mailbox setup;
-  - ordinary send/read/reply/archive behavior;
-  - gateway-notified open-mail rounds;
-  - managed-agent communication routing;
-  - gateway posture.
-- Do not ask the user to design Houmao mailbox transport mechanics unless the intention source explicitly rejects the default.
-
-Mail-shape defaults:
-- participant-to-participant loop mail is templated by default;
-- operator-origin control, override, recovery, stop, resume, or unsupported instruction mail may remain freeform and high priority;
-- any durable loop effect should become an interpreted generated record or event when the loop needs state.
-
-Identifier rule:
-- Treat platform `message_ref` and `thread_ref` values as opaque identifiers.
-- Clarify what the loop needs to remember about them, not how Houmao stores or transports them.
+- Apply the default mail model from `runtime-mail-model.md`.
+- Clarify only loop-specific communication decisions:
+  - sender and recipient roles;
+  - message families or templates;
+  - structured payload fields;
+  - reply expectations;
+  - state, record, aggregation, or scheduling effects;
+  - tick-after-mail needs;
+  - loop-specific notifier prompt instructions.
+- Do not ask the user to design Houmao mailbox, gateway, or managed-agent messaging mechanics unless the intention source explicitly rejects maintained Houmao surfaces.
 
 ## Actions
 

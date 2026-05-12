@@ -1,5 +1,10 @@
 # Pause
 
+## Read First
+
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - Operator wants to pause normal loop scheduling, wakeup, or dispatch.

@@ -22,7 +22,7 @@ The intended model is:
 - Generated execution package: `execplan/` is generated from intention and should be safe to replace during `update-execplan`.
 - Domain neutrality: packaged behavior must not encode domain-specific goals, toolchains, topology, scheduling policy, or evidence gates.
 - Composed execution: platform operations should route through maintained Houmao skills and CLI surfaces instead of being duplicated here.
-- Progressive disclosure: top-level routing should remain short; operational detail belongs in subskills.
+- Progressive disclosure: top-level routing should remain short; shared runtime detail belongs in `subskills/reference/`, and operation-specific detail belongs in routed subskills.
 
 ## Why Not Use Execplan As Source
 

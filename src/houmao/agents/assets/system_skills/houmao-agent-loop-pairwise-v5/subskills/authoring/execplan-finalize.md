@@ -1,5 +1,12 @@
 # Execplan Finalize
 
+## Read First
+
+- `../reference/scaffold-surface.md`
+- `../reference/generation-pipeline.md`
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+
 ## Preconditions
 
 - Upstream staged generation has emitted the authoritative generated artifacts for this revision.

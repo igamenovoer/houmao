@@ -1,9 +1,12 @@
-# Init
+# Create Intention
+
+## Read First
+
+- `../reference/scaffold-surface.md`
 
 ## Preconditions
 
-- User asked for `init`, invoked this skill without another operation or prompt, or wants to scaffold one loop directory.
-- `create-intention` is a compatible alias.
+- User asked for `create-intention` or wants to scaffold the editable intention files without project-context discovery.
 
 ## Inputs
 
@@ -18,7 +21,7 @@ Missing input rule:
 
 ## Actions
 
-1. Use the packaged scaffold generator with the `intention-init` profile to materialize `<loop-dir>/intention/README.md` and `<loop-dir>/intention/loop-overview.md` from the shared templates.
+1. Use the packaged scaffold generator with the `intention-create` profile to materialize `<loop-dir>/intention/README.md` and `<loop-dir>/intention/loop-overview.md` from the shared templates.
 2. If the user provided current intention, revise `loop-overview.md` after scaffolding with clear headings, preserving uncertainty instead of inventing missing policy.
 3. If the user did not provide current intention, keep the scaffold headings and placeholder bullets as editable source.
 4. Add additional Markdown files under `intention/` only when they make the intention easier to edit, such as `participants.md`, `workflow.md`, `workspace.md`, or `constraints.md`.

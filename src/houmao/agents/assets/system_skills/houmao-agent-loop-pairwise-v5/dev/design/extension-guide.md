@@ -7,12 +7,17 @@ This guide is for developers revising `houmao-agent-loop-pairwise-v5`. It is not
 Keep these responsibilities separate:
 
 - `SKILL.md`: activation, routing, global boundaries, and the required root vocabulary.
+- `subskills/reference/`: shared runtime guidance read by routed operation pages through `Read First` sections.
 - `subskills/authoring/`: source creation, source refinement, execplan generation, validation, and execplan updates.
 - `subskills/execution/`: operating a validated execplan through generated contracts and maintained Houmao surfaces.
 - `scripts/scaffold.py` plus `assets/scaffolds/`: shared ownership for scaffold-owned starter files and directory shells.
 - `dev/design/`: rationale for maintainers only.
 
 Do not put long design rationale into execution-facing pages. Those pages should stay concise and actionable for the active agent.
+
+Do not put runtime guidance that agents must follow only in `dev/design/`. Move shared execution guidance to `subskills/reference/`, then let operation pages name the needed references in `Read First`.
+
+Keep `SKILL.md` as a router. If it starts accumulating scaffold profiles, generated-contract details, bookkeeping rules, mail-runtime details, or platform-boundary details, move that material to a reference page and leave a concise pointer.
 
 Do not duplicate scaffold-owned starter file bodies across routed pages. If the initial README, manifest seed, named docs starter, or execplan ADR shape changes, update the packaged scaffold assets first and then keep the routed pages aligned to the profile names that own them.
 

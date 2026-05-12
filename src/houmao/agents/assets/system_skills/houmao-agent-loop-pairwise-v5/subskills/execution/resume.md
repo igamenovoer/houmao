@@ -1,5 +1,10 @@
 # Resume
 
+## Read First
+
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - Loop is paused.

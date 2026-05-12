@@ -1,5 +1,13 @@
 # Execplan Step By Step
 
+## Read First
+
+- `../reference/scaffold-surface.md`
+- `../reference/generation-pipeline.md`
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - User wants generated execution material with guided decisions.

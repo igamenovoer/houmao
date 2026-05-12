@@ -1,5 +1,10 @@
 # Stop
 
+## Read First
+
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - Operator wants to end one loop run.

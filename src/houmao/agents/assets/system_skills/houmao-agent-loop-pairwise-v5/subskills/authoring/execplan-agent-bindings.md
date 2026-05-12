@@ -1,5 +1,11 @@
 # Execplan Agent Bindings
 
+## Read First
+
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - Participant contracts, workspace contracts, generated skills, and harness surfaces are current.

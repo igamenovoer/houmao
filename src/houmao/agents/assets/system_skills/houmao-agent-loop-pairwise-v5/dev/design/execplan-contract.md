@@ -34,13 +34,16 @@ The generator may omit a default layer or file when the intention clearly does n
 
 Scaffold-owned starter files should be materialized centrally by `scripts/scaffold.py` from `assets/scaffolds/`. The relevant profiles are:
 
-- `intention-init` for `intention/README.md` and `intention/loop-overview.md`;
+- `intention-create` for the basic editable intention source files: `intention/README.md` and `intention/loop-overview.md`;
+- `intention-init` for initial loop setup: `intention/README.md`, `intention/loop-overview.md`, and `intention/project-context.md`;
 - `execplan-shell` for the standard `execplan/` shell and manifest seed;
 - `execplan-stepwise-shell` for the same shell plus `execplan/adrs/`;
 - `execplan-finalize-docs` for scaffold-owned `execplan/README.md` and named docs starters;
 - `execplan-adr` for one accepted execplan ADR file.
 
-Routed pages should reference those profile names instead of restating starter file bodies inline.
+Runtime routed pages should reference `subskills/reference/scaffold-surface.md` and the relevant profile names instead of restating starter file bodies inline.
+
+`init` owns project-context capture. It may use an explicit project root or project context supplied by the user, otherwise it performs lightweight nearby project detection and writes the result to `intention/project-context.md`. `create-intention` does not perform project scanning.
 
 Expected generated paths should be explicit whenever a layer is used:
 

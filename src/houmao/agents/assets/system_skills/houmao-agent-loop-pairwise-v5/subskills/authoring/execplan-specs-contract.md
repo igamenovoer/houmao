@@ -1,5 +1,12 @@
 # Execplan Specs Contract
 
+## Read First
+
+- `../reference/generation-pipeline.md`
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - `execplan-specs-process` has produced a current process model.
@@ -89,25 +96,10 @@ Use these canonical paths when the corresponding concern exists:
 
 When durable bookkeeping is needed:
 
-- treat state as runtime control-plane state for scheduling, ownership, validation, recovery, transition audit, and completion;
-- keep rich request/reply prose, rendered Markdown, rationale, pseudocode, and detailed analysis in mail, docs, or artifacts;
-- store compact facts and durable refs in state:
-  - ids and stable refs;
-  - statuses and allowed states;
-  - active ownership and handoffs;
-  - scalar gates, scores, pass/fail facts, decisions, and approvals;
-  - mail, evidence, artifact, command, commit, or external-result refs;
-  - timestamps and compact transition audit.
-- make every important transition reconstructable from changed entity, actor or source, new state or decision, mail/evidence/artifact refs, and timestamp;
-- model operator override, pause, prune, stop, repair, or recovery authority as explicit operator intent events when those controls exist;
-- define finite valid state through allowed states, statuses, transitions, and invariants.
-
-Default backend:
-
-- use sqlite when stable entities and transitions can be expressed as a clear SQL schema;
-- emit `specs/state/schema.sql` as the field-level authority for sqlite state;
-- use JSONL plus explicit record schemas only for append-only, schema-light, or intentionally denormalized state;
-- do not use unstructured ad hoc state files when sqlite or JSONL plus schema is feasible.
+- apply the control-plane state, backend, and state-package defaults from `generated-contract-defaults.md`;
+- emit only the entity families the generated loop needs;
+- keep field-level authority in `schema.sql` or JSON schemas;
+- keep README files to purpose and contents.
 
 Default `specs/state/` package:
 
@@ -142,11 +134,9 @@ Consider these generic entity families and emit only the subset the loop needs:
 
 For generated TOML contracts:
 
-- put a plain human-readable comment above each generated section or table-array header;
-- include concise `description` fields for records or sections exposed through harness commands;
-- use `description` fields, not comments, as the source for harness `--explain`;
-- use comments only for in-place readability;
-- do not require record-level descriptions for private mechanical TOML files that are never surfaced to agents or operators.
+- apply the TOML defaults from `generated-contract-defaults.md`;
+- include `description` fields for records exposed to agents, operators, or harness `--explain`;
+- keep comments human-readable and non-authoritative.
 
 ## Downstream Effects
 

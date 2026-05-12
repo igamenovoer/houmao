@@ -1,5 +1,10 @@
 # Status
 
+## Read First
+
+- `../reference/generated-contract-defaults.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - User wants read-only inspection of one loop.

@@ -1,5 +1,11 @@
 # Execplan Skills
 
+## Read First
+
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - Process specs, derived contracts, and harness surfaces are current.

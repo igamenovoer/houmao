@@ -1,5 +1,11 @@
 # Execplan Harness
 
+## Read First
+
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - Process and contract specs are current.
@@ -83,7 +89,7 @@ For stateful loops, make the harness the normal participant access path for book
 - `state export`: optionally render compact human-readable recovery or operator views.
 
 Rules:
-- prefer sqlite-backed state when `../specs/state/schema.sql` defines a clear SQL schema;
+- follow the backend defaults in `generated-contract-defaults.md`;
 - support JSONL plus schemas only when selected by generated contracts;
 - participant agents use harness commands, not raw SQL or ad hoc state-file edits;
 - direct state edits are operator repair only, require the loop to be paused, and must be followed by `state validate`;

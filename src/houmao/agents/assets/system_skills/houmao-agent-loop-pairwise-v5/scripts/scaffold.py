@@ -3,6 +3,7 @@
 
 Usage examples:
 
+    pixi run python scripts/scaffold.py --profile intention-create --loop-dir /path/to/loop
     pixi run python scripts/scaffold.py --profile intention-init --loop-dir /path/to/loop
     pixi run python scripts/scaffold.py --profile execplan-shell --loop-dir /path/to/loop
     pixi run python scripts/scaffold.py --profile execplan-stepwise-shell --loop-dir /path/to/loop
@@ -147,6 +148,19 @@ EXECPLAN_ADRS_README = TemplateTarget(
 
 
 PROFILES = {
+    "intention-create": ProfileDefinition(
+        m_directories=(Path("intention"),),
+        m_templates=(
+            TemplateTarget(
+                m_template_path=Path("intention/README.md.tmpl"),
+                m_output_path=Path("intention/README.md"),
+            ),
+            TemplateTarget(
+                m_template_path=Path("intention/loop-overview.md.tmpl"),
+                m_output_path=Path("intention/loop-overview.md"),
+            ),
+        ),
+    ),
     "intention-init": ProfileDefinition(
         m_directories=(Path("intention"),),
         m_templates=(
@@ -157,6 +171,10 @@ PROFILES = {
             TemplateTarget(
                 m_template_path=Path("intention/loop-overview.md.tmpl"),
                 m_output_path=Path("intention/loop-overview.md"),
+            ),
+            TemplateTarget(
+                m_template_path=Path("intention/project-context.md.tmpl"),
+                m_output_path=Path("intention/project-context.md"),
             ),
         ),
     ),

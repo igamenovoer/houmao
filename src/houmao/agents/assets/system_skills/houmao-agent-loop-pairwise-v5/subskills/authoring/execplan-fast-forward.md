@@ -1,5 +1,13 @@
 # Execplan Fast Forward
 
+## Read First
+
+- `../reference/scaffold-surface.md`
+- `../reference/generation-pipeline.md`
+- `../reference/generated-contract-defaults.md`
+- MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/platform-boundaries.md`
+
 ## Preconditions
 
 - User wants generated execution material in one non-interactive pass.
