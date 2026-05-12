@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Agent Loop Pairwise"
-  short_description: "Manually init loop intention, clarify intent, fast-forward or step through execplan generation, and operate generated loops."
+  short_description: "Manually init loop intention, clarify intent or execplan details, fast-forward or step through execplan generation, and operate generated loops."
   default_prompt: "Use $houmao-agent-loop-pairwise-v5 only when explicitly requested or when the user names a supported loop operation. If no operation or prompt is given, run init: ask for <loop-dir>, then scaffold intention files including project-context.md. For details, read SKILL.md and the routed subskill; use packaged scaffold templates and route Houmao platform operations to their maintained skills."

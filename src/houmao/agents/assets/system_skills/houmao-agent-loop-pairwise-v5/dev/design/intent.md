@@ -20,6 +20,7 @@ The intended model is:
 - User-selected root: the workflow must not invent `<loop-dir>`.
 - Editable source: `intention/` is the human-maintained source area.
 - Generated execution package: `execplan/` is generated from intention and should be safe to replace during `update-execplan`.
+- Clarification boundary: `clarify-intent` changes editable intent; `clarify-execplan` confirms or repairs generated implementation choices without inventing missing intent.
 - Domain neutrality: packaged behavior must not encode domain-specific goals, toolchains, topology, scheduling policy, or evidence gates.
 - Composed execution: platform operations should route through maintained Houmao skills and CLI surfaces instead of being duplicated here.
 - Progressive disclosure: top-level routing should remain short; shared runtime detail belongs in `subskills/reference/`, and operation-specific detail belongs in routed subskills.

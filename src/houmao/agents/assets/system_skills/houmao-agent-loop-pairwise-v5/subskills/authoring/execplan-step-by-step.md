@@ -103,7 +103,7 @@ Rules:
 - Keep ADRs concise and artifact-focused.
 - Record only accepted decisions.
 - Do not create ADRs for routine defaults that did not require a user decision.
-- If a question reveals that editable intent is wrong or incomplete, tell the user to run `clarify intent` or explicitly update `intention/`; do not silently move source-of-truth intent into `execplan/adrs/`.
+- If a question reveals that editable intent is wrong or incomplete, tell the user to run `clarify-intent` or explicitly update `intention/`; do not silently move source-of-truth intent into `execplan/adrs/`.
 
 ## Question Style
 

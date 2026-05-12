@@ -33,6 +33,7 @@ description: Manual invocation only; use only when the user explicitly requests 
 Detailed guidance lives behind routed pages. Read only the page selected by routing and the references listed in that page's `Read First` section.
 
 - [subskills/reference/scaffold-surface.md](subskills/reference/scaffold-surface.md): scaffold profiles, template authority, and source/output rules.
+- [subskills/reference/clarification-protocol.md](subskills/reference/clarification-protocol.md): coverage scans, question limits, accepted-answer recording, and clarification summaries.
 - [subskills/reference/generated-contract-defaults.md](subskills/reference/generated-contract-defaults.md): generated execplan layout, README rules, bookkeeping, TOML style, and harness defaults.
 - [subskills/reference/generation-pipeline.md](subskills/reference/generation-pipeline.md): process-first stage order and update dependencies.
 - MUST READ for mail-driven loops: [subskills/reference/runtime-mail-model.md](subskills/reference/runtime-mail-model.md): notifier-driven mail turns, on-event skills, on-tick skills, and no in-chat waiting.
@@ -43,7 +44,8 @@ Detailed guidance lives behind routed pages. Read only the page selected by rout
 Authoring:
 - `init`: scaffold editable intention material and populate `intention/project-context.md`; default when invoked without another operation or prompt.
 - `create-intention`: create basic editable intention material without project-context detection.
-- `clarify intent`: interview the user about loop intent, record accepted decisions as ADRs, and update intention Markdown.
+- `clarify-intent`: scan loop intent coverage, ask high-impact clarification questions, record accepted intent decisions as ADRs, and update intention Markdown. Treat `clarify intent` as an alias.
+- `clarify-execplan`: scan generated execplan implementation coverage, ask high-impact clarification questions, record accepted execplan decisions as ADRs, and update or flag generated execplan artifacts.
 - `execplan-fast-forward`: generate all `execplan/` artifacts from current intention source in one non-interactive pass.
 - `execplan-step-by-step`: generate all `execplan/` artifacts through one-question-at-a-time decisions recorded under `execplan/adrs/`.
 - `execplan-specs-process`: generate the process-first model at `execplan/specs/collab/collab-overview.md`.
@@ -71,7 +73,8 @@ Choose exactly one page.
 Authoring pages:
 - Read [subskills/authoring/init.md](subskills/authoring/init.md) when the user asks for `init`, invokes this skill without another operation or prompt, or wants to scaffold `<loop-dir>/intention/` with `project-context.md`.
 - Read [subskills/authoring/create-intention.md](subskills/authoring/create-intention.md) when the user asks for `create-intention` or wants basic intention scaffolding without project-context detection.
-- Read [subskills/authoring/clarify-intent.md](subskills/authoring/clarify-intent.md) when intention Markdown already exists and the user asks to `clarify intent` through decision questions and ADR capture.
+- Read [subskills/authoring/clarify-intent.md](subskills/authoring/clarify-intent.md) when intention Markdown already exists and the user asks for `clarify-intent` or the alias `clarify intent`.
+- Read [subskills/authoring/clarify-execplan.md](subskills/authoring/clarify-execplan.md) when generated execplan artifacts exist and the user asks for `clarify-execplan`.
 - Read [subskills/authoring/execplan-fast-forward.md](subskills/authoring/execplan-fast-forward.md) when generating all `<loop-dir>/execplan/` artifacts from current intention source without interactive generation decisions.
 - Read [subskills/authoring/execplan-step-by-step.md](subskills/authoring/execplan-step-by-step.md) when generating all `<loop-dir>/execplan/` artifacts through one-question-at-a-time decisions recorded under `execplan/adrs/`.
 - Read [subskills/authoring/execplan-specs-process.md](subskills/authoring/execplan-specs-process.md) when generating or updating the process-first execplan model.

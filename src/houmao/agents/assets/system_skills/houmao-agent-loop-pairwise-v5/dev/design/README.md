@@ -11,6 +11,13 @@ They are not part of skill execution. Do not route user requests through this di
 - `dev/design/` contains maintainer rationale and extension advice only.
 - If a detail is needed during normal skill execution, put it in `subskills/reference/` or the relevant operation page, then keep `dev/design/` as the explanation of why that rule exists.
 
+## Clarification Boundary
+
+- `clarify-intent` resolves ambiguity in editable loop intent and writes intent ADRs plus `intention/` Markdown.
+- `clarify-execplan` resolves ambiguity in generated loop implementation and writes execplan ADRs plus affected generated artifacts or stale-artifact notes.
+- Both clarification flows should use the shared clarification protocol and the mail runtime model before asking questions.
+- Do not let execplan clarification silently invent missing user intent; send that gap back to `clarify-intent`.
+
 ## Files
 
 - `intent.md`: design intent, boundaries, and source-of-truth rules.

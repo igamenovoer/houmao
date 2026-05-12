@@ -89,6 +89,8 @@ execplan/
 
 Optional files may be omitted, but the process overview path, flat generated skill-directory shape, agent binding registry, and harness command registry should not be left implicit when those stages emit artifacts. `execplan/harness/dependency-posture.toml` is present when the generated harness imports non-stdlib Python libraries. `execplan/harness/requirements.txt` and `vendor/` are optional standalone/custom execution support, not the default dependency path. `execplan/adrs/` is optional and normally appears only for step-by-step generation decisions. Generated skill names must be unique after installation; do not rely on nested directories to disambiguate role, trigger, or purpose.
 
+`clarify-execplan` may add `execplan/adrs/` after generation when the operator accepts implementation-level decisions about generated artifacts. Those ADRs should identify affected artifacts and any downstream stage that must be regenerated or marked stale. They must not become a place to invent missing user intent; intent gaps belong in `intention/` through `clarify-intent` or direct source edits.
+
 ## Staged Generation Order
 
 The process model is the first generated authority. The default staged order is:

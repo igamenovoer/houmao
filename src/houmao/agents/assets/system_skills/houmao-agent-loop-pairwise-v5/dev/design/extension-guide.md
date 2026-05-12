@@ -40,6 +40,17 @@ When tightening execplan generation, update the contract in small layers:
 
 Prefer explicit unresolved entries over inferred behavior. A generated execplan that says what it cannot decide is easier to repair than one that hides assumptions.
 
+## Clarification Commands
+
+Preserve the source-authority split:
+
+- `clarify-intent` works on what the loop means. It reads `intention/`, project context, and intent ADRs, then writes intent ADRs plus intention Markdown.
+- `clarify-execplan` works on how the generated loop is implemented. It reads `execplan/`, prior execplan ADRs, and runtime references, then writes execplan ADRs plus affected generated artifacts or stale-artifact notes.
+
+Both commands should scan coverage before asking, ask at most five accepted questions, ask exactly one question at a time, recommend answers when context supports it, and update artifacts immediately after accepted answers.
+
+If `clarify-execplan` exposes missing or contradictory user intent, do not patch around it in generated artifacts. Report the gap and send the operator back to `clarify-intent` or direct intention edits.
+
 ## Harness Dependencies
 
 Generated harnesses may use `click`, `jinja2`, and `jsonschema` when their generated features need modular commands, Markdown template rendering, or schema validation. Preserve this dependency order:
