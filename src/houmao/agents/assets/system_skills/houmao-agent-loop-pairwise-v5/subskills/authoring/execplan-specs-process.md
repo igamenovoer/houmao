@@ -25,7 +25,16 @@ Generate or update the canonical process overview at:
 <loop-dir>/execplan/specs/collab/collab-overview.md
 ```
 
+Create or update generated artifact directory README files for emitted process-spec directories:
+
+```text
+<loop-dir>/execplan/specs/README.md
+<loop-dir>/execplan/specs/collab/README.md
+```
+
 Use additional files under `<loop-dir>/execplan/specs/collab/` only when the process model needs them, such as `loop-policy.toml`, `topology/graph.md`, or `records/*.schema.json`.
+
+If additional `collab/` child directories are emitted, add `README.md` files for those directories too.
 
 Do not write the primary process overview as a flat file such as `<loop-dir>/execplan/specs/process.md`.
 
@@ -46,22 +55,23 @@ The canonical process overview contains collaboration process material such as:
 
 1. Derive the loop process model from intention source.
 2. Create or replace `<loop-dir>/execplan/specs/collab/collab-overview.md` as the first process-stage authority.
-3. Express the model in generic process terms before generating derived contracts.
-4. For mail-driven loops, record that Houmao notifier prompts wake agents for mail processing and optional follow-up ticks; do not model in-chat waits or periodic tick workers.
-5. Include a Python-style pseudocode section that explains how the loop advances:
+3. Create or update README files for emitted `specs/` directories using only `Purpose` and `Contents`.
+4. Express the model in generic process terms before generating derived contracts.
+5. For mail-driven loops, record that Houmao notifier prompts wake agents for mail processing and optional follow-up ticks; do not model in-chat waits or periodic tick workers.
+6. Include a Python-style pseudocode section that explains how the loop advances:
   - use a fenced `python` code block;
   - name generic roles, events, state queries, handoff decisions, tick passes, terminal branches, and recovery branches;
   - add inline `#` comments for conditions, actions, state effects, and stopping points;
   - keep it domain-derived but not implementation-bound Python.
-6. Include a high-level Mermaid sequence section:
+7. Include a high-level Mermaid sequence section:
   - use a fenced `mermaid` code block;
   - show the main participants or role families;
   - show the normal event/handoff path;
   - show mail/notifier/tick behavior when the loop is mail-driven;
   - omit low-level transport or storage details that belong to later contract or harness stages.
-7. Identify which later stages are required or intentionally omitted.
-8. Preserve unresolved process choices as `UNRESOLVED - <reason>`.
-9. Do not finalize objective, participant, communication, state, workspace, harness, skill, agent, docs, or manifest details in this stage; leave them for downstream stages.
+8. Identify which later stages are required or intentionally omitted.
+9. Preserve unresolved process choices as `UNRESOLVED - <reason>`.
+10. Do not finalize objective, participant, communication, state, workspace, harness, skill, agent, docs, or manifest details in this stage; leave them for downstream stages.
 
 ## Downstream Effects
 

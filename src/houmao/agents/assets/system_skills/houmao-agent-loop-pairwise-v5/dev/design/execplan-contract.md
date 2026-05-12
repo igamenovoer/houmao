@@ -13,6 +13,8 @@ A generated execplan should separate these concerns:
 - `harness/`: plan-local deterministic helpers for data-model management, validation, query, rendering, record application, dynamic information lookup, and other loop-local mechanics.
 - `docs/`: generated human support views that explain the generated contracts without becoming source authority.
 
+Every emitted generated artifact directory should include a concise `README.md` with only `Purpose` and `Contents`. These README files orient readers; they do not duplicate contracts or become source authority.
+
 The top-level skill currently requires only the broad layout. Future improvements should tighten validation by adding explicit checks for artifact coverage, parseability, schema/render pairing, agent binding fields, and harness command behavior.
 
 ## Default Scaffold Profile
@@ -44,29 +46,38 @@ Expected generated paths should be explicit whenever a layer is used:
 
 ```text
 execplan/
+  README.md
   manifest.toml
   adrs/0001-short-decision-slug.md
   specs/
+    README.md
     collab/collab-overview.md
     objective/objective.toml
     comms/templates.toml
-    state/state-model.toml
+    state/state-overview.md
+    state/schema.sql
+    state/seed.toml
+    state/invariants.toml
     workspace/workspace.toml
     run/run-artifacts.toml
     participants/participants.toml
   skills/
+    README.md
     <unique-skill-name>/SKILL.md
   agents/
+    README.md
     bindings.toml
     profiles/<agent-id>/config.toml
     profiles/<agent-id>/definition.md
     notifier-prompts/<agent-id>.md
   harness/
+    README.md
     commands.toml
     requirements.txt
     dependency-posture.toml
     vendor/
   docs/
+    README.md
     artifact-index.md
     operator-guide.md
     runtime-model.md
@@ -104,16 +115,51 @@ This separation lets one loop use a coordinator/worker pattern, another use peer
 
 ## Runtime State Kernel
 
-When a loop needs durable state, start with compact generic bookkeeping:
+When a loop needs durable state, treat bookkeeping as runtime control-plane state. It answers scheduling, ownership, recovery, validation, transition-audit, and completion questions. It should not become another copy of mail or generated docs.
+
+State should store compact facts and refs:
 
 - plan metadata;
 - process state;
-- handoffs or exchanges;
+- participants or role instances when they are not fully static elsewhere;
+- work items, branches, claims, tasks, or open ends when the loop has goal-directed units;
+- active ownership through handoffs or exchanges;
 - communication payload lifecycle;
+- attempts, decisions, evidence, and artifacts when the loop needs those facts;
 - operator intent events;
 - generic events.
 
+State must not store full mail bodies, rendered Markdown, long rationale, pseudocode, detailed analysis, or documentation content. Mail remains the communication authority. Artifacts and docs remain the authority for rich evidence and explanation. State stores message IDs, payload IDs, artifact paths, commit refs, scalar gates, decisions, statuses, timestamps, and other compact facts.
+
+Default backend selection:
+
+- use sqlite when stable entities and transitions can be expressed as a clear SQL schema;
+- include `specs/state/schema.sql` as the field-level authority for sqlite;
+- include `specs/state/state-overview.md`, `seed.toml` when deterministic initialization is needed, and `invariants.toml` when validation needs named checks;
+- use JSONL plus explicit schemas only for append-only, schema-light, or intentionally denormalized state;
+- avoid unstructured ad hoc state files when sqlite or JSONL plus schema is feasible.
+
 Task-specific records, scoring, evidence models, and domain tables are extensions. They should be generated only when the intention introduces them. The default rule is that communication carries rich human meaning, state carries compact auditable facts, the harness validates/applies narrow records, and role skills decide which records should exist.
+
+## TOML Readability And Explanation
+
+Generated TOML contracts should be readable directly and explainable through the harness:
+
+- put a plain human-readable comment above every generated section or table-array header;
+- include concise `description` fields for records, sections, or non-obvious fields exposed through harness commands;
+- use `description` fields as the source for harness `--explain`;
+- do not parse comments for harness explanations;
+- do not require descriptions for private mechanical TOML files that are never exposed to agents or operators.
+
+Example:
+
+```toml
+# Runtime state backend used by the generated harness.
+[state_backend]
+kind = "sqlite"
+description = "Run-scoped sqlite database used as the live bookkeeping authority."
+schema_path = "specs/state/schema.sql"
+```
 
 ## Harness Boundary
 
@@ -133,7 +179,18 @@ Local dependency files are harness implementation support. They do not move sche
 
 The harness should not own Houmao platform operations. Mailbox delivery, mailbox administration, gateway posture, managed-agent launch, prompt transport, memory updates, inspection, and workspace creation remain delegated to maintained Houmao skills or supported CLI surfaces.
 
-Harness output intended for agents should use a stable machine-readable envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings. Explanation commands may derive agent-readable rationale from structured comments such as `@doc`, `@rationale`, `@agent-guidance`, and `@not-for`.
+Harness output intended for agents should use a stable machine-readable envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings. Explanation commands should derive agent-readable rationale from TOML `description` fields and JSON Schema `description` fields, with stable source keys. If the command envelope requires JSON output for explanations, require `--print-json` with `--explain`.
+
+For stateful loops, the harness should expose:
+
+- `state init`;
+- `state validate`;
+- `state query`;
+- `record validate`;
+- `record apply`;
+- optional `state export` for compact human recovery views.
+
+Participant agents should use those commands for normal state access. Raw SQL or direct state-file edits are operator repair actions only, performed while paused and followed by harness validation.
 
 ## Communication Default Contract
 
@@ -213,7 +270,10 @@ Validation should grow from shape checks toward contract checks:
 - parse `manifest.toml` and confirm every indexed artifact exists;
 - verify generated Markdown markers where generated docs are expected;
 - parse TOML contracts and JSON schemas;
+- check generated TOML section comments and `description` fields for harness-explainable records;
 - validate skill frontmatter for every generated skill;
+- validate generated artifact directory README files exist and use only `Purpose` and `Contents`;
+- validate state contract coherence, including state overview, sqlite schema or JSONL schemas, invariants, and harness command coverage;
 - validate generated communication and record registries connect schema ids, payload formats, and renderers coherently;
 - validate agent configs include participant identity, prompt source, installed skills, and workspace policy;
 - validate supported workspace setup routes through `houmao-utils-workspace-mgr` rather than generated ad hoc worktree mechanics;

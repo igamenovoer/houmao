@@ -8,9 +8,11 @@ A mature `execplan/` package usually needs more than the minimum directory shell
 
 ```text
 execplan/                         # Generated operational package; replaceable from intention source.
+  README.md                       # Purpose-and-contents orientation for the generated package.
   manifest.toml                   # Package index: artifact ids, paths, purposes, generated-source posture, and plan revision.
   adrs/                           # Optional execplan-generation decision records for step-by-step generation.
   specs/                          # Machine-readable contracts. Agents should consult these through skills or harness commands.
+    README.md                     # Purpose-and-contents orientation for generated specs.
     objective/                    # Goals, constraints, success posture, and references to policy sections.
     collab/                       # Process topology, scheduling policy, handoff rules, and structured collaboration record schemas.
       collab-overview.md          # Required canonical process overview for generated plans.
@@ -20,12 +22,16 @@ execplan/                         # Generated operational package; replaceable f
     run/                          # Run artifact layout and recovery/audit preservation contracts.
     participants/                 # Abstract roles and stable role instances; not concrete Houmao agent processes.
   skills/                         # Flat generated skill directories; each name must be unique after installation.
+    README.md                     # Purpose-and-contents orientation for generated skills.
   agents/                         # Concrete Houmao agent bindings, profile material, and notifier prompt text.
+    README.md                     # Purpose-and-contents orientation for generated agent bindings.
   harness/                        # Plan-local command registry and implementation surface for validation, query, rendering, dynamic lookup, and controlled apply.
+    README.md                     # Purpose-and-contents orientation for generated harness artifacts.
     requirements.txt              # Optional local dependency declaration when the harness needs non-stdlib libraries.
     dependency-posture.toml       # Optional dependency posture, interpreter evidence, import guidance, and diagnostics record.
     vendor/                       # Optional standalone harness-local pip target; implementation support, not contract authority.
   docs/                           # Named generated human support views. Helpful for readers, but not the operational source of truth.
+    README.md                     # Purpose-and-contents orientation for generated support docs.
 ```
 
 The shape matters because each layer has a different authority:
@@ -52,6 +58,8 @@ houmao-agent-loop-pairwise-v5/
       execplan/                  # Manifest seed, package README/docs starters, and ADR template.
 ```
 
+Every emitted generated artifact directory should have a local `README.md` with only `Purpose` and `Contents`. A simple generated skill directory can omit its own README when it contains only `SKILL.md` and optional `agents/openai.yaml`, because `SKILL.md` orients that skill; `execplan/skills/README.md` still orients the collection.
+
 ### Abstract Example Shape
 
 The following example is abstracted from a concrete lead/reviewer/worker reference plan. It shows the kind of file-level detail a mature execplan may contain without making that exact topology or domain mandatory.
@@ -64,10 +72,11 @@ execplan/
     0001-message-family-shape.md
   specs/
     objective/
+      README.md
       objective.toml              # Goal and constraints rendered by the harness.
       policy.toml                 # Objective-level policy and evidence gates.
-      README.md
     collab/
+      README.md
       collab-overview.md          # Canonical process overview: phases/events/handoffs/ticks plus Python pseudocode and Mermaid sequence graph.
       loop-policy.toml            # Scheduling order, ownership rules, terminal conditions, and derived values.
       topology/
@@ -81,8 +90,10 @@ execplan/
         operator-intent.schema.json
         README.md
     comms/
+      README.md
       templates.toml              # Registry mapping schema ids to renderers.
       schemas/
+        README.md
         implementation-request.schema.json
         implementation-reply.schema.json
         review-request.schema.json
@@ -90,6 +101,7 @@ execplan/
         freeform-notice.schema.json
         ack.schema.json
       renderers/
+        README.md
         implementation-request.md.j2
         implementation-reply.md.j2
         review-request.md.j2
@@ -97,16 +109,19 @@ execplan/
         freeform-notice.md.j2
         ack.md.j2
     state/
+      README.md
+      state-overview.md           # State authority, boundaries, entity families, transitions, invariants, and non-state content.
       schema.sql                  # Runtime tables for compact bookkeeping; enough for the current generated revision.
       seed.toml                   # Initial state facts or bootstrap values when needed.
       invariants.toml             # Runtime consistency rules checked by the harness.
-      README.md
     workspace/
-      workspace.toml              # Workdir, command, artifact, runtime path, and workspace-manager contracts.
       README.md
+      workspace.toml              # Workdir, command, artifact, runtime path, and workspace-manager contracts.
     run/
+      README.md
       run-artifacts.toml          # Run directory layout, artifact preservation, audit, and recovery posture.
     participants/
+      README.md
       participants.toml           # Role templates and stable role instances.
       lead.md
       reviewer.md
@@ -137,6 +152,7 @@ execplan/
         start.md
         recover.md
   agents/
+    README.md
     bindings.toml                 # Participant-to-agent map, installed skills, support skills, prompt source, and workspace policy.
     profiles/
       lead/
@@ -165,7 +181,7 @@ execplan/
       command-envelope.schema.json
     refs/
       comms-templates.toml        # Relative symlink to ../../specs/comms/templates.toml when local script paths help.
-      state-model.toml            # Relative symlink to ../../specs/state/state-model.toml when present.
+      state-schema.sql            # Relative symlink to ../../specs/state/schema.sql when present.
     bin/
       loopctl                     # Executable shim.
     src/
@@ -180,6 +196,7 @@ execplan/
         records.py
     vendor/                       # Optional pip --target directory for standalone/custom execution.
   docs/
+    README.md
     artifact-index.md
     operator-guide.md
     runtime-model.md              # Human explanation of runtime flow.
@@ -388,20 +405,40 @@ Reference-specific details that should not become defaults:
 
 ## State And Record Pattern
 
-When a loop needs runtime state, use state storage for compact bookkeeping and persisted communication for rich prose. State should store ids, refs, scalar gates, ownership markers, transition facts, artifact paths, and ranking or ordering facts. Persisted communication should store context, summaries, directives, rationale, analysis, and other human-readable content.
+When a loop needs runtime state, use state storage for compact control-plane bookkeeping and persisted communication for rich prose. State should store ids, refs, scalar gates, ownership markers, transition facts, artifact paths, and ranking or ordering facts. Persisted communication should store context, summaries, directives, rationale, analysis, and other human-readable content.
 
 The generic stateful-loop kernel is:
 
 - plan metadata;
 - process state;
+- participants or role instances when not fully static elsewhere;
+- work items, branches, claims, tasks, or open ends when the loop has goal-directed units;
 - handoffs or exchanges;
 - communication payload lifecycle;
+- attempts, decisions, evidence, and artifacts when the loop needs those facts;
 - operator intent events;
 - generic events.
 
 Record schemas under `specs/collab/records/` can define controlled payloads such as handoffs, attempts, evidence, decisions, results, and operator intent.
 
 Those task-specific record schemas are extensions. Do not promote a reference plan's evidence, scoring, ranking, or domain tables as default records for unrelated loops.
+
+Generated state contracts should make the valid state space explicit:
+
+- allowed states and statuses;
+- valid transitions;
+- active ownership invariants;
+- mail/evidence/artifact ref expectations;
+- operator-intent requirements for override, pause, prune, stop, repair, or recovery actions;
+- scheduler and completion queries.
+
+Default backend selection:
+
+- use sqlite when the generated loop has stable entities and transitions that can be expressed as a clear SQL schema;
+- include `specs/state/schema.sql` as the authoritative field-level contract for sqlite-backed state;
+- include `specs/state/state-overview.md`, `seed.toml` when deterministic initialization is needed, and `invariants.toml` when validation needs named checks;
+- use JSONL plus explicit record schemas only for append-only, schema-light, or intentionally denormalized state;
+- avoid unstructured ad hoc bookkeeping files.
 
 The general lesson is:
 
@@ -416,7 +453,7 @@ role skills decide what record should be created
 
 The harness should be generated inside the package, not added to Houmao core. Its main job is to manage the loop's data models and dynamic information surfaces.
 
-Harness scripts can use relative symlinks under `harness/refs/` when stable local paths make implementation simpler. Those symlinks point back to authoritative package artifacts such as `../../specs/comms/templates.toml` or `../../specs/state/state-model.toml`. If symlinks cannot be created in the current filesystem or permission environment, the harness should use direct relative paths such as `../specs/comms/templates.toml` instead. Do not copy authoritative specs into `harness/`.
+Harness scripts can use relative symlinks under `harness/refs/` when stable local paths make implementation simpler. Those symlinks point back to authoritative package artifacts such as `../../specs/comms/templates.toml` or `../../specs/state/schema.sql`. If symlinks cannot be created in the current filesystem or permission environment, the harness should use direct relative paths such as `../specs/comms/templates.toml` instead. Do not copy authoritative specs into `harness/`.
 
 Harness-owned data-model mechanics can include:
 
@@ -455,6 +492,7 @@ A mature harness can expose commands for:
 - objective rendering;
 - effective policy inspection;
 - validation;
+- state initialization;
 - state query;
 - human view rendering;
 - ordering or dependency graph export;
@@ -474,23 +512,25 @@ The default envelope fields are:
 - `diagnostics`;
 - `warnings`.
 
-When generated TOML contracts carry structured comments such as `@doc`, `@rationale`, `@agent-guidance`, or `@not-for`, the harness may expose `--explain` or an equivalent explanation view. Explanations help agents use a contract, but the machine contract remains the authority.
+When generated TOML contracts carry `description` fields, the harness may expose `--explain` or an equivalent explanation view. Explanations help agents use a contract, but the machine contract remains the authority.
 
 The general lesson is that generated role skills should ask the harness for objective, constraints, effective policy, configuration parameters, scheduler posture, schema details, validation diagnostics, and rendered views instead of copying constants into prompts.
 
-## Explanation Comment Pattern
+## TOML Comment And Description Pattern
 
-Structured TOML comments can bridge machine contracts and agent-readable rationale. Useful comment tags include:
+Generated TOML contracts should be readable directly and explainable through the harness without parsing comments.
 
-- `## @doc`;
-- `## @rationale`;
-- `## @agent-guidance`;
-- `## @not-for`;
-- `## @applies-when`;
-- `## @pros`;
-- `## @cons`.
+Use plain human-readable comments above each generated section or table-array header:
 
-The harness can extract those comments into optional explanations. TOML remains the machine contract, while generated comments supply agent-oriented rationale without moving authority into Markdown.
+```toml
+# Runtime state backend used by the generated harness.
+[state_backend]
+kind = "sqlite"
+description = "Run-scoped sqlite database used as the live bookkeeping authority."
+schema_path = "specs/state/schema.sql"
+```
+
+Use `description` fields on records, sections, or non-obvious fields exposed through harness commands. The harness should use these structured `description` values for `--explain` output and include stable source keys or paths. Comments remain useful for human readers, but they are not parsed and are not the explanation source.
 
 ## Documentation Pattern
 
@@ -519,4 +559,4 @@ Do not promote these reference-specific details:
 - a particular artifact type;
 - a particular evaluation input or evidence gate;
 - a particular scheduling algorithm or termination policy;
-- a particular runtime state backend unless the loop requires it.
+- a particular JSONL layout or sqlite table layout unless the loop requires it; sqlite is still the default when generated entities and transitions have a clear SQL schema.

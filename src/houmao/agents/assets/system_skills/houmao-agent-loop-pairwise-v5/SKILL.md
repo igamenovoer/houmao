@@ -29,9 +29,12 @@ description: Manual invocation only; use only when the user explicitly requests 
     loop-overview.md
     ...
   execplan/
+    README.md
     manifest.toml
     adrs/
+      README.md
     specs/
+      README.md
       objective/
       collab/
         collab-overview.md
@@ -44,6 +47,7 @@ description: Manual invocation only; use only when the user explicitly requests 
     agents/
     harness/
     docs/
+      README.md
 ```
 
 Workspace rule:
@@ -57,7 +61,7 @@ Workspace rule:
 - Run the packaged scaffold generator with `pixi run python` when executing it from this repository.
 - Supported scaffold profiles:
   - `intention-init`: `intention/README.md` and `intention/loop-overview.md`
-  - `execplan-shell`: initial `execplan/` directory shell and `manifest.toml` seed
+  - `execplan-shell`: initial `execplan/` directory shell, starter `README.md` files, and `manifest.toml` seed
   - `execplan-stepwise-shell`: same shell plus `execplan/adrs/`
   - `execplan-finalize-docs`: scaffold-owned `execplan/README.md` and named docs starters under `execplan/docs/`
   - `execplan-adr`: one `execplan/adrs/<index>-<slug>.md` record from the shared ADR template
@@ -70,6 +74,9 @@ Use these defaults unless intention source or accepted clarification decisions c
 
 Execplan scaffold:
 - `manifest.toml` indexes generated artifacts, generated-source posture, and plan revision.
+- every emitted generated artifact directory has a concise `README.md` with only:
+  - `Purpose`: why the directory exists;
+  - `Contents`: files or child directories in that directory.
 - `adrs/` records accepted execplan-generation decisions when `execplan-step-by-step` is used.
 - `specs/collab/collab-overview.md` is the required process-first authority.
 - `specs/` separates objective, collaboration, communication, state, workspace, run-artifact, and participant contracts when those concerns apply.
@@ -81,8 +88,28 @@ Execplan scaffold:
 Participant and state defaults:
 - separate participant role templates, stable participant instances, and concrete agent bindings;
 - do not force a fixed participant topology or role count;
-- when durable bookkeeping is needed, default to compact records for plan metadata, process state, handoffs or exchanges, communication payload lifecycle, operator intent events, and generic events;
+- treat bookkeeping as runtime control-plane state, not working memory:
+  - state stores compact facts, ids, refs, statuses, ownership, decisions, scalar gates, evidence links, transition audit, and completion posture;
+  - mail, docs, and artifacts store rich prose, rationale, rendered Markdown, pseudocode, analysis, and detailed evidence;
+  - important transitions must be reconstructable from changed entity, source actor or event, new state or decision, mail/evidence/artifact refs, and timestamp;
+  - active ownership must be queryable enough for scheduling and recovery.
+- when durable bookkeeping is needed, default to a generated state contract under `specs/state/`:
+  - `state-overview.md` for authority, boundaries, entity families, transitions, invariants, scheduling queries, and non-state content;
+  - `schema.sql` when sqlite is selected;
+  - `seed.toml` when deterministic initialization is needed;
+  - `invariants.toml` when validation needs named checks;
+  - JSON schemas for JSONL records when JSONL is selected.
+- default to sqlite when stable entities and transitions can be expressed as a clear SQL schema;
+- use JSONL plus explicit schemas only for append-only, schema-light, or intentionally denormalized state;
+- avoid unstructured ad hoc state files when sqlite or JSONL plus schema is feasible;
+- consider generic families such as plan metadata, process state, participants, work items, handoffs or exchanges, communication payload lifecycle, attempts, decisions, evidence, artifacts, operator intent events, and generic events;
 - generate task-specific records only from intention source or clarification decisions.
+
+Generated TOML defaults:
+- generated TOML sections have plain human-readable comments above each section or table-array header;
+- agent-facing or harness-facing TOML records include concise `description` fields;
+- `description` fields, not comments, are the source for harness `--explain`;
+- private mechanical TOML files that are never exposed through harness commands do not need record-level descriptions.
 
 Skill and harness defaults:
 - generated on-event skills handle one concrete incoming event or message family, perform one bounded role-owned action, then stop;
@@ -90,6 +117,8 @@ Skill and harness defaults:
 - generated skills query specs, state, or harness output for dynamic policy and runtime facts instead of copying constants into static prose;
 - generated harnesses do not own mailbox delivery, managed-agent launch, gateway discovery, memory management, or workspace creation.
 - generated harnesses may use `click` for modular commands, `jinja2` for `.md.j2` rendering, and `jsonschema` for validation when needed; these are normal Houmao runtime dependencies, and generated import failures should guide callers to install missing libraries into the active harness Python environment or use the Houmao uv-installed environment.
+- stateful generated harnesses expose normal participant access through commands for state initialization, validation, read-only query, record validation, and record application.
+- generated harness commands that expose TOML-backed contracts support `--explain` when structured descriptions exist, with stable source keys in machine-readable output.
 
 Workspace and run defaults:
 - generated workspace contracts identify launch cwd, agent work roots, notes or knowledge paths, writable temp/artifact paths, shared resources, and read/write rules when applicable;

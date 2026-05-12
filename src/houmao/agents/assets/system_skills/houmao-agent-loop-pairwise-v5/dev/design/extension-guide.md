@@ -16,6 +16,8 @@ Do not put long design rationale into execution-facing pages. Those pages should
 
 Do not duplicate scaffold-owned starter file bodies across routed pages. If the initial README, manifest seed, named docs starter, or execplan ADR shape changes, update the packaged scaffold assets first and then keep the routed pages aligned to the profile names that own them.
 
+Generated artifact directory README files are scaffold and generation support material. Keep them concise and limited to `Purpose` and `Contents`; do not move contract authority into README prose.
+
 ## Adding Source Inputs
 
 The first workflow intentionally uses `intention/README.md` and `intention/loop-overview.md` as the minimum source set. If a later change adds ADRs, templates, imported source directories, or reference-plan harvesting, keep that as an explicit authoring capability and preserve the rule that `intention/` remains the normal source authority for execplan updates.
@@ -46,6 +48,22 @@ Generated harnesses may use `click`, `jinja2`, and `jsonschema` when their gener
 - record dependency posture, interpreter evidence, import-failure guidance, install commands for standalone support, and diagnostics in generated harness metadata.
 
 Do not reintroduce source-bundled wheel files for these harness libraries. Do not add dependency guidance that requires global Python, user site-packages, or project-environment mutation.
+
+## Generated State And TOML
+
+When improving generated state guidance, preserve the control-plane split:
+
+- state stores compact facts, refs, ownership, decisions, transitions, evidence links, and completion posture;
+- mail, docs, and artifacts store rich prose, rationale, pseudocode, rendered Markdown, and detailed analysis;
+- sqlite is the default when the generated loop has stable entities and transitions with a clear SQL schema;
+- JSONL plus explicit schemas is the alternate for append-only or schema-light state;
+- unstructured ad hoc state files are not acceptable when either structured option is feasible.
+
+Generated TOML files should stay readable and explainable:
+
+- put plain human-readable comments above generated section headers;
+- use TOML `description` fields for records or sections exposed through harness commands;
+- use `description` fields, not parsed comments, as the source for harness `--explain`.
 
 ## Execution Boundaries
 

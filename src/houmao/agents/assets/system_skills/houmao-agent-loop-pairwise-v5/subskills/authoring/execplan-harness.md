@@ -40,11 +40,13 @@ Use this package shape when a harness is generated:
 ```
 
 File rules:
+- `README.md` uses only `Purpose` and `Contents`.
 - `commands.toml` is the command registry.
 - `dependency-posture.toml` records non-stdlib dependency posture.
 - `requirements.txt` and `vendor/` are only for standalone/custom execution outside the Houmao environment.
 - `bin/` and `src/` may be omitted only for an explicit no-code or external harness.
 - Do not leave command definitions only as loose prose in `execplan/docs/`.
+- Add `README.md` files to emitted child directories such as `bin/`, `src/`, `refs/`, and `schemas/`.
 
 ## Package References
 
@@ -54,7 +56,8 @@ File rules:
   - `../specs/comms/templates.toml`
   - `../specs/comms/schemas/<message-family>.schema.json`
   - `../specs/collab/records/<record-family>.schema.json`
-  - `../specs/state/state-model.toml`
+  - `../specs/state/state-overview.md`
+  - `../specs/state/schema.sql`
   - `../specs/workspace/workspace.toml`
   - `../agents/bindings.toml`
 - If stable local names help, create relative symlinks under `harness/refs/`.
@@ -67,6 +70,38 @@ Example:
 ```text
 harness/refs/comms-templates.toml -> ../../specs/comms/templates.toml
 ```
+
+## State Commands
+
+For stateful loops, make the harness the normal participant access path for bookkeeping:
+
+- `state init`: create runtime state from `../specs/state/` contracts and seed data.
+- `state validate`: check schema availability, referential integrity, allowed states, transition invariants, active ownership invariants, mail/artifact refs, and policy-derived gates when those concepts exist.
+- `state query`: expose read-only summary and scheduler-posture views.
+- `record validate`: validate TOML or JSON record payloads against generated schemas.
+- `record apply`: apply schema-valid records to sqlite or append JSONL records while preserving transition rules.
+- `state export`: optionally render compact human-readable recovery or operator views.
+
+Rules:
+- prefer sqlite-backed state when `../specs/state/schema.sql` defines a clear SQL schema;
+- support JSONL plus schemas only when selected by generated contracts;
+- participant agents use harness commands, not raw SQL or ad hoc state-file edits;
+- direct state edits are operator repair only, require the loop to be paused, and must be followed by `state validate`;
+- read-only query output should be enough for agents to know busy participants, idle participants, active handoffs, assignable work, blockers, and completion posture.
+
+## Explain Commands
+
+Harness commands that expose generated contracts should support `--explain` when structured explanations exist.
+
+Sources:
+- TOML-backed contracts: read `description` fields from records, sections, or non-obvious fields.
+- JSON-schema-backed contracts: read JSON Schema `description` fields.
+- Emit stable source keys or paths so agents can map each explanation to the source contract.
+
+Rules:
+- do not parse TOML comments for explain output;
+- comments in TOML are only for direct human readers;
+- if the command uses a common JSON envelope, require `--print-json` with `--explain`.
 
 ## Python Dependencies
 
@@ -187,8 +222,10 @@ Rules:
 3. Use a common envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings, or document an equivalent.
 4. Make command definitions declare the artifact paths they read, validate, render, query, or apply, including whether each path is a harness-local relative symlink or a direct relative path to another package artifact.
 5. Keep apply commands narrow and schema-validated.
-6. Document any harness commands generated skills are expected to call.
-7. Document the harness dependency posture and recovery guidance whenever generated harness code imports non-stdlib libraries.
+6. Generate state init, validation, query, record-validation, and record-application commands when runtime bookkeeping exists.
+7. Generate `--explain` support for contract-exposing commands when TOML `description` fields or JSON Schema descriptions are available.
+8. Document any harness commands generated skills are expected to call.
+9. Document the harness dependency posture and recovery guidance whenever generated harness code imports non-stdlib libraries.
 
 ## Downstream Effects
 

@@ -30,17 +30,24 @@ Use this package shape for plan-local agent bindings:
 
 ```text
 <loop-dir>/execplan/agents/
+  README.md
   bindings.toml
   profiles/
+    README.md
     <agent-id>/
       config.toml
       definition.md
       memo-seed.md
   notifier-prompts/
+    README.md
     <agent-id>.md
 ```
 
 `bindings.toml` maps participant instances to concrete agent ids, generated skills, maintained support skills, prompt sources, workspace policy, and notifier prompt path when applicable. `profiles/<agent-id>/memo-seed.md` and `notifier-prompts/<agent-id>.md` are optional, but required when the binding claims memo seeding or mail notification customization. Keep live project profile creation for execution subskills.
+
+README rules:
+- generated `agents/`, `agents/profiles/`, and `agents/notifier-prompts/` directories use README files with only `Purpose` and `Contents`;
+- generated profile subdirectories may omit local README files when `config.toml`, `definition.md`, and optional `memo-seed.md` are self-evident and indexed by `bindings.toml`.
 
 ## Actions
 
@@ -49,7 +56,8 @@ Use this package shape for plan-local agent bindings:
 3. Include workspace and memo policy when the generated loop needs those facts.
 4. Keep concrete agent bindings separate from participant role templates and role instances.
 5. For mail-driven participants, bind notifier prompt instructions that tell the agent to process mail through generated on-event skills and run any required on-tick skill after mail processing.
-6. Leave actual profile creation, launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
+6. Create or update README files for emitted agent-binding directories.
+7. Leave actual profile creation, launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
 
 ## Downstream Effects
 

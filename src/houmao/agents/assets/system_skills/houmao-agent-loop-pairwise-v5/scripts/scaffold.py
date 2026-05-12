@@ -71,6 +71,81 @@ COMMON_EXECPLAN_DIRECTORIES = (
 )
 
 
+COMMON_EXECPLAN_READMES = (
+    TemplateTarget(Path("execplan/README.md.tmpl"), Path("execplan/README.md")),
+    TemplateTarget(Path("execplan/specs/README.md.tmpl"), Path("execplan/specs/README.md")),
+    TemplateTarget(
+        Path("execplan/specs/objective/README.md.tmpl"),
+        Path("execplan/specs/objective/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/collab/README.md.tmpl"),
+        Path("execplan/specs/collab/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/comms/README.md.tmpl"),
+        Path("execplan/specs/comms/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/comms/schemas/README.md.tmpl"),
+        Path("execplan/specs/comms/schemas/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/comms/renderers/README.md.tmpl"),
+        Path("execplan/specs/comms/renderers/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/state/README.md.tmpl"),
+        Path("execplan/specs/state/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/workspace/README.md.tmpl"),
+        Path("execplan/specs/workspace/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/run/README.md.tmpl"),
+        Path("execplan/specs/run/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/specs/participants/README.md.tmpl"),
+        Path("execplan/specs/participants/README.md"),
+    ),
+    TemplateTarget(Path("execplan/skills/README.md.tmpl"), Path("execplan/skills/README.md")),
+    TemplateTarget(Path("execplan/agents/README.md.tmpl"), Path("execplan/agents/README.md")),
+    TemplateTarget(
+        Path("execplan/agents/profiles/README.md.tmpl"),
+        Path("execplan/agents/profiles/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/agents/notifier-prompts/README.md.tmpl"),
+        Path("execplan/agents/notifier-prompts/README.md"),
+    ),
+    TemplateTarget(Path("execplan/harness/README.md.tmpl"), Path("execplan/harness/README.md")),
+    TemplateTarget(
+        Path("execplan/harness/bin/README.md.tmpl"),
+        Path("execplan/harness/bin/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/harness/src/README.md.tmpl"),
+        Path("execplan/harness/src/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/harness/refs/README.md.tmpl"),
+        Path("execplan/harness/refs/README.md"),
+    ),
+    TemplateTarget(
+        Path("execplan/harness/schemas/README.md.tmpl"),
+        Path("execplan/harness/schemas/README.md"),
+    ),
+    TemplateTarget(Path("execplan/docs/README.md.tmpl"), Path("execplan/docs/README.md")),
+)
+
+EXECPLAN_ADRS_README = TemplateTarget(
+    Path("execplan/adrs/README.md.tmpl"),
+    Path("execplan/adrs/README.md"),
+)
+
+
 PROFILES = {
     "intention-init": ProfileDefinition(
         m_directories=(Path("intention"),),
@@ -92,7 +167,8 @@ PROFILES = {
                 m_template_path=Path("execplan/manifest.toml.tmpl"),
                 m_output_path=Path("execplan/manifest.toml"),
             ),
-        ),
+        )
+        + COMMON_EXECPLAN_READMES,
     ),
     "execplan-stepwise-shell": ProfileDefinition(
         m_directories=COMMON_EXECPLAN_DIRECTORIES + (Path("execplan/adrs"),),
@@ -101,7 +177,9 @@ PROFILES = {
                 m_template_path=Path("execplan/manifest.toml.tmpl"),
                 m_output_path=Path("execplan/manifest.toml"),
             ),
-        ),
+        )
+        + COMMON_EXECPLAN_READMES
+        + (EXECPLAN_ADRS_README,),
     ),
     "execplan-finalize-docs": ProfileDefinition(
         m_directories=(Path("execplan"), Path("execplan/docs")),
@@ -109,6 +187,10 @@ PROFILES = {
             TemplateTarget(
                 m_template_path=Path("execplan/README.md.tmpl"),
                 m_output_path=Path("execplan/README.md"),
+            ),
+            TemplateTarget(
+                m_template_path=Path("execplan/docs/README.md.tmpl"),
+                m_output_path=Path("execplan/docs/README.md"),
             ),
             TemplateTarget(
                 m_template_path=Path("execplan/docs/artifact-index.md.tmpl"),
@@ -211,8 +293,10 @@ def render_context(args: argparse.Namespace) -> dict[str, str]:
     adrs_artifact_block = ""
     if include_execplan_adrs:
         adrs_artifact_block = """
+# Generated execplan decision records directory.
 [[artifacts]]
 id = "adrs"
+description = "Generated decision records for accepted execplan-generation choices."
 path = "adrs/"
 artifact_kind = "dir"
 purpose = "accepted execplan-generation decisions"

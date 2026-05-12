@@ -19,6 +19,7 @@ Require:
 
 Generate or update final package material:
 - `execplan/README.md`;
+- missing generated artifact directory `README.md` files;
 - support docs under `execplan/docs/`;
 - final `manifest.toml`;
 - generated-source metadata;
@@ -32,8 +33,10 @@ Use this final support shape:
   README.md
   manifest.toml
   adrs/
+    README.md
     0001-short-decision-slug.md
   docs/
+    README.md
     artifact-index.md
     operator-guide.md
     runtime-model.md
@@ -46,12 +49,14 @@ Add narrower docs only when generated artifacts need them. Do not put authoritat
 
 1. Use the packaged scaffold generator with the `execplan-finalize-docs` profile to materialize scaffold-owned `execplan/README.md` and named docs starters when they are missing or intentionally being refreshed.
 2. Generate human docs from already generated authoritative artifacts.
-3. Finalize `manifest.toml` after files exist so it indexes actual paths, artifact kinds, purposes, plan revision, and explicit omissions.
-4. Ensure docs defer authority to `specs/`, `harness/`, generated skills, and agent bindings.
-5. For mail-driven loops, ensure docs summarize the notifier-prompt-driven runtime: mail notifier wakes agents, on-event skills process mail, optional on-tick skills run after mail when instructed, and agents finish the chat turn.
-6. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
-7. Record any intentionally skipped default layers.
-8. Run or request `validate-execplan` after finalization.
+3. Fill missing `README.md` files for emitted generated artifact directories.
+4. Keep generated artifact directory README files limited to `Purpose` and `Contents`.
+5. Finalize `manifest.toml` after files exist so it indexes actual paths, artifact kinds, purposes, plan revision, and explicit omissions.
+6. Ensure docs defer authority to `specs/`, `harness/`, generated skills, and agent bindings.
+7. For mail-driven loops, ensure docs summarize the notifier-prompt-driven runtime: mail notifier wakes agents, on-event skills process mail, optional on-tick skills run after mail when instructed, and agents finish the chat turn.
+8. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
+9. Record any intentionally skipped default layers.
+10. Run or request `validate-execplan` after finalization.
 
 ## Downstream Effects
 

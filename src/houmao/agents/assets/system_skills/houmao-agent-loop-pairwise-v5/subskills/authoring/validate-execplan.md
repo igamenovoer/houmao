@@ -26,6 +26,17 @@ Check shape:
 - generated artifact paths follow the canonical package shape unless an explicit omission or accepted equivalent is recorded in `manifest.toml`, generated docs, or validation notes.
 - `execplan/adrs/` is optional; when present, ADR entries are generated-decision records created from the shared ADR path shape and are indexed by the manifest or summarized by final docs.
 
+Check generated artifact directory README files:
+- every emitted generated artifact directory includes `README.md`, unless the directory is intentionally omitted or covered by a documented exception.
+- each generated artifact directory README uses only these top-level sections after the title:
+  - `Purpose`;
+  - `Contents`.
+- README `Purpose` explains why the directory exists.
+- README `Contents` lists generated files or child directories in that directory and briefly states what each one is.
+- generated README files do not duplicate schema fields, command semantics, role procedures, binding contracts, manifest rows, or other authoritative details.
+- generated README files are orientation only and do not claim source authority.
+- simple generated skill directories may omit a local README when they contain only `SKILL.md` and optional `agents/openai.yaml`; `execplan/skills/README.md` must still describe the generated skill collection.
+
 Check staged generation posture:
 - generated material records or documents that process specs are the first generated authority when the loop uses staged generation.
 - `execplan/specs/collab/collab-overview.md` exists as the canonical process overview.
@@ -38,14 +49,17 @@ Check staged generation posture:
 - explicit omissions are reflected in the final manifest, generated docs, or validation notes.
 
 Check generated skills:
+- `execplan/skills/README.md` exists and uses only `Purpose` and `Contents`.
 - generated skills live as flat skill directories under `execplan/skills/<unique-skill-name>/`.
 - generated skills are not loose Markdown files directly under `execplan/skills/`.
 - generated skills do not use nested category directories such as `execplan/skills/shared/`, `execplan/skills/on-event/`, `execplan/skills/on-tick/`, or `execplan/skills/operator/`.
 - generated skills under `execplan/skills/*/SKILL.md` have valid skill frontmatter.
 - generated skill directory names and frontmatter names are unique across the execplan package and suitable for installation into one flat skill namespace.
+- generated skill directories with extra generated files beyond `SKILL.md` and optional `agents/openai.yaml` include local README files with only `Purpose` and `Contents`.
 - generated on-event and on-tick skills state their trigger, role owner, bounded procedure, and output or handoff posture.
 
 Check harness shape:
+- generated harness directories include README files with only `Purpose` and `Contents`.
 - generated harnesses include `execplan/harness/commands.toml` unless the manifest records an accepted no-code or external harness surface.
 - generated harness implementation files live under `execplan/harness/bin/`, `execplan/harness/src/`, or documented equivalent paths indexed by the manifest.
 - generated harness command registries refer to generated package artifacts with relative paths, such as `../specs/...` or `../agents/...`, unless a generated contract explicitly defines an external runtime path.
@@ -67,6 +81,7 @@ Check harness shape:
 - generated harnesses do not require installing `click`, `jinja2`, `jsonschema`, or their dependencies into system Python, user site-packages, or the surrounding project environment.
 
 Check agent bindings:
+- generated agent-binding directories include README files with only `Purpose` and `Contents`.
 - generated participant contracts separate role templates or role descriptions, stable participant instances, and concrete Houmao agent bindings.
 - concrete agent bindings include `execplan/agents/bindings.toml`.
 - concrete agent profile material lives under `execplan/agents/profiles/<agent-id>/`.
@@ -76,9 +91,22 @@ Check agent bindings:
 
 Check runtime state and records:
 - durable-state plans include loop-local contracts for plan metadata, process state, handoffs or exchanges, communication payload lifecycle, operator intent events, and generic events, or document an accepted equivalent.
+- durable-state plans include `execplan/specs/state/README.md` and `execplan/specs/state/state-overview.md`.
+- `execplan/specs/state/state-overview.md` describes state authority, state boundaries, minimal entity families, allowed states or transitions, invariants, scheduling queries, and content that state must not store.
+- when stable entities and transitions can be expressed as a clear SQL schema, generated bookkeeping defaults to sqlite and includes `execplan/specs/state/schema.sql`.
+- sqlite-backed plans treat `schema.sql` as field-level state authority and do not duplicate table definitions in README files.
+- JSONL-backed state is accepted only when the plan documents append-only, schema-light, or intentionally denormalized state and includes explicit schemas for every generated JSONL record type.
+- generated state does not use unstructured ad hoc state files when sqlite or JSONL plus schema is feasible.
+- state records store compact facts and durable refs instead of full mail bodies, rendered Markdown, long rationale, pseudocode, detailed analysis, or documentation content.
+- important state transitions are reconstructable from structured records that identify changed entity, new state or decision, actor or source, related mail/evidence/artifact refs, and timestamp.
+- active ownership is represented clearly enough for scheduler and recovery queries.
+- operator override, pause, prune, stop, repair, and recovery authority is recorded as operator intent events when those controls exist.
+- stateful generated harnesses expose initialization, validation, read-only query, record validation, and record application commands or document an accepted equivalent.
+- participant-facing generated skills use harness commands for normal state mutation and query instead of raw SQL or ad hoc state-file edits.
+- direct state edits are documented only as operator repair while paused, followed by harness validation.
 - task-specific records, evidence models, scoring models, and domain tables appear only when introduced by intention source or generated clarification output.
 - generated record contracts exist for structured bookkeeping that the harness or skills claim to apply.
-- state contracts do not require a particular backend unless the generated loop explicitly selects it.
+- state contracts do not require a particular backend unless the generated loop explicitly selects it or the default sqlite rule applies because the SQL schema is clear.
 
 Check workspace contracts:
 - workspace setup contracts route workspace planning or creation through `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
@@ -120,9 +148,17 @@ Check mail-driven communication contracts:
 
 Check parseability and source posture:
 - generated JSON schemas under `execplan/specs/comms/` or `execplan/specs/collab/records/` parse as JSON when present.
+- generated TOML contracts parse as TOML when present.
+- generated TOML files have plain human-readable comments above emitted section headers or table-array headers.
+- generated TOML records or sections exposed through harness commands include concise `description` fields.
+- private mechanical TOML files that are not exposed through harness commands do not require record-level `description` fields.
 - generated harness commands or docs expose the loop's dynamic lookup and data-model mechanics when skills depend on harness lookup, schema validation, rendering, query, or controlled record application.
 - harness output intended for agents uses a structured envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings, or documents an accepted equivalent.
 - harness explanation surfaces expose structured rationale from generated contracts when generated skills rely on explanation behavior.
+- harness commands that expose TOML-backed contracts use TOML `description` fields as the source for `--explain`, not parsed TOML comments.
+- harness commands that expose JSON-schema-backed contracts use JSON Schema `description` fields where available.
+- `--explain` output includes stable source keys or paths for explanation entries.
+- when the harness command envelope requires JSON output for explanations, `--explain` is documented as requiring `--print-json` or an equivalent structured-output flag.
 - generated docs do not claim to be source authority.
 - intention files remain under `intention/`, not inside generated `execplan/`.
 
