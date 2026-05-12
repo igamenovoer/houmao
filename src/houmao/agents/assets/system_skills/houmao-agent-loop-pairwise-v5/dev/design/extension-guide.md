@@ -9,9 +9,12 @@ Keep these responsibilities separate:
 - `SKILL.md`: activation, routing, global boundaries, and the required root vocabulary.
 - `subskills/authoring/`: source creation, source refinement, execplan generation, validation, and execplan updates.
 - `subskills/execution/`: operating a validated execplan through generated contracts and maintained Houmao surfaces.
+- `scripts/scaffold.py` plus `assets/scaffolds/`: shared ownership for scaffold-owned starter files and directory shells.
 - `dev/design/`: rationale for maintainers only.
 
 Do not put long design rationale into execution-facing pages. Those pages should stay concise and actionable for the active agent.
+
+Do not duplicate scaffold-owned starter file bodies across routed pages. If the initial README, manifest seed, named docs starter, or execplan ADR shape changes, update the packaged scaffold assets first and then keep the routed pages aligned to the profile names that own them.
 
 ## Adding Source Inputs
 

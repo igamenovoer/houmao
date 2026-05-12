@@ -14,7 +14,7 @@ Require:
 ## Actions
 
 Check shape:
-- `execplan/manifest.toml` exists.
+- `execplan/manifest.toml` exists at the canonical scaffold-owned path used by `execplan-shell` or `execplan-stepwise-shell`.
 - `execplan/manifest.toml` is parseable and, when it indexes artifact paths, every indexed path exists.
 - `execplan/manifest.toml` identifies generated-source posture, plan revision, artifact paths, artifact kinds or purposes, and any intentional omission of default layers.
 - `execplan/specs/` exists.
@@ -24,7 +24,7 @@ Check shape:
 - `execplan/docs/` exists.
 - optional specs for objective, collaboration, communication, state, workspace, run artifacts, and participants exist when generated skills, agent bindings, or harness commands depend on those concerns.
 - generated artifact paths follow the canonical package shape unless an explicit omission or accepted equivalent is recorded in `manifest.toml`, generated docs, or validation notes.
-- `execplan/adrs/` is optional; when present, ADR entries are generated-decision records and are indexed by the manifest or summarized by final docs.
+- `execplan/adrs/` is optional; when present, ADR entries are generated-decision records created from the shared ADR path shape and are indexed by the manifest or summarized by final docs.
 
 Check staged generation posture:
 - generated material records or documents that process specs are the first generated authority when the loop uses staged generation.
@@ -78,7 +78,8 @@ Check run artifacts:
 - the run artifact layout preserves structured payloads, rendered outputs, send or reply responses, records, state files, logs, evidence, and operator notes when the loop claims those artifacts exist.
 
 Check final docs:
-- final support docs use named files under `execplan/docs/`, normally `artifact-index.md`, `operator-guide.md`, `runtime-model.md`, and `validation.md` when those views apply.
+- final support docs use the canonical scaffold-owned named files under `execplan/docs/`, normally `artifact-index.md`, `operator-guide.md`, `runtime-model.md`, and `validation.md` when those views apply.
+- `execplan/README.md` exists at the canonical scaffold-owned path when finalization emitted a package README.
 - final support docs link or point back to authoritative `specs/`, `harness/`, `skills/`, and `agents/` artifacts rather than introducing standalone behavior.
 
 Check execplan ADRs:

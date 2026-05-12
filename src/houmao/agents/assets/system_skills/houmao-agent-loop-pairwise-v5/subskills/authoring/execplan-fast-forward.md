@@ -36,8 +36,8 @@ execplan-specs-process
 ## Actions
 
 1. Confirm `<loop-dir>` and required intention files exist.
-2. Create the `execplan/` directory shell before emitting stage artifacts.
-3. Seed package identity, plan revision, default directories, and a provisional manifest if useful.
+2. Use the packaged scaffold generator with the `execplan-shell` profile to create the standard `execplan/` directory shell and the provisional `manifest.toml` seed before emitting stage artifacts.
+3. Treat the scaffold profile output as the authoritative starter shape for shell-owned directories and files.
 4. Run every staged generation page in dependency order:
   - `execplan-specs-process`
   - `execplan-specs-contract`

@@ -1,0 +1,14 @@
+# Runtime Model
+
+This starter document should be completed from the current generated artifacts during finalization.
+
+## Default Loop Runtime
+
+- Mail-driven loops are notifier-prompt-driven.
+- A separate Houmao notifier process detects open mail and prompts the target agent.
+- After processing mail and any requested follow-up tick, the agent ends the chat turn.
+- Do not rely on in-chat waiting, sleeping, polling, or periodic background tick workers.
+
+## To Complete
+
+- Summarize the actual generated event, handoff, tick, terminal, and recovery posture for this revision.

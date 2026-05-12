@@ -44,13 +44,14 @@ Add narrower docs only when generated artifacts need them. Do not put authoritat
 
 ## Actions
 
-1. Generate human docs from already generated authoritative artifacts.
-2. Finalize `manifest.toml` after files exist so it indexes actual paths, artifact kinds, purposes, plan revision, and explicit omissions.
-3. Ensure docs defer authority to `specs/`, `harness/`, generated skills, and agent bindings.
-4. For mail-driven loops, ensure docs summarize the notifier-prompt-driven runtime: mail notifier wakes agents, on-event skills process mail, optional on-tick skills run after mail when instructed, and agents finish the chat turn.
-5. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
-6. Record any intentionally skipped default layers.
-7. Run or request `validate-execplan` after finalization.
+1. Use the packaged scaffold generator with the `execplan-finalize-docs` profile to materialize scaffold-owned `execplan/README.md` and named docs starters when they are missing or intentionally being refreshed.
+2. Generate human docs from already generated authoritative artifacts.
+3. Finalize `manifest.toml` after files exist so it indexes actual paths, artifact kinds, purposes, plan revision, and explicit omissions.
+4. Ensure docs defer authority to `specs/`, `harness/`, generated skills, and agent bindings.
+5. For mail-driven loops, ensure docs summarize the notifier-prompt-driven runtime: mail notifier wakes agents, on-event skills process mail, optional on-tick skills run after mail when instructed, and agents finish the chat turn.
+6. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
+7. Record any intentionally skipped default layers.
+8. Run or request `validate-execplan` after finalization.
 
 ## Downstream Effects
 

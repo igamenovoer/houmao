@@ -30,6 +30,16 @@ The default scaffold is a flexible profile, not a rigid template. A useful gener
 
 The generator may omit a default layer or file when the intention clearly does not need it. The omission should be explicit in the manifest, generated docs, or validation notes so later maintainers can distinguish a deliberate small loop from an incomplete plan.
 
+Scaffold-owned starter files should be materialized centrally by `scripts/scaffold.py` from `assets/scaffolds/`. The relevant profiles are:
+
+- `intention-init` for `intention/README.md` and `intention/loop-overview.md`;
+- `execplan-shell` for the standard `execplan/` shell and manifest seed;
+- `execplan-stepwise-shell` for the same shell plus `execplan/adrs/`;
+- `execplan-finalize-docs` for scaffold-owned `execplan/README.md` and named docs starters;
+- `execplan-adr` for one accepted execplan ADR file.
+
+Routed pages should reference those profile names instead of restating starter file bodies inline.
+
 Expected generated paths should be explicit whenever a layer is used:
 
 ```text
@@ -77,7 +87,7 @@ execplan-specs-process
 
 `execplan-specs-process` emits the canonical process overview at `execplan/specs/collab/collab-overview.md`. It captures phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. It should also include a human-readable process explanation in two executable-looking views: Python-style pseudocode in fenced `python` blocks with inline comments for conditions/actions/state effects/stopping points, and a high-level Mermaid `sequenceDiagram` in a fenced `mermaid` block. Later stages derive concrete contracts and operational surfaces from that model. Do not use a flat `execplan/specs/process.md` as the primary process document.
 
-`execplan-fast-forward` should run all stages in order without optional design questions. `execplan-step-by-step` should scaffold first, then run all stages with one-question-at-a-time generation decisions recorded under `execplan/adrs/`. `update-execplan` should choose the earliest affected stage and rerun downstream stages. `execplan-finalize` is last: it may finalize a manifest seeded earlier, but it should not add new authoritative behavior that bypasses process, contracts, harness, skills, or agent bindings.
+`execplan-fast-forward` should first materialize `execplan-shell`, then run all stages in order without optional design questions. `execplan-step-by-step` should first materialize `execplan-stepwise-shell`, then run all stages with one-question-at-a-time generation decisions recorded under `execplan/adrs/`. `update-execplan` should choose the earliest affected stage and rerun downstream stages. `execplan-finalize` is last: it may populate scaffold-owned README/docs starters and finalize a manifest seeded earlier, but it should not add new authoritative behavior that bypasses process, contracts, harness, skills, or agent bindings.
 
 ## Participant And Agent Boundary
 

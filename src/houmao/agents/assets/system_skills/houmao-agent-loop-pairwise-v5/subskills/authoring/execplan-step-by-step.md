@@ -24,7 +24,7 @@ Read:
 Generate all execplan artifacts through the standard staged order, but allow the user to decide generation choices one question at a time:
 
 ```text
-scaffold execplan/
+execplan-stepwise-shell
   -> execplan-specs-process
       -> execplan-specs-contract
           -> execplan-harness
@@ -59,10 +59,10 @@ Do not ask about ordinary defaults that the skill already defines, such as mail 
 ## Actions
 
 1. Confirm `<loop-dir>` and required intention files exist.
-2. Scaffold `execplan/` before asking artifact-generation questions:
-  - create the standard top-level execplan directories;
-  - create `execplan/adrs/`;
-  - seed package identity, plan revision, and provisional manifest if useful.
+2. Use the packaged scaffold generator with the `execplan-stepwise-shell` profile before asking artifact-generation questions. That profile owns:
+  - the standard `execplan/` directory shell;
+  - `execplan/adrs/`;
+  - the provisional `manifest.toml` seed.
 3. Start at the earliest missing or affected stage.
 4. For the active stage, read current upstream artifacts and existing `execplan/adrs/`.
 5. If a material generation decision is unresolved, ask exactly one focused question.
@@ -83,38 +83,13 @@ Use sequential numeric filenames scoped to `execplan/adrs/`:
 <loop-dir>/execplan/adrs/0001-short-decision-slug.md
 ```
 
-Use this Markdown structure:
-
-```markdown
-# Execplan ADR 0001: Short Decision Title
-
-## Status
-
-Accepted
-
-## Stage
-
-execplan-specs-contract
-
-## Context
-
-Why this generation decision matters.
-
-## Decision
-
-The accepted answer.
-
-## Affected Artifacts
-
-- `execplan/specs/...`
-- `execplan/harness/...`
-
-## Consequences
-
-- What changed in generated artifacts.
-- Which downstream stages must use this decision.
-- Any unresolved follow-up decisions.
-```
+Create each ADR from the packaged `execplan-adr` scaffold profile or the shared template asset under `assets/scaffolds/execplan/adrs/execplan-adr.md.tmpl`, then fill the required sections:
+- `Status`
+- `Stage`
+- `Context`
+- `Decision`
+- `Affected Artifacts`
+- `Consequences`
 
 Rules:
 - Keep ADRs concise and artifact-focused.

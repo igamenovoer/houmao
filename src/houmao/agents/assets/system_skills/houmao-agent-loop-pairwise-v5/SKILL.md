@@ -51,6 +51,19 @@ Workspace rule:
 - this skill may generate workspace contracts and an operator workspace-management skill;
 - do not duplicate workspace-manager setup mechanics.
 
+## Shared Scaffold Surface
+
+- Use the packaged scaffold generator under `scripts/scaffold.py` and starter assets under `assets/scaffolds/` whenever this skill needs to materialize scaffold-owned starter files or directories.
+- Run the packaged scaffold generator with `pixi run python` when executing it from this repository.
+- Supported scaffold profiles:
+  - `intention-init`: `intention/README.md` and `intention/loop-overview.md`
+  - `execplan-shell`: initial `execplan/` directory shell and `manifest.toml` seed
+  - `execplan-stepwise-shell`: same shell plus `execplan/adrs/`
+  - `execplan-finalize-docs`: scaffold-owned `execplan/README.md` and named docs starters under `execplan/docs/`
+  - `execplan-adr`: one `execplan/adrs/<index>-<slug>.md` record from the shared ADR template
+- Treat these profiles and template assets as the authoritative starter surface for scaffold-owned files.
+- Later stages may revise scaffold-owned generated files, but routed pages should not restate those starter file bodies independently.
+
 ## Default Generated Contract
 
 Use these defaults unless intention source or accepted clarification decisions choose an equivalent or narrower shape. Any equivalent or omission must be indexed or explained in `manifest.toml`, generated docs, or validation notes.
@@ -134,18 +147,18 @@ Generated loop skills must not implement:
 ## Operations
 
 Authoring:
-- `init`: scaffold the initial editable intention area; this is the default when this skill is invoked without another operation or prompt.
-- `create-intention`: create the initial editable intention area.
+- `init`: scaffold the initial editable intention area through `intention-init`; this is the default when this skill is invoked without another operation or prompt.
+- `create-intention`: create the initial editable intention area through `intention-init`.
 - `clarify intent`: interview the user about loop intent, record accepted decisions as ADRs, and update intention Markdown.
 - `refine-intention`: update existing intention Markdown from user edits or new direction.
-- `execplan-fast-forward`: scaffold and generate all `execplan/` artifacts from `intention/` in one non-interactive pass.
-- `execplan-step-by-step`: scaffold and generate all `execplan/` artifacts interactively, asking one generation decision at a time and recording accepted decisions under `execplan/adrs/`.
+- `execplan-fast-forward`: scaffold `execplan/` through `execplan-shell` and generate all `execplan/` artifacts from `intention/` in one non-interactive pass.
+- `execplan-step-by-step`: scaffold `execplan/` through `execplan-stepwise-shell`, then generate all `execplan/` artifacts interactively while recording accepted decisions under `execplan/adrs/`.
 - `execplan-specs-process`: generate the canonical process model first at `execplan/specs/collab/collab-overview.md`, including Python-style pseudocode with inline comments and a high-level Mermaid sequence graph.
 - `execplan-specs-contract`: derive objective, participant, topology, communication, state, record, workspace, and run contracts from the process model.
 - `execplan-harness`: generate loop-local harness surfaces from contracts.
 - `execplan-skills`: generate shared, event, tick, and operator skills from process/contracts/harness.
 - `execplan-agent-bindings`: generate concrete Houmao agent bindings after generated skills exist.
-- `execplan-finalize`: generate support docs, package README, final manifest, metadata, omission notes, and consistency notes.
+- `execplan-finalize`: use `execplan-finalize-docs` for scaffold-owned starters, then generate support docs, package README, final manifest, metadata, omission notes, and consistency notes.
 - `validate-execplan`: validate generated execplan shape and generated-artifact posture.
 - `update-execplan`: update generated material after intention changes.
 
