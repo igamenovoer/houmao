@@ -23,7 +23,24 @@ Generate or update `execplan/agents/`:
 - maintained support skills;
 - skill installation mode;
 - memo seed policy;
-- workspace or launch policy.
+- workspace or launch policy;
+- mail notification prompt customization when the participant is mail-driven.
+
+Use this package shape for plan-local agent bindings:
+
+```text
+<loop-dir>/execplan/agents/
+  bindings.toml
+  profiles/
+    <agent-id>/
+      config.toml
+      definition.md
+      memo-seed.md
+  notifier-prompts/
+    <agent-id>.md
+```
+
+`bindings.toml` maps participant instances to concrete agent ids, generated skills, maintained support skills, prompt sources, workspace policy, and notifier prompt path when applicable. `profiles/<agent-id>/memo-seed.md` and `notifier-prompts/<agent-id>.md` are optional, but required when the binding claims memo seeding or mail notification customization. Keep live project profile creation for execution subskills.
 
 ## Actions
 
@@ -31,7 +48,8 @@ Generate or update `execplan/agents/`:
 2. Install only the generated skills and maintained support skills needed for each participant's responsibilities.
 3. Include workspace and memo policy when the generated loop needs those facts.
 4. Keep concrete agent bindings separate from participant role templates and role instances.
-5. Leave actual profile creation, launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
+5. For mail-driven participants, bind notifier prompt instructions that tell the agent to process mail through generated on-event skills and run any required on-tick skill after mail processing.
+6. Leave actual profile creation, launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
 
 ## Downstream Effects
 
@@ -42,3 +60,4 @@ Generate or update `execplan/agents/`:
 - Do not start or configure live agents from this stage.
 - Do not install another participant's event or tick skills into the wrong binding.
 - Do not create workspaces directly.
+- Do not make agent bindings depend on in-chat waiting, sleeps, polling, or periodic tick wakeups.

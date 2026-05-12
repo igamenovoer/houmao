@@ -2,6 +2,8 @@
 
 Houmao ships five packaged loop skills. This page helps you choose the right one, explains the pairwise-v2 routing-packet prestart model that pairwise-v3 and pairwise-v4 extend, and introduces the `houmao-mgr internals graph` tooling that supports loop plan authoring.
 
+For mailbox-driven loops, first understand the runtime model: agents are normally woken by gateway notifier prompts, process bounded mail event work, optionally run one prompt-invoked tick, then finish the chat turn. They should not wait in-chat for future mail or periodic ticks. See [Notifier-Prompt-Driven Loop Runtime](../reference/gateway/operations/notifier-prompt-driven-loops.md).
+
 ## Choosing a Loop Skill
 
 | Skill | Lifecycle verbs | Prestart model | Topology |

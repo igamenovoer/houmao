@@ -32,6 +32,7 @@
 ## Subsystems
 
 - [Gateway](gateway/index.md): Per-agent FastAPI sidecar for session control and mail.
+- [Notifier-Prompt-Driven Loop Runtime](gateway/operations/notifier-prompt-driven-loops.md): Mail-driven loop model where notifier prompts wake agents, event skills process mail, tick skills run once from prompt turns, and agents must not wait in-chat.
 - [Mailbox](mailbox/index.md): Unified mailbox protocol — filesystem and Stalwart JMAP.
 - [TUI Tracking State Model](tui-tracking/state-model.md): Tracked state, signals, and transitions.
 - [TUI Tracking Detectors](tui-tracking/detectors.md): Detector profiles and registry.

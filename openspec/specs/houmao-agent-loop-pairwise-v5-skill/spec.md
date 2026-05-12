@@ -232,6 +232,12 @@ The packaged skill SHALL guide generated execplans to include a plan-local harne
 
 The generated harness SHALL be scoped to loop-local contracts such as objective rendering, policy explanation, communication payload schema inspection, payload validation, Markdown rendering, state query, invariant validation, completion checks, and controlled record application.
 
+Generated harness command registries SHALL reference generated package artifacts by relative path when reading specs, schemas, renderers, agent bindings, or other files in the same loop-definition package.
+
+Generated harness scripts MAY use relative symlinks under `execplan/harness/refs/` for stable local access to generated package artifacts. If symlinks are unavailable because of filesystem permissions or environment limits, generated harness scripts SHALL use direct relative paths to the authoritative artifacts instead.
+
+Generated harnesses SHALL keep `harness/schemas/` limited to harness-owned schemas such as command envelopes. Communication, record, state, workspace, participant, and objective schemas SHALL remain authoritative under `specs/` and be referenced rather than copied into `harness/`.
+
 The generated harness SHALL NOT own Houmao platform operations such as mailbox delivery, mailbox administration, managed-agent launch, gateway discovery, prompt transport, memory management, or workspace creation.
 
 Harness command output intended for agent use SHALL default to a structured envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings.
@@ -264,6 +270,32 @@ Generated tick skills SHALL inspect current dynamic state, perform one bounded a
 - **WHEN** a loop requires scheduling or reconciliation after one or more events
 - **THEN** the generated execplan represents that responsibility as an on-tick skill for the owning role
 - **AND THEN** the tick handler performs at most one scheduling or reconciliation pass before stopping
+
+### Requirement: V5 documents notifier-prompt-driven mail runtime
+The packaged skill SHALL guide generated mail-driven loops to model Houmao agents as notifier-prompt-driven rather than as agents waiting inside a chat turn.
+
+The skill SHALL explain that Houmao email/notifier support runs separately from target agents, detects open mail, and sends the target agent a prompt that guides mail processing.
+
+Generated mail-driven execplans SHALL allow loop-specific notification prompt instructions, including instructions to invoke the matching mail-received on-event skill and to call an on-tick skill after mail processing when the loop requires follow-up scheduling, reconciliation, timeout, or completion work.
+
+Generated on-tick skills SHALL be prompt-invoked bounded passes rather than periodic background workers.
+
+Generated role skills SHALL finish the chat turn after mail processing and any requested tick work. They SHALL NOT instruct agents to sleep, poll, tail logs, or wait in-chat for future loop work.
+
+#### Scenario: Notifier prompt drives mail event processing
+- **WHEN** a mail-driven generated loop has open mail for a participant agent
+- **THEN** Houmao notifier support is the expected wakeup mechanism that prompts the agent
+- **AND THEN** the agent processes the mail through the generated message-family behavior and maintained Houmao mail support
+
+#### Scenario: Tick after mail is prompt-directed
+- **WHEN** the generated loop requires scheduling, reconciliation, timeout, or completion work after mail processing
+- **THEN** the generated notification prompt guidance or equivalent agent binding material tells the agent to run the appropriate on-tick skill after processing mail
+- **AND THEN** the tick performs one bounded pass and stops
+
+#### Scenario: In-chat waiting is forbidden
+- **WHEN** generated role behavior reaches the end of its current mail event and requested tick work
+- **THEN** the role behavior tells the agent to finish the chat turn
+- **AND THEN** it does not ask the agent to wait in-chat for future mail, future ticks, or periodic wakeups
 
 ### Requirement: V5 defaults workspace and run artifacts to auditable generated contracts
 When a generated loop needs agent workspaces, the packaged skill SHALL guide the execplan to generate workspace contracts that can be consumed by `houmao-utils-workspace-mgr` or equivalent maintained workspace surfaces.
@@ -318,19 +350,53 @@ The staged execplan generation order SHALL be:
 
 The `execplan-specs-process` stage SHALL generate or update the canonical loop process model before other execplan stages.
 
+The canonical generated process model SHALL live at `<loop-dir>/execplan/specs/collab/collab-overview.md`.
+
+The packaged skill SHALL NOT guide generated v5 execplans to use `<loop-dir>/execplan/specs/process.md` as the primary process model.
+
 The process model SHALL describe the loop in generic process terms, including phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, or record families when those concepts apply.
 
+The process model SHALL include a Python-style pseudocode view in fenced `python` code blocks, with inline comments that explain important conditions, actions, state effects, and stopping points.
+
+The process model SHALL include a high-level Mermaid sequence graph in a fenced `mermaid` code block showing the main participant, event, handoff, and tick flow.
+
 Downstream stages SHALL derive their generated artifacts from the process model and intention source rather than inventing independent process semantics.
+
+Each staged artifact-generation page SHALL make its expected directory shape explicit for artifacts it emits. Optional layers MAY be omitted only when the omission or accepted equivalent is recorded in the manifest, generated docs, or validation notes.
+
+Generated skill artifacts SHALL use a flat directory shape under `execplan/skills/<unique-skill-name>/SKILL.md`.
+
+Generated skill names SHALL be unique across the execplan package and suitable for installation into one flat skill namespace. The packaged skill SHALL NOT rely on nested category directories such as `shared/`, `on-event/`, `on-tick/`, or `operator/` to disambiguate generated skills.
+
+Generated concrete agent bindings SHALL include a plan-local binding registry at `execplan/agents/bindings.toml` and place profile material under `execplan/agents/profiles/<agent-id>/`.
+
+Generated harnesses SHALL include an explicit command registry at `execplan/harness/commands.toml` unless the manifest records an accepted no-code or external harness surface.
 
 #### Scenario: Process model precedes derived contracts
 - **WHEN** `generate-execplan` creates a fresh generated execplan
 - **THEN** it treats `execplan-specs-process` as the first generation stage
+- **AND THEN** it writes the canonical process overview to `execplan/specs/collab/collab-overview.md`
 - **AND THEN** objective, participant, topology, communication, state, workspace, harness, skill, agent-binding, docs, and final manifest artifacts are derived after the process model exists
+
+#### Scenario: Flat process path is rejected
+- **WHEN** validation finds `execplan/specs/process.md` being used as the generated process overview
+- **THEN** validation reports it as a misplaced generated artifact
+- **AND THEN** the plan is not treated as conforming until the process overview is moved to `execplan/specs/collab/collab-overview.md`
 
 #### Scenario: Process-first order applies without a fixed topology
 - **WHEN** the intention source describes a custom loop topology
 - **THEN** the process stage captures that topology in generic process terms
 - **AND THEN** later stages derive contracts and generated role behavior from that process model without forcing a built-in participant shape
+
+#### Scenario: Process model includes readable algorithm views
+- **WHEN** `execplan-specs-process` emits process docs
+- **THEN** those docs include Python-style pseudocode with inline comments for how the loop advances
+- **AND THEN** those docs include a high-level Mermaid sequence graph for the participant/event/handoff flow
+
+#### Scenario: Later stages use explicit package paths
+- **WHEN** staged generation emits contracts, harness surfaces, generated skills, agent bindings, or final docs
+- **THEN** each emitted artifact is placed under the canonical path family for that stage
+- **AND THEN** any omitted default layer or accepted equivalent is recorded for validation and operator review
 
 ### Requirement: Generate and update orchestration use staged execplan order
 The `generate-execplan` operation SHALL orchestrate the staged execplan subcommands in dependency order unless the user explicitly asks for one staged subcommand.

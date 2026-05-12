@@ -30,6 +30,37 @@ The default scaffold is a flexible profile, not a rigid template. A useful gener
 
 The generator may omit a default layer or file when the intention clearly does not need it. The omission should be explicit in the manifest, generated docs, or validation notes so later maintainers can distinguish a deliberate small loop from an incomplete plan.
 
+Expected generated paths should be explicit whenever a layer is used:
+
+```text
+execplan/
+  manifest.toml
+  specs/
+    collab/collab-overview.md
+    objective/objective.toml
+    comms/templates.toml
+    state/state-model.toml
+    workspace/workspace.toml
+    run/run-artifacts.toml
+    participants/participants.toml
+  skills/
+    <unique-skill-name>/SKILL.md
+  agents/
+    bindings.toml
+    profiles/<agent-id>/config.toml
+    profiles/<agent-id>/definition.md
+    notifier-prompts/<agent-id>.md
+  harness/
+    commands.toml
+  docs/
+    artifact-index.md
+    operator-guide.md
+    runtime-model.md
+    validation.md
+```
+
+Optional files may be omitted, but the process overview path, flat generated skill-directory shape, agent binding registry, and harness command registry should not be left implicit when those stages emit artifacts. Generated skill names must be unique after installation; do not rely on nested directories to disambiguate role, trigger, or purpose.
+
 ## Staged Generation Order
 
 The process model is the first generated authority. The default staged order is:
@@ -43,7 +74,7 @@ execplan-specs-process
                   -> execplan-finalize
 ```
 
-`execplan-specs-process` captures phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. Later stages derive concrete contracts and operational surfaces from that model.
+`execplan-specs-process` emits the canonical process overview at `execplan/specs/collab/collab-overview.md`. It captures phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. It should also include a human-readable process explanation in two executable-looking views: Python-style pseudocode in fenced `python` blocks with inline comments for conditions/actions/state effects/stopping points, and a high-level Mermaid `sequenceDiagram` in a fenced `mermaid` block. Later stages derive concrete contracts and operational surfaces from that model. Do not use a flat `execplan/specs/process.md` as the primary process document.
 
 `generate-execplan` should run all stages in order. `update-execplan` should choose the earliest affected stage and rerun downstream stages. `execplan-finalize` is last: it may finalize a manifest seeded earlier, but it should not add new authoritative behavior that bypasses process, contracts, harness, skills, or agent bindings.
 
@@ -74,6 +105,8 @@ Task-specific records, scoring, evidence models, and domain tables are extension
 
 The harness is a plan-local data-model and dynamic-lookup surface. It can validate contracts, render views, explain generated TOML fields, query state, check completion, and apply schema-validated records.
 
+Harness command registries and config should reference generated package artifacts by relative path. The harness can read `../specs/...`, `../agents/...`, and other files in the same generated loop-definition package. If harness scripts need stable local paths, generate relative symlinks under `harness/refs/` that point to the authoritative package artifacts. If symlinks cannot be created because of filesystem permissions or environment limits, scripts should use direct relative paths instead. `harness/schemas/` is for harness-owned schemas such as command envelopes; generated communication, record, state, workspace, participant, and objective schemas stay authoritative under `specs/` and should not be copied into `harness/`.
+
 The harness should not own Houmao platform operations. Mailbox delivery, mailbox administration, gateway posture, managed-agent launch, prompt transport, memory updates, inspection, and workspace creation remain delegated to maintained Houmao skills or supported CLI surfaces.
 
 Harness output intended for agents should use a stable machine-readable envelope with success status, command identity, run id when known, plan revision when known, data, diagnostics, and warnings. Explanation commands may derive agent-readable rationale from structured comments such as `@doc`, `@rationale`, `@agent-guidance`, and `@not-for`.
@@ -83,6 +116,10 @@ Harness output intended for agents should use a stable machine-readable envelope
 Ordinary cross-agent participant handoffs default to Houmao mail unless the intention source explicitly selects a non-mail mechanism. The generator should not preserve a design gap that asks "should participants use mail?" when the source is silent; the useful questions are loop-specific: which roles communicate, which message families exist, which payload fields are required, which replies are expected, and which state or records change.
 
 Mail-driven execplans should keep semantic ownership in generated material and mechanical ownership in maintained Houmao skills. Generated specs define routes, message families, schemas, renderers, reply links, lifecycle records, and event/tick behavior. Maintained skills own mailbox setup, ordinary mail operations, gateway-notified mail rounds, managed-agent communication routing, and gateway posture.
+
+Houmao mail-driven loops are notifier-prompt-driven. The Houmao email/notifier system runs outside the target agent, detects open mail, and sends the target agent a prompt. That prompt is the normal wakeup mechanism for mail-received event skills, and it may include loop-specific instructions such as "after processing this mail, call the coordinator tick skill." Agents should finish the chat turn after processing mail and any requested tick. They should not sleep, poll, tail logs, or wait in-chat for future work, because holding the chat turn open blocks later mail notification prompts from being handled.
+
+On-tick skills are prompt-invoked bounded passes, not periodic background workers. There is no separate periodic tick driver that wakes agents independently. If a loop needs a tick after mail processing, record that in generated notifier prompt guidance or equivalent agent binding material.
 
 The default generated communication package is:
 
@@ -134,7 +171,7 @@ A mature generated loop plan is useful as a reference for the depth of a complet
 - schema-validated communication and record payloads with Markdown renderers when human-readable output is needed;
 - compact state contracts when runtime state is needed;
 - participant role templates separated from concrete agent bindings;
-- generated skills scoped to role events, plus tick skills for periodic or scheduler-like responsibilities;
+- generated skills scoped to role events, plus prompt-invoked tick skills for scheduler-like responsibilities;
 - a narrow per-loop harness rather than new Houmao core commands;
 - workspace setup routed through `houmao-utils-workspace-mgr`, defaulting to the standard in-repo workspace flavor with explicit loop bookkeeping directories when needed;
 - generated Markdown metadata marking generated files.

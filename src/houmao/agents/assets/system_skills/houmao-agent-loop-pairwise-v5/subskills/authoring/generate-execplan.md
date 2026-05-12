@@ -21,7 +21,7 @@ Rules:
 
 ## Generated Shape
 
-Use this scaffold profile unless the intention source clearly needs a smaller equivalent shape. Create or replace generated material under:
+Use this scaffold profile unless the intention source clearly needs a smaller equivalent shape. Even in a smaller shape, keep the canonical process overview at `<loop-dir>/execplan/specs/collab/collab-overview.md`, and record any equivalent path or omission in the manifest, generated docs, or validation notes. Create or replace generated material under:
 
 ```text
 <loop-dir>/execplan/
@@ -29,11 +29,15 @@ Use this scaffold profile unless the intention source clearly needs a smaller eq
   specs/
     objective/
     collab/
+      collab-overview.md
     comms/
     state/
     workspace/
+    run/
     participants/
   skills/
+    <unique-skill-name>/
+      SKILL.md
   agents/
   harness/
   docs/
@@ -41,15 +45,16 @@ Use this scaffold profile unless the intention source clearly needs a smaller eq
 
 Minimum responsibilities:
 - `manifest.toml` indexes generated artifacts, generated-source posture, and plan revision.
-- `specs/` contains machine-readable loop contracts. Use subdirectories only when the loop needs them:
+- `specs/` contains machine-readable loop contracts. `specs/collab/collab-overview.md` is mandatory for generated execplans because it is the process-first authority. Use other subdirectories only when the loop needs them:
   - `specs/objective/` for goals, constraints, success posture, and references to policy sections.
   - `specs/collab/` for topology, scheduling policy, handoff rules, and structured collaboration record schemas.
   - `specs/comms/` for mail or message schemas, template registries, and renderers.
   - `specs/state/` for runtime state schemas, seed data, and invariants when the loop needs bookkeeping state.
   - `specs/workspace/` for workdir, command, artifact, environment, path contracts, and workspace-manager inputs.
+  - `specs/run/` for run artifact layout and recovery/audit preservation contracts.
   - `specs/participants/` for abstract participant roles and stable role instances.
-- `skills/` contains generated on-event skills, on-tick skills, lifecycle skills, or shared utility skills. Keep each skill bounded to one trigger or role responsibility.
-- `agents/` contains concrete agent bindings and prompt sources that map live Houmao agents to participant roles, installed skills, and workspace policy.
+- `skills/` contains a flat set of generated skill directories. Keep each generated skill as `skills/<unique-skill-name>/SKILL.md`; do not use category subdirectories. Generated skill names must be unique after installation, so encode role, trigger, or purpose in the skill name when needed.
+- `agents/` contains plan-local binding files that map live Houmao agents to participant roles, installed skills, notifier prompt text, and workspace policy.
 - `harness/` contains the plan-local command surface for data-model validation, dynamic lookup, query, rendering, controlled record application, and other deterministic loop-local mechanics.
 - `docs/` contains generated human support views that explain generated contracts without becoming source authority.
 - When a default layer or file is intentionally unnecessary, record the omission in the manifest, generated docs, or validation notes.
@@ -104,6 +109,16 @@ Rules:
   - Markdown renderers;
   - reply expectations;
   - state or record effects caused by mail.
+
+Runtime driver:
+- model mail-driven participant work as notifier-prompt-driven, not as an in-chat wait loop;
+- Houmao email/notifier support is a separate process that detects open mail and prompts the target agent;
+- generated agent bindings or docs should identify any loop-specific mail notification prompt instructions;
+- notification prompt instructions should tell the agent to process the relevant mail, invoke the matching generated mail-received on-event skill, and run any required on-tick skill after mail processing;
+- on-tick skills are invoked from notifier or operator prompt turns for one bounded pass; do not model them as periodic background loops;
+- generated role skills must finish the chat turn after mail processing and any requested tick work;
+- generated role skills must not sleep, poll, tail logs, or wait in-chat for future work because that blocks later mail notification prompts from being handled;
+- do not rely on an external periodic driver to wake agents for ticks.
 
 Platform boundary:
 - generated specs, skills, agent bindings, and harness commands define loop semantics;
@@ -198,6 +213,7 @@ Mail-received event skills:
   - archive the processed message only after required work and required replies succeed;
   - stop.
 - Put aggregation, scheduling, timeout handling, reconciliation, and completion checks in on-tick skills when those responsibilities do not belong to one received-mail event.
+- When a tick should follow mail processing, put that instruction in the generated notifier prompt guidance or equivalent agent binding material instead of asking the agent to wait.
 
 ## Actions
 
@@ -210,7 +226,7 @@ Mail-received event skills:
   - `execplan-skills`
   - `execplan-agent-bindings`
   - `execplan-finalize`
-4. Treat `execplan-specs-process` as the first generated authority. Later stages must derive their process semantics from it rather than inventing independent behavior.
+4. Treat `execplan-specs-process` as the first generated authority. It must emit the canonical process overview at `execplan/specs/collab/collab-overview.md`; do not emit a flat `execplan/specs/process.md`. The overview must include Python-style pseudocode with inline comments and a high-level Mermaid sequence graph. Later stages must derive their process semantics from it rather than inventing independent behavior.
 5. Put dynamic values that agents need during work into generated specs, runtime state, or harness lookup surfaces rather than baking them into static skill prose.
 6. Mark generated Markdown with a clear generated-source note or metadata block.
 7. Preserve unresolved assumptions as explicit `UNRESOLVED - <reason>` entries.

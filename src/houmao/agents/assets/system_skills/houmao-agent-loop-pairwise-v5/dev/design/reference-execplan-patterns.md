@@ -12,14 +12,16 @@ execplan/                         # Generated operational package; replaceable f
   specs/                          # Machine-readable contracts. Agents should consult these through skills or harness commands.
     objective/                    # Goals, constraints, success posture, and references to policy sections.
     collab/                       # Process topology, scheduling policy, handoff rules, and structured collaboration record schemas.
+      collab-overview.md          # Required canonical process overview for generated plans.
     comms/                        # Mail/message schemas, payload-to-renderer registry, and human-readable render templates.
     state/                        # Runtime state model: schema, migrations, seed data, and invariants when the loop needs state.
     workspace/                    # Workdir, command, artifact, environment, path contracts, and workspace-manager inputs.
+    run/                          # Run artifact layout and recovery/audit preservation contracts.
     participants/                 # Abstract roles and stable role instances; not concrete Houmao agent processes.
-  skills/                         # Generated role/event/tick skills plus shared helper skills installed into concrete agents.
-  agents/                         # Concrete Houmao agent bindings: participant id, prompt source, installed skills, and workspace policy.
-  harness/                        # Plan-local command surface for data-model validation, query, rendering, dynamic lookup, and controlled apply.
-  docs/                           # Generated human support views. Helpful for readers, but not the operational source of truth.
+  skills/                         # Flat generated skill directories; each name must be unique after installation.
+  agents/                         # Concrete Houmao agent bindings, profile material, and notifier prompt text.
+  harness/                        # Plan-local command registry and implementation surface for validation, query, rendering, dynamic lookup, and controlled apply.
+  docs/                           # Named generated human support views. Helpful for readers, but not the operational source of truth.
 ```
 
 The shape matters because each layer has a different authority:
@@ -28,10 +30,10 @@ The shape matters because each layer has a different authority:
 | --- | --- |
 | `manifest.toml` | Generated artifact index and plan revision anchor. |
 | `specs/` | Machine contracts that role skills and harness commands consult. |
-| `skills/` | Generated role/event playbooks and shared helper skills. |
-| `agents/` | Concrete Houmao agent bindings for participant instances. |
-| `harness/` | Deterministic local command surface for validation, query, rendering, policy, and controlled record application. |
-| `docs/` | Generated human views that explain the package but defer authority to `specs/`. |
+| `skills/` | Flat generated skill directories with `SKILL.md`; trigger or responsibility is encoded in the unique skill name and metadata. |
+| `agents/` | Concrete Houmao agent bindings for participant instances, profile material, installed skills, workspace policy, and notifier prompt text. |
+| `harness/` | Deterministic local command registry and implementation surface for validation, query, rendering, policy, and controlled record application. |
+| `docs/` | Named generated human views that explain the package but defer authority to `specs/`. |
 
 ### Abstract Example Shape
 
@@ -47,6 +49,7 @@ execplan/
       policy.toml                 # Objective-level policy and evidence gates.
       README.md
     collab/
+      collab-overview.md          # Canonical process overview: phases/events/handoffs/ticks plus Python pseudocode and Mermaid sequence graph.
       loop-policy.toml            # Scheduling order, ownership rules, terminal conditions, and derived values.
       topology/
         topology.toml             # Allowed participant-to-participant message routes.
@@ -82,30 +85,32 @@ execplan/
     workspace/
       workspace.toml              # Workdir, command, artifact, runtime path, and workspace-manager contracts.
       README.md
+    run/
+      run-artifacts.toml          # Run directory layout, artifact preservation, audit, and recovery posture.
     participants/
       participants.toml           # Role templates and stable role instances.
       lead.md
       reviewer.md
       worker.md
   skills/
-    shared-harness-usage/
+    team-example-shared-harness-usage/
       SKILL.md                    # Role-neutral mechanics for invoking the harness.
       references/
         command-shape.md
         email.md
         records.md
         state-query.md
-    lead-on-loop-start/
+    team-example-lead-on-loop-start/
       SKILL.md                    # On-start handler: initialize or verify run posture, objective, base state, and first route.
-    lead-on-schedule-tick/
+    team-example-lead-on-schedule-tick/
       SKILL.md                    # On-tick handler: inspect current state and perform one bounded scheduling or completion action.
-    lead-on-implementation-reply-received/
+    team-example-lead-on-implementation-reply-received/
       SKILL.md                    # On-mail handler: process a worker result reply, validate records, and decide the next handoff.
-    worker-on-implementation-request/
+    team-example-worker-on-implementation-request/
       SKILL.md                    # On-mail handler: accept assigned work, perform it, and return a schema-validated result or notice.
-    reviewer-on-review-request/
+    team-example-reviewer-on-review-request/
       SKILL.md                    # On-mail handler: review submitted evidence or direction, then return a structured decision.
-    operator-loop-mgr/
+    team-example-operator-loop-mgr/
       SKILL.md                    # Operator lifecycle runbook: prepare, launch, start, pause, resume, or recover the loop.
       subskills/
         prepare-profiles.md
@@ -113,36 +118,50 @@ execplan/
         start.md
         recover.md
   agents/
-    lead/
-      config.toml                 # Concrete agent binding for participant `lead`.
-      definition.md               # Prompt source for the concrete agent.
-    reviewer/
-      config.toml
-      definition.md
-    worker-1/
-      config.toml
-      definition.md
-    worker-2/
-      config.toml
-      definition.md
+    bindings.toml                 # Participant-to-agent map, installed skills, support skills, prompt source, and workspace policy.
+    profiles/
+      lead/
+        config.toml               # Concrete agent binding for participant `lead`.
+        definition.md             # Prompt source for the concrete agent.
+      reviewer/
+        config.toml
+        definition.md
+      worker-1/
+        config.toml
+        definition.md
+      worker-2/
+        config.toml
+        definition.md
+    notifier-prompts/
+      lead.md                     # Loop-specific mail notification prompt appendix when needed.
+      reviewer.md
+      worker-1.md
+      worker-2.md
   harness/
-    loopctl.py                    # Executable shim.
-    cli.py                        # Command registration.
-    common.py                     # Shared data-model, output, and lookup helpers.
-    commands/
-      validation.py
-      query.py
-      policy.py
-      objective.py
-      email.py
-      records.py
-  docs/
     README.md
-    loop-design.md                # Human explanation of runtime flow.
-    harness-usage/
-      README.md
-      commands.md
-      example.md
+    commands.toml                 # Harness command registry.
+    schemas/
+      command-envelope.schema.json
+    refs/
+      comms-templates.toml        # Relative symlink to ../../specs/comms/templates.toml when local script paths help.
+      state-model.toml            # Relative symlink to ../../specs/state/state-model.toml when present.
+    bin/
+      loopctl                     # Executable shim.
+    src/
+      cli.py                      # Command registration.
+      common.py                   # Shared data-model, output, and lookup helpers.
+      commands/
+        validation.py
+        query.py
+        policy.py
+        objective.py
+        email.py
+        records.py
+  docs/
+    artifact-index.md
+    operator-guide.md
+    runtime-model.md              # Human explanation of runtime flow.
+    validation.md
 ```
 
 In this example, `implementation-request` mail is produced from a TOML payload, validated against `specs/comms/schemas/implementation-request.schema.json`, rendered through `specs/comms/renderers/implementation-request.md.j2`, and sent through maintained Houmao communication surfaces. The receiver's `worker-on-implementation-request` skill handles that event, uses `shared-harness-usage` for mechanics, and records compact bookkeeping through harness record commands when appropriate.
@@ -192,7 +211,7 @@ execplan-specs-process
                   -> execplan-finalize
 ```
 
-The process stage captures how the loop moves work: phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. This stage is the first generated authority because downstream artifacts should not invent independent process semantics.
+The process stage emits `specs/collab/collab-overview.md` as the canonical process overview. That file captures how the loop moves work: phases, events, handoffs, tick responsibilities, ownership, terminal posture, recovery posture, and provisional participant, message, state, or record families. It should also include a readable Python-style pseudocode view and a high-level Mermaid sequence graph. The pseudocode should live in fenced `python` blocks, use generic role/event/state names from the generated loop, and include inline `#` comments explaining conditions, actions, state effects, and stopping points. The sequence graph should live in a fenced `mermaid` block and show the participant/event/handoff flow at a level that downstream contract, harness, skill, and agent-binding stages can derive from. This stage is the first generated authority because downstream artifacts should not invent independent process semantics. Do not use a flat `specs/process.md` for the primary process overview.
 
 The contract stage turns the process model into objective, participants, topology, communication, state, records, workspace, and run contracts. The harness reads those contracts. Skills read process/contracts/harness. Agent bindings install the generated skills. Final docs and manifest summarize what already exists.
 
@@ -217,6 +236,7 @@ A mature execplan can use purpose-based specs instead of one monolithic contract
 - `specs/comms/`: message template registry, JSON schemas, and Markdown renderers.
 - `specs/state/`: state schema, migrations, seed data, and invariants when runtime state is needed.
 - `specs/workspace/`: repository, command, workspace, artifact, runtime path contracts, and inputs for `houmao-utils-workspace-mgr`.
+- `specs/run/`: run directory layout, durable artifact preservation, audit, status, and recovery posture.
 - `specs/participants/`: abstract role templates and stable role instances.
 
 The general lesson is that runtime agents should consult structured contracts for policy and gates. They should not preserve important policy only in prose role instructions.
@@ -227,7 +247,8 @@ Execplans should separate participant identity from concrete Houmao agents:
 
 - participant role templates describe abstract responsibilities;
 - participant instances provide stable loop identities;
-- `agents/<agent-name>/config.toml` binds one concrete Houmao agent to one participant instance;
+- `agents/bindings.toml` maps participant instances to concrete Houmao agent ids, generated skills, maintained support skills, prompt source, workspace policy, and notifier prompt path;
+- `agents/profiles/<agent-id>/config.toml` binds one concrete Houmao agent to one participant instance;
 - generated `definition.md` files provide prompt source material for those concrete agents.
 
 Concrete agent configs should include participant identity, role spec, definition source, installed skills, skill installation mode, memo seed policy, and workspace policy. Future agent-binding validation should check for those concepts even when individual loops name or extend them differently. When the workspace policy is a supported Houmao layout, the binding should point to facts created or verified by `houmao-utils-workspace-mgr`, not to ad hoc generated worktree setup steps.
@@ -255,9 +276,11 @@ On-event skills implement behavior caused by a concrete process event. In mail-d
 
 ### Tick Skills
 
-Some responsibilities do not conceptually belong to one incoming event. A loop may need on-tick skills for scheduling, reconciliation, completion checks, timeout handling, periodic status, or "what happens next" decisions. Tick skills should still be bounded: inspect current dynamic state through the harness, perform the first applicable action or report no action, then stop.
+Some responsibilities do not conceptually belong to one incoming event. A loop may need on-tick skills for scheduling, reconciliation, completion checks, timeout handling, prompted status checks, or "what happens next" decisions. Tick skills should still be bounded: inspect current dynamic state through the harness, perform the first applicable action or report no action, then stop.
 
 Tick skills are useful when the loop has a role that coordinates process flow. They should not become a catch-all for all role behavior; event-specific work should stay in event skills.
+
+In Houmao mail-driven loops, tick skills are not periodic background workers. The Houmao email/notifier process runs separately, detects mail, and prompts the target agent. A loop-specific notification prompt may tell the agent to call a tick skill after processing mail. The agent then ends the chat turn and waits for the next notifier or operator prompt. Generated skills should never keep a chat turn open by sleeping, polling, tailing logs, or waiting for future mail, because that prevents later notifier prompts from being handled.
 
 ## Communication Pattern
 
@@ -360,6 +383,8 @@ role skills decide what record should be created
 ## Harness Pattern
 
 The harness should be generated inside the package, not added to Houmao core. Its main job is to manage the loop's data models and dynamic information surfaces.
+
+Harness scripts can use relative symlinks under `harness/refs/` when stable local paths make implementation simpler. Those symlinks point back to authoritative package artifacts such as `../../specs/comms/templates.toml` or `../../specs/state/state-model.toml`. If symlinks cannot be created in the current filesystem or permission environment, the harness should use direct relative paths such as `../specs/comms/templates.toml` instead. Do not copy authoritative specs into `harness/`.
 
 Harness-owned data-model mechanics can include:
 

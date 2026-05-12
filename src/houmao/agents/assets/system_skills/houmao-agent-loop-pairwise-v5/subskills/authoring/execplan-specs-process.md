@@ -19,23 +19,49 @@ Read:
 
 ## Outputs
 
-Generate or update process-first specs under `execplan/specs/` using paths that fit the loop shape, normally collaboration process material such as:
+Generate or update the canonical process overview at:
+
+```text
+<loop-dir>/execplan/specs/collab/collab-overview.md
+```
+
+Use additional files under `<loop-dir>/execplan/specs/collab/` only when the process model needs them, such as `loop-policy.toml`, `topology/graph.md`, or `records/*.schema.json`.
+
+Do not write the primary process overview as a flat file such as `<loop-dir>/execplan/specs/process.md`.
+
+The canonical process overview contains collaboration process material such as:
 - phases;
 - events;
 - handoffs or exchanges;
+- runtime trigger model, especially notifier-prompt-driven mail events when the loop is mail-driven;
 - tick responsibilities;
 - participant ownership;
 - terminal and recovery posture;
+- Python-style process pseudocode with fenced `python` code blocks and inline comments;
+- a high-level Mermaid sequence graph using fenced `mermaid` code blocks;
 - provisional participant, message, state, and record families;
 - unresolved process decisions.
 
 ## Actions
 
 1. Derive the loop process model from intention source.
-2. Express the model in generic process terms before generating derived contracts.
-3. Identify which later stages are required or intentionally omitted.
-4. Preserve unresolved process choices as `UNRESOLVED - <reason>`.
-5. Do not finalize objective, participant, communication, state, workspace, harness, skill, agent, docs, or manifest details in this stage; leave them for downstream stages.
+2. Create or replace `<loop-dir>/execplan/specs/collab/collab-overview.md` as the first process-stage authority.
+3. Express the model in generic process terms before generating derived contracts.
+4. For mail-driven loops, record that Houmao notifier prompts wake agents for mail processing and optional follow-up ticks; do not model in-chat waits or periodic tick workers.
+5. Include a Python-style pseudocode section that explains how the loop advances:
+  - use a fenced `python` code block;
+  - name generic roles, events, state queries, handoff decisions, tick passes, terminal branches, and recovery branches;
+  - add inline `#` comments for conditions, actions, state effects, and stopping points;
+  - keep it domain-derived but not implementation-bound Python.
+6. Include a high-level Mermaid sequence section:
+  - use a fenced `mermaid` code block;
+  - show the main participants or role families;
+  - show the normal event/handoff path;
+  - show mail/notifier/tick behavior when the loop is mail-driven;
+  - omit low-level transport or storage details that belong to later contract or harness stages.
+7. Identify which later stages are required or intentionally omitted.
+8. Preserve unresolved process choices as `UNRESOLVED - <reason>`.
+9. Do not finalize objective, participant, communication, state, workspace, harness, skill, agent, docs, or manifest details in this stage; leave them for downstream stages.
 
 ## Downstream Effects
 
@@ -46,4 +72,5 @@ Generate or update process-first specs under `execplan/specs/` using paths that 
 
 - Do not force a built-in participant topology.
 - Do not import process policy from examples as global behavior.
+- Do not create flat process files directly under `execplan/specs/`.
 - Do not perform platform setup or runtime execution.

@@ -31,6 +31,14 @@ description: Manual invocation only; use only when the user explicitly requests 
   execplan/
     manifest.toml
     specs/
+      objective/
+      collab/
+        collab-overview.md
+      comms/
+      state/
+      workspace/
+      run/
+      participants/
     skills/
     agents/
     harness/
@@ -44,15 +52,16 @@ Workspace rule:
 
 ## Default Generated Contract
 
-Use these defaults unless intention source or accepted clarification decisions choose an equivalent or narrower shape.
+Use these defaults unless intention source or accepted clarification decisions choose an equivalent or narrower shape. Any equivalent or omission must be indexed or explained in `manifest.toml`, generated docs, or validation notes.
 
 Execplan scaffold:
 - `manifest.toml` indexes generated artifacts, generated-source posture, and plan revision.
-- `specs/` separates objective, collaboration, communication, state, workspace, and participant contracts when those concerns apply.
-- `skills/` contains generated role/event/tick/lifecycle skills and shared utility skills.
-- `agents/` binds concrete Houmao agents to participant instances, prompt sources, installed skills, and workspace policy.
-- `harness/` exposes loop-local validation, dynamic lookup, rendering, query, and controlled record application.
-- `docs/` explains generated contracts for humans but is not source authority.
+- `specs/collab/collab-overview.md` is the required process-first authority.
+- `specs/` separates objective, collaboration, communication, state, workspace, run-artifact, and participant contracts when those concerns apply.
+- `skills/` contains one flat directory of generated skills: `skills/<unique-skill-name>/SKILL.md`. Skill names must be unique after installation; encode purpose in the skill name or metadata, not in nested category directories.
+- `agents/` binds concrete Houmao agents to participant instances, prompt sources, installed skills, notifier prompt text, and workspace policy.
+- `harness/` exposes loop-local validation, dynamic lookup, rendering, query, and controlled record application through an explicit command registry.
+- `docs/` explains generated contracts for humans but is not source authority; final docs live under named files, not loose unindexed notes.
 
 Participant and state defaults:
 - separate participant role templates, stable participant instances, and concrete agent bindings;
@@ -70,6 +79,24 @@ Workspace and run defaults:
 - generated workspace contracts identify launch cwd, agent work roots, notes or knowledge paths, writable temp/artifact paths, shared resources, and read/write rules when applicable;
 - generated execution preserves durable payloads, rendered outputs, send or reply responses, records, state files, logs, and evidence under a run artifact layout such as `<loop-dir>/runs/<run-id>/`;
 - omit unused default layers when the manifest and generated docs make the omission explicit.
+
+## Houmao Loop Runtime Model
+
+- Houmao agents do not run a conventional always-awake loop inside one chat turn.
+- The Houmao email/notifier system runs separately from the target agents.
+- When notifier support detects open mail for an agent, it sends that agent a prompt.
+- That prompt should guide the agent to:
+  - check and process the relevant mail;
+  - use the generated mail-received on-event skill for the matching message family when applicable;
+  - call any required on-tick skill after mail processing when the generated loop wants follow-up scheduling, reconciliation, timeout, or completion work.
+- Mail notification prompts are customizable and may include loop-specific instructions.
+- On-tick skills are not periodic background loops:
+  - they are invoked from a notifier or operator prompt turn;
+  - they perform one bounded pass;
+  - they stop.
+- After processing mail and any requested tick, the agent finishes the chat turn and waits for the next notifier or operator prompt.
+- Do not design generated agents to sleep, poll, tail logs, or wait in-chat for future work; in-chat waiting blocks later mail notification prompts from being handled.
+- Do not rely on an external periodic driver to wake agents for ticks; model tick execution as prompt-triggered follow-up work.
 
 ## Communication Defaults
 
@@ -110,7 +137,7 @@ Authoring:
 - `clarify intent`: interview the user about loop intent, record accepted decisions as ADRs, and update intention Markdown.
 - `refine-intention`: update existing intention Markdown from user edits or new direction.
 - `generate-execplan`: generate `execplan/` from `intention/`.
-- `execplan-specs-process`: generate the canonical process model first.
+- `execplan-specs-process`: generate the canonical process model first at `execplan/specs/collab/collab-overview.md`, including Python-style pseudocode with inline comments and a high-level Mermaid sequence graph.
 - `execplan-specs-contract`: derive objective, participant, topology, communication, state, record, workspace, and run contracts from the process model.
 - `execplan-harness`: generate loop-local harness surfaces from contracts.
 - `execplan-skills`: generate shared, event, tick, and operator skills from process/contracts/harness.

@@ -27,9 +27,10 @@ Require:
 10. Launch missing agents through `houmao-agent-instance` or the supported easy-instance launch surface when the execplan requests live participants.
 11. Prepare mailbox, gateway, memory, and inspection posture through their owning Houmao skills.
 12. Confirm mail-driven loops have the mailbox posture needed for their generated schema/render communication flow, including notifier posture when generated mail-received skills expect gateway-notified rounds.
-13. Confirm generated skills can locate the plan-local harness when they depend on dynamic objective, constraint, policy, state, schema, rendering, query, validation, or controlled-apply commands.
-14. Confirm durable-execution plans have a run artifact layout ready for payloads, rendered outputs, responses, records, state files, logs, and evidence.
-15. Report prepared agents, workspace-manager result, missing agents, installed generated skills, maintained mail support bindings, harness lookup posture, run artifact posture, mailbox and gateway posture, and any launch or binding blockers.
+13. Confirm mail notification prompt customization includes any loop-specific instruction to process mail through generated on-event skills and call on-tick skills after mail processing when the execplan requires it.
+14. Confirm generated skills can locate the plan-local harness when they depend on dynamic objective, constraint, policy, state, schema, rendering, query, validation, or controlled-apply commands.
+15. Confirm durable-execution plans have a run artifact layout ready for payloads, rendered outputs, responses, records, state files, logs, and evidence.
+16. Report prepared agents, workspace-manager result, missing agents, installed generated skills, maintained mail support bindings, notifier prompt posture, harness lookup posture, run artifact posture, mailbox and gateway posture, and any launch or binding blockers.
 
 ## Constraints
 
@@ -39,3 +40,4 @@ Require:
 - Do not duplicate mailbox endpoint contracts, mailbox storage, gateway discovery, or ordinary mail send/read/reply/archive mechanics inside generated agent preparation.
 - Do not start loop work from this page; use `start`.
 - Do not invent launch profiles when the execplan or user did not provide enough information.
+- Do not prepare agents to sleep, poll, tail logs, or wait in-chat for loop progress; mail notifier prompts and operator prompts are the wakeup mechanism.

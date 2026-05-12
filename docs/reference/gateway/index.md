@@ -35,6 +35,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 - [Gateway Reminders](operations/reminders.md): Understand `/v1/reminders`, ranking and pause semantics, prompt versus send-keys reminder delivery, and the direct live HTTP boundary.
 - [Gateway Mailbox Facade](operations/mailbox-facade.md): Understand `/v1/mail/*`, adapter selection from the session manifest, loopback-only availability, and notifier behavior through the shared mailbox abstraction.
 - [Gateway Mail-Notifier](operations/mail-notifier.md): Background polling loop that checks for open inbox work or unread inbox mail, depending on notifier mode, and submits notification prompts through the gateway request queue with optional runtime appendix guidance, degraded-context policy, and pre-notification compaction.
+- [Notifier-Prompt-Driven Loop Runtime](operations/notifier-prompt-driven-loops.md): Conceptual runtime model for mail-driven loops: notifier prompts wake agents, generated on-event skills process mail, optional on-tick skills run once from the prompt turn, and agents must not wait in-chat.
 
 ### Contracts
 

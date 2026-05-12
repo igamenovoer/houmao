@@ -34,6 +34,7 @@ Explore only the areas that are relevant to the current intention:
 - mail/message families, participant routes, structured payload fields, reply expectations, and mail-caused state or record effects
 - on-event behaviors owned by each participant
 - on-tick behaviors for scheduling, reconciliation, timeout, or completion checks
+- loop-specific mail notification prompt instructions, including whether a tick should run after mail processing
 - harness responsibilities for data-model validation, dynamic lookup, query, rendering, and controlled record application
 - runtime state and bookkeeping needs
 - workspace, artifact, and evidence expectations, including whether the default Houmao `in-repo` workspace flavor plus loop bookkeeping dirs is sufficient
@@ -44,6 +45,8 @@ Explore only the areas that are relevant to the current intention:
 Rules:
 - Treat Houmao mail as the default communication mechanism for ordinary cross-agent participant handoffs unless the intention source explicitly selects a non-mail mechanism.
 - Do not ask whether to use mail by default.
+- Treat Houmao mail-driven agents as notifier-prompt-driven: a separate mail notifier detects open mail and prompts the target agent.
+- Do not design in-chat waiting, sleeps, polling, or periodic background ticks.
 
 Clarify loop-specific communication decisions instead:
 - which participant role sends to which participant role;
@@ -51,7 +54,8 @@ Clarify loop-specific communication decisions instead:
 - which structured payload fields are required;
 - whether the message expects a reply, which reply schema or family should answer it, and whether the request should carry `requested_reply_schema_id`;
 - what state, record, aggregation, or scheduling effect happens after send or receive;
-- whether a scheduler-like responsibility belongs in an on-tick skill instead of one mail-received event handler.
+- whether a scheduler-like responsibility belongs in an on-tick skill instead of one mail-received event handler;
+- whether the mail notification prompt should instruct the agent to run an on-tick skill after mail processing.
 
 Mechanics boundary:
 - Assume maintained Houmao mail skills own:
