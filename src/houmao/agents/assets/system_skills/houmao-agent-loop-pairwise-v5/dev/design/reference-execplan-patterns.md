@@ -22,6 +22,9 @@ execplan/                         # Generated operational package; replaceable f
   skills/                         # Flat generated skill directories; each name must be unique after installation.
   agents/                         # Concrete Houmao agent bindings, profile material, and notifier prompt text.
   harness/                        # Plan-local command registry and implementation surface for validation, query, rendering, dynamic lookup, and controlled apply.
+    requirements.txt              # Optional local dependency declaration when the harness needs non-stdlib libraries.
+    dependency-posture.toml       # Optional dependency posture, interpreter evidence, import guidance, and diagnostics record.
+    vendor/                       # Optional standalone harness-local pip target; implementation support, not contract authority.
   docs/                           # Named generated human support views. Helpful for readers, but not the operational source of truth.
 ```
 
@@ -156,6 +159,8 @@ execplan/
   harness/
     README.md
     commands.toml                 # Harness command registry.
+    requirements.txt              # Only present when local non-stdlib harness dependencies are needed.
+    dependency-posture.toml       # Records Houmao-env/environment/local posture, interpreter evidence, import guidance, commands, and diagnostics.
     schemas/
       command-envelope.schema.json
     refs/
@@ -173,6 +178,7 @@ execplan/
         objective.py
         email.py
         records.py
+    vendor/                       # Optional pip --target directory for standalone/custom execution.
   docs/
     artifact-index.md
     operator-guide.md
@@ -422,6 +428,16 @@ Harness-owned data-model mechanics can include:
 - compact bookkeeping queries;
 - generated view rendering;
 - diagnostics and consistency checks.
+
+Harness implementations can rely on common Python libraries when the generated features need them:
+
+- `click` for modular command registration and grouped command-line surfaces;
+- `jinja2` for rendering `.md.j2` human-readable mail or prompt templates;
+- `jsonschema` for validating communication payloads, record payloads, and command envelopes.
+
+The dependency pattern is Houmao-installed-environment first, caller-selected interpreter second, and optional local-pip-target only for standalone/custom execution. First check whether the intended harness interpreter can import the required libraries. Project declarations such as `pyproject.toml` are useful evidence, but interpreter importability is the proof for that interpreter. If imports fail, generated harness entrypoints should name the missing dependency and guide the caller to install it into the active harness Python environment or use the Python environment associated with the installed Houmao uv tool. Guidance should use uv inspection or refresh commands such as `uv tool list --show-paths --show-python` without hardcoding uv internals.
+
+Generated authoring guidance should tell agents to test the harness after writing it. If a test fails because dependencies are missing, the active interpreter appears wrong, or dependency posture is ambiguous, retry the same test through the Houmao uv-installed environment before rewriting harness logic. If standalone/custom execution is intentionally supported, generate `harness/requirements.txt`, optional `harness/vendor/`, and the caller-managed install command `python -m pip install --target execplan/harness/vendor -r execplan/harness/requirements.txt`. Generated entrypoints that may use `harness/vendor/` should prepend it to `sys.path` before importing local packages. Dependency posture, required packages, interpreter evidence, import-failure guidance, optional standalone install command, and install diagnostics belong in `harness/dependency-posture.toml`, the harness README, the manifest, or an equivalent indexed artifact. These dependency files are harness implementation support; they do not become loop policy or replace contracts under `specs/`.
 
 Harness-owned dynamic information can include:
 

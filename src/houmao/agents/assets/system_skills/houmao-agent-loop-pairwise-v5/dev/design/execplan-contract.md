@@ -63,6 +63,9 @@ execplan/
     notifier-prompts/<agent-id>.md
   harness/
     commands.toml
+    requirements.txt
+    dependency-posture.toml
+    vendor/
   docs/
     artifact-index.md
     operator-guide.md
@@ -70,7 +73,7 @@ execplan/
     validation.md
 ```
 
-Optional files may be omitted, but the process overview path, flat generated skill-directory shape, agent binding registry, and harness command registry should not be left implicit when those stages emit artifacts. `execplan/adrs/` is optional and normally appears only for step-by-step generation decisions. Generated skill names must be unique after installation; do not rely on nested directories to disambiguate role, trigger, or purpose.
+Optional files may be omitted, but the process overview path, flat generated skill-directory shape, agent binding registry, and harness command registry should not be left implicit when those stages emit artifacts. `execplan/harness/dependency-posture.toml` is present when the generated harness imports non-stdlib Python libraries. `execplan/harness/requirements.txt` and `vendor/` are optional standalone/custom execution support, not the default dependency path. `execplan/adrs/` is optional and normally appears only for step-by-step generation decisions. Generated skill names must be unique after installation; do not rely on nested directories to disambiguate role, trigger, or purpose.
 
 ## Staged Generation Order
 
@@ -117,6 +120,16 @@ Task-specific records, scoring, evidence models, and domain tables are extension
 The harness is a plan-local data-model and dynamic-lookup surface. It can validate contracts, render views, explain generated TOML fields, query state, check completion, and apply schema-validated records.
 
 Harness command registries and config should reference generated package artifacts by relative path. The harness can read `../specs/...`, `../agents/...`, and other files in the same generated loop-definition package. If harness scripts need stable local paths, generate relative symlinks under `harness/refs/` that point to the authoritative package artifacts. If symlinks cannot be created because of filesystem permissions or environment limits, scripts should use direct relative paths instead. `harness/schemas/` is for harness-owned schemas such as command envelopes; generated communication, record, state, workspace, participant, and objective schemas stay authoritative under `specs/` and should not be copied into `harness/`.
+
+Harness implementations may use `click` for command routing, `jinja2` for `.md.j2` Markdown rendering, and `jsonschema` for schema validation. These are normal Houmao runtime dependencies. The intended dependency policy is Houmao-installed-environment first, caller-selected environment second, and optional local-pip-target only for standalone/custom execution:
+
+- first prove imports through the intended harness interpreter and record `houmao-env`, `environment-provided`, or an equivalent posture when they work;
+- when imports fail, generated entrypoints report the missing dependency and guide the caller to install it into the active harness Python environment or run with the Python environment associated with the installed Houmao uv tool;
+- generated guidance should point to uv inspection or refresh commands such as `uv tool list --show-paths --show-python` without hardcoding uv internals;
+- when a generated harness test fails because dependencies are missing or the wrong interpreter appears active, retry the same test through the Houmao uv-installed environment before treating it as a harness implementation bug;
+- only when standalone/custom execution is intentionally supported, generate `execplan/harness/requirements.txt`, optional `vendor/`, the local target install command `python -m pip install --target execplan/harness/vendor -r execplan/harness/requirements.txt`, and a `vendor/` import bootstrap.
+
+Local dependency files are harness implementation support. They do not move schema, renderer, policy, state, workspace, participant, or objective authority out of `specs/`.
 
 The harness should not own Houmao platform operations. Mailbox delivery, mailbox administration, gateway posture, managed-agent launch, prompt transport, memory updates, inspection, and workspace creation remain delegated to maintained Houmao skills or supported CLI surfaces.
 
@@ -204,6 +217,7 @@ Validation should grow from shape checks toward contract checks:
 - validate generated communication and record registries connect schema ids, payload formats, and renderers coherently;
 - validate agent configs include participant identity, prompt source, installed skills, and workspace policy;
 - validate supported workspace setup routes through `houmao-utils-workspace-mgr` rather than generated ad hoc worktree mechanics;
+- validate harness dependency posture, feature-scoped declarations, import-failure guidance, optional local requirements, install diagnostics, stale wheelhouse claims, and import bootstrap when generated harness code imports non-stdlib libraries;
 - run harness self-checks when present;
 - report stale or ambiguous generated-source metadata;
 - keep domain-specific validation opt-in and derived from the loop source.

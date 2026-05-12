@@ -33,6 +33,20 @@ When tightening execplan generation, update the contract in small layers:
 
 Prefer explicit unresolved entries over inferred behavior. A generated execplan that says what it cannot decide is easier to repair than one that hides assumptions.
 
+## Harness Dependencies
+
+Generated harnesses may use `click`, `jinja2`, and `jsonschema` when their generated features need modular commands, Markdown template rendering, or schema validation. Preserve this dependency order:
+
+- treat these libraries as normal Houmao runtime dependencies provided by the Houmao-installed environment;
+- use packages already importable by the intended harness interpreter when possible;
+- when imports fail, generated entrypoints should name the missing dependency and tell the caller to install it into the active harness Python environment or use the Python environment associated with the installed Houmao uv tool;
+- when generated harness tests fail because dependencies are missing or the wrong interpreter appears active, tell the authoring agent to retry the same test through the Houmao uv-installed environment before changing harness logic;
+- generate `execplan/harness/requirements.txt`, `execplan/harness/vendor/`, and `python -m pip install --target` guidance only for intentional standalone/custom execution;
+- add a local `sys.path` bootstrap before generated entrypoints import locally installed packages only when optional `vendor/` support exists;
+- record dependency posture, interpreter evidence, import-failure guidance, install commands for standalone support, and diagnostics in generated harness metadata.
+
+Do not reintroduce source-bundled wheel files for these harness libraries. Do not add dependency guidance that requires global Python, user site-packages, or project-environment mutation.
+
 ## Execution Boundaries
 
 Execution should compose existing Houmao operation surfaces. Keep managed-agent launch, mailbox, gateway, memory, lifecycle, inspection, and platform setup routed to their owning skills or supported `houmao-mgr` surfaces.

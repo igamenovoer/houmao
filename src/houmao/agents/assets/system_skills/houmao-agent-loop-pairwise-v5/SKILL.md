@@ -89,6 +89,7 @@ Skill and harness defaults:
 - generated on-tick skills handle scheduling, reconciliation, timeout, completion, or "what now" decisions by doing at most one pass, then stopping;
 - generated skills query specs, state, or harness output for dynamic policy and runtime facts instead of copying constants into static prose;
 - generated harnesses do not own mailbox delivery, managed-agent launch, gateway discovery, memory management, or workspace creation.
+- generated harnesses may use `click` for modular commands, `jinja2` for `.md.j2` rendering, and `jsonschema` for validation when needed; these are normal Houmao runtime dependencies, and generated import failures should guide callers to install missing libraries into the active harness Python environment or use the Houmao uv-installed environment.
 
 Workspace and run defaults:
 - generated workspace contracts identify launch cwd, agent work roots, notes or knowledge paths, writable temp/artifact paths, shared resources, and read/write rules when applicable;

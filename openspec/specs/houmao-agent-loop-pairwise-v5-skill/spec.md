@@ -58,8 +58,50 @@ The skill SHALL keep v5-owned authoring and generated artifacts under the select
 - **THEN** the skill creates or uses v5-owned files under that directory
 - **AND THEN** the skill does not scatter generated loop files into unrelated paths
 
+### Requirement: V5 packages a shared scaffold generator and template assets
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL include a Python scaffold generator inside the v5 skill package.
+
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL include bundled scaffold template assets for Markdown and TOML starter files owned by the scaffold generator.
+
+The scaffold generator SHALL use the bundled template assets as the authoritative source for starter scaffold content instead of requiring routed pages to synthesize those file bodies independently.
+
+The scaffold generator SHALL use Python stdlib only unless a later change explicitly approves an additional dependency.
+
+#### Scenario: Packaged skill includes generator resources
+- **WHEN** the v5 skill is inspected in the repository
+- **THEN** it includes a Python scaffold generator under the skill package
+- **AND THEN** it includes bundled template assets for starter scaffold files used by that generator
+
+#### Scenario: Starter content comes from packaged templates
+- **WHEN** a v5 route needs to create starter Markdown or TOML scaffold files
+- **THEN** the route uses the packaged scaffold generator and its bundled templates
+- **AND THEN** the route does not rely on separately authored inline starter-file bodies in multiple pages
+
+### Requirement: V5 scaffold-producing routes use shared generator profiles
+The scaffold-producing routes in `houmao-agent-loop-pairwise-v5` SHALL use the shared scaffold generator rather than describing separate ad hoc file creation flows.
+
+The `init` and `create-intention` routes SHALL use a shared profile for `intention/` scaffold creation.
+
+The `execplan-fast-forward` route SHALL use a shared profile for non-interactive `execplan/` shell creation.
+
+The `execplan-step-by-step` route SHALL use the same execplan shell scaffold surface, with an explicit option or profile that includes `execplan/adrs/`.
+
+The `execplan-finalize` route SHALL use a shared scaffold surface for starter support docs or README material that belongs to the centralized scaffold layer.
+
+#### Scenario: Init and create-intention share one scaffold path
+- **WHEN** a user asks v5 to initialize loop intention material
+- **THEN** the routed authoring page uses the shared intention scaffold profile
+- **AND THEN** `intention/README.md` and `intention/loop-overview.md` come from the centralized scaffold surface
+
+#### Scenario: Fast-forward and step-by-step share execplan shell scaffolding
+- **WHEN** a user asks v5 to run `execplan-fast-forward` or `execplan-step-by-step`
+- **THEN** both routes scaffold the `execplan/` package through the shared execplan scaffold surface
+- **AND THEN** `execplan-step-by-step` includes `execplan/adrs/` only through the explicit stepwise scaffold option or profile
+
 ### Requirement: V5 authoring creates an editable intention source area
 The v5 authoring workflow SHALL create or maintain `<loop-dir>/intention/` as the editable source area for user intention Markdown.
+
+The intention source area SHALL be created through the packaged shared scaffold generator and bundled template assets rather than by repeated page-local starter-file prose.
 
 The intention source area SHALL include `<loop-dir>/intention/README.md` describing the purpose and conventions of the area.
 
@@ -78,8 +120,15 @@ The intention source area SHALL allow additional Markdown files to be mostly fre
 - **THEN** the skill treats those edits as current source input for later refinement or execplan generation
 - **AND THEN** the skill does not require the freeform intention files to match a strict generated-template schema
 
+#### Scenario: Intention starter files come from centralized scaffold assets
+- **WHEN** the v5 authoring workflow initializes `intention/`
+- **THEN** it uses the packaged shared scaffold generator and bundled templates
+- **AND THEN** it does not require separate routed pages to define independent starter-file bodies for `README.md` and `loop-overview.md`
+
 ### Requirement: V5 generates an execplan package from intention source
 The v5 authoring workflow SHALL generate `<loop-dir>/execplan/` as the generated execution package derived from the current intention source.
+
+The v5 scaffold-producing execplan routes SHALL create the initial `execplan/` shell through the packaged shared scaffold generator and bundled template assets.
 
 The generated execplan package SHALL include `manifest.toml` at its root.
 
@@ -106,6 +155,11 @@ The skill SHALL label or describe execplan content as generated material and SHA
 - **WHEN** a user changes the loop source after an execplan was generated
 - **THEN** the v5 `update-execplan` workflow reads from `<loop-dir>/intention/`
 - **AND THEN** it updates `<loop-dir>/execplan/` as generated output
+
+#### Scenario: Execplan shell comes from centralized scaffold assets
+- **WHEN** a v5 route needs to create the initial `execplan/` shell, starter manifest, or starter support docs
+- **THEN** it uses the packaged shared scaffold generator and bundled templates
+- **AND THEN** it does not define those starter artifacts independently in multiple routed pages
 
 ### Requirement: V5 skill guidance is split into authoring and execution subskills
 The top-level `houmao-agent-loop-pairwise-v5` skill SHALL act as an index and router for v5 subskills rather than carrying the whole workflow in one instruction file.
@@ -251,6 +305,56 @@ Harness command output intended for agent use SHALL default to a structured enve
 - **WHEN** generated execution needs mailbox transport, agent launch, gateway posture, memory updates, or workspace creation
 - **THEN** the generated execution guidance routes that work to maintained Houmao skills or supported CLI surfaces
 - **AND THEN** the generated harness remains responsible only for loop-local data mechanics
+
+### Requirement: V5 generated harnesses use Houmao-installed Python dependencies with import-failure guidance
+The packaged v5 skill SHALL teach generated harnesses to use `click`, `jinja2`, and `jsonschema` as normal Python dependencies when generated harness features need modular command routing, Markdown template rendering, or JSON Schema validation.
+
+The Houmao project SHALL declare `jinja2` and `jsonschema` as runtime dependencies so the uv-installed Houmao environment provides them. The existing `click` runtime dependency SHALL continue to satisfy modular CLI command-routing support.
+
+Generated harnesses SHALL import only the non-stdlib libraries required by the features they implement.
+
+When a generated harness entrypoint cannot import a required non-stdlib dependency, it SHALL fail with actionable guidance that names the missing dependency and tells the caller to either install the dependency into the Python environment used to run the harness or run the harness with the Python environment associated with the installed Houmao uv tool.
+
+Generated harness import-failure guidance SHALL avoid hardcoding a uv tool environment path. It SHALL suggest inspection or refresh commands such as `uv tool list --show-paths --show-python` or reinstalling/updating the Houmao uv tool environment when appropriate.
+
+The v5 harness authoring guidance SHALL tell agents to test generated harnesses after writing them. If a harness test fails because required harness libraries are missing, the active interpreter appears different from the intended runtime, or dependency posture is ambiguous, the agent SHALL retry the same harness test through the Houmao uv-installed environment before treating the failure as a harness implementation bug.
+
+Generated harnesses MAY provide `execplan/harness/requirements.txt` and optional local `pip --target execplan/harness/vendor` instructions for standalone/custom execution, but the packaged v5 skill SHALL NOT require or ship a bundled wheelhouse for these dependencies.
+
+The packaged v5 skill SHALL NOT include source-bundled `.whl` files for `click`, `jinja2`, `jsonschema`, or their transitive dependencies.
+
+Validation guidance SHALL report generated v5 execplans as stale or non-conforming when they claim a skill-bundled wheelhouse fallback for these harness libraries.
+
+#### Scenario: Houmao install provides common harness libraries
+- **WHEN** Houmao is installed as a uv-managed tool from the project package
+- **THEN** the installed environment includes `click`, `jinja2`, and `jsonschema`
+- **AND THEN** generated harnesses can instruct users to use that Houmao environment when another Python interpreter lacks those libraries
+
+#### Scenario: Harness import failure gives actionable recovery paths
+- **WHEN** a generated harness imports a required non-stdlib library and that import fails
+- **THEN** the harness reports the missing library by name
+- **AND THEN** the message tells the caller to install the library into the active harness Python environment or use the Python environment associated with the installed Houmao uv tool
+
+#### Scenario: Harness author retries failed tests through Houmao uv environment
+- **WHEN** an agent tests a generated harness and the test fails because a required harness library is missing or the active interpreter appears to be the wrong runtime
+- **THEN** the v5 skill guidance tells the agent to retry the same test through the Houmao uv-installed environment
+- **AND THEN** the agent does not rewrite harness logic until distinguishing dependency environment failure from implementation failure
+
+#### Scenario: Harness dependencies are feature-scoped
+- **WHEN** a generated harness does not render `.md.j2` templates
+- **THEN** it does not need to declare or import `jinja2`
+- **AND WHEN** a generated harness does not validate JSON Schema payloads
+- **THEN** it does not need to declare or import `jsonschema`
+
+#### Scenario: Skill does not ship wheelhouse fallback
+- **WHEN** the packaged v5 skill assets are inspected
+- **THEN** they do not contain a bundled harness wheelhouse of `.whl` files for `click`, `jinja2`, `jsonschema`, or transitive dependencies
+- **AND THEN** v5 harness guidance does not claim a skill-bundled wheelhouse fallback exists
+
+#### Scenario: Optional standalone local target remains possible
+- **WHEN** a generated loop intentionally supports running its harness outside the Houmao-installed environment
+- **THEN** it may include `execplan/harness/requirements.txt` and a local `python -m pip install --target execplan/harness/vendor -r execplan/harness/requirements.txt` instruction
+- **AND THEN** this local target path is documented as caller-managed standalone support, not as a skill-bundled offline fallback
 
 ### Requirement: V5 defaults generated role skills to bounded event and tick handlers
 The packaged skill SHALL guide generated execplans to create generated role skills that are scoped by role and by event, tick, or operator lifecycle action.
@@ -401,7 +505,11 @@ Generated harnesses SHALL include an explicit command registry at `execplan/harn
 ### Requirement: All-stage generation and update orchestration use staged execplan order
 The `execplan-fast-forward` operation SHALL scaffold `execplan/` and orchestrate the staged execplan subcommands in dependency order without optional generation questions unless the user explicitly asks for one staged subcommand.
 
+The `execplan-fast-forward` scaffold step SHALL use the packaged shared scaffold generator and bundled execplan shell templates.
+
 The `execplan-step-by-step` operation SHALL scaffold `execplan/`, then orchestrate the same staged execplan subcommands in dependency order while asking at most one unresolved generation-decision question at a time.
+
+The `execplan-step-by-step` scaffold step SHALL use the same packaged shared scaffold generator, with explicit support for `execplan/adrs/`.
 
 The `execplan-step-by-step` operation SHALL record accepted artifact-generation decisions under `<loop-dir>/execplan/adrs/` and SHALL revise affected execplan artifacts after each accepted decision.
 
@@ -433,3 +541,8 @@ The manifest MAY be seeded before finalization, but final manifest content SHALL
 - **WHEN** a staged generation run reaches `execplan-finalize`
 - **THEN** generated docs, package README, final manifest content, generated metadata, and explicit omission notes reflect the artifacts actually emitted by earlier stages
 - **AND THEN** finalization does not introduce new authoritative process, contract, harness, skill, or agent-binding semantics that bypass earlier stages
+
+#### Scenario: Both all-stage routes use the shared scaffold generator
+- **WHEN** `execplan-fast-forward` or `execplan-step-by-step` begins scaffold creation
+- **THEN** the route uses the packaged shared scaffold generator and bundled templates for the execplan shell it owns
+- **AND THEN** the route does not rely on independently maintained page-local scaffold definitions

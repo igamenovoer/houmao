@@ -52,6 +52,19 @@ Check harness shape:
 - when generated harness scripts need stable local paths, those paths are either relative symlinks under `execplan/harness/refs/` pointing to authoritative package artifacts, or direct relative paths to the authoritative artifacts when symlinks are unavailable.
 - generated harness symlink targets are relative paths, not absolute paths.
 - `execplan/harness/schemas/` contains only harness-owned schemas such as command envelopes; communication, record, state, workspace, participant, and objective schemas remain authoritative under `execplan/specs/` and are referenced rather than copied.
+- generated harnesses that import `click`, `jinja2`, `jsonschema`, or other non-stdlib libraries declare those libraries and record a dependency posture such as `houmao-env`, `environment-provided`, `local-pip-target`, `pending-local-install`, `unavailable`, or an accepted equivalent.
+- generated harnesses that use `.md.j2` renderers declare `jinja2`, harnesses with modular CLI command routing declare `click`, and harnesses with JSON Schema validation declare `jsonschema`.
+- dependency posture metadata records the interpreter used for import detection or installation, required packages, version constraints, selected install command when local target support exists, and install diagnostics or pending status.
+- generated harness entrypoints that import non-stdlib libraries include import-failure guidance that names the missing dependency and tells the caller to install it into the active harness Python environment or use the Python environment associated with the installed Houmao uv tool.
+- generated harness import-failure guidance does not hardcode a uv tool environment path; it points to inspection or refresh commands such as `uv tool list --show-paths --show-python`.
+- generated harness authoring notes, validation notes, or README material tell authoring agents to retry failed dependency or interpreter-sensitive harness tests through the Houmao uv-installed environment before treating the failure as a harness implementation bug.
+- `execplan/harness/requirements.txt` exists and is manifest-indexed only when dependency posture is `local-pip-target`, `pending-local-install`, or an equivalent caller-managed standalone dependency posture.
+- local target requirements include only libraries the harness uses.
+- `execplan/harness/vendor/` exists or is explicitly recorded as pending or unavailable when local target posture is selected.
+- generated entrypoints prepend the harness-local `vendor/` directory to `sys.path` before importing locally installed libraries when optional standalone local target posture may be used.
+- generated harness docs or metadata include the local target command `python -m pip install --target execplan/harness/vendor -r execplan/harness/requirements.txt` or an accepted equivalent only when standalone local target support is claimed.
+- generated plans that claim a skill-bundled wheelhouse fallback, `local-wheelhouse-target` posture, `--no-index --find-links <wheelhouse-dir>` fallback, or a skill-owned `assets/harness-wheelhouse/` source are stale or non-conforming.
+- generated harnesses do not require installing `click`, `jinja2`, `jsonschema`, or their dependencies into system Python, user site-packages, or the surrounding project environment.
 
 Check agent bindings:
 - generated participant contracts separate role templates or role descriptions, stable participant instances, and concrete Houmao agent bindings.
