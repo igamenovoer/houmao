@@ -40,18 +40,34 @@ Missing input rule:
 
 Build an internal coverage map before asking. Use these execplan implementation categories:
 
+- intent boundary: whether the gap belongs to `clarify-intent` rather than generated implementation;
+- objective-derived parameters: thresholds, assumptions, hidden variables, constraints, evidence requirements, stop conditions, and generated values that can change objective meaning;
 - process phases, events, handoffs, ticks, terminal posture, and recovery posture;
 - mail schemas, renderers, reply links, acknowledgement, result, error, and freeform families;
+- communication completeness: whether each handoff carries enough paths, refs, branch or commit ids, artifact ids, context, requested action, and reply expectations for the receiver to act without implicit workspace inspection;
 - mail payload lifecycle, message refs, thread refs, and state effects;
 - state schema, transitions, invariants, ownership, backend choice, and repair posture;
 - harness commands for initialization, query, validation, record apply, rendering, and explain output;
 - generated skill triggers, bounded procedures, stop points, archive-after-success behavior, and tick placement;
 - agent bindings, notifier prompts, maintained support skills, workspace policy, and memo posture;
+- workspace definition: workspace roots, shared vs per-agent paths, artifact-sharing protocol, and how in-loop work artifacts are referenced across agents;
 - run artifacts, evidence refs, logs, validation coverage, generated docs, and manifest coherence;
 - platform boundary compliance;
 - no in-chat waiting, sleeping, polling, or periodic background tick assumptions.
 
-Prioritize questions whose answers affect runtime correctness, generated contract shape, scheduling, recovery, state validity, mail behavior, validation, or operator acceptance.
+Question priority:
+
+1. Redirect missing or contradictory source intent to `clarify-intent`; do not patch around it in generated artifacts.
+2. Resolve objective-derived parameter ambiguity: generated thresholds, assumptions, hidden variables, constraints, evidence requirements, stop conditions, or config values that can change objective meaning.
+3. Resolve process authority consistency: phases, ownership, event/tick advancement, terminal posture, and recovery posture must derive from `specs/collab/collab-overview.md`.
+4. Resolve communication completeness and correctness: generated mail must include enough context, artifact refs, paths, git branch or commit ids, requested action, and reply expectations for downstream agents to act.
+5. Resolve state, record, and harness authority: ownership, transitions, invariants, payload lifecycle, operator intent events, validation, query, and apply surfaces.
+6. Resolve workspace definition and artifact sharing: where workspaces live, what is shared, what is per-agent, and how in-loop artifacts are communicated through mail, paths, branches, commits, or manifests.
+7. Resolve lifecycle, mode, and operator-control behavior: start, pause, resume, stop, recover, default `auto`, `manual`, notifier posture, and no in-chat waiting.
+8. Resolve generated skills and agent bindings: triggers, bounded actions, stop points, installed support skills, notifier prompts, and role ownership.
+9. Resolve run artifacts, generated docs, manifest, and validation packaging after runtime semantics are coherent.
+
+Prioritize questions whose answers affect runtime correctness, generated contract shape, scheduling, recovery, state validity, mail behavior, workspace/artifact handoff, validation, or operator acceptance.
 
 ## Question Focus
 
@@ -65,7 +81,10 @@ Ask only about generated implementation choices that are:
 
 Good execplan questions confirm implementation details, for example:
 
+- Which generated objective parameter decides whether a result is accepted?
+- What branch, commit, path, or artifact ref must a work-complete mail include?
 - Should a missing result reply be handled by timeout tick, operator recovery, or no automatic action?
+- Which shared workspace path may downstream agents read for in-loop artifacts?
 - Which generated skill owns archiving a processed mail item?
 - Is sqlite state the accepted authority for active ownership and completion?
 - Should the notifier prompt always run a tick after one mail is processed?
