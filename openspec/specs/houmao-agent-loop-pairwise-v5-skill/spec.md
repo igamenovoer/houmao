@@ -546,3 +546,476 @@ The manifest MAY be seeded before finalization, but final manifest content SHALL
 - **WHEN** `execplan-fast-forward` or `execplan-step-by-step` begins scaffold creation
 - **THEN** the route uses the packaged shared scaffold generator and bundled templates for the execplan shell it owns
 - **AND THEN** the route does not rely on independently maintained page-local scaffold definitions
+
+### Requirement: V5 generated artifact directories include concise README files
+The packaged v5 skill SHALL guide generated execplans to include a `README.md` in every emitted generated artifact directory.
+
+Generated artifact directory README files SHALL contain only a concise description of the directory purpose and its contents.
+
+Generated artifact directory README files SHALL use this minimal section shape:
+
+- `Purpose`;
+- `Contents`.
+
+The `Purpose` section SHALL explain why the directory exists.
+
+The `Contents` section SHALL list the generated files or child directories in that directory and briefly state what each one is.
+
+Generated README files SHALL NOT duplicate contract details from specs, schemas, command registries, skill bodies, agent bindings, or manifests.
+
+Generated README files SHALL NOT be treated as source authority. They are human and agent orientation aids only.
+
+Each v5 artifact-generation stage SHALL create or update README files for the generated artifact directories it creates or materially populates.
+
+The `execplan-finalize` stage SHALL fill missing README files for emitted generated artifact directories and verify that the README files use the simple purpose-and-contents shape.
+
+Validation guidance SHALL report missing generated artifact directory README files, except when the directory is intentionally omitted or the generated directory is a simple generated skill directory whose `SKILL.md` already orients the skill and no additional generated files exist.
+
+#### Scenario: Generated specs directory has orientation README
+- **WHEN** a generated execplan emits `execplan/specs/comms/`
+- **THEN** it includes `execplan/specs/comms/README.md`
+- **AND THEN** that README states the directory purpose and lists contents such as `templates.toml`, `schemas/`, and `renderers/`
+
+#### Scenario: README stays non-authoritative
+- **WHEN** a generated artifact directory README describes files under that directory
+- **THEN** it does not duplicate schema fields, command semantics, role procedures, or binding contracts
+- **AND THEN** authoritative details remain in generated specs, schemas, harness registries, generated skills, agent bindings, manifests, or other generated contract files
+
+#### Scenario: Finalization fills README gaps
+- **WHEN** `execplan-finalize` runs after earlier generation stages
+- **THEN** it checks emitted generated artifact directories for README files
+- **AND THEN** it creates or updates missing README files with only `Purpose` and `Contents`
+
+#### Scenario: Simple generated skill directory can rely on SKILL.md
+- **WHEN** a generated skill directory contains only `SKILL.md` and optional `agents/openai.yaml`
+- **THEN** validation may accept the absence of that skill directory's `README.md`
+- **AND THEN** `execplan/skills/README.md` still describes the generated skill directory collection
+
+### Requirement: V5 generated bookkeeping state defaults to sqlite when SQL schemas are clear
+The packaged v5 skill SHALL guide generated execplans to use sqlite as the default bookkeeping state backend when the loop state has a clearly defined SQL schema.
+
+Generated sqlite-backed state SHALL include an explicit SQL schema artifact in the loop definition, such as under `execplan/specs/state/`.
+
+Generated harness code SHALL treat the SQL schema artifact as the authoritative state contract for sqlite-backed bookkeeping.
+
+Generated execplans MAY use JSONL plus explicit schemas as an alternate bookkeeping representation when state records are append-only, intentionally denormalized, schema-light, or too small to justify sqlite.
+
+Generated execplans SHALL NOT use unstructured ad hoc state files for loop bookkeeping when either sqlite or JSONL plus schema is feasible.
+
+Generated artifact directory README files MAY list state schema files, database files, or JSONL record files, but SHALL NOT duplicate SQL table definitions or JSON schema fields.
+
+#### Scenario: Clear relational bookkeeping uses sqlite
+- **WHEN** an execplan defines stable bookkeeping entities such as agents, pairwise edges, rounds, mail events, decisions, assignments, artifacts, or run status
+- **THEN** the generated harness defaults to sqlite for that state
+- **AND THEN** the execplan includes an explicit SQL schema artifact for the generated sqlite database
+
+#### Scenario: Append-only bookkeeping can use JSONL plus schema
+- **WHEN** generated bookkeeping is intentionally append-only or schema-light
+- **THEN** the execplan may choose JSONL records instead of sqlite
+- **AND THEN** each JSONL record type has an explicit schema artifact
+
+### Requirement: V5 generated bookkeeping follows control-plane state principles
+The packaged v5 skill SHALL teach skill-invoked agents that generated bookkeeping is runtime control-plane state for goal-oriented loops.
+
+Generated bookkeeping state SHALL store compact facts and references needed for scheduling, ownership, validation, recovery, transition audit, and completion checks.
+
+Generated bookkeeping state SHALL NOT duplicate full mail bodies, rendered Markdown, rich request/reply prose, long rationale, pseudocode, detailed analysis, or documentation content.
+
+Generated bookkeeping state SHALL reference mail, artifacts, docs, commits, evidence files, or external results by durable IDs or paths when those sources hold the detailed content.
+
+Generated bookkeeping guidance SHALL state that mail remains the communication authority and generated state remains the transition/scheduling authority.
+
+Generated bookkeeping guidance SHALL require every important transition to be reconstructable from structured records that identify the changed entity, new state or decision, actor or source, related mail/evidence/artifact refs, and timestamp.
+
+Generated bookkeeping guidance SHALL require active ownership to be explicit enough for recovery and scheduling queries.
+
+Generated bookkeeping guidance SHALL require generated state to define a finite valid state space through allowed states, statuses, transitions, and invariants.
+
+Generated bookkeeping guidance SHALL require operator override, pause, prune, stop, repair, and recovery authority to be recorded as explicit operator intent events when such controls exist.
+
+#### Scenario: State stores facts and refs, not mail prose
+- **WHEN** a generated loop records a handoff from one participant to another
+- **THEN** state stores compact routing, status, ownership, related work item, and mail reference facts
+- **AND THEN** the detailed request body remains in the persisted mail record
+
+#### Scenario: Scheduling can be derived from state
+- **WHEN** an agent or operator asks what work can run next
+- **THEN** the generated harness can derive busy participants, idle participants, active handoffs, assignable work items, blockers, and completion posture from bookkeeping state
+
+### Requirement: V5 generated state contracts define schema, invariants, and boundaries
+The packaged v5 skill SHALL guide generated execplans with runtime bookkeeping to emit a state contract package under `execplan/specs/state/`.
+
+Generated `execplan/specs/state/` packages SHALL include a concise `README.md` and a `state-overview.md`.
+
+Generated `state-overview.md` files SHALL describe state authority, state boundaries, minimal entity families, allowed transitions, invariants, scheduling queries, and content that state must not store.
+
+Sqlite-backed generated state SHALL include `schema.sql` under `execplan/specs/state/`.
+
+Sqlite-backed generated state SHOULD include seed data and invariant declarations when the loop needs deterministic initialization or validation beyond schema shape.
+
+JSONL-backed generated state SHALL include explicit record schemas for each generated JSONL record type.
+
+Generated state contracts SHOULD consider these generic entity families and include the subset needed by the loop:
+
+- `process_state`;
+- `participants`;
+- `work_items`;
+- `handoffs`;
+- `mail_payloads`;
+- `attempts`;
+- `decisions`;
+- `evidence`;
+- `artifacts`;
+- `operator_intent_events`;
+- `events`.
+
+Generated state contracts SHALL treat SQL schema files or JSON schemas as field-level authority.
+
+Generated README files and overview prose SHALL NOT duplicate table definitions or record schema fields.
+
+#### Scenario: Sqlite state contract package is generated
+- **WHEN** a generated loop uses sqlite bookkeeping
+- **THEN** it emits `execplan/specs/state/README.md`, `state-overview.md`, and `schema.sql`
+- **AND THEN** it emits seed or invariant artifacts when initialization or validation needs them
+
+#### Scenario: JSONL state contract package is generated
+- **WHEN** a generated loop uses JSONL bookkeeping
+- **THEN** it emits `execplan/specs/state/README.md`, `state-overview.md`, and explicit record schemas
+- **AND THEN** the harness validates each JSONL record against the corresponding schema before treating it as loop state
+
+### Requirement: V5 generated harness integrates state through validated commands
+The packaged v5 skill SHALL guide generated harnesses to be the normal access path for participant state mutation and query.
+
+Generated harness guidance SHALL tell participant agents to avoid raw SQL or ad hoc state-file edits during normal loop execution.
+
+Generated harnesses for stateful loops SHALL provide commands or command groups for state initialization, state validation, read-only state query, record validation, and record application.
+
+Generated harness state initialization SHALL create runtime state from generated state contracts and seed data.
+
+Generated harness state validation SHALL check schema availability, referential integrity, allowed states, transition invariants, active ownership invariants, mail/artifact references, and policy-derived gates when those concepts exist in the loop.
+
+Generated harness read-only queries SHALL expose loop-summary and scheduler-posture views sufficient for agents to decide next work without inspecting raw state.
+
+Generated harness record application SHALL validate structured record payloads against generated schemas before mutating sqlite or appending JSONL records.
+
+Generated harness guidance SHALL reserve direct state edits for operator repair, require the loop to be paused for such repair, and require harness validation after repair.
+
+Generated harness code MAY access generated state contracts through direct relative paths from the harness directory or through relative symlinks into the harness directory.
+
+#### Scenario: Agent applies state through harness
+- **WHEN** a participant needs to record a decision, handoff, attempt, evidence fact, or completion transition
+- **THEN** it uses the generated harness record validation/application path
+- **AND THEN** the harness rejects schema-invalid or invariant-breaking records
+
+#### Scenario: Operator repair bypass is constrained
+- **WHEN** an operator directly edits runtime sqlite or JSONL state for repair
+- **THEN** the loop is paused first
+- **AND THEN** the operator runs generated harness validation before normal participant execution resumes
+
+### Requirement: V5 generated TOML contracts expose descriptions through harness explain output
+The packaged v5 skill SHALL guide generated TOML contract files to include explicit `description` fields for records or sections that are exposed to agents or operators through generated harness commands.
+
+Generated TOML descriptions SHALL be concise human-readable explanations of what the record, section, or non-obvious field means.
+
+Generated TOML descriptions SHALL be normal TOML data fields, not structured comments.
+
+Generated TOML files SHALL include plain human-readable comments above each generated section header or table-array header.
+
+Generated TOML section comments SHALL explain the purpose of the section for direct human readers.
+
+Generated TOML section comments SHALL NOT be treated as structured authority.
+
+Generated TOML files MAY include additional comments for human readability, but generated harness `--explain` behavior SHALL NOT depend on parsing TOML comments.
+
+Generated harness commands that expose TOML-backed contracts SHALL provide a `--explain` option when structured descriptions are available.
+
+Generated harness `--explain` output SHALL include TOML `description` values with stable source keys or paths that identify the contract entry being explained.
+
+Generated harness `--explain` output for JSON-schema-backed contracts SHALL use JSON Schema `description` fields where available.
+
+Generated validation guidance SHALL report missing `description` fields for generated TOML records or sections that are intended to be explainable through harness commands.
+
+Generated validation guidance SHALL report missing human-readable comments above generated TOML sections when those sections are emitted by the execplan generator.
+
+Generated validation guidance SHALL NOT require `description` fields for private mechanical TOML files that are not exposed to agents, operators, or harness explain output.
+
+#### Scenario: TOML policy entry explains itself
+- **WHEN** a generated TOML policy entry is exposed through a harness policy or objective command
+- **THEN** the entry includes a `description` field
+- **AND THEN** the generated harness `--explain` output prints that description with a stable source key
+
+#### Scenario: Harness does not parse TOML comments for explain
+- **WHEN** a generated TOML contract contains comments
+- **THEN** those comments may help human readers
+- **AND THEN** the harness explanation source remains the structured `description` fields
+
+#### Scenario: TOML section is readable in-place
+- **WHEN** a generated TOML file emits a section such as `[state_backend]` or `[[policies]]`
+- **THEN** a plain human-readable comment appears immediately above that section
+- **AND THEN** the comment explains the section purpose without replacing structured `description` fields
+
+### Requirement: V5 top-level skill entrypoint uses progressive-disclosure reference pages
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL keep its top-level `SKILL.md` focused on activation, required loop root, source/generated-output invariants, supported operations, routing, and global constraints.
+
+The top-level `SKILL.md` SHALL NOT carry the full detailed generated-contract defaults, bookkeeping model, TOML conventions, mail runtime model, scaffold profile details, generation-stage dependency model, or maintained-platform boundary guidance when that guidance can live in routed runtime reference pages.
+
+The packaged skill SHALL include runtime-readable reference pages under the skill package for shared detailed guidance used by multiple routed subskills.
+
+Runtime reference pages SHALL be outside `dev/design/`, because they are part of normal skill execution rather than maintainer-only design intent.
+
+Runtime reference pages SHALL be organized by durable operational concern rather than by one-off implementation history.
+
+Routed subskills that depend on shared detailed guidance SHALL include an explicit `Read first` section that lists the runtime reference pages they must read before acting.
+
+Routed subskills SHALL avoid duplicating the detailed guidance owned by runtime reference pages unless a local operation-specific exception is needed.
+
+The split SHALL preserve existing operation names, generated-loop behavior, scaffold profile semantics, runtime mail model, and maintained Houmao platform-boundary rules.
+
+#### Scenario: Entry point routes without loading detailed defaults
+- **WHEN** an invoking agent opens the top-level `houmao-agent-loop-pairwise-v5/SKILL.md`
+- **THEN** it can determine whether the skill applies, which `<loop-dir>` invariant applies, and which routed page to read
+- **AND THEN** it does not need to read full generated-contract, bookkeeping, TOML, mail-runtime, or platform-boundary defaults from the entrypoint itself
+
+#### Scenario: Operation page declares shared references
+- **WHEN** a routed authoring or execution page requires shared detailed guidance
+- **THEN** the page includes a `Read first` section naming the required runtime reference pages
+- **AND THEN** those links resolve within the packaged skill directory
+
+#### Scenario: Runtime references are not maintainer-only docs
+- **WHEN** shared guidance is needed during normal skill execution
+- **THEN** it lives in runtime reference pages under the skill package
+- **AND THEN** it is not available only through `dev/design/`
+
+#### Scenario: Split preserves current behavior
+- **WHEN** the top-level entrypoint is shortened and detailed guidance is moved into reference pages
+- **THEN** existing v5 operations remain routed by the same operation names
+- **AND THEN** generated artifact structure, scaffold profile meanings, mail-driven runtime semantics, and maintained Houmao platform boundaries remain unchanged
+
+### Requirement: V5 provides distinct intent and execplan clarification subcommands
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose canonical authoring operations named `clarify-intent` and `clarify-execplan`.
+
+The `clarify-intent` operation SHALL focus on user-editable loop intention source.
+
+The `clarify-execplan` operation SHALL focus on generated execplan implementation choices.
+
+The top-level skill routing SHALL distinguish these two operations and route each one to its own authoring page.
+
+The top-level skill MAY treat the natural phrase `clarify intent` as an unambiguous alias for `clarify-intent`, but canonical operation listings and routed pages SHALL use `clarify-intent`.
+
+#### Scenario: Intent clarification routes to intent page
+- **WHEN** a user asks v5 to run `clarify-intent`
+- **THEN** the top-level skill routes to the intent clarification page
+- **AND THEN** that page works from `<loop-dir>/intention/` as source authority
+
+#### Scenario: Execplan clarification routes to execplan page
+- **WHEN** a user asks v5 to run `clarify-execplan`
+- **THEN** the top-level skill routes to the execplan clarification page
+- **AND THEN** that page works from `<loop-dir>/execplan/` as generated implementation authority
+
+### Requirement: V5 clarification uses a shared structured clarification protocol
+The packaged v5 skill SHALL include a runtime-readable clarification protocol reference page under `subskills/reference/`.
+
+Clarification operation pages SHALL read the shared clarification protocol before asking clarification questions.
+
+Clarification operation pages SHALL read `runtime-mail-model.md` before clarifying any mail-driven loop behavior.
+
+The shared clarification protocol SHALL require the invoking agent to read relevant source artifacts before asking questions.
+
+The shared clarification protocol SHALL require an internal coverage scan before asking questions.
+
+The shared clarification protocol SHALL require candidate questions to be prioritized by impact and uncertainty.
+
+The shared clarification protocol SHALL allow at most five accepted clarification questions per session.
+
+The shared clarification protocol SHALL require exactly one question at a time.
+
+The shared clarification protocol SHALL require each question to be answerable by either a short multiple-choice selection or a constrained short answer.
+
+The shared clarification protocol SHALL require a recommended or suggested answer with concise reasoning when the available context supports one.
+
+The shared clarification protocol SHALL require accepted answers to be recorded immediately and reflected in the appropriate source artifacts.
+
+The shared clarification protocol SHALL require validation after each accepted answer so obsolete contradictions are removed and the clarified ambiguity is not left unresolved.
+
+The shared clarification protocol SHALL require a final coverage summary with clear, resolved, deferred, and outstanding categories.
+
+#### Scenario: Clarification scans before asking
+- **WHEN** a clarification operation starts
+- **THEN** it reads the required source artifacts and reference pages
+- **AND THEN** it builds an internal coverage map before asking the first question
+
+#### Scenario: Clarification asks one high-impact question
+- **WHEN** the internal scan finds multiple ambiguity candidates
+- **THEN** the operation chooses the highest-impact unresolved candidate
+- **AND THEN** it asks only one question before waiting for the user's answer
+
+#### Scenario: Accepted answer is integrated immediately
+- **WHEN** the user accepts, edits, or supplies a valid answer
+- **THEN** the operation records the accepted answer
+- **AND THEN** it updates the affected source artifacts before asking another question
+
+### Requirement: V5 intent clarification scans loop intent coverage before questioning
+The `clarify-intent` operation SHALL read current intention source, project context when present, and existing intent ADRs when present before asking questions.
+
+The `clarify-intent` operation SHALL scan intent coverage categories for at least:
+
+- objective, non-goals, and completion signals;
+- participant roles, authorities, and handoff rights;
+- collaboration topology and work-item lifecycle;
+- mail/message families at intent level;
+- on-event and on-tick responsibilities;
+- state/bookkeeping needs;
+- operator controls and recovery posture;
+- workspace, artifact, and evidence expectations;
+- project integration context;
+- terminology and explicit omissions.
+
+The `clarify-intent` operation SHALL prioritize questions that materially affect generated process, contracts, runtime safety, scheduling, recovery, validation, or acceptance.
+
+The `clarify-intent` operation SHALL avoid asking low-impact local wording or formatting questions when higher-impact loop logic remains unclear.
+
+Accepted `clarify-intent` answers SHALL be recorded under the loop's intent ADR area and reflected in `intention/` Markdown.
+
+The `clarify-intent` operation SHALL NOT directly edit generated `execplan/` artifacts.
+
+#### Scenario: Intent clarification finds core loop ambiguity
+- **WHEN** intention source states participants but not completion authority
+- **THEN** `clarify-intent` treats completion authority as a high-impact ambiguity
+- **AND THEN** it asks a targeted question before asking local wording or file-organization questions
+
+#### Scenario: Intent clarification updates intention source only
+- **WHEN** the user accepts an intent clarification answer
+- **THEN** the answer is recorded in an intent ADR
+- **AND THEN** the relevant intention Markdown is updated
+- **AND THEN** generated `execplan/` files are not directly edited by `clarify-intent`
+
+### Requirement: V5 execplan clarification scans generated implementation coverage before questioning
+The `clarify-execplan` operation SHALL require an existing generated `<loop-dir>/execplan/` package.
+
+The `clarify-execplan` operation SHALL read relevant generated execplan artifacts before asking questions, including process specs, derived contracts, harness surfaces, generated skills, agent bindings, manifest, docs, and prior execplan ADRs when present.
+
+The `clarify-execplan` operation SHALL scan generated implementation coverage categories for at least:
+
+- process phases, events, handoffs, ticks, terminal posture, and recovery posture;
+- mail schemas, renderers, reply links, ack/result/error families, and payload lifecycle;
+- state schema, transitions, invariants, ownership, backend choice, and repair posture;
+- harness commands for initialization, query, validation, record apply, rendering, and explain output;
+- generated skill triggers, bounded procedures, stop points, and tick placement;
+- agent bindings, notifier prompts, support skills, workspace policy, and memo posture;
+- run artifacts, evidence refs, validation coverage, manifest coherence, and generated docs;
+- platform boundary compliance and no in-chat waiting.
+
+The `clarify-execplan` operation SHALL ask only about implementation decisions that are unclear, unjustified by intention or defaults, contradictory, or likely to affect runtime correctness.
+
+Accepted `clarify-execplan` answers SHALL be recorded under `<loop-dir>/execplan/adrs/` and reflected in the affected generated execplan artifacts.
+
+When an accepted answer affects an upstream generation stage, `clarify-execplan` SHALL update or flag all downstream affected artifacts according to the generation pipeline.
+
+The `clarify-execplan` operation SHALL NOT rewrite editable intention source unless it discovers that the generated ambiguity comes from missing or contradictory intention source; in that case it SHALL report the issue and direct the user to `clarify-intent` or an intention edit.
+
+#### Scenario: Execplan clarification finds missing reply handling
+- **WHEN** generated mail contracts define a result request but no reply expectation, timeout, or reconciliation tick
+- **THEN** `clarify-execplan` treats the missing handling as a high-impact implementation ambiguity
+- **AND THEN** it asks a targeted question before asking about local file wording
+
+#### Scenario: Execplan clarification records generated implementation decision
+- **WHEN** the user accepts an execplan clarification answer
+- **THEN** the answer is recorded under `<loop-dir>/execplan/adrs/`
+- **AND THEN** the affected generated specs, harness, skills, agents, docs, manifest, or validation notes are updated or flagged according to the generation pipeline
+
+#### Scenario: Execplan clarification detects intent source gap
+- **WHEN** an implementation ambiguity cannot be resolved without changing the loop's intended behavior
+- **THEN** `clarify-execplan` reports that the issue belongs in intention source
+- **AND THEN** it does not silently invent intention policy inside generated artifacts
+
+### Requirement: V5 exposes an independent prepare-workspace execution stage
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `prepare-workspace` as an execution subcommand for preparing or verifying multi-agent workspaces from generated execplan workspace contracts.
+
+The `prepare-workspace` stage SHALL be separate from `prepare-agents`.
+
+The skill SHALL document the normal ordered execution sequence as `prepare-workspace`, `prepare-agents`, then `start` when the generated execplan requires managed workspaces.
+
+The `prepare-workspace` stage SHALL NOT call, route to, or perform `prepare-agents`.
+
+The `prepare-agents` stage SHALL NOT call, route to, create, repair, or execute `prepare-workspace`.
+
+#### Scenario: Workspace stage is routed independently
+- **WHEN** a user asks the loop skill to run `prepare-workspace` for a selected loop directory
+- **THEN** the skill routes to a dedicated workspace-preparation execution subskill
+- **AND THEN** that subskill does not install generated agent skills, create specialists, launch agents, or perform other `prepare-agents` responsibilities
+
+#### Scenario: Agent preparation does not invoke workspace preparation
+- **WHEN** a user asks the loop skill to run `prepare-agents`
+- **AND WHEN** the generated execplan requires workspace readiness
+- **THEN** the `prepare-agents` guidance checks workspace readiness as a precondition
+- **AND THEN** it stops with missing workspace postconditions when the workspace is not ready instead of calling `prepare-workspace`
+
+### Requirement: V5 generated workspace contracts provide workspace-manager inputs
+When a generated loop needs managed agent workspaces, the packaged skill SHALL guide execplan generation to emit workspace contracts that provide enough structured information for `houmao-utils-workspace-mgr` planning and execution.
+
+Generated workspace contracts SHALL identify the workspace flavor, task name, workspace root or repo root policy, concrete agent workspace names, launch profile names, launch cwd policy, required per-agent work roots, required per-agent note or knowledge paths, shared resources, loop-requested bookkeeping directories, ignored transient paths, and memo-seed posture when those facts apply.
+
+Generated agent bindings SHALL keep concrete participant-to-agent/profile mapping under the agent binding area and SHALL reference the applicable workspace policy instead of replacing the workspace contract.
+
+#### Scenario: Workspace contract can drive workspace planning
+- **WHEN** a generated execplan requires standard managed workspaces
+- **THEN** `execplan/specs/workspace/workspace.toml` contains structured workspace-manager inputs for flavor, task name, agent workspace names, launch profile names, cwd policy, and bookkeeping directories
+- **AND THEN** `execplan/agents/bindings.toml` maps participant instances to concrete agents and references the relevant workspace policy
+
+#### Scenario: Workspace facts are not hidden in agent bindings only
+- **WHEN** generated agent bindings identify concrete agents and launch profiles
+- **THEN** workspace requirements remain authoritative in the generated workspace contract
+- **AND THEN** the bindings refer to that workspace policy rather than becoming the only source of workspace behavior
+
+### Requirement: V5 prepare-workspace delegates supported workspace setup to the workspace manager
+The `prepare-workspace` execution subskill SHALL route supported Houmao workspace planning and execution through `houmao-utils-workspace-mgr`.
+
+The `prepare-workspace` execution subskill SHALL adapt generated workspace contracts and generated agent bindings into workspace-manager inputs.
+
+The `prepare-workspace` execution subskill SHALL default to workspace-manager `plan` mode unless the user explicitly requests execution or has approved a current workspace plan.
+
+The `prepare-workspace` execution subskill SHALL NOT implement ad hoc worktree, branch, shared repo, `.gitignore`, memo-seed, launch-profile cwd, local-state symlink, or submodule materialization mechanics when `houmao-utils-workspace-mgr` can represent the requested layout.
+
+#### Scenario: Prepare-workspace plans before side effects by default
+- **WHEN** a user asks `prepare-workspace` without explicitly asking to execute an approved plan
+- **THEN** the skill uses workspace-manager plan mode
+- **AND THEN** it reports the planned workspace organization without creating worktrees or changing launch profiles
+
+#### Scenario: Prepare-workspace executes through workspace manager
+- **WHEN** a user asks `prepare-workspace` to execute a supported workspace layout from an approved generated execplan
+- **THEN** the skill uses `houmao-utils-workspace-mgr` execution guidance for the selected workspace flavor
+- **AND THEN** it does not create the workspace by duplicating workspace-manager mechanics inside the loop skill
+
+### Requirement: V5 prepare-workspace verifies workspace postconditions
+After workspace planning or execution, the `prepare-workspace` execution subskill SHALL report workspace readiness facts and blockers relative to the generated execplan.
+
+For executed standard workspace layouts, the subskill SHALL verify expected workspace contract docs, per-agent worktree paths, per-agent knowledge paths, shared knowledge paths, loop-requested bookkeeping directories, ignored transient paths, launch cwd posture, memo-seed files, and uniqueness of mutable per-agent workspace targets when those facts apply.
+
+The `prepare-workspace` report SHALL distinguish ready facts, planned-but-not-executed facts, missing facts, and inconsistencies.
+
+#### Scenario: Executed workspace is checked against generated bindings
+- **WHEN** workspace-manager execution completes for a generated loop
+- **THEN** `prepare-workspace` checks that the resulting workspace facts match the generated workspace contract and agent bindings
+- **AND THEN** it reports any missing worktrees, missing knowledge paths, missing bookkeeping directories, launch cwd mismatches, or conflicting mutable paths as blockers
+
+#### Scenario: Plan-only run is not treated as ready execution
+- **WHEN** `prepare-workspace` only produced a workspace-manager plan
+- **THEN** the subskill reports the planned workspace facts as not yet executed
+- **AND THEN** later execution stages can treat workspace readiness as incomplete until the required facts exist or the execplan explicitly accepts plan-only/custom readiness
+
+### Requirement: V5 validation checks workspace stage separation
+The `validate-execplan` guidance SHALL check that generated workspace contracts route supported workspace setup through `houmao-utils-workspace-mgr` or an explicit operator-owned custom workspace contract.
+
+The `validate-execplan` guidance SHALL check that `prepare-workspace` and `prepare-agents` remain separate execution stages and do not call each other.
+
+The `validate-execplan` guidance SHALL check that `prepare-agents` treats missing required workspace readiness as a blocker instead of creating or repairing workspaces.
+
+#### Scenario: Validation catches cross-stage coupling
+- **WHEN** validation finds `prepare-agents` guidance that instructs the agent to create worktrees, run workspace-manager execution, or route to `prepare-workspace`
+- **THEN** validation reports the execplan or skill guidance as non-conforming
+- **AND THEN** the plan is not considered ready until workspace setup is represented by the independent `prepare-workspace` stage
+
+#### Scenario: Validation accepts no-workspace loops
+- **WHEN** a generated execplan explicitly does not require managed agent workspaces
+- **THEN** validation does not require workspace-manager inputs for that loop
+- **AND THEN** validation still accepts `prepare-workspace` as a no-op or verification-only stage when the omission is recorded in the manifest, docs, or validation notes

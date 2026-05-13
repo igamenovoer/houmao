@@ -85,6 +85,13 @@ Generated TOML files should stay readable and explainable:
 
 Execution should compose existing Houmao operation surfaces. Keep managed-agent launch, mailbox, gateway, memory, lifecycle, inspection, and platform setup routed to their owning skills or supported `houmao-mgr` surfaces.
 
+Keep workspace preparation and agent preparation as separate ordered stages:
+
+- `prepare-workspace` adapts generated workspace contracts to `houmao-utils-workspace-mgr` plan or execute inputs, then reports readiness facts;
+- `prepare-agents` prepares profiles, generated skill bindings, maintained support skills, mailbox/gateway posture, memory posture, and optional live agents;
+- neither stage calls the other;
+- when `prepare-agents` sees missing required workspace readiness, it stops and reports missing `prepare-workspace` postconditions.
+
 Loop-local behavior belongs in generated material:
 
 - role instructions and event handlers under `execplan/skills/`;

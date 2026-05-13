@@ -21,7 +21,7 @@ They are not part of skill execution. Do not route user requests through this di
 ## Files
 
 - `intent.md`: design intent, boundaries, and source-of-truth rules.
-- `execplan-contract.md`: intended shape and completeness expectations for generated execplans.
+- `execplan-contract.md`: intended shape, execution-stage boundaries, and completeness expectations for generated execplans.
 - `reference-execplan-patterns.md`: generic execplan patterns extracted from a mature generated reference package.
 - `extension-guide.md`: guidance for revising or extending the packaged skill without blurring authoring, generation, and execution responsibilities.
 

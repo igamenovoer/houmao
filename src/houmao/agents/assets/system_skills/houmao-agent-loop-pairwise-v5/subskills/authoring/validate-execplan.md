@@ -95,6 +95,7 @@ Check agent bindings:
 - concrete agent profile material lives under `execplan/agents/profiles/<agent-id>/`.
 - concrete agent bindings under `execplan/agents/` identify their intended participant or role.
 - concrete agent bindings identify prompt source, installed generated skills, maintained support skills, skill installation mode, memo seed policy, and workspace or launch policy when the execplan defines those concepts.
+- concrete agent bindings reference workspace policy from generated workspace contracts when managed workspaces are required; they do not become the only source of workspace behavior.
 - mail-driven bindings include notifier prompt material under `execplan/agents/notifier-prompts/` or document the equivalent prompt source.
 
 Check runtime state and records:
@@ -117,9 +118,18 @@ Check runtime state and records:
 - state contracts do not require a particular backend unless the generated loop explicitly selects it or the default sqlite rule applies because the SQL schema is clear.
 
 Check workspace contracts:
-- workspace setup contracts route workspace planning or creation through `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
+- workspace setup contracts route workspace planning or creation through `prepare-workspace` and `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
 - default workspace policy is `in-repo` plus any explicitly listed loop bookkeeping directories, unless intention source chooses a different supported flavor or a custom operator-owned workspace.
 - workspace contracts identify launch cwd, per-agent work roots, per-agent note or knowledge paths, writable temporary or artifact paths, shared resources, and read/write rules when those facts apply.
+- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, concrete agent workspace names, launch profile names, launch cwd policy, loop bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture when those facts apply.
+- custom operator-owned workspace contracts are explicit and do not pretend to be standard workspace-manager layouts.
+
+Check execution stage boundaries:
+- generated lifecycle docs or operator skills represent `prepare-workspace`, `prepare-agents`, and `start` as separate ordered stages when managed workspaces are required.
+- `prepare-workspace` guidance does not install generated skills, create specialists, launch agents, bind mail support, or perform `prepare-agents`.
+- `prepare-agents` guidance does not call, route to, plan, execute, create, repair, or otherwise perform `prepare-workspace`.
+- missing required workspace readiness is a blocker for `prepare-agents`, not a trigger for workspace creation inside `prepare-agents`.
+- workspace postconditions distinguish ready facts, planned-but-not-executed facts, missing facts, and inconsistencies when the generated execplan records those reports.
 
 Check run artifacts:
 - durable-execution specs live under `execplan/specs/run/` when generated.

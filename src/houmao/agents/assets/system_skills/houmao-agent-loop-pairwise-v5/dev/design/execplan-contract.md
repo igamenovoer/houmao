@@ -118,6 +118,22 @@ Generated plans should separate three identities:
 
 This separation lets one loop use a coordinator/worker pattern, another use peer reviewers, and another use a custom graph without changing the packaged skill. The topology is generated from intention source and clarification decisions, not from a built-in role set.
 
+## Workspace Preparation Boundary
+
+Workspace requirements belong in `execplan/specs/workspace/workspace.toml`. Concrete participant-to-agent/profile mapping belongs in `execplan/agents/bindings.toml`, which should reference the applicable workspace policy instead of replacing the workspace contract.
+
+When managed workspaces are needed, the normal execution order is:
+
+```text
+prepare-workspace
+prepare-agents
+start
+```
+
+`prepare-workspace` adapts generated workspace contracts and agent bindings into `houmao-utils-workspace-mgr` inputs. It owns plan/execute routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, knowledge paths, shared resources, bookkeeping paths, ignored transient paths, launch cwd posture, memo seeds, and mutable-path uniqueness.
+
+`prepare-agents` owns profile and agent preparation only after workspace readiness exists. It may verify workspace facts as preconditions, but it should not call `prepare-workspace`, run the workspace manager, create worktrees, repair workspace directories, or route workspace setup.
+
 ## Runtime State Kernel
 
 When a loop needs durable state, treat bookkeeping as runtime control-plane state. It answers scheduling, ownership, recovery, validation, transition-audit, and completion questions. It should not become another copy of mail or generated docs.

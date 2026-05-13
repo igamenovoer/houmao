@@ -89,8 +89,9 @@ Use these canonical paths when the corresponding concern exists:
 4. Create or update README files for every emitted generated artifact directory using only `Purpose` and `Contents`.
 5. Use schema-validated payload plus human-readable rendering for mail-driven or structurally recorded human-facing artifacts.
 6. For mail-driven loops, derive notifier prompt contracts from the process model, including which on-event skill handles each received message family and which on-tick skill runs after mail when required.
-7. Generate task-specific records only when intention or process specs introduce them.
-8. Record explicit omissions for irrelevant default layers.
+7. When managed workspaces are needed, generate workspace-manager inputs under `execplan/specs/workspace/workspace.toml`.
+8. Generate task-specific records only when intention or process specs introduce them.
+9. Record explicit omissions for irrelevant default layers.
 
 ## Bookkeeping State Contracts
 
@@ -137,6 +138,52 @@ For generated TOML contracts:
 - apply the TOML defaults from `generated-contract-defaults.md`;
 - include `description` fields for records exposed to agents, operators, or harness `--explain`;
 - keep comments human-readable and non-authoritative.
+
+## Workspace Contracts
+
+When the process model requires managed workspaces, `workspace.toml` is the authority for workspace requirements. It should provide enough structured input for `prepare-workspace` to call `houmao-utils-workspace-mgr` without inventing topology.
+
+Include applicable fields:
+- workspace flavor, defaulting to `in-repo` unless source selects another supported flavor;
+- task name, repo root policy, and workspace root policy;
+- launch cwd policy;
+- loop-requested bookkeeping directories, including durable task/agent artifact paths and ignored transient paths;
+- concrete agent workspace names and launch profile names;
+- per-agent work-root, knowledge-path, shared-resource, memo-seed, and read/write requirements.
+
+Use `description` fields for sections or records that agents, operators, or harness explanation commands may read.
+
+Example shape:
+
+```toml
+# Workspace flavor and root policy used by prepare-workspace.
+[workspace]
+description = "Workspace requirements for this generated loop."
+flavor = "in-repo"
+task_name = "example-task"
+repo_root = "auto"
+ws_root = "houmao-ws"
+launch_cwd_policy = "repo-root"
+
+# Loop-owned directories requested from the workspace manager.
+[workspace.bookkeeping]
+description = "Durable and transient loop bookkeeping paths."
+task_dirs = ["runs", "artifacts"]
+per_agent_dirs = ["artifacts"]
+per_agent_ignored_dirs = ["tmp"]
+
+# Workspace needs for one concrete participant agent.
+[[workspace.agents]]
+description = "Workspace requirements for agent-a."
+agent_id = "agent-a"
+launch_profile = "agent-a"
+workspace_agent_name = "agent-a"
+needs_worktree = true
+needs_kb = true
+needs_memo_seed = true
+```
+
+Agent bindings later reference the relevant workspace policy; they do not replace this contract.
 
 ## Downstream Effects
 

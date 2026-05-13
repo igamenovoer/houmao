@@ -33,9 +33,10 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 
 ## Workspace Rule
 
-- When a generated loop needs agent workspaces, route workspace planning and creation through `houmao-utils-workspace-mgr`.
-- Generated workspace contracts may describe launch cwd, work roots, shared resources, writable temp/artifact paths, notes paths, and read/write rules.
-- Do not create agent workspaces directly from v5 pages when the workspace manager can represent the layout.
+- When a generated loop needs managed agent workspaces, `prepare-workspace` adapts generated workspace contracts to `houmao-utils-workspace-mgr`.
+- Generated workspace contracts may describe launch cwd, work roots, shared resources, writable temp/artifact paths, notes paths, read/write rules, workspace-manager inputs, and readiness postconditions.
+- Do not create agent workspaces directly from general execution pages when the workspace manager can represent the layout.
+- Keep workspace preparation separate from agent preparation; neither stage calls the other.
 
 ## Mail And Gateway Rule
 

@@ -58,6 +58,7 @@ Authoring:
 - `update-execplan`: update generated material after intention changes.
 
 Execution:
+- `prepare-workspace`: prepare or verify multi-agent workspaces from generated workspace contracts.
 - `prepare-agents`: prepare Houmao agents and skill bindings from `execplan/`.
 - `start`: start one generated loop.
 - `status`: inspect one generated loop without mutation.
@@ -87,6 +88,7 @@ Authoring pages:
 - Read [subskills/authoring/update-execplan.md](subskills/authoring/update-execplan.md) when updating generated execplan material after intention edits.
 
 Execution pages:
+- Read [subskills/execution/prepare-workspace.md](subskills/execution/prepare-workspace.md) when preparing or verifying participant workspaces from a generated execplan.
 - Read [subskills/execution/prepare-agents.md](subskills/execution/prepare-agents.md) when preparing participant agents from a generated execplan.
 - Read [subskills/execution/start.md](subskills/execution/start.md) when starting loop execution.
 - Read [subskills/execution/status.md](subskills/execution/status.md) for read-only loop status.
@@ -101,5 +103,7 @@ Execution pages:
 - Do not invent `<loop-dir>`.
 - Do not require `adrs/` for the initial workflow.
 - Do not import policy from examples or reference plans as global behavior.
-- Do not create agent workspaces directly from these pages; use `houmao-utils-workspace-mgr` for workspace planning and execution.
+- Treat `prepare-workspace`, `prepare-agents`, and `start` as separate ordered execution stages when managed workspaces are required.
+- Do not make `prepare-workspace` and `prepare-agents` call each other.
+- Do not create agent workspaces directly from general execution pages; use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace planning and execution.
 - Do not duplicate maintained Houmao platform-operation contracts; route launch, messaging, mailbox, gateway, memory, lifecycle, and inspection work to their owning Houmao skills.

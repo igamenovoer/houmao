@@ -105,5 +105,15 @@ Consider generic families such as:
 ## Workspace And Runs
 
 - Generated workspace contracts identify launch cwd, agent work roots, notes or knowledge paths, writable temp/artifact paths, shared resources, and read/write rules when applicable.
+- Managed workspace contracts include workspace-manager inputs when applicable: workspace flavor, task name, repo or workspace root policy, concrete agent workspace names, launch profile names, launch cwd policy, bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture.
+- Generated agent bindings reference workspace policies from `specs/workspace/`; they do not replace the workspace contract.
 - Generated execution preserves durable payloads, rendered outputs, send or reply responses, records, state files, logs, and evidence under a run artifact layout such as `<loop-dir>/runs/<run-id>/`.
 - Omit unused default layers only when the manifest and generated docs make the omission explicit.
+
+## Execution Stage Defaults
+
+- `prepare-workspace` adapts generated workspace contracts and agent bindings into `houmao-utils-workspace-mgr` plan or execute inputs.
+- `prepare-agents` prepares profiles, generated skill bindings, maintained support skills, mailbox or gateway posture, memory posture, and optional live agents.
+- `prepare-workspace`, `prepare-agents`, and `start` are separate ordered stages when managed workspaces are required.
+- `prepare-workspace` and `prepare-agents` do not call each other.
+- If `prepare-agents` finds missing required workspace readiness, it stops and reports the missing `prepare-workspace` postconditions.
