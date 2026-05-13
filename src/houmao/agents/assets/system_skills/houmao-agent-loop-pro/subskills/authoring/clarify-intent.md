@@ -3,6 +3,11 @@
 ## Read First
 
 - `../reference/clarification-protocol.md`
+- `../reference/topology-modes.md`
+- `../reference/cycle-normalization.md`
+- `../reference/predecessor-context.md`
+- `../reference/mail-schema-events.md`
+- `../reference/result-routing.md`
 - MUST READ: `../reference/runtime-mail-model.md`
 - `../reference/platform-boundaries.md`
 
@@ -36,9 +41,10 @@ Missing input rule:
 
 Build an internal coverage map before asking. Use these intent categories:
 
-- objective, non-goals, success posture, acceptance authority, and terminal conditions;
-- agent communication: participants, routes, message families, handoff rights, reply expectations, escalation, and default transport assumptions;
-- loop process: phases, topology, work-item lifecycle, event triggers, on-event responsibilities, on-tick responsibilities, scheduling, timeout, recovery, and completion flow;
+- objective, non-goals, success posture, acceptance authority, objective parameters, hidden variables, and terminal conditions;
+- topology mode: `pairwise-tree`, `generic-graph`, or unresolved; pairwise normalization needs; generic predecessor-context posture;
+- agent communication: participants, routes, message families, schema-id mail types, handoff rights, reply or forward expectations, escalation, and default transport assumptions;
+- loop process: phases, topology, work-item lifecycle, event triggers, on-event responsibilities, on-tick responsibilities, scheduling, dedupe, timeout, recovery, and completion flow;
 - state/bookkeeping needs and ownership facts;
 - operator controls: pause, resume, stop, override, repair, and recovery;
 - workspace, artifact, evidence, and run-output expectations;
@@ -48,12 +54,14 @@ Build an internal coverage map before asking. Use these intent categories:
 
 Question priority:
 
-1. Resolve objective ambiguity first: what the loop is trying to achieve, what is out of scope, how success is accepted, and when the loop is done.
-2. Resolve agent communication ambiguity next: who talks to whom, through what message families, with what reply expectations, and what handoff or escalation means.
-3. Resolve loop process ambiguity next: how work moves through phases, what events/ticks advance it, what happens on timeout or failure, and how completion/recovery works.
-4. Ask about state, operator controls, workspace, artifacts, evidence, project integration, terminology, or file organization only after the core objective, communication, and process shape is clear enough.
+1. Resolve objective ambiguity first: what the loop is trying to achieve, what parameters or assumptions define the objective, what is out of scope, how success is accepted, and when the loop is done.
+2. Resolve topology ambiguity next: whether execution is `pairwise-tree` local-close or `generic-graph`, whether pairwise cycles need normalization, and whether generic cycles need termination or dedupe rules.
+3. Resolve agent communication ambiguity next: who talks to whom, through what schema-typed message families, with what context, reply, forward, or escalation expectations.
+4. Resolve predecessor-context needs for generic routes: what selected upstream refs, summaries, artifacts, branches, commits, or state refs must be carried, or whether omission is explicit and safe.
+5. Resolve loop process ambiguity next: how work moves through phases, what events/ticks advance it, what happens on timeout or failure, and how completion/recovery works.
+6. Ask about state, operator controls, workspace, artifacts, evidence, project integration, terminology, or file organization only after the core objective, topology, communication, and process shape is clear enough.
 
-Prioritize questions whose answers affect generated process, contracts, runtime safety, scheduling, recovery, validation, or acceptance. Avoid low-impact local wording or file-organization questions while objective, agent communication, or loop process logic is partial or missing.
+Prioritize questions whose answers affect generated process, contracts, runtime safety, scheduling, recovery, validation, topology, or acceptance. Avoid low-impact local wording or file-organization questions while objective, topology, agent communication, predecessor context, or loop process logic is partial or missing.
 
 ## Visual Summary
 
@@ -76,9 +84,14 @@ Good intent questions confirm loop behavior, for example:
 
 - What is the exact success condition the loop must reach?
 - Which participant owns terminal acceptance?
+- Should this loop use `pairwise-tree` local-close handoffs or `generic-graph` directed routing?
+- If pairwise intent contains a closed loop, which existing participant should act as relay, root, or cycle breaker?
 - Which participants communicate directly, and what message family carries the handoff?
+- Which `schema_id` mail family represents the event that wakes this participant?
 - What reply is expected after a work-request handoff?
+- For this generic route, which predecessor refs or summaries must be carried downstream, if any?
 - What event or tick should advance the loop after a reply arrives?
+- What dedupe key or termination rule bounds a repeated generic route?
 - What should happen when a reply is missing?
 - Which facts must become durable state instead of mail prose?
 - Which operator action may override normal scheduling?
