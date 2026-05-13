@@ -24,6 +24,7 @@ Generate or update `execplan/harness/` for loop-local:
 - validation, lookup, rendering, query, completion checks, and explanation;
 - communication schema/render/lifecycle helpers;
 - record schema/validate/apply/query helpers;
+- control status, mode lookup, mode changes, and manual participant context when the loop is controllable;
 - structured command output for agent use.
 
 Use this package shape when a harness is generated:
@@ -94,6 +95,35 @@ Rules:
 - participant agents use harness commands, not raw SQL or ad hoc state-file edits;
 - direct state edits are operator repair only, require the loop to be paused, and must be followed by `state validate`;
 - read-only query output should be enough for agents to know busy participants, idle participants, active handoffs, assignable work, blockers, and completion posture.
+
+## Control Commands
+
+For controllable loops, make the harness the loop-local source for run state and execution mode:
+
+- `control status`: report run state, execution mode, notifier posture, active participants, pending handoffs, blockers, and next operator action.
+- `control get-mode`: return the current execution mode and source evidence, defaulting to `auto` when no explicit mode record exists.
+- `control set-mode`: record a requested mode change to `auto` or `manual`.
+- `control pause`: record pause intent and paused run posture.
+- `control resume`: record resume intent and continuation posture.
+- `control stop`: record stop intent and stop posture.
+- `control manual-context`: return participant-specific context for one manual-mode pass.
+
+Rules:
+- separate `run_state` from `execution_mode`;
+- default missing initial `execution_mode` to `auto`;
+- never treat `manual` as equivalent to `paused`;
+- include operator intent events for mode switches, pause, resume, stop, override, and recovery when those controls exist;
+- include observed notifier posture when available, but route actual notifier enable/disable through `houmao-agent-gateway`;
+- route operator prompts through `houmao-agent-messaging` and ordinary mail through `houmao-agent-email-comms`;
+- make participant context output structured enough for generated skills to decide one bounded pass.
+
+Manual context should include:
+- run id and plan revision;
+- run state and execution mode;
+- participant id;
+- relevant pending mail refs or active handoff refs;
+- allowed actions;
+- `stop_after_one_pass = true` or an equivalent field.
 
 ## Explain Commands
 
@@ -229,9 +259,10 @@ Rules:
 4. Make command definitions declare the artifact paths they read, validate, render, query, or apply, including whether each path is a harness-local relative symlink or a direct relative path to another package artifact.
 5. Keep apply commands narrow and schema-validated.
 6. Generate state init, validation, query, record-validation, and record-application commands when runtime bookkeeping exists.
-7. Generate `--explain` support for contract-exposing commands when TOML `description` fields or JSON Schema descriptions are available.
-8. Document any harness commands generated skills are expected to call.
-9. Document the harness dependency posture and recovery guidance whenever generated harness code imports non-stdlib libraries.
+7. Generate control status, mode lookup, controlled mode or lifecycle updates, and manual-context commands when the loop has lifecycle or manual operation needs.
+8. Generate `--explain` support for contract-exposing commands when TOML `description` fields or JSON Schema descriptions are available.
+9. Document any harness commands generated skills are expected to call.
+10. Document the harness dependency posture and recovery guidance whenever generated harness code imports non-stdlib libraries.
 
 ## Downstream Effects
 
@@ -240,6 +271,7 @@ Rules:
 ## Constraints
 
 - Do not make the harness own mailbox delivery, gateway discovery, managed-agent lifecycle, memory management, or workspace creation.
+- Do not make the harness directly enable or disable mail notifiers; record loop-local mode intent and route platform posture through maintained gateway surfaces.
 - Do not invent process or contract semantics that are absent from upstream specs.
 - Do not rely on ad hoc undeclared imports for `click`, `jinja2`, `jsonschema`, or their dependencies.
 - Do not claim a packaged offline wheel bundle exists for generated harness dependencies.

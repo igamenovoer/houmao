@@ -18,6 +18,7 @@ The existing boundaries still apply:
 - Require a generated `<loop-slug>-operator-control` skill for loop-local lifecycle control when a loop has lifecycle or mode control needs.
 - Make loop identity explicit in the generated operator control skill so the operator does not need a global loop identity system.
 - Add a generated control contract that distinguishes run lifecycle state from execution mode.
+- Make `auto` the default execution mode unless intention source or an accepted operator decision selects another initial mode.
 - Make `auto` and `manual` mode queryable through the generated harness.
 - Require generated participant on-tick skills to branch on execution mode.
 - Keep notifier enable/disable, prompts, mail, and agent lifecycle routed through maintained Houmao operation skills.
@@ -48,6 +49,8 @@ execution_mode: auto | manual
 ```
 
 `paused` means normal participant progress is blocked. `manual` means notifier wakeups are disabled or suspended and the operator drives bounded turns directly. A loop can be `running/manual`, `paused/manual`, or `paused/auto`; these states have different recovery and resume behavior.
+
+The default initial `execution_mode` is `auto`. A generated loop should start in `auto` unless the intention source, an accepted clarification decision, or an explicit operator-control action selects another mode.
 
 Alternative considered: encode manual mode as a pause variant. That loses the ability to operate a running loop manually and makes "pause all progress" ambiguous.
 

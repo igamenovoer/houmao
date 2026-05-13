@@ -18,11 +18,12 @@ Require:
 ## Actions
 
 1. Read `execplan/manifest.toml` to locate generated status, harness, run artifact, or docs surfaces.
-2. Query generated harness status, validation, completion, or view commands when available.
-3. Inspect the generated run artifact layout for recorded payloads, responses, records, state, logs, evidence, and blockers when those artifacts exist.
-4. Use `houmao-agent-inspect` for managed-agent liveness, screen, logs, mailbox posture, gateway state, or artifacts.
-5. Use mailbox or gateway skills only for read-oriented status when needed.
-6. Report current run state, active participants, pending handoffs, blockers, relevant run artifacts, and the next expected operator action.
+2. Query generated operator-control guidance or harness `control status` when available.
+3. Query generated harness status, validation, completion, or view commands when available.
+4. Inspect the generated run artifact layout for recorded payloads, responses, records, state, logs, evidence, and blockers when those artifacts exist.
+5. Use `houmao-agent-inspect` for managed-agent liveness, screen, logs, mailbox posture, gateway state, or artifacts.
+6. Use mailbox or gateway skills only for read-oriented status when needed.
+7. Report current run state, execution mode, notifier posture, active participants, pending handoffs, blockers, relevant run artifacts, and the next expected operator action.
 
 ## Constraints
 

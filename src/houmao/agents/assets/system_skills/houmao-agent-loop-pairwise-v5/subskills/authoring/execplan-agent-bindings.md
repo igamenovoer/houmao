@@ -30,7 +30,8 @@ Generate or update `execplan/agents/`:
 - skill installation mode;
 - memo seed policy;
 - workspace or launch policy;
-- mail notification prompt customization when the participant is mail-driven.
+- mail notification prompt customization when the participant is mail-driven;
+- auto/manual wakeup posture when the generated loop supports manual operation.
 
 Use this package shape for plan-local agent bindings:
 
@@ -65,9 +66,11 @@ README rules:
 2. Install only the generated skills and maintained support skills needed for each participant's responsibilities.
 3. Include workspace policy references, launch policy, memo policy, and concrete identity fields that `prepare-agents` can report for workspace setup and launch.
 4. Keep concrete agent bindings separate from participant role templates and role instances.
-5. For mail-driven participants, bind notifier prompt instructions that tell the agent to process mail through generated on-event skills and run any required on-tick skill after mail processing.
-6. Create or update README files for emitted agent-binding directories.
-7. Leave actual profile creation, live launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
+5. For mail-driven participants, bind notifier prompt instructions that tell the agent to process mail through generated on-event skills and run any required on-tick skill after mail processing in default `auto` mode.
+6. When manual operation is supported, ensure participant prompts or installed tick skills tell agents to query harness control context and perform one operator-prompted bounded pass in `manual` mode.
+7. Ensure generated bindings install the role's mode-aware on-tick skill and any shared harness-usage skill it needs.
+8. Create or update README files for emitted agent-binding directories.
+9. Leave actual profile creation, live launch, mailbox setup, gateway setup, notifier enable/disable, and memory updates to execution subskills and maintained Houmao surfaces.
 
 Example binding:
 
@@ -89,3 +92,4 @@ workspace_policy = "workspace.agents.agent-a"
 - Do not install another participant's event or tick skills into the wrong binding.
 - Do not create workspaces directly.
 - Do not make agent bindings depend on in-chat waiting, sleeps, polling, or periodic tick wakeups.
+- Do not describe manual mode as notifier-driven; manual mode is operator-prompted bounded work.

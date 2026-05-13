@@ -56,6 +56,32 @@ Important transitions must be reconstructable from:
 
 Active ownership must be queryable enough for scheduling and recovery.
 
+## Operator Control Defaults
+
+When a generated loop has lifecycle or mode control needs:
+
+- generate one loop-local operator skill named `<loop-slug>-operator-control`;
+- put it directly under `execplan/skills/`;
+- make it identify the loop slug, loop dir, manifest, harness, agent bindings, and supported lifecycle operations;
+- keep platform mechanics routed to maintained Houmao skills.
+
+Keep run lifecycle state separate from execution mode:
+
+- `run_state`: values such as `not_started`, `running`, `paused`, `recovering`, `stopped`, and `completed`;
+- `execution_mode`: `auto` or `manual` when both modes apply.
+
+Mode meanings:
+
+- `auto`: the default mode; notifier prompts are the normal wakeup path for mail-driven participants.
+- `manual`: notifier wakeups are suspended or disabled for the loop, and the operator prompts bounded participant turns.
+
+Rules:
+
+- Default initial `execution_mode` to `auto` unless intention source, accepted clarification decisions, or operator-control state explicitly selects another mode.
+- `manual` is not `paused`; pause blocks normal progress, while manual changes wakeup authority.
+- Record mode switches, pause, resume, stop, override, and recovery as operator intent events when those controls exist.
+- Generated harnesses expose mode and control context; generated skills do not infer mode from intention Markdown or static prose.
+
 ## State Contracts
 
 When durable bookkeeping is needed, generate state contracts under `execplan/specs/state/`:
@@ -74,6 +100,7 @@ Default state backend order:
 Consider generic families such as:
 - plan metadata;
 - process state;
+- control state;
 - participants;
 - work items;
 - handoffs or exchanges;
@@ -95,11 +122,14 @@ Consider generic families such as:
 ## Skill And Harness Defaults
 
 - Generated on-event skills handle one concrete incoming event or message family, perform one bounded role-owned action, then stop.
-- Generated on-tick skills handle scheduling, reconciliation, timeout, completion, or "what now" decisions by doing at most one pass, then stop.
+- Generated on-tick skills handle scheduling, reconciliation, timeout, completion, or "what now" decisions by querying harness control context when available, doing at most one pass, then stopping.
+- In `auto` mode, on-tick skills perform notifier-prompted follow-up work.
+- In `manual` mode, on-tick skills perform one operator-prompted pass: check relevant mail or state, act on one bounded item, send or reply when required, record through the harness, then stop.
 - Generated skills query specs, state, or harness output for dynamic policy and runtime facts instead of copying constants into static prose.
 - Generated harnesses may use `click` for modular commands, `jinja2` for `.md.j2` rendering, and `jsonschema` for validation when needed.
 - Generated import failures should guide callers to install missing libraries into the active harness Python environment or use the Houmao uv-installed environment.
 - Stateful generated harnesses expose normal participant access through commands for state initialization, validation, read-only query, record validation, and record application.
+- Controllable generated harnesses expose read-only `control status` and `control get-mode` commands, controlled mode or lifecycle commands when supported, and participant-specific manual context when manual mode is supported.
 - Generated harness commands that expose TOML-backed contracts support `--explain` when structured descriptions exist, with stable source keys in machine-readable output.
 
 ## Workspace And Runs

@@ -26,6 +26,7 @@ Generate or update concrete contracts derived from the process model:
 - topology and route constraints;
 - communication schemas, renderers, registry, and reply links;
 - notification prompt and trigger contracts for mail-driven participants;
+- operator control contracts for lifecycle, execution mode, and manual stepping when the loop supports those controls;
 - state kernel and record schemas when durable bookkeeping is needed;
 - workspace and run artifact contracts when work roots or durable artifacts are needed;
 - explicit omission notes for unused contract areas.
@@ -84,14 +85,15 @@ Use these canonical paths when the corresponding concern exists:
 ## Actions
 
 1. Read `<loop-dir>/execplan/specs/collab/collab-overview.md` first.
-2. Derive objective, participant, topology, communication, state, record, workspace, and run contracts from process needs.
+2. Derive objective, participant, topology, communication, control, state, record, workspace, and run contracts from process needs.
 3. Keep participant role templates, participant instances, and concrete agent bindings separate; agent bindings are not generated in this stage.
 4. Create or update README files for every emitted generated artifact directory using only `Purpose` and `Contents`.
 5. Use schema-validated payload plus human-readable rendering for mail-driven or structurally recorded human-facing artifacts.
 6. For mail-driven loops, derive notifier prompt contracts from the process model, including which on-event skill handles each received message family and which on-tick skill runs after mail when required.
-7. When managed workspaces are needed, generate workspace-manager inputs under `execplan/specs/workspace/workspace.toml`.
-8. Generate task-specific records only when intention or process specs introduce them.
-9. Record explicit omissions for irrelevant default layers.
+7. For controllable loops, derive run lifecycle state, execution mode, operator intent events, mode-switch rules, and notifier-posture expectations.
+8. When managed workspaces are needed, generate workspace-manager inputs under `execplan/specs/workspace/workspace.toml`.
+9. Generate task-specific records only when intention or process specs introduce them.
+10. Record explicit omissions for irrelevant default layers.
 
 ## Bookkeeping State Contracts
 
@@ -120,6 +122,7 @@ specs/state/
 Consider these generic entity families and emit only the subset the loop needs:
 
 - `process_state`
+- `control_state`
 - `participants`
 - `work_items`
 - `handoffs`
@@ -130,6 +133,21 @@ Consider these generic entity families and emit only the subset the loop needs:
 - `artifacts`
 - `operator_intent_events`
 - `events`
+
+## Control Contracts
+
+When the loop has lifecycle or auto/manual control needs, derive control contracts from the process model:
+
+- define `run_state`, with values such as `not_started`, `running`, `paused`, `recovering`, `stopped`, and `completed`, or an explicit equivalent;
+- define `execution_mode`, normally `auto` and `manual` when both apply;
+- default initial `execution_mode` to `auto` unless intention source or an accepted decision selects another initial mode;
+- state that `manual` is not equivalent to `paused`;
+- define which operator actions can change mode, pause, resume, stop, override, or enter recovery;
+- define which state or record family stores operator intent events;
+- define notifier-posture expectations for `auto` and `manual`;
+- define which harness commands expose status, mode lookup, mode changes, and manual participant context.
+
+Use state contracts for durable control facts when runtime state exists. If a simple loop intentionally has no durable state, record the equivalent control authority and validation surface in the manifest or generated docs.
 
 ## Generated TOML Style
 

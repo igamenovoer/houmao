@@ -98,9 +98,14 @@ Keep execution preparation and readiness validation as separate ordered stages:
 Loop-local behavior belongs in generated material:
 
 - role instructions and event handlers under `execplan/skills/`;
+- loop-bound operator lifecycle and mode control under `execplan/skills/<loop-slug>-operator-control/` when those controls exist;
 - participant and concrete-agent mapping under `execplan/agents/`;
 - deterministic loop state helpers under `execplan/harness/`;
 - machine contracts under `execplan/specs/`.
+
+For controllable loops, keep `run_state` and `execution_mode` separate. `auto` is the default mode and is notifier-prompt-driven for mail loops. `manual` is operator-prompted bounded work with notifier wakeups suspended or disabled. `manual` is not `paused`; pause blocks progress, while manual changes wakeup authority.
+
+Generated on-tick skills should query harness control context before acting. In manual mode they may inspect current mail or state, perform one bounded action, send or reply as needed, apply records through the harness, and stop.
 
 Do not duplicate maintained Houmao platform contracts inside generated loop skills unless a later change explicitly moves ownership.
 

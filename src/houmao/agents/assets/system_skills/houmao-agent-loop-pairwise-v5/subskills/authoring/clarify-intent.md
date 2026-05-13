@@ -36,13 +36,9 @@ Missing input rule:
 
 Build an internal coverage map before asking. Use these intent categories:
 
-- objective, non-goals, and success posture;
-- completion signals and terminal authority;
-- participant roles, role instances, authorities, and handoff rights;
-- collaboration topology and work-item lifecycle;
-- mail/message families at intent level;
-- on-event responsibilities;
-- on-tick responsibilities for scheduling, reconciliation, timeout, or completion;
+- objective, non-goals, success posture, acceptance authority, and terminal conditions;
+- agent communication: participants, routes, message families, handoff rights, reply expectations, escalation, and default transport assumptions;
+- loop process: phases, topology, work-item lifecycle, event triggers, on-event responsibilities, on-tick responsibilities, scheduling, timeout, recovery, and completion flow;
 - state/bookkeeping needs and ownership facts;
 - operator controls: pause, resume, stop, override, repair, and recovery;
 - workspace, artifact, evidence, and run-output expectations;
@@ -50,14 +46,24 @@ Build an internal coverage map before asking. Use these intent categories:
 - terminology, canonical nouns, and ambiguous adjectives;
 - explicit omissions and out-of-scope behavior.
 
-Prioritize questions whose answers affect generated process, contracts, runtime safety, scheduling, recovery, validation, or acceptance. Avoid low-impact local wording or file-organization questions while core loop logic is partial or missing.
+Question priority:
+
+1. Resolve objective ambiguity first: what the loop is trying to achieve, what is out of scope, how success is accepted, and when the loop is done.
+2. Resolve agent communication ambiguity next: who talks to whom, through what message families, with what reply expectations, and what handoff or escalation means.
+3. Resolve loop process ambiguity next: how work moves through phases, what events/ticks advance it, what happens on timeout or failure, and how completion/recovery works.
+4. Ask about state, operator controls, workspace, artifacts, evidence, project integration, terminology, or file organization only after the core objective, communication, and process shape is clear enough.
+
+Prioritize questions whose answers affect generated process, contracts, runtime safety, scheduling, recovery, validation, or acceptance. Avoid low-impact local wording or file-organization questions while objective, agent communication, or loop process logic is partial or missing.
 
 ## Question Focus
 
 Good intent questions confirm loop behavior, for example:
 
+- What is the exact success condition the loop must reach?
 - Which participant owns terminal acceptance?
+- Which participants communicate directly, and what message family carries the handoff?
 - What reply is expected after a work-request handoff?
+- What event or tick should advance the loop after a reply arrives?
 - What should happen when a reply is missing?
 - Which facts must become durable state instead of mail prose?
 - Which operator action may override normal scheduling?

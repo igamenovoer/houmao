@@ -65,6 +65,10 @@ Check generated skills:
 - generated skill directory names and frontmatter names are unique across the execplan package and suitable for installation into one flat skill namespace.
 - generated skill directories with extra generated files beyond `SKILL.md` and optional `agents/openai.yaml` include local README files with only `Purpose` and `Contents`.
 - generated on-event and on-tick skills state their trigger, role owner, bounded procedure, and output or handoff posture.
+- controllable loops include `execplan/skills/<loop-slug>-operator-control/SKILL.md` or record an accepted equivalent.
+- generated operator-control skills identify loop slug, loop dir, manifest path, harness path, agent binding path, supported lifecycle operations, and maintained Houmao support-skill routes.
+- generated operator-control support pages, when present, live inside that skill directory rather than under a category directory.
+- generated on-tick skills for controllable loops query harness control context and branch between `auto` and `manual` behavior when both modes apply.
 
 Check harness shape:
 - generated harness directories include README files with only `Purpose` and `Contents`.
@@ -87,6 +91,10 @@ Check harness shape:
 - generated harness docs or metadata include the local target command `python -m pip install --target execplan/harness/vendor -r execplan/harness/requirements.txt` or an accepted equivalent only when standalone local target support is claimed.
 - generated plans that claim a skill-bundled wheelhouse fallback, `local-wheelhouse-target` posture, `--no-index --find-links <wheelhouse-dir>` fallback, or a skill-owned `assets/harness-wheelhouse/` source are stale or non-conforming.
 - generated harnesses do not require installing `click`, `jinja2`, `jsonschema`, or their dependencies into system Python, user site-packages, or the surrounding project environment.
+- controllable generated harnesses expose control status and mode lookup commands, or document an accepted equivalent.
+- generated harnesses that claim manual mode expose participant-specific manual context with run state, execution mode, participant id, relevant pending mail or handoff refs, allowed actions, and one-pass stop posture.
+- generated harnesses record mode changes, pause, resume, stop, override, and recovery as operator intent records when those controls exist.
+- generated harnesses do not directly own notifier enable/disable, managed-agent prompting, mailbox delivery, or managed-agent lifecycle mechanics.
 
 Check agent bindings:
 - generated agent-binding directories include README files with only `Purpose` and `Contents`.
@@ -110,6 +118,10 @@ Check runtime state and records:
 - important state transitions are reconstructable from structured records that identify changed entity, new state or decision, actor or source, related mail/evidence/artifact refs, and timestamp.
 - active ownership is represented clearly enough for scheduler and recovery queries.
 - operator override, pause, prune, stop, repair, and recovery authority is recorded as operator intent events when those controls exist.
+- controllable loops distinguish run lifecycle state from execution mode, and do not treat `manual` as equivalent to `paused`.
+- controllable loops default initial execution mode to `auto` unless intention source, accepted clarification decisions, or operator-control state selects another mode.
+- auto mode is documented as notifier-prompt-driven when the loop is mail-driven.
+- manual mode is documented as operator-prompted bounded work with notifier wakeups suspended or disabled for that loop.
 - stateful generated harnesses expose initialization, validation, read-only query, record validation, and record application commands or document an accepted equivalent.
 - participant-facing generated skills use harness commands for normal state mutation and query instead of raw SQL or ad hoc state-file edits.
 - direct state edits are documented only as operator repair while paused, followed by harness validation.
@@ -158,6 +170,8 @@ Check mail-driven communication contracts:
 - generated agent bindings for mail-driven participants include required maintained mail support skills for the participant's responsibilities.
 - mail-driven plans document that Houmao notifier support is the runtime driver: a separate mail notifier detects open mail and prompts the target agent to process it.
 - generated mail notification prompt guidance tells agents which mail/on-event skill to use and whether to run a follow-up on-tick skill after mail processing.
+- generated bindings and operator-control material distinguish auto-mode notifier prompts from manual-mode operator prompts when manual operation is supported.
+- generated control material routes notifier posture changes through maintained gateway support instead of generated harness or skill internals.
 - generated communication registries under `execplan/specs/comms/` connect schema ids, payload formats, and renderers coherently when the loop is mail-driven.
 - mail-driven plans include `execplan/specs/comms/templates.toml` unless intention source defines an equivalent registry.
 - every ordinary generated mail family indexed in `templates.toml` identifies a schema id, schema path, renderer path, payload format, and reply expectation when a reply is expected.
@@ -169,6 +183,7 @@ Check mail-driven communication contracts:
 - generated mail-received on-event skills identify the trigger schema id or message family, role owner, bounded procedure, reply behavior, archive-after-success behavior, and stopping point.
 - aggregation, scheduling, timeout handling, reconciliation, and completion checks are assigned to on-tick skills when they do not belong to one received-mail event.
 - generated on-tick skills are prompt-invoked bounded passes, not periodic background workers.
+- manual-mode on-tick guidance performs one bounded pass and ends the turn; it does not wait for future mail or future status changes.
 - generated role skills do not instruct agents to sleep, poll, tail logs, or wait in-chat for future mail or future ticks.
 
 Check parseability and source posture:

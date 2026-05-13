@@ -19,11 +19,11 @@ Require:
 ## Actions
 
 1. Validate enough execplan context to identify generated stop guidance.
-2. Use generated harness or generated operator skill stop surfaces when available.
+2. Use generated operator-control guidance or harness `control stop` surfaces when available.
 3. Route managed-agent lifecycle stop work through `houmao-agent-instance`.
 4. Route final prompts, mailbox notices, or interrupts through `houmao-agent-messaging` or `houmao-agent-email-comms`.
 5. Route gateway notifier shutdown or reminder cleanup through `houmao-agent-gateway`.
-6. Run a final read-only status check and report stopped participants, retained artifacts, and cleanup options.
+6. Run a final read-only status check and report stopped participants, final execution mode or notifier posture when known, retained artifacts, and cleanup options.
 
 ## Constraints
 

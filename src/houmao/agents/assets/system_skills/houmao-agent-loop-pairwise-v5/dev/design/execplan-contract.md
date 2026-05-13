@@ -225,6 +225,25 @@ For stateful loops, the harness should expose:
 
 Participant agents should use those commands for normal state access. Raw SQL or direct state-file edits are operator repair actions only, performed while paused and followed by harness validation.
 
+## Operator Control And Mode
+
+Generated loops with lifecycle control needs should emit one loop-local operator skill named `<loop-slug>-operator-control` under the flat `execplan/skills/` namespace. This skill carries generated loop identity for operator use: loop slug, loop dir, manifest, harness, agent bindings, run identity rules, and supported lifecycle operations. It may include local pages for `status`, `start`, `set-mode`, `pause`, `resume`, `stop`, `recover`, and `manual-step`, but it should not create category directories such as `execplan/skills/operator/`.
+
+The generated control model keeps run lifecycle state separate from execution mode:
+
+```text
+run_state:      not_started | running | paused | recovering | stopped | completed
+execution_mode: auto | manual
+```
+
+`auto` is the default initial mode and means mail notifier prompts are the normal wakeup path for mail-driven participants. `manual` means notifier wakeups for the loop are suspended or disabled and the operator prompts one bounded participant turn at a time. `manual` is not `paused`: pause blocks normal participant progress, while manual changes wakeup authority.
+
+The harness owns loop-local control truth and dynamic lookup. Controllable harnesses should expose read-only status and mode lookup, controlled mode/lifecycle record application, and participant-specific manual context. Useful commands include `control status`, `control get-mode`, `control set-mode`, `control pause`, `control resume`, `control stop`, and `control manual-context`.
+
+Platform mechanics stay outside the generated harness and operator skill. Notifier posture changes route through `houmao-agent-gateway`; prompts route through `houmao-agent-messaging`; ordinary mail operations route through `houmao-agent-email-comms`; inspection routes through `houmao-agent-inspect`.
+
+Generated on-tick skills should query harness control context before deciding work. In `auto`, the tick performs notifier-prompted follow-up. In `manual`, the tick inspects current mail or state as needed, performs one bounded action, applies records through the harness, sends or replies when required, reports no action when appropriate, and ends the chat turn.
+
 ## Communication Default Contract
 
 Ordinary cross-agent participant handoffs default to Houmao mail unless the intention source explicitly selects a non-mail mechanism. The generator should not preserve a design gap that asks "should participants use mail?" when the source is silent; the useful questions are loop-specific: which roles communicate, which message families exist, which payload fields are required, which replies are expected, and which state or records change.
@@ -307,6 +326,7 @@ Validation should grow from shape checks toward contract checks:
 - validate skill frontmatter for every generated skill;
 - validate generated artifact directory README files exist and use only `Purpose` and `Contents`;
 - validate state contract coherence, including state overview, sqlite schema or JSONL schemas, invariants, and harness command coverage;
+- validate operator-control skill shape, control state, execution mode, harness control commands, and mode-aware tick behavior when the loop claims lifecycle or manual operation support;
 - validate generated communication and record registries connect schema ids, payload formats, and renderers coherently;
 - validate agent configs include participant identity, prompt source, installed skills, and workspace policy;
 - validate supported workspace setup routes through `houmao-utils-workspace-mgr` rather than generated ad hoc worktree mechanics;

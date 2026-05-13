@@ -24,7 +24,8 @@ Generate or update `execplan/skills/`:
 - shared harness-usage skill;
 - role on-event skills;
 - role on-tick skills;
-- operator lifecycle or workspace-router skills;
+- `<loop-slug>-operator-control` for lifecycle, mode, manual-step, and recovery control when the loop has those needs;
+- other operator lifecycle or workspace-router skills only when justified by the process;
 - optional `agents/openai.yaml`.
 
 ## Package Shape
@@ -54,7 +55,7 @@ Name examples:
 <loop-slug>-shared-harness
 <loop-slug>-<role>-on-<message-family>
 <loop-slug>-<role>-tick
-<loop-slug>-operator-runbook
+<loop-slug>-operator-control
 ```
 
 ## Creation Method
@@ -122,12 +123,52 @@ Style:
 1. Generate shared harness-usage guidance before role-specific generated skills.
 2. Generate on-event skills for concrete events or message families.
 3. Generate on-tick skills for scheduling, reconciliation, timeout, completion, or "what now" work.
-4. Generate operator skills only for loop-local runbooks and routing to maintained Houmao skills.
-5. For mail-driven loops, state that mail-received skills are entered from Houmao notifier prompts after the separate notifier detects open mail.
-6. When a tick should follow mail processing, put that rule in notifier prompt guidance or equivalent agent binding material.
-7. Create or update `execplan/skills/README.md`.
-8. Add generated skill-directory README files only when that skill directory contains extra generated files beyond `SKILL.md` and optional `agents/openai.yaml`.
-9. Reference generated schemas, harness commands, maintained support skills, and stopping points explicitly.
+4. Generate `<loop-slug>-operator-control` when the loop has lifecycle, mode, recovery, or manual-step needs.
+5. Generate other operator skills only for loop-local runbooks and routing to maintained Houmao skills.
+6. For mail-driven loops, state that mail-received skills are entered from Houmao notifier prompts after the separate notifier detects open mail.
+7. When a tick should follow mail processing, put that rule in notifier prompt guidance or equivalent agent binding material.
+8. Create or update `execplan/skills/README.md`.
+9. Add generated skill-directory README files only when that skill directory contains extra generated files beyond `SKILL.md` and optional `agents/openai.yaml`.
+10. Reference generated schemas, harness commands, maintained support skills, and stopping points explicitly.
+
+## Operator Control Skill
+
+When generated, `<loop-slug>-operator-control` must:
+
+- identify the loop slug, loop dir, manifest path, harness path, agent binding path, and supported lifecycle operations;
+- cover status, start, pause, resume, stop, recover, mode switching, and manual step only when those operations apply;
+- route notifier posture to `houmao-agent-gateway`;
+- route operator prompts to `houmao-agent-messaging`;
+- route ordinary mail work to `houmao-agent-email-comms`;
+- query or update generated harness control commands for run state, execution mode, and operator intent records.
+
+It may include local subskill or reference pages such as:
+
+```text
+<loop-slug>-operator-control/
+  SKILL.md
+  README.md
+  subskills/
+    status.md
+    start.md
+    set-mode.md
+    pause.md
+    resume.md
+    stop.md
+    recover.md
+    manual-step.md
+```
+
+## On-Tick Mode Behavior
+
+For controllable loops, generated on-tick skills must:
+
+- query harness control context before deciding work;
+- branch between `auto` and `manual` when both modes apply;
+- in `auto`, perform the notifier-prompted bounded follow-up tick;
+- in `manual`, inspect current mail or state as needed, do one bounded action, apply records through the harness, send or reply when required, and stop;
+- report no action when nothing is actionable;
+- end the chat turn after one pass.
 
 ## Downstream Effects
 
@@ -140,4 +181,5 @@ Style:
 - Do not bake dynamic policy values into static generated skill prose when a spec, state, or harness lookup should own them.
 - Do not implement sleep, polling, log tailing, or in-chat waiting as loop control.
 - Do not describe on-tick skills as periodic background workers; they are invoked from notifier or operator prompt turns and perform one bounded pass.
+- Do not make manual-mode tick behavior wait in-chat for future mail or status changes.
 - Do not let generated skill bodies grow into long essays; prefer short procedures plus references to generated contracts and harness commands.

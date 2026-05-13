@@ -62,6 +62,14 @@ Generated loops may define:
 - reply expectations;
 - loop-local state effects caused by mail.
 
+## Operator Control Rule
+
+- Generated loops may define one loop-local `<loop-slug>-operator-control` skill for lifecycle semantics, mode switching, manual stepping, and routing to generated harness commands.
+- Generated operator-control skills own loop identity and loop-local control decisions, not platform mechanics.
+- Generated harnesses may record requested control changes, run state, execution mode, operator intent events, and observed notifier posture.
+- Enabling, disabling, or inspecting notifier posture remains owned by `houmao-agent-gateway`.
+- Prompting agents remains owned by `houmao-agent-messaging`; ordinary mail operations remain owned by `houmao-agent-email-comms`.
+
 ## Harness Rule
 
 Generated harnesses do not own:

@@ -26,6 +26,15 @@ Use this page for mail-driven loop semantics, on-event skills, on-tick skills, n
 - On-tick skills perform one bounded pass, then stop.
 - After processing mail and any requested tick, the agent finishes the chat turn and waits for the next notifier or operator prompt.
 
+## Auto And Manual Modes
+
+- `auto` mode is the default and means mail notifier prompts are the normal wakeup path.
+- `manual` mode means notifier wakeups for the generated loop are suspended or disabled, and the operator prompts one bounded participant turn at a time.
+- `manual` mode is not the same as `paused`; pause blocks normal progress, while manual changes who wakes participants.
+- Generated loops should treat missing initial mode as `auto` rather than ambiguous.
+- In manual mode, generated on-tick skills may need to inspect current mail, state, and handoff posture before choosing one bounded action.
+- Manual-mode work still ends the chat turn after one pass.
+
 ## Waiting Rule
 
 - Do not design generated agents to sleep, poll, tail logs, or wait in-chat for future work.

@@ -35,6 +35,8 @@ Generated control state SHALL model run lifecycle state with values such as `not
 
 Generated control state SHALL model execution mode with at least `auto` and `manual`, unless the generated execplan explicitly records that one of those modes is not applicable.
 
+Generated control state SHALL default the initial execution mode to `auto` unless intention source, an accepted clarification decision, or an explicit operator-control action selects a different initial mode.
+
 Generated control state SHALL define `auto` mode as notifier-driven execution where mail notification prompts are the normal wakeup path for mail-driven participants.
 
 Generated control state SHALL define `manual` mode as operator-directed execution where mail notifier wakeups for the generated loop are suspended or disabled and the operator prompts bounded participant work directly.
@@ -47,6 +49,11 @@ Generated state or record contracts SHALL record operator intent events for mode
 - **WHEN** an operator switches a running mail-driven loop from `auto` mode to `manual` mode
 - **THEN** generated control state records the run lifecycle state separately from execution mode
 - **AND THEN** the run can remain `running` while its execution mode becomes `manual`
+
+#### Scenario: Unspecified initial mode defaults to auto
+- **WHEN** a generated controllable loop has no explicit initial execution mode in intention source, accepted clarification decisions, or operator-control state
+- **THEN** generated control state treats the initial execution mode as `auto`
+- **AND THEN** generated status or mode lookup reports that default rather than leaving the mode ambiguous
 
 #### Scenario: Pause remains distinct from manual mode
 - **WHEN** an operator pauses a loop that is currently in manual mode

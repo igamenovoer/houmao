@@ -144,15 +144,22 @@ execplan/
       SKILL.md                    # On-mail handler: accept assigned work, perform it, and return a schema-validated result or notice.
     team-example-reviewer-on-review-request/
       SKILL.md                    # On-mail handler: review submitted evidence or direction, then return a structured decision.
-    team-example-operator-loop-mgr/
-      SKILL.md                    # Operator lifecycle runbook: prepare, launch, start, pause, resume, or recover the loop.
+    team-example-operator-control/
+      SKILL.md                    # Loop-local operator control: identity, lifecycle, mode switching, manual steps, and recovery routing.
+      README.md
       subskills/
+        status.md
         prepare-agents.md
         prepare-workspace.md
         validate-loop.md
         launch-agents.md
         start.md
+        set-mode.md
+        pause.md
+        resume.md
+        stop.md
         recover.md
+        manual-step.md
   agents/
     README.md
     bindings.toml                 # Participant-to-agent map, installed skills, support skills, prompt source, and workspace policy.
@@ -207,11 +214,13 @@ execplan/
 
 In this example, `implementation-request` mail is produced from a TOML payload, validated against `specs/comms/schemas/implementation-request.schema.json`, rendered through `specs/comms/renderers/implementation-request.md.j2`, and sent through maintained Houmao communication surfaces. The receiver's `worker-on-implementation-request` skill handles that event, uses `shared-harness-usage` for mechanics, and records compact bookkeeping through harness record commands when appropriate.
 
-The lead's tick skill is separate from mail-received handlers. It asks the harness for current state, policy, ownership, and completion posture, then performs one bounded scheduling action or reports no action. This keeps dynamic values in `specs/`, runtime state, and harness output instead of freezing them inside static skill text.
+The lead's tick skill is separate from mail-received handlers. It asks the harness for current control context, state, policy, ownership, and completion posture, then performs one bounded scheduling action or reports no action. This keeps dynamic values in `specs/`, runtime state, and harness output instead of freezing them inside static skill text.
+
+The operator-control skill is loop-bound, so it carries the concrete loop slug and generated package paths instead of asking the operator to restate loop identity for every lifecycle action. It routes platform mechanics to maintained Houmao skills while using generated harness control commands for run state, execution mode, and operator intent records.
 
 Workspace setup in this abstract example is not implemented by generated role skills or agent preparation. The generated workspace contract should provide policy and structured inputs for `prepare-workspace`, which routes supported layouts through `houmao-utils-workspace-mgr`; the default is the standard `in-repo` flavor with explicit extra bookkeeping directories such as task `runs/`, task `artifacts/`, per-agent `artifacts/`, and ignored per-agent `tmp/` when the loop needs them.
 
-`prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` are separate ordered execution stages. `prepare-agents` resolves concrete agent/profile and launch facts first. `prepare-workspace` consumes those facts with generated workspace contracts to prepare or verify workspace facts. `validate-loop` checks concrete pre-launch readiness, including workspace, mailbox/gateway/notifier, harness, run artifact, state, launchability, and no in-chat waiting posture. `launch-agents` starts prepared agents and reports live-agent/session facts. `start` sends the first loop trigger after agents are live.
+`prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` are separate ordered execution stages. `prepare-agents` resolves concrete agent/profile and launch facts first. `prepare-workspace` consumes those facts with generated workspace contracts to prepare or verify workspace facts. `validate-loop` checks concrete pre-launch readiness, including workspace, mailbox/gateway/notifier, harness, run artifact, state, launchability, and no in-chat waiting posture. `launch-agents` starts prepared agents and reports live-agent/session facts. `start` sends the first loop trigger after agents are live. After launch, `<loop-slug>-operator-control` is the loop-local lifecycle surface for status, start, pause, resume, stop, recover, mode switching, and manual stepping when those operations apply.
 
 ## Core Runtime Patterns
 
@@ -332,11 +341,13 @@ On-event skills implement behavior caused by a concrete process event. In mail-d
 
 ### Tick Skills
 
-Some responsibilities do not conceptually belong to one incoming event. A loop may need on-tick skills for scheduling, reconciliation, completion checks, timeout handling, prompted status checks, or "what happens next" decisions. Tick skills should still be bounded: inspect current dynamic state through the harness, perform the first applicable action or report no action, then stop.
+Some responsibilities do not conceptually belong to one incoming event. A loop may need on-tick skills for scheduling, reconciliation, completion checks, timeout handling, prompted status checks, or "what happens next" decisions. Tick skills should still be bounded: inspect current control context and dynamic state through the harness, perform the first applicable action or report no action, then stop.
 
 Tick skills are useful when the loop has a role that coordinates process flow. They should not become a catch-all for all role behavior; event-specific work should stay in event skills.
 
 In Houmao mail-driven loops, tick skills are not periodic background workers. The Houmao email/notifier process runs separately, detects mail, and prompts the target agent. A loop-specific notification prompt may tell the agent to call a tick skill after processing mail. The agent then ends the chat turn and waits for the next notifier or operator prompt. Generated skills should never keep a chat turn open by sleeping, polling, tailing logs, or waiting for future mail, because that prevents later notifier prompts from being handled.
+
+For controllable loops, tick skills should branch on harness execution mode. In default `auto`, the notifier prompt remains the wakeup path. In `manual`, notifier wakeups are suspended or disabled and the operator prompts one bounded participant pass; the tick may inspect current mail or state, apply records, send downstream mail, reply upstream mail, or report no action, then stop. `manual` is not `paused`: pause blocks progress, while manual changes wakeup authority.
 
 ## Communication Pattern
 
@@ -496,6 +507,7 @@ Harness-owned dynamic information can include:
 
 A mature harness can expose commands for:
 
+- control status, mode lookup, mode changes, pause/resume/stop records, and manual participant context;
 - objective rendering;
 - effective policy inspection;
 - validation;
@@ -551,6 +563,7 @@ Promote these general patterns over time:
 - purpose-based `specs/` taxonomy;
 - participant roles separate from concrete agents;
 - event-scoped and tick-scoped generated skills;
+- loop-local operator control skill for lifecycle, mode, manual-step, and recovery routing;
 - schema/render registries for mail and other human-readable structured artifacts;
 - compact runtime state plus rich persisted communication;
 - per-loop harness with data-model management, dynamic lookup, and common machine-readable diagnostics;

@@ -49,6 +49,7 @@ The canonical process overview contains collaboration process material such as:
 - events;
 - handoffs or exchanges;
 - runtime trigger model, especially notifier-prompt-driven mail events when the loop is mail-driven;
+- execution mode model when the loop supports both auto and manual operation;
 - tick responsibilities;
 - participant ownership;
 - terminal and recovery posture;
@@ -64,20 +65,25 @@ The canonical process overview contains collaboration process material such as:
 3. Create or update README files for emitted `specs/` directories using only `Purpose` and `Contents`.
 4. Express the model in generic process terms before generating derived contracts.
 5. For mail-driven loops, record that Houmao notifier prompts wake agents for mail processing and optional follow-up ticks; do not model in-chat waits or periodic tick workers.
-6. Include a Python-style pseudocode section that explains how the loop advances:
+6. When manual operation is supported, model `auto` and `manual` as execution modes separate from run lifecycle state:
+  - `auto`: the default initial mode; notifier prompts drive mail and follow-up tick turns;
+  - `manual`: notifier wakeups are suspended or disabled, and the operator prompts one bounded participant turn at a time.
+7. Include a Python-style pseudocode section that explains how the loop advances:
   - use a fenced `python` code block;
   - name generic roles, events, state queries, handoff decisions, tick passes, terminal branches, and recovery branches;
+  - show mode checks before tick work when both modes apply;
   - add inline `#` comments for conditions, actions, state effects, and stopping points;
   - keep it domain-derived but not implementation-bound Python.
-7. Include a high-level Mermaid sequence section:
+8. Include a high-level Mermaid sequence section:
   - use a fenced `mermaid` code block;
   - show the main participants or role families;
   - show the normal event/handoff path;
   - show mail/notifier/tick behavior when the loop is mail-driven;
+  - show the operator-prompted manual path when manual operation is part of the process;
   - omit low-level transport or storage details that belong to later contract or harness stages.
-8. Identify which later stages are required or intentionally omitted.
-9. Preserve unresolved process choices as `UNRESOLVED - <reason>`.
-10. Do not finalize objective, participant, communication, state, workspace, harness, skill, agent, docs, or manifest details in this stage; leave them for downstream stages.
+9. Identify which later stages are required or intentionally omitted.
+10. Preserve unresolved process choices as `UNRESOLVED - <reason>`.
+11. Do not finalize objective, participant, communication, state, workspace, harness, skill, agent, docs, or manifest details in this stage; leave them for downstream stages.
 
 ## Downstream Effects
 

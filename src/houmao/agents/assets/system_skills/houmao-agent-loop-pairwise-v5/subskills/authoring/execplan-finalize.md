@@ -61,9 +61,10 @@ Add narrower docs only when generated artifacts need them. Do not put authoritat
 5. Finalize `manifest.toml` after files exist so it indexes actual paths, artifact kinds, purposes, plan revision, and explicit omissions.
 6. Ensure docs defer authority to `specs/`, `harness/`, generated skills, and agent bindings.
 7. For mail-driven loops, ensure docs summarize the notifier-prompt-driven runtime: mail notifier wakes agents, on-event skills process mail, optional on-tick skills run after mail when instructed, and agents finish the chat turn.
-8. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
-9. Record any intentionally skipped default layers.
-10. Run or request `validate-execplan` after finalization.
+8. For controllable loops, ensure docs summarize `<loop-slug>-operator-control`, run state, execution mode, default auto notifier wakeups, manual operator-prompted work, and the harness control commands without making docs authoritative.
+9. Index `execplan/adrs/` entries when present and summarize their affected artifacts without making docs the source authority.
+10. Record any intentionally skipped default layers.
+11. Run or request `validate-execplan` after finalization.
 
 ## Downstream Effects
 

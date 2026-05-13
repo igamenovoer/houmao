@@ -8,7 +8,7 @@ Generated loops currently rely on generic v5 execution operations for lifecycle 
 - Define operator-control coverage for loop lifecycle operations such as status, start, pause, resume, stop, recover, and manual stepping.
 - Add generated harness control surfaces for run state, execution mode, operator intent events, and mode-aware participant context.
 - Define `auto` versus `manual` execution mode semantics:
-  - `auto`: mail notifier prompts remain the normal wakeup path.
+  - `auto`: the default mode; mail notifier prompts remain the normal wakeup path.
   - `manual`: mail notification is suspended and the operator drives bounded participant work through prompts.
 - Require generated on-tick skills to query execution mode and branch between auto-mode and manual-mode bounded behavior.
 - Update generated agent binding and notifier prompt guidance so auto mode uses notifier-driven mail turns while manual mode uses operator-prompted turns.
