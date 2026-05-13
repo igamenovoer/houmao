@@ -85,12 +85,15 @@ Generated TOML files should stay readable and explainable:
 
 Execution should compose existing Houmao operation surfaces. Keep managed-agent launch, mailbox, gateway, memory, lifecycle, inspection, and platform setup routed to their owning skills or supported `houmao-mgr` surfaces.
 
-Keep workspace preparation and agent preparation as separate ordered stages:
+Keep execution preparation and readiness validation as separate ordered stages:
 
-- `prepare-workspace` adapts generated workspace contracts to `houmao-utils-workspace-mgr` plan or execute inputs, then reports readiness facts;
-- `prepare-agents` prepares profiles, generated skill bindings, maintained support skills, mailbox/gateway posture, memory posture, and optional live agents;
-- neither stage calls the other;
-- when `prepare-agents` sees missing required workspace readiness, it stops and reports missing `prepare-workspace` postconditions.
+- `prepare-agents` prepares profiles, concrete agent/profile facts, generated skill bindings, maintained support skills, mailbox/gateway posture, memory posture, notifier prompt posture, and launch facts;
+- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr` plan or execute inputs, then reports readiness facts; explicit manual evidence may replace this command only when it satisfies the generated workspace contract;
+- `validate-loop` checks concrete pre-launch readiness before `launch-agents`;
+- `launch-agents` launches prepared participants through maintained Houmao launch surfaces and does not send loop-start work;
+- `start` sends the first loop trigger after agents are live and does not launch agents;
+- `prepare-agents` and `prepare-workspace` do not call each other;
+- missing live readiness is reported by `validate-loop` or `launch-agents`, not by authoring-time `validate-execplan`.
 
 Loop-local behavior belongs in generated material:
 

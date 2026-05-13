@@ -112,8 +112,13 @@ Consider generic families such as:
 
 ## Execution Stage Defaults
 
-- `prepare-workspace` adapts generated workspace contracts and agent bindings into `houmao-utils-workspace-mgr` plan or execute inputs.
-- `prepare-agents` prepares profiles, generated skill bindings, maintained support skills, mailbox or gateway posture, memory posture, and optional live agents.
-- `prepare-workspace`, `prepare-agents`, and `start` are separate ordered stages when managed workspaces are required.
+- `prepare-agents` prepares profiles, concrete agent/profile facts, launch facts, generated skill bindings, maintained support skills, mailbox or gateway posture, memory posture, and notifier prompt posture.
+- `prepare-agents` does not launch live agents as normal preparation behavior.
+- `prepare-workspace` adapts generated workspace contracts, agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` plan or execute inputs.
+- Workspace readiness may also come from explicit manual evidence when the generated execplan records the required facts.
+- `validate-loop` checks concrete pre-launch readiness before `launch-agents`; `validate-execplan` only checks generated package shape and contracts.
+- `launch-agents` launches prepared participants through maintained Houmao launch surfaces and reports live-agent/session facts without beginning loop work.
+- `start` begins loop work by sending the first trigger after required agents are live; it does not launch agents.
+- `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` are separate ordered stages.
 - `prepare-workspace` and `prepare-agents` do not call each other.
-- If `prepare-agents` finds missing required workspace readiness, it stops and reports the missing `prepare-workspace` postconditions.
+- Missing profile, workspace, mailbox, gateway, harness, state, run-artifact, launchability, or live-agent readiness is a `validate-loop` or `launch-agents` blocker, not a `validate-execplan` failure.

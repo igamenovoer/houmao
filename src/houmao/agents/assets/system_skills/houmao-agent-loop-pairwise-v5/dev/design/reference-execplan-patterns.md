@@ -147,7 +147,9 @@ execplan/
     team-example-operator-loop-mgr/
       SKILL.md                    # Operator lifecycle runbook: prepare, launch, start, pause, resume, or recover the loop.
       subskills/
-        prepare-profiles.md
+        prepare-agents.md
+        prepare-workspace.md
+        validate-loop.md
         launch-agents.md
         start.md
         recover.md
@@ -207,9 +209,9 @@ In this example, `implementation-request` mail is produced from a TOML payload, 
 
 The lead's tick skill is separate from mail-received handlers. It asks the harness for current state, policy, ownership, and completion posture, then performs one bounded scheduling action or reports no action. This keeps dynamic values in `specs/`, runtime state, and harness output instead of freezing them inside static skill text.
 
-Workspace setup in this abstract example is not implemented by generated role skills or agent preparation. The generated workspace contract should provide inputs for `prepare-workspace`, which routes supported layouts through `houmao-utils-workspace-mgr`; the default is the standard `in-repo` flavor with explicit extra bookkeeping directories such as task `runs/`, task `artifacts/`, per-agent `artifacts/`, and ignored per-agent `tmp/` when the loop needs them.
+Workspace setup in this abstract example is not implemented by generated role skills or agent preparation. The generated workspace contract should provide policy and structured inputs for `prepare-workspace`, which routes supported layouts through `houmao-utils-workspace-mgr`; the default is the standard `in-repo` flavor with explicit extra bookkeeping directories such as task `runs/`, task `artifacts/`, per-agent `artifacts/`, and ignored per-agent `tmp/` when the loop needs them.
 
-`prepare-workspace` and `prepare-agents` are separate execution stages. The first prepares or verifies workspace facts. The second prepares profiles, generated skill bindings, maintained support skills, mailbox/gateway posture, memory posture, and optional live agents. If workspace readiness is missing, `prepare-agents` should stop with missing postconditions rather than creating or repairing workspaces.
+`prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` are separate ordered execution stages. `prepare-agents` resolves concrete agent/profile and launch facts first. `prepare-workspace` consumes those facts with generated workspace contracts to prepare or verify workspace facts. `validate-loop` checks concrete pre-launch readiness, including workspace, mailbox/gateway/notifier, harness, run artifact, state, launchability, and no in-chat waiting posture. `launch-agents` starts prepared agents and reports live-agent/session facts. `start` sends the first loop trigger after agents are live.
 
 ## Core Runtime Patterns
 
@@ -305,7 +307,7 @@ Execplans should separate participant identity from concrete Houmao agents:
 - `agents/profiles/<agent-id>/config.toml` binds one concrete Houmao agent to one participant instance;
 - generated `definition.md` files provide prompt source material for those concrete agents.
 
-Concrete agent configs should include participant identity, role spec, definition source, installed skills, skill installation mode, memo seed policy, and workspace policy. Future agent-binding validation should check for those concepts even when individual loops name or extend them differently. When the workspace policy is a supported Houmao layout, the binding should point to the generated workspace contract and facts created or verified by `prepare-workspace`, not to ad hoc generated worktree setup steps.
+Concrete agent configs should include participant identity, role spec, definition source, installed skills, skill installation mode, memo seed policy, workspace policy, and launch policy. Future agent-binding validation should check for those concepts even when individual loops name or extend them differently. When the workspace policy is a supported Houmao layout, the binding should point to the generated workspace contract and expose the concrete identity fields that `prepare-agents` confirms for `prepare-workspace` and `launch-agents`, not to ad hoc generated worktree setup steps.
 
 ## Skill Pattern
 

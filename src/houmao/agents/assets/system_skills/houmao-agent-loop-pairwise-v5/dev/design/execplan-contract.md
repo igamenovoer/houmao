@@ -125,14 +125,26 @@ Workspace requirements belong in `execplan/specs/workspace/workspace.toml`. Conc
 When managed workspaces are needed, the normal execution order is:
 
 ```text
-prepare-workspace
 prepare-agents
+prepare-workspace or equivalent manual workspace evidence
+validate-loop
+launch-agents
 start
 ```
 
-`prepare-workspace` adapts generated workspace contracts and agent bindings into `houmao-utils-workspace-mgr` inputs. It owns plan/execute routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, knowledge paths, shared resources, bookkeeping paths, ignored transient paths, launch cwd posture, memo seeds, and mutable-path uniqueness.
+`prepare-agents` owns profile and agent preparation first. It resolves concrete agent ids, launch profile names, prompt sources, generated skill bindings, maintained support skills, notifier prompt material, memo posture, launch facts, and any profile mutation intent that workspace setup will later consume. It does not launch live agents as normal behavior.
 
-`prepare-agents` owns profile and agent preparation only after workspace readiness exists. It may verify workspace facts as preconditions, but it should not call `prepare-workspace`, run the workspace manager, create worktrees, repair workspace directories, or route workspace setup.
+`prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` inputs. It owns plan/execute routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, knowledge paths, shared resources, bookkeeping paths, ignored transient paths, launch cwd posture, memo seeds, and mutable-path uniqueness.
+
+Manual workspace setup is valid only when explicit evidence satisfies the generated workspace contract. `validate-loop` checks either `prepare-workspace` output or equivalent manual evidence.
+
+`validate-loop` is the read-only pre-launch readiness gate. It checks prepared agents, workspace readiness, mailbox/gateway/notifier posture, harness availability, run artifacts, state initialization, launchability, and no in-chat waiting posture before `launch-agents`.
+
+`launch-agents` owns the live-agent transition. It launches prepared participants through maintained Houmao launch surfaces and reports live-agent/session facts without sending the first loop trigger.
+
+`start` owns loop begin. It requires live-agent/session facts and sends the generated first trigger without launching agents.
+
+The preparation stages are independent operator-invoked stages. `prepare-agents` should not call `prepare-workspace`, run the workspace manager, create worktrees, repair workspace directories, or route workspace setup. `prepare-workspace` should not create profiles, install skills, bind mail support, launch agents, or route agent preparation.
 
 ## Runtime State Kernel
 

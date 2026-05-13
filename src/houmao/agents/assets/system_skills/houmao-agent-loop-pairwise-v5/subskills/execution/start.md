@@ -9,6 +9,9 @@
 ## Preconditions
 
 - Agents are prepared.
+- Workspaces are prepared or explicitly not required.
+- `validate-loop` has passed.
+- `launch-agents` has launched required participants or equivalent live-agent/session facts are available.
 - Execplan is validated.
 - One loop run is ready to begin.
 
@@ -17,14 +20,16 @@
 Require:
 - `<loop-dir>`
 - generated execplan validation pass
+- loop readiness validation pass
+- launch-agents report or equivalent live-agent/session facts
 - target run identity when the execplan or operator requires one
 
 ## Actions
 
-1. Validate `execplan/`.
-2. Confirm required agents are live or intentionally launchable.
+1. Confirm `validate-loop` passed and `launch-agents` reported required participants as live, or confirm equivalent live-agent/session facts.
+2. Perform only final lightweight liveness and start-trigger readiness checks needed to confirm no preparation gap appeared since launch.
 3. Confirm generated event and tick skills are installed into the intended agents and can locate any shared harness-usage skill or harness command surface they depend on.
-4. Initialize plan-local runtime state through `execplan/harness/` when the generated harness defines an initialization or bootstrap command.
+4. Initialize plan-local runtime state through `execplan/harness/` when the generated harness defines an initialization or bootstrap command and `validate-loop` left that as a start-time action.
 5. Query or render generated objective, constraints, effective policy, participant, and state posture through `execplan/harness/` when those surfaces exist; do not ask agents to infer dynamic values from intention Markdown.
 6. Deliver the start trigger through the generated operator, lead-facing, or first-participant start contract.
 7. Use maintained Houmao messaging or mailbox skills for prompt or mail delivery.
@@ -35,6 +40,8 @@ Require:
 ## Constraints
 
 - Do not start if `<loop-dir>` or `execplan/` is missing.
+- Do not launch agents; use `launch-agents`.
+- Do not silently repair missing agent, workspace, mailbox, gateway, harness, state, or run artifact preparation; run the appropriate preparation stage, `validate-loop`, or `launch-agents` instead.
 - Do not bypass generated harness initialization when the execplan defines one.
 - Do not send participant work that contradicts generated role skills or generated agent bindings.
 - Do not treat intention Markdown as the direct runtime contract.

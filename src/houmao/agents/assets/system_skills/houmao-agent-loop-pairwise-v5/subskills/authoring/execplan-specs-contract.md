@@ -141,15 +141,16 @@ For generated TOML contracts:
 
 ## Workspace Contracts
 
-When the process model requires managed workspaces, `workspace.toml` is the authority for workspace requirements. It should provide enough structured input for `prepare-workspace` to call `houmao-utils-workspace-mgr` without inventing topology.
+When the process model requires managed workspaces, `workspace.toml` is the authority for workspace requirements. It should provide enough structured input for `prepare-workspace` to call `houmao-utils-workspace-mgr` without inventing topology, while still expecting `prepare-agents` to confirm concrete agent/profile facts before workspace execution.
 
 Include applicable fields:
 - workspace flavor, defaulting to `in-repo` unless source selects another supported flavor;
 - task name, repo root policy, and workspace root policy;
 - launch cwd policy;
 - loop-requested bookkeeping directories, including durable task/agent artifact paths and ignored transient paths;
-- concrete agent workspace names and launch profile names;
+- expected concrete agent workspace names and launch profile names, or the fields that `prepare-agents` must resolve before `prepare-workspace`;
 - per-agent work-root, knowledge-path, shared-resource, memo-seed, and read/write requirements.
+- manual workspace evidence fields required by `validate-loop` when the operator does not run `prepare-workspace`.
 
 Use `description` fields for sections or records that agents, operators, or harness explanation commands may read.
 
@@ -184,6 +185,8 @@ needs_memo_seed = true
 ```
 
 Agent bindings later reference the relevant workspace policy; they do not replace this contract.
+
+During execution, `prepare-workspace` combines this contract with prepared agent/profile facts from `prepare-agents`. If prepared facts differ from the generated contract, the workspace stage reports the inconsistency instead of inventing replacement names. If the operator uses manual workspace setup, `validate-loop` checks the manual evidence against the same contract before `launch-agents`.
 
 ## Downstream Effects
 

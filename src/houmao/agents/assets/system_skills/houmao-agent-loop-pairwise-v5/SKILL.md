@@ -58,9 +58,11 @@ Authoring:
 - `update-execplan`: update generated material after intention changes.
 
 Execution:
-- `prepare-workspace`: prepare or verify multi-agent workspaces from generated workspace contracts.
 - `prepare-agents`: prepare Houmao agents and skill bindings from `execplan/`.
-- `start`: start one generated loop.
+- `prepare-workspace`: prepare or verify multi-agent workspaces from generated workspace contracts and prepared agent facts.
+- `validate-loop`: validate pre-launch loop readiness.
+- `launch-agents`: launch prepared loop agents without beginning loop work.
+- `start`: begin one generated loop by sending the first trigger.
 - `status`: inspect one generated loop without mutation.
 - `pause`: pause normal loop scheduling or wakeup posture.
 - `resume`: resume a paused loop.
@@ -88,9 +90,11 @@ Authoring pages:
 - Read [subskills/authoring/update-execplan.md](subskills/authoring/update-execplan.md) when updating generated execplan material after intention edits.
 
 Execution pages:
-- Read [subskills/execution/prepare-workspace.md](subskills/execution/prepare-workspace.md) when preparing or verifying participant workspaces from a generated execplan.
 - Read [subskills/execution/prepare-agents.md](subskills/execution/prepare-agents.md) when preparing participant agents from a generated execplan.
-- Read [subskills/execution/start.md](subskills/execution/start.md) when starting loop execution.
+- Read [subskills/execution/prepare-workspace.md](subskills/execution/prepare-workspace.md) when preparing or verifying participant workspaces from a generated execplan after agent/profile facts are prepared.
+- Read [subskills/execution/validate-loop.md](subskills/execution/validate-loop.md) when validating pre-launch loop readiness.
+- Read [subskills/execution/launch-agents.md](subskills/execution/launch-agents.md) when launching prepared loop agents after validation and before start.
+- Read [subskills/execution/start.md](subskills/execution/start.md) when beginning loop execution after agents are live.
 - Read [subskills/execution/status.md](subskills/execution/status.md) for read-only loop status.
 - Read [subskills/execution/pause.md](subskills/execution/pause.md) to pause scheduling or wakeup.
 - Read [subskills/execution/resume.md](subskills/execution/resume.md) to resume a paused loop.
@@ -103,7 +107,7 @@ Execution pages:
 - Do not invent `<loop-dir>`.
 - Do not require `adrs/` for the initial workflow.
 - Do not import policy from examples or reference plans as global behavior.
-- Treat `prepare-workspace`, `prepare-agents`, and `start` as separate ordered execution stages when managed workspaces are required.
+- Treat `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` as separate ordered execution stages when managed workspaces are required.
 - Do not make `prepare-workspace` and `prepare-agents` call each other.
 - Do not create agent workspaces directly from general execution pages; use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace planning and execution.
 - Do not duplicate maintained Houmao platform-operation contracts; route launch, messaging, mailbox, gateway, memory, lifecycle, and inspection work to their owning Houmao skills.

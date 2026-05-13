@@ -121,14 +121,21 @@ Check workspace contracts:
 - workspace setup contracts route workspace planning or creation through `prepare-workspace` and `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
 - default workspace policy is `in-repo` plus any explicitly listed loop bookkeeping directories, unless intention source chooses a different supported flavor or a custom operator-owned workspace.
 - workspace contracts identify launch cwd, per-agent work roots, per-agent note or knowledge paths, writable temporary or artifact paths, shared resources, and read/write rules when those facts apply.
-- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, concrete agent workspace names, launch profile names, launch cwd policy, loop bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture when those facts apply.
+- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, expected or prepared concrete agent workspace names, launch profile names, launch cwd policy, loop bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture when those facts apply.
+- managed workspace contracts are shaped so `prepare-workspace` can consume prepared agent/profile facts from `prepare-agents` without inventing placeholder agent ids or launch profile names.
+- workspace contracts or generated lifecycle docs identify the equivalent readiness facts required when an operator chooses manual workspace setup instead of the `prepare-workspace` command.
 - custom operator-owned workspace contracts are explicit and do not pretend to be standard workspace-manager layouts.
 
 Check execution stage boundaries:
-- generated lifecycle docs or operator skills represent `prepare-workspace`, `prepare-agents`, and `start` as separate ordered stages when managed workspaces are required.
-- `prepare-workspace` guidance does not install generated skills, create specialists, launch agents, bind mail support, or perform `prepare-agents`.
+- generated lifecycle docs or operator skills represent `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, and `start` as separate ordered stages.
+- `prepare-agents` guidance resolves concrete agent/profile and launch facts needed by workspace setup and live launch.
 - `prepare-agents` guidance does not call, route to, plan, execute, create, repair, or otherwise perform `prepare-workspace`.
-- missing required workspace readiness is a blocker for `prepare-agents`, not a trigger for workspace creation inside `prepare-agents`.
+- `prepare-agents` guidance does not launch live agents as the normal preparation path.
+- `prepare-workspace` guidance consumes prepared agent/profile facts and does not install generated skills, create specialists, launch agents, bind mail support, or perform `prepare-agents`.
+- `validate-loop` guidance checks pre-launch readiness, including prepared agents, workspace readiness or equivalent manual evidence, mailbox/gateway/notifier posture, harness availability, run artifacts, launchability, and no in-chat waiting posture.
+- `launch-agents` guidance launches prepared participants through maintained Houmao launch surfaces, reports live-agent/session facts, and does not send loop-start work.
+- `start` guidance requires live-agent/session facts from `launch-agents` or an equivalent source, does not launch agents, and only sends the first loop trigger.
+- missing live agent/profile/workspace/mailbox/gateway readiness is not an authoring-time package-shape failure; it is a `validate-loop` or `launch-agents` blocker.
 - workspace postconditions distinguish ready facts, planned-but-not-executed facts, missing facts, and inconsistencies when the generated execplan records those reports.
 
 Check run artifacts:
@@ -190,7 +197,7 @@ Report:
 - missing required files or directories,
 - parse or link failures in manifest, TOML, JSON schemas, schema/render registries, or agent bindings,
 - stale or ambiguous generated-source markers,
-- whether the plan appears ready for execution subskills.
+- whether the generated package shape appears ready for execution preparation subskills.
 
 ## Constraints
 

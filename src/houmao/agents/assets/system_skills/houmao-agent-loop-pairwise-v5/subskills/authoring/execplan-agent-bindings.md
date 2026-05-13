@@ -49,7 +49,9 @@ Use this package shape for plan-local agent bindings:
     <agent-id>.md
 ```
 
-`bindings.toml` maps participant instances to concrete agent ids, generated skills, maintained support skills, prompt sources, workspace policy, and notifier prompt path when applicable. `profiles/<agent-id>/memo-seed.md` and `notifier-prompts/<agent-id>.md` are optional, but required when the binding claims memo seeding or mail notification customization. Keep live project profile creation for execution subskills.
+`bindings.toml` maps participant instances to concrete agent ids, generated skills, maintained support skills, prompt sources, workspace policy, launch policy, and notifier prompt path when applicable. `profiles/<agent-id>/memo-seed.md` and `notifier-prompts/<agent-id>.md` are optional, but required when the binding claims memo seeding or mail notification customization. Keep live project profile creation for execution subskills.
+
+Bindings are generated intent for concrete agents, not proof that project profiles already exist. `prepare-agents` confirms or creates the concrete profiles and reports prepared agent/profile and launch facts. `prepare-workspace` consumes those prepared facts with `workspace.toml` instead of inventing names from scratch. `launch-agents` consumes prepared launch facts after validation and reports live-agent/session facts.
 
 Workspace requirements stay authoritative in `execplan/specs/workspace/workspace.toml`. `bindings.toml` should reference the applicable workspace policy for each concrete agent instead of restating or replacing workspace-manager inputs.
 
@@ -61,11 +63,11 @@ README rules:
 
 1. Bind concrete Houmao agents to stable participant instances.
 2. Install only the generated skills and maintained support skills needed for each participant's responsibilities.
-3. Include workspace policy references and memo policy when the generated loop needs those facts.
+3. Include workspace policy references, launch policy, memo policy, and concrete identity fields that `prepare-agents` can report for workspace setup and launch.
 4. Keep concrete agent bindings separate from participant role templates and role instances.
 5. For mail-driven participants, bind notifier prompt instructions that tell the agent to process mail through generated on-event skills and run any required on-tick skill after mail processing.
 6. Create or update README files for emitted agent-binding directories.
-7. Leave actual profile creation, launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
+7. Leave actual profile creation, live launch, mailbox setup, gateway setup, and memory updates to execution subskills and maintained Houmao surfaces.
 
 Example binding:
 
