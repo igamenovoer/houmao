@@ -1,4 +1,4 @@
-# Request Generic Loop Graph Status
+# Request Generic Loop Status
 
 Use this page when the user wants one periodic status update from the designated master or root run owner for a known `run_id`.
 
@@ -17,7 +17,7 @@ At minimum, ask for:
 
 - current run phase
 - typed component posture by `component_id` and `component_type`
-- active pairwise components and their driver-worker state
+- active local-close components and their driver-worker state
 - active relay components and their origin/ingress/egress state
 - latest receipt or final-result posture per active component
 - completed component results so far

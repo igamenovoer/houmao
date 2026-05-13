@@ -1,4 +1,4 @@
-# Request Pairwise Loop Status
+# Request Tree Loop Status
 
 Use this page when the user wants one periodic status update from the designated master for a known `run_id`.
 
@@ -16,7 +16,7 @@ Status is observational and does not keep the run alive. The master remains resp
 At minimum, ask for:
 
 - current run phase
-- active pairwise edges or owned child loops
+- active local-close edges or owned child loops
 - completed results so far
 - blockers or late conditions
 - next planned actions

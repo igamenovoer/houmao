@@ -166,7 +166,7 @@ The top-level `houmao-agent-loop-pairwise-v5` skill SHALL act as an index and ro
 
 The packaged v5 skill SHALL include authoring subskills for creating intention material, refining intention material, generating execplans, validating execplans, and updating generated execplans.
 
-The packaged v5 skill SHALL include execution subskills for preparing agents, starting a loop, checking status, pausing, resuming, recovering, and stopping.
+The packaged v5 skill SHALL include execution subskills for preparing agents, preparing workspaces or accepting equivalent manual workspace readiness evidence, validating loop readiness, launching agents, starting a loop, checking status, pausing, resuming, recovering, and stopping.
 
 Each subskill SHALL define its trigger, inputs, outputs, and boundaries.
 
@@ -176,7 +176,7 @@ Each subskill SHALL define its trigger, inputs, outputs, and boundaries.
 - **AND THEN** the authoring subskill handles the requested authoring operation within the selected `<loop-dir>`
 
 #### Scenario: Top-level skill routes execution work
-- **WHEN** a user asks v5 to prepare, start, inspect status, pause, resume, recover, or stop a loop
+- **WHEN** a user asks v5 to prepare agents, prepare workspaces, validate loop readiness, launch agents, start, inspect status, pause, resume, recover, or stop a loop
 - **THEN** the top-level skill routes to an execution subskill
 - **AND THEN** the execution subskill works from the generated `<loop-dir>/execplan/` and maintained Houmao operation surfaces
 
@@ -187,10 +187,21 @@ When execution needs platform operations such as managed-agent launch, prompt de
 
 When execution needs loop-local state or generated role behavior, the v5 execution subskills SHALL use the generated execplan contracts, generated skills, generated agent bindings, generated docs, or generated harness surfaces.
 
+Agent preparation SHALL create or update the concrete launchable agent/profile posture required by generated agent bindings.
+
+Agent launch SHALL be owned by `launch-agents`, which uses maintained Houmao launch surfaces and does not send loop-start work.
+
+Loop begin SHALL be owned by `start`, which uses generated start contracts and maintained communication surfaces to deliver the first loop trigger after required agents are live.
+
 #### Scenario: Agent preparation composes existing Houmao surfaces
 - **WHEN** a v5 execution subskill prepares agents for a generated execplan
-- **THEN** it uses maintained Houmao specialist, instance, mailbox, gateway, memory, or project-skill surfaces as appropriate
-- **AND THEN** it does not hand-edit Houmao runtime internals as the normal preparation path
+- **THEN** it uses maintained Houmao specialist, mailbox, gateway, memory, or project-skill surfaces as appropriate
+- **AND THEN** it does not hand-edit Houmao runtime internals or launch agents as the normal preparation path
+
+#### Scenario: Launch composes existing Houmao surfaces
+- **WHEN** a v5 execution subskill launches prepared agents for a generated execplan
+- **THEN** it uses maintained Houmao instance or supported easy-instance launch surfaces
+- **AND THEN** it does not duplicate managed-agent launch mechanics locally
 
 #### Scenario: Loop-local execution consults execplan
 - **WHEN** a v5 execution subskill needs loop role instructions or loop-local runtime behavior
@@ -929,26 +940,37 @@ The `clarify-execplan` operation SHALL NOT rewrite editable intention source unl
 - **AND THEN** it does not silently invent intention policy inside generated artifacts
 
 ### Requirement: V5 exposes an independent prepare-workspace execution stage
-The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `prepare-workspace` as an execution subcommand for preparing or verifying multi-agent workspaces from generated execplan workspace contracts.
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `prepare-workspace` as an execution subcommand for preparing or verifying multi-agent workspaces from generated execplan workspace contracts and prepared concrete agent/profile facts.
 
 The `prepare-workspace` stage SHALL be separate from `prepare-agents`.
 
-The skill SHALL document the normal ordered execution sequence as `prepare-workspace`, `prepare-agents`, then `start` when the generated execplan requires managed workspaces.
+The skill SHALL document the normal ordered execution sequence as `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, then `start`.
+
+The `prepare-agents` stage SHALL run before `prepare-workspace` when managed workspace setup needs concrete agent or launch-profile names.
+
+The `prepare-agents` stage SHALL NOT call, route to, create, repair, execute `prepare-workspace`, or launch live agents as the normal preparation path.
 
 The `prepare-workspace` stage SHALL NOT call, route to, or perform `prepare-agents`.
 
-The `prepare-agents` stage SHALL NOT call, route to, create, repair, or execute `prepare-workspace`.
+#### Scenario: Agent preparation precedes managed workspace preparation
+- **WHEN** a generated loop requires managed workspaces with concrete agent or launch-profile names
+- **THEN** the normal execution order prepares agent/profile identities before workspace setup
+- **AND THEN** workspace preparation uses those prepared facts as workspace-manager inputs
 
 #### Scenario: Workspace stage is routed independently
 - **WHEN** a user asks the loop skill to run `prepare-workspace` for a selected loop directory
 - **THEN** the skill routes to a dedicated workspace-preparation execution subskill
 - **AND THEN** that subskill does not install generated agent skills, create specialists, launch agents, or perform other `prepare-agents` responsibilities
 
-#### Scenario: Agent preparation does not invoke workspace preparation
-- **WHEN** a user asks the loop skill to run `prepare-agents`
-- **AND WHEN** the generated execplan requires workspace readiness
-- **THEN** the `prepare-agents` guidance checks workspace readiness as a precondition
-- **AND THEN** it stops with missing workspace postconditions when the workspace is not ready instead of calling `prepare-workspace`
+#### Scenario: Manual workspace setup can supply equivalent readiness evidence
+- **WHEN** a generated loop requires workspace readiness and the user chooses not to run `prepare-workspace`
+- **THEN** later readiness validation may accept explicit manual workspace facts that satisfy the generated workspace contract
+- **AND THEN** the skill does not require the `prepare-workspace` command itself when equivalent evidence exists
+
+#### Scenario: Preparation stages do not call each other
+- **WHEN** a user asks the loop skill to run either `prepare-agents` or `prepare-workspace`
+- **THEN** the selected stage performs only its own preparation responsibility
+- **AND THEN** it does not call or route to the other preparation stage
 
 ### Requirement: V5 generated workspace contracts provide workspace-manager inputs
 When a generated loop needs managed agent workspaces, the packaged skill SHALL guide execplan generation to emit workspace contracts that provide enough structured information for `houmao-utils-workspace-mgr` planning and execution.
@@ -970,11 +992,16 @@ Generated agent bindings SHALL keep concrete participant-to-agent/profile mappin
 ### Requirement: V5 prepare-workspace delegates supported workspace setup to the workspace manager
 The `prepare-workspace` execution subskill SHALL route supported Houmao workspace planning and execution through `houmao-utils-workspace-mgr`.
 
-The `prepare-workspace` execution subskill SHALL adapt generated workspace contracts and generated agent bindings into workspace-manager inputs.
+The `prepare-workspace` execution subskill SHALL adapt generated workspace contracts, generated agent bindings, and prepared concrete agent/profile facts into workspace-manager inputs.
 
 The `prepare-workspace` execution subskill SHALL default to workspace-manager `plan` mode unless the user explicitly requests execution or has approved a current workspace plan.
 
 The `prepare-workspace` execution subskill SHALL NOT implement ad hoc worktree, branch, shared repo, `.gitignore`, memo-seed, launch-profile cwd, local-state symlink, or submodule materialization mechanics when `houmao-utils-workspace-mgr` can represent the requested layout.
+
+#### Scenario: Prepare-workspace uses prepared agent facts
+- **WHEN** workspace-manager inputs require concrete agent or launch-profile names
+- **THEN** `prepare-workspace` reads the prepared agent/profile facts produced by `prepare-agents`
+- **AND THEN** it does not invent placeholder agent names independently of agent preparation
 
 #### Scenario: Prepare-workspace plans before side effects by default
 - **WHEN** a user asks `prepare-workspace` without explicitly asking to execute an approved plan
@@ -982,40 +1009,305 @@ The `prepare-workspace` execution subskill SHALL NOT implement ad hoc worktree, 
 - **AND THEN** it reports the planned workspace organization without creating worktrees or changing launch profiles
 
 #### Scenario: Prepare-workspace executes through workspace manager
-- **WHEN** a user asks `prepare-workspace` to execute a supported workspace layout from an approved generated execplan
+- **WHEN** a user asks `prepare-workspace` to execute a supported workspace layout from an approved generated execplan and prepared agent facts
 - **THEN** the skill uses `houmao-utils-workspace-mgr` execution guidance for the selected workspace flavor
 - **AND THEN** it does not create the workspace by duplicating workspace-manager mechanics inside the loop skill
 
 ### Requirement: V5 prepare-workspace verifies workspace postconditions
-After workspace planning or execution, the `prepare-workspace` execution subskill SHALL report workspace readiness facts and blockers relative to the generated execplan.
+After workspace planning or execution, the `prepare-workspace` execution subskill SHALL report workspace readiness facts and blockers relative to the generated execplan and prepared concrete agent/profile facts.
 
 For executed standard workspace layouts, the subskill SHALL verify expected workspace contract docs, per-agent worktree paths, per-agent knowledge paths, shared knowledge paths, loop-requested bookkeeping directories, ignored transient paths, launch cwd posture, memo-seed files, and uniqueness of mutable per-agent workspace targets when those facts apply.
 
 The `prepare-workspace` report SHALL distinguish ready facts, planned-but-not-executed facts, missing facts, and inconsistencies.
 
-#### Scenario: Executed workspace is checked against generated bindings
+Equivalent manual workspace evidence SHALL distinguish the same ready, missing, and inconsistent facts when the generated execplan requires workspace readiness but the user did not run `prepare-workspace`.
+
+#### Scenario: Executed workspace is checked against prepared agents
 - **WHEN** workspace-manager execution completes for a generated loop
-- **THEN** `prepare-workspace` checks that the resulting workspace facts match the generated workspace contract and agent bindings
+- **THEN** `prepare-workspace` checks that the resulting workspace facts match the generated workspace contract, generated agent bindings, and prepared concrete agent/profile facts
 - **AND THEN** it reports any missing worktrees, missing knowledge paths, missing bookkeeping directories, launch cwd mismatches, or conflicting mutable paths as blockers
 
 #### Scenario: Plan-only run is not treated as ready execution
 - **WHEN** `prepare-workspace` only produced a workspace-manager plan
 - **THEN** the subskill reports the planned workspace facts as not yet executed
-- **AND THEN** later execution stages can treat workspace readiness as incomplete until the required facts exist or the execplan explicitly accepts plan-only/custom readiness
+- **AND THEN** `validate-loop` treats workspace readiness as incomplete until the required facts exist or the execplan explicitly accepts plan-only/custom readiness
+
+#### Scenario: Manual workspace facts are validated as evidence
+- **WHEN** the user provides manual workspace readiness facts instead of a `prepare-workspace` report
+- **THEN** `validate-loop` checks those facts against generated workspace contracts and prepared agent/profile facts
+- **AND THEN** missing or inconsistent facts block `launch-agents`
 
 ### Requirement: V5 validation checks workspace stage separation
 The `validate-execplan` guidance SHALL check that generated workspace contracts route supported workspace setup through `houmao-utils-workspace-mgr` or an explicit operator-owned custom workspace contract.
 
-The `validate-execplan` guidance SHALL check that `prepare-workspace` and `prepare-agents` remain separate execution stages and do not call each other.
+The `validate-execplan` guidance SHALL check that generated lifecycle docs or generated operator guidance represent `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, and `start` as separate ordered stages.
 
-The `validate-execplan` guidance SHALL check that `prepare-agents` treats missing required workspace readiness as a blocker instead of creating or repairing workspaces.
+The `validate-execplan` guidance SHALL check that `prepare-agents` and `prepare-workspace` remain separate execution stages and do not call each other.
+
+The `validate-execplan` guidance SHALL check that `launch-agents` and `start` remain separate execution stages, where `launch-agents` launches live agents and `start` sends the first loop trigger.
+
+The `validate-execplan` guidance SHALL NOT require live agent/profile/workspace/mailbox/gateway readiness; those execution-readiness checks belong to `validate-loop` and `launch-agents`.
+
+#### Scenario: Validation catches missing launch stage
+- **WHEN** authoring validation finds generated lifecycle guidance that sends first loop work from a stage that also launches agents
+- **THEN** validation reports the generated execution stages as non-conforming
+- **AND THEN** the plan is not considered conforming until launch and start are represented as separate stages
+
+#### Scenario: Validation catches reversed generated stage order
+- **WHEN** authoring validation finds generated lifecycle guidance that puts managed workspace preparation before concrete agent/profile preparation
+- **THEN** validation reports the generated execution order as non-conforming
+- **AND THEN** the plan is not considered conforming until the generated order is `prepare-agents`, workspace readiness, `validate-loop`, `launch-agents`, then `start`
 
 #### Scenario: Validation catches cross-stage coupling
-- **WHEN** validation finds `prepare-agents` guidance that instructs the agent to create worktrees, run workspace-manager execution, or route to `prepare-workspace`
+- **WHEN** validation finds `prepare-agents` guidance that instructs the agent to create worktrees, run workspace-manager execution, launch live agents, or route to `prepare-workspace`
 - **THEN** validation reports the execplan or skill guidance as non-conforming
-- **AND THEN** the plan is not considered ready until workspace setup is represented by the independent `prepare-workspace` stage
+- **AND THEN** the plan is not considered ready until workspace setup and live launch are represented by their independent stages
+
+#### Scenario: Execution readiness is checked by validate-loop and launch-agents
+- **WHEN** concrete agent/profile/workspace/mailbox/gateway readiness is missing
+- **THEN** `validate-execplan` does not treat that local runtime state as an authoring-time package-shape failure
+- **AND THEN** `validate-loop` or `launch-agents` reports the runtime readiness blocker before `start`
 
 #### Scenario: Validation accepts no-workspace loops
 - **WHEN** a generated execplan explicitly does not require managed agent workspaces
 - **THEN** validation does not require workspace-manager inputs for that loop
 - **AND THEN** validation still accepts `prepare-workspace` as a no-op or verification-only stage when the omission is recorded in the manifest, docs, or validation notes
+
+### Requirement: V5 exposes validate-loop as the execution readiness gate
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `validate-loop` as an execution subcommand for checking whether a generated loop is ready to start.
+
+`validate-loop` SHALL be distinct from `validate-execplan`.
+
+`validate-loop` SHALL check concrete runtime preparation state, including prepared agent/profile identities, generated and maintained skill binding posture, prepared workspace facts, launch cwd and memo posture, mailbox/gateway/notifier readiness for mail-driven loops, harness availability, run artifact readiness, state initialization readiness, and no in-chat waiting posture when those facts apply.
+
+`validate-loop` SHALL report blockers and warnings without mutating agent profiles, workspaces, mailboxes, gateways, harness state, or run artifacts as its normal behavior.
+
+`start` SHALL require a current `validate-loop` pass or perform only a final lightweight readiness check before sending the first trigger.
+
+#### Scenario: Validate-loop checks runtime readiness
+- **WHEN** a user asks the loop skill to run `validate-loop` for a selected loop directory
+- **THEN** the skill checks prepared agent/profile facts, workspace facts, mail/gateway/notifier posture, harness posture, and run artifact posture as applicable
+- **AND THEN** it reports blockers without starting loop work
+
+#### Scenario: Validate-loop is distinct from execplan validation
+- **WHEN** generated execplan artifacts are structurally valid but concrete agents or workspaces are not prepared
+- **THEN** `validate-execplan` can still pass
+- **AND THEN** `validate-loop` reports runtime readiness blockers before `start`
+
+#### Scenario: Start depends on loop readiness
+- **WHEN** a user asks to start a generated loop
+- **THEN** the start guidance requires a current `validate-loop` pass or repeats only essential final readiness checks
+- **AND THEN** it does not silently repair missing agent, workspace, mailbox, gateway, harness, or run artifact preparation
+
+### Requirement: V5 exposes launch-agents as the live launch stage
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `launch-agents` as an execution subcommand for launching prepared loop participants before loop start.
+
+The normal execution sequence SHALL be `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, then `start`.
+
+The `launch-agents` subcommand SHALL read generated agent bindings, prepared agent/profile facts, workspace readiness facts or accepted manual equivalents, launch cwd posture, memo posture, notifier prompt posture, and generated run contracts when those facts apply.
+
+The `launch-agents` subcommand SHALL launch missing live agents only through maintained Houmao launch surfaces such as `houmao-agent-instance` or supported easy-instance launch workflows.
+
+The `launch-agents` subcommand SHALL verify and report live-agent or session facts for every required participant after launch.
+
+The `launch-agents` subcommand SHALL NOT create or repair profiles, install generated skills, prepare workspaces, repair mailbox/gateway posture, mutate harness state, send loop-start work, or deliver the first loop trigger as its normal behavior.
+
+#### Scenario: Launch-agents launches prepared participants
+- **WHEN** a user asks v5 to run `launch-agents` for a generated loop with prepared profiles and validated pre-launch readiness
+- **THEN** the skill launches required missing agents through maintained Houmao launch surfaces
+- **AND THEN** it reports the live-agent/session facts needed by `start`
+
+#### Scenario: Launch-agents does not begin loop work
+- **WHEN** `launch-agents` starts managed agents successfully
+- **THEN** it does not send the generated first work prompt or mail trigger
+- **AND THEN** the loop remains unstarted until the user runs `start`
+
+#### Scenario: Launch-agents blocks missing preparation
+- **WHEN** required prepared profile facts, workspace readiness facts, launch cwd posture, or notifier prompt posture are missing
+- **THEN** `launch-agents` reports the missing preparation
+- **AND THEN** it does not repair those facts or start partially prepared agents as the normal path
+
+### Requirement: V5 start begins loop work only after agents are live
+The packaged `houmao-agent-loop-pairwise-v5` `start` execution subcommand SHALL treat live agents as a precondition for delivering the first loop trigger.
+
+The `start` subcommand SHALL require a current `launch-agents` report or equivalent live-agent/session facts before sending loop-start work.
+
+The `start` subcommand SHALL perform only a final lightweight liveness and start-trigger readiness check before initializing start-time runtime state and delivering the first generated trigger.
+
+The `start` subcommand SHALL NOT launch agents, create or repair profiles, install skills, prepare workspaces, or perform full readiness validation as its normal behavior.
+
+#### Scenario: Start sends first trigger after launch
+- **WHEN** `launch-agents` has launched all required participants and reported live-agent facts
+- **THEN** `start` can perform a final lightweight check
+- **AND THEN** it sends the generated first loop trigger through the generated start contract and maintained communication surfaces
+
+#### Scenario: Start blocks without live agents
+- **WHEN** a user asks `start` but required participants are not live and no equivalent live-agent facts are available
+- **THEN** `start` reports that `launch-agents` is required
+- **AND THEN** it does not launch agents or send loop-start work
+
+### Requirement: V5 generated execplans provide a loop-local operator control skill
+The packaged v5 skill SHALL guide generated execplans with lifecycle control needs to emit a generated skill named `<loop-slug>-operator-control`.
+
+The generated operator control skill SHALL live directly under `<loop-dir>/execplan/skills/<loop-slug>-operator-control/`.
+
+The generated operator control skill SHALL identify the concrete loop slug, loop directory, manifest path, harness path, agent binding path, and supported run lifecycle operations for that generated loop.
+
+The generated operator control skill SHALL provide loop-local guidance for lifecycle operations such as status, start, pause, resume, stop, recover, mode switching, and manual stepping when those operations apply.
+
+The generated operator control skill MAY use local subskill or reference pages for lifecycle procedures, but those files SHALL remain inside the `<loop-slug>-operator-control` skill directory rather than under category directories such as `execplan/skills/operator/`.
+
+The generated operator control skill SHALL route platform mechanics through maintained Houmao skills or CLI surfaces instead of duplicating launch, messaging, mailbox, gateway, workspace, memory, or inspection contracts.
+
+#### Scenario: Execplan emits operator control
+- **WHEN** the packaged skill generates `execplan/skills/` for a loop that supports operator lifecycle control
+- **THEN** the generated execplan includes `<loop-dir>/execplan/skills/<loop-slug>-operator-control/SKILL.md`
+- **AND THEN** that skill identifies the concrete generated loop and its lifecycle control surfaces
+
+#### Scenario: Operator control uses flat skill namespace
+- **WHEN** the generated operator control skill needs supporting lifecycle pages
+- **THEN** those pages live inside `<loop-dir>/execplan/skills/<loop-slug>-operator-control/`
+- **AND THEN** the generated execplan does not create `execplan/skills/operator/` or other category directories
+
+#### Scenario: Operator control routes maintained platform operations
+- **WHEN** the generated operator control procedure needs to inspect agents, send prompts, read or send mail, change notifier posture, or stop managed agents
+- **THEN** it directs the operator to the maintained Houmao support skill or supported CLI surface that owns that platform operation
+- **AND THEN** it keeps loop-local decisions, state queries, and record application in generated execplan or harness surfaces
+
+### Requirement: V5 generated control contracts separate run state from execution mode
+The packaged v5 skill SHALL guide generated execplans with lifecycle control needs to define loop-local control state that distinguishes run lifecycle state from execution mode.
+
+Generated control state SHALL model run lifecycle state with values such as `not_started`, `running`, `paused`, `recovering`, `stopped`, and `completed`, or an explicitly documented equivalent state set.
+
+Generated control state SHALL model execution mode with at least `auto` and `manual`, unless the generated execplan explicitly records that one of those modes is not applicable.
+
+Generated control state SHALL default the initial execution mode to `auto` unless intention source, an accepted clarification decision, or an explicit operator-control action selects a different initial mode.
+
+Generated control state SHALL define `auto` mode as notifier-driven execution where mail notification prompts are the normal wakeup path for mail-driven participants.
+
+Generated control state SHALL define `manual` mode as operator-directed execution where mail notifier wakeups for the generated loop are suspended or disabled and the operator prompts bounded participant work directly.
+
+Generated control state SHALL NOT treat `manual` mode as equivalent to `paused`; pausing blocks normal participant progress, while manual mode changes the wakeup authority.
+
+Generated state or record contracts SHALL record operator intent events for mode switches, pauses, resumes, stops, overrides, and recovery actions when those controls exist.
+
+#### Scenario: Running loop switches to manual mode
+- **WHEN** an operator switches a running mail-driven loop from `auto` mode to `manual` mode
+- **THEN** generated control state records the run lifecycle state separately from execution mode
+- **AND THEN** the run can remain `running` while its execution mode becomes `manual`
+
+#### Scenario: Unspecified initial mode defaults to auto
+- **WHEN** a generated controllable loop has no explicit initial execution mode in intention source, accepted clarification decisions, or operator-control state
+- **THEN** generated control state treats the initial execution mode as `auto`
+- **AND THEN** generated status or mode lookup reports that default rather than leaving the mode ambiguous
+
+#### Scenario: Pause remains distinct from manual mode
+- **WHEN** an operator pauses a loop that is currently in manual mode
+- **THEN** generated control state records a paused lifecycle posture
+- **AND THEN** it does not rely on `manual` mode alone to mean participant progress is blocked
+
+#### Scenario: Operator intent is auditable
+- **WHEN** the operator changes mode, pauses, resumes, stops, overrides, or starts recovery
+- **THEN** the generated execplan records an operator intent event or equivalent structured record
+- **AND THEN** status and recovery can report the operator action, source, timestamp, affected run, and related evidence refs
+
+### Requirement: V5 generated harnesses expose control and mode lookup commands
+The packaged v5 skill SHALL guide generated harnesses for controllable loops to expose loop-local control commands or equivalent command groups.
+
+Generated harness control commands SHALL support read-only status and execution-mode lookup for generated skills and operators.
+
+Generated harness control commands SHALL support controlled mode changes when the generated loop supports `auto` and `manual` mode.
+
+Generated harness control commands SHALL expose participant-specific manual context when manual operation is supported.
+
+Generated participant context output SHALL include enough structured information for generated skills to decide one bounded pass, including run identity, run state, execution mode, participant identity, relevant pending mail refs or active handoff refs, allowed actions, and whether the participant must stop after one pass.
+
+Generated harness control commands SHALL record requested control changes in loop-local state or records but SHALL NOT directly own gateway notifier implementation, mailbox delivery, managed-agent prompting, or managed-agent lifecycle mechanics.
+
+#### Scenario: Agent queries execution mode
+- **WHEN** a generated participant skill begins tick work
+- **THEN** it can query the generated harness for current run state, execution mode, and participant control context
+- **AND THEN** it does not infer execution mode from static skill prose or intention Markdown
+
+#### Scenario: Operator changes mode through generated control surface
+- **WHEN** the generated operator control skill changes a loop from `auto` to `manual`
+- **THEN** it uses the generated harness to record the requested mode change and resulting loop-local control state
+- **AND THEN** it routes notifier posture changes through the maintained Houmao gateway surface
+
+#### Scenario: Manual context is actionable
+- **WHEN** an operator prompts a participant for one manual-mode step
+- **THEN** the generated participant skill can obtain manual context from the harness
+- **AND THEN** that context identifies the bounded actions the participant may take before ending the turn
+
+### Requirement: V5 generated on-tick skills are execution-mode aware
+The packaged v5 skill SHALL guide generated on-tick skills for controllable loops to query generated harness control context before deciding tick behavior.
+
+Generated on-tick skills SHALL branch between `auto` mode and `manual` mode behavior when both modes are supported.
+
+In `auto` mode, generated on-tick skills SHALL perform the bounded post-mail, scheduling, reconciliation, timeout, completion, or "what now" work defined by notifier-prompt-driven loop semantics.
+
+In `manual` mode, generated on-tick skills SHALL perform one operator-prompted bounded pass that may include checking relevant mail, processing one relevant mail or bounded mail batch, querying current state, acting from current context when no mail is pending, applying generated records through the harness, sending downstream mail, replying upstream mail, or reporting no actionable work.
+
+Generated on-tick skills SHALL finish the chat turn after their bounded pass in both modes.
+
+Generated on-tick skills SHALL NOT sleep, poll, tail logs, wait in-chat for mail, or rely on a periodic external tick driver.
+
+#### Scenario: Auto-mode tick remains notifier-driven
+- **WHEN** a mail notifier prompt asks an agent to process mail and run a follow-up tick in `auto` mode
+- **THEN** the generated on-tick skill queries control context and performs the bounded auto-mode tick behavior
+- **AND THEN** the agent finishes the chat turn after the tick
+
+#### Scenario: Manual-mode tick can work without notifier prompt context
+- **WHEN** an operator prompts an agent to perform one manual-mode step
+- **THEN** the generated on-tick skill queries manual context and checks the current mail or state posture needed for one bounded action
+- **AND THEN** the agent sends any required downstream mail, upstream reply, state record, or no-action report before ending the turn
+
+#### Scenario: Tick does not block future prompts
+- **WHEN** a generated on-tick skill finds no actionable work in either execution mode
+- **THEN** it reports the no-action posture
+- **AND THEN** it does not keep the chat turn open waiting for future mail or status changes
+
+### Requirement: V5 generated agent bindings and validation cover operator control mode semantics
+The packaged v5 skill SHALL guide generated agent bindings for mail-driven controllable loops to document auto-mode notifier behavior and manual-mode operator-prompted behavior.
+
+Generated notifier prompt material SHALL describe auto-mode behavior: the notifier wakes the agent for mail processing, the agent uses generated on-event skills for matching message families, and the agent runs any required follow-up tick before ending the turn.
+
+Generated operator control material SHALL describe manual-mode behavior: notifier wakeups are suspended or disabled for the generated loop, and the operator prompts one bounded participant step at a time.
+
+Generated validation guidance SHALL check that controllable generated execplans include the operator control skill, harness control/mode lookup surfaces, mode-aware on-tick guidance, mode-switch operator intent records, notifier posture boundaries, and no in-chat waiting posture.
+
+Generated validation guidance SHALL report missing or inconsistent mode control as a generated execplan issue when the loop claims to support auto/manual operation.
+
+#### Scenario: Agent binding documents both wakeup modes
+- **WHEN** a generated mail-driven loop supports manual operation
+- **THEN** generated agent binding or notifier prompt material documents auto-mode notifier-driven behavior
+- **AND THEN** generated operator control material documents manual-mode operator-prompted behavior
+
+#### Scenario: Validation catches missing mode lookup
+- **WHEN** a generated execplan claims to support manual mode but the generated harness lacks a mode lookup or manual context surface
+- **THEN** `validate-execplan` guidance reports the execplan as incomplete
+- **AND THEN** it points to the harness and generated skill stages that must be regenerated or repaired
+
+#### Scenario: Validation catches notifier/manual mismatch
+- **WHEN** generated operator control says manual mode disables notifier wakeups but generated agent bindings still require notifier prompts for manual work
+- **THEN** validation guidance reports the mismatch
+- **AND THEN** the generated execplan must align manual operation around operator-prompted bounded turns
+
+### Requirement: V5 pairwise-named loop skill presents tree loop terminology
+The packaged `houmao-agent-loop-pairwise-v5` skill SHALL keep its skill name, packaged asset directory name, and explicit activation handle unchanged.
+
+The skill SHALL describe tree-loop behavior as the canonical local-close tree or forest topology when it explains generated loop topology to users.
+
+The skill SHALL present `pairwise loop` as a legacy alias only where useful for compatibility with the package name or older user language.
+
+The skill body SHALL not introduce extra "v5" branding outside the skill name or package identity.
+
+#### Scenario: V5 remains explicitly invokable
+- **WHEN** a user explicitly invokes `houmao-agent-loop-pairwise-v5`
+- **THEN** the skill remains the correct packaged entrypoint
+- **AND THEN** the user-facing workflow describes tree-loop behavior instead of making pairwise loop the primary concept name
+
+#### Scenario: V5 avoids extra version branding
+- **WHEN** v5 guidance is revised for terminology
+- **THEN** added prose avoids unnecessary `v5` wording in the skill body
+- **AND THEN** the package name and explicit invocation handle remain unchanged

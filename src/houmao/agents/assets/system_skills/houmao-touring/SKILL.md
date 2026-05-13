@@ -51,7 +51,7 @@ This packaged skill covers a branching guided tour for:
 - ordinary mailbox send or read entry
 - gateway mail-notifier follow-up when a live gateway and mailbox are both ready
 - reminders
-- advanced pairwise agent-loop creation guidance
+- advanced tree loop creation guidance
 - managed-agent inspection, stop, relaunch, and cleanup follow-up
 
 This packaged skill does not cover:
@@ -112,9 +112,9 @@ This packaged skill does not cover:
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
 - Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
-- Route advanced stable pairwise loop creation to `houmao-agent-loop-pairwise` only after the user selects or explicitly invokes that skill.
-- Route advanced enriched pairwise loop creation to `houmao-agent-loop-pairwise-v2` only after the user selects or explicitly invokes that skill.
-- Route advanced workspace-aware pairwise loop creation to `houmao-agent-loop-pairwise-v3` only after the user selects or explicitly invokes that skill; route template-driven workspace-aware pairwise loop creation to `houmao-agent-loop-pairwise-v4` only after the user selects or explicitly invokes v4.
+- Route advanced stable tree-loop creation to `houmao-agent-loop-pairwise` only after the user selects or explicitly invokes that skill.
+- Route advanced enriched tree-loop creation to `houmao-agent-loop-pairwise-v2` only after the user selects or explicitly invokes that skill.
+- Route advanced workspace-aware tree-loop creation to `houmao-agent-loop-pairwise-v3` only after the user selects or explicitly invokes that skill; route template-driven workspace-aware tree-loop creation to `houmao-agent-loop-pairwise-v4` only after the user selects or explicitly invokes v4.
 - Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
 - Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
 
@@ -126,7 +126,7 @@ This packaged skill does not cover:
 - Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
 - Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
-- Do not silently auto-route generic pairwise loop planning or pairwise run-control requests into `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4`; ask the user to select or explicitly invoke the desired pairwise skill.
-- Do not restate composed pairwise topology, run-control details, or elemental pairwise edge-loop protocol inline; keep those on the selected pairwise loop skill and `houmao-adv-usage-pattern`.
+- Do not silently auto-route tree loop planning or tree loop run-control requests into `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4`; ask the user to select or explicitly invoke the desired tree loop skill.
+- Do not restate composed tree loop topology, run-control details, or elemental local-close edge-loop protocol inline; keep those on the selected tree loop skill and `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
 - Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.

@@ -1,4 +1,4 @@
-# Revise A Pairwise Loop Plan
+# Revise A Tree Loop Plan
 
 Use this page when a pairwise-v2 plan already exists, but the user wants to tighten, move, or update it without changing the skill family.
 
@@ -47,7 +47,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
    - `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants`
    - `houmao-mgr internals graph high packet-expectations --input <graph.json>`
    - one root packet exists for the designated master
-   - one child packet exists for each parent-to-child pairwise edge
+   - one child packet exists for each parent-to-child local-close edge
    - each packet records packet id, intended recipient, immediate driver, plan id plus revision or digest, local role and objective, allowed delegation targets, result-return contract, obligations, and forbidden actions
    - each non-leaf packet has a child dispatch table and exact child packet text or exact references for each allowed child
    - no runtime recipient must infer descendants or recompute graph slices from the full plan
@@ -60,7 +60,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 8. Re-validate graph semantics:
    - the user agent stays outside the execution loop
    - the master owns the supervision loop
-   - pairwise execution edges close locally
+   - local-close execution edges close locally
 9. Re-render the Mermaid graph if topology, completion, or stop posture changed.
 10. Refresh the normalized run-charter summary if any user-visible control field changed.
 11. Write the revised plan back under the selected output directory, keeping `plan.md` as the canonical entrypoint and the supporting files beside it when the plan uses the bundle form.

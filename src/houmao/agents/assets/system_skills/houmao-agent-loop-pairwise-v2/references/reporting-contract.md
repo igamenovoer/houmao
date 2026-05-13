@@ -21,7 +21,7 @@ Treat these state names as observations, not operator actions.
 ## Peek Fields
 
 - observed state
-- active pairwise edges or owned child loops
+- active local-close edges or owned child loops
 - completed results so far
 - blockers or late conditions
 - next planned actions

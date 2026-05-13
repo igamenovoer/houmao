@@ -1,6 +1,6 @@
-# Ping A Pairwise Loop Participant
+# Ping A Tree Loop Participant
 
-Use this page when the user wants to actively ask one selected pairwise-loop participant what is going on.
+Use this page when the user wants to actively ask one selected tree-loop participant what is going on.
 
 ## Workflow
 

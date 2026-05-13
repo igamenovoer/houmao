@@ -19,7 +19,7 @@ Use this reference when the user agent is ready to send one `start` request to t
 ## Charter Template
 
 ```text
-You are the root owner for generic loop graph run `<run_id>`.
+You are the root owner for generic loop run `<run_id>`.
 
 Plan reference:
 - type: <single-file | bundle>
@@ -33,9 +33,9 @@ Control-plane contract:
 
 Execution model:
 - Use the accepted plan for composed topology, component dependencies, completion, stop, and reporting.
-- Use the Houmao elemental pairwise edge-loop pattern for each `pairwise` component.
+- Use the Houmao elemental local-close edge loop pattern for each `pairwise` component.
 - Use the Houmao elemental relay-loop pattern for each `relay` component.
-- Keep pairwise component results local-close: worker returns to immediate driver.
+- Keep local-close component results local-close: worker returns to immediate driver.
 - Keep relay component results egress-return: loop egress returns to relay origin.
 
 Typed components:

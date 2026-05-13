@@ -14,7 +14,7 @@ Choose this pattern when:
 - the sender needs robust resend and deduplication behavior under ambiguous network outcomes,
 - the sender can maintain a small mutable loop ledger through mailbox/reminder state or an operator-designated work artifact path.
 
-Use `houmao-agent-loop-generic` instead when the user needs multi-lane routing, fan-out, mixed pairwise/relay graph planning, graph policy authoring, a rendered graph, root-owned run planning, or `start`/`status`/`stop` run-control actions.
+Use `houmao-agent-loop-generic` instead when the user needs multi-lane routing, fan-out, mixed local-close/relay graph planning, graph policy authoring, a rendered graph, root-owned run planning, or `start`/`status`/`stop` run-control actions.
 
 Do not choose this pattern for one direct prompt, one direct email, or one local self-reminder. Use the lower-level skills directly for those simpler tasks.
 

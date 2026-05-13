@@ -1,4 +1,4 @@
-# Start A Pairwise Loop Run
+# Start A Tree Loop Run
 
 Use this page when the user already has an authored pairwise-v4 plan and wants to perform the canonical `start` action after `initialize` is complete.
 
@@ -44,12 +44,12 @@ Before sending `start`, confirm the plan defines:
    - keep the record outside the authored plan bundle and outside participant-local memo or page files
    - record `run_id`, `recovery_epoch=0`, canonical plan reference, plan revision or digest, designated master, allowed participant set, initialize memo-slot references, continuation-page references when available, mailbox bindings, declared workspace contract summary, declarative wakeup posture, and recoverable-versus-terminal state
 9. After the kickoff trigger is sent, treat the run as `running`.
-10. After `start` fires, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
-11. Direct the master and any intermediate driver to advise all downstream agents to use email/mailbox for job communication by default, including in-loop pairwise edge requests, receipts, and results.
-12. When routing packets are part of the plan, append the exact prepared child routing packet to each pairwise edge request email without editing, merging, or summarizing it unless the authored plan explicitly permits that transformation.
+10. After `start` fires, the master owns liveness, supervision, downstream local-close dispatch, completion evaluation, and stop handling.
+11. Direct the master and any intermediate driver to advise all downstream agents to use email/mailbox for job communication by default, including in-loop local-close edge requests, receipts, and results.
+12. When routing packets are part of the plan, append the exact prepared child routing packet to each local-close edge request email without editing, merging, or summarizing it unless the authored plan explicitly permits that transformation.
 13. Require fail-closed handling for packet mismatches: if a child packet is missing, has the wrong intended recipient, or carries a stale plan revision or digest, the driver stops that downstream dispatch and reports the mismatch.
 14. Do not ask the master or intermediate drivers to run graph analysis, infer descendants, or recompute child packet content after `start`; graph-tool checks belong before `ready`.
-15. Let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the authored plan.
+15. Let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental local-close edge loop pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the authored plan.
 16. When the plan enables timeout-watch policy for selected participants or edges, keep it reminder-driven and non-blocking:
    - persist overdue-check state in local bookkeeping
    - end the current live turn after downstream dispatch and follow-up setup
@@ -88,14 +88,14 @@ The live `start` trigger is intentionally compact. It should:
 
 ## Start Contract
 
-- The user agent is outside the pairwise execution loop.
+- The user agent is outside the execution loop.
 - `initialize` remains separate from `start`.
 - The designated master's initialize memo block is the primary readable control-plane charter when the designated master's managed memory is being used.
-- The live start trigger is a compact control-plane mail by default, not a root pairwise execution edge.
+- The live start trigger is a compact control-plane mail by default, not a root local-close execution edge.
 - Fired `start` initializes or refreshes the runtime-owned recovery record for the same `run_id`.
 - The authored workspace contract travels with the started run, but runtime-owned recovery files remain outside that contract.
 - For plans with routing packets, the designated master's initialize memo block carries the root packet or exact root packet reference.
-- In-loop job communication uses email/mailbox by default for pairwise edge requests, receipts, and results.
+- In-loop job communication uses email/mailbox by default for local-close edge requests, receipts, and results.
 - The master should keep the run alive until the completion condition is satisfied or a stop signal arrives.
 - Later `peek` remains unintrusive, read-only, and does not keep the run alive.
 

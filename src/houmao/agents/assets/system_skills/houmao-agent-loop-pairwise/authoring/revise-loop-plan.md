@@ -1,4 +1,4 @@
-# Revise A Pairwise Loop Plan
+# Revise A Tree Loop Plan
 
 Use this page when a plan already exists, but the user wants to tighten delegation boundaries, change the designated master, revise completion or stop policy, add or remove scripts, or re-render the final graph.
 
@@ -26,7 +26,7 @@ Use this page when a plan already exists, but the user wants to tighten delegati
 7. Re-validate the graph semantics:
    - the user agent stays outside the execution loop
    - the master owns the supervision loop
-   - pairwise execution edges close locally
+   - local-close execution edges close locally
 8. Re-render the Mermaid graph if topology, completion, or stop posture changed.
 9. Refresh the normalized run-charter summary if any user-visible control field changed.
 

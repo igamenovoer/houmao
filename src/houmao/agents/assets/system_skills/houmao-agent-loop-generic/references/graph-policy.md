@@ -1,6 +1,6 @@
 # Graph Policy Forms
 
-Use this reference to normalize pairwise delegation authority, relay forwarding authority, and component dependencies explicitly inside the authored plan and run charter.
+Use this reference to normalize local-close delegation authority, relay forwarding authority, and component dependencies explicitly inside the authored plan and run charter.
 
 ## Component Policy Fields
 
@@ -14,10 +14,10 @@ Every component should record:
 - result-return target
 - dependencies on other components
 
-## Pairwise Delegation Policy
+## Local-Close Delegation Policy
 
 - `delegate_none`
-  - No downstream delegation is authorized from this pairwise component.
+  - No downstream delegation is authorized from this local-close component.
 - `delegate_to_named`
   - Delegation is allowed only to the explicitly named downstream agents listed in the plan.
 - `delegate_freely_within_named_set`
@@ -48,7 +48,7 @@ Every component should record:
 - Silence is not authorization.
 - If the user only names a finite downstream set, keep the policy restricted to that set.
 - If the user wants free delegation or free forwarding, encode that explicitly.
-- If the user wants multiple relay lanes or multiple pairwise edges, list them as separate components rather than collapsing them into a vague graph.
+- If the user wants multiple relay lanes or multiple local-close edges, list them as separate components rather than collapsing them into a vague graph.
 - Identify which agents may act as relay egresses when a route can branch.
 
 ## Guardrails

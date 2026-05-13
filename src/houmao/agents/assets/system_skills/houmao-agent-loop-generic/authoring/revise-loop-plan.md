@@ -1,4 +1,4 @@
-# Revise A Generic Loop Graph Plan
+# Revise A Generic Loop Plan
 
 Use this page when a plan already exists, but the user wants to tighten graph boundaries, change the designated master/root owner, revise component dependencies, revise completion or stop policy, add or remove scripts, or re-render the final graph.
 
@@ -24,7 +24,7 @@ Use this page when a plan already exists, but the user wants to tighten graph bo
    - the original plan file for single-file form
    - `plan.md` for bundle form
 5. Re-validate every component boundary:
-   - `pairwise` components close results back to the immediate driver
+   - `pairwise` compatibility components close results back to the immediate driver as local-close components
    - `relay` components return final results from egress to relay origin
    - component dependencies are explicit
 6. Re-validate graph policy. Silence is not authorization for free delegation, free forwarding, or hidden dependencies.
@@ -36,7 +36,7 @@ Use this page when a plan already exists, but the user wants to tighten graph bo
 ## Revision Guardrails
 
 - Do not quietly widen delegation or forwarding authority while revising another part of the plan.
-- Do not convert a pairwise local-close component into a relay component, or the reverse, without making that semantic change explicit.
+- Do not convert a local-close component into a relay component, or the reverse, without making that semantic change explicit.
 - Do not leave a stale graph in place after changing the run topology.
 - Do not use `graph low` primitives for normal typed loop planning; keep routine structural checks on `houmao-mgr internals graph high`.
 - Do not move final completion evaluation away from the designated root owner unless the plan explicitly changes the root owner.

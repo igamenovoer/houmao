@@ -2,12 +2,12 @@
 
 Use this reference when the authored plan or run charter needs to define who acknowledges ownership, who returns component results, and where final run results land.
 
-## Pairwise Component Rules
+## Local-Close Component Rules
 
 - The worker sends the immediate receipt to the driver for the same `edge_loop_id`.
 - The worker returns the component final result to the same driver that sent the component request.
 - The result does not bypass the immediate driver.
-- The driver acknowledges the worker's final result when the elemental pairwise protocol requires it.
+- The driver acknowledges the worker's final result when the elemental local-close protocol requires it.
 
 ## Relay Component Rules
 
@@ -27,5 +27,5 @@ Use this reference when the authored plan or run charter needs to define who ack
 
 - Do not confuse per-hop receipt flow with final-result return.
 - Do not treat an intermediate relay agent as the default final-result target when the plan says the origin closes the relay component.
-- Do not let a pairwise component result bypass the immediate driver.
+- Do not let a local-close component result bypass the immediate driver.
 - Do not leave component result ownership ambiguous in a mixed graph.

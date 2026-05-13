@@ -1,6 +1,6 @@
-# Start A Generic Loop Graph Run
+# Start A Generic Loop Run
 
-Use this page when the user already has one authored generic loop graph plan and wants to send one normalized start charter to the designated master or root run owner.
+Use this page when the user already has one authored generic loop plan and wants to send one normalized start charter to the designated master or root run owner.
 
 ## Workflow
 
@@ -25,12 +25,12 @@ Use this page when the user already has one authored generic loop graph plan and
    - `accepted`
    - `rejected`
 8. After the root owner accepts the run, the root owner owns liveness, supervision, typed component dispatch, completion evaluation, and stop handling.
-9. If the accepted run needs live reminders, mailbox follow-up, or downstream inspection, let the root owner use `houmao-agent-gateway`, `houmao-agent-email-comms`, `houmao-agent-inspect`, and the elemental pairwise or relay patterns in `houmao-adv-usage-pattern`.
+9. If the accepted run needs live reminders, mailbox follow-up, or downstream inspection, let the root owner use `houmao-agent-gateway`, `houmao-agent-email-comms`, `houmao-agent-inspect`, and the elemental local-close or relay patterns in `houmao-adv-usage-pattern`.
 
 ## Start Contract
 
 - The user agent is outside the execution loop.
-- The start charter is a control-plane message, not the first pairwise request or relay handoff itself.
+- The start charter is a control-plane message, not the first local-close request or relay handoff itself.
 - The root owner should keep the run alive until the completion condition is satisfied or a stop signal arrives.
 - The user agent may poll `status`, but status polling does not keep the run alive.
 - The run contract stays distinct from component-local protocol IDs such as `edge_loop_id`, `loop_id`, and `handoff_id`.

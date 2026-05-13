@@ -6,7 +6,7 @@ Use this reference when the user wants to stop an active run or when the authore
 
 - `interrupt-first`
   - Default for this skill
-  - The root owner stops opening new components, interrupts active downstream pairwise or relay work, preserves partial results already returned, and summarizes interrupted state.
+  - The root owner stops opening new components, interrupts active downstream local-close or relay work, preserves partial results already returned, and summarizes interrupted state.
 - `graceful`
   - Only use when the user explicitly requests graceful termination
   - The root owner stops creating new components and drains the run according to the requested graceful posture.

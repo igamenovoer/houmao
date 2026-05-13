@@ -52,10 +52,10 @@ Do not write the primary process overview as a flat file such as `<loop-dir>/exe
 The canonical process overview contains collaboration process material such as:
 - phases;
 - selected topology mode or `UNRESOLVED - topology mode`;
-- cycle posture, including pairwise normalization or generic cycle-control needs;
+- cycle posture, including tree-loop normalization or generic cycle-control needs;
 - events;
 - handoffs or exchanges;
-- local-close result routing for `pairwise-tree`, or explicit reply/forward routing for `generic-graph`;
+- local-close result routing for `tree-loop`, or explicit reply/forward routing for `generic-loop`;
 - predecessor-context posture for generic routes, including selected carried context or explicit omission;
 - schema-typed mail family outline when mail drives events;
 - runtime trigger model, especially notifier-prompt-driven mail events when the loop is mail-driven;
@@ -75,10 +75,10 @@ The canonical process overview contains collaboration process material such as:
 3. Create or update README files for emitted `specs/` directories using only `Purpose` and `Contents`.
 4. Express the model in generic process terms before generating derived contracts.
 5. Select or mark unresolved exactly one topology mode:
-  - `pairwise-tree`: document local-close handoffs, immediate-upstream result return, and any accepted cycle normalization through an existing participant;
-  - `generic-graph`: document directed routes, cycle control, dedupe or repeat-visit posture, termination, and task-specific predecessor-context needs.
+  - `tree-loop`: document local-close handoffs, immediate-upstream result return, and any accepted cycle normalization through an existing participant;
+  - `generic-loop`: document directed routes, cycle control, dedupe or repeat-visit posture, termination, and task-specific predecessor-context needs.
 6. Record result-routing semantics:
-  - pairwise results return to immediate upstream unless an explicit terminal or operator exception exists;
+  - tree-loop results return to immediate upstream unless an explicit terminal or operator exception exists;
   - generic results, replies, and forwards follow explicit route or message-family policy.
 7. For mail-driven loops, record that Houmao notifier prompts wake agents for mail processing and optional follow-up ticks; do not model in-chat waits or periodic tick workers.
 8. Outline schema-typed mail families that will become concrete contracts later, including provisional `schema_id` names when known.
@@ -89,7 +89,7 @@ The canonical process overview contains collaboration process material such as:
   - use a fenced `python` code block;
   - name generic roles, events, state queries, handoff decisions, tick passes, terminal branches, and recovery branches;
   - show mode checks before tick work when both modes apply;
-  - show topology-mode branch behavior when pairwise-tree and generic-graph choices materially differ;
+  - show topology-mode branch behavior when tree-loop and generic-loop choices materially differ;
   - add inline `#` comments for conditions, actions, state effects, and stopping points;
   - keep it domain-derived but not implementation-bound Python.
 11. Include a high-level Mermaid sequence section:

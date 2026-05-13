@@ -1,4 +1,4 @@
-# Revise A Pairwise Loop Plan
+# Revise A Tree Loop Plan
 
 Use this page when a pairwise-v3 plan already exists, but the user wants to tighten, move, or update it without changing the skill family.
 

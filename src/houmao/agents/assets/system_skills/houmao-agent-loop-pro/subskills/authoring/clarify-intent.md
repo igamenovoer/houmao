@@ -42,7 +42,7 @@ Missing input rule:
 Build an internal coverage map before asking. Use these intent categories:
 
 - objective, non-goals, success posture, acceptance authority, objective parameters, hidden variables, and terminal conditions;
-- topology mode: `pairwise-tree`, `generic-graph`, or unresolved; pairwise normalization needs; generic predecessor-context posture;
+- topology mode: `tree-loop`, `generic-loop`, or unresolved; tree-loop normalization needs; generic predecessor-context posture;
 - agent communication: participants, routes, message families, schema-id mail types, handoff rights, reply or forward expectations, escalation, and default transport assumptions;
 - loop process: phases, topology, work-item lifecycle, event triggers, on-event responsibilities, on-tick responsibilities, scheduling, dedupe, timeout, recovery, and completion flow;
 - state/bookkeeping needs and ownership facts;
@@ -55,7 +55,7 @@ Build an internal coverage map before asking. Use these intent categories:
 Question priority:
 
 1. Resolve objective ambiguity first: what the loop is trying to achieve, what parameters or assumptions define the objective, what is out of scope, how success is accepted, and when the loop is done.
-2. Resolve topology ambiguity next: whether execution is `pairwise-tree` local-close or `generic-graph`, whether pairwise cycles need normalization, and whether generic cycles need termination or dedupe rules.
+2. Resolve topology ambiguity next: whether execution is `tree-loop` local-close or `generic-loop`, whether tree-loop cycles need normalization, and whether generic cycles need termination or dedupe rules.
 3. Resolve agent communication ambiguity next: who talks to whom, through what schema-typed message families, with what context, reply, forward, or escalation expectations.
 4. Resolve predecessor-context needs for generic routes: what selected upstream refs, summaries, artifacts, branches, commits, or state refs must be carried, or whether omission is explicit and safe.
 5. Resolve loop process ambiguity next: how work moves through phases, what events/ticks advance it, what happens on timeout or failure, and how completion/recovery works.
@@ -84,8 +84,8 @@ Good intent questions confirm loop behavior, for example:
 
 - What is the exact success condition the loop must reach?
 - Which participant owns terminal acceptance?
-- Should this loop use `pairwise-tree` local-close handoffs or `generic-graph` directed routing?
-- If pairwise intent contains a closed loop, which existing participant should act as relay, root, or cycle breaker?
+- Should this loop use `tree-loop` local-close handoffs or `generic-loop` directed routing?
+- If tree-loop intent contains a closed loop, which existing participant should act as relay, root, or cycle breaker?
 - Which participants communicate directly, and what message family carries the handoff?
 - Which `schema_id` mail family represents the event that wakes this participant?
 - What reply is expected after a work-request handoff?

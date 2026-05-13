@@ -1,16 +1,23 @@
 ---
 name: houmao-agent-loop-generic
-description: Use Houmao's generic loop graph-planning and run-control skill when a user-controlled agent needs to decompose a multi-agent communication graph into pairwise and relay components or operate that run through start, status, and stop.
+description: Use Houmao's generic loop-planning and run-control skill when a user-controlled agent needs to decompose a multi-agent communication graph into local-close (`pairwise` alias) and relay components or operate that run through start, status, and stop.
 license: MIT
 ---
 
 # Houmao Agent Loop Generic
 
-Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run across named Houmao agents while keeping the user agent outside the execution loop.
+## Terminology
 
-`houmao-agent-loop-generic` is intentionally above the direct-operation skills and above the elemental pairwise and relay pattern pages in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It turns user intent into one explicit typed component plan, renders the final generic control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, read-only inspection, and elemental pairwise or relay execution guidance.
+- `generic loop` is the canonical family name for this skill.
+- Use graph wording for graph artifacts, rendered diagrams, helper commands, and component dependency structure.
+- Component type `pairwise` is a compatibility value for a local-close component.
+- The local-close elemental protocol is a local-close edge loop.
 
-The pairwise and relay pages in `houmao-adv-usage-pattern` are atomic protocol pages. This skill owns composed graph planning: mixed pairwise/relay decomposition, multi-edge topology, component dependencies, rendered graphs, graph policy, run charters, and `start`/`status`/`stop` control.
+Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop run across named Houmao agents while keeping the user agent outside the execution loop.
+
+`houmao-agent-loop-generic` is intentionally above the direct-operation skills and above the elemental local-close and relay pattern pages in `houmao-adv-usage-pattern`. This skill does not invent a new runtime loop engine. It turns user intent into one explicit typed component plan, renders the final generic control graph, and routes start or follow-up control to the maintained Houmao-owned skills that already own messaging, reminders, mailbox follow-up, read-only inspection, and elemental local-close or relay execution guidance.
+
+The local-close and relay pages in `houmao-adv-usage-pattern` are atomic protocol pages. This skill owns composed graph planning: mixed local-close/relay decomposition, multi-edge topology, component dependencies, rendered graphs, graph policy, run charters, and `start`/`status`/`stop` control.
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-loop-generic` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -18,23 +25,23 @@ The trigger word `houmao` is intentional. Use the `houmao-agent-loop-generic` sk
 
 This packaged skill covers two lanes:
 
-- authoring a generic loop graph plan from user intent
+- authoring a generic loop plan from user intent
 - operating an accepted generic run through `start`, `status`, and `stop`
 
 This packaged skill does not cover:
 
-- making the user agent a participant in pairwise receipts, relay receipts, results, or acknowledgements
+- making the user agent a participant in local-close receipts, relay receipts, results, or acknowledgements
 - inventing free delegation, free forwarding, or hidden component dependencies when the plan is silent
 - drawing arbitrary cyclic worker-to-worker execution as the default model
 - replacing `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, `houmao-agent-inspect`, or `houmao-adv-usage-pattern`
-- replacing the explicit pairwise-only planners `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4` when the user asks for those skills by name
+- replacing the explicit tree loop planners `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4` when the user asks for those skills by name
 
 ## Workflow
 
-1. Confirm that the user wants one generic loop graph plan or one run-control action rather than one ordinary direct-operation request.
+1. Confirm that the user wants one generic loop plan or one run-control action rather than one ordinary direct-operation request.
 2. Keep the two planes separate from the start:
    - control plane: user agent to designated master or root run owner
-   - execution plane: root owner and downstream agents using typed pairwise and relay components
+   - execution plane: root owner and downstream agents using typed local-close and relay components
 3. Treat the user agent as outside the execution loop. After the root owner accepts the run, that owner owns liveness, supervision, component dispatch, completion evaluation, and stop handling.
 4. If the user needs a new plan or a revised plan, load exactly one authoring page:
    - `authoring/formulate-loop-plan.md`
@@ -57,7 +64,7 @@ This packaged skill does not cover:
 
 ## Component Types
 
-- `pairwise`: Use for one immediate driver-worker local-close component. The worker returns the component result to the same driver that sent that component request. Component execution uses the elemental pairwise edge-loop pattern in `houmao-adv-usage-pattern`.
+- `pairwise`: Compatibility component type for one immediate driver-worker local-close component. The worker returns the component result to the same driver that sent that component request. Component execution uses the elemental local-close edge loop pattern in `houmao-adv-usage-pattern`.
 - `relay`: Use for one relay-rooted ordered lane. Ownership moves forward through the lane, and the designated loop egress returns the final component result to the relay origin. Component execution uses the elemental relay-loop pattern in `houmao-adv-usage-pattern`.
 
 ## Authoring Pages
@@ -75,8 +82,8 @@ This packaged skill does not cover:
 ## References
 
 - Read [references/run-charter.md](references/run-charter.md) for the normalized start charter fields that the user agent sends to the root owner.
-- Read [references/graph-policy.md](references/graph-policy.md) to normalize pairwise delegation, relay routing, and component dependency authority explicitly.
-- Read [references/result-routing.md](references/result-routing.md) for pairwise local-close result return, relay egress result return, and mixed component result aggregation.
+- Read [references/graph-policy.md](references/graph-policy.md) to normalize local-close delegation, relay routing, and component dependency authority explicitly.
+- Read [references/result-routing.md](references/result-routing.md) for local-close result return, relay egress result return, and mixed component result aggregation.
 - Read [references/stop-modes.md](references/stop-modes.md) to choose between default interrupt-first stop and explicitly requested graceful stop.
 - Read [references/reporting-contract.md](references/reporting-contract.md) for status, completion, and stop-summary expectations across typed components.
 - Read [references/plan-structure.md](references/plan-structure.md) for the required single-file versus bundle-plan sections, script inventory fields, and canonical `plan.md` entrypoint rules.
@@ -92,11 +99,11 @@ This packaged skill does not cover:
 - Route root-owner reminder and live review-loop timing work to `houmao-agent-gateway`.
 - Route mailbox receipt, final-result, and acknowledgement semantics referenced by the plan to `houmao-agent-email-comms`.
 - Route due downstream read-only peeking and status inspection to `houmao-agent-inspect`.
-- Route atomic pairwise component execution semantics to `houmao-adv-usage-pattern`, specifically the elemental pairwise edge-loop pattern.
+- Route atomic local-close component execution semantics to `houmao-adv-usage-pattern`, specifically the elemental local-close edge loop pattern.
 - Route atomic relay component execution semantics to `houmao-adv-usage-pattern`, specifically the elemental relay-loop pattern.
 - Route routine authoring-time structural graph checks and deterministic Mermaid scaffolding to `houmao-mgr internals graph high analyze|slice|render-mermaid` as the first-class helper surface when a NetworkX node-link graph representation is available; keep semantic graph policy, result routing, and final graph review in this skill.
 - Do not route normal generic loop planning to `houmao-mgr internals graph low`; keep routine loop-skill graph work on the Houmao-aware `graph high` surface.
-- Route specialized pure-pairwise planning to `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4` only when the user explicitly invokes or has already selected those pairwise-only skills.
+- Route specialized tree loop planning to `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4` only when the user explicitly invokes or has already selected those tree loop skills.
 - Route project setup, specialist authoring, agent launch, or lifecycle management outside this loop-planning scope to their existing Houmao-owned skills.
 
 ## Guardrails
@@ -105,6 +112,6 @@ This packaged skill does not cover:
 - Do not allow free delegation or free forwarding unless the plan says so explicitly.
 - Do not treat `status` polling as a keepalive signal; the root owner owns liveness after accepting the run.
 - Do not default to graceful stop. Default to `interrupt-first` unless the user explicitly requests graceful termination.
-- Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is typed pairwise and relay components plus a supervision loop.
+- Do not describe the final graph as an arbitrary agent-to-agent cycle when the real execution topology is typed local-close and relay components plus a supervision loop.
 - Do not push composed graph topology, graph policy, rendered graph semantics, or run-control actions down into `houmao-adv-usage-pattern`; those remain in this skill.
-- Do not replace the elemental pairwise or relay protocol pages or restate their full mailbox and reminder protocols here; compose them through `houmao-adv-usage-pattern` for each component.
+- Do not replace the elemental local-close or relay protocol pages or restate their full mailbox and reminder protocols here; compose them through `houmao-adv-usage-pattern` for each component.

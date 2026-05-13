@@ -144,11 +144,11 @@ Houmao ships five loop skills. Choose the one that fits your topology and lifecy
 
 | Skill | Lifecycle | Best for |
 |---|---|---|
-| `houmao-agent-loop-pairwise` | `start` / `status` / `stop` | Simple pairwise master → workers; minimal ceremony |
-| `houmao-agent-loop-pairwise-v2` | `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with enriched runtime control and routing-packet prestart |
-| `houmao-agent-loop-pairwise-v3` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with an authored workspace contract and default initialize-time gateway mail-notifier readiness for mail-driven participants — layered on the v2 lifecycle |
-| `houmao-agent-loop-pairwise-v4` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with v3 workspace posture plus strict generated document templates and a source-constraint coverage audit for rich task notes or user-provided documents with schema-like policy verbs |
-| `houmao-agent-loop-generic` | `start` / `status` / `stop` | Mixed pairwise + relay component graphs |
+| `houmao-agent-loop-pairwise` | `start` / `status` / `stop` | Simple tree-loop master → workers; minimal ceremony |
+| `houmao-agent-loop-pairwise-v2` | `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Tree loops with enriched runtime control and routing-packet prestart |
+| `houmao-agent-loop-pairwise-v3` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Tree loops with an authored workspace contract and default initialize-time gateway mail-notifier readiness for mail-driven participants — layered on the v2 lifecycle |
+| `houmao-agent-loop-pairwise-v4` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Tree loops with v3 workspace posture plus strict generated document templates and a source-constraint coverage audit for rich task notes or user-provided documents with schema-like policy verbs |
+| `houmao-agent-loop-generic` | `start` / `status` / `stop` | Mixed local-close + relay component graphs |
 
 See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill selection guidance, the pairwise-v2 routing-packet model, the pairwise-v3 workspace contract, the pairwise-v4 template-driven source contract, and the `internals graph` tooling that supports authoring.
 
@@ -156,7 +156,7 @@ See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill
 
 **Example: collaborative story writing with 3 specialists**
 
-The reusable template for this team lives in [`examples/writer-team/`](examples/writer-team/); it contains the prompt files, pairwise loop plan, start charter, local setup commands, and ignored artifact directories.
+The reusable template for this team lives in [`examples/writer-team/`](examples/writer-team/); it contains the prompt files, tree loop plan, start charter, local setup commands, and ignored artifact directories.
 
 Set up the project and create three specialists:
 
@@ -372,7 +372,7 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ## Typical Use Cases
 
-- **Multi-agent loops**: author a pairwise loop plan with a master and workers — the master drives the pipeline while you monitor from outside. Use for story generation, code review pipelines, optimization loops, or any structured multi-step workflow.
+- **Multi-agent loops**: author a tree loop plan with a master and workers — the master drives the pipeline while you monitor from outside. Use for story generation, code review pipelines, optimization loops, or any structured multi-step workflow.
 - **Project-local specialist teams**: define multiple specialists under `.houmao/` with different roles and tools, launch them with mailbox-enabled profiles, and let them collaborate through structured messaging.
 - **Parallel specialist agents**: run a "coder" agent and a "reviewer" agent side by side on the same repo — each with a different role and tool — so one writes while the other critiques.
 - **Team agent recipes**: give every team member the same pre-configured agent lineup (same models, skills, and roles) checked into the repo, without sharing anyone's API keys.
@@ -400,13 +400,13 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
 | `houmao-utils-llm-wiki` | Explicit utility skill for persistent Markdown LLM Wiki knowledge bases: scaffold, ingest, compile, query, lint, audit, and launch a bundled local viewer |
 | `houmao-utils-workspace-mgr` | Explicit utility skill for planning and executing multi-agent workspace layouts, including in-repo or out-of-repo workspaces, per-agent Git worktrees, shared/local-only repos, submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules |
-| `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
-| `houmao-agent-loop-pairwise-v2` | Enriched pairwise workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` |
-| `houmao-agent-loop-pairwise-v3` | Workspace-aware pairwise workflow: author plans with a `standard` (task-scoped `houmao-ws/<task>/…`) or `custom` workspace contract, run `plan` / `initialize` with default gateway mail-notifier readiness for mail-driven participants, and operate accepted runs through the same enriched lifecycle as v2 |
-| `houmao-agent-loop-pairwise-v4` | Template-driven workspace-aware pairwise workflow: extend v3 with strict generated document templates, central source-contract summaries, role-local agent notes, report/bookkeeping template schemas, and a source-constraint coverage audit |
-| `houmao-agent-loop-generic` | Decompose generic multi-agent loop graphs into typed pairwise and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
+| `houmao-agent-loop-pairwise` | Author master-owned tree loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
+| `houmao-agent-loop-pairwise-v2` | Enriched tree loop workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` |
+| `houmao-agent-loop-pairwise-v3` | Workspace-aware tree loop workflow: author plans with a `standard` (task-scoped `houmao-ws/<task>/…`) or `custom` workspace contract, run `plan` / `initialize` with default gateway mail-notifier readiness for mail-driven participants, and operate accepted runs through the same enriched lifecycle as v2 |
+| `houmao-agent-loop-pairwise-v4` | Template-driven workspace-aware tree loop workflow: extend v3 with strict generated document templates, central source-contract summaries, role-local agent notes, report/bookkeeping template schemas, and a source-constraint coverage audit |
+| `houmao-agent-loop-generic` | Decompose generic multi-agent loops into typed local-close and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
 
-`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, specialists, credentials, definitions, and live-agent lifecycle. For loop orchestration, `core` auto-installs all four pairwise variants — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4` — alongside `houmao-agent-loop-generic`, so a managed agent can drive any of the five loop skills without an extra install step. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
+`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, specialists, credentials, definitions, and live-agent lifecycle. For loop orchestration, `core` auto-installs all four tree-loop variants — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4` — alongside `houmao-agent-loop-generic`, so a managed agent can drive any of the five loop skills without an extra install step. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
 
 ```bash
 houmao-mgr system-skills install --tool claude,codex,copilot,gemini
@@ -455,7 +455,7 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 
 ### Examples
 
-- **[`examples/writer-team/`](examples/writer-team/)** — Complete pairwise loop template for a three-agent story-writing team (story-writer, character-designer, reviewer). Contains role prompts, a pairwise loop plan, start charter, and local setup commands. This is the team shown in the "See it in action" video above.
+- **[`examples/writer-team/`](examples/writer-team/)** — Complete tree loop template for a three-agent story-writing team (story-writer, character-designer, reviewer). Contains role prompts, a tree loop plan, start charter, and local setup commands. This is the team shown in the "See it in action" video above.
 
 ## CLI Entry Points
 

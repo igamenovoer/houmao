@@ -63,17 +63,19 @@ Check staged generation posture:
 
 Check topology and result routing:
 - generated process material records exactly one topology mode, or records `UNRESOLVED` when generation is intentionally blocked.
+- new generated topology material uses preferred values `tree-loop` or `generic-loop`.
+- validation accepts legacy aliases in existing generated material: `pairwise-tree`, `pairwise-loop`, `pairwise`, `generic-graph`, and `generic graph`.
 - when participant routes are non-trivial, `execplan/specs/collab/topology/` exists or an accepted equivalent or omission is indexed.
 - machine-readable topology contracts, when present, identify participant nodes, route edges, selected mode, cycle posture, result-routing posture, terminal or operator exceptions, and source paths.
-- `pairwise-tree` routes are trees or forests of local-close handoffs.
-- `pairwise-tree` direct participant cycles are invalid unless a recorded normalization converts them into local-close tree or forest execution using an existing participant.
-- `pairwise-tree` normal result flow returns to immediate upstream unless a generated terminal or operator-control exception is explicit.
-- `generic-graph` routes may be cyclic or non-tree only when generated contracts define termination, dedupe, repeat-visit posture, and result-routing policy.
+- `tree-loop` routes are trees or forests of local-close handoffs.
+- `tree-loop` direct participant cycles are invalid unless a recorded normalization converts them into local-close tree or forest execution using an existing participant.
+- `tree-loop` normal result flow returns to immediate upstream unless a generated terminal or operator-control exception is explicit.
+- `generic-loop` routes may be cyclic or non-tree only when generated contracts define termination, dedupe, repeat-visit posture, and result-routing policy.
 - generic cycles without explicit termination, dedupe, and repeat-visit contracts are invalid.
 - central ownership, acceptance authority, relay ownership, scheduler ownership, or terminal reporting authority exists only when generated contracts name it.
 
 Check predecessor context:
-- generic-graph communication contracts record predecessor-context posture per non-trivial route or message family.
+- generic-loop communication contracts record predecessor-context posture per non-trivial route or message family.
 - when selected context is required, schemas or payload contracts include the selected predecessor refs, required context keys, artifact refs, commit or branch refs, state refs, summaries, expected action, and reply or forward policy that the execplan chose.
 - rendered generic mail includes a readable context section when selected carried context is required.
 - validation accepts explicit no-context-needed omissions when those omissions are recorded in process, topology, communication, manifest, generated docs, or validation notes.
@@ -90,9 +92,9 @@ Check generated skills:
 - generated on-event and on-tick skills state their trigger, role owner, bounded procedure, and output or handoff posture.
 - generated mail-received on-event skills name the exact triggering `schema_id` when they handle templated mail.
 - generated event skills use detected in-body metadata `schema_id` as the mail type rather than only subject text, sender identity, or hidden headers.
-- generated skills read topology mode from generated specs, state, or harness output before choosing pairwise local-close reply, generic forward, selected-context preservation, or terminal result behavior.
-- `pairwise-tree` participant skills reply to immediate upstream for normal results unless a generated exception exists.
-- `generic-graph` participant skills preserve selected carried context when the generated execplan requires forwarding or replying with predecessor context.
+- generated skills read topology mode from generated specs, state, or harness output before choosing tree-loop local-close reply, generic forward, selected-context preservation, or terminal result behavior.
+- `tree-loop` participant skills reply to immediate upstream for normal results unless a generated exception exists.
+- `generic-loop` participant skills preserve selected carried context when the generated execplan requires forwarding or replying with predecessor context.
 - controllable loops include `execplan/skills/<loop-slug>-operator-control/SKILL.md` or record an accepted equivalent.
 - generated operator-control skills identify loop slug, loop dir, manifest path, harness path, agent binding path, supported lifecycle operations, and maintained Houmao support-skill routes.
 - generated operator-control support pages, when present, live inside that skill directory rather than under a category directory.
@@ -124,8 +126,8 @@ Check harness shape:
 - generated harnesses record mode changes, pause, resume, stop, override, and recovery as operator intent records when those controls exist.
 - generated harnesses do not directly own notifier enable/disable, managed-agent prompting, mailbox delivery, or managed-agent lifecycle mechanics.
 - generated harnesses expose topology validation/query commands when topology contracts require machine validation or lookup.
-- generated harnesses can detect direct non-tree `pairwise-tree` cycles unless a recorded normalization converted them into local-close tree or forest execution.
-- generated harnesses validate generic-graph selected-context payloads when communication contracts require selected predecessor fields.
+- generated harnesses can detect direct non-tree `tree-loop` cycles unless a recorded normalization converted them into local-close tree or forest execution.
+- generated harnesses validate generic-loop selected-context payloads when communication contracts require selected predecessor fields.
 - generated harnesses validate generic cycle-control fields, lineage refs, visited node or edge facts, cycle iterations, active ownership, and message refs when those contracts exist.
 - generated harnesses expose email schema, validate, render, apply, or query commands when templated mail contracts require those surfaces.
 - generated email render commands preserve the in-body metadata header produced by the renderer.
@@ -162,7 +164,7 @@ Check runtime state and records:
 - participant-facing generated skills use harness commands for normal state mutation and query instead of raw SQL or ad hoc state-file edits.
 - direct state edits are documented only as operator repair while paused, followed by harness validation.
 - task-specific records, evidence models, scoring models, and domain tables appear only when introduced by intention source or generated clarification output.
-- generic-graph loops with cycles or repeat visits include compact lineage, visited node or edge facts, cycle iteration counts, active ownership, and message refs when those facts are needed for dedupe, recovery, or termination.
+- generic-loop loops with cycles or repeat visits include compact lineage, visited node or edge facts, cycle iteration counts, active ownership, and message refs when those facts are needed for dedupe, recovery, or termination.
 - generated record contracts exist for structured bookkeeping that the harness or skills claim to apply.
 - state contracts do not require a particular backend unless the generated loop explicitly selects it or the default sqlite rule applies because the SQL schema is clear.
 

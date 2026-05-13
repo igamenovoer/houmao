@@ -1,4 +1,4 @@
-# Single-File Pairwise Loop Plan Template
+# Single-File Tree Loop Plan Template
 
 ````md
 ---

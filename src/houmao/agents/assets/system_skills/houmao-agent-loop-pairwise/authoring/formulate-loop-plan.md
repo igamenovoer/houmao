@@ -1,6 +1,6 @@
-# Formulate A Pairwise Loop Plan
+# Formulate A Tree Loop Plan
 
-Use this page when the user has described what they want, but the designated master still needs one explicit pairwise loop plan rather than a loose natural-language request.
+Use this page when the user has described what they want, but the designated master still needs one explicit tree loop plan rather than a loose natural-language request.
 
 ## Workflow
 
@@ -21,7 +21,7 @@ Use this page when the user has described what they want, but the designated mas
 5. When the topology is represented as NetworkX node-link JSON, treat `houmao-mgr internals graph high` as the first-class structural preflight:
    - `houmao-mgr internals graph high analyze --input <graph.json>`
    - `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants` when a subtree is easier to inspect separately
-6. Break the work into pairwise local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
+6. Break the work into local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
 7. Normalize delegation policy explicitly using `references/delegation-policy.md`. No free delegation is allowed unless the plan says so explicitly.
 8. Draft the plan with `references/plan-structure.md` plus the matching template:
    - `templates/single-file-plan.md`
@@ -33,7 +33,7 @@ Use this page when the user has described what they want, but the designated mas
 
 - Treat the user agent as outside the execution loop.
 - Treat the designated master as the root run owner after acceptance.
-- Use one root `run_id` for the run contract and keep pairwise `edge_loop_id` values as execution-local identifiers owned by the master and workers.
+- Use one root `run_id` for the run contract and keep local-close `edge_loop_id` values as execution-local identifiers owned by the master and workers.
 - Preserve delegation restrictions when the user names a limited downstream set.
 - Treat `houmao-mgr internals graph high` output as structural evidence only; it does not authorize broader delegation or topology changes by itself.
 - Reject or rewrite any execution sketch that depends on child results bypassing the immediate driver.

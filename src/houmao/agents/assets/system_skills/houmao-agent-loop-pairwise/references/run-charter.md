@@ -17,7 +17,7 @@ Use this reference when the user agent is ready to send one `start` request to t
 ## Charter Template
 
 ```text
-You are the master for pairwise loop run `<run_id>`.
+You are the master for tree loop run `<run_id>`.
 
 Plan reference:
 - type: <single-file | bundle>
@@ -31,7 +31,7 @@ Control-plane contract:
 
 Execution model:
 - Use the accepted plan for composed topology, recursive child-control edges, completion, stop, and reporting.
-- Use the Houmao elemental pairwise edge-loop pattern for each immediate driver-worker delegation edge.
+- Use the Houmao elemental local-close edge loop pattern for each immediate driver-worker delegation edge.
 - Every delegation edge must close back to its immediate driver.
 - Child results must not bypass the immediate driver.
 

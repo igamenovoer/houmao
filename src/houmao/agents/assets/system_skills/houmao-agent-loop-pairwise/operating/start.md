@@ -1,4 +1,4 @@
-# Start A Pairwise Loop Run
+# Start A Tree Loop Run
 
 Use this page when the user already has one authored plan and wants to send one normalized start charter to the designated master.
 
@@ -22,13 +22,13 @@ Use this page when the user already has one authored plan and wants to send one 
 8. Require an explicit master response:
    - `accepted`
    - `rejected`
-9. After the master accepts the run, the master owns liveness, supervision, downstream pairwise dispatch, completion evaluation, and stop handling.
-10. If the accepted run needs live reminders or mailbox follow-up, let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental pairwise pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
+9. After the master accepts the run, the master owns liveness, supervision, downstream local-close dispatch, completion evaluation, and stop handling.
+10. If the accepted run needs live reminders or mailbox follow-up, let the master use `houmao-agent-gateway`, `houmao-agent-email-comms`, and the elemental local-close edge loop pattern in `houmao-adv-usage-pattern` for each immediate driver-worker edge while keeping composed run topology in the accepted plan.
 
 ## Start Contract
 
-- The user agent is outside the pairwise execution loop.
-- The start charter is a control-plane message, not a root pairwise execution edge.
+- The user agent is outside the execution loop.
+- The start charter is a control-plane message, not a root local-close execution edge.
 - The master should keep the run alive until the completion condition is satisfied or a stop signal arrives.
 - The user agent may poll `status`, but status polling does not keep the run alive.
 

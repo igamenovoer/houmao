@@ -1,4 +1,4 @@
-# Bundle Generic Loop Graph Plan Template
+# Bundle Generic Loop Plan Template
 
 Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint.
 
@@ -67,7 +67,7 @@ See `reporting.md`.
 - `reporting.md`
 - `scripts/README.md`
 
-# Mermaid Generic Loop Graph
+# Mermaid Generic Loop
 <top-level mermaid graph>
 ```
 

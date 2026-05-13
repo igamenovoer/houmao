@@ -1,4 +1,4 @@
-# Single-File Pairwise Loop Plan Template
+# Single-File Tree Loop Plan Template
 
 Write this template as `<plan-output-dir>/plan.md`.
 
@@ -58,9 +58,9 @@ default_stop_mode: interrupt-first
 - graph-tool preflight: <analyze, optional slice, and packet-expectations results when a graph artifact exists>
 - routing packet validation: <validate-packets result when graph and packet JSON artifacts exist, or manual visible-coverage check when they do not>
 - root routing packet: <packet id or section reference included in the durable start-charter page>
-- child packet forwarding: append exact prepared child packet text to the pairwise edge request email; do not edit, merge, or summarize unless this plan explicitly permits it
+- child packet forwarding: append exact prepared child packet text to the local-close edge request email; do not edit, merge, or summarize unless this plan explicitly permits it
 - mismatch handling: stop downstream dispatch and report to the immediate driver, or to the operator when the driver is the master
-- in-loop job communication: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
+- in-loop job communication: advise all agents to use email/mailbox for local-close edge requests, receipts, and results by default
 - master trigger: <how the compact start trigger stays separate from initialize>
 
 # Routing Packets
@@ -70,7 +70,7 @@ default_stop_mode: interrupt-first
 - plan revision: <revision or digest>
 - local role/objective: <what the master owns>
 - allowed delegation: <none | named set | free within named set | any>
-- result return: <completion summary to operator, not a pairwise child result>
+- result return: <completion summary to operator, not a local-close child result>
 - obligations: <mailbox, reminder, receipt, result, or timeout-watch obligations>
 - forbidden actions: <what this participant must not do>
 - child dispatch table:

@@ -1,6 +1,6 @@
-# Stop A Pairwise Loop Run
+# Stop A Tree Loop Run
 
-Use this page when the user wants to stop one active pairwise loop run owned by the designated master.
+Use this page when the user wants to stop one active tree loop run owned by the designated master.
 
 ## Workflow
 

@@ -5,7 +5,7 @@ Use this reference when the authored plan or run charter needs to define what th
 ## Status Fields
 
 - run phase
-- active pairwise edges or owned child loops
+- active local-close edges or owned child loops
 - completed results
 - blockers or late conditions
 - next planned actions

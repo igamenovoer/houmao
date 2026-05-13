@@ -22,7 +22,7 @@ Use this reference when the user agent is ready to write one durable `start-char
 ## Charter Page Template
 
 ```text
-You are the master for pairwise loop run `<run_id>`.
+You are the master for tree loop run `<run_id>`.
 
 Plan reference:
 - type: <single-file | bundle>
@@ -36,10 +36,10 @@ Control-plane contract:
 
 Execution model:
 - Use the accepted plan for composed topology, recursive child-control edges, completion, stop, reporting, and lifecycle posture.
-- Use the Houmao elemental pairwise edge-loop pattern for each immediate driver-worker delegation edge.
+- Use the Houmao elemental local-close edge loop pattern for each immediate driver-worker delegation edge.
 - Every delegation edge must close back to its immediate driver.
 - Child results must not bypass the immediate driver.
-- Advise all agents to use email/mailbox as the default job communication channel for in-loop pairwise edge requests, receipts, and results.
+- Advise all agents to use email/mailbox as the default job communication channel for in-loop local-close edge requests, receipts, and results.
 
 Delegation policy:
 <normalized policy from references/delegation-policy.md>
@@ -56,7 +56,7 @@ Prestart posture:
 - graph artifact: <none | NetworkX node-link graph path>
 - packet JSON artifact: <none | packet JSON path>
 - root routing packet: <inline packet text or exact packet reference>
-- child packet forwarding rule: append prepared child packets verbatim to pairwise edge request email; do not edit, merge, or summarize unless the plan explicitly permits it
+- child packet forwarding rule: append prepared child packets verbatim to local-close edge request email; do not edit, merge, or summarize unless the plan explicitly permits it
 - mismatch rule: stop downstream dispatch and report when a child packet is missing, has the wrong recipient, or has a stale plan revision or digest
 - in-loop job communication: <email/mailbox default | explicit override>
 
@@ -73,7 +73,7 @@ Reporting contract:
 ## Compact Start Trigger Template
 
 ```text
-You are the master for pairwise loop run `<run_id>`.
+You are the master for tree loop run `<run_id>`.
 
 Read the durable start-charter page at `pages/<relative-page>`.
 Use that page plus the accepted plan as the control-plane contract for this run.
@@ -86,7 +86,7 @@ Reply with exactly one of:
 ## Recovery Continuation Page Template
 
 ```text
-You are continuing pairwise loop run `<run_id>` after restart recovery.
+You are continuing tree loop run `<run_id>` after restart recovery.
 
 Recovery posture:
 - recovery epoch: <epoch number>
@@ -109,7 +109,7 @@ Execution model:
 ## Compact Recover-And-Continue Trigger Template
 
 ```text
-You are the master for recovered pairwise loop run `<run_id>`.
+You are the master for recovered tree loop run `<run_id>`.
 
 Read the durable recovery page at `pages/<relative-page>`.
 Use that page plus the accepted plan as the continuation contract for this run.

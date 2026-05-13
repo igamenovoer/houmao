@@ -1,6 +1,6 @@
-# Pause A Pairwise Loop Run
+# Pause A Tree Loop Run
 
-Use this page when the user wants to intentionally stall one running pairwise loop without terminating it.
+Use this page when the user wants to intentionally stall one running tree loop without terminating it.
 
 ## Workflow
 

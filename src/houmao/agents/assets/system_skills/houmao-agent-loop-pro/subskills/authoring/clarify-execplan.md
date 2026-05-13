@@ -47,7 +47,7 @@ Build an internal coverage map before asking. Use these execplan implementation 
 
 - intent boundary: whether the gap belongs to `clarify-intent` rather than generated implementation;
 - objective-derived parameters: thresholds, assumptions, hidden variables, constraints, evidence requirements, stop conditions, and generated values that can change objective meaning;
-- topology mode, cycle posture, pairwise normalization, route graph shape, terminal ownership, and result-routing posture;
+- topology mode, cycle posture, tree-loop normalization, route graph shape, terminal ownership, and result-routing posture;
 - process phases, events, handoffs, ticks, terminal posture, repeat-visit rules, and recovery posture;
 - mail schemas, schema-id event types, renderers, metadata headers, reply links, acknowledgement, result, error, and freeform families;
 - predecessor context selected for generic routes, including explicit no-context-needed omissions;
@@ -66,7 +66,7 @@ Question priority:
 
 1. Redirect missing or contradictory source intent to `clarify-intent`; do not patch around it in generated artifacts.
 2. Resolve objective-derived parameter ambiguity: generated thresholds, assumptions, hidden variables, constraints, evidence requirements, stop conditions, or config values that can change objective meaning.
-3. Resolve topology authority: selected mode, pairwise-tree normalization, generic-graph cycle bounds, dedupe keys, repeat-visit rules, and result-routing policy must be explicit.
+3. Resolve topology authority: selected mode, tree-loop normalization, generic-loop cycle bounds, dedupe keys, repeat-visit rules, and result-routing policy must be explicit.
 4. Resolve process authority consistency: phases, ownership, event/tick advancement, terminal posture, and recovery posture must derive from `specs/collab/collab-overview.md`.
 5. Resolve communication completeness and correctness: generated mail must include enough context, artifact refs, paths, git branch or commit ids, requested action, and reply or forward expectations for downstream agents to act.
 6. Resolve task-specific predecessor context: generic routes must carry selected upstream refs or summaries when needed, and explicit omissions must be justified.
@@ -92,9 +92,9 @@ Ask only about generated implementation choices that are:
 Good execplan questions confirm implementation details, for example:
 
 - Which generated objective parameter decides whether a result is accepted?
-- Does the generated topology contract correctly select `pairwise-tree` or `generic-graph`?
-- If a pairwise cycle was normalized, which existing participant is recorded as the relay or cycle breaker?
-- What dedupe key and termination condition bound this generic-graph cycle?
+- Does the generated topology contract correctly select `tree-loop` or `generic-loop`?
+- If a tree-loop cycle was normalized, which existing participant is recorded as the relay or cycle breaker?
+- What dedupe key and termination condition bound this generic-loop cycle?
 - What branch, commit, path, or artifact ref must a work-complete mail include?
 - Which selected predecessor refs or summaries must this generic handoff carry?
 - Which `schema_id` should trigger this role's generated on-event skill?

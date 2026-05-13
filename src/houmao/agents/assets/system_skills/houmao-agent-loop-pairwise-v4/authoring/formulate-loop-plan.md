@@ -1,4 +1,4 @@
-# Formulate A Pairwise Loop Plan
+# Formulate A Tree Loop Plan
 
 Use this page when the user has described a goal, but the designated master still needs one explicit pairwise-v4 plan rather than loose natural-language instructions.
 
@@ -60,7 +60,7 @@ Write the generated plan under the selected output directory:
    - optional timeout-watch policy
    - scripts, if any
 5. If any materially important field is missing, ask for exactly that field instead of improvising it. When a strict template field is required but the value is intentionally unresolved at authoring time, write `UNRESOLVED - <reason>` in that field.
-6. Break the work into pairwise local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
+6. Break the work into local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
 7. When the topology is represented as NetworkX node-link JSON, use `houmao-mgr internals graph high` as the first-class structural preflight before authoring packets:
    - `houmao-mgr internals graph high analyze --input <graph.json>`
    - `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants`
@@ -90,10 +90,10 @@ Write the generated plan under the selected output directory:
 14. Author routing packets at plan time:
    - when a node-link graph is available, use `houmao-mgr internals graph high packet-expectations --input <graph.json>` after `analyze` and any needed `slice` calls to derive the root packet, child packet, and non-leaf dispatch-table expectations
    - produce one root packet for the designated master
-   - produce one child packet for each parent-to-child pairwise edge
+   - produce one child packet for each parent-to-child local-close edge
    - include packet id, run id placeholder, plan id and revision or digest, intended recipient, immediate driver, local role and objective, allowed delegation targets, result-return contract, obligations, forbidden actions, and timeout-watch posture when used
    - for every non-leaf recipient, include a child dispatch table and either exact child packet text or exact references to the child packet text that it may forward
-   - instruct runtime drivers to append child packets verbatim to pairwise edge request email, without editing, merging, or summarizing them unless the plan explicitly permits that transformation
+   - instruct runtime drivers to append child packets verbatim to local-close edge request email, without editing, merging, or summarizing them unless the plan explicitly permits that transformation
    - fail closed when a child packet is missing, names a different recipient, or carries a stale plan revision or digest
 15. Define the durable initialize and communication posture:
    - default `initialize` validates routing packets and writes run-owned participant memo blocks under exact sentinels
@@ -102,7 +102,7 @@ Write the generated plan under the selected output directory:
    - default `initialize` verifies or enables gateway mail-notifier behavior for every required mail-driven participant with supported live gateway and mailbox surfaces
    - ordinary `start` sends the kickoff through mail by default and uses direct prompt delivery only when the user explicitly requests it
    - gateway mail-notifier interval is `5s` unless the user specifies otherwise
-   - advise all agents to use the email system for in-loop job communication by default, including pairwise edge requests, receipts, and results
+   - advise all agents to use the email system for in-loop job communication by default, including local-close edge requests, receipts, and results
 16. Render the final graph through `authoring/render-loop-graph.md`.
 17. Produce a master initialize-memo summary plus compact start-trigger summary through `references/run-charter.md`.
 18. Write `constraint-coverage-audit.md` with `document-templates/constraint-coverage-audit.md` when the plan was generated from rich task notes, user-provided documents with policy-bearing verb patterns, or referenced rulebooks.
@@ -126,7 +126,7 @@ Write the generated plan under the selected output directory:
 - Keep authored template files distinct from mutable artifacts written later into declared bookkeeping paths.
 - Keep canonical operator actions distinct from observed state names.
 - Keep `plan.md` as the canonical plan entrypoint inside the selected output directory for both single-file and bundle forms.
-- Use one root `run_id` for the run contract and keep pairwise `edge_loop_id` values as execution-local identifiers owned by the master and workers.
+- Use one root `run_id` for the run contract and keep local-close `edge_loop_id` values as execution-local identifiers owned by the master and workers.
 - Preserve delegation restrictions when the user names a limited downstream set.
 - Treat `houmao-mgr internals graph high` output as structural evidence only.
 - Keep `initialize` separate from the master trigger.

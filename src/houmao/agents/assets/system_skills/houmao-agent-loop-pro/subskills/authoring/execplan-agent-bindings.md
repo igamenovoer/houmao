@@ -72,8 +72,8 @@ README rules:
 4. Keep concrete agent bindings separate from participant role templates and role instances.
 5. For mail-driven participants, bind notifier prompt instructions that tell the agent to inspect in-body `schema_id`, process mail through the matching generated on-event skill, and run any required on-tick skill after mail processing in default `auto` mode.
 6. Include topology-mode instructions when generated skills need them:
-  - `pairwise-tree`: reply to immediate upstream for normal results;
-  - `generic-graph`: preserve selected predecessor context when the generated contract requires forwarding or replying with it.
+  - `tree-loop`: reply to immediate upstream for normal results;
+  - `generic-loop`: preserve selected predecessor context when the generated contract requires forwarding or replying with it.
 7. When manual operation is supported, ensure participant prompts or installed tick skills tell agents to query harness control context and perform one operator-prompted bounded pass in `manual` mode.
 8. Ensure generated bindings install the role's mode-aware on-tick skill and any shared harness-usage skill it needs.
 9. Ensure generated bindings install mail, gateway, messaging, inspection, memory, workspace, or lifecycle support skills only when the participant actually needs them.

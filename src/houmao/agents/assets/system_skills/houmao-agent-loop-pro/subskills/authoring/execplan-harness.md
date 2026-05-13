@@ -103,20 +103,21 @@ Rules:
 - participant agents use harness commands, not raw SQL or ad hoc state-file edits;
 - direct state edits are operator repair only, require the loop to be paused, and must be followed by `state validate`;
 - read-only query output should be enough for agents to know busy participants, idle participants, active handoffs, assignable work, blockers, and completion posture.
-- for generic-graph loops, state validation should cover compact lineage, visited node or edge facts, cycle iterations, active ownership, and message refs when those contracts exist.
+- for generic-loop loops, state validation should cover compact lineage, visited node or edge facts, cycle iterations, active ownership, and message refs when those contracts exist.
 
 ## Topology And Context Commands
 
 Generate these surfaces when topology or selected-context contracts exist:
 
-- `topology validate`: validate selected topology mode, route graph shape, cycle posture, local-close pairwise rules, and generic cycle-control requirements.
+- `topology validate`: validate selected topology mode, route graph shape, cycle posture, local-close tree-loop rules, generic cycle-control requirements, and legacy mode aliases.
 - `topology query`: expose mode, participants, routes, cycle facts, result routing, and terminal or operator exceptions.
 - `context validate`: validate selected predecessor-context payload fields for generic routes.
 - `context query`: return route-specific context requirements, explicit omission notes, and readable source paths.
 
 Rules:
-- reject direct `pairwise-tree` participant cycles unless the topology contract records an accepted normalization that produces a tree or forest;
-- reject `generic-graph` cycles without explicit termination, dedupe, and repeat-visit posture;
+- reject direct `tree-loop` participant cycles unless the topology contract records an accepted normalization that produces a tree or forest;
+- reject `generic-loop` cycles without explicit termination, dedupe, and repeat-visit posture;
+- accept legacy topology values as aliases when reading existing generated material: `pairwise-tree`, `pairwise-loop`, `pairwise`, `generic-graph`, and `generic graph`;
 - validate only the predecessor-context fields selected by generated contracts;
 - accept explicit no-context-needed omissions when they are recorded;
 - keep full mail bodies out of topology and context state unless an accepted contract defines a durable artifact ref.

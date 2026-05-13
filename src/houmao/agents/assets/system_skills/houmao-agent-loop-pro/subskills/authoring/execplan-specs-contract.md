@@ -100,13 +100,14 @@ Use these canonical paths when the corresponding concern exists:
   - `topology.toml` records the selected mode, participant nodes, routes, local-close or generic routing policy, cycle posture, and validation expectations;
   - `graph.md` explains the topology in readable form and includes a Mermaid diagram when useful;
   - `context-posture.toml` is emitted for generic routes when predecessor-context choices need machine-readable validation.
-7. For `pairwise-tree`, record local-close immediate-upstream result return and any accepted cycle normalization through an existing participant.
-8. For `generic-graph`, record route-level reply or forward policy, termination, dedupe or repeat-visit rules, and selected predecessor-context posture.
-9. For mail-driven loops, derive notifier prompt contracts from the process model, including schema-id event dispatch, which on-event skill handles each received message family, and which on-tick skill runs after mail when required.
-10. For controllable loops, derive run lifecycle state, execution mode, operator intent events, mode-switch rules, and notifier-posture expectations.
-11. When managed workspaces are needed, generate workspace-manager inputs under `execplan/specs/workspace/workspace.toml`.
-12. Generate task-specific records only when intention or process specs introduce them.
-13. Record explicit omissions for irrelevant default layers.
+7. For `tree-loop`, record local-close immediate-upstream result return and any accepted cycle normalization through an existing participant.
+8. For `generic-loop`, record route-level reply or forward policy, termination, dedupe or repeat-visit rules, and selected predecessor-context posture.
+9. Generate new topology values as `tree-loop` or `generic-loop`; when updating existing material, accept `pairwise-tree`, `pairwise-loop`, `pairwise`, `generic-graph`, and `generic graph` as aliases.
+10. For mail-driven loops, derive notifier prompt contracts from the process model, including schema-id event dispatch, which on-event skill handles each received message family, and which on-tick skill runs after mail when required.
+11. For controllable loops, derive run lifecycle state, execution mode, operator intent events, mode-switch rules, and notifier-posture expectations.
+12. When managed workspaces are needed, generate workspace-manager inputs under `execplan/specs/workspace/workspace.toml`.
+13. Generate task-specific records only when intention or process specs introduce them.
+14. Record explicit omissions for irrelevant default layers.
 
 ## Communication Contracts
 
@@ -132,7 +133,7 @@ Generated schemas include validation-visible fields for:
 - `plan_revision`;
 - payload, handoff, exchange, route, reply, result, work-item, sender, or receiver identifiers when the mail family needs them.
 
-For `generic-graph` handoffs, include selected predecessor fields only when the execplan chooses them:
+For `generic-loop` handoffs, include selected predecessor fields only when the execplan chooses them:
 - predecessor or ancestor mail refs;
 - artifact, branch, commit, state, or evidence refs;
 - required context keys;
@@ -193,7 +194,7 @@ Consider these generic entity families and emit only the subset the loop needs:
 - `operator_intent_events`
 - `events`
 
-For `generic-graph` loops with cycles or repeat visits, include compact facts for:
+For `generic-loop` loops with cycles or repeat visits, include compact facts for:
 - lineage ids or parent refs;
 - visited node or edge facts;
 - cycle iteration counts;

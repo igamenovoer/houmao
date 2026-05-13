@@ -30,16 +30,16 @@ Use these defaults unless intention source or accepted clarification decisions c
 ## Topology And Routing Defaults
 
 - Generated execplans record one topology mode when participant routes are non-trivial:
-  - `pairwise-tree`: local-close tree or forest execution; normal results reply to immediate upstream.
-  - `generic-graph`: directed routes may be non-tree or cyclic when context, dedupe, termination, and result routing are explicit.
+  - `tree-loop`: local-close tree or forest execution; normal results reply to immediate upstream.
+  - `generic-loop`: directed routes may be non-tree or cyclic when context, dedupe, termination, and result routing are explicit.
 - Store machine-readable topology contracts under `specs/collab/topology/` when validation or harness lookup needs them.
-- `pairwise-tree` direct participant cycles are invalid unless an accepted normalization chooses an existing participant as relay, root, aggregator, or cycle breaker and records the resulting tree or forest.
-- `generic-graph` cycles define termination, dedupe or repeat-visit posture, active ownership, and result routing before runtime artifacts are generated.
+- `tree-loop` direct participant cycles are invalid unless an accepted normalization chooses an existing participant as relay, root, aggregator, or cycle breaker and records the resulting tree or forest.
+- `generic-loop` cycles define termination, dedupe or repeat-visit posture, active ownership, and result routing before runtime artifacts are generated.
 - Do not require a master, lead, coordinator, or root owner unless intention source or accepted clarification decisions choose one.
 
 ## Predecessor Context Defaults
 
-- Generic-graph routes consider predecessor-context needs route by route or message family by message family.
+- Generic-loop routes consider predecessor-context needs route by route or message family by message family.
 - Carry selected upstream refs, summaries, artifacts, branch or commit refs, state refs, evidence refs, or current-hop deltas only when the generated process says the receiver needs them.
 - If no predecessor context is needed, record explicit omission when the route is non-obvious.
 - Do not force a fixed context bundle across every generic route.
@@ -138,11 +138,13 @@ Consider generic families such as:
 - artifacts;
 - operator intent events;
 - generic events.
-- generic-graph lineage and visited node or edge facts when cycles or repeat visits exist;
+- generic-loop lineage and visited node or edge facts when cycles or repeat visits exist;
 - cycle iteration counts and active ownership when generic loops need them.
 
 ## Generated TOML
 
+- New generated topology TOML uses `tree-loop` or `generic-loop` as the mode value.
+- Validation accepts legacy mode aliases recorded by older artifacts: `pairwise-tree`, `pairwise-loop`, `pairwise`, `generic-graph`, and `generic graph`.
 - Generated TOML sections have plain human-readable comments above each section or table-array header.
 - Agent-facing or harness-facing TOML records include concise `description` fields.
 - `description` fields, not comments, are the source for harness `--explain`.

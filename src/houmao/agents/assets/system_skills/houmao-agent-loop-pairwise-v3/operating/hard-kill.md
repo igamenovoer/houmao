@@ -1,6 +1,6 @@
-# Hard-Kill A Pairwise Loop Run
+# Hard-Kill A Tree Loop Run
 
-Use this page when the user wants an emergency operator override that forcefully halts one accepted pairwise loop and clears participant wakeups or open mailbox backlog.
+Use this page when the user wants an emergency operator override that forcefully halts one accepted tree loop and clears participant wakeups or open mailbox backlog.
 
 ## Workflow
 

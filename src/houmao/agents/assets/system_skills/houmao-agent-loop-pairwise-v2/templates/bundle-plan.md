@@ -1,4 +1,4 @@
-# Bundle Pairwise Loop Plan Template
+# Bundle Tree Loop Plan Template
 
 Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint. Ask for the output directory if it is not already known, then write the bundle there.
 
@@ -95,7 +95,7 @@ Record:
 - validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
 - preparation-mail procedure for targeted preparation recipients when `operator_preparation_wave` is selected
 - operator reply policy for preparation mail: `none` for default `fire_and_proceed`, or `operator_mailbox` for explicit `require_ack`
-- in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
+- in-loop job communication posture: advise all agents to use email/mailbox for local-close edge requests, receipts, and results by default
 - initialization state transitions: `initializing`, `awaiting_ack`, `ready`
 - readiness behavior for the selected strategy
 - how the master trigger remains separate from `initialize`

@@ -1,6 +1,6 @@
-# Recover And Continue A Pairwise Loop Run
+# Recover And Continue A Tree Loop Run
 
-Use this page when the user wants to restore one accepted pairwise loop after one or more participants were stopped, killed, or relaunched and the same logical `run_id` should continue.
+Use this page when the user wants to restore one accepted tree loop after one or more participants were stopped, killed, or relaunched and the same logical `run_id` should continue.
 
 ## Inputs
 

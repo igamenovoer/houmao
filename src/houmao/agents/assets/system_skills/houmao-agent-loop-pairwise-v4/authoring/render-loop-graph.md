@@ -10,7 +10,7 @@ At minimum, the top-level graph must show:
 
 - the user agent outside the execution loop
 - the designated master as the root run owner
-- the pairwise immediate-control edges between drivers and workers
+- the local-close immediate-control edges between drivers and workers
 - where the supervision loop lives
 - where the completion condition is evaluated
 - where the stop condition is evaluated

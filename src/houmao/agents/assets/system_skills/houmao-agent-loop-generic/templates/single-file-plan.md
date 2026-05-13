@@ -1,4 +1,4 @@
-# Single-File Generic Loop Graph Plan Template
+# Single-File Generic Loop Plan Template
 
 ````md
 ---
@@ -26,11 +26,11 @@ default_stop_mode: interrupt-first
 
 # Loop Components
 - `component_id`: <component-id>
-  `component_type`: <pairwise | relay>
+  `component_type`: <pairwise local-close alias | relay>
   `participants`: <agents>
   `root/driver/origin`: <agent>
   `downstream target or lane order`: <agent or ordered list>
-  `elemental protocol`: <pairwise edge-loop | relay-loop>
+  `elemental protocol`: <local-close edge loop | relay-loop>
   `result routing`: <worker -> driver | egress -> origin>
 
 # Component Dependencies
@@ -60,12 +60,12 @@ default_stop_mode: interrupt-first
   `side effects`: <side effects>
   `failure behavior`: <what failure means>
 
-# Mermaid Generic Loop Graph
+# Mermaid Generic Loop
 ```mermaid
 flowchart TD
     UA[User Agent<br/>control only]
     M[Master<br/>root run owner]
-    C1[Pairwise c1<br/>driver: Master<br/>worker: Agent A]
+    C1[Local-close c1<br/>pairwise alias<br/>driver: Master<br/>worker: Agent A]
     A[Agent A]
     C2[Relay c2<br/>origin: Master]
     I[Ingress Agent]
@@ -77,7 +77,7 @@ flowchart TD
     UA -->|start| M
     UA -.->|status| M
     UA ==> |stop| M
-    M -->|pairwise c1| A
+    M -->|local-close c1| A
     A -->|result c1| M
     M -->|relay c2 h1| I
     I -->|relay c2 h2| E

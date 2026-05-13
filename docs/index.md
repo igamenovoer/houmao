@@ -79,4 +79,4 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 ## Examples
 
-- [Writer Team](../examples/writer-team/): A complete pairwise loop example — three agents (story-writer, character-designer, reviewer) collaborating on a multi-chapter story. Contains role prompts, a pairwise loop plan, start charter, and local setup commands.
+- [Writer Team](../examples/writer-team/): A complete tree loop example — three agents (story-writer, character-designer, reviewer) collaborating on a multi-chapter story. Contains role prompts, a tree loop plan, start charter, and local setup commands.

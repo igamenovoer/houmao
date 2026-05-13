@@ -60,7 +60,7 @@ Record accepted generation decisions under:
 
 Ask only when a decision materially affects generated artifacts and cannot be derived from intention source, accepted intention ADRs, existing execplan ADRs, or documented defaults:
 - which optional execplan layers should be generated or explicitly omitted;
-- topology mode, pairwise cycle normalization, generic cycle control, and result-routing posture when source intent leaves them open;
+- topology mode, tree-loop cycle normalization, generic cycle control, and result-routing posture when source intent leaves them open;
 - generic predecessor-context choices when a downstream participant may need selected upstream refs or summaries;
 - participant instance naming and generated skill naming when collisions or ambiguity are likely;
 - message family names, request/reply links, or renderer section choices not clear from intention source;

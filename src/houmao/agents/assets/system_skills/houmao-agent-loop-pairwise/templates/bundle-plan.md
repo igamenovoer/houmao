@@ -1,4 +1,4 @@
-# Bundle Pairwise Loop Plan Template
+# Bundle Tree Loop Plan Template
 
 Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint.
 

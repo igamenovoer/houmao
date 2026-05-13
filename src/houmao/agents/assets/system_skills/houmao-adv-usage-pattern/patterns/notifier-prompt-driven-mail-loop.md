@@ -18,7 +18,7 @@ Use `houmao-process-emails-via-gateway` directly when the task is only one notif
 
 Use `houmao-agent-email-comms` directly when the task is only one ordinary list, read, send, reply, mark, move, or archive action.
 
-Use `houmao-agent-loop-generic` or the selected pairwise loop-planning skill when the user needs topology authoring, graph decomposition, generated execplans, or run control.
+Use `houmao-agent-loop-generic` or the selected tree loop planning skill when the user needs topology authoring, graph decomposition, generated execplans, or run control.
 
 ## Runtime Model
 

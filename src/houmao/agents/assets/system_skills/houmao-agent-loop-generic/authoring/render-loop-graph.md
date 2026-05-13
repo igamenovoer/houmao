@@ -1,4 +1,4 @@
-# Render The Final Generic Loop Graph
+# Render The Final Generic Loop
 
 Use this page when the authored plan needs the final Mermaid graph that shows typed loop components, result-return paths, where the loop supervision lives, and where stop and completion are checked.
 
@@ -11,7 +11,7 @@ At minimum, the top-level graph must show:
 - the user agent outside the execution loop
 - the designated master or root run owner
 - every typed loop component
-- pairwise immediate-control edges and their local-close result return to the immediate driver
+- local-close immediate-control edges and their local-close result return to the immediate driver
 - relay lane handoff edges and their final-result return from egress to relay origin
 - component dependencies or ordering constraints
 - where the supervision loop lives
@@ -23,7 +23,7 @@ At minimum, the top-level graph must show:
 - Draw the user agent as control-only unless the plan explicitly makes a managed user-controlled agent an execution participant.
 - When a NetworkX node-link graph is available, use `houmao-mgr internals graph high render-mermaid --input <graph.json>` as deterministic Mermaid scaffolding, then review and revise it against the semantic requirements below before treating it as final.
 - Label each component with `component_id` and `component_type`.
-- Draw pairwise component execution as driver-to-worker request and worker-to-driver result.
+- Draw local-close component execution as driver-to-worker request and worker-to-driver result.
 - Draw relay component execution as ordered forward handoffs plus final egress-to-origin result.
 - Draw component dependencies with dashed or labeled dependency edges rather than as implicit worker cycles.
 - Draw the supervision loop as a review cycle owned by the root owner, not as a worker-to-worker cycle.
@@ -40,7 +40,7 @@ flowchart TD
     Done[Completion Condition<br/>user-defined]
     Stop[Stop Condition<br/>interrupt-first default]
 
-    A[Pairwise c1<br/>driver: Master<br/>worker: Agent A]
+    A[Local-close c1<br/>pairwise alias<br/>driver: Master<br/>worker: Agent A]
     B[Agent A]
     R[Relay c2<br/>origin: Master]
     I[Ingress Agent]
@@ -50,7 +50,7 @@ flowchart TD
     UA -.->|status| M
     UA ==> |stop| M
 
-    M -->|pairwise request c1| A
+    M -->|local-close request c1| A
     A -->|result c1<br/>local-close| M
 
     M -->|relay handoff c2 h1| I

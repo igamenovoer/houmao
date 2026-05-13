@@ -1,6 +1,6 @@
-# Peek A Pairwise Loop Run
+# Peek A Tree Loop Run
 
-Use this page when the user wants canonical read-only inspection of one pairwise loop run through `peek master`, `peek all`, or `peek <agent-name>`.
+Use this page when the user wants canonical read-only inspection of one tree loop run through `peek master`, `peek all`, or `peek <agent-name>`.
 
 ## Workflow
 

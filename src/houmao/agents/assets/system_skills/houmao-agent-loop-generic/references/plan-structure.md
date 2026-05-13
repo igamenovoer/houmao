@@ -20,7 +20,7 @@ Minimum sections:
 - Stop Policy
 - Reporting Contract
 - Script Inventory, when scripts exist
-- Mermaid Generic Loop Graph
+- Mermaid Generic Loop
 
 ## Bundle Form
 
@@ -82,5 +82,5 @@ For each script, record:
 
 - Do not leave the bundle form without `plan.md`.
 - Do not hide plan-critical component policy only inside an unreferenced support file.
-- Do not omit the Mermaid generic loop graph from the canonical plan surface.
+- Do not omit the Mermaid generic loop from the canonical plan surface.
 - Do not treat graph-tool output as permission to omit semantic review of graph policy, result routing, component types, stop semantics, or completion semantics.

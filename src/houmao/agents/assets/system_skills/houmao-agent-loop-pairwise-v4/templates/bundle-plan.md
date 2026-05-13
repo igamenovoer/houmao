@@ -1,4 +1,4 @@
-# Bundle Pairwise Loop Plan Template
+# Bundle Tree Loop Plan Template
 
 Use this form when the run needs supporting Markdown files or scripts but still needs one canonical entrypoint. Ask for the output directory if it is not already known, then write the bundle there.
 
@@ -188,7 +188,7 @@ Record:
 - routing packet validation procedure, root packet location, packet inventory, and child dispatch-table expectations
 - validation fallback when graph or packet JSON artifacts are unavailable: visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers checked manually
 - generated template inventory or `templates/README.md` reference when reusable templates are part of the run contract
-- in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
+- in-loop job communication posture: advise all agents to use email/mailbox for local-close edge requests, receipts, and results by default
 - initialization state transitions: `initializing`, `ready`
 - readiness behavior for routing-packet validation, participant launch, email/mailbox verification, notifier setup, and memo materialization
 - how the master trigger remains separate from `initialize` and tells the master to read its memo and start

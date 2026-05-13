@@ -1,4 +1,4 @@
-# Initialize A Pairwise Loop Run
+# Initialize A Tree Loop Run
 
 Use this page when the user already has one authored pairwise-v4 plan and needs the canonical `initialize` action before the master trigger.
 
@@ -33,7 +33,7 @@ Before starting, confirm the plan defines:
    - when a node-link graph and packet JSON document are available, use `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` as the explicit deterministic structural check before entering `ready`
    - when graph or packet JSON artifacts are unavailable, manually verify visible topology, descendant relationships, packet inventory, child dispatch tables, and freshness markers before entering `ready`
    - one root packet exists for the designated master
-   - one child packet exists for every parent-to-child pairwise edge
+   - one child packet exists for every parent-to-child local-close edge
    - every packet has packet id, intended recipient, immediate driver, and plan revision or digest
    - every non-leaf packet has a child dispatch table and exact child packet text or exact child packet references
    - packet recipients and immediate drivers match the authored topology
@@ -75,8 +75,8 @@ Before starting, confirm the plan defines:
 Routing packets are the default structural control material for pairwise-v4 initialization.
 
 - The root packet is for the designated master and must be available to the designated master's initialize memo block.
-- Each child packet is for one immediate pairwise edge and must name the intended recipient, immediate driver, plan revision or digest, local role and objective, result-return contract, obligations, forbidden actions, and any child dispatch table.
-- Drivers later append child packets verbatim to pairwise edge request email.
+- Each child packet is for one immediate local-close edge and must name the intended recipient, immediate driver, plan revision or digest, local role and objective, result-return contract, obligations, forbidden actions, and any child dispatch table.
+- Drivers later append child packets verbatim to local-close edge request email.
 - If a packet is missing, mismatched, or stale, dispatch stops and the mismatch is reported instead of repaired from memory.
 
 When a node-link graph and packet JSON document are available, `houmao-mgr internals graph high validate-packets --graph <graph.json> --packets <packets.json>` is the explicit deterministic structural check before `ready`. A validation failure is an initialization blocker; do not treat it as permission for runtime participants to repair packets from memory.

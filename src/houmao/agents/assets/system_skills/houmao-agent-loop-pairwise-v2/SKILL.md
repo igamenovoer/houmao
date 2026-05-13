@@ -1,31 +1,38 @@
 ---
 name: houmao-agent-loop-pairwise-v2
-description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v2` to author one enriched pairwise loop plan in a user-selected output directory, run routing-packet-first `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill`.
+description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v2` to author one enriched tree loop plan in a user-selected output directory, run routing-packet-first `initialize`, or operate that run through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill`.
 license: MIT
 ---
 
-# Houmao Agent Loop Pairwise V2
+# Houmao Agent Loop Tree V2
+
+## Terminology
+
+- This pairwise-named package authors and operates enriched tree loops.
+- `pairwise loop` is a legacy alias for tree loop behavior.
+- Keep the package name, explicit invocation name, filenames, and existing runtime identifiers unchanged.
+- The elemental driver-worker protocol is a local-close edge loop.
 
 Use this Houmao skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v2`.
 
 Use this skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v2`.
 
-This is the manual, enriched pairwise-loop skill. It owns:
+This is the manual, enriched tree loop skill. It owns:
 - pairwise-v2 plan authoring
 - prestart preparation
 - run-control actions after the plan is accepted
 
-It does not replace the stable `houmao-agent-loop-pairwise` skill, and it is not the default route for generic pairwise-loop requests.
+It does not replace the stable `houmao-agent-loop-pairwise` skill, and it is not the default route for ordinary tree-loop requests.
 
 ## Quick Use
 
 Use this skill when the user needs one of these:
-- `plan`: create or revise an enriched pairwise loop plan
+- `plan`: create or revise an enriched tree loop plan
 - `initialize`: validate routing packets and prepare durable per-agent run material
 - `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill`: operate an accepted run
 
 Do not use this skill for:
-- generic pairwise-loop requests when the user did not name `houmao-agent-loop-pairwise-v2`
+- ordinary tree-loop requests when the user did not name `houmao-agent-loop-pairwise-v2`
 - making the user agent part of the execution loop
 - inventing free delegation when the plan is silent
 - replacing `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-adv-usage-pattern`
@@ -81,7 +88,7 @@ Observed states:
 2. If the request is `plan` and no output directory is known, ask for the output directory before drafting or revising files.
 3. Keep the planes separate:
    - control plane: user agent -> designated master
-   - execution plane: master -> downstream workers through pairwise edges
+   - execution plane: master -> downstream workers through local-close edges
 4. Choose one lane:
    - authoring: `authoring/formulate-loop-plan.md`, `authoring/revise-loop-plan.md`, `authoring/render-loop-graph.md`
    - prestart: `prestart/prepare-run.md`
@@ -160,7 +167,7 @@ Memory and plan material:
 Messaging and mail:
 - Route `start`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and participant interrupts within `hard-kill` to `houmao-agent-messaging`.
 - Route explicit `operator_preparation_wave` mail-notifier enablement, declarative notifier restoration during `recover_and_continue`, and `hard-kill` notifier shutdown to `houmao-agent-gateway`.
-- Route explicit `operator_preparation_wave` preparation mail, in-loop pairwise email traffic, and `hard-kill` mail archiving to `houmao-agent-email-comms`.
+- Route explicit `operator_preparation_wave` preparation mail, in-loop local-close email traffic, and `hard-kill` mail archiving to `houmao-agent-email-comms`.
 - Route operator-mailbox acknowledgement review to `houmao-mailbox-mgr`.
 
 Inspection and structure:
@@ -178,7 +185,7 @@ Execution composition:
 ## Guardrails
 
 Activation:
-- Do not auto-route generic pairwise loop planning or pairwise run-control requests here when the user did not explicitly ask for `houmao-agent-loop-pairwise-v2`.
+- Do not auto-route ordinary tree loop planning or tree loop run-control requests here when the user did not explicitly ask for `houmao-agent-loop-pairwise-v2`.
 - Do not make the user agent the upstream driver of the execution loop.
 - Do not allow free delegation unless the plan says so explicitly.
 
@@ -208,7 +215,7 @@ Control semantics:
 - Do not treat `hard-kill` as a synonym for canonical `stop`.
 - Do not use ordinary `recover_and_continue` after a terminal `hard-kill`.
 - Do not describe `dead` as an operator action.
-- Do not describe the final graph as an arbitrary agent-to-agent cycle when the real topology is pairwise local-close control plus a supervision loop.
+- Do not describe the final graph as an arbitrary agent-to-agent cycle when the real topology is tree loop local-close control plus a supervision loop.
 - Do not leave mail-notifier polling or live reminders active after a `hard-kill`.
 - Do not limit `hard-kill` mailbox cleanup to loop-related mail; it intentionally archives every open inbox message for the named participants.
 - Do not store mutable recovery ledgers inside the authored plan bundle or inside participant memo pages.

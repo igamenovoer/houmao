@@ -115,7 +115,7 @@ Every plan using explicit `operator_preparation_wave` should record:
 - acknowledgement posture: `fire_and_proceed` by default, or explicit `require_ack`
 - operator reply policy: `none` for `fire_and_proceed`, or `operator_mailbox` for `require_ack`
 - durable initialize page and memo reference-block posture for the preparation recipients
-- in-loop job communication posture: advise all agents to use email/mailbox for pairwise edge requests, receipts, and results by default
+- in-loop job communication posture: advise all agents to use email/mailbox for local-close edge requests, receipts, and results by default
 - fallback behavior for participants whose live gateway or mailbox binding does not support notifier polling
 
 ## Routing Packets
@@ -124,7 +124,7 @@ Every plan using routing packets should record:
 - root routing packet location for the designated master
 - NetworkX node-link graph artifact location when machine-readable topology is available
 - packet JSON document location when machine-readable packet validation is available
-- routing packet inventory for every parent-to-child pairwise edge
+- routing packet inventory for every parent-to-child local-close edge
 - plan id plus plan revision, digest, or equivalent freshness marker used by every packet
 - intended recipient and immediate driver for every packet
 - local role, local objective, resources, delegation authority, and forbidden actions for every packet recipient
@@ -132,7 +132,7 @@ Every plan using routing packets should record:
 - mailbox, reminder, receipt, result, or timeout-watch obligations
 - child dispatch table for each non-leaf packet
 - exact child packet text or exact references to child packet text for every child a non-leaf recipient may contact
-- forwarding guardrails: append child packets verbatim to pairwise edge request email, do not edit/merge/summarize packets unless the plan explicitly permits it, and fail closed on missing, mismatched, or stale packets
+- forwarding guardrails: append child packets verbatim to local-close edge request email, do not edit/merge/summarize packets unless the plan explicitly permits it, and fail closed on missing, mismatched, or stale packets
 
 Routing packets should be prepared at authoring time so intermediate runtime agents do not need to infer descendants or recompute graph slices from the full plan.
 

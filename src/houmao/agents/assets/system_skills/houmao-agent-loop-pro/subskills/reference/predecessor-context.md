@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Use this page when generating or validating generic-graph communication.
+Use this page when generating or validating generic-loop communication.
 
 ## Core Rule
 
-Generic graph routes must consider predecessor-context needs, but they do not always carry upstream context.
+Generic loop routes must consider predecessor-context needs, but they do not always carry upstream context.
 
 For each non-trivial route or message family, decide whether the receiver needs:
 - only the current message;
@@ -34,6 +34,6 @@ When context is intentionally omitted:
 
 ## Rules
 
-- Do not require a fixed context bundle for every generic-graph mail family.
+- Do not require a fixed context bundle for every generic-loop mail family.
 - Do not make downstream agents guess which distant upstream mail, artifact, or state entry matters when the execplan says they need that context.
 - Store compact refs and lineage in state when needed; keep full prose, analysis, and rendered bodies in mail or artifacts.

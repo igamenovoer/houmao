@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Use this page when pairwise-style intent describes a non-tree closed loop.
+Use this page when tree-loop intent describes a non-tree closed loop.
 
-## Pairwise Rule
+## Tree-Loop Rule
 
-`pairwise-tree` mode does not execute direct closed participant cycles. It executes local-close handoff trees or forests.
+`tree-loop` mode does not execute direct closed participant cycles. It executes local-close handoff trees or forests.
 
 If source intent looks like:
 
@@ -15,8 +15,8 @@ A -> B -> C -> A
 ```
 
 either:
-- clarify whether the user actually wants `generic-graph`; or
-- normalize the pairwise execution into a tree or forest.
+- clarify whether the user actually wants `generic-loop`; or
+- normalize the tree-loop execution into a tree or forest.
 
 ## Normalization
 
@@ -37,6 +37,6 @@ C -> B -> A   # result returns upstream through local-close replies
 ## Validation
 
 Generated validation reports an error when:
-- `pairwise-tree` topology contains a direct participant cycle;
+- `tree-loop` topology contains a direct participant cycle;
 - no accepted normalization explains the resulting tree or forest;
 - a normal result bypasses immediate upstream without an explicit exception.

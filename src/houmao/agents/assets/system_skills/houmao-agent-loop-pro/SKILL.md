@@ -36,10 +36,10 @@ Detailed guidance lives behind routed pages. Read only the page selected by rout
 - [subskills/reference/clarification-protocol.md](subskills/reference/clarification-protocol.md): coverage scans, question limits, accepted-answer recording, and clarification summaries.
 - [subskills/reference/generated-contract-defaults.md](subskills/reference/generated-contract-defaults.md): generated execplan layout, README rules, bookkeeping, TOML style, and harness defaults.
 - [subskills/reference/generation-pipeline.md](subskills/reference/generation-pipeline.md): process-first stage order and update dependencies.
-- [subskills/reference/topology-modes.md](subskills/reference/topology-modes.md): `pairwise-tree` and `generic-graph` topology semantics.
+- [subskills/reference/topology-modes.md](subskills/reference/topology-modes.md): `tree-loop` and `generic-loop` topology semantics.
 - [subskills/reference/mail-schema-events.md](subskills/reference/mail-schema-events.md): schema-typed templated mail, in-body metadata headers, and schema-id event dispatch.
-- [subskills/reference/predecessor-context.md](subskills/reference/predecessor-context.md): task-specific generic-graph predecessor-context choices.
-- [subskills/reference/result-routing.md](subskills/reference/result-routing.md): pairwise-tree and generic-graph result routing defaults.
+- [subskills/reference/predecessor-context.md](subskills/reference/predecessor-context.md): task-specific generic-loop predecessor-context choices.
+- [subskills/reference/result-routing.md](subskills/reference/result-routing.md): tree-loop and generic-loop result routing defaults.
 - MUST READ for mail-driven loops: [subskills/reference/runtime-mail-model.md](subskills/reference/runtime-mail-model.md): notifier-driven mail turns, on-event skills, on-tick skills, and no in-chat waiting.
 - [subskills/reference/platform-boundaries.md](subskills/reference/platform-boundaries.md): maintained Houmao skill ownership for platform operations.
 

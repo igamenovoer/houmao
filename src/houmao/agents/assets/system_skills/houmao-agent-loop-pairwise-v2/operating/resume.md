@@ -1,6 +1,6 @@
-# Resume A Pairwise Loop Run
+# Resume A Tree Loop Run
 
-Use this page when the user wants to restore one previously paused pairwise loop.
+Use this page when the user wants to restore one previously paused tree loop.
 
 ## Workflow
 

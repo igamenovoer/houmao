@@ -8,23 +8,23 @@ For mailbox-driven loops, first understand the runtime model: agents are normall
 
 | Skill | Lifecycle verbs | Prestart model | Topology |
 |---|---|---|---|
-| `houmao-agent-loop-pairwise` | `start`, `status`, `stop` | None — send start charter directly | Pairwise edges only (master → named workers) |
-| `houmao-agent-loop-pairwise-v2` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets | Pairwise edges only — enriched lifecycle |
-| `houmao-agent-loop-pairwise-v3` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets plus an authored workspace contract | Pairwise edges only — enriched lifecycle plus workspace posture |
-| `houmao-agent-loop-pairwise-v4` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets plus authored workspace and strict generated document templates | Pairwise edges only — enriched lifecycle plus source-contract coverage |
-| `houmao-agent-loop-generic` | `start`, `status`, `stop` | None — send start charter directly | Mixed: pairwise + relay components in one graph |
+| `houmao-agent-loop-pairwise` | `start`, `status`, `stop` | None — send start charter directly | Tree-loop local-close edges only (master → named workers) |
+| `houmao-agent-loop-pairwise-v2` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets | Tree-loop local-close edges only — enriched lifecycle |
+| `houmao-agent-loop-pairwise-v3` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets plus an authored workspace contract | Tree-loop local-close edges only — enriched lifecycle plus workspace posture |
+| `houmao-agent-loop-pairwise-v4` | `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, `hard-kill` | Routing packets plus authored workspace and strict generated document templates | Tree-loop local-close edges only — enriched lifecycle plus source-contract coverage |
+| `houmao-agent-loop-generic` | `start`, `status`, `stop` | None — send start charter directly | Generic loop: local-close + relay components in one graph |
 
 **Use `houmao-agent-loop-pairwise`** when you want the simplest stable surface: author a plan, send a start charter to the master, poll status, and stop. No prestart ceremony.
 
-**Use `houmao-agent-loop-pairwise-v2`** when you need the enriched lifecycle: routing-packet-based initialization before start, mid-run peek and ping, pause-only `resume`, restart-aware `recover_and_continue`, or `hard-kill`. This is the right choice for complex or long-running pairwise runs where you want stronger runtime control and do not need the loop plan itself to own workspace posture.
+**Use `houmao-agent-loop-pairwise-v2`** when you need the enriched lifecycle: routing-packet-based initialization before start, mid-run peek and ping, pause-only `resume`, restart-aware `recover_and_continue`, or `hard-kill`. This is the right choice for complex or long-running tree-loop runs where you want stronger runtime control and do not need the loop plan itself to own workspace posture.
 
-**Use `houmao-agent-loop-pairwise-v3`** when you need the same enriched lifecycle as v2 and you also need the loop plan to declare where agents work and where they keep operator-visible bookkeeping. Pairwise-v3 is the workspace-aware extension of pairwise-v2.
+**Use `houmao-agent-loop-pairwise-v3`** when you need the same enriched lifecycle as v2 and you also need the loop plan to declare where agents work and where they keep operator-visible bookkeeping. This package is the workspace-aware extension of pairwise-v2.
 
-**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task or user-provided documents are rich enough that generated documents need strict templates. Pairwise-v4 keeps source-contract summaries, policy-bearing source rules, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
+**Use `houmao-agent-loop-pairwise-v4`** when you need v3 workspace-aware planning and the source task or user-provided documents are rich enough that generated documents need strict templates. This package keeps source-contract summaries, policy-bearing source rules, role-local agent notes, report/bookkeeping template schemas, and a constraint coverage audit visible in the generated bundle.
 
 **Use `houmao-agent-loop-generic`** when your communication graph has both pairwise components (immediate driver-worker local-close edges) and relay lanes (agent that receives from one side and forwards to another). Generic decomposes your intent into typed components and manages them in one graph.
 
-> **Runnable example:** The [`examples/writer-team/`](../../examples/writer-team/) template contains a complete pairwise loop plan, role prompts, start charter, and local setup commands for a three-agent story-writing team (writer + character-designer + reviewer). Use it as a starting point for authoring your own loop plans.
+> **Runnable example:** The [`examples/writer-team/`](../../examples/writer-team/) template contains a complete tree loop plan, role prompts, start charter, and local setup commands for a three-agent story-writing team (writer + character-designer + reviewer). Use it as a starting point for authoring your own loop plans.
 
 ---
 
@@ -239,24 +239,24 @@ houmao-mgr --print-json internals graph high validate-packets \
 
 ---
 
-## Generic Loop Graphs
+## Generic Loops
 
 `houmao-agent-loop-generic` is for multi-agent topologies that mix component types.
 
 ### Component types
 
-- **`pairwise` component**: One immediate driver-worker local-close edge. The worker returns the result to the same driver that sent the component request. Uses the elemental pairwise edge-loop protocol from `houmao-adv-usage-pattern`.
+- **`pairwise` component**: One immediate driver-worker local-close edge. The worker returns the result to the same driver that sent the component request. Uses the elemental local-close edge-loop protocol from `houmao-adv-usage-pattern`.
 - **`relay` component**: An agent that receives from one upstream agent and forwards to a downstream agent. The egress return goes back along the relay lane. Uses the elemental relay-loop protocol from `houmao-adv-usage-pattern`.
 
 ### When to use it
 
 Use `houmao-agent-loop-generic` when:
 
-- your workflow has both pairwise edges and relay lanes in one graph
+- your workflow has both local-close edges and relay lanes in one graph
 - you want the generic skill to own graph decomposition, Mermaid rendering, run charter construction, and `start`/`status`/`stop` control
-- you do not need the enriched pairwise-v2 or pairwise-v3 lifecycle verbs
+- you do not need the enriched tree-loop or workspace-aware tree-loop lifecycle verbs
 
-Use the pairwise-only skills when your topology is purely pairwise edges. Use pairwise-v2 when you need enriched runtime control without authored workspace posture. Use pairwise-v3 when you need the enriched runtime control and the loop plan also needs to declare workspace posture.
+Use the tree loop skills when your topology is purely local-close tree-loop edges. Use the enriched tree loop skill when you need enriched runtime control without authored workspace posture. Use the workspace-aware tree loop skill when you need the enriched runtime control and the loop plan also needs to declare workspace posture.
 
 ### Graph rendering
 
@@ -294,6 +294,6 @@ For the full option reference for all graph commands, see [internals graph](../r
 | [`houmao-agent-loop-pairwise-v2` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v2/SKILL.md) | Enriched lifecycle vocabulary, routing-packet prestart, and all operating pages |
 | [`houmao-agent-loop-pairwise-v3` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v3/SKILL.md) | Workspace-aware extension of pairwise-v2, including `standard` versus `custom` workspace contracts |
 | [`houmao-agent-loop-pairwise-v4` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise-v4/SKILL.md) | Template-driven extension of pairwise-v3, including strict generated document templates and constraint coverage audits |
-| [`houmao-agent-loop-generic` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-generic/SKILL.md) | Generic graph decomposition, component types, plan templates, and operating pages |
+| [`houmao-agent-loop-generic` SKILL.md](../../src/houmao/agents/assets/system_skills/houmao-agent-loop-generic/SKILL.md) | Generic loop decomposition, component types, plan templates, and operating pages |
 | [System Skills Overview](system-skills-overview.md) | All packaged skills, auto-install behavior, and skill set reference |
 | [internals graph reference](../reference/cli/internals.md) | Full `graph high` and `graph low` command reference |

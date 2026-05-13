@@ -1,6 +1,6 @@
-# Stop A Generic Loop Graph Run
+# Stop A Generic Loop Run
 
-Use this page when the user wants to stop one active generic loop graph run owned by the designated master or root owner.
+Use this page when the user wants to stop one active generic loop run owned by the designated master or root owner.
 
 ## Workflow
 
@@ -14,7 +14,7 @@ Use this page when the user wants to stop one active generic loop graph run owne
    - stop opening new downstream work inside active components
    - preserve already-returned component results and partial results
    - summarize what completed, what was interrupted, and what remains unfinished
-5. For the default interrupt-first mode, tell the root owner to interrupt active downstream pairwise and relay work first and then reconcile returned state.
+5. For the default interrupt-first mode, tell the root owner to interrupt active downstream local-close and relay work first and then reconcile returned state.
 6. For explicit graceful stop, tell the root owner to stop creating new work and drain according to the user's requested graceful posture.
 
 ## Default Stop Posture
@@ -27,4 +27,4 @@ Use this page when the user wants to stop one active generic loop graph run owne
 - Do not leave the stop mode implicit when sending the stop request.
 - Do not ask the user agent to interrupt every downstream agent individually; the stop signal goes to the root owner.
 - Do not discard already-returned component results or partial results when stopping the run.
-- Do not forget to stop both pairwise and relay components when the plan contains a mixed graph.
+- Do not forget to stop both local-close and relay components when the plan contains a mixed graph.

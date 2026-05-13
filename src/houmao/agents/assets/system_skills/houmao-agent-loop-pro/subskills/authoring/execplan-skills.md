@@ -131,8 +131,8 @@ Style:
 5. Generate other operator skills only for loop-local runbooks and routing to maintained Houmao skills.
 6. For mail-driven loops, state that mail-received skills are entered from Houmao notifier prompts after the separate notifier detects open mail.
 7. Generated skills read topology mode from specs, state, or harness output before choosing reply, forward, cycle, or terminal behavior.
-8. In `pairwise-tree`, participant skills return normal results to immediate upstream unless a generated terminal or operator exception exists.
-9. In `generic-graph`, participant skills preserve selected carried context when forwarding or replying if the generated contracts require it; if a route records explicit no-context-needed omission, do not invent context.
+8. In `tree-loop`, participant skills return normal results to immediate upstream unless a generated terminal or operator exception exists.
+9. In `generic-loop`, participant skills preserve selected carried context when forwarding or replying if the generated contracts require it; if a route records explicit no-context-needed omission, do not invent context.
 10. When a tick should follow mail processing, put that rule in notifier prompt guidance or equivalent agent binding material.
 11. Create or update `execplan/skills/README.md`.
 12. Add generated skill-directory README files only when that skill directory contains extra generated files beyond `SKILL.md` and optional `agents/openai.yaml`.

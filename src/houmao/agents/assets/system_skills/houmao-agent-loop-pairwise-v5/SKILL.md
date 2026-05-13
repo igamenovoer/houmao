@@ -3,7 +3,13 @@ name: houmao-agent-loop-pairwise-v5
 description: Manual invocation only; use only when the user explicitly requests `houmao-agent-loop-pairwise-v5` or an explicitly named loop operation to init editable loop-dir/intention material, generate or validate generated loop-dir/execplan contracts, or execute a generated loop through authoring and execution subskills.
 ---
 
-# Houmao Agent Loop Pairwise
+# Houmao Agent Loop Tree
+
+## Terminology
+
+- This pairwise-named skill authors and operates tree loop execplans.
+- `pairwise loop` is a legacy alias for tree loop behavior.
+- Keep the explicit invocation name unchanged.
 
 ## Activation
 
