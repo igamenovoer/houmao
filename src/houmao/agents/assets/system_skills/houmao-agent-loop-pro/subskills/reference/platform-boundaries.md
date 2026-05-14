@@ -19,7 +19,7 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 - `houmao-agent-messaging`: managed-agent prompt, interrupt, mailbox handoff, and gateway-backed communication routing.
 - `houmao-agent-gateway`: gateway lifecycle, notifier posture, reminders, and gateway posture.
 - `houmao-agent-instance`: managed-agent launch, join, relaunch, stop, and lifecycle control.
-- `houmao-specialist-mgr` and supported `houmao-mgr project easy` surfaces: specialist/profile preparation when needed.
+- `houmao-agent-definition` and supported `houmao-mgr project easy` surfaces: specialist/profile preparation when needed.
 - `houmao-memory-mgr`: memo seed and memory posture.
 - `houmao-agent-inspect`: managed-agent liveness, TUI state, mailbox posture, runtime artifacts, logs, and tmux inspection.
 
@@ -27,13 +27,13 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 
 - `execplan/specs/`: loop machine contracts.
 - `execplan/skills/`: generated role instructions, event handlers, tick handlers, and operator skills.
-- `execplan/agents/`: participant-to-agent bindings, prompt sources, installed generated skills, support skills, workspace policy, and notifier prompt text.
+- `execplan/agents/`: participant-to-agent bindings, prompt sources, installed generated skills, Houmao system-skill preinstall posture, workspace policy, and notifier prompt text.
 - `execplan/harness/`: loop-local validation, query, rendering, dynamic lookup, and controlled record application.
 - `execplan/docs/`: generated human support views.
 
 ## Workspace Rule
 
-- When a generated loop needs managed agent workspaces, `prepare-agents` first resolves concrete agent/profile facts when workspace setup needs agent or launch-profile names.
+- When a generated loop needs managed agent workspaces, `prepare-agents` first resolves concrete agent/easy-profile facts when workspace setup needs agent or profile names.
 - `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr`.
 - Generated workspace contracts may describe launch cwd, work roots, shared resources, writable temp/artifact paths, notes paths, read/write rules, workspace-manager inputs, and readiness postconditions.
 - Do not create agent workspaces directly from general execution pages when the workspace manager can represent the layout.
@@ -42,7 +42,7 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 
 ## Launch Rule
 
-- `prepare-agents` prepares launchable profiles and launch facts; it does not launch live agents as normal behavior.
+- `prepare-agents` prepares launchable easy profiles and prepared agent facts; it does not launch live agents as normal behavior.
 - `validate-loop` checks read-only pre-launch readiness before `launch-agents`; do not fold live workspace readiness into `validate-execplan`.
 - `launch-agents` uses maintained Houmao launch surfaces to start prepared agents and report live-agent/session facts.
 - `start` sends the first loop trigger after agents are live; it does not launch agents.

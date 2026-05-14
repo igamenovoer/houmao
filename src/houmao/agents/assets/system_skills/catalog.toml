@@ -34,11 +34,11 @@ description = "Managed-agent memo and contained pages memory skill."
 
 [skills.houmao-project-mgr]
 asset_subpath = "houmao-project-mgr"
-description = "Project overlay lifecycle, layout, and project-scoped launch-profile or easy-instance management skill."
+description = "Project overlay lifecycle, layout, and project-scoped easy-instance inspection or stop skill."
 
 [skills.houmao-specialist-mgr]
 asset_subpath = "houmao-specialist-mgr"
-description = "Project-easy specialist and profile management skill."
+description = "Compatibility wrapper that routes project-easy specialist and profile work to houmao-agent-definition."
 
 [skills.houmao-credential-mgr]
 asset_subpath = "houmao-credential-mgr"
@@ -46,7 +46,7 @@ description = "Project-local credential management skill."
 
 [skills.houmao-agent-definition]
 asset_subpath = "houmao-agent-definition"
-description = "Low-level project-local role and preset definition management skill."
+description = "Canonical pre-launch agent-definition skill for roles, recipes, explicit launch profiles, specialists, easy profiles, and ready profiles."
 
 [skills.houmao-agent-loop-pairwise]
 asset_subpath = "houmao-agent-loop-pairwise"

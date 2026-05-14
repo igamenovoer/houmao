@@ -21,7 +21,7 @@ This packaged skill covers exactly these managed-agent instance lifecycle action
 - `relaunch`
 - `cleanup`
 
-`houmao-specialist-mgr` may also front specialist-scoped `launch` and `stop`, but this skill remains the canonical follow-up lifecycle surface for broader live-agent management.
+`houmao-agent-definition` also owns the specialist-scoped easy `launch` and `stop` entry points, but this skill remains the canonical follow-up lifecycle surface for broader live-agent management.
 
 This packaged skill does not cover:
 
@@ -83,7 +83,7 @@ This packaged skill does not cover:
 - Use `actions/stop.md` only when the user wants to stop one live managed agent.
 - Use `actions/relaunch.md` only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home.
 - Use `actions/cleanup.md` only when the user wants to remove stopped-session envelope artifacts or session-local logs.
-- Treat this skill as the canonical follow-up lifecycle surface after any specialist-scoped `launch` or `stop` handled through `houmao-specialist-mgr`.
+- Treat this skill as the canonical follow-up lifecycle surface after any specialist-scoped `launch` or `stop` handled through `houmao-agent-definition`.
 
 ## Guardrails
 

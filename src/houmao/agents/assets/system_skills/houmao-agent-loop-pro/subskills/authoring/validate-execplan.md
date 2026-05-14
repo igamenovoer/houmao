@@ -138,7 +138,7 @@ Check agent bindings:
 - concrete agent bindings include `execplan/agents/bindings.toml`.
 - concrete agent profile material lives under `execplan/agents/profiles/<agent-id>/`.
 - concrete agent bindings under `execplan/agents/` identify their intended participant or role.
-- concrete agent bindings identify prompt source, installed generated skills, maintained support skills, skill installation mode, memo seed policy, and workspace or launch policy when the execplan defines those concepts.
+- concrete agent bindings identify prompt source, installed generated skills, Houmao system-skill preinstall posture, skill installation mode, memo seed policy, and workspace or launch policy when the execplan defines those concepts.
 - concrete agent bindings reference workspace policy from generated workspace contracts when managed workspaces are required; they do not become the only source of workspace behavior.
 - mail-driven bindings include notifier prompt material under `execplan/agents/notifier-prompts/` or document the equivalent prompt source.
 - notifier prompts for templated mail tell agents how to detect `schema_id`, select the matching generated on-event skill, and handle unknown or freeform mail when a fallback exists.
@@ -172,8 +172,8 @@ Check workspace contracts:
 - workspace setup contracts route workspace planning or creation through `prepare-workspace` and `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
 - default workspace policy is `in-repo` plus any explicitly listed loop bookkeeping directories, unless intention source chooses a different supported flavor or a custom operator-owned workspace.
 - workspace contracts identify launch cwd, per-agent work roots, per-agent note or knowledge paths, writable temporary or artifact paths, shared resources, and read/write rules when those facts apply.
-- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, expected or prepared concrete agent workspace names, launch profile names, launch cwd policy, loop bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture when those facts apply.
-- managed workspace contracts are shaped so `prepare-workspace` can consume prepared agent/profile facts from `prepare-agents` without inventing placeholder agent ids or launch profile names.
+- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, expected or prepared concrete agent workspace names, easy profile or explicit raw launch profile names, launch cwd policy, loop bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture when those facts apply.
+- managed workspace contracts are shaped so `prepare-workspace` can consume prepared agent/profile facts from `prepare-agents` without inventing placeholder agent ids or profile names.
 - workspace contracts or generated lifecycle docs identify the equivalent readiness facts required when an operator chooses manual workspace setup instead of the `prepare-workspace` command.
 - custom operator-owned workspace contracts are explicit and do not pretend to be standard workspace-manager layouts.
 
@@ -206,7 +206,7 @@ Check execplan ADRs:
 
 Check mail-driven communication contracts:
 - mail-driven plans route mailbox setup, ordinary mail operations, gateway-notified rounds, managed-agent communication routing, and gateway lifecycle to maintained Houmao skills rather than generated platform mechanics.
-- generated agent bindings for mail-driven participants include required maintained mail support skills for the participant's responsibilities.
+- generated agent bindings for mail-driven participants rely on Houmao managed-agent system-skill preinstall instead of enumerating ordinary mail support skills.
 - mail-driven plans document that Houmao notifier support is the runtime driver: a separate mail notifier detects open mail and prompts the target agent to process it.
 - generated mail notification prompt guidance tells agents which mail/on-event skill to use and whether to run a follow-up on-tick skill after mail processing.
 - generated bindings and operator-control material distinguish auto-mode notifier prompts from manual-mode operator prompts when manual operation is supported.

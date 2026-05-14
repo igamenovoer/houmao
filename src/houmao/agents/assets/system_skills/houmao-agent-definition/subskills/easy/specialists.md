@@ -1,0 +1,100 @@
+# Easy Specialists
+
+Use this subskill when the user wants to create, inspect, update, list, or remove one project-easy specialist through `project easy specialist ...`.
+
+## Preconditions
+
+- Read [../common/launcher.md](../common/launcher.md).
+- Read [../common/missing-inputs.md](../common/missing-inputs.md).
+- Read [../common/credential-routing.md](../common/credential-routing.md) for create requests or credential-reference edits.
+- Confirm the target is a specialist, not an easy profile, explicit launch profile, or live managed agent.
+
+## Actions
+
+- List specialists: no name required.
+- Get specialist: require `--name`.
+- Create specialist: require `--name`, `--tool`, and enough credential input unless the selected credential bundle already exists or a supported discovery mode finds one importable source.
+- Set specialist: require `--name` and at least one supported mutation.
+- Remove specialist: require `--name`.
+
+## Command Shapes
+
+```text
+<chosen houmao-mgr launcher> project easy specialist list
+<chosen houmao-mgr launcher> project easy specialist get --name <name>
+<chosen houmao-mgr launcher> project easy specialist create --name <name> --tool <tool> ...
+<chosen houmao-mgr launcher> project easy specialist set --name <name> ...
+<chosen houmao-mgr launcher> project easy specialist remove --name <name>
+```
+
+## Create Inputs
+
+Common specialist inputs:
+
+- `--name`
+- `--tool claude|codex|gemini|...`
+- `--credential <name>`; when omitted, the CLI default is `<specialist-name>-creds`
+- `--system-prompt` or `--system-prompt-file`
+- `--setup <name>`; default is `default`
+- `--no-unattended` to persist `as_is`; otherwise easy specialists default to unattended launch posture
+- `--model`
+- `--reasoning-level`
+- repeatable `--with-skill <dir>`
+- repeatable `--env-set NAME=value`
+
+Tool-specific auth inputs:
+
+- Claude: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, optional `--claude-model`
+- Claude optional bootstrap state: `--claude-state-template-file`; this is optional bootstrap state and not a credential-providing method
+- Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
+- Gemini: `--api-key`, optional `--base-url`, optional `--google-api-key`, optional `--use-vertex-ai`, optional `--gemini-oauth-creds`
+
+## Credential Discovery During Create
+
+Use credential discovery only for specialist creation. The supported modes are:
+
+- Explicit Auth Mode
+- Env Lookup Mode
+- Directory Scan Mode
+- Auto Credentials Mode
+- No Discovery Mode
+
+Load only the selected tool reference when needed:
+
+- Claude: [../../references/credentials/claude-lookup.md](../../references/credentials/claude-lookup.md) or [../../references/credentials/claude-kinds.md](../../references/credentials/claude-kinds.md)
+- Codex: [../../references/credentials/codex-lookup.md](../../references/credentials/codex-lookup.md) or [../../references/credentials/codex-kinds.md](../../references/credentials/codex-kinds.md)
+- Gemini: [../../references/credentials/gemini-lookup.md](../../references/credentials/gemini-lookup.md) or [../../references/credentials/gemini-kinds.md](../../references/credentials/gemini-kinds.md)
+
+For Claude vendor-login files, normalize reuse requests to `--claude-config-dir <claude-config-root>`. If the user points at `.credentials.json`, use its parent directory.
+
+## Set Inputs
+
+Common update and clear inputs:
+
+- `--system-prompt`
+- `--system-prompt-file`
+- `--clear-system-prompt`
+- `--with-skill <dir>`
+- `--add-skill <name>`
+- `--remove-skill <name>`
+- `--clear-skills`
+- `--setup <name>`
+- `--credential <name>`
+- `--prompt-mode unattended|as_is`
+- `--clear-prompt-mode`
+- `--model`
+- `--clear-model`
+- `--reasoning-level`
+- `--clear-reasoning-level`
+- repeatable `--env-set NAME=value`
+- `--clear-env`
+
+## Guardrails
+
+- Do not guess the specialist name, tool lane, credential name, or auth values.
+- Do not remove and recreate an easy specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project easy specialist set`.
+- Do not use `project easy specialist set` for specialist rename or tool-lane changes. Ask whether to create a new specialist instead.
+- Do not enter credential discovery for list, get, set, remove, easy-profile creation, or launch.
+- Do not execute login flows or auth-generation helpers.
+- Do not treat `auto credentials` as a literal CLI flag.
+- Do not infer auth identity from `.houmao/` auth directory names.

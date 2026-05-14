@@ -233,7 +233,7 @@ Include applicable fields:
 - task name, repo root policy, and workspace root policy;
 - launch cwd policy;
 - loop-requested bookkeeping directories, including durable task/agent artifact paths and ignored transient paths;
-- expected concrete agent workspace names and launch profile names, or the fields that `prepare-agents` must resolve before `prepare-workspace`;
+- expected concrete agent workspace names and easy profile names, or explicit raw launch profile fields that `prepare-agents` must resolve before `prepare-workspace`;
 - per-agent work-root, knowledge-path, shared-resource, memo-seed, and read/write requirements.
 - manual workspace evidence fields required by `validate-loop` when the operator does not run `prepare-workspace`.
 
@@ -262,7 +262,7 @@ per_agent_ignored_dirs = ["tmp"]
 [[workspace.agents]]
 description = "Workspace requirements for agent-a."
 agent_id = "agent-a"
-launch_profile = "agent-a"
+easy_profile = "agent-a"
 workspace_agent_name = "agent-a"
 needs_worktree = true
 needs_kb = true

@@ -31,7 +31,7 @@ Require:
   - choose `execplan-specs-contract` when the process model is unchanged but derived objective, participant, topology, communication, state, record, workspace, or run contracts need revision;
   - choose `execplan-harness` when contracts are unchanged but harness commands, query surfaces, rendering, validation, explanations, completion, or controlled-apply behavior need revision;
   - choose `execplan-skills` when process/contracts/harness are unchanged but generated role, event, tick, shared, or operator skills need revision;
-  - choose `execplan-agent-bindings` when generated skills are unchanged but concrete agent configs, definitions, installed skills, maintained support skills, memo policy, or workspace policy need revision;
+  - choose `execplan-agent-bindings` when generated skills are unchanged but concrete agent configs, definitions, installed generated skills, Houmao system-skill preinstall posture, memo policy, or workspace policy need revision;
   - choose `execplan-finalize` when only docs, README, manifest, generated metadata, omission notes, or consistency notes need revision.
 5. Rerun the earliest affected stage and every downstream stage in dependency order.
 6. Preserve stable generated names where the meaning is unchanged.

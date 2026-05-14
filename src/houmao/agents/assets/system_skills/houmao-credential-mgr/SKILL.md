@@ -51,7 +51,7 @@ This packaged skill does not cover:
 
 1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
 2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
-   - easy-profile auth override work belongs to `houmao-specialist-mgr`
+   - easy-profile auth override work belongs to `houmao-agent-definition`
    - explicit launch-profile auth override work belongs to the supported `houmao-mgr project agents launch-profiles add|set --auth ...` or `--clear-auth` surface, not to credential CRUD
 3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 4. Choose one `houmao-mgr` launcher for the current turn:

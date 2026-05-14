@@ -51,6 +51,7 @@ def _write(path: Path, content: str) -> None:
 _DEFAULT_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
+    "houmao-utils-workspace-mgr",
     "houmao-mailbox-mgr",
     "houmao-memory-mgr",
     "houmao-adv-usage-pattern",
@@ -70,7 +71,6 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-messaging",
     "houmao-agent-gateway",
     "houmao-utils-llm-wiki",
-    "houmao-utils-workspace-mgr",
 ]
 _DEFAULT_INSTALLED_CATALOG_ORDER = [
     skill_name for skill_name in _CATALOG_SKILLS if skill_name in _DEFAULT_RESOLVED_SKILLS
@@ -164,8 +164,15 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
     assert payload["auto_install"]["managed_launch_sets"] == _CORE_SET_NAMES
     assert payload["auto_install"]["managed_join_sets"] == _CORE_SET_NAMES
+    skill_descriptions = {
+        record["name"]: record["description"] for record in payload["skills"]
+    }
+    assert "Canonical pre-launch agent-definition skill" in skill_descriptions[
+        "houmao-agent-definition"
+    ]
+    assert "Compatibility wrapper" in skill_descriptions["houmao-specialist-mgr"]
     core_record = next(record for record in payload["sets"] if record["name"] == "core")
-    assert core_record["skills"] == _DEFAULT_RESOLVED_SKILLS[:-2]
+    assert core_record["skills"] == _DEFAULT_RESOLVED_SKILLS[:-1]
     all_record = next(record for record in payload["sets"] if record["name"] == "all")
     assert all_record["skills"] == _DEFAULT_RESOLVED_SKILLS
 
@@ -745,7 +752,7 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
         assert record["selected_sets"] == ["core"]
         assert record["explicit_skills"] == []
         assert record["projection_mode"] == "copy"
-        assert record["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS[:-2]
+        assert record["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS[:-1]
     assert (workspace / ".claude/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".github/skills/houmao-project-mgr/SKILL.md").is_file()

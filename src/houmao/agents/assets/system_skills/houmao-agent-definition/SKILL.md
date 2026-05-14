@@ -1,86 +1,86 @@
 ---
 name: houmao-agent-definition
-description: Use Houmao's supported low-level project agent-definition commands to create, list, inspect, update, or remove roles and recipes with the correct `houmao-mgr` launcher for the current environment.
+description: Use Houmao's canonical pre-launch agent-definition skill to create, inspect, update, or remove low-level roles and recipes, explicit launch profiles, project-easy specialists, easy profiles, ready-to-launch easy profiles, and limited easy launch or stop entry points.
 license: MIT
 ---
 
 # Houmao Agent Definition
 
-Use this Houmao skill when you need to manage project-local low-level agent definitions through `houmao-mgr project agents roles ...` and `houmao-mgr project agents recipes ...` instead of hand-editing `.houmao/agents/`.
+Use this Houmao skill when the task is about persisted pre-launch agent definitions: what an agent is, which reusable profile should launch it, and which launch defaults should be stored before runtime.
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-definition` skill name directly when you intend to activate this Houmao-owned skill.
 
 ## Scope
 
-This packaged skill covers exactly these low-level definition actions:
+This skill is the canonical router for:
 
-- `create`
-- `list`
-- `get`
-- `set`
-- `remove`
+- low-level roles: `houmao-mgr project agents roles ...`
+- low-level recipes: `houmao-mgr project agents recipes ...`
+- compatibility recipe aliases: `houmao-mgr project agents presets ...`
+- explicit recipe-backed launch profiles: `houmao-mgr project agents launch-profiles ...`
+- project-easy specialists: `houmao-mgr project easy specialist ...`
+- specialist-backed easy profiles: `houmao-mgr project easy profile ...`
+- ready easy-profile generation: create or select a specialist, create or update an easy profile, print the launch command, and do not launch
+- limited easy launch and stop entry points: `houmao-mgr project easy instance launch|stop`, followed by handoff to `houmao-agent-instance` for broader live lifecycle work
 
-This packaged skill routes those actions to the maintained low-level command families:
+This skill does not own:
 
-- `houmao-mgr project agents roles list|get|init|set|remove`
-- `houmao-mgr project agents recipes list|get|add|set|remove`
-- `houmao-mgr project agents presets list|get|add|set|remove` as the compatibility alias for the same recipe resources
-
-This packaged skill does not cover:
-
-- `houmao-mgr project easy specialist ...`
-- `houmao-mgr project easy instance ...`
-- `houmao-mgr agents launch|join|list|stop|cleanup`
-- `houmao-mgr project credentials <tool> list|get|add|set|rename|remove` or `houmao-mgr credentials <tool> ... --agent-def-dir <path>` when the user wants credential management rather than which bundle one recipe references
-- direct hand-editing under `.houmao/agents/`
-- retired `houmao-mgr project agents roles scaffold`
-- retired `houmao-mgr project agents roles presets ...`
+- credential bundle CRUD or secret mutation: use `houmao-credential-mgr`
+- mailbox root/account administration: use `houmao-mailbox-mgr`
+- workspace creation: use `houmao-utils-workspace-mgr`
+- broad live managed-agent lifecycle after launch: use `houmao-agent-instance`
+- direct hand-editing under `.houmao/`
 
 ## Workflow
 
-1. Identify which definition-management action the user wants: `create`, `list`, `get`, `set`, or `remove`.
-2. Determine whether the target is one low-level role or one named recipe.
-3. If the action or target is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-4. Choose one `houmao-mgr` launcher for the current turn:
+1. Identify the lane:
+   - role
+   - recipe or preset
+   - explicit recipe-backed launch profile
+   - easy specialist
+   - easy profile
+   - ready profile
+   - easy launch
+   - easy stop
+2. Read the shared pages needed by that lane:
+   - [subskills/common/launcher.md](subskills/common/launcher.md)
+   - [subskills/common/missing-inputs.md](subskills/common/missing-inputs.md)
+   - [subskills/common/profile-lanes.md](subskills/common/profile-lanes.md) when a profile lane is involved
+   - [subskills/common/credential-routing.md](subskills/common/credential-routing.md) when credentials or auth names are involved
+3. Load exactly one lane subskill:
+   - [subskills/low-level/roles.md](subskills/low-level/roles.md)
+   - [subskills/low-level/recipes.md](subskills/low-level/recipes.md)
+   - [subskills/low-level/launch-profiles.md](subskills/low-level/launch-profiles.md)
+   - [subskills/easy/specialists.md](subskills/easy/specialists.md)
+   - [subskills/easy/profiles.md](subskills/easy/profiles.md)
+   - [subskills/easy/create-ready-agent-profile.md](subskills/easy/create-ready-agent-profile.md)
+   - [subskills/easy/launch-instance.md](subskills/easy/launch-instance.md)
+   - [subskills/easy/stop-instance.md](subskills/easy/stop-instance.md)
+4. Resolve one `houmao-mgr` launcher and reuse it for the turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
    - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-5. Reuse that same chosen launcher for the selected definition-management action.
-6. Load exactly one action page:
-   - `actions/create.md`
-   - `actions/list.md`
-   - `actions/get.md`
-   - `actions/set.md`
-   - `actions/remove.md`
-7. Follow the selected action page and report the result from the command that ran.
-8. If the request is really about env vars or auth files inside an auth bundle, stop and route that work to `houmao-credential-mgr` instead of continuing inside this skill.
+   - only if those do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
+   - if the user explicitly asks for a specific launcher, follow that request
+5. Run the selected maintained command only after all required inputs are explicit.
+6. Report command output and any durable identity facts that affect later launch.
 
-## Missing Input Questions
+## Routing Rules
 
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
-- When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the target kind or several required fields need clarification
-- Name the command you intend to run and keep the question scoped to the selected low-level action.
-
-## Routing Guidance
-
-- Use `actions/create.md` only when the user wants to create one new low-level role or one named recipe.
-- Use `actions/list.md` only when the user wants to list low-level roles or named recipes.
-- Use `actions/get.md` only when the user wants to inspect one low-level role or one named recipe. Add `--include-prompt` only when the user explicitly asked for prompt text or the full low-level role definition.
-- Use `actions/set.md` only when the user wants to update one existing low-level role or one named recipe. Keep recipe auth-reference changes on `project agents recipes set --auth ...` or `--clear-auth`.
-- Use `actions/remove.md` only when the user wants to remove one low-level role or one named recipe.
+- Use low-level role guidance for prompt-only role resources.
+- Use low-level recipe guidance for reusable build-phase bundles of role, tool, setup, auth reference, skills, and prompt mode.
+- Use explicit launch-profile guidance for recipe-backed birth-time defaults under `project agents launch-profiles ...`.
+- Use easy specialist guidance for reusable specialist templates under `project easy specialist ...`.
+- Use easy profile guidance for specialist-backed birth-time defaults under `project easy profile ...`.
+- Use ready-profile guidance when the user wants one ready-to-launch easy profile prepared in one pass.
+- Use easy launch or stop guidance only for the project-easy entry points, then hand off broad live-agent lifecycle to `houmao-agent-instance`.
 
 ## Guardrails
 
-- Do not guess the intended action when the prompt could mean easy specialist authoring, managed-agent lifecycle work, low-level definition management, or credential-bundle mutation.
-- Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
-- Do not route auth-bundle content mutation through this skill; use `houmao-credential-mgr`.
-- Do not use `houmao-mgr project agents roles scaffold`.
-- Do not use `houmao-mgr project agents roles presets ...`.
-- Do not hand-edit `.houmao/agents/roles/`, `.houmao/agents/presets/`, `.houmao/agents/launch-profiles/`, or `.houmao/agents/tools/`.
-- Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
-- Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for low-level definition management.
+- Do not guess between low-level and easy lanes.
+- Do not guess between easy profiles and explicit launch profiles; both project into launch-profile files, but the management lanes are distinct.
+- Do not remove and recreate a role, recipe, specialist, or profile for ordinary patch edits when a maintained `set` command exists.
+- Do not mutate credential bundle contents through this skill; route secret and auth-file edits to `houmao-credential-mgr`.
+- Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch; profile defaults or launch-time easy bootstrap can own that common case.
+- Do not use retired `houmao-mgr project agents roles scaffold`.
+- Do not use retired `houmao-mgr project agents roles presets ...`.
+- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows.

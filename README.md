@@ -380,15 +380,15 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ## System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists and profiles, prepare ready-to-launch easy profiles, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
 | `houmao-touring` | Manual guided tour for first-time or re-orienting users; branches across project setup, mailbox setup, specialist/profile authoring, launches, live-agent operations, and lifecycle follow-up. Use it only when the user explicitly asks for the tour |
-| `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, manage explicit launch profiles, and inspect or stop project easy instances |
-| `houmao-specialist-mgr` | Create, set, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |
+| `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, and inspect or stop project easy instances |
+| `houmao-specialist-mgr` | Compatibility wrapper that redirects old specialist/profile requests to `houmao-agent-definition` |
 | `houmao-credential-mgr` | Add, update, inspect, and remove project-local tool auth bundles |
-| `houmao-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
+| `houmao-agent-definition` | Canonical pre-launch definition skill for roles, recipes, explicit launch profiles, specialists, easy profiles, ready-profile generation, and limited easy launch or stop entry points |
 | `houmao-agent-instance` | Launch, join, list, stop, relaunch, and clean up managed agent instances |
 | `houmao-agent-inspect` | Inspect live managed-agent liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux backing through read-only supported surfaces |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
@@ -406,7 +406,7 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-agent-loop-pairwise-v4` | Template-driven workspace-aware tree loop workflow: extend v3 with strict generated document templates, central source-contract summaries, role-local agent notes, report/bookkeeping template schemas, and a source-constraint coverage audit |
 | `houmao-agent-loop-generic` | Decompose generic multi-agent loops into typed local-close and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
 
-`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, specialists, credentials, definitions, and live-agent lifecycle. For loop orchestration, `core` auto-installs all four tree-loop variants — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4` — alongside `houmao-agent-loop-generic`, so a managed agent can drive any of the five loop skills without an extra install step. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
+`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, agent definitions and profiles, credentials, and live-agent lifecycle. For loop orchestration, `core` auto-installs all four tree-loop variants — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4` — alongside `houmao-agent-loop-generic`, so a managed agent can drive any of the five loop skills without an extra install step. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
 
 ```bash
 houmao-mgr system-skills install --tool claude,codex,copilot,gemini

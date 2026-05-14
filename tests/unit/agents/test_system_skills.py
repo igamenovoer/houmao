@@ -106,6 +106,10 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
+    assert "Canonical pre-launch agent-definition skill" in (
+        catalog.skills["houmao-agent-definition"].description or ""
+    )
+    assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
     assert tuple(catalog.sets.keys()) == (
         SYSTEM_SKILL_SET_CORE,
         SYSTEM_SKILL_SET_ALL,
@@ -293,13 +297,15 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_mgr_actions = home_path / "skills/houmao-project-mgr/actions"
     project_mgr_references = home_path / "skills/houmao-project-mgr/references"
     manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    manage_specialist_actions = home_path / "skills/houmao-specialist-mgr/actions"
-    manage_specialist_references = home_path / "skills/houmao-specialist-mgr/references"
     manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
     manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
+    manage_agent_definition_subskills = home_path / "skills/houmao-agent-definition/subskills"
+    manage_agent_definition_references = (
+        home_path / "skills/houmao-agent-definition/references/credentials"
+    )
     pairwise_loop_skill_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
     pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
     pairwise_loop_prestart = home_path / "skills/houmao-agent-loop-pairwise/prestart"
@@ -378,7 +384,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert pairwise_loop_v5_skill_path.is_file()
     assert (pairwise_loop_v5_authoring / "create-intention.md").is_file()
     assert (pairwise_loop_v5_authoring / "clarify-intent.md").is_file()
-    assert (pairwise_loop_v5_authoring / "generate-execplan.md").is_file()
+    assert (pairwise_loop_v5_authoring / "execplan-fast-forward.md").is_file()
+    assert (pairwise_loop_v5_authoring / "execplan-specs-contract.md").is_file()
     assert (pairwise_loop_v5_authoring / "validate-execplan.md").is_file()
     assert (pairwise_loop_v5_execution / "prepare-agents.md").is_file()
     assert (pairwise_loop_v5_execution / "start.md").is_file()
@@ -426,8 +433,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         pairwise_loop_v5_authoring / "clarify-intent.md"
     ).read_text(encoding="utf-8")
     pairwise_loop_v5_generate_execplan = (
-        pairwise_loop_v5_authoring / "generate-execplan.md"
-    ).read_text(encoding="utf-8")
+        (pairwise_loop_v5_authoring / "execplan-fast-forward.md").read_text(encoding="utf-8")
+        + "\n"
+        + (pairwise_loop_v5_authoring / "execplan-specs-contract.md").read_text(
+            encoding="utf-8"
+        )
+    )
     pairwise_loop_v5_validate_execplan = (
         pairwise_loop_v5_authoring / "validate-execplan.md"
     ).read_text(encoding="utf-8")
@@ -443,12 +454,22 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_layout_reference_path = project_mgr_references / "project-layout.md"
     project_effects_reference_path = project_mgr_references / "project-aware-effects.md"
     project_routing_reference_path = project_mgr_references / "routing-boundaries.md"
-    create_action_path = manage_specialist_actions / "create.md"
-    list_action_path = manage_specialist_actions / "list.md"
-    get_action_path = manage_specialist_actions / "get.md"
-    remove_action_path = manage_specialist_actions / "remove.md"
-    launch_action_path = manage_specialist_actions / "launch.md"
-    stop_action_path = manage_specialist_actions / "stop.md"
+    definition_launcher_path = manage_agent_definition_subskills / "common/launcher.md"
+    definition_missing_inputs_path = manage_agent_definition_subskills / "common/missing-inputs.md"
+    definition_profile_lanes_path = manage_agent_definition_subskills / "common/profile-lanes.md"
+    definition_credential_routing_path = (
+        manage_agent_definition_subskills / "common/credential-routing.md"
+    )
+    definition_roles_path = manage_agent_definition_subskills / "low-level/roles.md"
+    definition_recipes_path = manage_agent_definition_subskills / "low-level/recipes.md"
+    definition_launch_profiles_path = (
+        manage_agent_definition_subskills / "low-level/launch-profiles.md"
+    )
+    easy_specialists_path = manage_agent_definition_subskills / "easy/specialists.md"
+    easy_profiles_path = manage_agent_definition_subskills / "easy/profiles.md"
+    ready_profile_path = manage_agent_definition_subskills / "easy/create-ready-agent-profile.md"
+    easy_launch_path = manage_agent_definition_subskills / "easy/launch-instance.md"
+    easy_stop_path = manage_agent_definition_subskills / "easy/stop-instance.md"
     project_init_action = project_init_action_path.read_text(encoding="utf-8")
     project_status_action = project_status_action_path.read_text(encoding="utf-8")
     project_launch_profiles_action = project_launch_profiles_action_path.read_text(encoding="utf-8")
@@ -457,12 +478,20 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_layout_reference = project_layout_reference_path.read_text(encoding="utf-8")
     project_effects_reference = project_effects_reference_path.read_text(encoding="utf-8")
     project_routing_reference = project_routing_reference_path.read_text(encoding="utf-8")
-    create_action = create_action_path.read_text(encoding="utf-8")
-    list_action = list_action_path.read_text(encoding="utf-8")
-    get_action = get_action_path.read_text(encoding="utf-8")
-    remove_action = remove_action_path.read_text(encoding="utf-8")
-    launch_action = launch_action_path.read_text(encoding="utf-8")
-    stop_action = stop_action_path.read_text(encoding="utf-8")
+    definition_launcher = definition_launcher_path.read_text(encoding="utf-8")
+    definition_missing_inputs = definition_missing_inputs_path.read_text(encoding="utf-8")
+    definition_profile_lanes = definition_profile_lanes_path.read_text(encoding="utf-8")
+    definition_credential_routing = definition_credential_routing_path.read_text(
+        encoding="utf-8"
+    )
+    definition_roles = definition_roles_path.read_text(encoding="utf-8")
+    definition_recipes = definition_recipes_path.read_text(encoding="utf-8")
+    definition_launch_profiles = definition_launch_profiles_path.read_text(encoding="utf-8")
+    easy_specialists = easy_specialists_path.read_text(encoding="utf-8")
+    easy_profiles = easy_profiles_path.read_text(encoding="utf-8")
+    ready_profile = ready_profile_path.read_text(encoding="utf-8")
+    easy_launch = easy_launch_path.read_text(encoding="utf-8")
+    easy_stop = easy_stop_path.read_text(encoding="utf-8")
     credentials_list_action_path = manage_credentials_actions / "list.md"
     credentials_get_action_path = manage_credentials_actions / "get.md"
     credentials_add_action_path = manage_credentials_actions / "add.md"
@@ -486,11 +515,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project status" in project_mgr_skill
     assert "project agents launch-profiles ..." in project_mgr_skill
     assert "project easy instance list|get|stop" in project_mgr_skill
-    assert "houmao-specialist-mgr" in project_mgr_skill
+    assert "houmao-agent-definition" in project_mgr_skill
     assert "houmao-agent-instance" in project_mgr_skill
     assert "actions/init.md" in project_mgr_skill
     assert "actions/status.md" in project_mgr_skill
-    assert "actions/launch-profiles.md" in project_mgr_skill
     assert "actions/easy-instances.md" in project_mgr_skill
     assert "references/project-aware-effects.md" in project_mgr_skill
     assert project_init_action_path.is_file()
@@ -508,9 +536,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<chosen houmao-mgr launcher>" in project_init_action
     assert "--with-compatibility-profiles" not in project_init_action
     assert "would_bootstrap_overlay" in project_status_action
-    assert (
-        "project agents launch-profiles add --name <profile> --recipe <recipe>"
-        in project_launch_profiles_action
+    assert "Explicit Launch Profiles Have Moved" in project_launch_profiles_action
+    assert "houmao-agent-definition/subskills/low-level/launch-profiles.md" in (
+        project_launch_profiles_action
     )
     assert "project easy instance list" in project_easy_instances_action
     assert "project easy instance get --name <name>" in project_easy_instances_action
@@ -529,64 +557,61 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "agents launch" in project_effects_reference
     assert "server start" in project_effects_reference
     assert "admin cleanup runtime" in project_effects_reference
-    assert "houmao-specialist-mgr" in project_routing_reference
+    assert "houmao-specialist-mgr" not in project_routing_reference
     assert "houmao-credential-mgr" in project_routing_reference
     assert "houmao-agent-definition" in project_routing_reference
     assert "houmao-agent-instance" in project_routing_reference
     assert "houmao-mailbox-mgr" in project_routing_reference
-    assert "command -v houmao-mgr" in manage_specialist_skill
-    assert "uv tool run --from houmao houmao-mgr" in manage_specialist_skill
-    assert ".venv/bin/houmao-mgr" in manage_specialist_skill
-    assert "pixi run houmao-mgr" in manage_specialist_skill
-    assert "uv run houmao-mgr" in manage_specialist_skill
-    assert "user explicitly asks for a specific launcher" in manage_specialist_skill
-    assert "actions/create.md" in manage_specialist_skill
-    assert "actions/list.md" in manage_specialist_skill
-    assert "actions/get.md" in manage_specialist_skill
-    assert "actions/remove.md" in manage_specialist_skill
-    assert "actions/launch.md" in manage_specialist_skill
-    assert "update specialist" in manage_specialist_skill
-    assert "create profile" in manage_specialist_skill
-    assert "list profiles" in manage_specialist_skill
-    assert "get profile" in manage_specialist_skill
-    assert "remove profile" in manage_specialist_skill
-    assert "Explicit Auth Mode" in create_action
-    assert "project easy profile create" in create_action
-    assert "project easy specialist set --name <name>" in create_action
-    assert "Do not remove and recreate an easy specialist" in create_action
-    assert "--prompt-overlay-mode append|replace" in create_action
-    assert "Env Lookup Mode" in create_action
-    assert "Directory Scan Mode" in create_action
-    assert "auto credentials" in create_action
-    assert "No Discovery Mode" in create_action
-    assert "references/claude-credential-lookup.md" in create_action
-    assert "references/codex-credential-lookup.md" in create_action
-    assert "references/gemini-credential-lookup.md" in create_action
-    assert "--claude-oauth-token" in create_action
-    assert "--claude-config-dir" in create_action
-    assert "optional bootstrap state" in create_action
-    assert "not a credential-providing method" in create_action
-    assert "do not scan env vars, directories, repo-local tool homes" in create_action
+    assert "Compatibility Wrapper" in manage_specialist_skill
+    assert "houmao-agent-definition/subskills/easy/specialists.md" in manage_specialist_skill
+    assert "Do not run commands from this wrapper." in manage_specialist_skill
+    assert "command -v houmao-mgr" in definition_launcher
+    assert "uv tool run --from houmao houmao-mgr" in definition_launcher
+    assert ".venv/bin/houmao-mgr" in definition_launcher
+    assert "pixi run houmao-mgr" in definition_launcher
+    assert "uv run houmao-mgr" in definition_launcher
+    assert "user explicitly requests one launcher" in definition_launcher
+    assert "Ask the user for exactly the missing fields" in definition_missing_inputs
+    assert "Easy Profile" in definition_profile_lanes
+    assert "Explicit Launch Profile" in definition_profile_lanes
+    assert "project easy specialist create" in definition_credential_routing
+    assert "Explicit Auth Mode" in easy_specialists
+    assert "project easy profile create" in easy_profiles
+    assert "project easy specialist set --name <name>" in easy_specialists
+    assert "Do not remove and recreate an easy specialist" in easy_specialists
+    assert "--prompt-overlay-mode append|replace" in easy_profiles
+    assert "Env Lookup Mode" in easy_specialists
+    assert "Directory Scan Mode" in easy_specialists
+    assert "Auto Credentials Mode" in easy_specialists
+    assert "No Discovery Mode" in easy_specialists
+    assert "references/credentials/claude-lookup.md" in easy_specialists
+    assert "references/credentials/codex-lookup.md" in easy_specialists
+    assert "references/credentials/gemini-lookup.md" in easy_specialists
+    assert "--claude-oauth-token" in easy_specialists
+    assert "--claude-config-dir" in easy_specialists
+    assert "optional bootstrap state" in easy_specialists
+    assert "not a credential-providing method" in easy_specialists
+    assert "Do not scan env vars, directories, repo-local tool homes" in definition_credential_routing
     deprecated_fixture_root = "/".join(("tests", "fixtures", "agents"))
-    assert deprecated_fixture_root not in create_action
-    assert "project easy profile list" in list_action
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in list_action
-    assert "<chosen houmao-mgr launcher>" in list_action
-    assert "project easy profile get --name <name>" in get_action
-    assert "project easy profile remove --name <name>" in remove_action
-    assert "project easy instance launch --profile <profile>" in launch_action
-    assert "project easy profile get --name <profile>" in launch_action
-    assert "does not accept declarative mailbox fields such as `--mail-address`" in launch_action
-    assert "`--name` seeds the managed-agent mailbox address and principal id" in launch_action
+    assert deprecated_fixture_root not in easy_specialists
+    assert "project easy profile list" in easy_profiles
+    assert "project easy profile get --name <name>" in easy_profiles
+    assert "project easy profile remove --name <profile>" in easy_profiles
+    assert "project easy instance launch --profile <profile>" in easy_launch
+    assert "project easy profile get --name <profile>" in easy_launch
+    assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
+    assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
     assert (
-        "private filesystem mailbox directory that the launch symlinks into the shared root"
-        in launch_action
+        "private filesystem mailbox directory outside the shared root"
+        in easy_launch
     )
     assert (
         "was preregistered manually already, launch-time safe registration can fail"
-        in launch_action
+        in easy_launch
     )
-    assert "whether it was launched from a specialist or from an easy profile" in stop_action
+    assert "project easy instance stop --name <name>" in easy_stop
+    assert "ready-to-launch specialist-backed easy profile" in ready_profile
+    assert "Do not launch the managed agent." in ready_profile
     assert "command -v houmao-mgr" in manage_credentials_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
     assert ".venv/bin/houmao-mgr" in manage_credentials_skill
@@ -636,19 +661,33 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert ".venv/bin/houmao-mgr" in manage_agent_definition_skill
     assert "pixi run houmao-mgr" in manage_agent_definition_skill
     assert "uv run houmao-mgr" in manage_agent_definition_skill
-    assert "actions/create.md" in manage_agent_definition_skill
-    assert "actions/list.md" in manage_agent_definition_skill
-    assert "actions/get.md" in manage_agent_definition_skill
-    assert "actions/set.md" in manage_agent_definition_skill
-    assert "actions/remove.md" in manage_agent_definition_skill
-    assert "project agents roles list|get|init|set|remove" in manage_agent_definition_skill
-    assert "project agents recipes list|get|add|set|remove" in manage_agent_definition_skill
-    assert "project agents presets list|get|add|set|remove" in manage_agent_definition_skill
+    assert "subskills/low-level/roles.md" in manage_agent_definition_skill
+    assert "subskills/low-level/recipes.md" in manage_agent_definition_skill
+    assert "subskills/low-level/launch-profiles.md" in manage_agent_definition_skill
+    assert "subskills/easy/specialists.md" in manage_agent_definition_skill
+    assert "subskills/easy/profiles.md" in manage_agent_definition_skill
+    assert "subskills/easy/create-ready-agent-profile.md" in manage_agent_definition_skill
+    assert "project agents roles list" in definition_roles
+    assert "project agents recipes list" in definition_recipes
+    assert "project agents launch-profiles add --name <profile> --recipe <recipe>" in (
+        definition_launch_profiles
+    )
+    assert "project agents presets ..." in definition_recipes
     assert "houmao-credential-mgr" in manage_agent_definition_skill
-    assert "project agents roles scaffold" in manage_agent_definition_skill
-    assert "project agents roles presets ..." in manage_agent_definition_skill
-    assert "direct hand-editing under `.houmao/agents/`" in manage_agent_definition_skill
+    assert "direct hand-editing under `.houmao/`" in manage_agent_definition_skill
     assert (manage_agent_definition_agents / "openai.yaml").is_file()
+    assert definition_launcher_path.is_file()
+    assert definition_missing_inputs_path.is_file()
+    assert definition_profile_lanes_path.is_file()
+    assert definition_credential_routing_path.is_file()
+    assert definition_roles_path.is_file()
+    assert definition_recipes_path.is_file()
+    assert definition_launch_profiles_path.is_file()
+    assert easy_specialists_path.is_file()
+    assert easy_profiles_path.is_file()
+    assert ready_profile_path.is_file()
+    assert easy_launch_path.is_file()
+    assert easy_stop_path.is_file()
     assert definition_create_action_path.is_file()
     assert definition_list_action_path.is_file()
     assert definition_get_action_path.is_file()
@@ -872,15 +911,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<loop-dir>/execplan/" in pairwise_loop_v5_generate_execplan
     assert "manifest.toml" in pairwise_loop_v5_generate_execplan
     assert "Do not require `adrs/`" in pairwise_loop_v5_generate_execplan
-    assert "Default generated workspace policy to Houmao `in-repo` style" in (
-        pairwise_loop_v5_generate_execplan
-    )
-    assert "TOML payload -> schema validation -> Markdown rendering" in (
+    assert "defaulting to `in-repo`" in pairwise_loop_v5_generate_execplan
+    assert "schema-validated payload plus human-readable rendering" in (
         pairwise_loop_v5_generate_execplan
     )
     assert "specs/comms/templates.toml" in pairwise_loop_v5_generate_execplan
-    assert "freeform-notice.schema.json" in pairwise_loop_v5_generate_execplan
-    assert "ack.schema.json" in pairwise_loop_v5_generate_execplan
+    assert "<message-family>.schema.json" in pairwise_loop_v5_generate_execplan
     assert "schema_id" in pairwise_loop_v5_generate_execplan
     assert "schema_version" in pairwise_loop_v5_generate_execplan
     assert "payload_id" in pairwise_loop_v5_generate_execplan
@@ -891,14 +927,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "context" in pairwise_loop_v5_generate_execplan
     assert "requested_reply_schema_id" in pairwise_loop_v5_generate_execplan
     assert "houmao-email-metadata" in pairwise_loop_v5_generate_execplan
-    assert "email schema|validate|render|apply|query" in pairwise_loop_v5_generate_execplan
-    assert "source payload, status, optional platform message id" in (
-        pairwise_loop_v5_generate_execplan
-    )
-    assert "trigger on the received schema id or message family" in (
-        pairwise_loop_v5_generate_execplan
-    )
-    assert "archive the processed message only after required work" in (
+    assert "templates.toml" in pairwise_loop_v5_generate_execplan
+    assert "which on-event skill handles each received message family" in (
         pairwise_loop_v5_generate_execplan
     )
     assert "generated skills under `execplan/skills/*/SKILL.md`" in (
@@ -912,7 +942,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "payload lifecycle contracts" in pairwise_loop_v5_validate_execplan
     assert "archive-after-success behavior" in pairwise_loop_v5_validate_execplan
     assert "houmao-utils-workspace-mgr" in pairwise_loop_v5_prepare_agents
-    assert "houmao-specialist-mgr" in pairwise_loop_v5_prepare_agents
+    assert "houmao-agent-definition" in pairwise_loop_v5_prepare_agents
     assert "houmao-agent-instance" in pairwise_loop_v5_prepare_agents
     assert "maintained mail support skills" in pairwise_loop_v5_prepare_agents
     assert "houmao-process-emails-via-gateway" in pairwise_loop_v5_prepare_agents
@@ -925,13 +955,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "Do not allow free delegation or free forwarding unless the plan says so explicitly."
         in relay_loop_skill
     )
-    assert list_action_path.is_file()
-    assert get_action_path.is_file()
-    assert remove_action_path.is_file()
+    assert easy_specialists_path.is_file()
+    assert easy_profiles_path.is_file()
+    assert easy_launch_path.is_file()
 
-    claude_reference_path = manage_specialist_references / "claude-credential-lookup.md"
-    codex_reference_path = manage_specialist_references / "codex-credential-lookup.md"
-    gemini_reference_path = manage_specialist_references / "gemini-credential-lookup.md"
+    claude_reference_path = manage_agent_definition_references / "claude-lookup.md"
+    codex_reference_path = manage_agent_definition_references / "codex-lookup.md"
+    gemini_reference_path = manage_agent_definition_references / "gemini-lookup.md"
     assert claude_reference_path.is_file()
     assert codex_reference_path.is_file()
     assert gemini_reference_path.is_file()
@@ -1064,7 +1094,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     manage_agent_instance_path = home_path / "skills/houmao-agent-instance/SKILL.md"
     manage_agent_instance_actions = home_path / "skills/houmao-agent-instance/actions"
     specialist_mgr_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    specialist_mgr_actions = home_path / "skills/houmao-specialist-mgr/actions"
+    agent_definition_easy = home_path / "skills/houmao-agent-definition/subskills/easy"
     agent_inspect_path = home_path / "skills/houmao-agent-inspect/SKILL.md"
     agent_inspect_actions = home_path / "skills/houmao-agent-inspect/actions"
     mailbox_mgr_path = home_path / "skills/houmao-mailbox-mgr/SKILL.md"
@@ -1143,8 +1173,8 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert pairwise_loop_v3_path.is_file()
     assert pairwise_loop_v4_path.is_file()
     assert pairwise_loop_v5_path.is_file()
-    assert (pairwise_loop_v5_authoring / "refine-intention.md").is_file()
-    assert (pairwise_loop_v5_authoring / "regenerate-execplan.md").is_file()
+    assert (pairwise_loop_v5_authoring / "execplan-fast-forward.md").is_file()
+    assert (pairwise_loop_v5_authoring / "update-execplan.md").is_file()
     assert (pairwise_loop_v5_execution / "pause.md").is_file()
     assert (pairwise_loop_v5_execution / "resume.md").is_file()
     assert (pairwise_loop_v5_execution / "stop.md").is_file()
@@ -1164,7 +1194,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     pairwise_loop_v5_skill = pairwise_loop_v5_path.read_text(encoding="utf-8")
     relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
     launch_action_path = manage_agent_instance_actions / "launch.md"
-    specialist_launch_action_path = specialist_mgr_actions / "launch.md"
+    specialist_launch_action_path = agent_definition_easy / "launch-instance.md"
     join_action_path = manage_agent_instance_actions / "join.md"
     list_action_path = manage_agent_instance_actions / "list.md"
     stop_action_path = manage_agent_instance_actions / "stop.md"

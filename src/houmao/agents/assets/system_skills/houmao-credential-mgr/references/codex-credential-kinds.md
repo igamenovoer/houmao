@@ -30,4 +30,4 @@ Optional modifiers when using this kind:
 
 ## Discovery Note
 
-The `project credentials codex add` and `credentials codex add --agent-def-dir <path>` commands do not run discovery-mode credential creation (auto credentials, env lookup, or directory scan). If you want discovery-mode credential import during creation, use `project easy specialist create` through `houmao-specialist-mgr` instead.
+The `project credentials codex add` and `credentials codex add --agent-def-dir <path>` commands do not run discovery-mode credential creation (auto credentials, env lookup, or directory scan). If you want discovery-mode credential import during creation, use `project easy specialist create` through `houmao-agent-definition` instead.

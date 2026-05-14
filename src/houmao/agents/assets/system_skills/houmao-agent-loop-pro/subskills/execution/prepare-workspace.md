@@ -37,7 +37,7 @@ Use when present:
    - operation: `plan` or `execute`;
    - workspace flavor, defaulting to `in-repo` when unspecified and supported;
    - task name, repo root, and workspace root policy;
-   - concrete agent ids, workspace agent names, and launch profile names prepared by `prepare-agents`;
+   - concrete agent ids, workspace agent names, and easy profile or explicit raw launch profile names prepared by `prepare-agents`;
    - launch cwd policy;
    - per-agent work roots, knowledge paths, shared resources, and read/write rules;
    - loop bookkeeping directories, including durable task/agent artifact paths and ignored transient paths;
@@ -85,8 +85,8 @@ Report:
 
 - Do not install generated skills.
 - Do not create or update specialists, profiles, mailboxes, gateways, memories, or live agents.
-- Do not bind maintained mail support skills.
+- Do not prepare mailbox, gateway, memory, inspection, or Houmao system-skill posture.
 - Do not start loop work.
 - Do not call or route to `prepare-agents`.
-- Do not invent placeholder agent ids, workspace agent names, or launch profile names when they should come from `prepare-agents`.
+- Do not invent placeholder agent ids, workspace agent names, or profile names when they should come from `prepare-agents`.
 - Do not create workspaces by hand when `houmao-utils-workspace-mgr` can represent the layout.

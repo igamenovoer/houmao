@@ -1,6 +1,6 @@
 # Launch Agent Instance
 
-Use this action only when the user wants to create one new managed-agent instance from a predefined source. This remains the canonical general lifecycle launch action even though `houmao-specialist-mgr` may also front specialist-scoped launch requests.
+Use this action only when the user wants to create one new managed-agent instance from a predefined source. This remains the canonical general lifecycle launch action even though `houmao-agent-definition` also owns specialist-scoped easy launch requests.
 
 ## Workflow
 
@@ -114,7 +114,7 @@ Behavior note:
 - `--workdir` changes only the launched agent runtime cwd.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 - `--managed-header-section` is a one-shot section override for the launched instance.
-- Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-specialist-mgr`.
+- Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-agent-definition`.
 
 If the selected specialist is known to use Gemini, the launch must be headless.
 

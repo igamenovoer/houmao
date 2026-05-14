@@ -62,7 +62,7 @@ Authoring:
 - `update-execplan`: update generated material after intention changes.
 
 Execution:
-- `prepare-agents`: prepare Houmao agents and skill bindings from `execplan/`.
+- `prepare-agents`: prepare Houmao easy profiles, generated skill bindings, and prepared agent facts from `execplan/`.
 - `prepare-workspace`: prepare or verify multi-agent workspaces from generated workspace contracts and prepared agent facts.
 - `validate-loop`: validate pre-launch loop readiness.
 - `launch-agents`: launch prepared loop agents without beginning loop work.

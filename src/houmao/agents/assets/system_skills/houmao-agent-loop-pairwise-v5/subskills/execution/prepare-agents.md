@@ -27,7 +27,7 @@ Require:
 3. Register generated or private skills through maintained project-skill surfaces when project-local skill registration is needed.
 4. Install each participant's generated on-event, on-tick, lifecycle, and shared harness-usage skills according to its generated agent binding.
 5. For mail-driven participants, bind the maintained mail support skills required by the generated agent binding. Use `houmao-agent-email-comms` for ordinary mail operations, `houmao-process-emails-via-gateway` for notifier-driven open-mail rounds, `houmao-mailbox-mgr` for mailbox administration, `houmao-agent-messaging` for managed-agent communication routing, and `houmao-agent-gateway` for gateway posture.
-6. Create or update specialists and profiles through `houmao-specialist-mgr` or the supported `houmao-mgr project easy` surfaces.
+6. Create or update specialists and profiles through `houmao-agent-definition` or the supported `houmao-mgr project easy` surfaces.
 7. Prepare prompt sources, notifier prompt material, memo seed posture, and profile mutation intent that may later receive workspace cwd or workspace memo rules.
 8. Resolve and record concrete facts needed by `prepare-workspace`:
    - concrete agent ids;

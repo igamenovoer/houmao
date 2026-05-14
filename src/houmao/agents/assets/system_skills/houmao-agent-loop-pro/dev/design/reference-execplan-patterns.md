@@ -162,7 +162,7 @@ execplan/
         manual-step.md
   agents/
     README.md
-    bindings.toml                 # Participant-to-agent map, installed skills, support skills, prompt source, and workspace policy.
+    bindings.toml                 # Participant-to-agent map, installed generated skills, system-skill preinstall posture, prompt source, and workspace policy.
     profiles/
       planner/
         config.toml               # Concrete agent binding for participant `planner`.
@@ -312,7 +312,7 @@ Execplans should separate participant identity from concrete Houmao agents:
 
 - participant role templates describe abstract responsibilities;
 - participant instances provide stable loop identities;
-- `agents/bindings.toml` maps participant instances to concrete Houmao agent ids, generated skills, maintained support skills, prompt source, workspace policy, and notifier prompt path;
+- `agents/bindings.toml` maps participant instances to concrete Houmao agent ids, generated skills, Houmao system-skill preinstall posture, prompt source, workspace policy, and notifier prompt path;
 - `agents/profiles/<agent-id>/config.toml` binds one concrete Houmao agent to one participant instance;
 - generated `definition.md` files provide prompt source material for those concrete agents.
 

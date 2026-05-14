@@ -12,7 +12,7 @@ Use this skill to prepare multi-agent workspaces. It has two modes:
 
 This skill prepares Houmao-standard workspace layouts only. If the user wants a custom operator-owned workspace contract, do not translate that layout here; keep it outside this skill.
 
-Do not launch agents from this skill. Hand off to `houmao-agent-instance` or `houmao-specialist-mgr` after workspace preparation.
+Do not launch agents from this skill. Hand off to `houmao-agent-instance` for broad lifecycle launch or `houmao-agent-definition` for specialist-backed easy launch after workspace preparation.
 
 ## Inputs
 

@@ -19,10 +19,10 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users branch across project setup, mailbox setup, specialist/profile authoring, live-agent operations, and lifecycle follow-up
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files
-- `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, explicit launch-profile management, and project-scoped easy-instance inspection or stop routing
-- `houmao-specialist-mgr` for reusable specialist and easy-profile authoring plus easy-workflow launch and stop entry
+- `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, and project-scoped easy-instance inspection or stop routing
+- `houmao-agent-definition` for low-level roles, recipes, explicit recipe-backed launch profiles, reusable specialists, easy profiles, ready-to-launch easy profiles, and limited easy-workflow launch or stop entry
+- `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile prompts to `houmao-agent-definition`
 - `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
-- `houmao-agent-definition` for low-level role and recipe definition management (canonical `project agents recipes ...` plus the compatibility `project agents presets ...` alias)
 - `houmao-agent-instance` for live managed-agent instance lifecycle
 - `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
@@ -115,7 +115,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-mailbox-mgr`
 - `houmao-memory-mgr`
 - `houmao-project-mgr`
-- `houmao-specialist-mgr`
+- `houmao-specialist-mgr` (compatibility wrapper; canonical specialist/profile guidance is `houmao-agent-definition`)
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
 - `houmao-agent-loop-pairwise`
@@ -231,7 +231,7 @@ pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --ski
 pixi run houmao-mgr system-skills install --tool gemini --skill-set core
 pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki
 pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
-pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-specialist-mgr --symlink
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
 ```
 
 Selection rules:
@@ -327,7 +327,7 @@ This removes the old mailbox-only special path and family-specific Codex subtree
 The conceptual groups are:
 
 - automation: mailbox rounds, ordinary mailbox operations, managed memory, advanced workflow patterns, read-only inspection, managed-agent messaging, and gateway/reminder control
-- control: touring, project overlays, specialists, credentials, definitions, live-agent lifecycle, and loop orchestration
+- control: touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration
 - utils: `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`
 
 CLI-default installation expands `all`, which installs every packaged Houmao system skill. Managed launch and managed join expand `core`, which installs automation plus control and excludes only the utility workflows.

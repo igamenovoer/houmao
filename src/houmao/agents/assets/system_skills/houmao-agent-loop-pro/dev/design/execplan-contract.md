@@ -114,7 +114,7 @@ Generated plans should separate three identities:
 
 - participant role templates or role descriptions;
 - stable participant instances used by loop contracts and message routes;
-- concrete Houmao agent bindings used for launch profiles, prompts, installed skills, workspace policy, and maintained support skills.
+- concrete Houmao agent bindings used for easy profiles, prompts, installed generated skills, workspace policy, and Houmao system-skill preinstall posture.
 
 This separation lets one loop use a planner/worker pattern, another use peer reviewers, and another use a custom graph without changing the packaged skill. The topology is generated from intention source and clarification decisions, not from a built-in role set.
 
@@ -132,7 +132,7 @@ launch-agents
 start
 ```
 
-`prepare-agents` owns profile and agent preparation first. It resolves concrete agent ids, launch profile names, prompt sources, generated skill bindings, maintained support skills, notifier prompt material, memo posture, launch facts, and any profile mutation intent that workspace setup will later consume. It does not launch live agents as normal behavior.
+`prepare-agents` owns profile and agent preparation first. It materializes launchable easy profiles, generated skill bindings, prompt sources, notifier prompt material, memo posture, pending cwd posture, launch facts, and any profile mutation intent that workspace setup will later consume. It relies on Houmao managed-agent creation to preinstall system skills. It does not launch live agents as normal behavior.
 
 `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` inputs. It owns plan/execute routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, knowledge paths, shared resources, bookkeeping paths, ignored transient paths, launch cwd posture, memo seeds, and mutable-path uniqueness.
 
@@ -144,7 +144,7 @@ Manual workspace setup is valid only when explicit evidence satisfies the genera
 
 `start` owns loop begin. It requires live-agent/session facts and sends the generated first trigger without launching agents.
 
-The preparation stages are independent operator-invoked stages. `prepare-agents` should not call `prepare-workspace`, run the workspace manager, create worktrees, repair workspace directories, or route workspace setup. `prepare-workspace` should not create profiles, install skills, bind mail support, launch agents, or route agent preparation.
+The preparation stages are independent operator-invoked stages. `prepare-agents` should not call `prepare-workspace`, run the workspace manager, create worktrees, repair workspace directories, or route workspace setup. `prepare-workspace` should not create profiles, install generated skills, prepare platform posture, launch agents, or route agent preparation.
 
 ## Runtime State Kernel
 

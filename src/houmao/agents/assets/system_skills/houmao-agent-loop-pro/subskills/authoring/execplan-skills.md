@@ -136,7 +136,7 @@ Style:
 10. When a tick should follow mail processing, put that rule in notifier prompt guidance or equivalent agent binding material.
 11. Create or update `execplan/skills/README.md`.
 12. Add generated skill-directory README files only when that skill directory contains extra generated files beyond `SKILL.md` and optional `agents/openai.yaml`.
-13. Reference generated schemas, `schema_id` triggers, topology/context harness commands, maintained support skills, and stopping points explicitly.
+13. Reference generated schemas, `schema_id` triggers, topology/context harness commands, Houmao system-skill availability, and stopping points explicitly.
 
 ## On-Event Mail Skills
 

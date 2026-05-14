@@ -25,7 +25,7 @@ Use one of:
 
 - These commands use non-creating selected-overlay resolution and therefore require an already-existing selected project overlay.
 - `get` and `stop` verify that the managed agent belongs to the selected overlay.
-- Specialist-backed or profile-backed easy `launch` remains on `houmao-specialist-mgr`.
+- Specialist-backed or profile-backed easy `launch` remains on `houmao-agent-definition`.
 
 ## Guardrails
 

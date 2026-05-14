@@ -66,7 +66,7 @@ Ask only when a decision materially affects generated artifacts and cannot be de
 - message family names, request/reply links, or renderer section choices not clear from intention source;
 - state, record, run artifact, or audit scope when the loop can reasonably choose more than one compact model;
 - harness command surface, relative-path or symlink posture, and command envelope choices;
-- agent binding details such as notifier prompt customization, support skills, memo seed policy, or workspace policy;
+- agent binding details such as notifier prompt customization, generated skill installation, memo seed policy, or workspace policy;
 - final docs and manifest omissions when a default layer is intentionally absent.
 
 Do not ask about ordinary defaults that the skill already defines, such as mail as the default participant handoff transport, notifier-prompt-driven mail processing, flat generated skill directories, or the canonical process overview path.

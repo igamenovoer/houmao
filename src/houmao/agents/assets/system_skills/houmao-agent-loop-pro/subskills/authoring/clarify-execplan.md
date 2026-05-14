@@ -56,7 +56,7 @@ Build an internal coverage map before asking. Use these execplan implementation 
 - state schema, transitions, invariants, ownership, backend choice, and repair posture;
 - harness commands for initialization, query, validation, record apply, rendering, and explain output;
 - generated skill triggers, bounded procedures, stop points, archive-after-success behavior, and tick placement;
-- agent bindings, notifier prompts, maintained support skills, workspace policy, and memo posture;
+- agent bindings, notifier prompts, Houmao system-skill preinstall posture, workspace policy, and memo posture;
 - workspace definition: workspace roots, shared vs per-agent paths, artifact-sharing protocol, and how in-loop work artifacts are referenced across agents;
 - run artifacts, evidence refs, logs, validation coverage, generated docs, and manifest coherence;
 - platform boundary compliance;
@@ -74,7 +74,7 @@ Question priority:
 8. Resolve state, record, and harness authority: ownership, transitions, invariants, payload lifecycle, topology validation, operator intent events, validation, query, and apply surfaces.
 9. Resolve workspace definition and artifact sharing: where workspaces live, what is shared, what is per-agent, and how in-loop artifacts are communicated through mail, paths, branches, commits, or manifests.
 10. Resolve lifecycle, mode, and operator-control behavior: start, pause, resume, stop, recover, default `auto`, `manual`, notifier posture, and no in-chat waiting.
-11. Resolve generated skills and agent bindings: schema-id triggers, bounded actions, stop points, installed support skills, notifier prompts, and role ownership.
+11. Resolve generated skills and agent bindings: schema-id triggers, bounded actions, stop points, generated skill installation, notifier prompts, and role ownership.
 12. Resolve run artifacts, generated docs, manifest, and validation packaging after runtime semantics are coherent.
 
 Prioritize questions whose answers affect runtime correctness, generated contract shape, scheduling, recovery, state validity, mail behavior, workspace/artifact handoff, validation, or operator acceptance.
