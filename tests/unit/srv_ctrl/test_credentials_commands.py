@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -48,7 +49,9 @@ def _write_fake_provider_bin(bin_dir: Path, *, name: str, body: str) -> Path:
     return path
 
 
-def _provider_env(*, bin_dir: Path, record_dir: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
+def _provider_env(
+    *, bin_dir: Path, record_dir: Path, extra: dict[str, str] | None = None
+) -> dict[str, str]:
     """Build one CLI runner env that prefers fake provider commands."""
 
     env = {
@@ -142,9 +145,7 @@ printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
     assert not (record_dir / "openai_base_url").exists()
     assert json.loads(
         (
-            _direct_auth_root(agent_def_dir, tool="codex", name="sandbox")
-            / "files"
-            / "auth.json"
+            _direct_auth_root(agent_def_dir, tool="codex", name="sandbox") / "files" / "auth.json"
         ).read_text(encoding="utf-8")
     ) == {"logged_in": True}
 
@@ -492,6 +493,18 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
     list_payload = json.loads(list_result.output)
     assert list_payload["target_kind"] == "agent_def_dir"
     assert "sandbox" in list_payload["credentials"]
+    sandbox_records = [
+        record for record in list_payload["credential_records"] if record["name"] == "sandbox"
+    ]
+    assert sandbox_records == [
+        {
+            "tool": "codex",
+            "name": "sandbox",
+            "updated_at_utc": sandbox_records[0]["updated_at_utc"],
+            "updated_at_source": "filesystem_metadata",
+        }
+    ]
+    datetime.fromisoformat(sandbox_records[0]["updated_at_utc"])
 
     env_list_result = runner.invoke(
         cli,
@@ -558,7 +571,9 @@ def test_credentials_direct_dir_remove_unlinks_symlinked_bundle_without_touching
     external_bundle = (tmp_path / "external-bundle").resolve()
     (external_bundle / "env").mkdir(parents=True, exist_ok=True)
     (external_bundle / "files").mkdir(parents=True, exist_ok=True)
-    (external_bundle / "env" / "vars.env").write_text("OPENAI_API_KEY=sk-openai\n", encoding="utf-8")
+    (external_bundle / "env" / "vars.env").write_text(
+        "OPENAI_API_KEY=sk-openai\n", encoding="utf-8"
+    )
     bundle_root.parent.mkdir(parents=True, exist_ok=True)
     bundle_root.symlink_to(external_bundle, target_is_directory=True)
     monkeypatch.chdir(tmp_path)
@@ -611,7 +626,9 @@ def test_credentials_direct_dir_set_replaces_symlinked_auth_file_without_touchin
     )
     assert add_result.exit_code == 0, add_result.output
 
-    bundled_auth_json = _direct_auth_root(agent_def_dir, tool="codex", name="sandbox") / "files" / "auth.json"
+    bundled_auth_json = (
+        _direct_auth_root(agent_def_dir, tool="codex", name="sandbox") / "files" / "auth.json"
+    )
     external_auth = (tmp_path / "external-auth.json").resolve()
     external_auth.write_text('{"logged_in": "external"}\n', encoding="utf-8")
     bundled_auth_json.unlink()
@@ -714,12 +731,18 @@ def test_credentials_direct_dir_rename_rewrites_managed_yaml_references(
     assert len(rename_payload["rewritten_files"]) == 2
     assert _direct_auth_root(agent_def_dir, tool="codex", name="breakglass").is_dir()
     assert not _direct_auth_root(agent_def_dir, tool="codex", name="work").exists()
-    assert yaml.safe_load((agent_def_dir / "presets" / "reviewer.yaml").read_text(encoding="utf-8"))[
-        "auth"
-    ] == "breakglass"
-    assert yaml.safe_load(
-        (agent_def_dir / "launch-profiles" / "reviewer.yaml").read_text(encoding="utf-8")
-    )["auth"] == "breakglass"
+    assert (
+        yaml.safe_load((agent_def_dir / "presets" / "reviewer.yaml").read_text(encoding="utf-8"))[
+            "auth"
+        ]
+        == "breakglass"
+    )
+    assert (
+        yaml.safe_load(
+            (agent_def_dir / "launch-profiles" / "reviewer.yaml").read_text(encoding="utf-8")
+        )["auth"]
+        == "breakglass"
+    )
 
 
 def test_credentials_explicit_agent_def_dir_promotes_overlay_managed_projection_to_project_backend(
@@ -766,3 +789,12 @@ def test_credentials_explicit_agent_def_dir_promotes_overlay_managed_projection_
     assert list_payload["target_kind"] == "project"
     assert list_payload["project_root"] == str(repo_root)
     assert list_payload["credentials"] == ["work"]
+    assert list_payload["credential_records"] == [
+        {
+            "tool": "codex",
+            "name": "work",
+            "updated_at_utc": list_payload["credential_records"][0]["updated_at_utc"],
+            "updated_at_source": "project_catalog",
+        }
+    ]
+    datetime.fromisoformat(list_payload["credential_records"][0]["updated_at_utc"])

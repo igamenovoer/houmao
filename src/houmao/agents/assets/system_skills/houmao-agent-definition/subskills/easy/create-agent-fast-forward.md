@@ -17,7 +17,8 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 
 1. Determine the intended specialist:
    - use an existing specialist when the user named one;
-   - otherwise create one with `project easy specialist create`.
+   - otherwise create one with `project easy specialist create`;
+   - when creating one, resolve tool and credential from the current prompt, nearby explicit context, or Specialist Create Defaulting.
 2. Determine the easy profile name:
    - use the user-provided profile name;
    - otherwise ask for it.
@@ -84,6 +85,7 @@ Report:
 
 - Do not launch the managed agent.
 - Do not guess missing specialist, profile, tool, credential, identity, workdir, mailbox, gateway, prompt, model, or env inputs.
-- Do not scan for credentials unless one of the supported specialist-create discovery modes is explicitly active.
+- When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
+- Do not continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.
 - Do not manually preregister a same-root ordinary per-agent mailbox address when profile defaults or easy launch can own ordinary launch-time mailbox bootstrap.
 - Do not treat `create-agent-fast-forward` as broad live-agent lifecycle work.

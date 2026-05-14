@@ -110,7 +110,7 @@ At minimum, the skill SHALL require the agent to obtain:
 - no specialist name for `list`,
 - specialist name for `get`,
 - specialist name for `remove`,
-- specialist name, tool lane, and enough auth information for `create` unless an existing credential bundle for the intended credential name has already been confirmed,
+- specialist name for `create`; when tool or credential information is omitted, the skill first tries registered Houmao credential defaulting,
 - specialist name and instance name for `launch`,
 - easy-instance name for specialist-scoped `stop`.
 
@@ -118,7 +118,11 @@ When the user omits `--credential` on the create path, the skill MAY rely on the
 
 When required inputs remain unresolved after checking prompt and recent conversation context, the skill SHALL instruct the agent to ask the user for the missing inputs before proceeding.
 
-When the user explicitly requests `auto credentials`, the skill SHALL treat that as a create-action opt-in auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
+When the user explicitly requests `auto credentials`, the skill SHALL treat that as a create-action auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
+
+When the user omits tool or credential input, the skill SHALL inspect registered credentials from the active Houmao project or `HOUMAO_AGENT_DEF_DIR` target by running the supported `houmao-mgr ... credentials <tool> list` commands. If registered credentials exist, the skill SHALL pick a registered credential that matches the prompt or nearby context when possible; otherwise, it SHALL pick the credential with the latest listed update time.
+
+If no Houmao credential target can be resolved or if no credentials are registered, the skill SHALL stop before discovery and report the suggested fix.
 
 The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remove`.
 
@@ -138,6 +142,22 @@ The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remov
 - **AND WHEN** the skill confirms that the intended credential bundle already exists for that tool
 - **THEN** the skill allows the agent to proceed without asking the user to restate API-key or auth inputs
 - **AND THEN** it treats the confirmed credential bundle as satisfying the auth requirement for specialist creation
+
+#### Scenario: Create defaults missing tool and credential from registered credentials
+- **WHEN** the current prompt asks the agent to create a specialist
+- **AND WHEN** the specialist name is known
+- **AND WHEN** the tool lane or credential name is not explicit in the current prompt or recent conversation context
+- **AND WHEN** the active Houmao project or `HOUMAO_AGENT_DEF_DIR` target has registered credentials
+- **THEN** the skill chooses a registered credential by prompt or recent conversation context when possible
+- **AND THEN** it otherwise chooses the credential with the latest listed update time
+- **AND THEN** it uses that credential's tool lane and name for `--tool` and `--credential`
+
+#### Scenario: Create handles multiple registered tool lanes by context or recency
+- **WHEN** the current prompt asks the agent to create a specialist
+- **AND WHEN** the tool lane or credential name is not explicit in the current prompt or recent conversation context
+- **AND WHEN** credentials are registered for multiple tool lanes
+- **THEN** the skill selects a registered credential by prompt or recent conversation context when possible
+- **AND THEN** it otherwise selects the credential with the latest listed update time
 
 #### Scenario: Specialist launch asks before guessing the launch target
 - **WHEN** the current prompt asks to launch from a specialist

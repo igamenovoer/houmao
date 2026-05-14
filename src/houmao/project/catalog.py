@@ -281,6 +281,8 @@ class AuthProfileCatalogEntry:
     display_name: str
     bundle_ref: str
     content_ref: ManagedContentRef
+    created_at_utc: str
+    updated_at_utc: str
     metadata_path: Path | None = None
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
@@ -452,6 +454,8 @@ class ProjectCatalog:
                         auth_profiles.tool,
                         auth_profiles.display_name,
                         auth_profiles.bundle_ref,
+                        auth_profiles.created_at,
+                        auth_profiles.updated_at,
                         content_refs.content_kind,
                         content_refs.storage_kind,
                         content_refs.relative_path
@@ -468,6 +472,8 @@ class ProjectCatalog:
                         auth_profiles.tool,
                         auth_profiles.display_name,
                         auth_profiles.bundle_ref,
+                        auth_profiles.created_at,
+                        auth_profiles.updated_at,
                         content_refs.content_kind,
                         content_refs.storage_kind,
                         content_refs.relative_path
@@ -498,6 +504,8 @@ class ProjectCatalog:
                     auth_profiles.tool,
                     auth_profiles.display_name,
                     auth_profiles.bundle_ref,
+                    auth_profiles.created_at,
+                    auth_profiles.updated_at,
                     content_refs.content_kind,
                     content_refs.storage_kind,
                     content_refs.relative_path
@@ -531,6 +539,8 @@ class ProjectCatalog:
                     auth_profiles.tool,
                     auth_profiles.display_name,
                     auth_profiles.bundle_ref,
+                    auth_profiles.created_at,
+                    auth_profiles.updated_at,
                     content_refs.content_kind,
                     content_refs.storage_kind,
                     content_refs.relative_path
@@ -2501,8 +2511,7 @@ class ProjectCatalog:
             skill_markdown = resolved_source_path / "SKILL.md"
             if not resolved_source_path.is_dir():
                 raise ValueError(
-                    "Launch-profile private skill directory does not exist: "
-                    f"{resolved_source_path}"
+                    f"Launch-profile private skill directory does not exist: {resolved_source_path}"
                 )
             if not skill_markdown.is_file():
                 raise ValueError(
@@ -2518,8 +2527,7 @@ class ProjectCatalog:
             )
             if stored_source_path in seen_paths:
                 raise ValueError(
-                    "Launch-profile private skill source is duplicated: "
-                    f"{stored_source_path}"
+                    f"Launch-profile private skill source is duplicated: {stored_source_path}"
                 )
             if installed_name in seen_names:
                 raise ValueError(
@@ -2546,6 +2554,8 @@ class ProjectCatalog:
             tool=str(row["tool"]),
             display_name=str(row["display_name"]),
             bundle_ref=str(row["bundle_ref"]),
+            created_at_utc=str(row["created_at"]),
+            updated_at_utc=str(row["updated_at"]),
             content_ref=ManagedContentRef(
                 content_kind=str(row["content_kind"]),
                 storage_kind=str(row["storage_kind"]),
@@ -3681,9 +3691,7 @@ def _normalize_launch_profile_registered_skill_names(
     for value in skill_names:
         skill_name = _require_catalog_name(value, field_name="registered_skill")
         if skill_name in seen:
-            raise ValueError(
-                f"Launch-profile registered skill `{skill_name}` is duplicated."
-            )
+            raise ValueError(f"Launch-profile registered skill `{skill_name}` is duplicated.")
         normalized.append(skill_name)
         seen.add(skill_name)
     return tuple(normalized)

@@ -8,12 +8,13 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
 - Read [../common/credential-routing.md](../common/credential-routing.md) for create requests or credential-reference edits.
 - Confirm the target is a specialist, not an easy profile, explicit launch profile, or live managed agent.
+- For create requests, resolve specialist name, tool, and credential from the prompt, nearby explicit context, or Specialist Create Defaulting before choosing a credential path.
 
 ## Actions
 
 - List specialists: no name required.
 - Get specialist: require `--name`.
-- Create specialist: require `--name`, `--tool`, and enough credential input unless the selected credential bundle already exists or a supported discovery mode finds one importable source.
+- Create specialist: require `--name`; if `--tool` or `--credential` is omitted, use Specialist Create Defaulting.
 - Set specialist: require `--name` and at least one supported mutation.
 - Remove specialist: require `--name`.
 
@@ -51,7 +52,15 @@ Tool-specific auth inputs:
 
 ## Credential Discovery During Create
 
-Use credential discovery only for specialist creation. The supported modes are:
+Use credential discovery only for specialist creation.
+
+When the user omits tool or credential input, first apply Specialist Create Defaulting from [../common/credential-routing.md](../common/credential-routing.md):
+
+- no Houmao project or `HOUMAO_AGENT_DEF_DIR`: stop and report how to select one;
+- no registered credentials: stop and suggest adding or logging in one credential;
+- registered credentials exist: pick a matching registered credential based on the prompt or nearby context; if nothing matches, use the credential with the latest listed update time.
+
+The supported modes are:
 
 - Explicit Auth Mode
 - Env Lookup Mode
@@ -92,6 +101,7 @@ Common update and clear inputs:
 ## Guardrails
 
 - Do not guess the specialist name, tool lane, credential name, or auth values.
+- Do not infer tool or credential from installed CLIs, project language, file names, vendor tool homes, or credential storage directory basenames.
 - Do not remove and recreate an easy specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project easy specialist set`.
 - Do not use `project easy specialist set` for specialist rename or tool-lane changes. Ask whether to create a new specialist instead.
 - Do not enter credential discovery for list, get, set, remove, easy-profile creation, or launch.

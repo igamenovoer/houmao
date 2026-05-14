@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
@@ -525,11 +526,19 @@ def _build_claude_add_command(*, project_only: bool) -> click.Command:
     @click.option("--oauth-token", default=None, help="Value for `CLAUDE_CODE_OAUTH_TOKEN`.")
     @click.option("--base-url", default=None, help="Value for `ANTHROPIC_BASE_URL`.")
     @click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
-    @click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
+    @click.option(
+        "--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`."
+    )
     @click.option("--subagent-model", default=None, help="Value for `CLAUDE_CODE_SUBAGENT_MODEL`.")
-    @click.option("--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`.")
-    @click.option("--default-sonnet-model", default=None, help="Value for `ANTHROPIC_DEFAULT_SONNET_MODEL`.")
-    @click.option("--default-haiku-model", default=None, help="Value for `ANTHROPIC_DEFAULT_HAIKU_MODEL`.")
+    @click.option(
+        "--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`."
+    )
+    @click.option(
+        "--default-sonnet-model", default=None, help="Value for `ANTHROPIC_DEFAULT_SONNET_MODEL`."
+    )
+    @click.option(
+        "--default-haiku-model", default=None, help="Value for `ANTHROPIC_DEFAULT_HAIKU_MODEL`."
+    )
     @click.option(
         "--state-template-file",
         "state_template_file",
@@ -621,11 +630,19 @@ def _build_claude_set_command(*, project_only: bool) -> click.Command:
     @click.option("--oauth-token", default=None, help="Value for `CLAUDE_CODE_OAUTH_TOKEN`.")
     @click.option("--base-url", default=None, help="Value for `ANTHROPIC_BASE_URL`.")
     @click.option("--model", default=None, help="Value for `ANTHROPIC_MODEL`.")
-    @click.option("--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`.")
+    @click.option(
+        "--small-fast-model", default=None, help="Value for `ANTHROPIC_SMALL_FAST_MODEL`."
+    )
     @click.option("--subagent-model", default=None, help="Value for `CLAUDE_CODE_SUBAGENT_MODEL`.")
-    @click.option("--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`.")
-    @click.option("--default-sonnet-model", default=None, help="Value for `ANTHROPIC_DEFAULT_SONNET_MODEL`.")
-    @click.option("--default-haiku-model", default=None, help="Value for `ANTHROPIC_DEFAULT_HAIKU_MODEL`.")
+    @click.option(
+        "--default-opus-model", default=None, help="Value for `ANTHROPIC_DEFAULT_OPUS_MODEL`."
+    )
+    @click.option(
+        "--default-sonnet-model", default=None, help="Value for `ANTHROPIC_DEFAULT_SONNET_MODEL`."
+    )
+    @click.option(
+        "--default-haiku-model", default=None, help="Value for `ANTHROPIC_DEFAULT_HAIKU_MODEL`."
+    )
     @click.option(
         "--state-template-file",
         "state_template_file",
@@ -643,18 +660,64 @@ def _build_claude_set_command(*, project_only: bool) -> click.Command:
             "(`.credentials.json` plus companion `.claude.json` when present)."
         ),
     )
-    @click.option("--clear-api-key", is_flag=True, help="Remove `ANTHROPIC_API_KEY` from the credential bundle.")
-    @click.option("--clear-auth-token", is_flag=True, help="Remove `ANTHROPIC_AUTH_TOKEN` from the credential bundle.")
-    @click.option("--clear-oauth-token", is_flag=True, help="Remove `CLAUDE_CODE_OAUTH_TOKEN` from the credential bundle.")
-    @click.option("--clear-base-url", is_flag=True, help="Remove `ANTHROPIC_BASE_URL` from the credential bundle.")
-    @click.option("--clear-model", is_flag=True, help="Remove `ANTHROPIC_MODEL` from the credential bundle.")
-    @click.option("--clear-small-fast-model", is_flag=True, help="Remove `ANTHROPIC_SMALL_FAST_MODEL` from the credential bundle.")
-    @click.option("--clear-subagent-model", is_flag=True, help="Remove `CLAUDE_CODE_SUBAGENT_MODEL` from the credential bundle.")
-    @click.option("--clear-default-opus-model", is_flag=True, help="Remove `ANTHROPIC_DEFAULT_OPUS_MODEL` from the credential bundle.")
-    @click.option("--clear-default-sonnet-model", is_flag=True, help="Remove `ANTHROPIC_DEFAULT_SONNET_MODEL` from the credential bundle.")
-    @click.option("--clear-default-haiku-model", is_flag=True, help="Remove `ANTHROPIC_DEFAULT_HAIKU_MODEL` from the credential bundle.")
-    @click.option("--clear-state-template-file", is_flag=True, help="Remove optional `files/claude_state.template.json` bootstrap state from the credential bundle.")
-    @click.option("--clear-config-dir", is_flag=True, help="Remove imported Claude vendor login-state files from the credential bundle.")
+    @click.option(
+        "--clear-api-key",
+        is_flag=True,
+        help="Remove `ANTHROPIC_API_KEY` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-auth-token",
+        is_flag=True,
+        help="Remove `ANTHROPIC_AUTH_TOKEN` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-oauth-token",
+        is_flag=True,
+        help="Remove `CLAUDE_CODE_OAUTH_TOKEN` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-base-url",
+        is_flag=True,
+        help="Remove `ANTHROPIC_BASE_URL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-model", is_flag=True, help="Remove `ANTHROPIC_MODEL` from the credential bundle."
+    )
+    @click.option(
+        "--clear-small-fast-model",
+        is_flag=True,
+        help="Remove `ANTHROPIC_SMALL_FAST_MODEL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-subagent-model",
+        is_flag=True,
+        help="Remove `CLAUDE_CODE_SUBAGENT_MODEL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-default-opus-model",
+        is_flag=True,
+        help="Remove `ANTHROPIC_DEFAULT_OPUS_MODEL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-default-sonnet-model",
+        is_flag=True,
+        help="Remove `ANTHROPIC_DEFAULT_SONNET_MODEL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-default-haiku-model",
+        is_flag=True,
+        help="Remove `ANTHROPIC_DEFAULT_HAIKU_MODEL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-state-template-file",
+        is_flag=True,
+        help="Remove optional `files/claude_state.template.json` bootstrap state from the credential bundle.",
+    )
+    @click.option(
+        "--clear-config-dir",
+        is_flag=True,
+        help="Remove imported Claude vendor login-state files from the credential bundle.",
+    )
     def set_command(
         name: str,
         api_key: str | None,
@@ -827,10 +890,22 @@ def _build_codex_set_command(*, project_only: bool) -> click.Command:
         default=None,
         help="Optional Codex `auth.json` login-state file to copy into the credential bundle without mutating the source file.",
     )
-    @click.option("--clear-api-key", is_flag=True, help="Remove `OPENAI_API_KEY` from the credential bundle.")
-    @click.option("--clear-base-url", is_flag=True, help="Remove `OPENAI_BASE_URL` from the credential bundle.")
-    @click.option("--clear-org-id", is_flag=True, help="Remove `OPENAI_ORG_ID` from the credential bundle.")
-    @click.option("--clear-auth-json", is_flag=True, help="Remove `files/auth.json` from the credential bundle.")
+    @click.option(
+        "--clear-api-key", is_flag=True, help="Remove `OPENAI_API_KEY` from the credential bundle."
+    )
+    @click.option(
+        "--clear-base-url",
+        is_flag=True,
+        help="Remove `OPENAI_BASE_URL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-org-id", is_flag=True, help="Remove `OPENAI_ORG_ID` from the credential bundle."
+    )
+    @click.option(
+        "--clear-auth-json",
+        is_flag=True,
+        help="Remove `files/auth.json` from the credential bundle.",
+    )
     def set_command(
         name: str,
         api_key: str | None,
@@ -973,10 +1048,24 @@ def _build_gemini_set_command(*, project_only: bool) -> click.Command:
         default=None,
         help="Path to the Gemini CLI `oauth_creds.json` file required by the current adapter.",
     )
-    @click.option("--clear-api-key", is_flag=True, help="Remove `GEMINI_API_KEY` from the credential bundle.")
-    @click.option("--clear-base-url", is_flag=True, help="Remove `GOOGLE_GEMINI_BASE_URL` from the credential bundle.")
-    @click.option("--clear-google-api-key", is_flag=True, help="Remove `GOOGLE_API_KEY` from the credential bundle.")
-    @click.option("--clear-use-vertex-ai", is_flag=True, help="Remove `GOOGLE_GENAI_USE_VERTEXAI` from the credential bundle.")
+    @click.option(
+        "--clear-api-key", is_flag=True, help="Remove `GEMINI_API_KEY` from the credential bundle."
+    )
+    @click.option(
+        "--clear-base-url",
+        is_flag=True,
+        help="Remove `GOOGLE_GEMINI_BASE_URL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-google-api-key",
+        is_flag=True,
+        help="Remove `GOOGLE_API_KEY` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-use-vertex-ai",
+        is_flag=True,
+        help="Remove `GOOGLE_GENAI_USE_VERTEXAI` from the credential bundle.",
+    )
     def set_command(
         name: str,
         api_key: str | None,
@@ -1293,7 +1382,9 @@ def _login_and_import_credential(
             require_any_input=True,
             operation=operation,
             clear_env_names=set(),
-            clear_file_sources=set(_CLAUDE_VENDOR_LOGIN_FILE_SOURCES) if tool == "claude" else set(),
+            clear_file_sources=set(_CLAUDE_VENDOR_LOGIN_FILE_SOURCES)
+            if tool == "claude"
+            else set(),
         )
         success = True
     except click.ClickException as exc:
@@ -1337,7 +1428,10 @@ def _ensure_login_import_allowed(
 
     if target.kind == "project":
         assert target.overlay is not None
-        if _load_project_auth_profile_optional(overlay=target.overlay, tool=tool, name=name) is not None:
+        if (
+            _load_project_auth_profile_optional(overlay=target.overlay, tool=tool, name=name)
+            is not None
+        ):
             raise click.ClickException(
                 f"Credential bundle already exists for `{tool}`: `{name}`. Use `--update` to replace it."
             )
@@ -1406,7 +1500,9 @@ def _validate_provider_artifacts(
     """Validate provider login artifacts before importing them."""
 
     missing_artifacts = [
-        source_name for source_name, source_path in artifact_sources.items() if not source_path.is_file()
+        source_name
+        for source_name, source_path in artifact_sources.items()
+        if not source_path.is_file()
     ]
     if missing_artifacts:
         raise click.ClickException(
@@ -1477,7 +1573,9 @@ def _gemini_provider_login(*, temp_home: Path, no_browser: bool) -> CredentialPr
     return CredentialProviderLogin(
         command=["gemini"],
         temp_home_env_var=_PROVIDER_HOME_ENV_VARS["gemini"],
-        artifact_sources={"oauth_creds.json": (temp_home / ".gemini" / "oauth_creds.json").resolve()},
+        artifact_sources={
+            "oauth_creds.json": (temp_home / ".gemini" / "oauth_creds.json").resolve()
+        },
         extra_env={"NO_BROWSER": "true"} if no_browser else {},
     )
 
@@ -1489,8 +1587,7 @@ def _write_gemini_oauth_settings(*, temp_home: Path) -> None:
     gemini_dir.mkdir(parents=True, exist_ok=True)
     settings_path = (gemini_dir / "settings.json").resolve()
     settings_path.write_text(
-        json.dumps({"security": {"auth": {"selectedType": "oauth-personal"}}}, indent=2)
-        + "\n",
+        json.dumps({"security": {"auth": {"selectedType": "oauth-personal"}}}, indent=2) + "\n",
         encoding="utf-8",
     )
 
@@ -1500,26 +1597,49 @@ def _list_credentials_payload(*, target: CredentialTarget, tool: str) -> dict[st
 
     if target.kind == "project":
         assert target.overlay is not None
+        profiles = ProjectCatalog.from_overlay(target.overlay).list_auth_profiles(tool=tool)
         return {
             "target_kind": "project",
             "project_root": str(target.overlay.project_root),
             "tool": tool,
-            "credentials": [
-                profile.display_name
-                for profile in ProjectCatalog.from_overlay(target.overlay).list_auth_profiles(tool=tool)
+            "credentials": [profile.display_name for profile in profiles],
+            "credential_records": [
+                {
+                    "tool": profile.tool,
+                    "name": profile.display_name,
+                    "updated_at_utc": profile.updated_at_utc,
+                    "updated_at_source": "project_catalog",
+                }
+                for profile in profiles
             ],
         }
 
     assert target.agent_def_dir is not None
     auth_root = _agent_def_dir_auth_root(agent_def_dir=target.agent_def_dir, tool=tool)
+    credential_paths = (
+        sorted(path for path in auth_root.iterdir() if path.is_dir()) if auth_root.is_dir() else []
+    )
     return {
         "target_kind": "agent_def_dir",
         "agent_def_dir": str(target.agent_def_dir),
         "tool": tool,
-        "credentials": (
-            sorted(path.name for path in auth_root.iterdir() if path.is_dir()) if auth_root.is_dir() else []
-        ),
+        "credentials": [path.name for path in credential_paths],
+        "credential_records": [
+            {
+                "tool": tool,
+                "name": path.name,
+                "updated_at_utc": _filesystem_updated_at_utc(path),
+                "updated_at_source": "filesystem_metadata",
+            }
+            for path in credential_paths
+        ],
     }
+
+
+def _filesystem_updated_at_utc(path: Path) -> str:
+    """Return one best-effort filesystem update timestamp for a credential bundle."""
+
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
 
 
 def _describe_credential_bundle(
@@ -1776,7 +1896,9 @@ def _write_credential_bundle(
             f"Provide at least one change to update credential `{resolved_name}` for `{tool}`."
         )
 
-    unsupported_env_keys = sorted((set(env_values) | clear_env_names) - set(adapter.auth_env_allowlist))
+    unsupported_env_keys = sorted(
+        (set(env_values) | clear_env_names) - set(adapter.auth_env_allowlist)
+    )
     if unsupported_env_keys:
         raise click.ClickException(
             f"Unsupported env var(s) for `{tool}` credentials: {', '.join(unsupported_env_keys)}"
@@ -1941,7 +2063,8 @@ def _persist_credential_bundle(
             ],
             "cleared_env_vars": sorted(clear_env_names),
             "written_files": [
-                str((projection_files_root / source_name).resolve()) for source_name in sorted(file_sources)
+                str((projection_files_root / source_name).resolve())
+                for source_name in sorted(file_sources)
             ],
             "cleared_files": sorted(clear_file_sources),
         }
@@ -2148,7 +2271,9 @@ def _load_existing_env_values(path: Path) -> dict[str, str]:
 def _render_env_file(*, env_values: dict[str, str], allowlist: list[str]) -> str:
     """Render one stable `env/vars.env` file for a credential bundle."""
 
-    lines = [f"{env_name}={env_values[env_name]}" for env_name in allowlist if env_name in env_values]
+    lines = [
+        f"{env_name}={env_values[env_name]}" for env_name in allowlist if env_name in env_values
+    ]
     return "\n".join(lines) + "\n"
 
 

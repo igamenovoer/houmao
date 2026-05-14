@@ -89,10 +89,18 @@ For the project backend:
 
 `houmao-mgr project credentials ...` and `houmao-mgr credentials ...` when they resolve to the same project overlay SHALL expose the same project-backed credential behavior.
 
+Credential list payloads SHALL preserve the existing credential-name list and SHALL also include timestamped credential records. For project-backed credentials, each record's last update time SHALL come from the project catalog database timestamp.
+
 #### Scenario: Project add stores credential content under an opaque bundle ref
 - **WHEN** an operator runs `houmao-mgr project credentials claude add --name work --base-url https://api.example.test --api-key sk-test`
 - **THEN** the command creates one project-local Claude auth profile named `work`
 - **AND THEN** the resulting stored content is owned by the project catalog and projected through an opaque bundle-ref path rather than `.houmao/agents/tools/claude/auth/work/`
+
+#### Scenario: Project list reports last update time
+- **WHEN** one project-local Claude auth profile named `work` exists
+- **AND WHEN** an operator runs `houmao-mgr project credentials claude list`
+- **THEN** the command preserves `work` in the credential-name list
+- **AND THEN** the list payload includes a credential record for `work` with a catalog-backed last update time
 
 #### Scenario: Project rename preserves stable identity
 - **WHEN** one project-local Codex auth profile named `work` exists
@@ -138,6 +146,8 @@ The direct-dir backend SHALL still enforce the adapter-defined env/file contract
 
 Maintained examples for this backend SHALL use generic direct-dir paths or copied temp roots rather than the removed `tests/fixtures/agents/` path.
 
+Credential list payloads SHALL preserve the existing credential-name list and SHALL also include timestamped credential records. For direct-dir credentials, each record's last update time SHALL be derived best-effort from the credential bundle's filesystem metadata.
+
 #### Scenario: Direct-dir add creates one named credential directory
 - **WHEN** an operator runs `houmao-mgr credentials codex add --agent-def-dir /tmp/agents --name sandbox --api-key sk-test --auth-json /tmp/auth.json`
 - **THEN** the command creates `/tmp/agents/tools/codex/auth/sandbox/`
@@ -147,6 +157,7 @@ Maintained examples for this backend SHALL use generic direct-dir paths or copie
 - **WHEN** an operator runs `houmao-mgr credentials gemini list --agent-def-dir /tmp/agents`
 - **THEN** the command reports the Gemini credential names discovered under `/tmp/agents/tools/gemini/auth/`
 - **AND THEN** the command does not require a project overlay or project catalog for that inspection
+- **AND THEN** the list payload includes a credential record with the credential name and filesystem-derived last update time
 
 ### Requirement: Direct agent-definition-dir rename rewrites maintained in-tree auth references
 When the resolved target is a plain agent-definition directory, `rename` SHALL:

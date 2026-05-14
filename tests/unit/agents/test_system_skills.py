@@ -121,6 +121,31 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
+def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-loop-pro")
+    prepare_agents = (skill_root / "subskills/execution/prepare-agents.md").read_text(
+        encoding="utf-8"
+    )
+    platform_boundaries = (skill_root / "subskills/reference/platform-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Route persisted agent/profile preparation through `houmao-agent-definition`" in (
+        prepare_agents
+    )
+    assert "`create-agent-fast-forward`: default" in prepare_agents
+    assert "`profiles`: when the specialist already exists" in prepare_agents
+    assert "`specialists`: when only specialist material changes" in prepare_agents
+    assert "`raw-profiles`: only when the execplan or operator explicitly requires" in (
+        prepare_agents
+    )
+    assert "Do not reimplement specialist creation" in prepare_agents
+    assert "credential-defaulting" in platform_boundaries
+    assert "Treat `houmao-mgr project easy ...` as its underlying CLI surface" in (
+        platform_boundaries
+    )
+
+
 def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> None:
     catalog = load_system_skill_catalog()
 
@@ -429,22 +454,20 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     pairwise_loop_v5_create_intention = (
         pairwise_loop_v5_authoring / "create-intention.md"
     ).read_text(encoding="utf-8")
-    pairwise_loop_v5_clarify_intent = (
-        pairwise_loop_v5_authoring / "clarify-intent.md"
-    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_clarify_intent = (pairwise_loop_v5_authoring / "clarify-intent.md").read_text(
+        encoding="utf-8"
+    )
     pairwise_loop_v5_generate_execplan = (
         (pairwise_loop_v5_authoring / "execplan-fast-forward.md").read_text(encoding="utf-8")
         + "\n"
-        + (pairwise_loop_v5_authoring / "execplan-specs-contract.md").read_text(
-            encoding="utf-8"
-        )
+        + (pairwise_loop_v5_authoring / "execplan-specs-contract.md").read_text(encoding="utf-8")
     )
     pairwise_loop_v5_validate_execplan = (
         pairwise_loop_v5_authoring / "validate-execplan.md"
     ).read_text(encoding="utf-8")
-    pairwise_loop_v5_prepare_agents = (
-        pairwise_loop_v5_execution / "prepare-agents.md"
-    ).read_text(encoding="utf-8")
+    pairwise_loop_v5_prepare_agents = (pairwise_loop_v5_execution / "prepare-agents.md").read_text(
+        encoding="utf-8"
+    )
     relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
@@ -462,7 +485,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     definition_roles_path = manage_agent_definition_subskills / "low-level/roles.md"
     definition_recipes_path = manage_agent_definition_subskills / "low-level/recipes.md"
-    definition_launch_profiles_path = manage_agent_definition_subskills / "low-level/raw-profiles.md"
+    definition_launch_profiles_path = (
+        manage_agent_definition_subskills / "low-level/raw-profiles.md"
+    )
     easy_specialists_path = manage_agent_definition_subskills / "easy/specialists.md"
     easy_profiles_path = manage_agent_definition_subskills / "easy/profiles.md"
     ready_profile_path = manage_agent_definition_subskills / "easy/create-agent-fast-forward.md"
@@ -479,9 +504,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     definition_launcher = definition_launcher_path.read_text(encoding="utf-8")
     definition_missing_inputs = definition_missing_inputs_path.read_text(encoding="utf-8")
     definition_profile_lanes = definition_profile_lanes_path.read_text(encoding="utf-8")
-    definition_credential_routing = definition_credential_routing_path.read_text(
-        encoding="utf-8"
-    )
+    definition_credential_routing = definition_credential_routing_path.read_text(encoding="utf-8")
     definition_roles = definition_roles_path.read_text(encoding="utf-8")
     definition_recipes = definition_recipes_path.read_text(encoding="utf-8")
     definition_launch_profiles = definition_launch_profiles_path.read_text(encoding="utf-8")
@@ -586,6 +609,23 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Directory Scan Mode" in easy_specialists
     assert "Auto Credentials Mode" in easy_specialists
     assert "No Discovery Mode" in easy_specialists
+    assert "Specialist Create Defaulting" in easy_specialists
+    assert "registered credentials exist: pick a matching registered credential" in (
+        easy_specialists
+    )
+    assert "Resolve the specialist tool and credential from the prompt" in (
+        definition_credential_routing
+    )
+    assert "Inventory registered credentials across supported tool lanes" in (
+        definition_credential_routing
+    )
+    assert "project credentials <tool> list" in definition_credential_routing
+    assert "credentials <tool> list --agent-def-dir <path>" in definition_credential_routing
+    assert "credential_records[].updated_at_utc" in definition_credential_routing
+    assert "choose the credential with the latest listed update time" in (
+        definition_credential_routing
+    )
+    assert "no target: initialize/select a Houmao project" in definition_credential_routing
     assert "references/credentials/claude-lookup.md" in easy_specialists
     assert "references/credentials/codex-lookup.md" in easy_specialists
     assert "references/credentials/gemini-lookup.md" in easy_specialists
@@ -593,7 +633,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "--claude-config-dir" in easy_specialists
     assert "optional bootstrap state" in easy_specialists
     assert "not a credential-providing method" in easy_specialists
-    assert "Do not scan env vars, directories, repo-local tool homes" in definition_credential_routing
+    assert (
+        "Do not scan env vars, directories, repo-local tool homes" in definition_credential_routing
+    )
     deprecated_fixture_root = "/".join(("tests", "fixtures", "agents"))
     assert deprecated_fixture_root not in easy_specialists
     assert "project easy profile list" in easy_profiles
@@ -603,13 +645,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project easy profile get --name <profile>" in easy_launch
     assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
     assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
+    assert "private filesystem mailbox directory outside the shared root" in easy_launch
     assert (
-        "private filesystem mailbox directory outside the shared root"
-        in easy_launch
-    )
-    assert (
-        "was preregistered manually already, launch-time safe registration can fail"
-        in easy_launch
+        "was preregistered manually already, launch-time safe registration can fail" in easy_launch
     )
     assert "project easy instance stop --name <name>" in easy_stop
     assert "create-agent-fast-forward" in ready_profile
@@ -646,14 +684,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project credentials <tool> get --name <name>" in credentials_get_action
     assert "credentials <tool> get --agent-def-dir <path> --name <name>" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
-    assert (
-        "stored easy-profile or raw-profile `--auth` override" in credentials_get_action
-    )
+    assert "stored easy-profile or raw-profile `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
-    assert (
-        "stored easy-profile or raw-profile `--auth` override change"
-        in credentials_set_action
-    )
+    assert "stored easy-profile or raw-profile `--auth` override change" in credentials_set_action
     assert (
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action

@@ -14,18 +14,15 @@ The create action SHALL treat those as distinct credential-source modes unless t
 
 If the selected action is not `create`, the packaged `houmao-specialist-mgr` skill SHALL NOT enter any credential-source mode.
 
-If the user does not request any credential-source mode and does not already provide enough auth input for `create`, the skill SHALL only:
+Before any credential-source mode is selected, the create action SHALL recover the selected tool and credential from the current prompt, nearby context, or the registered Houmao credential defaulting strategy.
 
-- confirm whether the intended credential bundle already exists for the selected tool, or
-- ask the user for the missing auth input.
-
-In that no-mode case, the create action SHALL NOT scan environment variables, directories, repo-local tool homes, redirected tool homes, or user-home tool configs.
+If the user does not request any credential-source mode and does not already provide enough auth input for `create`, the skill SHALL run the registered Houmao credential defaulting strategy before tool-specific automatic credential discovery.
 
 When the user explicitly requests environment lookup for `create`, the skill SHALL limit inspection to the user-named variables or the user-specified variable-name patterns and SHALL NOT widen beyond that scope.
 
 When the user explicitly points the agent at a directory for credential scanning during `create`, the skill SHALL limit scanning to that directory and SHALL treat that instruction as affirmative permission to scan without adding extra security warnings first.
 
-When the user explicitly requests tool-specific automatic discovery for `create`, the skill SHALL use the selected tool’s reference page to determine the supported search order and candidate credential surfaces.
+When tool-specific automatic discovery is explicit or selected by default for `create`, the skill SHALL use the selected tool’s reference page to determine the supported search order and candidate credential surfaces.
 
 #### Scenario: Explicit auth input does not trigger discovery
 
@@ -45,12 +42,32 @@ When the user explicitly requests tool-specific automatic discovery for `create`
 - **THEN** the skill allows scanning only inside that directory using the selected tool’s lookup guidance
 - **AND THEN** it does not add extra security warnings before scanning because the user already granted that scope explicitly
 
-#### Scenario: Missing mode falls back to bundle reuse check or user question
+#### Scenario: Missing tool defaults from registered credentials
+- **WHEN** the user asks to create a specialist
+- **AND WHEN** the selected tool is not explicit in the current prompt or nearby context
+- **AND WHEN** an active Houmao project or `HOUMAO_AGENT_DEF_DIR` target has registered credentials
+- **THEN** the skill picks a registered credential that matches the prompt or nearby context when possible
+- **AND THEN** it otherwise picks the credential with the latest listed update time
+- **AND THEN** it uses that credential's tool lane and name for `--tool` and `--credential`
 
-- **WHEN** the user has not requested any credential-source mode for `create`
-- **AND WHEN** enough auth input is still missing to create the selected credential bundle
-- **THEN** the skill first checks whether the intended credential bundle already exists for the selected tool
-- **AND THEN** it asks the user for the missing auth input instead of scanning or guessing if the bundle is not already present
+#### Scenario: Missing Houmao credential target fails with suggestion
+- **WHEN** the user asks to create a specialist without explicit tool or credential input
+- **AND WHEN** no active Houmao project overlay or `HOUMAO_AGENT_DEF_DIR` target can be resolved
+- **THEN** the skill stops before discovery
+- **AND THEN** it suggests initializing or selecting a Houmao project, setting `HOUMAO_PROJECT_OVERLAY_DIR`, or setting `HOUMAO_AGENT_DEF_DIR`
+
+#### Scenario: No registered credentials fails with suggestion
+- **WHEN** the user asks to create a specialist without explicit tool or credential input
+- **AND WHEN** a Houmao credential target is resolved
+- **AND WHEN** no credentials are registered for that target
+- **THEN** the skill stops before discovery
+- **AND THEN** it suggests adding or logging in one credential through the credential manager
+
+#### Scenario: Multiple registered tool lanes use context or recency
+- **WHEN** the user asks to create a specialist without explicit tool or credential input
+- **AND WHEN** registered credentials exist for multiple tool lanes
+- **THEN** the skill selects a registered credential by prompt or nearby context when possible
+- **AND THEN** it otherwise selects the credential with the latest listed update time across those tools
 
 #### Scenario: Non-create action does not enter credential-source handling
 
@@ -139,25 +156,25 @@ The skill SHALL continue to report non-importable Claude auth shapes, such as `a
 An explicit or discovered `claude_state.template.json` MAY still be used as optional Claude runtime-state template input, but the create action SHALL classify that file separately from credential-providing Claude auth methods.
 
 #### Scenario: Auto discovery imports Claude OAuth token from environment
-- **WHEN** the user explicitly requests `auto credentials` for `--tool claude` on the create action
+- **WHEN** automatic credential discovery is active for `--tool claude` on the create action
 - **AND WHEN** discovery finds `CLAUDE_CODE_OAUTH_TOKEN` in the supported Claude env lookup surfaces
 - **THEN** the skill treats that token as importable Claude auth
 - **AND THEN** it maps that result into the supported Claude OAuth-token create input rather than rejecting it as unsupported
 
 #### Scenario: Auto discovery imports Claude login state from the maintained config root
-- **WHEN** the user explicitly requests `auto credentials` for `--tool claude` on the create action
+- **WHEN** automatic credential discovery is active for `--tool claude` on the create action
 - **AND WHEN** discovery finds a maintained Claude config root containing the vendor login-state files required by the Claude login-state lane
 - **THEN** the skill treats that Claude login state as importable for specialist creation
 - **AND THEN** it maps that result into the supported Claude config-dir create input rather than reporting "logged in but unsupported"
 
 #### Scenario: Claude apiKeyHelper-only auth remains unsupported
-- **WHEN** the user explicitly requests `auto credentials` for `--tool claude` on the create action
+- **WHEN** automatic credential discovery is active for `--tool claude` on the create action
 - **AND WHEN** discovery determines that the current Claude auth depends only on `apiKeyHelper` without separately reusable import material
 - **THEN** the skill reports that the current Claude auth is not directly importable for specialist creation
 - **AND THEN** it asks the user for another supported Claude auth input instead of guessing
 
 #### Scenario: State template alone does not count as discovered Claude credentials
-- **WHEN** the user explicitly requests `auto credentials` for `--tool claude` on the create action
+- **WHEN** automatic credential discovery is active for `--tool claude` on the create action
 - **AND WHEN** discovery finds only a reusable `claude_state.template.json` and no supported Claude credential or login-state material
 - **THEN** the skill reports that usable Claude credentials were not discovered for specialist creation
 - **AND THEN** it may mention the reusable state template only as optional bootstrap input rather than as a credential method
@@ -174,10 +191,17 @@ The existing credential-source modes SHALL remain available under the unified `s
 
 Credential-source handling SHALL remain scoped to specialist creation or fast-forward flows that create a specialist. Non-create actions SHALL NOT enter credential discovery.
 
-#### Scenario: Fast-forward specialist creation can use auto credentials
-- **WHEN** a user asks the `create-agent-fast-forward` workflow to create a Codex, Claude, or Gemini specialist using auto credentials
-- **THEN** the unified skill uses the selected tool's credential lookup guidance
-- **AND THEN** it keeps that discovery scoped to the specialist creation portion of the fast-forward workflow
+The unified skill SHALL recover the specialist-create tool and credential from the current prompt, nearby explicit context, or registered Houmao credentials.
+
+When the user omits tool or credential input and a Houmao credential target contains registered credentials, the unified skill SHALL choose a registered credential by prompt or nearby explicit context when possible. The unified skill SHALL obtain listed update times through the supported `houmao-mgr ... credentials <tool> list` payloads. If context does not select one, the unified skill SHALL choose the credential with the latest listed update time across all registered tool lanes.
+
+When the user omits tool or credential input, the unified skill SHALL stop with a suggested fix only if no Houmao credential target exists or if no credentials are registered.
+
+#### Scenario: Fast-forward specialist creation uses registered credential defaulting
+- **WHEN** a user asks the `create-agent-fast-forward` workflow to create a specialist without explicit tool or credential input
+- **AND WHEN** registered Houmao credentials are available
+- **THEN** the unified skill chooses a registered credential by context or recency
+- **AND THEN** it keeps that choice scoped to the specialist creation portion of the fast-forward workflow
 
 ### Requirement: Tool-specific credential references are relocated or re-exported
 The unified `houmao-agent-definition` skill SHALL provide or reference the Claude, Codex, and Gemini credential kinds and lookup pages needed by specialist creation and `create-agent-fast-forward`.
