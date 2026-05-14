@@ -10,7 +10,7 @@ Collect these first:
 - completion and stop expectations
 - plan output directory
 
-If the plan output directory is not known, ask for it. Do not invent one.
+If the plan output directory is not known, ask with `Required: plan output directory` and `Optional` plan-form or naming hints before drafting files. Do not invent one.
 
 ## Output
 
@@ -45,6 +45,8 @@ Write the generated plan under the selected output directory:
    - optional timeout-watch policy
    - scripts, if any
 4. If any materially important field is missing, ask for exactly that field instead of improvising it.
+   - For Houmao system-operation fields such as plan output directory, master, participant set, lifecycle posture, notifier timing, routing-packet namespace, memo namespace, or workspace/runtime paths, separate `Required` and `Optional` values.
+   - For objective, acceptance, domain, or task-content questions, use the natural clarification style that best fits the task.
 5. Break the work into local-close control edges. The loop is the supervision or review cycle, not an arbitrary worker-to-worker cycle.
 6. When the topology is represented as NetworkX node-link JSON, use `houmao-mgr internals graph high` as the first-class structural preflight before authoring packets:
    - `houmao-mgr internals graph high analyze --input <graph.json>`

@@ -85,7 +85,7 @@ Observed states:
 ## Workflow
 
 1. Confirm the user explicitly asked for `houmao-agent-loop-pairwise-v2`.
-2. If the request is `plan` and no output directory is known, ask for the output directory before drafting or revising files.
+2. If the request is `plan` and no output directory is known, ask with `Required: plan output directory` and an `Optional` section for plan form, naming preference, or `none for this step` before drafting or revising files.
 3. Keep the planes separate:
    - control plane: user agent -> designated master
    - execution plane: master -> downstream workers through local-close edges
@@ -190,7 +190,7 @@ Activation:
 - Do not allow free delegation unless the plan says so explicitly.
 
 Plan and memory:
-- Do not invent a plan output directory when the user has not provided one; ask for it before writing plan files.
+- Do not invent a plan output directory when the user has not provided one; ask with separate `Required` and `Optional` values before writing plan files.
 - Do not scatter one authored plan across multiple unrelated directories; keep `plan.md` and supporting files under the selected plan output directory.
 - Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v2 write surfaces; route them to `houmao-memory-mgr`.
 - Do not infer memo replacement boundaries from headings, nearby prose, or fuzzy text; use exact `run_id` plus slot sentinels.

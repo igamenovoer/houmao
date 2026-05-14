@@ -88,9 +88,13 @@ This packaged skill does not cover:
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 - If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
 - When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the mailbox-admin lane or several required fields need clarification
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected mailbox command, such as lane, mailbox root, project target, managed-agent selector, mailbox address, principal id, message reference, export target, or action mode
+  - `Optional`: launcher preference, mailbox domain default, cleanup/export mode, filters, symlink mode, purge mode, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the mailbox-admin lane or several required fields need clarification
 - Name the command you intend to run and show only the missing fields needed for that command.
+- Do not use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
 
 ## Routing Guidance
 

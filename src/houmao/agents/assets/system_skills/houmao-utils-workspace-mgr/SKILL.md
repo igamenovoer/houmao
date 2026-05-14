@@ -18,20 +18,27 @@ Do not launch agents from this skill. Hand off to `houmao-agent-instance` for br
 
 Recover these from the prompt, current repo, launch profiles, and local Git state before asking questions:
 
-- operation: `plan` or `execute`
+Required when not safely inferred:
+
+- operation: `plan` or `execute`; default to `plan` when unclear
 - workspace flavor: `in-repo` or `out-of-repo`
 - `task-name` for `in-repo`
 - launch profiles and their stable names
 - `ws-root`; default `<repo-root>/houmao-ws` for `in-repo`
 - target repo bindings for `out-of-repo`
+
+Optional:
+
 - submodule materialization choices
 - local-state symlink choices
-- optional loop-requested bookkeeping directories for task, agent, artifact, run, or scratch state
-- whether to write a plan Markdown file
+- loop-requested bookkeeping directories for task, agent, artifact, run, or scratch state
+- plan Markdown output path
 - whether to adjust launch profiles during `execute`
 - whether to create memo-seed Markdown and merge workspace rules into profile memo seeds
 
 If the operation is unclear, default to `plan`. If a needed value cannot be inferred safely, make a conservative decision in the plan and label it as a decision, not as a hidden assumption.
+
+When asking for Houmao workspace-system inputs, separate `Required` values from `Optional` modifiers. If no optional inputs apply to the question, say `Optional: none for this step.` Do not use this format for the user's task/domain intent unless the question is about Houmao runtime behavior.
 
 ## Plan Mode
 

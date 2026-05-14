@@ -8,7 +8,7 @@ Resolve the current plan location first:
 - `<plan-output-dir>/plan.md` for the single-file form
 - `<plan-output-dir>/plan.md` plus supporting files for the bundle form
 
-If the user wants a revision but no writable plan directory is known yet, ask for the plan output directory before rewriting files.
+If the user wants a revision but no writable plan directory is known yet, ask with `Required: plan output directory` and an `Optional` section for relocation, workspace hints, template/source-document hints, or `none for this step` before rewriting files.
 
 ## What May Change
 
@@ -58,7 +58,7 @@ If the user wants a revision but no writable plan directory is known yet, ask fo
 5. If the workspace contract is changing, normalize it again through `references/workspace-contract.md`.
 6. If topology or packet coverage changes, revisit graph-tool structural preflight and packet expectations before the plan returns to `ready`.
 7. If source task notes, user-provided documents with schema-like policy verb patterns, commons, or rulebooks changed, re-run the source-constraint extraction pass, preserve policy verbs such as `ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, `OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`, and update stable `SC-*` IDs only when the old mapping is no longer valid.
-8. If a current field is materially unclear or would need invention, write `UNRESOLVED - <reason>` in the affected strict template slot or stop and ask for that exact field when execution would be unsafe.
+8. If a current field is materially unclear or would need invention, write `UNRESOLVED - <reason>` in the affected strict template slot or stop and ask for that exact field when execution would be unsafe. For Houmao system-operation fields, separate `Required` and `Optional` values; for task-content fields, use the natural clarification style that fits the task.
 9. Rewrite the plan so the canonical plan path remains stable and the control fields stay synchronized across `plan.md`, `workspace-contract.md` when present, `prestart.md`, routing packets, reporting, generated templates, agent notes, `constraint-coverage-audit.md`, and scripts.
 10. Keep runtime-owned recovery files outside the authored workspace contract. If the requested revision would blur that boundary, reject the change or rewrite it explicitly.
 11. Write the revised plan back under the selected output directory.

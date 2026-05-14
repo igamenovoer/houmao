@@ -3,6 +3,7 @@
 ## Read First
 
 - `../reference/scaffold-surface.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 
@@ -19,7 +20,7 @@ Optional:
 - an explicit project root to inspect.
 
 Missing input rule:
-- If `<loop-dir>` is missing, ask the user to provide an output directory and do not create files.
+- If `<loop-dir>` is missing, ask with `Required: <loop-dir>` and an `Optional` section for project root, project context hints, naming preferences, or `none for this step`; do not create files.
 
 ## Actions
 

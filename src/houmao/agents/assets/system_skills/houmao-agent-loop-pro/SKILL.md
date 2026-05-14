@@ -42,6 +42,7 @@ Detailed guidance lives behind routed pages. Read only the page selected by rout
 - [subskills/reference/result-routing.md](subskills/reference/result-routing.md): tree-loop and generic-loop result routing defaults.
 - MUST READ for mail-driven loops: [subskills/reference/runtime-mail-model.md](subskills/reference/runtime-mail-model.md): notifier-driven mail turns, on-event skills, on-tick skills, and no in-chat waiting.
 - [subskills/reference/platform-boundaries.md](subskills/reference/platform-boundaries.md): maintained Houmao skill ownership for platform operations.
+- [subskills/reference/system-input-questions.md](subskills/reference/system-input-questions.md): required/optional shape for Houmao runtime and artifact-location questions.
 
 ## Operations
 
@@ -116,3 +117,4 @@ Execution pages:
 - Do not make `prepare-workspace` and `prepare-agents` call each other.
 - Do not create agent workspaces directly from general execution pages; use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace planning and execution.
 - Do not duplicate maintained Houmao platform-operation contracts; route launch, messaging, mailbox, gateway, memory, lifecycle, and inspection work to their owning Houmao skills.
+- When asking for Houmao runtime or artifact-location inputs, separate `Required` and `Optional` values. Do not impose that shape on user-task or domain-intent questions unless they ask for Houmao runtime behavior.

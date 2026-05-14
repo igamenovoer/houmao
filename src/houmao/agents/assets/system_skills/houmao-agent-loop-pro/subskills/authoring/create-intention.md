@@ -3,6 +3,7 @@
 ## Read First
 
 - `../reference/scaffold-surface.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 
@@ -17,7 +18,7 @@ Optional:
 - the user's loop intention, goal, or operating idea
 
 Missing input rule:
-- If `<loop-dir>` is missing, ask the user to provide an output directory and do not create files.
+- If `<loop-dir>` is missing, ask with `Required: <loop-dir>` and an `Optional` section for current intention text, naming preferences, or `none for this step`; do not create files.
 
 ## Actions
 

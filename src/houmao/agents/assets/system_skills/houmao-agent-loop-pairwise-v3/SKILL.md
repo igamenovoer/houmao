@@ -92,7 +92,7 @@ Observed states:
 ## Workflow
 
 1. Confirm the user explicitly asked for `houmao-agent-loop-pairwise-v3`.
-2. If the request is `plan` and no output directory is known, ask for the output directory before drafting or revising files.
+2. If the request is `plan` and no output directory is known, ask with `Required: plan output directory` and an `Optional` section for plan form, workspace hints, naming preference, or `none for this step` before drafting or revising files.
 3. Keep the planes separate:
    - control plane: user agent -> designated master
    - execution plane: master -> downstream workers through local-close edges
@@ -212,7 +212,7 @@ Activation:
 - Do not allow free delegation unless the plan says so explicitly.
 
 Plan, workspace, and memory:
-- Do not invent a plan output directory when the user has not provided one; ask for it before writing plan files.
+- Do not invent a plan output directory when the user has not provided one; ask with separate `Required` and `Optional` values before writing plan files.
 - Do not scatter one authored plan across multiple unrelated directories; keep `plan.md` and supporting files under the selected plan output directory.
 - Do not omit the authored workspace contract from the v3 plan.
 - Do not silently translate a custom workspace contract into `houmao-ws/...`.

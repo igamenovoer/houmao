@@ -10,6 +10,7 @@
 - `../reference/mail-schema-events.md`
 - MUST READ: `../reference/runtime-mail-model.md`
 - `../reference/platform-boundaries.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 

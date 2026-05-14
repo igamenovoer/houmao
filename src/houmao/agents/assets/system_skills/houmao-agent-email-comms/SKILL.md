@@ -29,6 +29,18 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 8. Treat `message_ref` and `thread_ref` as opaque shared-mailbox references.
 9. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
 
+## Missing Input Questions
+
+- Recover required mailbox values from the current prompt, notifier context, resolver output, or recent mailbox context before asking.
+- If caller posture, gateway base URL, mailbox binding, action, message ref, thread ref, recipient, subject, or body is still missing for the selected mailbox action, ask before proceeding.
+- When asking for Houmao mailbox-system inputs, use readable Markdown:
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected mailbox action or route
+  - `Optional`: gateway-vs-fallback posture, filters, archive-after-success choice, output format, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when caller posture, route, or several required fields need clarification
+- Do not use this format for user-task content inside a mail body unless the question is about Houmao runtime behavior.
+
 ## Actions
 
 - Read [actions/resolve-live.md](actions/resolve-live.md) only when the current prompt or recent mailbox context does not already provide the exact gateway base URL or current binding set.

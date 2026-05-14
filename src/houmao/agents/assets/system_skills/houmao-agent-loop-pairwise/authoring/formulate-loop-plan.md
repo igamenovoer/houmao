@@ -18,6 +18,8 @@ Use this page when the user has described what they want, but the designated mas
    - gateway mail-notifier interval: default `5s` unless the user specifies otherwise
    - scripts, if any
 4. If any materially important field is still missing, ask for exactly that missing field instead of improvising it.
+   - For Houmao system-operation fields such as master, participant set, plan output target, `run_id`, lifecycle posture, notifier timing, or workspace/runtime paths, separate `Required` and `Optional` values.
+   - For objective, acceptance, domain, or task-content questions, use the natural clarification style that best fits the task.
 5. When the topology is represented as NetworkX node-link JSON, treat `houmao-mgr internals graph high` as the first-class structural preflight:
    - `houmao-mgr internals graph high analyze --input <graph.json>`
    - `houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants` when a subtree is easier to inspect separately

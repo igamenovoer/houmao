@@ -7,6 +7,7 @@
 - `../reference/generated-contract-defaults.md`
 - MUST READ: `../reference/runtime-mail-model.md`
 - `../reference/platform-boundaries.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 
@@ -34,7 +35,7 @@ Read before asking, when present:
 - relevant intention files only to check whether an implementation choice is justified by source intent
 
 Missing input rule:
-- If `execplan/` or required process specs are missing, ask the user to run `execplan-fast-forward`, `execplan-step-by-step`, or the missing staged generation command first.
+- If `execplan/` or required process specs are missing, ask with `Required` values for the missing generated artifacts and `Optional` choices such as running `execplan-fast-forward`, running `execplan-step-by-step`, running the missing staged generation command, or `none for this step`.
 
 ## Coverage Scan
 

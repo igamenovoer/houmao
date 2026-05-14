@@ -4,7 +4,7 @@ Use `in-repo` when the operator wants task-scoped workspace notes, per-agent kno
 
 Require the setup command to run from inside a Git repo. Resolve the repo top-level directory as `repo-root`.
 
-Resolve one `task-name` for the workspace team. If the task name cannot be inferred safely, ask for it instead of inventing one.
+Resolve one `task-name` for the workspace team. If the task name cannot be inferred safely, ask with `Required: task-name` and an `Optional` section for workspace root, branch naming preference, or `none for this step`; do not invent one.
 
 Default workspace root:
 

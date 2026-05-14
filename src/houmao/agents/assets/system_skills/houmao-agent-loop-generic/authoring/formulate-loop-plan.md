@@ -21,6 +21,8 @@ Use this page when the user has described what they want, but the designated mas
    - reporting contract
    - scripts, if any
 4. If any materially important field is still missing, ask for exactly that missing field instead of improvising it.
+   - For Houmao system-operation fields such as run owner, participant set, plan output target, `run_id`, route ids, lifecycle posture, notifier timing, or workspace/runtime paths, separate `Required` and `Optional` values.
+   - For objective, acceptance, domain, or task-content questions, use the natural clarification style that best fits the task.
 5. Decompose the work into typed components:
    - `pairwise` as a compatibility component type for immediate driver-worker local-close work where the component result returns to the driver
    - `relay` for ordered relay-rooted lanes where ownership moves forward and the egress returns the component result to the relay origin

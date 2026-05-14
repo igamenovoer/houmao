@@ -49,6 +49,8 @@ Exclude questions when:
 
 ## Question Format
 
+If a clarification question asks for Houmao runtime or artifact-location input, use the required/optional shape from `system-input-questions.md`. Do not require that shape for user-task or domain-intent questions about objective, acceptance criteria, participant reasoning, algorithm choices, content scope, or business semantics unless the question is specifically about Houmao runtime behavior.
+
 Each question must be answerable by one of:
 
 - multiple choice with two to five mutually exclusive options;

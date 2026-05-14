@@ -9,7 +9,7 @@ Use this action only when the user wants to update one existing low-level role o
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine whether the target is a role or a recipe.
 3. Recover the target name and explicit mutations from the current prompt first and recent chat context second when they were stated explicitly.
-4. If the target kind, target name, or required explicit mutation is still missing, ask the user in Markdown before proceeding.
+4. If the target kind, target name, or required explicit mutation is still missing, ask the user in Markdown before proceeding. Follow `subskills/common/missing-inputs.md` so `Required` and `Optional` inputs are separate.
 5. For one role, require at least one explicit prompt mutation and run `project agents roles set --name <role>` with exactly one of:
    - `--system-prompt <text>`
    - `--system-prompt-file <path>`

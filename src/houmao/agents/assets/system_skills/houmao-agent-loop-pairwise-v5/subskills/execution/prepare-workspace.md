@@ -4,6 +4,7 @@
 
 - `../reference/generated-contract-defaults.md`
 - `../reference/platform-boundaries.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 

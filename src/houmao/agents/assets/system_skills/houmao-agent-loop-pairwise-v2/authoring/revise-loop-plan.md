@@ -8,7 +8,7 @@ Resolve the current plan location first:
 - `<plan-output-dir>/plan.md` for the single-file form
 - `<plan-output-dir>/plan.md` plus supporting files for the bundle form
 
-If the user wants a revision but no writable plan directory is known yet, ask for the plan output directory before rewriting files.
+If the user wants a revision but no writable plan directory is known yet, ask with `Required: plan output directory` and an `Optional` section for relocation, plan form, or `none for this step` before rewriting files.
 
 ## What May Change
 

@@ -71,9 +71,13 @@ This packaged skill does not cover:
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 - If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
 - When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the lane or several required fields need clarification
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected lifecycle command, such as action, launch source lane, role/preset/raw-profile/specialist name, instance name, join target, live-agent selector, cleanup kind, or cleanup selector
+  - `Optional`: launcher preference, gateway or mailbox launch posture, headless provider args, output format, cleanup modifiers, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the lane or several required fields need clarification
 - Name the command you intend to run and show only the missing fields needed for that command.
+- Do not use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
 
 ## Routing Guidance
 

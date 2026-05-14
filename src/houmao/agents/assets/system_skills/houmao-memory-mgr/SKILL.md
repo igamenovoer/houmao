@@ -58,6 +58,18 @@ It does not cover provider-native memory, mailbox state, gateway reminders, runt
 9. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
 10. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
 
+## Missing Input Questions
+
+- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
+- If the target kind, managed-agent selector, profile lane, profile name, memo path, page path, or mutation text is still missing, ask before editing.
+- When asking for Houmao memo-system inputs, use readable Markdown:
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected memory command or profile memo-seed edit
+  - `Optional`: launcher preference, profile lane defaults, seed source choice, page-path detail, output format, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the target kind, lane, or several required fields need clarification
+- Do not use this format for the user's memo content itself unless the question is about Houmao runtime behavior.
+
 ## Guardrails
 
 - Treat `houmao-memo.md` as free-form Markdown owned by the operator and agent.

@@ -73,9 +73,13 @@ This packaged skill does not cover:
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 - If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
 - When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the intended lane or several required fields need clarification
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected inspection path, such as managed-agent selector, inspection lane, turn id, log selector, mailbox selector, or artifact target
+  - `Optional`: launcher preference, output format, detail level, watch posture, filters, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the intended lane or several required fields need clarification
 - Name the command or route you intend to use and show only the missing fields needed for that path.
+- Do not use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
 
 ## Routing Guidance
 

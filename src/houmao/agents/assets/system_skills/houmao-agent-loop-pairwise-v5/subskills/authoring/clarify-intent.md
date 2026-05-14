@@ -5,6 +5,7 @@
 - `../reference/clarification-protocol.md`
 - MUST READ: `../reference/runtime-mail-model.md`
 - `../reference/platform-boundaries.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 
@@ -30,7 +31,7 @@ Read before asking:
 - existing `<loop-dir>/adrs/*.md` when present
 
 Missing input rule:
-- If `<loop-dir>` or required intention files are missing, ask for the missing root or ask the user to run `init` or `create-intention` first.
+- If `<loop-dir>` or required intention files are missing, ask with `Required` values for the missing root/files and `Optional` choices such as running `init`, running `create-intention`, or `none for this step`.
 
 ## Coverage Scan
 

@@ -146,6 +146,68 @@ def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
     )
 
 
+def test_houmao_system_input_questions_distinguish_required_and_optional_inputs() -> None:
+    definition_missing_inputs = (
+        _packaged_skill_asset_root("houmao-agent-definition")
+        / "subskills/common/missing-inputs.md"
+    ).read_text(encoding="utf-8")
+    credential_skill = (_packaged_skill_asset_root("houmao-credential-mgr") / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    workspace_skill = (
+        _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR) / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    touring_question_style = (
+        _packaged_skill_asset_root("houmao-touring") / "references/question-style.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (
+        definition_missing_inputs,
+        credential_skill,
+        workspace_skill,
+        touring_question_style,
+    ):
+        assert "`Required`" in text or "Required:" in text
+        assert "`Optional`" in text or "Optional:" in text
+
+    assert "Do not force this shape onto user-task or domain-intent questions" in (
+        definition_missing_inputs
+    )
+    assert "Optional: none for this step." in credential_skill
+    assert "Required when not safely inferred:" in workspace_skill
+    assert "Do not force `Required`/`Optional` labels onto user-task" in (
+        touring_question_style
+    )
+
+
+def test_loop_skills_route_system_input_question_guidance() -> None:
+    for skill_name in ("houmao-agent-loop-pro", "houmao-agent-loop-pairwise-v5"):
+        skill_root = _packaged_skill_asset_root(skill_name)
+        skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        question_ref = (skill_root / "subskills/reference/system-input-questions.md").read_text(
+            encoding="utf-8"
+        )
+        init_page = (skill_root / "subskills/authoring/init.md").read_text(encoding="utf-8")
+        clarify_protocol = (
+            skill_root / "subskills/reference/clarification-protocol.md"
+        ).read_text(encoding="utf-8")
+        launch_agents = (skill_root / "subskills/execution/launch-agents.md").read_text(
+            encoding="utf-8"
+        )
+
+        assert "subskills/reference/system-input-questions.md" in skill_text
+        assert "When asking for Houmao runtime or artifact-location inputs" in skill_text
+        assert "Do not force this shape onto user-task or domain-intent questions" in (
+            question_ref
+        )
+        assert "Required:" in question_ref
+        assert "Optional:" in question_ref
+        assert "`../reference/system-input-questions.md`" in init_page
+        assert "ask with `Required: <loop-dir>`" in init_page
+        assert "user-task or domain-intent questions" in clarify_protocol
+        assert "`../reference/system-input-questions.md`" in launch_agents
+
+
 def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> None:
     catalog = load_system_skill_catalog()
 
@@ -767,7 +829,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
     )
     assert (
-        "Do not auto-route generic pairwise loop planning or pairwise run-control "
+        "Do not auto-route ordinary tree loop planning or tree loop run-control "
         "requests here when the user did not explicitly ask for "
         "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
     )
@@ -787,7 +849,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
     )
     assert (
-        "Do not auto-route generic pairwise loop planning or pairwise run-control "
+        "Do not auto-route ordinary tree loop planning or tree loop run-control "
         "requests here when the user did not explicitly ask for "
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
     )
@@ -811,7 +873,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_v2_skill
     assert "houmao-memory-mgr" in pairwise_loop_v2_skill
     assert (
-        "ask for the output directory before drafting or revising files" in pairwise_loop_v2_skill
+        "ask with `Required: plan output directory`" in pairwise_loop_v2_skill
     )
     assert "## Plan Output Directory" in pairwise_loop_v2_skill
     assert "<plan-output-dir>/" in pairwise_loop_v2_skill
@@ -881,7 +943,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "Use this Houmao skill only when the user explicitly asks for "
         "`houmao-agent-loop-pairwise-v4`." in pairwise_loop_v4_skill
     )
-    assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
+    assert "template-driven workspace-aware enriched tree loop skill" in pairwise_loop_v4_skill
     assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
     assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
     assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
@@ -898,7 +960,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
     assert "Coverage Table" in pairwise_loop_v4_audit_template
     assert "UNRESOLVED - <reason>" in pairwise_loop_v4_audit_template
-    assert "Use this Houmao skill only when the user explicitly asks for" in pairwise_loop_v5_skill
+    assert "Use this Houmao skill only after the user explicitly selects it" in (
+        pairwise_loop_v5_skill
+    )
     assert "`houmao-agent-loop-pairwise-v5`" in pairwise_loop_v5_skill
     assert "treat it as `init`" in pairwise_loop_v5_skill
     assert "<loop-dir>/intention/" in pairwise_loop_v5_skill
@@ -910,35 +974,31 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Do not import policy from examples or reference plans as global behavior" in (
         pairwise_loop_v5_skill
     )
-    assert "route workspace planning and creation through `houmao-utils-workspace-mgr`" in (
+    assert "use `houmao-utils-workspace-mgr` through `prepare-workspace`" in (
         pairwise_loop_v5_skill
     )
-    assert "Cross-agent participant communication defaults to Houmao mail" in (
+    assert "MUST READ for mail-driven loops" in pairwise_loop_v5_skill
+    assert "subskills/reference/runtime-mail-model.md" in pairwise_loop_v5_skill
+    assert "subskills/reference/platform-boundaries.md" in pairwise_loop_v5_skill
+    assert "Do not duplicate maintained Houmao platform-operation contracts" in (
         pairwise_loop_v5_skill
     )
-    assert "Generated loop material owns communication semantics" in pairwise_loop_v5_skill
-    assert "Maintained Houmao skills own mail mechanics" in pairwise_loop_v5_skill
-    assert "houmao-mailbox-mgr" in pairwise_loop_v5_skill
-    assert "houmao-agent-email-comms" in pairwise_loop_v5_skill
-    assert "houmao-process-emails-via-gateway" in pairwise_loop_v5_skill
-    assert "houmao-agent-messaging" in pairwise_loop_v5_skill
-    assert "houmao-agent-gateway" in pairwise_loop_v5_skill
     assert not re.search(r"(?<!pairwise-)\bv5\b|\bV5\b", pairwise_loop_v5_skill)
-    assert "If `<loop-dir>` is missing, ask the user to provide an output directory" in (
+    assert "If `<loop-dir>` is missing, ask with `Required: <loop-dir>`" in (
         pairwise_loop_v5_create_intention
     )
     assert "<loop-dir>/intention/README.md" in pairwise_loop_v5_create_intention
     assert "<loop-dir>/intention/loop-overview.md" in pairwise_loop_v5_create_intention
-    assert "scaffold `loop-overview.md` with editable placeholder headings" in (
+    assert "materialize `<loop-dir>/intention/README.md`" in (
         pairwise_loop_v5_create_intention
     )
-    assert "Ask exactly one focused decision question at a time" in pairwise_loop_v5_clarify_intent
-    assert "Do not ask whether to use mail by default" in pairwise_loop_v5_clarify_intent
-    assert "which participant role sends to which participant role" in (
+    assert "Show the provisional high-level Mermaid agent architecture" in (
         pairwise_loop_v5_clarify_intent
     )
-    assert "requested_reply_schema_id" in pairwise_loop_v5_clarify_intent
-    assert "on-tick skill instead of one mail-received event handler" in (
+    assert "Ask at most five accepted questions per session, exactly one at a time" in (
+        pairwise_loop_v5_clarify_intent
+    )
+    assert "objective, agent communication, or loop process logic" in (
         pairwise_loop_v5_clarify_intent
     )
     assert "<loop-dir>/adrs/" in pairwise_loop_v5_clarify_intent
@@ -947,24 +1007,19 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "<loop-dir>/execplan/" in pairwise_loop_v5_generate_execplan
     assert "manifest.toml" in pairwise_loop_v5_generate_execplan
-    assert "Do not require `adrs/`" in pairwise_loop_v5_generate_execplan
+    assert "Do not create `execplan/adrs/` just to explain routine defaults" in (
+        pairwise_loop_v5_generate_execplan
+    )
     assert "defaulting to `in-repo`" in pairwise_loop_v5_generate_execplan
     assert "schema-validated payload plus human-readable rendering" in (
         pairwise_loop_v5_generate_execplan
     )
-    assert "specs/comms/templates.toml" in pairwise_loop_v5_generate_execplan
-    assert "<message-family>.schema.json" in pairwise_loop_v5_generate_execplan
-    assert "schema_id" in pairwise_loop_v5_generate_execplan
-    assert "schema_version" in pairwise_loop_v5_generate_execplan
-    assert "payload_id" in pairwise_loop_v5_generate_execplan
-    assert "kind" in pairwise_loop_v5_generate_execplan
-    assert "run_id" in pairwise_loop_v5_generate_execplan
-    assert "plan_revision" in pairwise_loop_v5_generate_execplan
-    assert "handoff_id" in pairwise_loop_v5_generate_execplan
-    assert "context" in pairwise_loop_v5_generate_execplan
-    assert "requested_reply_schema_id" in pairwise_loop_v5_generate_execplan
-    assert "houmao-email-metadata" in pairwise_loop_v5_generate_execplan
+    assert "communication schemas, renderers, registry, and reply links" in (
+        pairwise_loop_v5_generate_execplan
+    )
+    assert "notification prompt and trigger contracts" in pairwise_loop_v5_generate_execplan
     assert "templates.toml" in pairwise_loop_v5_generate_execplan
+    assert "<message-family>.schema.json" in pairwise_loop_v5_generate_execplan
     assert "which on-event skill handles each received message family" in (
         pairwise_loop_v5_generate_execplan
     )
@@ -980,11 +1035,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "archive-after-success behavior" in pairwise_loop_v5_validate_execplan
     assert "houmao-utils-workspace-mgr" in pairwise_loop_v5_prepare_agents
     assert "houmao-agent-definition" in pairwise_loop_v5_prepare_agents
-    assert "houmao-agent-instance" in pairwise_loop_v5_prepare_agents
+    assert "Do not launch live agents as normal preparation behavior; use `launch-agents`" in (
+        pairwise_loop_v5_prepare_agents
+    )
     assert "maintained mail support skills" in pairwise_loop_v5_prepare_agents
     assert "houmao-process-emails-via-gateway" in pairwise_loop_v5_prepare_agents
     assert (
-        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
+        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop run"
         in relay_loop_skill
     )
     assert "houmao-mgr internals graph high" in relay_loop_skill
@@ -1608,7 +1665,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "uv tool run --from houmao houmao-mgr" in manage_agent_instance_skill
     assert "agents launch" in launch_action
     assert "--launch-profile" in launch_action
-    assert "launch-profile-backed" in launch_action
+    assert "raw-profile-backed" in launch_action
     assert "project easy instance launch" in launch_action
     assert "foreground-first" in launch_action
     assert "Do not add one-shot background gateway overrides unless" in launch_action
@@ -1732,17 +1789,17 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "foreground-first gateway posture" in touring_author_launch
     assert "not as detached background gateway execution" in touring_author_launch
     assert "gateway_tmux_window_index" in touring_author_launch
-    assert "stable pairwise loop" in touring_advanced_usage
-    assert "enriched pairwise loop" in touring_advanced_usage
-    assert "Workspace-aware pairwise loop" in touring_advanced_usage
-    assert "Template-driven workspace-aware pairwise loop" in touring_advanced_usage
+    assert "Stable tree loop" in touring_advanced_usage
+    assert "Enriched tree loop" in touring_advanced_usage
+    assert "Workspace-aware tree loop" in touring_advanced_usage
+    assert "Template-driven workspace-aware tree loop" in touring_advanced_usage
     assert "authored `standard` or `custom` workspace contract" in touring_advanced_usage
     assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
     assert (
         "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, "
         "`recover_and_continue`, `stop`" in touring_advanced_usage
     )
-    assert "ask the user to select or explicitly invoke the desired pairwise skill" in (
+    assert "ask the user to select or explicitly invoke the desired tree loop skill" in (
         touring_advanced_usage
     )
     assert "elemental immediate driver-worker edge protocol guidance belongs to" in (
@@ -1780,7 +1837,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
     )
     assert (
-        "Do not auto-route generic pairwise loop planning or pairwise run-control "
+        "Do not auto-route ordinary tree loop planning or tree loop run-control "
         "requests here when the user did not explicitly ask for "
         "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
     )
@@ -1791,7 +1848,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         "Use this Houmao skill only when the user explicitly asks for "
         "`houmao-agent-loop-pairwise-v3`." in pairwise_loop_v3_skill
     )
-    assert "workspace-aware enriched pairwise-loop skill" in pairwise_loop_v3_skill
+    assert "workspace-aware enriched tree loop skill" in pairwise_loop_v3_skill
     assert "It extends `houmao-agent-loop-pairwise-v2`" in pairwise_loop_v3_skill
     assert (
         "Every authored plan records a `workspace_contract` with mode `standard` or `custom`."
@@ -1981,7 +2038,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "ownership should keep moving forward along that lane" in advanced_usage_skill
     assert "`houmao-agent-loop-generic` for composed topology" in advanced_usage_skill
     assert "edge_loop_id" in pairwise_edge_loop_pattern
-    assert "Use a dedicated pairwise loop-planning skill for recursive child edge-loops" in (
+    assert "Use a dedicated tree loop planning skill for recursive child edge-loops" in (
         pairwise_edge_loop_pattern
     )
     assert "ask the user for that value" in pairwise_edge_loop_pattern
@@ -2082,7 +2139,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "`peek master`, `peek all`, or `peek <agent-name>`" in pairwise_loop_peek
     assert "`peek` is observational." in pairwise_loop_peek
     assert (
-        "Use this page when the user wants to actively ask one selected pairwise-loop participant"
+        "Use this page when the user wants to actively ask one selected tree-loop participant"
         in pairwise_loop_ping
     )
     assert "`ping <agent-name>` is active messaging." in pairwise_loop_ping
@@ -2093,7 +2150,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         pairwise_loop_resume
     )
     assert (
-        "restore one accepted pairwise loop after one or more participants were stopped, killed, or relaunched"
+        "restore one accepted tree loop after one or more participants were stopped, killed, or relaunched"
         in (pairwise_loop_recover_and_continue)
     )
     assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_recover_and_continue
@@ -2257,7 +2314,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         pairwise_loop_v3_bundle_template
     )
     assert "document-templates/plan.md" in pairwise_loop_v4_skill
-    assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
+    assert "template-driven workspace-aware enriched tree loop skill" in pairwise_loop_v4_skill
     assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
     assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
     assert "strict generated document templates" in pairwise_loop_v4_skill
@@ -2315,7 +2372,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     )
     assert "## Graph Artifact Fields" in relay_loop_plan_structure
     assert "semantic review notes confirming graph policy" in relay_loop_plan_structure
-    assert "# Mermaid Generic Loop Graph" in relay_loop_single_template
+    assert "# Mermaid Generic Loop" in relay_loop_single_template
     assert "# Graph Artifact" in relay_loop_single_template
     assert "semantic review: <graph policy, result routing" in relay_loop_single_template
     assert "## `graph.md`" in relay_loop_bundle_template

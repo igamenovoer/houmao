@@ -131,7 +131,7 @@ Choose those values from:
 - the chosen supervisor reminder cadence,
 - the fact that reminders and notifier wakeups only dispatch when the gateway is ready.
 
-If a timing value is materially important to correctness or to the user's expectation and you cannot choose it sensibly from the current context, ask the user for that parameter instead of inventing an arbitrary threshold.
+If a timing value is materially important to correctness or to the user's expectation and you cannot choose it sensibly from the current context, ask the user for that parameter instead of inventing an arbitrary threshold. Treat that as a Houmao system-operation question: separate `Required` timing/posture values from `Optional` defaults, modifiers, or skip choices.
 
 Keep these concepts separate in the ledger:
 

@@ -8,6 +8,7 @@
 - `../reference/predecessor-context.md`
 - `../reference/mail-schema-events.md`
 - MUST READ: `../reference/runtime-mail-model.md`
+- `../reference/system-input-questions.md`
 
 ## Preconditions
 
@@ -25,7 +26,7 @@ Require:
 
 1. Read current intention files.
 2. Check whether a loop run is active or in an uncertain execution state.
-3. If execution is active or uncertain, pause and ask the user whether to stop or recover before updating generated material.
+3. If execution is active or uncertain, pause and ask with `Required` lifecycle decision (`stop`, `recover`, or do not update now) and `Optional` notes such as run id or operator evidence before updating generated material.
 4. Determine the earliest affected stage:
   - choose `execplan-specs-process` when intention changes affect phases, topology mode, cycles, events, handoffs, participants, tick responsibilities, ownership, terminal posture, recovery posture, message families, predecessor-context needs, result routing, or record families;
   - choose `execplan-specs-contract` when the process model is unchanged but derived objective, participant, topology, communication, state, record, workspace, or run contracts need revision;
