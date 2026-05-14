@@ -10,10 +10,38 @@ Use this Houmao skill when you need to communicate with an already-running Houma
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-messaging` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-messaging help`, `help for houmao-agent-messaging`, `usage for houmao-agent-messaging`, `available functionality for houmao-agent-messaging`, or what this skill can do, answer from this section before choosing a messaging action, gateway or mailbox route, command, HTTP route, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me send this prompt to an agent", route to the matching workflow instead of stopping at generic help.
+
+Purpose: communicate with already-running Houmao-managed agents through supported prompt, interrupt, gateway, raw-input, mailbox handoff, and reset-context surfaces.
+
+Available functionality:
+
+- Discover target agents and current gateway or mailbox capability.
+- Send ordinary prompts, interrupts, gateway-queued work, and raw key input.
+- Route mailbox handoff work to the correct mailbox skill after resolving live bindings.
+- Apply reset-context or reset-then-send workflow guidance.
+
+Common starting prompts:
+
+- `$houmao-agent-messaging help`
+- `$houmao-agent-messaging prompt <agent> with "<message>"`
+- `$houmao-agent-messaging interrupt <agent>`
+- `$houmao-agent-messaging reset context for <agent>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-inspect` for generic read-only liveness, mailbox posture, logs, artifacts, or tmux inspection.
+- Use `houmao-agent-gateway` for gateway attach, detach, reminders, mail-notifier, or gateway-owned mutation.
+- Use `houmao-agent-email-comms` for ordinary mailbox actions after mailbox routing is selected.
+- Use `houmao-agent-instance` for live-agent launch, stop, relaunch, or cleanup.
+
 ## Scope
 
 This packaged skill covers exactly these managed-agent communication and control actions:
 
+- `help` (read-only meta operation)
 - `discover`
 - `prompt`
 - `interrupt`
@@ -47,6 +75,8 @@ This packaged skill does not cover:
 - direct filesystem editing under runtime or mailbox paths
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway queueing, raw control input, mailbox handoff, or reset-context.
 2. If the request is really about generic read-only inspection of liveness, mailbox posture, logs, runtime artifacts, or tmux backing, route it to `houmao-agent-inspect` instead of handling it as messaging.

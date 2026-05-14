@@ -17,7 +17,36 @@ For managed-agent gateway-notified open-mail rounds only, use `houmao-process-em
 
 The trigger word `houmao` is intentional. Use the `houmao-...` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-email-comms help`, `help for houmao-agent-email-comms`, `usage for houmao-agent-email-comms`, `available functionality for houmao-agent-email-comms`, or what this skill can do, answer from this section before caller classification, action-page routing, transport-page routing, command execution, or missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me send mail to an agent", route to the matching workflow instead of stopping at generic help.
+
+Purpose: perform ordinary Houmao shared-mailbox operations through the live gateway facade when available, with supported no-gateway fallback guidance.
+
+Available functionality:
+
+- Resolve live mailbox bindings and inspect mailbox status.
+- List, peek, read, send, post, reply, mark, move, or archive mailbox messages.
+- Choose operator-origin `post` versus managed-agent shared-mailbox workflows.
+- Use filesystem or Stalwart transport guidance when no gateway facade is available.
+
+Common starting prompts:
+
+- `$houmao-agent-email-comms help`
+- `$houmao-agent-email-comms status for the current mailbox`
+- `$houmao-agent-email-comms send a message to <agent>`
+- `$houmao-agent-email-comms reply to <message_ref>`
+
+Related skills and boundaries:
+
+- Use `houmao-process-emails-via-gateway` for one notifier-reported open-mail round.
+- Use `houmao-mailbox-mgr` for mailbox root, registration, or late-binding administration.
+- Use `houmao-agent-gateway` for notifier, reminder, or gateway lifecycle work.
+- Use `houmao-agent-messaging` when the task starts as live-agent prompt, interrupt, or mailbox handoff routing.
+
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Decide the caller posture up front.
 2. If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` action instead of the ordinary managed-agent gateway workflow. Strong signals include: no agent gateway is attached, `houmao-mgr agents mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
@@ -43,6 +72,7 @@ The trigger word `houmao` is intentional. Use the `houmao-...` skill name direct
 
 ## Actions
 
+- Answer `help` from `## Help` before reading action, transport, or reference pages.
 - Read [actions/resolve-live.md](actions/resolve-live.md) only when the current prompt or recent mailbox context does not already provide the exact gateway base URL or current binding set.
 - Read [actions/status.md](actions/status.md) to inspect current mailbox identity, mailbox transport, or live gateway posture.
 - Read [actions/list.md](actions/list.md) to list unread, open, archived, or current mailbox state.

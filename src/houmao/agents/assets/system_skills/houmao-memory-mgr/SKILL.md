@@ -18,10 +18,38 @@ The sufficient trigger conditions are:
 
 When triggered, handle requests to edit, add something to, remove something from, inspect, or otherwise manage the Houmao/agent memo, a reusable profile's Houmao memo seed, or memo-linked managed-agent memory pages.
 
+## Help
+
+When the user asks `$houmao-memory-mgr help`, `help for houmao-memory-mgr`, `usage for houmao-memory-mgr`, `available functionality for houmao-memory-mgr`, or what this skill can do, answer from this section before choosing a live-memory or launch-profile memo-seed workflow, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me append this to the agent memo", route to the matching workflow instead of stopping at generic help.
+
+Purpose: read and update Houmao-managed memo surfaces for live agents and reusable profile memo seeds.
+
+Available functionality:
+
+- Inspect, set, or append the fixed live `houmao-memo.md`.
+- Read, write, append, delete, resolve, and list memo-linked pages under `pages/`.
+- Locate live managed-agent memory paths.
+- Create, update, or clear easy-profile and raw-profile memo seeds for future launches.
+
+Common starting prompts:
+
+- `$houmao-memory-mgr help`
+- `$houmao-memory-mgr show memo for <agent>`
+- `$houmao-memory-mgr append to <agent> memo`
+- `$houmao-memory-mgr set memo seed for profile <name>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for non-memory profile authoring.
+- Use `houmao-agent-inspect` for runtime manifests, logs, screen, or mailbox posture.
+- Use `houmao-agent-gateway` for reminders, not managed memory.
+- Do not use this skill for provider-native memory, mailbox state, task queues, or arbitrary work artifacts.
+
 ## Scope
 
 This skill covers only Houmao-managed memo surfaces:
 
+- `help` (read-only meta operation)
 - `houmao-mgr agents memory path|status`
 - `houmao-mgr agents memory memo show|set|append`
 - `houmao-mgr agents memory tree|resolve|read|write|append|delete`
@@ -35,6 +63,8 @@ This skill covers only Houmao-managed memo surfaces:
 It does not cover provider-native memory, mailbox state, gateway reminders, runtime manifests, task queues, or arbitrary work artifacts.
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Determine the target kind before choosing an edit surface:
    - If the prompt or recent context clearly says the user is working with a reusable launch profile, easy profile, profile defaults, birth-time config, future launches, or `--launch-profile`/`--profile`, update that launch profile's Houmao memo seed. Do not mutate any live agent memo for that request.

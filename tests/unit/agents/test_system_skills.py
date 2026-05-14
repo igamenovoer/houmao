@@ -317,6 +317,69 @@ def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> N
                 )
 
 
+def test_current_packaged_system_skills_expose_help_contract() -> None:
+    """Guard the standard skill-level help contract for current catalog entries."""
+
+    catalog = load_system_skill_catalog()
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+    help_section_pattern = re.compile(r"(?ms)^## Help\n(?P<body>.*?)(?=^## |\Z)")
+
+    for skill_name, skill_record in catalog.skills.items():
+        skill_text = (asset_root / skill_record.asset_subpath / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        help_match = help_section_pattern.search(skill_text)
+
+        assert help_match is not None, f"{skill_name} is missing a top-level help section"
+        help_body = help_match.group("body")
+        assert f"${skill_name} help" in help_body
+        assert (
+            "read-only help: do not run commands, mutate files, send mail, change gateway state, "
+            "or alter managed-agent lifecycle state"
+        ) in help_body
+        assert "Available functionality:" in help_body
+        assert "Common starting prompts:" in help_body
+        assert "Related skills and boundaries:" in help_body
+        assert "help me" in help_body
+
+
+def test_current_packaged_system_skills_route_explicit_help_before_workflows() -> None:
+    """Guard that help is treated as a narrow read-only meta operation."""
+
+    catalog = load_system_skill_catalog()
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+
+    for skill_name, skill_record in catalog.skills.items():
+        skill_text = (asset_root / skill_record.asset_subpath / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        if "\n## Workflow\n" in skill_text:
+            assert "answer explicit skill-help intent from `## Help` and stop" in skill_text, (
+                f"{skill_name} workflow does not handle explicit help before routing"
+            )
+
+    operation_markers = {
+        "houmao-agent-definition": "| `help` |",
+        "houmao-agent-gateway": "- `help` (read-only meta operation)",
+        "houmao-agent-instance": "- `help` (read-only meta operation)",
+        "houmao-agent-inspect": "- `help` (read-only meta operation)",
+        "houmao-agent-messaging": "- `help` (read-only meta operation)",
+        "houmao-mailbox-mgr": "- `help` (read-only meta operation)",
+        "houmao-memory-mgr": "- `help` (read-only meta operation)",
+        "houmao-project-mgr": "- `help` (read-only meta operation)",
+        "houmao-credential-mgr": "- `help` (read-only meta operation)",
+        "houmao-agent-loop-pro": "- `help`: explain this skill's purpose",
+        "houmao-agent-loop-lite": "- `help`: explain this skill's purpose",
+        SYSTEM_SKILL_UTILS_WORKSPACE_MGR: "- `help`: explain this skill's purpose",
+        SYSTEM_SKILL_UTILS_LLM_WIKI: "read-only meta operation `help`",
+    }
+    for skill_name, marker in operation_markers.items():
+        skill_text = (_packaged_skill_asset_root(skill_name) / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert marker in skill_text
+
+
 def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
     skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_LLM_WIKI)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")

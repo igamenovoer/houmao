@@ -10,7 +10,37 @@ Use this Houmao skill when a notifier or operator prompt tells you there is open
 
 This is the round-oriented workflow skill. Use `houmao-agent-email-comms` when you need the lower-level endpoint-discovery fallback, the exact `/v1/mail/*` request contract, or transport-local no-gateway guidance for ordinary mailbox actions inside the round.
 
+## Help
+
+When the user asks `$houmao-process-emails-via-gateway help`, `help for houmao-process-emails-via-gateway`, `usage for houmao-process-emails-via-gateway`, `available functionality for houmao-process-emails-via-gateway`, or what this skill can do, answer from this section before checking gateway bootstrap, listing mail, creating reminders, sending replies, archiving mail, or collecting missing operational inputs. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me process this notifier round", route to the matching workflow instead of stopping at generic help.
+
+Purpose: process one gateway-notified shared-mailbox inbox round through a prompt-provided live gateway base URL.
+
+Available functionality:
+
+- Confirm prompt-provided gateway bootstrap for the current round.
+- List open inbox mail using notifier mode, then triage metadata before reading.
+- Continue stalled or interrupted open-mail work before unrelated new mail.
+- Read selected messages, complete work, reply after success, and archive only successfully processed mail.
+- Optionally harden required replies with one-off gateway reminders.
+
+Common starting prompts:
+
+- `$houmao-process-emails-via-gateway help`
+- `$houmao-process-emails-via-gateway process the notifier round at <gateway_base_url>`
+- `$houmao-process-emails-via-gateway process unread_only open mail`
+- `$houmao-process-emails-via-gateway process this mail round with reply hardening`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-email-comms` for endpoint discovery, exact `/v1/mail/*` contracts, transport-local fallback, or ordinary mailbox actions.
+- Use `houmao-agent-gateway` for gateway lifecycle, notifier configuration, or reminder management outside this round.
+- Use `houmao-adv-usage-pattern` for designing notifier-driven loop posture beyond one round.
+- Do not rediscover a missing gateway base URL inside this workflow.
+
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Confirm the current prompt or mailbox context already provides the exact gateway base URL for this round.
 2. If that base URL is missing, stop and report that the notifier round is missing required gateway bootstrap. Do not rediscover it inside this workflow.

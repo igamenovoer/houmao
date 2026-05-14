@@ -10,10 +10,38 @@ Use this Houmao skill when the task is to inspect the current state of one Houma
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-inspect` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-inspect help`, `help for houmao-agent-inspect`, `usage for houmao-agent-inspect`, `available functionality for houmao-agent-inspect`, or what this skill can do, answer from this section before choosing an inspection lane, action page, command, route, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me inspect this agent's screen", route to the matching workflow instead of stopping at generic help.
+
+Purpose: inspect Houmao-managed agents without mutating them.
+
+Available functionality:
+
+- Discover target managed agents and read summary liveness state.
+- Inspect visible screen posture and bounded tmux evidence after managed surfaces identify the target.
+- Inspect mailbox posture, unread state, logs, and runtime artifacts.
+- Use managed-agent HTTP inspection routes when operating through pair-managed control.
+
+Common starting prompts:
+
+- `$houmao-agent-inspect help`
+- `$houmao-agent-inspect discover agents`
+- `$houmao-agent-inspect screen for <agent>`
+- `$houmao-agent-inspect logs for <agent>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-messaging` for prompt, interrupt, queueing, raw input, mailbox send or reply, or reset-context work.
+- Use `houmao-agent-gateway` for gateway lifecycle, reminders, mail-notifier control, or gateway-owned mutation.
+- Use `houmao-mailbox-mgr` for mailbox-root administration or late mailbox binding changes.
+- Use `houmao-agent-instance` for stop, relaunch, cleanup, or other lifecycle mutation.
+
 ## Scope
 
 This packaged skill covers exactly these read-only inspection actions:
 
+- `help` (read-only meta operation)
 - `discover`
 - `screen`
 - `mailbox`
@@ -43,6 +71,8 @@ This packaged skill does not cover:
 - automatic terminal-recorder workflows when the user did not explicitly ask for replay-grade capture
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify the inspection intent first: discovery, visible screen posture, mailbox posture, logs, or runtime artifacts.
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.

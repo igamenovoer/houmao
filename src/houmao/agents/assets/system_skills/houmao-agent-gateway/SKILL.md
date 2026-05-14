@@ -10,10 +10,39 @@ Use this Houmao skill when the task is specifically about the managed agent gate
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-gateway` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-gateway help`, `help for houmao-agent-gateway`, `usage for houmao-agent-gateway`, `available functionality for houmao-agent-gateway`, or what this skill can do, answer from this section before choosing a gateway action, reference page, command, HTTP route, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me enable the mail notifier", route to the matching workflow instead of stopping at generic help.
+
+Purpose: operate the managed-agent gateway sidecar itself, including lifecycle, discovery, gateway-only control, reminders, and mail-notifier behavior.
+
+Available functionality:
+
+- Attach, detach, and inspect live gateway lifecycle state.
+- Discover the current live gateway from inside or outside the attached session.
+- Use gateway-only prompt, interrupt, raw input, TUI state, history, watch, and note-prompt surfaces.
+- List, create, update, pause, or remove ranked live reminders.
+- Inspect, enable, or disable gateway mail-notifier behavior.
+
+Common starting prompts:
+
+- `$houmao-agent-gateway help`
+- `$houmao-agent-gateway discover for <agent>`
+- `$houmao-agent-gateway reminders list for <agent>`
+- `$houmao-agent-gateway mail-notifier status for <agent>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-instance` for starting, stopping, relaunching, or cleaning up the agent process.
+- Use `houmao-agent-inspect` for generic liveness, mailbox posture, runtime artifacts, logs, or tmux inspection.
+- Use `houmao-agent-messaging` for ordinary prompt, interrupt, raw input, or mailbox handoff.
+- Use `houmao-agent-email-comms` for the shared `/v1/mail/*` mailbox contract.
+
 ## Scope
 
 This packaged skill covers exactly these gateway actions:
 
+- `help` (read-only meta operation)
 - `lifecycle`
 - `discover`
 - `gateway-services`
@@ -43,6 +72,8 @@ This packaged skill does not cover:
 - retired gateway discovery env such as `HOUMAO_GATEWAY_ATTACH_PATH` or `HOUMAO_GATEWAY_ROOT`
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify which gateway intent the user actually wants: lifecycle, current-session discovery, gateway-only control, reminders, or mail-notifier.
 2. If the request is really about generic managed-agent inspection rather than a gateway-owned concern, route it to `houmao-agent-inspect`.

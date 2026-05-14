@@ -19,10 +19,39 @@ For plain agent-definition directories, credential identity is the directory bas
 
 The trigger word `houmao` is intentional. Use the `houmao-credential-mgr` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-credential-mgr help`, `help for houmao-credential-mgr`, `usage for houmao-credential-mgr`, `available functionality for houmao-credential-mgr`, or what this skill can do, answer from this section before choosing a credential action, command, reference page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me add a Codex credential", route to the matching workflow instead of stopping at generic help.
+
+Purpose: manage supported Houmao credential bundles for project overlays or explicit plain agent-definition directories.
+
+Available functionality:
+
+- `list` and `get` credentials with safe inspection posture.
+- `add` and `set` credential bundle contents for supported tool families.
+- `login` through maintained provider login/import workflows.
+- `rename` or `remove` one existing credential.
+- Choose project-backed versus explicit plain agent-definition directory targets.
+
+Common starting prompts:
+
+- `$houmao-credential-mgr help`
+- `$houmao-credential-mgr list codex credentials`
+- `$houmao-credential-mgr add claude credential`
+- `$houmao-credential-mgr login gemini`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` to change stored `--auth` overrides on easy or raw launch profiles.
+- Use `houmao-project-mgr` for project overlay lifecycle and status.
+- Use `houmao-agent-instance` for launch, join, list, stop, or cleanup.
+- Do not use this skill for direct filesystem editing under credential storage directories.
+
 ## Scope
 
 This packaged skill covers exactly these credential actions:
 
+- `help` (read-only meta operation)
 - `list`
 - `get`
 - `add`
@@ -48,6 +77,8 @@ This packaged skill does not cover:
 - direct filesystem editing under `tools/<tool>/auth/`
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
 2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:

@@ -7,12 +7,41 @@ description: Use Houmao's multi-agent workspace manager skill to plan or execute
 
 Use this skill to prepare multi-agent workspaces. It has two modes:
 
+- `help`: explain this skill's purpose, modes, common prompts, and related-skill boundaries without defaulting to `plan`.
 - `plan`: inspect context and show exactly what would be created or changed. Do not modify files unless the user explicitly asks to write the plan to a Markdown path.
 - `execute`: create the workspace, Git worktrees, local shared repos, ignore rules, optional memo seed files, and launch-profile adjustments.
 
 This skill prepares Houmao-standard workspace layouts only. If the user wants a custom operator-owned workspace contract, do not translate that layout here; keep it outside this skill.
 
 Do not launch agents from this skill. Hand off to `houmao-agent-instance` for broad lifecycle launch or `houmao-agent-definition` for specialist-backed easy launch after workspace preparation.
+
+## Help
+
+When the user asks `$houmao-utils-workspace-mgr help`, `help for houmao-utils-workspace-mgr`, `usage for houmao-utils-workspace-mgr`, `available functionality for houmao-utils-workspace-mgr`, or what this skill can do, answer from this section before defaulting to `plan`, choosing a flavor page, inspecting Git state, writing a plan file, creating files, or asking missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me plan a multi-agent workspace", route to the matching workflow instead of stopping at generic help.
+
+Purpose: plan or execute Houmao-standard multi-agent workspace layouts before agents are launched.
+
+Available functionality:
+
+- Dry-run `plan` mode for in-repo and out-of-repo multi-agent workspace layouts.
+- `execute` mode for scaffolding workspaces, worktrees, local shared repos, `.gitignore` rules, knowledge directories, and optional memo seeds.
+- Safe local-state symlink decisions and tracked submodule materialization.
+- Launch-profile cwd updates and workspace contract docs.
+- Task-scoped bookkeeping directories when a loop requests them.
+
+Common starting prompts:
+
+- `$houmao-utils-workspace-mgr help`
+- `$houmao-utils-workspace-mgr plan in-repo workspace for <profiles>`
+- `$houmao-utils-workspace-mgr execute the approved workspace plan`
+- `$houmao-utils-workspace-mgr plan out-of-repo workspace for <repos>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for specialist-backed easy launch after workspace preparation.
+- Use `houmao-agent-instance` for broad live-agent lifecycle launch, stop, relaunch, or cleanup.
+- Use `houmao-memory-mgr` when the task is only editing an existing memo rather than preparing memo seed material.
+- Keep custom operator-owned workspace contracts outside this Houmao-standard workspace skill.
 
 ## Inputs
 
@@ -37,6 +66,8 @@ Optional:
 - whether to create memo-seed Markdown and merge workspace rules into profile memo seeds
 
 If the operation is unclear, default to `plan`. If a needed value cannot be inferred safely, make a conservative decision in the plan and label it as a decision, not as a hidden assumption.
+
+Explicit skill-help intent is not an unclear operation; answer from `## Help` before applying the default `plan` mode.
 
 When asking for Houmao workspace-system inputs, separate `Required` values from `Optional` modifiers. If no optional inputs apply to the question, say `Optional: none for this step.` Do not use this format for the user's task/domain intent unless the question is about Houmao runtime behavior.
 

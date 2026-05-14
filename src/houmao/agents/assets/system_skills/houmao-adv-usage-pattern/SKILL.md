@@ -10,6 +10,34 @@ Use this Houmao skill when the task is a supported multi-step Houmao workflow co
 
 This skill is intentionally above the direct-operation skills and below the maintained generated-loop skills. Keep exact mailbox actions in `houmao-agent-email-comms`, gateway and notifier control in `houmao-agent-gateway`, one notifier-driven open-mail round in `houmao-process-emails-via-gateway`, topology-rich generated execplans in `houmao-agent-loop-pro`, and lightweight Markdown/direct-SQL generated loops in `houmao-agent-loop-lite`.
 
+## Help
+
+When the user asks `$houmao-adv-usage-pattern help`, `help for houmao-adv-usage-pattern`, `usage for houmao-adv-usage-pattern`, `available functionality for houmao-adv-usage-pattern`, or what this skill can do, answer from this section before choosing a pattern or reference page. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me design a notifier-driven mail loop", route to the matching workflow instead of stopping at generic help.
+
+Purpose: explain supported multi-step Houmao workflow compositions that combine direct mailbox, gateway, notifier, and loop skills.
+
+Available functionality:
+
+- Self-notification choices between gateway reminders and self-mail backlog.
+- Notifier-prompt-driven mail loops with on-event and optional on-tick behavior.
+- One-round local-close driver-worker edge loops.
+- Ordered relay loops that return final results to the origin.
+- Guidance for choosing between elemental patterns, `houmao-agent-loop-lite`, and `houmao-agent-loop-pro`.
+
+Common starting prompts:
+
+- `$houmao-adv-usage-pattern help`
+- `$houmao-adv-usage-pattern self-notification`
+- `$houmao-adv-usage-pattern notifier-prompt-driven mail loop`
+- `$houmao-adv-usage-pattern local-close edge loop`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-email-comms` for one exact mailbox action.
+- Use `houmao-agent-gateway` for gateway lifecycle, reminders, and mail-notifier control.
+- Use `houmao-process-emails-via-gateway` for one notifier-reported open-mail round.
+- Use `houmao-agent-loop-lite` or `houmao-agent-loop-pro` for generated loop packages.
+
 ## Supported Patterns
 
 - Read [patterns/self-notification.md](patterns/self-notification.md) when a managed agent wants to notify itself about later work and needs to choose between live gateway reminders and self-mail backlog.

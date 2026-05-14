@@ -12,6 +12,33 @@ Use this Houmao skill only when the user explicitly asks for `houmao-touring` or
 
 The trigger word `houmao` is intentional. Use the `houmao-touring` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section before presenting the welcome, inspecting state, choosing a branch page, routing to another skill, command execution, or missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me tour this Houmao project", route to the guided tour instead of stopping at generic help.
+
+Purpose: provide a manual guided Houmao tour that starts from current state and routes selected work to maintained direct-operation skills.
+
+Available functionality:
+
+- Orient from current project, specialist, profile, managed-agent, mailbox, and gateway state.
+- Guide quickstart, setup, author-and-launch, live-operations, advanced-usage, and lifecycle-follow-up branches.
+- Explain likely next branches in first-time-user-friendly language.
+- Route actual work to the Houmao skill that owns the selected surface.
+
+Common starting prompts:
+
+- `$houmao-touring help`
+- `$houmao-touring start a guided tour`
+- `$houmao-touring orient me in this project`
+- `$houmao-touring show advanced usage options`
+
+Related skills and boundaries:
+
+- Use direct-operation skills such as `houmao-project-mgr`, `houmao-agent-definition`, `houmao-mailbox-mgr`, `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-inspect`, and `houmao-agent-instance` for ordinary narrow tasks.
+- Use `houmao-agent-loop-lite` or `houmao-agent-loop-pro` for current loop authoring and generated loop operation.
+- Use `houmao-adv-usage-pattern` for elemental multi-skill mailbox or gateway patterns.
+- Do not use this skill as the default entrypoint when the user did not ask for a guided tour.
+
 ## Welcome Message
 
 When the user starts the guided tour, present a welcome message that adapts to the inspected current Houmao state. Keep the welcome user-facing and never imply that the user must restart from the beginning when Houmao state already exists. Do not repeat the welcome on every turn; if the recent conversation already covered it, skip it and proceed with the current-state orientation.
@@ -62,6 +89,8 @@ This packaged skill does not cover:
 - destructive cleanup as an automatic side effect of stop
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Confirm that the user explicitly wants the guided touring experience instead of one narrow direct-operation task.
 2. Present the welcome message, including the typical first setup path, unless the recent conversation already covered it.

@@ -10,10 +10,38 @@ Use this Houmao skill when the task is mailbox administration rather than ordina
 
 The trigger word `houmao` is intentional. Use the `houmao-mailbox-mgr` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-mailbox-mgr help`, `help for houmao-mailbox-mgr`, `usage for houmao-mailbox-mgr`, `available functionality for houmao-mailbox-mgr`, or what this skill can do, answer from this section before choosing a mailbox-admin lane, action page, command, reference, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me register a mailbox account", route to the matching workflow instead of stopping at generic help.
+
+Purpose: administer Houmao mailbox roots, registrations, structural projections, and late filesystem mailbox bindings.
+
+Available functionality:
+
+- Initialize, inspect, repair, clean, clear, and export filesystem or project mailbox roots.
+- Register, inspect, unregister, and clean mailbox accounts.
+- List, inspect, or clear structural message projections.
+- Inspect, add, update, or remove late filesystem mailbox binding for an existing local managed agent.
+
+Common starting prompts:
+
+- `$houmao-mailbox-mgr help`
+- `$houmao-mailbox-mgr project mailbox status`
+- `$houmao-mailbox-mgr register <address>`
+- `$houmao-mailbox-mgr agent binding status for <agent>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-email-comms` for ordinary mailbox send, reply, read, mark, move, or archive work.
+- Use `houmao-agent-gateway` for gateway mail-notifier, reminders, or gateway-only state.
+- Use `houmao-agent-definition` for same-root mailbox preparation that is part of specialist-backed easy launch.
+- Treat Stalwart bootstrap and operation as outside the filesystem mailbox-admin command lane.
+
 ## Scope
 
 This packaged skill covers exactly these maintained mailbox-administration surfaces:
 
+- `help` (read-only meta operation)
 - `houmao-mgr mailbox ...`
 - `houmao-mgr project mailbox ...`
 - `houmao-mgr agents mailbox ...`
@@ -27,6 +55,8 @@ This packaged skill does not cover:
 - ad hoc filesystem editing inside mailbox roots
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify whether the user wants mailbox-root lifecycle, manual mailbox-account lifecycle, structural mailbox inspection, or late mailbox binding for one existing managed agent.
 2. Select the maintained lane:

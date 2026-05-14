@@ -82,11 +82,21 @@ command -v tmux
 Houmao is designed to be driven from inside a CLI agent. Install system skills, start your agent, and let it handle everything — project setup, specialist creation, agent launching, and coordination all happen through conversation.
 
 ```bash
+# Recommended when `npx` is available and the target machine has internet access:
+# point the Skills CLI at the GitHub main-branch system-skills collection,
+# then choose which packaged skill(s) to install from the prompt.
+npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+
+# Use Houmao's installer when `npx` is unavailable, when working offline from
+# an installed Houmao package, or when you need customization such as named sets,
+# subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup.
 houmao-mgr system-skills install --tool claude,codex,gemini
-# Or install into one explicit user home: houmao-mgr system-skills install --tool claude --home ~/.claude
+
+# Explicit user-home override:
+houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-Skills are installed to each resolved project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`. Use `--home` only for a single selected tool when you need an explicit external-home override. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
+Skills are installed to the selected agent tool home. With `houmao-mgr system-skills install`, omitted `--home` resolves to each project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`; use `--home` only for a single selected tool when you need an explicit external-home override. Each installed Houmao system skill also supports explicit read-only help before it performs a workflow; for example, ask `$houmao-touring help` or `$houmao-agent-email-comms help` to see what that skill can do. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
 
 > The remaining steps below show the manual CLI equivalents for reference. You don't need them if you're working through your agent.
 
@@ -378,6 +388,8 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 ## System Skills: Agent Self-Management
 
 Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists and profiles, prepare one-pass agent definitions with `create-agent-fast-forward`, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+
+Every installed Houmao system skill can answer explicit read-only help requests such as `$houmao-touring help` or `$houmao-agent-email-comms help`. Skill-level help explains purpose, available functionality, common starting prompts, and related skill boundaries without running commands or mutating Houmao state; it is separate from the `houmao-mgr system-skills install` CLI surface that installs or projects the skill packages.
 
 | Skill | What it enables |
 |---|---|

@@ -10,10 +10,38 @@ Use this Houmao skill when the task is about the Houmao project overlay itself: 
 
 The trigger word `houmao` is intentional. Use the `houmao-project-mgr` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-project-mgr help`, `help for houmao-project-mgr`, `usage for houmao-project-mgr`, `available functionality for houmao-project-mgr`, or what this skill can do, answer from this section before choosing a project action, reference page, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me initialize this Houmao project", route to the matching workflow instead of stopping at generic help.
+
+Purpose: manage and explain the Houmao project overlay and project-scoped easy-instance inspection or stop surfaces.
+
+Available functionality:
+
+- Initialize or validate a selected project overlay.
+- Inspect project overlay selection, effective project-aware roots, and bootstrap posture.
+- Explain `.houmao/` layout and project-aware command effects.
+- List, inspect, or stop project easy instances through the selected overlay.
+
+Common starting prompts:
+
+- `$houmao-project-mgr help`
+- `$houmao-project-mgr project status`
+- `$houmao-project-mgr explain .houmao layout`
+- `$houmao-project-mgr project easy instance list`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for specialist, profile, easy launch, low-level role, recipe, or raw-profile work.
+- Use `houmao-credential-mgr` for project-local auth-bundle CRUD.
+- Use `houmao-mailbox-mgr` for project mailbox administration.
+- Use `houmao-agent-instance` for generic managed-agent lifecycle after project-scoped routing.
+
 ## Scope
 
 This packaged skill covers exactly these project-management surfaces:
 
+- `help` (read-only meta operation)
 - `houmao-mgr project init`
 - `houmao-mgr project status`
 - `houmao-mgr project easy instance list|get|stop`
@@ -32,6 +60,8 @@ This packaged skill does not cover:
 - direct hand-editing inside `.houmao/`
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify whether the user wants project overlay lifecycle, project layout explanation, project-aware side effects, or project-scoped easy-instance inspection or stop.
 2. When the task is explanatory rather than operational, load the narrowest reference page you need before deciding whether any command should run.

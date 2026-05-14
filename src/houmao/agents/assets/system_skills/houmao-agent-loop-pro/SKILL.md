@@ -9,10 +9,38 @@ description: Manual invocation only; use only when the user explicitly requests 
 
 - Use this Houmao skill only after the user explicitly selects it or names a supported loop operation.
 - This is the schema-rich generated-execplan loop path. Use `houmao-agent-loop-lite` instead only when the user explicitly wants the Markdown/direct-SQL lite loop path.
+- If the user invokes explicit help intent, answer from `## Help` before treating a no-operation invocation as `init` or asking for `<loop-dir>`.
 - If the user invokes this skill without another operation or prompt:
   - treat it as `init`;
   - ask for the output `<loop-dir>`;
   - do not create files until the user provides it.
+
+## Help
+
+When the user asks `$houmao-agent-loop-pro help`, `help for houmao-agent-loop-pro`, `usage for houmao-agent-loop-pro`, `available functionality for houmao-agent-loop-pro`, or what this skill can do, answer from this section before choosing an operation, requiring `<loop-dir>`, reading routed pages, generating artifacts, validating artifacts, launching agents, or asking missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me generate a pro execplan", route to the matching workflow instead of stopping at generic help.
+
+Purpose: author and operate schema-rich generated loop execplans with topology-aware contracts, generated harness surfaces, generated skills, prepared agents, workspace readiness, and run-control operations.
+
+Available functionality:
+
+- Scaffold, clarify, fast-forward, step through, validate, or update intention and `execplan/` material.
+- Generate process, contract, harness, skills, agent bindings, final metadata, and support material.
+- Prepare agents, prepare workspaces, validate readiness, launch agents, start loops, and inspect status.
+- Pause, resume, recover, or stop generated pro loops.
+
+Common starting prompts:
+
+- `$houmao-agent-loop-pro help`
+- `$houmao-agent-loop-pro init <loop-dir>`
+- `$houmao-agent-loop-pro execplan-fast-forward <loop-dir>`
+- `$houmao-agent-loop-pro validate-loop <loop-dir>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-loop-lite` when the user explicitly wants Markdown/direct-SQL loops without JSON schemas, Jinja2, generated harness, or generated docs layers.
+- Use `houmao-agent-definition`, `houmao-utils-workspace-mgr`, `houmao-agent-instance`, `houmao-agent-email-comms`, `houmao-agent-gateway`, and `houmao-agent-inspect` for maintained platform operations.
+- Use `houmao-adv-usage-pattern` for elemental direct mailbox or gateway compositions outside generated loop packages.
+- Do not auto-route generic loop requests here when the user did not explicitly select this skill.
 
 ## Required Root
 
@@ -46,6 +74,9 @@ Detailed guidance lives behind routed pages. Read only the page selected by rout
 - [subskills/reference/system-input-questions.md](subskills/reference/system-input-questions.md): required/optional shape for Houmao runtime and artifact-location questions.
 
 ## Operations
+
+Meta:
+- `help`: explain this skill's purpose, operations, common prompts, and related-skill boundaries without requiring `<loop-dir>` or doing default `init`.
 
 Authoring:
 - `init`: scaffold editable intention material and populate `intention/project-context.md`; default when invoked without another operation or prompt.

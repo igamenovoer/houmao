@@ -10,12 +10,40 @@ Use this Houmao skill when the task is about persisted pre-launch agent definiti
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-definition` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-definition help`, `help for houmao-agent-definition`, `usage for houmao-agent-definition`, `available functionality for houmao-agent-definition`, or what this skill can do, answer from this section before choosing a subcommand, subskill, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me create a specialist", route to the matching workflow instead of stopping at generic help.
+
+Purpose: manage persisted pre-launch agent definitions, reusable profiles, and specialist-backed launch or stop entry points.
+
+Available functionality:
+
+- `roles`, `recipes`, and `raw-profiles` for low-level reusable agent-definition material.
+- `specialists` and `profiles` for project-easy authoring.
+- `create-agent-fast-forward` for one-pass specialist plus easy profile preparation.
+- `launch-agent` and `stop-agent` for specialist-scoped easy instance entry points.
+
+Common starting prompts:
+
+- `$houmao-agent-definition help`
+- `$houmao-agent-definition specialists list`
+- `$houmao-agent-definition profiles create`
+- `$houmao-agent-definition create-agent-fast-forward`
+
+Related skills and boundaries:
+
+- Use `houmao-credential-mgr` for credential bundle contents.
+- Use `houmao-mailbox-mgr` for mailbox root or account administration.
+- Use `houmao-utils-workspace-mgr` for workspace preparation.
+- Use `houmao-agent-instance` for broad live managed-agent lifecycle after launch.
+
 ## Scope
 
 This skill is the canonical router for these subcommands:
 
 | Subcommand | Route | Underlying surface |
 |---|---|---|
+| `help` | this top-level `## Help` section | read-only meta operation; no `houmao-mgr` command |
 | `roles` | [subskills/low-level/roles.md](subskills/low-level/roles.md) | `houmao-mgr project agents roles ...` |
 | `recipes` | [subskills/low-level/recipes.md](subskills/low-level/recipes.md) | `houmao-mgr project agents recipes ...`; `presets` is a compatibility alias |
 | `raw-profiles` | [subskills/low-level/raw-profiles.md](subskills/low-level/raw-profiles.md) | `houmao-mgr project agents launch-profiles ...` |
@@ -34,6 +62,8 @@ This skill does not own:
 - direct hand-editing under `.houmao/`
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. If the user names a subcommand, route directly to that subcommand.
 2. If no subcommand is named, infer the subcommand from intent:

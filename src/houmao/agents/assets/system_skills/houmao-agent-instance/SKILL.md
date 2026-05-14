@@ -10,10 +10,38 @@ Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or c
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-instance` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-instance help`, `help for houmao-agent-instance`, `usage for houmao-agent-instance`, `available functionality for houmao-agent-instance`, or what this skill can do, answer from this section before choosing a lifecycle action, command, action page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me stop this agent", route to the matching workflow instead of stopping at generic help.
+
+Purpose: manage live Houmao-managed agent instances through supported lifecycle commands.
+
+Available functionality:
+
+- `launch` new managed-agent instances from roles, presets, raw profiles, or specialists.
+- `join` one already-running supported provider session.
+- `list` current live managed agents from the lifecycle perspective.
+- `stop`, `relaunch`, or `cleanup` selected managed-agent instances.
+
+Common starting prompts:
+
+- `$houmao-agent-instance help`
+- `$houmao-agent-instance list`
+- `$houmao-agent-instance launch from specialist <name>`
+- `$houmao-agent-instance stop <agent>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for specialist-scoped easy launch and stop entry points or reusable definition authoring.
+- Use `houmao-agent-inspect` for generic read-only state, logs, artifacts, mailbox posture, or screen inspection.
+- Use `houmao-agent-messaging` for prompt, interrupt, mailbox routing, or reset-context work.
+- Use `houmao-agent-gateway` for gateway sidecar lifecycle and gateway-only control.
+
 ## Scope
 
 This packaged skill covers exactly these managed-agent instance lifecycle actions:
 
+- `help` (read-only meta operation)
 - `launch`
 - `join`
 - `list`
@@ -44,6 +72,8 @@ This packaged skill does not cover:
 - `houmao-mgr admin cleanup runtime ...`
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Identify which managed-agent lifecycle action the user wants: `launch`, `join`, `list`, `stop`, `relaunch`, or `cleanup`.
 2. If the requested action is `launch`, determine whether the source is:

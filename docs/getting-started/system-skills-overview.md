@@ -19,6 +19,10 @@ Each system skill ships as a directory under `src/houmao/agents/assets/system_sk
 
 System skills are not Python plugins, MCP servers, or runtime hooks. They are agent-readable instruction packages that guide the agent toward the right `houmao-mgr` command for the task. The supporting code is whatever `houmao-mgr` already exposes through `srv_ctrl/commands/`.
 
+Every current packaged Houmao system skill supports explicit skill-level help from its top-level `SKILL.md`. Ask the agent for `$houmao-touring help`, `$houmao-agent-email-comms help`, or "usage for `houmao-agent-definition`" when you want a read-only summary before starting a workflow. Help responses state the skill purpose, available functionality, common starting prompts, and related skill boundaries; they do not run commands, mutate files, send mail, change gateway state, or change managed-agent lifecycle state.
+
+The help trigger is intentionally narrow. Explicit help or usage requests are handled before normal workflow routing, action-page routing, branch selection, transport selection, or missing-input collection. Ordinary task requests such as "help me send mail to this agent" or "help me launch this profile" still route to the task workflow instead of stopping at generic usage text.
+
 ## The Packaged Skills
 
 Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into three organization groups: **automation** for autonomous agent operation, mailbox/gateway/memory behavior, messaging, and inspection; **control** for operator-facing project, specialist, credential, definition, lifecycle, touring, and loop workflows; and **utils** for optional utility workflows.

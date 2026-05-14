@@ -8,12 +8,41 @@ description: Manual invocation only; use only when the user explicitly requests 
 ## Activation
 
 - Use this Houmao skill only after the user explicitly selects `houmao-agent-loop-lite` or names a supported lite loop operation.
+- If the user invokes explicit help intent, answer from `## Help` before treating a no-operation invocation as `init` or asking for `<loop-dir>`.
 - If the user invokes this skill without another operation or prompt:
   - treat it as `init`;
   - ask for the output `<loop-dir>`;
   - do not create files until the user provides it.
 - Do not auto-route generic loop requests here when the user did not explicitly select lite.
 - Use `houmao-agent-loop-pro` instead when the user explicitly asks for the schema-rich, topology-heavy generated-execplan path with pro validation and run-control surfaces.
+
+## Help
+
+When the user asks `$houmao-agent-loop-lite help`, `help for houmao-agent-loop-lite`, `usage for houmao-agent-loop-lite`, `available functionality for houmao-agent-loop-lite`, or what this skill can do, answer from this section before choosing an operation, requiring `<loop-dir>`, generating Markdown contracts, generating skills, touching SQLite state, launching agents, or asking missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me create a lite loop", route to the matching workflow instead of stopping at generic help.
+
+Purpose: author and operate lightweight generated loops that use Markdown contracts, typed Markdown templates, required generated skills, and direct SQLite state.
+
+Available functionality:
+
+- `init`, `clarify`, `generate-skills`, and `validate` a minimal lite loop package.
+- Generate the default `intention/`, `execplan/`, `specs/`, `skills/`, `agents/`, and `runs/` spine.
+- Enforce typed Markdown templates with `<placeholder ...>` tokens and Houmao envelope boundaries.
+- Prepare and launch agents, start runs, inspect status, pause, resume, stop, and recover lite loops.
+- Require generated shared and receiver skills for loop-local operation.
+
+Common starting prompts:
+
+- `$houmao-agent-loop-lite help`
+- `$houmao-agent-loop-lite init <loop-dir>`
+- `$houmao-agent-loop-lite generate-skills <loop-dir>`
+- `$houmao-agent-loop-lite validate <loop-dir>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-loop-pro` for schema-rich topology-heavy execplans, JSON schemas, Jinja2 rendering, generated harness, or generated docs layers.
+- Use `houmao-agent-definition`, `houmao-agent-instance`, `houmao-agent-email-comms`, `houmao-agent-gateway`, `houmao-agent-messaging`, `houmao-agent-inspect`, and `houmao-utils-workspace-mgr` for maintained platform operations.
+- Use `houmao-adv-usage-pattern` for elemental direct mailbox or gateway compositions outside generated loop packages.
+- Do not auto-route generic loop requests here when the user did not explicitly select lite.
 
 ## Required Root
 
@@ -35,6 +64,9 @@ description: Manual invocation only; use only when the user explicitly requests 
 ```
 
 ## Operations
+
+Meta:
+- `help`: explain this skill's purpose, operations, default shape, common prompts, and related-skill boundaries without requiring `<loop-dir>` or doing default `init`.
 
 Authoring:
 - `init`: scaffold the smallest editable intention surface and a default generated lite package after the user selects `<loop-dir>`.
