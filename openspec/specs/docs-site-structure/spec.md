@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the documentation requirements for the top-level Houmao docs site structure.
-
 ## Requirements
-
 ### Requirement: Docs index provides canonical navigation
 
 The `docs/index.md` file SHALL serve as the single entry point for all Houmao documentation. It SHALL contain a table of contents linking to every section: getting-started, reference (organized by phase and subsystem), developer guides, and examples. It SHALL NOT reference CAO as a primary concept, demo packs, migration guides, or deleted pages (`agents_brains.md`, `brain-builder.md`, `recipes-and-adapters.md`). Links to the deleted build-phase pages SHALL be removed; the build-phase section SHALL list `launch-overrides.md` and `launch-policy.md`.
@@ -31,14 +29,12 @@ The `docs/index.md` file SHALL serve as the single entry point for all Houmao do
 
 ### Requirement: Docs index opens with a brief intro and audience navigation
 
-The `docs/index.md` file SHALL open with a short introductory block of 2-3 sentences describing what Houmao is and who the site is for.
-
-Immediately after the intro, the file SHALL include a "where to start" table with at minimum rows for installed users, from-source developers, and contributors. Each row SHALL identify the audience and point to its recommended starting resource.
+The `docs/index.md` file SHALL open with a short introductory block (2–3 sentences) describing what Houmao is and who the site is for (primarily installed users, with developer and contributor material available). Immediately after the intro, the file SHALL include a "where to start" table with at minimum three audience rows: installed user, from-source developer, and contributor. Each row SHALL name the audience and point to its recommended starting resource.
 
 #### Scenario: Installed user lands on docs index
 - **WHEN** an installed user opens `docs/index.md`
-- **THEN** they read a short description of what Houmao is before encountering the link lists
-- **AND THEN** they see a "where to start" entry pointing them toward getting-started guides or the skill-driven `houmao-touring` path
+- **THEN** they read a 2–3 sentence description of what Houmao is before encountering any link list
+- **AND THEN** they see a "where to start" entry pointing them toward the getting-started guides or skill-driven (`houmao-touring`) path
 
 #### Scenario: From-source developer lands on docs index
 - **WHEN** a developer working from a source checkout opens `docs/index.md`
@@ -46,11 +42,11 @@ Immediately after the intro, the file SHALL include a "where to start" table wit
 
 #### Scenario: Contributor lands on docs index
 - **WHEN** a contributor opens `docs/index.md`
-- **THEN** the "where to start" table identifies them and points them to `CLAUDE.md` or `AGENTS.md`
+- **THEN** the "where to start" table identifies them and points them to CLAUDE.md or AGENTS.md
 
 #### Scenario: Existing link sections are preserved
 - **WHEN** a reader scrolls past the intro block
-- **THEN** the Getting Started, Reference, and Developer Guides link sections remain available
+- **THEN** all previously existing Getting Started, Reference, and Developer Guides link sections are intact with no links removed
 
 ### Requirement: Directory structure mirrors source packages
 
@@ -306,3 +302,19 @@ The `docs/index.md` file SHALL open with a short introductory block (2–3 sente
 #### Scenario: Existing link sections are preserved
 - **WHEN** a reader scrolls past the intro block
 - **THEN** all previously existing Getting Started, Reference, and Developer Guides link sections are intact with no links removed
+
+### Requirement: Docs index starts installed users on the current agent-driven install path
+
+The docs landing page `docs/index.md` SHALL point installed users toward the current recommended agent-driven setup path.
+
+For installed users with `npx` and internet access, the docs index SHALL mention installing system skills with `npx skills add` against the GitHub main-branch `system_skills/` collection or link to guidance that does so.
+
+The docs index SHALL still route readers to `houmao-mgr system-skills install` or the system-skills overview/reference when they need offline, package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup behavior.
+
+The docs index SHALL mention invoking `houmao-touring` or asking an installed system skill for help as the next agent-driven step.
+
+#### Scenario: Installed user sees current start guidance
+- **WHEN** an installed user opens `docs/index.md`
+- **THEN** the "where to start" table or equivalent intro points them at the current system-skill installation guidance
+- **AND THEN** the guidance does not imply that `houmao-mgr system-skills install --tool claude` is the only recommended first step
+- **AND THEN** the guidance points them toward `houmao-touring` or explicit skill help after installation

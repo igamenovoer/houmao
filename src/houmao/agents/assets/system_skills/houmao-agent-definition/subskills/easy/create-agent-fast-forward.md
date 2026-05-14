@@ -26,9 +26,9 @@ This workflow creates or selects a specialist, creates or updates an easy profil
    - create when the profile does not exist or the user asks for a new profile;
    - set when updating an existing profile;
    - create `--yes` only when the user explicitly wants same-name replacement.
-4. Store all supplied launch defaults on the easy profile.
-5. Print the exact launch command.
-6. Report durable identity facts and stored posture.
+4. Store all supplied launch defaults on the easy profile, omitting stored headless posture unless the user explicitly asked for headless or the selected tool/lane requires it.
+5. Print the exact launch command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+6. Report durable identity facts and stored posture, including that unspecified launch posture is TUI/local-interactive preferred when supported.
 7. Stop. Do not run the launch command.
 
 ## Defaults To Store When Supplied
@@ -37,7 +37,8 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 - easy profile name
 - managed-agent identity: `--agent-name`, `--agent-id`
 - workdir: `--workdir`
-- prompt mode: default to unattended unless the user requests `as_is`
+- prompt mode: default to unattended unless the user requests `as_is`; prompt mode does not imply headless execution
+- launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane
 - model: `--model`
 - reasoning: `--reasoning-level`
 - env: repeatable `--env-set NAME=value`
@@ -78,13 +79,15 @@ Report:
 - specialist name
 - easy profile name
 - intended managed-agent name or agent id when known
-- stored prompt mode, workdir, auth override, mailbox posture, gateway posture, prompt overlay, notifier appendix, memo seed, model, reasoning, and env defaults when present
+- stored prompt mode, launch posture, workdir, auth override, mailbox posture, gateway posture, prompt overlay, notifier appendix, memo seed, model, reasoning, and env defaults when present
 - exact launch command
 
 ## Guardrails
 
 - Do not launch the managed agent.
 - Do not guess missing specialist, profile, tool, credential, identity, workdir, mailbox, gateway, prompt, model, or env inputs.
+- Do not persist profile `--headless` or include launch-command `--headless` by default for TUI-capable tools.
+- Do not treat unattended prompt mode as evidence that headless launch was requested.
 - When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
 - Do not continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.
 - Do not manually preregister a same-root ordinary per-agent mailbox address when profile defaults or easy launch can own ordinary launch-time mailbox bootstrap.

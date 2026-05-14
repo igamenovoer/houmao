@@ -47,6 +47,12 @@ Easy profiles may store:
 - gateway mail-notifier default: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
 
+## Default Launch Posture
+
+When the user does not specify headless or TUI posture, omit `--headless`. An easy profile without stored headless posture remains TUI/local-interactive preferred on later launch when the selected tool supports it.
+
+Only persist `--headless` when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from `--prompt-mode unattended`, mailbox defaults, gateway defaults, model defaults, or automation-oriented wording.
+
 ## Clear Fields
 
 `profile set` may clear:
@@ -88,4 +94,5 @@ Easy profiles may store:
 - Do not use `project agents launch-profiles set` for easy-profile edits.
 - Do not remove and recreate an easy profile for ordinary default edits.
 - Do not treat profile creation as launching or mutating a live easy instance.
+- Do not store `--headless` by default for TUI-capable tools.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch.

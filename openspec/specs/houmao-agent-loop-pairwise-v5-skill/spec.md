@@ -3,25 +3,6 @@
 ## Purpose
 TBD - created by archiving change add-general-pairwise-v5-loop-skill. Update Purpose after archive.
 ## Requirements
-### Requirement: Houmao provides a packaged manual `houmao-agent-loop-pairwise-v5` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pairwise-v5` under the maintained system-skill asset root.
-
-That packaged skill SHALL use `houmao-agent-loop-pairwise-v5` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
-
-The packaged `houmao-agent-loop-pairwise-v5` skill SHALL be manual-invocation-only. It SHALL only activate when the user explicitly requests `houmao-agent-loop-pairwise-v5` or an explicitly named v5 loop operation.
-
-The packaged skill SHALL describe itself as a general loop authoring and execution skill.
-
-#### Scenario: User explicitly invokes v5
-- **WHEN** a user explicitly asks to use `houmao-agent-loop-pairwise-v5`
-- **THEN** the packaged v5 skill is the correct Houmao-owned entrypoint
-- **AND THEN** it presents a general loop authoring and execution workflow
-
-#### Scenario: Generic loop request does not auto-route to v5
-- **WHEN** a user asks generically to plan or run an agent loop without naming `houmao-agent-loop-pairwise-v5`
-- **THEN** the v5 skill does not claim the request by default
-- **AND THEN** the user must explicitly select v5 before v5-specific files or operations are created
-
 ### Requirement: V5 skill creation invokes skill-creator guidance
 When creating or substantially updating the packaged `houmao-agent-loop-pairwise-v5` skill assets, the implementation agent SHALL invoke `$skill-creator` before authoring the skill files.
 
@@ -1335,3 +1316,13 @@ The skill SHALL NOT impose required/optional labels on user-task intent question
 - **WHEN** `clarify-intent` asks about objective ambiguity, acceptance semantics, participant responsibilities, or task-specific loop behavior
 - **THEN** the question is not required to use required/optional system-input labels
 - **AND THEN** the clarification flow still uses required/optional labels if it asks for a Houmao runtime setting such as workspace sharing, mail-notifier mode, or lifecycle control behavior
+
+### Requirement: Pairwise-v5 skill is retired in favor of pro
+The system SHALL NOT package `houmao-agent-loop-pairwise-v5` as a current installable Houmao-owned system skill.
+
+The current generated-execplan loop workflow SHALL live under `houmao-agent-loop-pro`.
+
+#### Scenario: Pairwise-v5 name is absent from current inventory
+- **WHEN** the current system-skill inventory is loaded
+- **THEN** `houmao-agent-loop-pairwise-v5` is not present as a current installable skill
+- **AND THEN** generated-execplan loop workflow guidance points to `houmao-agent-loop-pro`

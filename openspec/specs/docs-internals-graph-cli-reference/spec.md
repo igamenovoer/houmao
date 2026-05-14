@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the documentation requirements for the `houmao-mgr internals graph` CLI reference content.
-
 ## Requirements
-
 ### Requirement: docs site includes internals graph CLI reference page
 
 The docs site SHALL include a reference page at `docs/reference/cli/internals.md` that documents the `houmao-mgr internals graph` command family.
@@ -66,3 +64,13 @@ The note SHALL link to `docs/reference/cli/internals.md` for the full reference.
 - **WHEN** an agent reads the loop-skills section of `docs/getting-started/system-skills-overview.md`
 - **THEN** it finds a reference to `houmao-mgr internals graph high` as an available authoring aid
 - **AND THEN** it finds a link to the full internals reference page
+
+### Requirement: Internals graph docs route loop consumers to pro
+The internals graph CLI reference SHALL describe `houmao-agent-loop-pro` as the current loop-skill consumer for graph helper output.
+
+The reference MAY keep legacy graph mode examples when those modes remain accepted by the CLI, but it SHALL label them as helper modes or legacy aliases rather than current skill packages.
+
+#### Scenario: Reader checks graph high usage
+- **WHEN** a reader checks graph high authoring guidance
+- **THEN** the reference names `houmao-agent-loop-pro` as the current loop authoring consumer
+- **AND THEN** pairwise-v2 wording is not presented as a current skill package route

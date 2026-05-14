@@ -50,6 +50,12 @@ Raw profiles are low-level recipe-backed launch profiles. The underlying maintai
 - gateway mail-notifier default: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
 
+## Default Launch Posture
+
+When headless or TUI posture is unspecified, omit `--headless`. A raw profile without stored headless posture remains TUI/local-interactive preferred on later launch when the selected tool supports it.
+
+Only persist `--headless` when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from `--prompt-mode unattended`, gateway defaults, mailbox defaults, relaunch defaults, model defaults, or automation-oriented wording.
+
 ## Set Clear Fields
 
 - `--clear-agent-name`
@@ -87,4 +93,5 @@ Raw profiles are low-level recipe-backed launch profiles. The underlying maintai
 - Do not remove and recreate a raw profile for ordinary edits.
 - Do not treat launch-profile `--auth` changes as credential CRUD.
 - Do not route low-level recipe editing through this subskill.
+- Do not store `--headless` by default for TUI-capable tools.
 - Do not invent raw-profile names, recipe names, or field overrides.

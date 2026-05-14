@@ -1330,3 +1330,62 @@ If `houmao-specialist-mgr` remains documented, the reference SHALL identify it a
 - **WHEN** a reader checks which skill supports one-click agent profile preparation
 - **THEN** the CLI reference identifies `houmao-agent-definition` and `create-agent-fast-forward`
 - **AND THEN** it describes that path as creating or updating a launchable easy profile without launching the agent
+
+### Requirement: CLI reference documents pro as current loop skill
+The CLI reference page for system skills SHALL describe `houmao-agent-loop-pro` as the current packaged loop skill.
+
+The reference SHALL omit retired pairwise and generic loop package names from current inventory lists.
+
+#### Scenario: Reader checks current system-skills inventory
+- **WHEN** a reader checks the CLI reference for current packaged system skills
+- **THEN** the loop inventory includes `houmao-agent-loop-pro`
+- **AND THEN** retired loop package names are not listed as current installable skills
+
+### Requirement: CLI reference documents retired cleanup when relevant
+The CLI reference SHALL explain that known retired Houmao loop skill projections may be removed during current install or uninstall operations.
+
+#### Scenario: Reader sees stale skill cleanup behavior
+- **WHEN** a reader checks install or uninstall semantics
+- **THEN** the CLI reference explains cleanup of known retired loop skill projections
+
+### Requirement: CLI reference includes lite in current system-skill inventory
+The CLI reference for system-skills SHALL list `houmao-agent-loop-lite` as a current catalog-known Houmao-owned system skill.
+
+The reference SHALL include `houmao-agent-loop-lite` in the documented current `core` and `all` resolved sets when those sets are shown.
+
+The reference SHALL preserve retired loop cleanup guidance for retired pairwise and generic package names without classifying `houmao-agent-loop-lite` as retired.
+
+#### Scenario: CLI reference lists lite as current
+- **WHEN** a reader opens the system-skills CLI reference
+- **THEN** `houmao-agent-loop-lite` appears in the current skill inventory
+- **AND THEN** it appears separately from retired loop cleanup names
+
+#### Scenario: CLI reference set examples include lite
+- **WHEN** the CLI reference shows resolved `core` or `all` system-skill sets
+- **THEN** those examples include `houmao-agent-loop-lite`
+- **AND THEN** they still include `houmao-agent-loop-pro`
+
+### Requirement: System-skills CLI reference distinguishes CLI management from installed-skill help
+
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL state that `houmao-mgr system-skills` is the operator-facing CLI surface for installing, inspecting, and removing packaged Houmao-owned skill projections.
+
+The page SHALL state that prompt-level requests such as `$houmao-touring help` or `$houmao-agent-email-comms help` are answered by installed skills and are not a `houmao-mgr system-skills help` subcommand.
+
+The page SHALL link to `docs/getting-started/system-skills-overview.md` for the narrative explanation of skill-level help.
+
+#### Scenario: Reader does not look for a nonexistent CLI help subcommand
+- **WHEN** a reader opens the system-skills CLI reference after hearing about skill help
+- **THEN** the page explains that `$<skill> help` is prompt-level installed-skill behavior
+- **AND THEN** the page does not present `houmao-mgr system-skills help` as a command
+- **AND THEN** the page still documents the real `list`, `status`, `install`, and `uninstall` subcommands
+
+### Requirement: System-skills CLI reference notes the external Skills CLI install path
+
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL mention that users with `npx` and internet access can alternatively install from the GitHub main-branch system-skill collection with `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/`.
+
+That note SHALL keep the rest of the page authoritative for `houmao-mgr system-skills` behavior such as effective-home resolution, named sets, subset skills, symlink/copy projection, status, uninstall, and cleanup of retired skill projections.
+
+#### Scenario: Reader understands the CLI reference boundary
+- **WHEN** a reader opens the system-skills CLI reference for installation guidance
+- **THEN** they see the external Skills CLI option as adjacent guidance
+- **AND THEN** they understand the page's detailed command behavior applies to `houmao-mgr system-skills`

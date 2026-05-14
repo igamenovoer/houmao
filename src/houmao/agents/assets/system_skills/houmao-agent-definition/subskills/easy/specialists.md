@@ -37,7 +37,7 @@ Common specialist inputs:
 - `--credential <name>`; when omitted, the CLI default is `<specialist-name>-creds`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
-- `--no-unattended` to persist `as_is`; otherwise easy specialists default to unattended launch posture
+- `--no-unattended` to persist `as_is`; otherwise easy specialists default to unattended prompt mode, which does not imply headless launch posture
 - `--model`
 - `--reasoning-level`
 - repeatable `--with-skill <dir>`

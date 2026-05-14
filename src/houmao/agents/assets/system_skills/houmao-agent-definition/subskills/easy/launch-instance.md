@@ -15,7 +15,7 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 3. For specialist launch, require specialist name and managed-agent name.
 4. For profile launch, require profile name.
 5. If profile launch lacks a managed-agent name, inspect the profile with `project easy profile get --name <profile>` to see whether it stores one.
-6. Run `project easy instance launch`.
+6. Run `project easy instance launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 7. Report the launched instance identity and command output.
 8. Tell the user that broader live-agent management now belongs to `houmao-agent-instance`.
 
@@ -47,6 +47,9 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 
 - `--specialist` and `--profile` are mutually exclusive.
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
+- When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool supports it.
+- Add `--headless` only when the user explicitly asks for headless execution, when an existing selected profile stores headless posture, or when the selected tool/lane requires headless.
+- `--prompt-mode unattended` and other stored automation defaults do not imply headless launch.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.
 - Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.
 - Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
@@ -64,6 +67,7 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 - Do not guess specialist name, profile name, or instance name.
 - Do not route specialist-backed launch through `agents launch`.
 - Do not route profile-backed launch through `agents launch`.
+- Do not add `--headless` by default for TUI-capable tools.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
 - Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled easy launch.
 - Do not describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.

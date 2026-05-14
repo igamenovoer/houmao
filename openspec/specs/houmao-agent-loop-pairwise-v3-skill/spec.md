@@ -3,18 +3,6 @@
 ## Purpose
 Define the packaged workspace-aware pairwise-v3 skill as the extension of pairwise-v2 that adds an authored workspace contract without collapsing runtime-owned recovery boundaries into workspace bookkeeping.
 ## Requirements
-### Requirement: Houmao provides a packaged `houmao-agent-loop-pairwise-v3` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pairwise-v3` under the maintained system-skill asset root.
-
-That packaged skill SHALL use `houmao-agent-loop-pairwise-v3` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
-
-The packaged `houmao-agent-loop-pairwise-v3` skill SHALL be the workspace-aware extension of `houmao-agent-loop-pairwise-v2` rather than a replacement for the stable pairwise skill or a mutation of v2 in place.
-
-#### Scenario: Reader sees v3 as a new packaged skill
-- **WHEN** a reader inspects the packaged loop-skill assets
-- **THEN** the inventory includes `houmao-agent-loop-pairwise-v3`
-- **AND THEN** the skill is described as the workspace-aware extension of pairwise-v2
-
 ### Requirement: Pairwise-v3 plans declare standard or custom workspace contracts
 The authoring guidance in `houmao-agent-loop-pairwise-v3` SHALL require the authored run contract to include a workspace contract.
 
@@ -256,3 +244,13 @@ The skill SHALL not rename existing v3 runtime paths, recovery names, generated 
 - **WHEN** v3 guidance describes workspace-aware loop preparation
 - **THEN** the workspace behavior remains unchanged
 - **AND THEN** topology explanation uses tree-loop terminology
+
+### Requirement: Pairwise-v3 skill is retired
+The system SHALL NOT package `houmao-agent-loop-pairwise-v3` as a current installable Houmao-owned system skill.
+
+Current workspace-aware loop guidance SHALL route through pro generated execplan contracts rather than the retired pairwise-v3 package.
+
+#### Scenario: Pairwise-v3 name is absent from current inventory
+- **WHEN** the current system-skill inventory is loaded
+- **THEN** `houmao-agent-loop-pairwise-v3` is not present as a current installable skill
+- **AND THEN** workspace-aware loop guidance points to `houmao-agent-loop-pro`
