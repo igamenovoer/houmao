@@ -5,7 +5,7 @@ Use this branch when the user wants to create or inspect specialists or profiles
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Route specialist creation, easy-profile creation, ready-profile preparation, and easy-instance launch to `houmao-agent-definition`.
+2. Route specialist creation, easy-profile creation, `create-agent-fast-forward`, and easy-instance launch to `houmao-agent-definition`.
 3. When the user needs concrete examples while touring, show the maintained command shapes instead of leaving the namespace implicit:
    - inspect specialists with `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>`
    - inspect profiles with `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>`

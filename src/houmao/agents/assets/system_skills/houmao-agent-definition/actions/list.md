@@ -1,5 +1,7 @@
 # List Definitions
 
+Legacy low-level-only action reference. Current routing should use the `roles` or `recipes` subcommands from `../SKILL.md`.
+
 Use this action only when the user wants to list low-level roles or named recipes.
 
 ## Workflow

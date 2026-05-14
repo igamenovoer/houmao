@@ -4,14 +4,14 @@ Use this page when a request mentions credentials, auth, API keys, vendor login 
 
 ## Boundaries
 
-- Specialist creation and ready-profile creation may create or import one credential bundle as part of `project easy specialist create`.
+- `specialists` and the specialist-create step inside `create-agent-fast-forward` may create or import one credential bundle as part of `project easy specialist create`.
 - Specialist patching may change which existing credential display name the specialist references.
-- Easy-profile and explicit launch-profile authoring may store an `--auth` override by display name.
+- `profiles` and `raw-profiles` authoring may store an `--auth` override by display name.
 - Credential bundle CRUD, secret mutation, auth-file edits, login flows, and credential rename belong to `houmao-credential-mgr`.
 
 ## Specialist Creation Modes
 
-Use discovery only when creating a specialist, including the specialist-create step inside ready-profile generation.
+Use discovery only when creating a specialist, including the specialist-create step inside `create-agent-fast-forward`.
 
 - Explicit Auth Mode: use user-provided auth values or files.
 - Env Lookup Mode: inspect only env names or explicit patterns the user named.

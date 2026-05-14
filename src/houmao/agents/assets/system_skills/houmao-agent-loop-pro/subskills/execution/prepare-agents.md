@@ -30,7 +30,7 @@ Use when present:
 2. Resolve each participant's intended easy profile, definition source, generated skills, notifier prompt path, memo seed posture, and pending launch cwd posture.
 3. Register loop-generated or loop-private skills through maintained project-skill surfaces when project-local skill registration is needed.
 4. Create or update specialists and easy profiles through `houmao-agent-definition` or supported `houmao-mgr project easy` surfaces.
-5. Prefer easy profiles over raw launch profiles unless the execplan or operator explicitly requires raw profile control.
+5. Prefer easy profiles over raw profiles unless the execplan or operator explicitly requires raw profile control.
 6. Attach generated skills, definitions, notifier prompt sources, memo seed posture, and pending cwd/memo mutation intent to the prepared profile material.
 7. Rely on Houmao managed-agent creation to preinstall Houmao system skills into agents; do not enumerate or manually bind ordinary Houmao support skills in generated profile guidance.
 8. Resolve and record prepared agent facts:
@@ -53,5 +53,5 @@ Use when present:
 - Do not launch live agents as normal preparation behavior; use `launch-agents`.
 - Do not start loop work from this page; use `start`.
 - Do not install generated event or tick skills into the wrong participant profile.
-- Do not invent launch profiles when the execplan or user did not provide enough information; prefer easy-profile creation/update before considering raw profile editing.
+- Do not invent profiles when the execplan or user did not provide enough information; prefer easy-profile creation/update before considering raw profile editing.
 - Do not prepare agents to sleep, poll, tail logs, or wait in-chat for loop progress; mail notifier prompts and operator prompts are the wakeup mechanism.

@@ -354,9 +354,9 @@ The only difference: a joined agent has a *placeholder* brain manifest (no skill
 
 > **Managed prompt header.** Both `agents launch` and `agents join` prepend a Houmao-owned prompt header with six independently controllable sections: **identity**, **memo-cue**, **houmao-runtime-guidance**, and **automation-notice** are enabled by default; **task-reminder** and **mail-ack** are disabled by default and opt-in per launch or profile. The memo-cue section points the agent at the resolved absolute `houmao-memo.md` path for each prompt turn. The automation-notice section prevents interactive user-question tools (e.g. `AskUserQuestion`) and routes mailbox-driven clarification to reply-enabled mailbox threads. Control individual sections with `--managed-header-section SECTION=enabled|disabled`, opt out of the whole header with `--no-managed-header`, or persist policy on stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full section list, composition order, and precedence rules.
 
-### 6. Full Recipes and Launch Profiles
+### 6. Full Recipes and Raw Profiles
 
-For teams that need full control over roles, skills, recipes, and tool configurations, use the recipe-backed launch path. Add explicit launch profiles when you want reusable birth-time defaults that stay separate from the recipe itself. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared semantic model and the precedence chain, and the canonical `project agents recipes ...` and `project agents launch-profiles ...` authoring commands. `project agents presets ...` remains the compatibility alias for recipes.
+For teams that need full control over roles, skills, recipes, and tool configurations, use the recipe-backed launch path. Add **raw profiles** when you want reusable birth-time defaults that stay separate from the recipe itself. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared semantic model and the precedence chain, and the canonical `project agents recipes ...` and `project agents launch-profiles ...` authoring commands. `project agents presets ...` remains the compatibility alias for recipes.
 
 ```bash
 # Launch directly from a recipe selector
@@ -380,15 +380,15 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ## System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists and profiles, prepare ready-to-launch easy profiles, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists and profiles, prepare one-pass agent definitions with `create-agent-fast-forward`, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
 
 | Skill | What it enables |
 |---|---|
 | `houmao-touring` | Manual guided tour for first-time or re-orienting users; branches across project setup, mailbox setup, specialist/profile authoring, launches, live-agent operations, and lifecycle follow-up. Use it only when the user explicitly asks for the tour |
 | `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, and inspect or stop project easy instances |
-| `houmao-specialist-mgr` | Compatibility wrapper that redirects old specialist/profile requests to `houmao-agent-definition` |
+| `houmao-specialist-mgr` | Compatibility wrapper that redirects old specialist/profile/ready-profile requests to `houmao-agent-definition` subcommands |
 | `houmao-credential-mgr` | Add, update, inspect, and remove project-local tool auth bundles |
-| `houmao-agent-definition` | Canonical pre-launch definition skill for roles, recipes, explicit launch profiles, specialists, easy profiles, ready-profile generation, and limited easy launch or stop entry points |
+| `houmao-agent-definition` | Canonical pre-launch definition skill for `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent` |
 | `houmao-agent-instance` | Launch, join, list, stop, relaunch, and clean up managed agent instances |
 | `houmao-agent-inspect` | Inspect live managed-agent liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux backing through read-only supported surfaces |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |

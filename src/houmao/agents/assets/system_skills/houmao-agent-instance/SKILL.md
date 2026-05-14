@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-instance
-description: Use Houmao's supported managed-agent lifecycle commands to launch, join, list, stop, relaunch, or clean up live agent instances created from predefined roles, presets, explicit launch profiles, or specialists.
+description: Use Houmao's supported managed-agent lifecycle commands to launch, join, list, stop, relaunch, or clean up live agent instances created from predefined roles, presets, raw profiles, or specialists.
 license: MIT
 ---
 
@@ -48,7 +48,7 @@ This packaged skill does not cover:
 1. Identify which managed-agent lifecycle action the user wants: `launch`, `join`, `list`, `stop`, `relaunch`, or `cleanup`.
 2. If the requested action is `launch`, determine whether the source is:
    - a predefined role or preset for `houmao-mgr agents launch --agents`, or
-   - an explicit project launch profile for `houmao-mgr agents launch --launch-profile`, or
+   - a raw profile for `houmao-mgr agents launch --launch-profile`, or
    - a predefined specialist for `houmao-mgr project easy instance launch`
 3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 4. Choose one `houmao-mgr` launcher for the current turn:
@@ -77,7 +77,7 @@ This packaged skill does not cover:
 
 ## Routing Guidance
 
-- Use `actions/launch.md` only when the user wants to create one new managed-agent instance from a predefined role, preset, explicit launch profile, or specialist.
+- Use `actions/launch.md` only when the user wants to create one new managed-agent instance from a predefined role, preset, raw profile, or specialist.
 - Use `actions/join.md` only when the user wants Houmao to adopt one already-running supported provider session.
 - Use `actions/list.md` only when the user wants the lifecycle-oriented list of current live managed agents. For generic read-only inspection of one agent, use `houmao-agent-inspect`.
 - Use `actions/stop.md` only when the user wants to stop one live managed agent.
@@ -92,7 +92,7 @@ This packaged skill does not cover:
 - Do not route `project easy specialist ...` tasks through this skill.
 - Do not present this skill as the canonical owner of generic managed-agent inspection; use `houmao-agent-inspect` for that read-only work.
 - Do not route manual mailbox-enabled launch flags, mailbox cleanup, or mailbox registration tasks through this skill.
-- Do not reject explicit launch-profile-backed launch just because the stored profile already carries gateway or mailbox defaults.
+- Do not reject raw-profile-backed launch just because the stored profile already carries gateway or mailbox defaults.
 - Do not route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.
 - Do not silently replace `agents relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.

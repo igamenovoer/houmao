@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-definition
-description: Use Houmao's canonical pre-launch agent-definition skill to create, inspect, update, or remove low-level roles and recipes, explicit launch profiles, project-easy specialists, easy profiles, ready-to-launch easy profiles, and limited easy launch or stop entry points.
+description: Use Houmao's canonical pre-launch agent-definition skill through explicit subcommands for roles, recipes, raw-profiles, specialists, profiles, create-agent-fast-forward, launch-agent, and stop-agent.
 license: MIT
 ---
 
@@ -12,16 +12,18 @@ The trigger word `houmao` is intentional. Use the `houmao-agent-definition` skil
 
 ## Scope
 
-This skill is the canonical router for:
+This skill is the canonical router for these subcommands:
 
-- low-level roles: `houmao-mgr project agents roles ...`
-- low-level recipes: `houmao-mgr project agents recipes ...`
-- compatibility recipe aliases: `houmao-mgr project agents presets ...`
-- explicit recipe-backed launch profiles: `houmao-mgr project agents launch-profiles ...`
-- project-easy specialists: `houmao-mgr project easy specialist ...`
-- specialist-backed easy profiles: `houmao-mgr project easy profile ...`
-- ready easy-profile generation: create or select a specialist, create or update an easy profile, print the launch command, and do not launch
-- limited easy launch and stop entry points: `houmao-mgr project easy instance launch|stop`, followed by handoff to `houmao-agent-instance` for broader live lifecycle work
+| Subcommand | Route | Underlying surface |
+|---|---|---|
+| `roles` | [subskills/low-level/roles.md](subskills/low-level/roles.md) | `houmao-mgr project agents roles ...` |
+| `recipes` | [subskills/low-level/recipes.md](subskills/low-level/recipes.md) | `houmao-mgr project agents recipes ...`; `presets` is a compatibility alias |
+| `raw-profiles` | [subskills/low-level/raw-profiles.md](subskills/low-level/raw-profiles.md) | `houmao-mgr project agents launch-profiles ...` |
+| `specialists` | [subskills/easy/specialists.md](subskills/easy/specialists.md) | `houmao-mgr project easy specialist ...` |
+| `profiles` | [subskills/easy/profiles.md](subskills/easy/profiles.md) | `houmao-mgr project easy profile ...` |
+| `create-agent-fast-forward` | [subskills/easy/create-agent-fast-forward.md](subskills/easy/create-agent-fast-forward.md) | specialist -> easy profile -> launch command; does not launch |
+| `launch-agent` | [subskills/easy/launch-instance.md](subskills/easy/launch-instance.md) | `houmao-mgr project easy instance launch`, then hand off broader live lifecycle to `houmao-agent-instance` |
+| `stop-agent` | [subskills/easy/stop-instance.md](subskills/easy/stop-instance.md) | `houmao-mgr project easy instance stop`, then hand off broader live lifecycle to `houmao-agent-instance` |
 
 This skill does not own:
 
@@ -33,51 +35,43 @@ This skill does not own:
 
 ## Workflow
 
-1. Identify the lane:
-   - role
-   - recipe or preset
-   - explicit recipe-backed launch profile
-   - easy specialist
-   - easy profile
-   - ready profile
-   - easy launch
-   - easy stop
-2. Read the shared pages needed by that lane:
+1. If the user names a subcommand, route directly to that subcommand.
+2. If no subcommand is named, infer the subcommand from intent:
+   - role work -> `roles`
+   - recipe or preset work -> `recipes`
+   - raw profile, recipe-backed profile, or exact `project agents launch-profiles` work -> `raw-profiles`
+   - specialist template work -> `specialists`
+   - profile, agent profile, launch profile, or ready profile work without raw/recipe-backed context -> `profiles`
+   - one-pass specialist plus easy profile preparation -> `create-agent-fast-forward`
+   - easy launch -> `launch-agent`
+   - easy stop -> `stop-agent`
+3. Ask only when the prompt is still ambiguous after applying the routing rules.
+4. Read the shared pages needed by that subcommand:
    - [subskills/common/launcher.md](subskills/common/launcher.md)
    - [subskills/common/missing-inputs.md](subskills/common/missing-inputs.md)
    - [subskills/common/profile-lanes.md](subskills/common/profile-lanes.md) when a profile lane is involved
    - [subskills/common/credential-routing.md](subskills/common/credential-routing.md) when credentials or auth names are involved
-3. Load exactly one lane subskill:
-   - [subskills/low-level/roles.md](subskills/low-level/roles.md)
-   - [subskills/low-level/recipes.md](subskills/low-level/recipes.md)
-   - [subskills/low-level/launch-profiles.md](subskills/low-level/launch-profiles.md)
-   - [subskills/easy/specialists.md](subskills/easy/specialists.md)
-   - [subskills/easy/profiles.md](subskills/easy/profiles.md)
-   - [subskills/easy/create-ready-agent-profile.md](subskills/easy/create-ready-agent-profile.md)
-   - [subskills/easy/launch-instance.md](subskills/easy/launch-instance.md)
-   - [subskills/easy/stop-instance.md](subskills/easy/stop-instance.md)
-4. Resolve one `houmao-mgr` launcher and reuse it for the turn:
+5. Load exactly one route subskill from the subcommand table.
+6. Resolve one `houmao-mgr` launcher and reuse it for the turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
    - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
    - only if those do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request
-5. Run the selected maintained command only after all required inputs are explicit.
-6. Report command output and any durable identity facts that affect later launch.
+7. Run the selected maintained command only after all required inputs are explicit.
+8. Report command output and any durable identity facts that affect later launch.
 
 ## Routing Rules
 
-- Use low-level role guidance for prompt-only role resources.
-- Use low-level recipe guidance for reusable build-phase bundles of role, tool, setup, auth reference, skills, and prompt mode.
-- Use explicit launch-profile guidance for recipe-backed birth-time defaults under `project agents launch-profiles ...`.
-- Use easy specialist guidance for reusable specialist templates under `project easy specialist ...`.
-- Use easy profile guidance for specialist-backed birth-time defaults under `project easy profile ...`.
-- Use ready-profile guidance when the user wants one ready-to-launch easy profile prepared in one pass.
-- Use easy launch or stop guidance only for the project-easy entry points, then hand off broad live-agent lifecycle to `houmao-agent-instance`.
+- Use `profiles` as the default meaning of `profile`, `agent profile`, `launch profile`, and `ready profile`.
+- Use `raw-profiles` only when the user explicitly says `raw-profiles`, raw profile, recipe-backed profile, or `project agents launch-profiles`.
+- Use `create-agent-fast-forward` when the user wants the skill to create or select a specialist and then create or update the easy profile in one pass.
+- Use `launch-agent` and `stop-agent` only for project-easy entry points, then hand off broad live-agent lifecycle to `houmao-agent-instance`.
 
 ## Guardrails
 
 - Do not guess between low-level and easy lanes.
-- Do not guess between easy profiles and explicit launch profiles; both project into launch-profile files, but the management lanes are distinct.
+- Do not route loosely stated profile requests to raw profiles by default.
+- Do not guess between `profiles` and `raw-profiles` when the user gives contradictory wording.
 - Do not remove and recreate a role, recipe, specialist, or profile for ordinary patch edits when a maintained `set` command exists.
 - Do not mutate credential bundle contents through this skill; route secret and auth-file edits to `houmao-credential-mgr`.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch; profile defaults or launch-time easy bootstrap can own that common case.

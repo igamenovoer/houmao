@@ -438,7 +438,7 @@ The packaged catalog's fixed `managed_launch_sets` and `managed_join_sets` selec
 - **AND THEN** the resolved skill list excludes `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`
 
 ### Requirement: Packaged catalog marks unified agent definition as canonical
-The packaged current-system-skill catalog SHALL expose `houmao-agent-definition` as the canonical installable skill for pre-launch agent-definition, specialist, easy-profile, explicit launch-profile, and ready-profile workflows.
+The packaged current-system-skill catalog SHALL expose `houmao-agent-definition` as the canonical installable skill for pre-launch agent-definition, specialist, easy-profile, raw recipe-backed profile, and fast-forward profile-preparation workflows.
 
 The catalog SHALL NOT require default installations to include both canonical `houmao-agent-definition` and a separate canonical specialist-management skill.
 

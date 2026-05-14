@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Manage Agent Definition"
-  short_description: "Manage Houmao roles, recipes, launch profiles, specialists, easy profiles, and ready agent profiles."
-  default_prompt: "Use $houmao-agent-definition to create, inspect, update, or remove Houmao roles, recipes, explicit launch profiles, specialists, easy profiles, ready-to-launch easy profiles, or limited easy launch and stop flows."
+  short_description: "Manage Houmao roles, recipes, raw-profiles, specialists, profiles, and create-agent-fast-forward."
+  default_prompt: "Use $houmao-agent-definition subcommands: roles, recipes, raw-profiles, specialists, profiles, create-agent-fast-forward, launch-agent, and stop-agent."

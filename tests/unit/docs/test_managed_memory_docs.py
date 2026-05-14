@@ -79,7 +79,7 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(encoding="utf-8")
     project_launch_profiles_skill = (
         REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/launch-profiles.md"
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/raw-profiles.md"
     ).read_text(encoding="utf-8")
     easy_profile_create_skill = (
         REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/profiles.md"

@@ -46,7 +46,7 @@ description = "Project-local credential management skill."
 
 [skills.houmao-agent-definition]
 asset_subpath = "houmao-agent-definition"
-description = "Canonical pre-launch agent-definition skill for roles, recipes, explicit launch profiles, specialists, easy profiles, and ready profiles."
+description = "Canonical pre-launch agent-definition skill for roles, recipes, raw-profiles, specialists, profiles, and create-agent-fast-forward."
 
 [skills.houmao-agent-loop-pairwise]
 asset_subpath = "houmao-agent-loop-pairwise"

@@ -24,4 +24,4 @@ Use one of:
 - Do not guess which tool, target, or credential the user meant.
 - Do not bypass `get` by reading raw `env/vars.env` or raw auth files just to expose secrets.
 - Do not print raw secret values when the command reports them as present but redacted.
-- Do not treat `get` as inspection of a stored easy-profile or explicit launch-profile `--auth` override.
+- Do not treat `get` as inspection of a stored easy-profile or raw-profile `--auth` override.

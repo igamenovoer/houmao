@@ -107,7 +107,7 @@ This packaged skill does not cover:
 
 - Route project overlay setup or explanation to `houmao-project-mgr`.
 - Route mailbox administration to `houmao-mailbox-mgr`.
-- Route specialist or profile authoring, ready-profile preparation, and easy-instance launch to `houmao-agent-definition`.
+- Route specialist or profile authoring, `create-agent-fast-forward`, and easy-instance launch to `houmao-agent-definition`.
 - Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, and runtime artifact inspection to `houmao-agent-inspect`.
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.

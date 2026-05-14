@@ -1,6 +1,8 @@
-# Explicit Recipe-Backed Launch Profiles
+# Raw Profiles
 
-Use this subskill when the user wants to list, inspect, add, update, replace, or remove explicit recipe-backed launch profiles through `project agents launch-profiles ...`.
+Use this subskill when the user explicitly wants `raw-profiles`, raw profiles, recipe-backed profiles, or the exact `project agents launch-profiles ...` surface.
+
+Raw profiles are low-level recipe-backed launch profiles. The underlying maintained CLI remains `houmao-mgr project agents launch-profiles ...`.
 
 ## Preconditions
 
@@ -8,12 +10,12 @@ Use this subskill when the user wants to list, inspect, add, update, replace, or
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
 - Read [../common/profile-lanes.md](../common/profile-lanes.md).
 - Read [../common/credential-routing.md](../common/credential-routing.md) when auth overrides are involved.
-- Confirm the profile lane is explicit recipe-backed, not specialist-backed easy profile.
+- Confirm the profile lane is raw recipe-backed, not specialist-backed easy profile.
 
 ## Workflow
 
 1. Determine the action: `list`, `get`, `add`, `set`, `replace`, or `remove`.
-2. Recover required launch-profile inputs from the prompt and explicit recent context.
+2. Recover required raw-profile inputs from the prompt and explicit recent context.
 3. Ask for any missing required inputs before running a command.
 4. Use the chosen `houmao-mgr` launcher.
 5. Run the matching launch-profile command.
@@ -70,6 +72,7 @@ Use this subskill when the user wants to list, inspect, add, update, replace, or
 
 ## Notes
 
+- The skill subcommand is `raw-profiles`; the CLI command family is still `project agents launch-profiles ...`.
 - `launch-profiles set` patches without dropping unspecified defaults.
 - `launch-profiles add --yes` is only for intended same-name replacement; omitted optional fields are cleared.
 - `--auth` and `--clear-auth` change the profile auth override by display name; they do not mutate credential bundle contents.
@@ -80,7 +83,8 @@ Use this subskill when the user wants to list, inspect, add, update, replace, or
 ## Guardrails
 
 - Do not route `project easy profile ...` through this subskill.
-- Do not remove and recreate an explicit launch profile for ordinary edits.
+- Do not route loosely stated profile requests here; use `profiles` unless the user explicitly asks for raw or recipe-backed behavior.
+- Do not remove and recreate a raw profile for ordinary edits.
 - Do not treat launch-profile `--auth` changes as credential CRUD.
 - Do not route low-level recipe editing through this subskill.
-- Do not invent launch-profile names, recipe names, or field overrides.
+- Do not invent raw-profile names, recipe names, or field overrides.

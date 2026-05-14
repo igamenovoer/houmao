@@ -1,6 +1,6 @@
 ---
 name: houmao-specialist-mgr
-description: Compatibility wrapper. Route specialist, easy-profile, ready-profile, and easy launch or stop work to the canonical `houmao-agent-definition` skill.
+description: Compatibility wrapper. Route specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to the canonical `houmao-agent-definition` skill.
 license: MIT
 ---
 
@@ -12,19 +12,20 @@ license: MIT
 
 Use `houmao-agent-definition` for current specialist and profile work:
 
-- easy specialists: `houmao-agent-definition/subskills/easy/specialists.md`
-- easy profiles: `houmao-agent-definition/subskills/easy/profiles.md`
-- ready-to-launch easy profiles: `houmao-agent-definition/subskills/easy/create-ready-agent-profile.md`
-- easy launch: `houmao-agent-definition/subskills/easy/launch-instance.md`
-- easy stop: `houmao-agent-definition/subskills/easy/stop-instance.md`
+- `specialists`: `houmao-agent-definition/subskills/easy/specialists.md`
+- `profiles`: `houmao-agent-definition/subskills/easy/profiles.md`
+- `create-agent-fast-forward`: `houmao-agent-definition/subskills/easy/create-agent-fast-forward.md`
+- `launch-agent`: `houmao-agent-definition/subskills/easy/launch-instance.md`
+- `stop-agent`: `houmao-agent-definition/subskills/easy/stop-instance.md`
 - credential discovery used during specialist creation: `houmao-agent-definition/references/credentials/`
 
 ## Workflow
 
 1. Tell the user or calling agent that `houmao-agent-definition` is the canonical skill.
 2. Switch to the matching `houmao-agent-definition` subskill.
-3. Do not run commands from this wrapper.
-4. Do not maintain separate specialist, profile, launch, stop, or credential-reference guidance here.
+3. Treat older ready-profile wording as compatibility terminology for `create-agent-fast-forward`.
+4. Do not run commands from this wrapper.
+5. Do not maintain separate specialist, profile, launch, stop, or credential-reference guidance here.
 
 ## Guardrails
 

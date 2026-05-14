@@ -1,6 +1,6 @@
-# Create Ready Agent Profile
+# Create Agent Fast Forward
 
-Use this subskill when the user wants one ready-to-launch specialist-backed easy profile prepared in one pass.
+Use this subskill when the user wants `create-agent-fast-forward`: one pass from specialist to easy profile to launch command.
 
 This workflow creates or selects a specialist, creates or updates an easy profile backed by that specialist, stores supplied launch defaults on the profile, and prints the launch command. It does not launch a live managed agent.
 
@@ -86,4 +86,4 @@ Report:
 - Do not guess missing specialist, profile, tool, credential, identity, workdir, mailbox, gateway, prompt, model, or env inputs.
 - Do not scan for credentials unless one of the supported specialist-create discovery modes is explicitly active.
 - Do not manually preregister a same-root ordinary per-agent mailbox address when profile defaults or easy launch can own ordinary launch-time mailbox bootstrap.
-- Do not treat ready-profile generation as broad live-agent lifecycle work.
+- Do not treat `create-agent-fast-forward` as broad live-agent lifecycle work.

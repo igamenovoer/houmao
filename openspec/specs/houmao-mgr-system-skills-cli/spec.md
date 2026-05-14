@@ -648,7 +648,7 @@ For multi-tool uninstall output, each tool entry SHALL distinguish the effective
 - **AND THEN** the plain output does not present `/workspace/repo` alone as the removed Gemini skill location
 
 ### Requirement: System-skills CLI reports unified agent-definition ownership
-`houmao-mgr system-skills list`, `install`, `status`, and `uninstall` SHALL report `houmao-agent-definition` as the canonical skill for persisted agent definitions, specialists, easy profiles, explicit launch profiles, and ready-profile creation.
+`houmao-mgr system-skills list`, `install`, `status`, and `uninstall` SHALL report `houmao-agent-definition` as the canonical skill for persisted agent definitions, specialists, easy profiles, raw recipe-backed profiles, and fast-forward profile preparation.
 
 If `houmao-specialist-mgr` remains installable, `system-skills list` and status-oriented output SHALL distinguish it as a compatibility wrapper.
 

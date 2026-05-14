@@ -20,8 +20,8 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files
 - `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, and project-scoped easy-instance inspection or stop routing
-- `houmao-agent-definition` for low-level roles, recipes, explicit recipe-backed launch profiles, reusable specialists, easy profiles, ready-to-launch easy profiles, and limited easy-workflow launch or stop entry
-- `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile prompts to `houmao-agent-definition`
+- `houmao-agent-definition` for subcommands `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`; `raw-profiles` maps to the underlying `project agents launch-profiles ...` CLI, while ordinary profile wording defaults to easy `profiles`
+- `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile/ready-profile prompts to `houmao-agent-definition`
 - `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
 - `houmao-agent-instance` for live managed-agent instance lifecycle
 - `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking

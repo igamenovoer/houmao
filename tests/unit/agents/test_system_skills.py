@@ -462,12 +462,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     definition_roles_path = manage_agent_definition_subskills / "low-level/roles.md"
     definition_recipes_path = manage_agent_definition_subskills / "low-level/recipes.md"
-    definition_launch_profiles_path = (
-        manage_agent_definition_subskills / "low-level/launch-profiles.md"
-    )
+    definition_launch_profiles_path = manage_agent_definition_subskills / "low-level/raw-profiles.md"
     easy_specialists_path = manage_agent_definition_subskills / "easy/specialists.md"
     easy_profiles_path = manage_agent_definition_subskills / "easy/profiles.md"
-    ready_profile_path = manage_agent_definition_subskills / "easy/create-ready-agent-profile.md"
+    ready_profile_path = manage_agent_definition_subskills / "easy/create-agent-fast-forward.md"
     easy_launch_path = manage_agent_definition_subskills / "easy/launch-instance.md"
     easy_stop_path = manage_agent_definition_subskills / "easy/stop-instance.md"
     project_init_action = project_init_action_path.read_text(encoding="utf-8")
@@ -536,8 +534,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<chosen houmao-mgr launcher>" in project_init_action
     assert "--with-compatibility-profiles" not in project_init_action
     assert "would_bootstrap_overlay" in project_status_action
-    assert "Explicit Launch Profiles Have Moved" in project_launch_profiles_action
-    assert "houmao-agent-definition/subskills/low-level/launch-profiles.md" in (
+    assert "Raw Profiles Have Moved" in project_launch_profiles_action
+    assert "houmao-agent-definition/subskills/low-level/raw-profiles.md" in (
         project_launch_profiles_action
     )
     assert "project easy instance list" in project_easy_instances_action
@@ -564,6 +562,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "houmao-mailbox-mgr" in project_routing_reference
     assert "Compatibility Wrapper" in manage_specialist_skill
     assert "houmao-agent-definition/subskills/easy/specialists.md" in manage_specialist_skill
+    assert "create-agent-fast-forward" in manage_specialist_skill
     assert "Do not run commands from this wrapper." in manage_specialist_skill
     assert "command -v houmao-mgr" in definition_launcher
     assert "uv tool run --from houmao houmao-mgr" in definition_launcher
@@ -573,7 +572,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "user explicitly requests one launcher" in definition_launcher
     assert "Ask the user for exactly the missing fields" in definition_missing_inputs
     assert "Easy Profile" in definition_profile_lanes
-    assert "Explicit Launch Profile" in definition_profile_lanes
+    assert "Raw Profile" in definition_profile_lanes
+    assert "loose `profile`, `agent profile`, `launch profile`, or `ready profile`" in (
+        definition_profile_lanes
+    )
     assert "project easy specialist create" in definition_credential_routing
     assert "Explicit Auth Mode" in easy_specialists
     assert "project easy profile create" in easy_profiles
@@ -610,7 +612,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in easy_launch
     )
     assert "project easy instance stop --name <name>" in easy_stop
-    assert "ready-to-launch specialist-backed easy profile" in ready_profile
+    assert "create-agent-fast-forward" in ready_profile
     assert "Do not launch the managed agent." in ready_profile
     assert "command -v houmao-mgr" in manage_credentials_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
@@ -645,11 +647,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "credentials <tool> get --agent-def-dir <path> --name <name>" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
     assert (
-        "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
+        "stored easy-profile or raw-profile `--auth` override" in credentials_get_action
     )
     assert "Do not invent unsupported clear flags" in credentials_set_action
     assert (
-        "stored easy-profile or explicit launch-profile `--auth` override change"
+        "stored easy-profile or raw-profile `--auth` override change"
         in credentials_set_action
     )
     assert (
@@ -663,10 +665,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "uv run houmao-mgr" in manage_agent_definition_skill
     assert "subskills/low-level/roles.md" in manage_agent_definition_skill
     assert "subskills/low-level/recipes.md" in manage_agent_definition_skill
-    assert "subskills/low-level/launch-profiles.md" in manage_agent_definition_skill
+    assert "subskills/low-level/raw-profiles.md" in manage_agent_definition_skill
     assert "subskills/easy/specialists.md" in manage_agent_definition_skill
     assert "subskills/easy/profiles.md" in manage_agent_definition_skill
-    assert "subskills/easy/create-ready-agent-profile.md" in manage_agent_definition_skill
+    assert "subskills/easy/create-agent-fast-forward.md" in manage_agent_definition_skill
+    assert "`raw-profiles`" in manage_agent_definition_skill
+    assert "`profiles` as the default meaning" in manage_agent_definition_skill
     assert "project agents roles list" in definition_roles
     assert "project agents recipes list" in definition_recipes
     assert "project agents launch-profiles add --name <profile> --recipe <recipe>" in (

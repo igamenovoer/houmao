@@ -27,7 +27,7 @@ Use this branch when a guided-tour user wants a flat enumeration of the broader 
 - **Managed-agent memory** — use `houmao-memory-mgr` to read or write a managed agent's `houmao-memo.md` free-form memo file and the managed-agent pages memory.
 - **Gateway extras** — use `houmao-agent-gateway` for gateway mail-notifier polling, reminders, and other gateway-only control surfaces that live alongside an attached live gateway.
 - **Credential management** — use `houmao-credential-mgr` for project-local credential lifecycle, including list, inspect, add, update, log in, rename, and remove for credentials backing specialist launches.
-- **Agent definition** — use `houmao-agent-definition` for project-local roles, recipes, explicit launch profiles, specialists, easy profiles, and ready-profile preparation.
+- **Agent definition** — use `houmao-agent-definition` for project-local `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, and `create-agent-fast-forward`.
 
 ## Tree Loop Ownership Boundaries
 

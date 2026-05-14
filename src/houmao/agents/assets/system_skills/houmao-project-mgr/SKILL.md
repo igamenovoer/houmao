@@ -35,7 +35,7 @@ This packaged skill does not cover:
 
 1. Identify whether the user wants project overlay lifecycle, project layout explanation, project-aware side effects, or project-scoped easy-instance inspection or stop.
 2. When the task is explanatory rather than operational, load the narrowest reference page you need before deciding whether any command should run.
-3. If the user really wants specialist/profile authoring, explicit launch-profile authoring, auth-bundle CRUD, low-level role/recipe editing, mailbox administration, or generic live-agent lifecycle, stop and route the request to the correct Houmao skill before continuing.
+3. If the user really wants specialist/profile authoring, raw-profile authoring, auth-bundle CRUD, low-level role/recipe editing, mailbox administration, or generic live-agent lifecycle, stop and route the request to the correct Houmao skill before continuing.
 4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 5. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
@@ -73,7 +73,7 @@ This packaged skill does not cover:
 - Use `actions/init.md` only when the user wants to create or validate the selected project overlay.
 - Use `actions/status.md` only when the user wants to inspect overlay selection, effective project-aware roots, or bootstrap posture.
 - Use `actions/easy-instances.md` only when the user wants `project easy instance list|get|stop` through the selected project overlay.
-- Route easy specialist or easy profile authoring, ready-profile generation, easy `launch|stop`, low-level roles and recipes, and explicit recipe-backed launch-profile authoring to `houmao-agent-definition`.
+- Route easy specialist authoring, `profiles`, `create-agent-fast-forward`, `launch-agent`, `stop-agent`, low-level `roles` and `recipes`, and `raw-profiles` to `houmao-agent-definition`.
 - Route project-local auth-bundle CRUD to `houmao-credential-mgr`.
 - Route generic managed-agent lifecycle after project-scoped routing to `houmao-agent-instance`.
 - Route mailbox administration to `houmao-mailbox-mgr`.
@@ -82,7 +82,7 @@ This packaged skill does not cover:
 
 - Do not guess whether the task is project explanation, project-scoped easy-instance inspection, or an agent-definition/profile task when the prompt is ambiguous.
 - Do not treat `project easy instance launch` as part of this skill; that belongs to `houmao-agent-definition`.
-- Do not treat `project agents launch-profiles ...` as part of this skill; that belongs to `houmao-agent-definition`.
+- Do not treat `project agents launch-profiles ...` as part of this skill; that belongs to `houmao-agent-definition` subcommand `raw-profiles`.
 - Do not treat project-scoped launch-profile `--auth` overrides as auth-bundle CRUD.
 - Do not imply that `project easy instance list|get|stop` bootstrap a missing overlay automatically; they use non-creating selected-overlay resolution.
 - Do not hand-edit `.houmao/` files when the maintained `houmao-mgr` surfaces already cover the task.

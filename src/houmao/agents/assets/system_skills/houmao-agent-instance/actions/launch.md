@@ -7,7 +7,7 @@ Use this action only when the user wants to create one new managed-agent instanc
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine which launch lane the request actually needs:
    - direct managed launch from a predefined role or preset
-   - explicit launch-profile-backed managed launch
+   - raw-profile-backed managed launch
    - specialist-backed managed launch from an existing easy specialist
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
@@ -48,9 +48,9 @@ Behavior note:
 - When the selected role or preset resolves from a Houmao project source, source-project overlay resolution stays pinned to that source instead of following `--workdir`.
 - Do not treat gateway attach as part of direct role or preset launch completion. If the user later asks to attach or operate a gateway, route that follow-up through `houmao-agent-gateway`, whose lifecycle guidance is foreground-first and treats background attach as explicit user intent.
 
-### Explicit Launch-Profile-Backed Managed Launch
+### Raw-Profile-Backed Managed Launch
 
-Use this lane when the user wants to launch through an existing explicit project launch profile.
+Use this lane when the user wants to launch through an existing raw profile. In the CLI this remains `--launch-profile`.
 
 Use:
 
@@ -76,7 +76,7 @@ Common optional inputs:
 Behavior note:
 
 - `--launch-profile` and `--agents` are mutually exclusive.
-- The stored launch profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
+- The stored raw profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
 - Stored launch-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
 - Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
 - Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
@@ -124,7 +124,7 @@ If the selected specialist is known to use Gemini, the launch must be headless.
 - Do not invent role selectors, launch profile names, specialist names, provider ids, or instance names.
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
 - Do not route specialist-backed launch through `agents launch`.
-- Do not route explicit launch-profile-backed launch through `project easy instance launch`.
+- Do not route raw-profile-backed launch through `project easy instance launch`.
 - Do not route role/preset launch through `project easy instance launch`.
 - Do not describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
 - Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
