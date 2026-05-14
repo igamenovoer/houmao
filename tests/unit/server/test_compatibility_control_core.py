@@ -111,6 +111,9 @@ def test_initialize_terminal_uses_default_compatibility_timing_config(
             "command": (
                 "export HOME=/tmp/houmao-test-launch-home/codex; "
                 "export CODEX_HOME=/tmp/houmao-test-launch-home/codex; "
+                "unset NO_COLOR; "
+                "export COLORTERM=truecolor; "
+                "export TERM=tmux-256color; "
                 "export CAO_TERMINAL_ID=abcd1234; provider --start"
             ),
         },
@@ -164,7 +167,8 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
     tmux = _FakeTmuxController()
     adapter = _FakeAdapter("claude_code")
     core = CompatibilityControlCore(
-        config=HoumaoServerConfig(runtime_root=tmp_path), tmux_controller=tmux
+        config=HoumaoServerConfig(runtime_root=tmp_path, compat_codex_warmup_seconds=0.0),
+        tmux_controller=tmux,
     )
 
     core._initialize_terminal(
@@ -180,8 +184,44 @@ def test_initialize_terminal_exports_claude_config_dir_home_selector(
             "command": (
                 "export HOME=/tmp/houmao-test-launch-home/claude; "
                 "export CLAUDE_CONFIG_DIR=/tmp/houmao-test-launch-home/claude; "
+                "unset NO_COLOR; "
                 "export ANTHROPIC_API_KEY=anthropic-test-key; "
                 "export ANTHROPIC_BASE_URL=https://anthropic.test; "
+                "export COLORTERM=truecolor; "
+                "export TERM=tmux-256color; "
+                "export CAO_TERMINAL_ID=abcd1234; provider --start"
+            ),
+        }
+    ]
+
+
+def test_initialize_terminal_preserves_color_env_when_tmux_injection_disabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", "0")
+    monkeypatch.setattr("houmao.server.control_core.core.time.sleep", lambda _seconds: None)
+    tmux = _FakeTmuxController()
+    adapter = _FakeAdapter("codex")
+    core = CompatibilityControlCore(
+        config=HoumaoServerConfig(runtime_root=tmp_path, compat_codex_warmup_seconds=0.0),
+        tmux_controller=tmux,
+    )
+
+    core._initialize_terminal(
+        terminal_record=_sample_terminal_record(tmp_path),
+        working_directory=tmp_path,
+        prepared_provider_profile=_prepared_profile("codex"),
+        adapter=adapter,
+    )
+
+    assert tmux.m_send_command_calls == [
+        {"window_id": "@1", "command": "echo ready"},
+        {
+            "window_id": "@1",
+            "command": (
+                "export HOME=/tmp/houmao-test-launch-home/codex; "
+                "export CODEX_HOME=/tmp/houmao-test-launch-home/codex; "
                 "export CAO_TERMINAL_ID=abcd1234; provider --start"
             ),
         }

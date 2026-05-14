@@ -82,11 +82,21 @@ command -v tmux
 Houmao is designed to be driven from inside a CLI agent. Install system skills, start your agent, and let it handle everything — project setup, specialist creation, agent launching, and coordination all happen through conversation.
 
 ```bash
+# Recommended when `npx` is available and the target machine has internet access:
+# point the Skills CLI at the GitHub main-branch system-skills collection,
+# then choose which packaged skill(s) to install from the prompt.
+npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+
+# Use Houmao's installer when `npx` is unavailable, when working offline from
+# an installed Houmao package, or when you need customization such as named sets,
+# subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup.
 houmao-mgr system-skills install --tool claude,codex,gemini
-# Or install into one explicit user home: houmao-mgr system-skills install --tool claude --home ~/.claude
+
+# Explicit user-home override:
+houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-Skills are installed to each resolved project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`. Use `--home` only for a single selected tool when you need an explicit external-home override. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
+Skills are installed to the selected agent tool home. With `houmao-mgr system-skills install`, omitted `--home` resolves to each project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`; use `--home` only for a single selected tool when you need an explicit external-home override. Each installed Houmao system skill also supports explicit read-only help before it performs a workflow; for example, ask `$houmao-touring help` or `$houmao-agent-email-comms help` to see what that skill can do. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
 
 > The remaining steps below show the manual CLI equivalents for reference. You don't need them if you're working through your agent.
 
@@ -138,25 +148,22 @@ For reusable birth-time defaults (fixed agent name, working directory, mailbox, 
 
 ### 4. Agent Loop: Multi-Agent Coordination
 
-A **loop** lets multiple agents collaborate on a structured task. One agent is the **master** (or root owner) — it owns liveness, drives execution, evaluates completion, and handles stop. The **user agent stays outside the execution loop**: you plan, start, check status, and stop — the master does the rest.
+A **loop** lets multiple agents collaborate on a structured task. Depending on the generated execplan, the loop may have a master/root owner or a more distributed graph. The **user agent stays outside the execution loop**: you author, validate, launch, start, check status, and stop through operator surfaces while the generated loop agents communicate by mail.
 
-Houmao ships five loop skills. Choose the one that fits your topology and lifecycle needs:
+Houmao ships two current loop skills:
 
 | Skill | Lifecycle | Best for |
 |---|---|---|
-| `houmao-agent-loop-pairwise` | `start` / `status` / `stop` | Simple pairwise master → workers; minimal ceremony |
-| `houmao-agent-loop-pairwise-v2` | `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with enriched runtime control and routing-packet prestart |
-| `houmao-agent-loop-pairwise-v3` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with an authored workspace contract and default initialize-time gateway mail-notifier readiness for mail-driven participants — layered on the v2 lifecycle |
-| `houmao-agent-loop-pairwise-v4` | `plan` / `initialize` / `start` / `peek` / `ping` / `pause` / `resume` / `recover_and_continue` / `stop` / `hard-kill` | Pairwise graphs with v3 workspace posture plus strict generated document templates and a source-constraint coverage audit for rich task notes or user-provided documents with schema-like policy verbs |
-| `houmao-agent-loop-generic` | `start` / `status` / `stop` | Mixed pairwise + relay component graphs |
+| `houmao-agent-loop-lite` | `init`, `clarify`, `generate-skills`, `validate`, `prepare-agents`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` | Small generated loops with Markdown contracts, typed Markdown templates, required generated skills, and direct SQLite state under `runs/<run-id>/` |
+| `houmao-agent-loop-pro` | `init`, `clarify-intent`, `execplan-*`, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` | Generated tree-loop and generic-loop execplans with mail-schema events, harness/state contracts, generated skills, workspace contracts, and loop-specific operator controls |
 
-See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for skill selection guidance, the pairwise-v2 routing-packet model, the pairwise-v3 workspace contract, the pairwise-v4 template-driven source contract, and the `internals graph` tooling that supports authoring.
+See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for the pro-versus-lite choice, `tree-loop` versus `generic-loop` topology choice inside pro, mail-driven runtime expectations, and the `internals graph` tooling that can support pro generated execplan authoring.
 
 > This example uses creative-writing specialists to show Houmao isn't limited to coding agents. The same pattern works for code review, optimization, or any multi-agent pipeline.
 
 **Example: collaborative story writing with 3 specialists**
 
-The reusable template for this team lives in [`examples/writer-team/`](examples/writer-team/); it contains the prompt files, pairwise loop plan, start charter, local setup commands, and ignored artifact directories.
+The reusable template for this team lives in [`examples/writer-team/`](examples/writer-team/); it contains the prompt files, tree loop plan, start charter, local setup commands, and ignored artifact directories.
 
 Set up the project and create three specialists:
 
@@ -191,7 +198,7 @@ houmao-mgr project easy instance launch --specialist character-designer --name a
 houmao-mgr project easy instance launch --specialist story-reviewer --name alex-review
 ```
 
-**Author a loop plan** using the `houmao-agent-loop-pairwise` skill. The plan follows the single-file template:
+**Author a loop definition** using `houmao-agent-loop-pro`. For the writer-team example, choose `tree-loop` mode and generate execplan artifacts from the intention files:
 
 ```markdown
 ---
@@ -291,7 +298,7 @@ story/review/
   ...
 ```
 
-For the full loop-planning vocabulary, plan templates, and operating pages, see the [`houmao-agent-loop-pairwise` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-pairwise/SKILL.md) and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
+For the full loop-authoring workflow, see the [`houmao-agent-loop-lite` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-lite/SKILL.md), the [`houmao-agent-loop-pro` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-pro/SKILL.md), and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
 
 ### 5. Adopt an Existing Session (`agents join`)
 
@@ -354,9 +361,9 @@ The only difference: a joined agent has a *placeholder* brain manifest (no skill
 
 > **Managed prompt header.** Both `agents launch` and `agents join` prepend a Houmao-owned prompt header with six independently controllable sections: **identity**, **memo-cue**, **houmao-runtime-guidance**, and **automation-notice** are enabled by default; **task-reminder** and **mail-ack** are disabled by default and opt-in per launch or profile. The memo-cue section points the agent at the resolved absolute `houmao-memo.md` path for each prompt turn. The automation-notice section prevents interactive user-question tools (e.g. `AskUserQuestion`) and routes mailbox-driven clarification to reply-enabled mailbox threads. Control individual sections with `--managed-header-section SECTION=enabled|disabled`, opt out of the whole header with `--no-managed-header`, or persist policy on stored launch profiles. See the [Managed Launch Prompt Header](docs/reference/run-phase/managed-prompt-header.md) reference for the full section list, composition order, and precedence rules.
 
-### 6. Full Recipes and Launch Profiles
+### 6. Full Recipes and Raw Profiles
 
-For teams that need full control over roles, skills, recipes, and tool configurations, use the recipe-backed launch path. Add explicit launch profiles when you want reusable birth-time defaults that stay separate from the recipe itself. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared semantic model and the precedence chain, and the canonical `project agents recipes ...` and `project agents launch-profiles ...` authoring commands. `project agents presets ...` remains the compatibility alias for recipes.
+For teams that need full control over roles, skills, recipes, and tool configurations, use the recipe-backed launch path. Add **raw profiles** when you want reusable birth-time defaults that stay separate from the recipe itself. See [Agent Definitions](docs/getting-started/agent-definitions.md) for the complete agent-definition-directory layout, the [Launch Profiles guide](docs/getting-started/launch-profiles.md) for the shared semantic model and the precedence chain, and the canonical `project agents recipes ...` and `project agents launch-profiles ...` authoring commands. `project agents presets ...` remains the compatibility alias for recipes.
 
 ```bash
 # Launch directly from a recipe selector
@@ -372,7 +379,7 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ## Typical Use Cases
 
-- **Multi-agent loops**: author a pairwise loop plan with a master and workers — the master drives the pipeline while you monitor from outside. Use for story generation, code review pipelines, optimization loops, or any structured multi-step workflow.
+- **Multi-agent loops**: author a tree loop plan with a master and workers — the master drives the pipeline while you monitor from outside. Use for story generation, code review pipelines, optimization loops, or any structured multi-step workflow.
 - **Project-local specialist teams**: define multiple specialists under `.houmao/` with different roles and tools, launch them with mailbox-enabled profiles, and let them collaborate through structured messaging.
 - **Parallel specialist agents**: run a "coder" agent and a "reviewer" agent side by side on the same repo — each with a different role and tool — so one writes while the other critiques.
 - **Team agent recipes**: give every team member the same pre-configured agent lineup (same models, skills, and roles) checked into the repo, without sharing anyone's API keys.
@@ -380,15 +387,17 @@ For a runnable end-to-end example, see [`scripts/demo/minimal-agent-launch/`](sc
 
 ## System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+Houmao installs packaged skills into agent tool homes so that agents themselves can drive management tasks through their native skill interface without the operator manually invoking `houmao-mgr`. This means an agent can take a user through a guided Houmao tour, initialize or inspect project overlays, explain `.houmao/` layout and project-aware behavior, create specialists and profiles, prepare one-pass agent definitions with `create-agent-fast-forward`, manage credentials, inspect definitions, inspect live managed agents, edit managed-agent memo/pages memory, manage mailbox roots and mailbox registrations, message other managed agents, control live runtime workflows, and process shared mailboxes autonomously.
+
+Every installed Houmao system skill can answer explicit read-only help requests such as `$houmao-touring help` or `$houmao-agent-email-comms help`. Skill-level help explains purpose, available functionality, common starting prompts, and related skill boundaries without running commands or mutating Houmao state; it is separate from the `houmao-mgr system-skills install` CLI surface that installs or projects the skill packages.
 
 | Skill | What it enables |
 |---|---|
 | `houmao-touring` | Manual guided tour for first-time or re-orienting users; branches across project setup, mailbox setup, specialist/profile authoring, launches, live-agent operations, and lifecycle follow-up. Use it only when the user explicitly asks for the tour |
-| `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, manage explicit launch profiles, and inspect or stop project easy instances |
-| `houmao-specialist-mgr` | Create, set, list, inspect, remove, launch, and stop easy specialist/profile-backed project-local workflows |
+| `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, and inspect or stop project easy instances |
+| `houmao-specialist-mgr` | Compatibility wrapper that redirects old specialist/profile/ready-profile requests to `houmao-agent-definition` subcommands |
 | `houmao-credential-mgr` | Add, update, inspect, and remove project-local tool auth bundles |
-| `houmao-agent-definition` | List, inspect, initialize, update, and remove roles and recipes |
+| `houmao-agent-definition` | Canonical pre-launch definition skill for `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent` |
 | `houmao-agent-instance` | Launch, join, list, stop, relaunch, and clean up managed agent instances |
 | `houmao-agent-inspect` | Inspect live managed-agent liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux backing through read-only supported surfaces |
 | `houmao-agent-messaging` | Prompt, interrupt, queue gateway work, send raw input, route mailbox work, and reset context for already-running managed agents |
@@ -400,13 +409,10 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
 | `houmao-utils-llm-wiki` | Explicit utility skill for persistent Markdown LLM Wiki knowledge bases: scaffold, ingest, compile, query, lint, audit, and launch a bundled local viewer |
 | `houmao-utils-workspace-mgr` | Explicit utility skill for planning and executing multi-agent workspace layouts, including in-repo or out-of-repo workspaces, per-agent Git worktrees, shared/local-only repos, submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules |
-| `houmao-agent-loop-pairwise` | Author master-owned pairwise loop plans and operate accepted runs through `start`, `status`, and `stop`, keeping the user agent outside the execution loop while routing execution through the existing messaging, gateway, and mailbox skills |
-| `houmao-agent-loop-pairwise-v2` | Enriched pairwise workflow: author plans, run `initialize`, and operate accepted runs through `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` |
-| `houmao-agent-loop-pairwise-v3` | Workspace-aware pairwise workflow: author plans with a `standard` (task-scoped `houmao-ws/<task>/…`) or `custom` workspace contract, run `plan` / `initialize` with default gateway mail-notifier readiness for mail-driven participants, and operate accepted runs through the same enriched lifecycle as v2 |
-| `houmao-agent-loop-pairwise-v4` | Template-driven workspace-aware pairwise workflow: extend v3 with strict generated document templates, central source-contract summaries, role-local agent notes, report/bookkeeping template schemas, and a source-constraint coverage audit |
-| `houmao-agent-loop-generic` | Decompose generic multi-agent loop graphs into typed pairwise and relay components, render the final graph, and operate accepted root-owned runs through `start`, `status`, and `stop` |
+| `houmao-agent-loop-lite` | Author and operate lightweight generated loops with Markdown contracts, typed Markdown communication templates, required generated skills, direct SQLite state, and no generated harness or docs layer |
+| `houmao-agent-loop-pro` | Author and operate generated loop execplans in `tree-loop` or `generic-loop` mode, including intention clarification, generated process/contracts/harness/skills/agent bindings, workspace readiness, validation, launch, and run-control |
 
-`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, specialists, credentials, definitions, and live-agent lifecycle. For loop orchestration, `core` auto-installs all four pairwise variants — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, and `houmao-agent-loop-pairwise-v4` — alongside `houmao-agent-loop-generic`, so a managed agent can drive any of the five loop skills without an extra install step. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`:
+`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and current loop orchestration through `houmao-agent-loop-lite` and `houmao-agent-loop-pro`. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`. Supported install/reinstall/uninstall operations also clean exact retired loop skill projections from target tool homes:
 
 ```bash
 houmao-mgr system-skills install --tool claude,codex,copilot,gemini
@@ -455,7 +461,7 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 
 ### Examples
 
-- **[`examples/writer-team/`](examples/writer-team/)** — Complete pairwise loop template for a three-agent story-writing team (story-writer, character-designer, reviewer). Contains role prompts, a pairwise loop plan, start charter, and local setup commands. This is the team shown in the "See it in action" video above.
+- **[`examples/writer-team/`](examples/writer-team/)** — Complete tree loop template for a three-agent story-writing team (story-writer, character-designer, reviewer). Contains role prompts, a tree loop plan, start charter, and local setup commands. This is the team shown in the "See it in action" video above.
 
 ## CLI Entry Points
 
@@ -468,7 +474,7 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 
 `houmao-mgr` exposes a dedicated top-level `credentials` command group for Claude, Codex, and Gemini credential CRUD, alongside the project-scoped `project credentials` wrapper. See the [`credentials`](docs/reference/cli/houmao-mgr.md#credentials-dedicated-credential-management) section of the CLI reference for the full surface.
 
-`houmao-mgr internals graph` provides loop-plan graph analysis and packet validation tooling — use `graph high analyze`, `packet-expectations`, `validate-packets`, `slice`, and `render-mermaid` when authoring pairwise-v2 or generic loop plans. See the [internals graph reference](docs/reference/cli/internals.md).
+`houmao-mgr internals graph` provides deterministic graph analysis and packet-validation tooling that `houmao-agent-loop-pro` can use when generated topology artifacts need it. See the [internals graph reference](docs/reference/cli/internals.md).
 
 ```bash
 houmao-mgr --help

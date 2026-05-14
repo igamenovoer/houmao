@@ -3,31 +3,6 @@
 ## Purpose
 TBD - created by archiving change replace-relay-loop-with-generic-loop-planner. Update Purpose after archive.
 ## Requirements
-### Requirement: Houmao provides a packaged `houmao-agent-loop-generic` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-generic` under the maintained system-skill asset root.
-
-That packaged skill SHALL use `houmao-agent-loop-generic` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
-
-The top-level `SKILL.md` for that packaged skill SHALL describe the skill as a user-controlled generic loop graph planner and run controller rather than as a relay-only planner or a new runtime workflow engine.
-
-That packaged skill SHALL replace the prior `houmao-agent-loop-relay` packaged skill as the current loop graph planner for relay-rooted and mixed pairwise/relay composed runs.
-
-That packaged skill SHALL remain distinct from:
-
-- the direct-operation skills that own messaging, gateway, mailbox, lifecycle, and inspection surfaces,
-- `houmao-adv-usage-pattern`, which owns elemental pairwise and relay protocol pages,
-- `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2`, which remain specialized pairwise-only planning choices.
-
-#### Scenario: User asks for generic composed loop planning
-- **WHEN** a user asks to plan a multi-agent communication graph that may contain both local-close pairwise edges and forward relay lanes
-- **THEN** `houmao-agent-loop-generic` is the packaged Houmao-owned skill that owns graph decomposition and run-control planning
-- **AND THEN** it does not present itself as a new transport or runtime loop engine
-
-#### Scenario: Relay-only entrypoint is replaced
-- **WHEN** a user or catalog lookup looks for the current packaged loop planner that replaced `houmao-agent-loop-relay`
-- **THEN** the current packaged skill is `houmao-agent-loop-generic`
-- **AND THEN** the relay-only skill name is not presented as a current installable alias
-
 ### Requirement: Generic loop authoring decomposes user intent into typed loop components
 The authoring guidance in `houmao-agent-loop-generic` SHALL turn natural-language user intent into one explicit generic loop plan before run start.
 
@@ -169,3 +144,30 @@ The generic loop guidance SHALL keep routine loop-skill authoring on `graph high
 - **WHEN** an agent follows routine generic loop authoring guidance
 - **THEN** the guidance routes structural checks to `houmao-mgr internals graph high`
 - **AND THEN** it does not ask the agent to use `graph low` primitives for normal typed loop planning
+
+### Requirement: Generic loop skill uses generic loop as canonical wording
+The packaged `houmao-agent-loop-generic` skill SHALL use `generic loop` as the canonical user-facing name for directed graph loop planning and run control.
+
+The skill MAY use `generic graph` or `generic loop graph` as compatibility wording when referring to rendered graph artifacts, graph helper commands, or older plans, but it SHALL not present that wording as a separate loop family.
+
+The skill SHALL describe local-close tree-shaped components as tree-loop or local-close components in explanatory text while preserving existing `pairwise` component type values where templates or contracts already require them.
+
+#### Scenario: Generic skill explains its own family
+- **WHEN** `houmao-agent-loop-generic` explains what kind of loop it authors
+- **THEN** it uses generic loop terminology
+- **AND THEN** graph wording is reserved for graph artifacts or compatibility notes
+
+#### Scenario: Generic plan preserves pairwise component compatibility
+- **WHEN** a generic loop template or contract uses `component_type = pairwise` or equivalent existing typed-component wording
+- **THEN** the value remains valid
+- **AND THEN** surrounding prose explains that the component is a local-close tree-loop component or compatibility alias
+
+### Requirement: Generic loop skill is retired
+The system SHALL NOT package `houmao-agent-loop-generic` as a current installable Houmao-owned system skill.
+
+Current generic-loop guidance SHALL route through pro topology modes and generated execplan contracts.
+
+#### Scenario: Generic loop name is absent from current inventory
+- **WHEN** the current system-skill inventory is loaded
+- **THEN** `houmao-agent-loop-generic` is not present as a current installable skill
+- **AND THEN** generic-loop guidance points to `houmao-agent-loop-pro`

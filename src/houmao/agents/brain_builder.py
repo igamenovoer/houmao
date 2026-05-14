@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from houmao.agents.codex_cli_config import (
     CodexCliConfigOverride,
@@ -79,10 +79,20 @@ BrainRecipe = AgentPreset
 
 
 @dataclass(frozen=True)
+class PrivateSkillProjection:
+    """Profile-private skill projection requested for one built home."""
+
+    name: str
+    source_path: Path
+    mode: Literal["copy", "symlink"]
+
+
+@dataclass(frozen=True)
 class BuildRequest:
     agent_def_dir: Path
     tool: str
     skills: list[str]
+    private_skills: tuple[PrivateSkillProjection, ...] = ()
     setup: str | None = None
     auth: str | None = None
     preset_path: Path | None = None
@@ -380,6 +390,31 @@ def _validate_skill_names(skills_root: Path, selected_skills: list[str]) -> None
             raise BuildError(f"Unknown skill `{skill}` (expected {skill_markdown} to exist)")
 
 
+def _validate_private_skill_projections(
+    private_skills: tuple[PrivateSkillProjection, ...],
+) -> None:
+    """Validate profile-private skill projections before mutating a runtime home."""
+
+    seen_names: set[str] = set()
+    for private_skill in private_skills:
+        if not private_skill.name or "/" in private_skill.name or "\\" in private_skill.name:
+            raise BuildError(
+                "Private skill projection names must be non-empty directory names, got "
+                f"{private_skill.name!r}."
+            )
+        if private_skill.name in seen_names:
+            raise BuildError(f"Duplicate private skill projection `{private_skill.name}`.")
+        seen_names.add(private_skill.name)
+        if private_skill.mode not in {"copy", "symlink"}:
+            raise BuildError(f"Unsupported private skill projection mode: {private_skill.mode}")
+        skill_markdown = private_skill.source_path / "SKILL.md"
+        if not private_skill.source_path.is_dir() or not skill_markdown.is_file():
+            raise BuildError(
+                "Private skill projection source must be a skill directory containing "
+                f"`SKILL.md`: {skill_markdown}"
+            )
+
+
 def _generate_home_id(tool: str) -> str:
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%SZ")
     short_uuid = uuid.uuid4().hex[:6]
@@ -551,6 +586,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     if not skills_root.is_dir():
         raise BuildError(f"Missing skills repository: {skills_root}")
     _validate_skill_names(skills_root=skills_root, selected_skills=request.skills)
+    _validate_private_skill_projections(request.private_skills)
 
     if not setup_dir.is_dir():
         raise BuildError(f"Missing setup bundle: {setup_dir}")
@@ -600,6 +636,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         home_path=home_path,
         auto_install_kind="managed_launch",
     )
+    for private_skill in request.private_skills:
+        destination = skill_destination_dir / private_skill.name
+        _project_path(private_skill.source_path, destination, mode=private_skill.mode)
 
     _validate_relative_path(adapter.auth_files_dir, field="auth_projection.files_dir")
     auth_files_dir = auth_dir / adapter.auth_files_dir
@@ -746,6 +785,15 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     }
     if request.launch_profile_provenance is not None:
         construction_provenance["launch_profile"] = dict(request.launch_profile_provenance)
+    if request.private_skills:
+        construction_provenance["private_skill_projections"] = [
+            {
+                "name": private_skill.name,
+                "source_path": str(private_skill.source_path),
+                "mode": private_skill.mode,
+            }
+            for private_skill in request.private_skills
+        ]
 
     manifest: dict[str, Any] = {
         "schema_version": 3,

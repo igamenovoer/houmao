@@ -26,6 +26,7 @@ from houmao.agents.system_skills import (
 CORE_SYSTEM_SKILLS = (
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     "houmao-mailbox-mgr",
     "houmao-memory-mgr",
     "houmao-adv-usage-pattern",
@@ -34,11 +35,8 @@ CORE_SYSTEM_SKILLS = (
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
     "houmao-agent-definition",
-    "houmao-agent-loop-pairwise",
-    "houmao-agent-loop-pairwise-v2",
-    "houmao-agent-loop-pairwise-v3",
-    "houmao-agent-loop-pairwise-v4",
-    "houmao-agent-loop-generic",
+    "houmao-agent-loop-pro",
+    "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -47,7 +45,6 @@ CORE_SYSTEM_SKILLS = (
 ALL_SYSTEM_SKILLS = (
     *CORE_SYSTEM_SKILLS,
     SYSTEM_SKILL_UTILS_LLM_WIKI,
-    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
 )
 
 
@@ -94,15 +91,27 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-pairwise-v3",
-        "houmao-agent-loop-pairwise-v4",
-        "houmao-agent-loop-generic",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
         "houmao-agent-instance",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
+    )
+    assert "Canonical pre-launch agent-definition skill" in (
+        catalog.skills["houmao-agent-definition"].description or ""
+    )
+    assert "Markdown/direct-SQL loop authoring" in (
+        catalog.skills["houmao-agent-loop-lite"].description or ""
+    )
+    assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
+    assert catalog.retired_skill_names == (
+        "houmao-agent-loop-pairwise",
+        "houmao-agent-loop-pairwise-v2",
+        "houmao-agent-loop-pairwise-v3",
+        "houmao-agent-loop-pairwise-v4",
+        "houmao-agent-loop-pairwise-v5",
+        "houmao-agent-loop-generic",
     )
     assert tuple(catalog.sets.keys()) == (
         SYSTEM_SKILL_SET_CORE,
@@ -113,6 +122,138 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.managed_launch_sets == (SYSTEM_SKILL_SET_CORE,)
     assert catalog.auto_install.managed_join_sets == (SYSTEM_SKILL_SET_CORE,)
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
+
+
+def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-loop-pro")
+    prepare_agents = (skill_root / "subskills/execution/prepare-agents.md").read_text(
+        encoding="utf-8"
+    )
+    platform_boundaries = (skill_root / "subskills/reference/platform-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Route persisted agent/profile preparation through `houmao-agent-definition`" in (
+        prepare_agents
+    )
+    assert "`create-agent-fast-forward`: default" in prepare_agents
+    assert "`profiles`: when the specialist already exists" in prepare_agents
+    assert "`specialists`: when only specialist material changes" in prepare_agents
+    assert "`raw-profiles`: only when the execplan or operator explicitly requires" in (
+        prepare_agents
+    )
+    assert "Do not reimplement specialist creation" in prepare_agents
+    assert "credential-defaulting" in platform_boundaries
+    assert "Treat `houmao-mgr project easy ...` as its underlying CLI surface" in (
+        platform_boundaries
+    )
+
+
+def test_agent_loop_lite_packaged_asset_contract() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-loop-lite")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    template_example = skill_text.split("```markdown", maxsplit=1)[1].split("```", maxsplit=1)[0]
+
+    assert "name: houmao-agent-loop-lite" in skill_text
+    assert "Use this Houmao skill only after the user explicitly selects" in skill_text
+    assert "Do not auto-route generic loop requests here" in skill_text
+    assert "<loop-dir>/intention/" in skill_text
+    assert "<loop-dir>/execplan/" in skill_text
+    assert "<loop-dir>/runs/" in skill_text
+    assert "Do not generate `execplan/harness/` or `execplan/docs/`" in skill_text
+    assert "Do not create JSON schemas, Jinja2 renderers" in skill_text
+    assert "Loop-Template-Type" in skill_text
+    assert "Loop-Template-Version" in skill_text
+    assert "<placeholder work_item_id>" in skill_text
+    assert "sender, receiver, subject, message id, thread id, timestamps" in skill_text.lower()
+    assert "Always generate one shared guidance skill" in skill_text
+    assert "Loop-Template-Type: task-request" in skill_text
+    assert "unresolved `<placeholder` tokens before sending" in skill_text
+    assert "execplan/specs/state/schema.sql" in skill_text
+    assert "runs/<run-id>/state.sqlite3" in skill_text
+    assert "BEGIN IMMEDIATE" in skill_text
+    assert "Do not tell agents to sleep, poll, tail logs, or wait in-chat" in skill_text
+    assert "houmao-agent-email-comms" in skill_text
+    assert "houmao-agent-gateway" in skill_text
+    assert "houmao-agent-definition" in skill_text
+    assert "houmao-agent-instance" in skill_text
+    for envelope_field in (
+        "sender",
+        "receiver",
+        "subject",
+        "message_id",
+        "thread_id",
+        "timestamp",
+    ):
+        assert f"<placeholder {envelope_field}" not in template_example
+
+
+def test_retired_loop_skill_sources_are_legacy_only() -> None:
+    catalog = load_system_skill_catalog()
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+
+    assert "houmao-agent-loop-pro" in catalog.skills
+    assert "houmao-agent-loop-lite" in catalog.skills
+    for retired_name in catalog.retired_skill_names:
+        assert retired_name not in catalog.skills
+        assert not (asset_root / retired_name).exists()
+        assert (asset_root / "legacy" / retired_name / "SKILL.md").is_file()
+
+
+def test_houmao_system_input_questions_distinguish_required_and_optional_inputs() -> None:
+    definition_missing_inputs = (
+        _packaged_skill_asset_root("houmao-agent-definition") / "subskills/common/missing-inputs.md"
+    ).read_text(encoding="utf-8")
+    credential_skill = (_packaged_skill_asset_root("houmao-credential-mgr") / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    workspace_skill = (
+        _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR) / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    touring_question_style = (
+        _packaged_skill_asset_root("houmao-touring") / "references/question-style.md"
+    ).read_text(encoding="utf-8")
+
+    for text in (
+        definition_missing_inputs,
+        credential_skill,
+        workspace_skill,
+        touring_question_style,
+    ):
+        assert "`Required`" in text or "Required:" in text
+        assert "`Optional`" in text or "Optional:" in text
+
+    assert "Do not force this shape onto user-task or domain-intent questions" in (
+        definition_missing_inputs
+    )
+    assert "Optional: none for this step." in credential_skill
+    assert "Required when not safely inferred:" in workspace_skill
+    assert "Do not force `Required`/`Optional` labels onto user-task" in (touring_question_style)
+
+
+def test_loop_skills_route_system_input_question_guidance() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-loop-pro")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    question_ref = (skill_root / "subskills/reference/system-input-questions.md").read_text(
+        encoding="utf-8"
+    )
+    init_page = (skill_root / "subskills/authoring/init.md").read_text(encoding="utf-8")
+    clarify_protocol = (skill_root / "subskills/reference/clarification-protocol.md").read_text(
+        encoding="utf-8"
+    )
+    launch_agents = (skill_root / "subskills/execution/launch-agents.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "subskills/reference/system-input-questions.md" in skill_text
+    assert "When asking for Houmao runtime or artifact-location inputs" in skill_text
+    assert "Do not force this shape onto user-task or domain-intent questions" in question_ref
+    assert "Required:" in question_ref
+    assert "Optional:" in question_ref
+    assert "`../reference/system-input-questions.md`" in init_page
+    assert "ask with `Required: <loop-dir>`" in init_page
+    assert "user-task or domain-intent questions" in clarify_protocol
+    assert "`../reference/system-input-questions.md`" in launch_agents
 
 
 def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> None:
@@ -176,6 +317,69 @@ def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> N
                 )
 
 
+def test_current_packaged_system_skills_expose_help_contract() -> None:
+    """Guard the standard skill-level help contract for current catalog entries."""
+
+    catalog = load_system_skill_catalog()
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+    help_section_pattern = re.compile(r"(?ms)^## Help\n(?P<body>.*?)(?=^## |\Z)")
+
+    for skill_name, skill_record in catalog.skills.items():
+        skill_text = (asset_root / skill_record.asset_subpath / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        help_match = help_section_pattern.search(skill_text)
+
+        assert help_match is not None, f"{skill_name} is missing a top-level help section"
+        help_body = help_match.group("body")
+        assert f"${skill_name} help" in help_body
+        assert (
+            "read-only help: do not run commands, mutate files, send mail, change gateway state, "
+            "or alter managed-agent lifecycle state"
+        ) in help_body
+        assert "Available functionality:" in help_body
+        assert "Common starting prompts:" in help_body
+        assert "Related skills and boundaries:" in help_body
+        assert "help me" in help_body
+
+
+def test_current_packaged_system_skills_route_explicit_help_before_workflows() -> None:
+    """Guard that help is treated as a narrow read-only meta operation."""
+
+    catalog = load_system_skill_catalog()
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+
+    for skill_name, skill_record in catalog.skills.items():
+        skill_text = (asset_root / skill_record.asset_subpath / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        if "\n## Workflow\n" in skill_text:
+            assert "answer explicit skill-help intent from `## Help` and stop" in skill_text, (
+                f"{skill_name} workflow does not handle explicit help before routing"
+            )
+
+    operation_markers = {
+        "houmao-agent-definition": "| `help` |",
+        "houmao-agent-gateway": "- `help` (read-only meta operation)",
+        "houmao-agent-instance": "- `help` (read-only meta operation)",
+        "houmao-agent-inspect": "- `help` (read-only meta operation)",
+        "houmao-agent-messaging": "- `help` (read-only meta operation)",
+        "houmao-mailbox-mgr": "- `help` (read-only meta operation)",
+        "houmao-memory-mgr": "- `help` (read-only meta operation)",
+        "houmao-project-mgr": "- `help` (read-only meta operation)",
+        "houmao-credential-mgr": "- `help` (read-only meta operation)",
+        "houmao-agent-loop-pro": "- `help`: explain this skill's purpose",
+        "houmao-agent-loop-lite": "- `help`: explain this skill's purpose",
+        SYSTEM_SKILL_UTILS_WORKSPACE_MGR: "- `help`: explain this skill's purpose",
+        SYSTEM_SKILL_UTILS_LLM_WIKI: "read-only meta operation `help`",
+    }
+    for skill_name, marker in operation_markers.items():
+        skill_text = (_packaged_skill_asset_root(skill_name) / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        assert marker in skill_text
+
+
 def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
     skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_LLM_WIKI)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
@@ -219,6 +423,10 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     assert "Do not follow symlinked directories" in skill_text
     assert "skip if Git tracks any files under the source subtree" in skill_text
     assert "The repo root is the shared visibility surface." in in_repo_text
+    assert "Loop execplans may request additional task-scoped bookkeeping directories" in (
+        in_repo_text
+    )
+    assert "<repo-root>/houmao-ws/<task-name>/<agent-name>/artifacts/**" in in_repo_text
     assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
     assert "recursive local-state symlink decisions" in in_repo_text
     assert "hidden-path skips, symlink traversal skips, and tracked-content conflict skips" in (
@@ -273,7 +481,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
     user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
+    retired_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
     _write(user_skill_path, "custom user skill\n")
+    _write(retired_skill_path, "retired loop skill\n")
 
     result = install_system_skills_for_home(
         tool="codex",
@@ -287,116 +497,72 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_mgr_actions = home_path / "skills/houmao-project-mgr/actions"
     project_mgr_references = home_path / "skills/houmao-project-mgr/references"
     manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    manage_specialist_actions = home_path / "skills/houmao-specialist-mgr/actions"
-    manage_specialist_references = home_path / "skills/houmao-specialist-mgr/references"
     manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
     manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
-    pairwise_loop_skill_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
-    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
-    pairwise_loop_prestart = home_path / "skills/houmao-agent-loop-pairwise/prestart"
-    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
-    pairwise_loop_v2_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v2/SKILL.md"
-    pairwise_loop_v2_authoring = home_path / "skills/houmao-agent-loop-pairwise-v2/authoring"
-    pairwise_loop_v2_prestart = home_path / "skills/houmao-agent-loop-pairwise-v2/prestart"
-    pairwise_loop_v2_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
-    pairwise_loop_v3_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
-    pairwise_loop_v3_authoring = home_path / "skills/houmao-agent-loop-pairwise-v3/authoring"
-    pairwise_loop_v3_prestart = home_path / "skills/houmao-agent-loop-pairwise-v3/prestart"
-    pairwise_loop_v3_operating = home_path / "skills/houmao-agent-loop-pairwise-v3/operating"
-    pairwise_loop_v3_references = home_path / "skills/houmao-agent-loop-pairwise-v3/references"
-    pairwise_loop_v4_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
-    pairwise_loop_v4_authoring = home_path / "skills/houmao-agent-loop-pairwise-v4/authoring"
-    pairwise_loop_v4_prestart = home_path / "skills/houmao-agent-loop-pairwise-v4/prestart"
-    pairwise_loop_v4_operating = home_path / "skills/houmao-agent-loop-pairwise-v4/operating"
-    pairwise_loop_v4_references = home_path / "skills/houmao-agent-loop-pairwise-v4/references"
-    pairwise_loop_v4_document_templates = (
-        home_path / "skills/houmao-agent-loop-pairwise-v4/document-templates"
+    manage_agent_definition_subskills = home_path / "skills/houmao-agent-definition/subskills"
+    manage_agent_definition_references = (
+        home_path / "skills/houmao-agent-definition/references/credentials"
     )
-    relay_loop_skill_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
-    relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
-    relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
+    loop_pro_skill_path = home_path / "skills/houmao-agent-loop-pro/SKILL.md"
+    loop_pro_authoring = home_path / "skills/houmao-agent-loop-pro/subskills/authoring"
+    loop_pro_execution = home_path / "skills/houmao-agent-loop-pro/subskills/execution"
+    loop_pro_reference = home_path / "skills/houmao-agent-loop-pro/subskills/reference"
+    loop_lite_skill_path = home_path / "skills/houmao-agent-loop-lite/SKILL.md"
 
     assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
     assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
+    assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v3",)
+    assert result.removed_retired_projected_relative_dirs == (
+        "skills/houmao-agent-loop-pairwise-v3",
+    )
     assert set(record.name for record in installed_records) == set(result.resolved_skill_names)
     assert tuple(record.projection_mode for record in installed_records) == ("copy",) * len(
         CORE_SYSTEM_SKILLS
     )
     _assert_no_install_state_written(home_path)
     assert user_skill_path.is_file()
+    assert not retired_skill_path.exists()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert project_mgr_path.is_file()
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
-    assert pairwise_loop_skill_path.is_file()
-    assert (pairwise_loop_authoring / "formulate-loop-plan.md").is_file()
-    assert not pairwise_loop_prestart.exists()
-    assert (pairwise_loop_operating / "start.md").is_file()
-    assert (pairwise_loop_operating / "status.md").is_file()
-    assert (pairwise_loop_operating / "stop.md").is_file()
-    assert not (pairwise_loop_operating / "peek.md").exists()
-    assert pairwise_loop_v2_skill_path.is_file()
-    assert (pairwise_loop_v2_authoring / "formulate-loop-plan.md").is_file()
-    assert (pairwise_loop_v2_prestart / "prepare-run.md").is_file()
-    assert (pairwise_loop_v2_operating / "start.md").is_file()
-    assert (pairwise_loop_v2_operating / "peek.md").is_file()
-    assert (pairwise_loop_v2_operating / "recover-and-continue.md").is_file()
-    assert (pairwise_loop_v2_operating / "hard-kill.md").is_file()
-    assert pairwise_loop_v3_skill_path.is_file()
-    assert (pairwise_loop_v3_authoring / "formulate-loop-plan.md").is_file()
-    assert (pairwise_loop_v3_prestart / "prepare-run.md").is_file()
-    assert (pairwise_loop_v3_operating / "start.md").is_file()
-    assert (pairwise_loop_v3_operating / "recover-and-continue.md").is_file()
-    assert (pairwise_loop_v3_references / "workspace-contract.md").is_file()
-    assert pairwise_loop_v4_skill_path.is_file()
-    assert (pairwise_loop_v4_authoring / "formulate-loop-plan.md").is_file()
-    assert (pairwise_loop_v4_prestart / "prepare-run.md").is_file()
-    assert (pairwise_loop_v4_operating / "start.md").is_file()
-    assert (pairwise_loop_v4_operating / "recover-and-continue.md").is_file()
-    assert (pairwise_loop_v4_references / "workspace-contract.md").is_file()
-    assert (pairwise_loop_v4_document_templates / "plan.md").is_file()
-    assert (pairwise_loop_v4_document_templates / "agent-note.md").is_file()
-    assert (pairwise_loop_v4_document_templates / "constraint-coverage-audit.md").is_file()
-    assert relay_loop_skill_path.is_file()
-    assert (relay_loop_authoring / "formulate-loop-plan.md").is_file()
-    assert (relay_loop_operating / "start.md").is_file()
+    assert loop_pro_skill_path.is_file()
+    assert loop_lite_skill_path.is_file()
+    assert (loop_pro_authoring / "init.md").is_file()
+    assert (loop_pro_authoring / "clarify-intent.md").is_file()
+    assert (loop_pro_authoring / "execplan-fast-forward.md").is_file()
+    assert (loop_pro_authoring / "execplan-specs-contract.md").is_file()
+    assert (loop_pro_authoring / "validate-execplan.md").is_file()
+    assert (loop_pro_execution / "prepare-agents.md").is_file()
+    assert (loop_pro_execution / "prepare-workspace.md").is_file()
+    assert (loop_pro_execution / "validate-loop.md").is_file()
+    assert (loop_pro_execution / "launch-agents.md").is_file()
+    assert (loop_pro_execution / "start.md").is_file()
+    assert (loop_pro_execution / "status.md").is_file()
+    assert (loop_pro_execution / "recover.md").is_file()
+    assert (loop_pro_reference / "runtime-mail-model.md").is_file()
     project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
-    pairwise_loop_skill = pairwise_loop_skill_path.read_text(encoding="utf-8")
-    pairwise_loop_v2_skill = pairwise_loop_v2_skill_path.read_text(encoding="utf-8")
-    pairwise_loop_v2_prepare_run = (pairwise_loop_v2_prestart / "prepare-run.md").read_text(
+    loop_pro_skill = loop_pro_skill_path.read_text(encoding="utf-8")
+    loop_lite_skill = loop_lite_skill_path.read_text(encoding="utf-8")
+    loop_pro_init = (loop_pro_authoring / "init.md").read_text(encoding="utf-8")
+    loop_pro_clarify_intent = (loop_pro_authoring / "clarify-intent.md").read_text(encoding="utf-8")
+    loop_pro_generate_execplan = (
+        (loop_pro_authoring / "execplan-fast-forward.md").read_text(encoding="utf-8")
+        + "\n"
+        + (loop_pro_authoring / "execplan-specs-contract.md").read_text(encoding="utf-8")
+    )
+    loop_pro_validate_execplan = (loop_pro_authoring / "validate-execplan.md").read_text(
         encoding="utf-8"
     )
-    pairwise_loop_v2_start = (pairwise_loop_v2_operating / "start.md").read_text(encoding="utf-8")
-    pairwise_loop_v3_skill = pairwise_loop_v3_skill_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_prepare_run = (pairwise_loop_v3_prestart / "prepare-run.md").read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v3_start = (pairwise_loop_v3_operating / "start.md").read_text(encoding="utf-8")
-    pairwise_loop_v3_workspace_contract = (
-        pairwise_loop_v3_references / "workspace-contract.md"
-    ).read_text(encoding="utf-8")
-    pairwise_loop_v4_skill = pairwise_loop_v4_skill_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_formulate = (pairwise_loop_v4_authoring / "formulate-loop-plan.md").read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_plan_template = (pairwise_loop_v4_document_templates / "plan.md").read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_agent_note_template = (
-        pairwise_loop_v4_document_templates / "agent-note.md"
-    ).read_text(encoding="utf-8")
-    pairwise_loop_v4_audit_template = (
-        pairwise_loop_v4_document_templates / "constraint-coverage-audit.md"
-    ).read_text(encoding="utf-8")
-    relay_loop_skill = relay_loop_skill_path.read_text(encoding="utf-8")
+    loop_pro_prepare_agents = (loop_pro_execution / "prepare-agents.md").read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
     project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
@@ -405,12 +571,22 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_layout_reference_path = project_mgr_references / "project-layout.md"
     project_effects_reference_path = project_mgr_references / "project-aware-effects.md"
     project_routing_reference_path = project_mgr_references / "routing-boundaries.md"
-    create_action_path = manage_specialist_actions / "create.md"
-    list_action_path = manage_specialist_actions / "list.md"
-    get_action_path = manage_specialist_actions / "get.md"
-    remove_action_path = manage_specialist_actions / "remove.md"
-    launch_action_path = manage_specialist_actions / "launch.md"
-    stop_action_path = manage_specialist_actions / "stop.md"
+    definition_launcher_path = manage_agent_definition_subskills / "common/launcher.md"
+    definition_missing_inputs_path = manage_agent_definition_subskills / "common/missing-inputs.md"
+    definition_profile_lanes_path = manage_agent_definition_subskills / "common/profile-lanes.md"
+    definition_credential_routing_path = (
+        manage_agent_definition_subskills / "common/credential-routing.md"
+    )
+    definition_roles_path = manage_agent_definition_subskills / "low-level/roles.md"
+    definition_recipes_path = manage_agent_definition_subskills / "low-level/recipes.md"
+    definition_launch_profiles_path = (
+        manage_agent_definition_subskills / "low-level/raw-profiles.md"
+    )
+    easy_specialists_path = manage_agent_definition_subskills / "easy/specialists.md"
+    easy_profiles_path = manage_agent_definition_subskills / "easy/profiles.md"
+    ready_profile_path = manage_agent_definition_subskills / "easy/create-agent-fast-forward.md"
+    easy_launch_path = manage_agent_definition_subskills / "easy/launch-instance.md"
+    easy_stop_path = manage_agent_definition_subskills / "easy/stop-instance.md"
     project_init_action = project_init_action_path.read_text(encoding="utf-8")
     project_status_action = project_status_action_path.read_text(encoding="utf-8")
     project_launch_profiles_action = project_launch_profiles_action_path.read_text(encoding="utf-8")
@@ -419,12 +595,18 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_layout_reference = project_layout_reference_path.read_text(encoding="utf-8")
     project_effects_reference = project_effects_reference_path.read_text(encoding="utf-8")
     project_routing_reference = project_routing_reference_path.read_text(encoding="utf-8")
-    create_action = create_action_path.read_text(encoding="utf-8")
-    list_action = list_action_path.read_text(encoding="utf-8")
-    get_action = get_action_path.read_text(encoding="utf-8")
-    remove_action = remove_action_path.read_text(encoding="utf-8")
-    launch_action = launch_action_path.read_text(encoding="utf-8")
-    stop_action = stop_action_path.read_text(encoding="utf-8")
+    definition_launcher = definition_launcher_path.read_text(encoding="utf-8")
+    definition_missing_inputs = definition_missing_inputs_path.read_text(encoding="utf-8")
+    definition_profile_lanes = definition_profile_lanes_path.read_text(encoding="utf-8")
+    definition_credential_routing = definition_credential_routing_path.read_text(encoding="utf-8")
+    definition_roles = definition_roles_path.read_text(encoding="utf-8")
+    definition_recipes = definition_recipes_path.read_text(encoding="utf-8")
+    definition_launch_profiles = definition_launch_profiles_path.read_text(encoding="utf-8")
+    easy_specialists = easy_specialists_path.read_text(encoding="utf-8")
+    easy_profiles = easy_profiles_path.read_text(encoding="utf-8")
+    ready_profile = ready_profile_path.read_text(encoding="utf-8")
+    easy_launch = easy_launch_path.read_text(encoding="utf-8")
+    easy_stop = easy_stop_path.read_text(encoding="utf-8")
     credentials_list_action_path = manage_credentials_actions / "list.md"
     credentials_get_action_path = manage_credentials_actions / "get.md"
     credentials_add_action_path = manage_credentials_actions / "add.md"
@@ -448,11 +630,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project status" in project_mgr_skill
     assert "project agents launch-profiles ..." in project_mgr_skill
     assert "project easy instance list|get|stop" in project_mgr_skill
-    assert "houmao-specialist-mgr" in project_mgr_skill
+    assert "houmao-agent-definition" in project_mgr_skill
     assert "houmao-agent-instance" in project_mgr_skill
     assert "actions/init.md" in project_mgr_skill
     assert "actions/status.md" in project_mgr_skill
-    assert "actions/launch-profiles.md" in project_mgr_skill
     assert "actions/easy-instances.md" in project_mgr_skill
     assert "references/project-aware-effects.md" in project_mgr_skill
     assert project_init_action_path.is_file()
@@ -470,9 +651,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<chosen houmao-mgr launcher>" in project_init_action
     assert "--with-compatibility-profiles" not in project_init_action
     assert "would_bootstrap_overlay" in project_status_action
-    assert (
-        "project agents launch-profiles add --name <profile> --recipe <recipe>"
-        in project_launch_profiles_action
+    assert "Raw Profiles Have Moved" in project_launch_profiles_action
+    assert "houmao-agent-definition/subskills/low-level/raw-profiles.md" in (
+        project_launch_profiles_action
     )
     assert "project easy instance list" in project_easy_instances_action
     assert "project easy instance get --name <name>" in project_easy_instances_action
@@ -491,64 +672,80 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "agents launch" in project_effects_reference
     assert "server start" in project_effects_reference
     assert "admin cleanup runtime" in project_effects_reference
-    assert "houmao-specialist-mgr" in project_routing_reference
+    assert "houmao-specialist-mgr" not in project_routing_reference
     assert "houmao-credential-mgr" in project_routing_reference
     assert "houmao-agent-definition" in project_routing_reference
     assert "houmao-agent-instance" in project_routing_reference
     assert "houmao-mailbox-mgr" in project_routing_reference
-    assert "command -v houmao-mgr" in manage_specialist_skill
-    assert "uv tool run --from houmao houmao-mgr" in manage_specialist_skill
-    assert ".venv/bin/houmao-mgr" in manage_specialist_skill
-    assert "pixi run houmao-mgr" in manage_specialist_skill
-    assert "uv run houmao-mgr" in manage_specialist_skill
-    assert "user explicitly asks for a specific launcher" in manage_specialist_skill
-    assert "actions/create.md" in manage_specialist_skill
-    assert "actions/list.md" in manage_specialist_skill
-    assert "actions/get.md" in manage_specialist_skill
-    assert "actions/remove.md" in manage_specialist_skill
-    assert "actions/launch.md" in manage_specialist_skill
-    assert "update specialist" in manage_specialist_skill
-    assert "create profile" in manage_specialist_skill
-    assert "list profiles" in manage_specialist_skill
-    assert "get profile" in manage_specialist_skill
-    assert "remove profile" in manage_specialist_skill
-    assert "Explicit Auth Mode" in create_action
-    assert "project easy profile create" in create_action
-    assert "project easy specialist set --name <name>" in create_action
-    assert "Do not remove and recreate an easy specialist" in create_action
-    assert "--prompt-overlay-mode append|replace" in create_action
-    assert "Env Lookup Mode" in create_action
-    assert "Directory Scan Mode" in create_action
-    assert "auto credentials" in create_action
-    assert "No Discovery Mode" in create_action
-    assert "references/claude-credential-lookup.md" in create_action
-    assert "references/codex-credential-lookup.md" in create_action
-    assert "references/gemini-credential-lookup.md" in create_action
-    assert "--claude-oauth-token" in create_action
-    assert "--claude-config-dir" in create_action
-    assert "optional bootstrap state" in create_action
-    assert "not a credential-providing method" in create_action
-    assert "do not scan env vars, directories, repo-local tool homes" in create_action
+    assert "Compatibility Wrapper" in manage_specialist_skill
+    assert "houmao-agent-definition/subskills/easy/specialists.md" in manage_specialist_skill
+    assert "create-agent-fast-forward" in manage_specialist_skill
+    assert "Do not run commands from this wrapper." in manage_specialist_skill
+    assert "command -v houmao-mgr" in definition_launcher
+    assert "uv tool run --from houmao houmao-mgr" in definition_launcher
+    assert ".venv/bin/houmao-mgr" in definition_launcher
+    assert "pixi run houmao-mgr" in definition_launcher
+    assert "uv run houmao-mgr" in definition_launcher
+    assert "user explicitly requests one launcher" in definition_launcher
+    assert "Ask the user for exactly the missing fields" in definition_missing_inputs
+    assert "Easy Profile" in definition_profile_lanes
+    assert "Raw Profile" in definition_profile_lanes
+    assert "loose `profile`, `agent profile`, `launch profile`, or `ready profile`" in (
+        definition_profile_lanes
+    )
+    assert "project easy specialist create" in definition_credential_routing
+    assert "Explicit Auth Mode" in easy_specialists
+    assert "project easy profile create" in easy_profiles
+    assert "project easy specialist set --name <name>" in easy_specialists
+    assert "Do not remove and recreate an easy specialist" in easy_specialists
+    assert "--prompt-overlay-mode append|replace" in easy_profiles
+    assert "Env Lookup Mode" in easy_specialists
+    assert "Directory Scan Mode" in easy_specialists
+    assert "Auto Credentials Mode" in easy_specialists
+    assert "No Discovery Mode" in easy_specialists
+    assert "Specialist Create Defaulting" in easy_specialists
+    assert "registered credentials exist: pick a matching registered credential" in (
+        easy_specialists
+    )
+    assert "Resolve the specialist tool and credential from the prompt" in (
+        definition_credential_routing
+    )
+    assert "Inventory registered credentials across supported tool lanes" in (
+        definition_credential_routing
+    )
+    assert "project credentials <tool> list" in definition_credential_routing
+    assert "credentials <tool> list --agent-def-dir <path>" in definition_credential_routing
+    assert "credential_records[].updated_at_utc" in definition_credential_routing
+    assert "choose the credential with the latest listed update time" in (
+        definition_credential_routing
+    )
+    assert "no target: initialize/select a Houmao project" in definition_credential_routing
+    assert "references/credentials/claude-lookup.md" in easy_specialists
+    assert "references/credentials/codex-lookup.md" in easy_specialists
+    assert "references/credentials/gemini-lookup.md" in easy_specialists
+    assert "--claude-oauth-token" in easy_specialists
+    assert "--claude-config-dir" in easy_specialists
+    assert "optional bootstrap state" in easy_specialists
+    assert "not a credential-providing method" in easy_specialists
+    assert (
+        "Do not scan env vars, directories, repo-local tool homes" in definition_credential_routing
+    )
     deprecated_fixture_root = "/".join(("tests", "fixtures", "agents"))
-    assert deprecated_fixture_root not in create_action
-    assert "project easy profile list" in list_action
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in list_action
-    assert "<chosen houmao-mgr launcher>" in list_action
-    assert "project easy profile get --name <name>" in get_action
-    assert "project easy profile remove --name <name>" in remove_action
-    assert "project easy instance launch --profile <profile>" in launch_action
-    assert "project easy profile get --name <profile>" in launch_action
-    assert "does not accept declarative mailbox fields such as `--mail-address`" in launch_action
-    assert "`--name` seeds the managed-agent mailbox address and principal id" in launch_action
+    assert deprecated_fixture_root not in easy_specialists
+    assert "project easy profile list" in easy_profiles
+    assert "project easy profile get --name <name>" in easy_profiles
+    assert "project easy profile remove --name <profile>" in easy_profiles
+    assert "project easy instance launch --profile <profile>" in easy_launch
+    assert "project easy profile get --name <profile>" in easy_launch
+    assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
+    assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
+    assert "private filesystem mailbox directory outside the shared root" in easy_launch
     assert (
-        "private filesystem mailbox directory that the launch symlinks into the shared root"
-        in launch_action
+        "was preregistered manually already, launch-time safe registration can fail" in easy_launch
     )
-    assert (
-        "was preregistered manually already, launch-time safe registration can fail"
-        in launch_action
-    )
-    assert "whether it was launched from a specialist or from an easy profile" in stop_action
+    assert "project easy instance stop --name <name>" in easy_stop
+    assert "create-agent-fast-forward" in ready_profile
+    assert "Do not launch the managed agent." in ready_profile
     assert "command -v houmao-mgr" in manage_credentials_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
     assert ".venv/bin/houmao-mgr" in manage_credentials_skill
@@ -581,14 +778,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project credentials <tool> get --name <name>" in credentials_get_action
     assert "credentials <tool> get --agent-def-dir <path> --name <name>" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
-    assert (
-        "stored easy-profile or explicit launch-profile `--auth` override" in credentials_get_action
-    )
+    assert "stored easy-profile or raw-profile `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
-    assert (
-        "stored easy-profile or explicit launch-profile `--auth` override change"
-        in credentials_set_action
-    )
+    assert "stored easy-profile or raw-profile `--auth` override change" in credentials_set_action
     assert (
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action
@@ -598,19 +790,35 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert ".venv/bin/houmao-mgr" in manage_agent_definition_skill
     assert "pixi run houmao-mgr" in manage_agent_definition_skill
     assert "uv run houmao-mgr" in manage_agent_definition_skill
-    assert "actions/create.md" in manage_agent_definition_skill
-    assert "actions/list.md" in manage_agent_definition_skill
-    assert "actions/get.md" in manage_agent_definition_skill
-    assert "actions/set.md" in manage_agent_definition_skill
-    assert "actions/remove.md" in manage_agent_definition_skill
-    assert "project agents roles list|get|init|set|remove" in manage_agent_definition_skill
-    assert "project agents recipes list|get|add|set|remove" in manage_agent_definition_skill
-    assert "project agents presets list|get|add|set|remove" in manage_agent_definition_skill
+    assert "subskills/low-level/roles.md" in manage_agent_definition_skill
+    assert "subskills/low-level/recipes.md" in manage_agent_definition_skill
+    assert "subskills/low-level/raw-profiles.md" in manage_agent_definition_skill
+    assert "subskills/easy/specialists.md" in manage_agent_definition_skill
+    assert "subskills/easy/profiles.md" in manage_agent_definition_skill
+    assert "subskills/easy/create-agent-fast-forward.md" in manage_agent_definition_skill
+    assert "`raw-profiles`" in manage_agent_definition_skill
+    assert "`profiles` as the default meaning" in manage_agent_definition_skill
+    assert "project agents roles list" in definition_roles
+    assert "project agents recipes list" in definition_recipes
+    assert "project agents launch-profiles add --name <profile> --recipe <recipe>" in (
+        definition_launch_profiles
+    )
+    assert "project agents presets ..." in definition_recipes
     assert "houmao-credential-mgr" in manage_agent_definition_skill
-    assert "project agents roles scaffold" in manage_agent_definition_skill
-    assert "project agents roles presets ..." in manage_agent_definition_skill
-    assert "direct hand-editing under `.houmao/agents/`" in manage_agent_definition_skill
+    assert "direct hand-editing under `.houmao/`" in manage_agent_definition_skill
     assert (manage_agent_definition_agents / "openai.yaml").is_file()
+    assert definition_launcher_path.is_file()
+    assert definition_missing_inputs_path.is_file()
+    assert definition_profile_lanes_path.is_file()
+    assert definition_credential_routing_path.is_file()
+    assert definition_roles_path.is_file()
+    assert definition_recipes_path.is_file()
+    assert definition_launch_profiles_path.is_file()
+    assert easy_specialists_path.is_file()
+    assert easy_profiles_path.is_file()
+    assert ready_profile_path.is_file()
+    assert easy_launch_path.is_file()
+    assert easy_stop_path.is_file()
     assert definition_create_action_path.is_file()
     assert definition_list_action_path.is_file()
     assert definition_get_action_path.is_file()
@@ -643,163 +851,78 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "project agents recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
-    assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
-    assert "operating/start.md" in pairwise_loop_skill
-    assert "operating/status.md" in pairwise_loop_skill
-    assert "operating/stop.md" in pairwise_loop_skill
-    assert "prestart/prepare-run.md" not in pairwise_loop_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
+    assert "Use this Houmao skill only after the user explicitly selects it" in loop_pro_skill
+    assert "`houmao-agent-loop-pro`" in loop_pro_skill
+    assert "treat it as `init`" in loop_pro_skill
+    assert "<loop-dir>/intention/" in loop_pro_skill
+    assert "<loop-dir>/execplan/" in loop_pro_skill
+    assert "subskills/authoring/clarify-intent.md" in loop_pro_skill
+    assert "subskills/execution/prepare-agents.md" in loop_pro_skill
+    assert "Do not require `adrs/`" in loop_pro_skill
+    assert "Do not import policy from examples or reference plans as global behavior" in (
+        loop_pro_skill
     )
-    assert (
-        "Do not auto-route generic pairwise loop planning or pairwise run-control "
-        "requests here when the user did not explicitly ask for "
-        "`houmao-agent-loop-pairwise`." in pairwise_loop_skill
+    assert "use `houmao-utils-workspace-mgr` through `prepare-workspace`" in loop_pro_skill
+    assert "MUST READ for mail-driven loops" in loop_pro_skill
+    assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
+    assert "subskills/reference/topology-modes.md" in loop_pro_skill
+    assert "subskills/reference/platform-boundaries.md" in loop_pro_skill
+    assert "Do not duplicate maintained Houmao platform-operation contracts" in loop_pro_skill
+    assert "tree-loop" in loop_pro_skill
+    assert "generic-loop" in loop_pro_skill
+    assert "name: houmao-agent-loop-lite" in loop_lite_skill
+    assert "Do not auto-route generic loop requests here" in loop_lite_skill
+    assert "Loop-Template-Type" in loop_lite_skill
+    assert "runs/<run-id>/state.sqlite3" in loop_lite_skill
+    assert "Do not generate `execplan/harness/` or `execplan/docs/`" in loop_lite_skill
+    assert "If `<loop-dir>` is missing, ask with `Required: <loop-dir>`" in loop_pro_init
+    assert "<loop-dir>/intention/README.md" in loop_pro_init
+    assert "<loop-dir>/intention/project-context.md" in loop_pro_init
+    assert "Show the provisional high-level Mermaid agent architecture" in (loop_pro_clarify_intent)
+    assert "Ask at most five accepted questions per session, exactly one at a time" in (
+        loop_pro_clarify_intent
     )
-    assert (
-        "Do not make the user agent the upstream driver of the execution loop."
-        in pairwise_loop_skill
+    assert "objective, agent communication, or loop process logic" in loop_pro_clarify_intent
+    assert "<loop-dir>/adrs/" in loop_pro_clarify_intent
+    assert "Do not generate, repair, or directly edit `execplan/`" in loop_pro_clarify_intent
+    assert "<loop-dir>/execplan/" in loop_pro_generate_execplan
+    assert "manifest.toml" in loop_pro_generate_execplan
+    assert "Do not create `execplan/adrs/` just to explain routine defaults" in (
+        loop_pro_generate_execplan
     )
-    assert "operating an accepted run through `start`, `status`, and `stop`" in pairwise_loop_skill
-    assert "Do not treat `status` polling as a keepalive signal" in pairwise_loop_skill
-    assert "houmao-agent-inspect" not in pairwise_loop_skill
-    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v2_skill
-    assert "prestart/prepare-run.md" in pairwise_loop_v2_skill
-    assert "operating/start.md" in pairwise_loop_v2_skill
-    assert "operating/recover-and-continue.md" in pairwise_loop_v2_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
+    assert "defaulting to `in-repo`" in loop_pro_generate_execplan
+    assert "schema-validated payload plus human-readable rendering" in (loop_pro_generate_execplan)
+    assert "communication schemas, renderers, registry, and reply links" in (
+        loop_pro_generate_execplan
     )
-    assert (
-        "Do not auto-route generic pairwise loop planning or pairwise run-control "
-        "requests here when the user did not explicitly ask for "
-        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_v2_skill
+    assert "notification prompt and trigger contracts" in loop_pro_generate_execplan
+    assert "templates.toml" in loop_pro_generate_execplan
+    assert "<message-family>.schema.json" in loop_pro_generate_execplan
+    assert "which on-event skill handles each received message family" in (
+        loop_pro_generate_execplan
     )
-    assert (
-        "The canonical operator-facing lifecycle actions are `plan`, `initialize`, "
-        "`start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, "
-        "and `hard-kill`." in pairwise_loop_v2_skill
+    assert "generated skills under `execplan/skills/*/SKILL.md`" in (loop_pro_validate_execplan)
+    assert "workspace setup contracts route workspace planning or creation" in (
+        loop_pro_validate_execplan
     )
-    assert (
-        "The canonical observed states are `authoring`, `initializing`, `awaiting_ack`, "
-        "`ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, "
-        "`stopped`, and `dead`." in pairwise_loop_v2_skill
+    assert "execplan/specs/comms/templates.toml" in loop_pro_validate_execplan
+    assert "houmao-email-metadata" in loop_pro_validate_execplan
+    assert "payload lifecycle contracts" in loop_pro_validate_execplan
+    assert "archive-after-success behavior" in loop_pro_validate_execplan
+    assert "houmao-utils-workspace-mgr" in loop_pro_prepare_agents
+    assert "houmao-agent-definition" in loop_pro_prepare_agents
+    assert "Do not launch live agents as normal preparation behavior; use `launch-agents`" in (
+        loop_pro_prepare_agents
     )
-    assert "houmao-mgr internals graph high" in pairwise_loop_v2_skill
-    assert "houmao-agent-inspect" in pairwise_loop_v2_skill
-    assert (
-        "default `precomputed_routing_packets` validates routing packets" in pairwise_loop_v2_skill
-    )
-    assert "durable start-charter page" in pairwise_loop_v2_skill
-    assert "runtime-owned recovery state" in pairwise_loop_v2_skill
-    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_v2_skill
-    assert "houmao-memory-mgr" in pairwise_loop_v2_skill
-    assert (
-        "ask for the output directory before drafting or revising files" in pairwise_loop_v2_skill
-    )
-    assert "## Plan Output Directory" in pairwise_loop_v2_skill
-    assert "<plan-output-dir>/" in pairwise_loop_v2_skill
-    assert (
-        "Do not treat live `houmao-memo.md` or memo-linked `pages/` edits as native pairwise-v2 write surfaces"
-        in pairwise_loop_v2_skill
-    )
-    assert "memo page index" not in pairwise_loop_v2_prepare_run
-    assert "pages/<relative-page>" in pairwise_loop_v2_prepare_run
-    assert "path-discovery output" in pairwise_loop_v2_prepare_run
-    assert "HOUMAO_PAIRWISE_V2_BEGIN" in pairwise_loop_v2_prepare_run
-    assert "loop-runs/pairwise-v2/<run_id>/initialize.md" in pairwise_loop_v2_prepare_run
-    assert "treat that as a `houmao-memory-mgr` task" in pairwise_loop_v2_prepare_run
-    assert "route that work to `houmao-memory-mgr`" in pairwise_loop_v2_start
-    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v3_skill
-    assert "references/workspace-contract.md" in pairwise_loop_v3_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise-v3`." in pairwise_loop_v3_skill
-    )
-    assert (
-        "Every authored plan records a `workspace_contract` with mode `standard` or `custom`."
-        in pairwise_loop_v3_skill
-    )
-    assert "standard workspace-preparation skill" in pairwise_loop_v3_skill
-    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_v3_skill
-    assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
-        pairwise_loop_v3_skill
-    )
-    assert "Do not prescribe a fixed subtree under per-agent `kb/`" in pairwise_loop_v3_skill
-    assert (
-        "optional launch-profile references for participants that `initialize` may need to launch"
-        in (pairwise_loop_v3_prepare_run)
-    )
-    assert "memo slot: `initialize`" in pairwise_loop_v3_prepare_run
-    assert "email/mailbox-capable designated master and participant set" in (
-        pairwise_loop_v3_prepare_run
-    )
-    assert "when mode is `standard`, record the selected standard posture" in (
-        pairwise_loop_v3_prepare_run
-    )
-    assert "when mode is `custom`, record the explicit operator-owned paths" in (
-        pairwise_loop_v3_prepare_run
-    )
-    assert "designated master's initialize memo block" in pairwise_loop_v3_start
-    assert "tell the designated master to read its initialize memo and begin work" in (
-        pairwise_loop_v3_start
-    )
-    assert (
-        "send the kickoff trigger to the designated master through `houmao-agent-email-comms`"
-        in (pairwise_loop_v3_start)
-    )
-    assert (
-        "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`"
-        in (pairwise_loop_v3_start)
-    )
-    assert "task-qualified branches such as `houmao/<task-name>/<agent-name>/main`" in (
-        pairwise_loop_v3_workspace_contract
-    )
-    assert (
-        "Do not use the standard workspace-preparation skill as a custom-workspace translation layer."
-        in (pairwise_loop_v3_workspace_contract)
-    )
-    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v4_skill
-    assert "document-templates/plan.md" in pairwise_loop_v4_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise-v4`." in pairwise_loop_v4_skill
-    )
-    assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
-    assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
-    assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
-    assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
-    assert (
-        "ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, "
-        "`OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`" in pairwise_loop_v4_skill
-    )
-    assert "strict document templates" in pairwise_loop_v4_formulate
-    assert "other user-provided source document paths" in pairwise_loop_v4_formulate
-    assert "user-provided source documents" in pairwise_loop_v4_formulate
-    assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
-    assert "Source Contract Summary" in pairwise_loop_v4_plan_template
-    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_plan_template
-    assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
-    assert "Coverage Table" in pairwise_loop_v4_audit_template
-    assert "UNRESOLVED - <reason>" in pairwise_loop_v4_audit_template
-    assert (
-        "Use this Houmao skill when a user-controlled agent needs to formulate or operate one generic loop graph run"
-        in relay_loop_skill
-    )
-    assert "houmao-mgr internals graph high" in relay_loop_skill
-    assert (
-        "Do not allow free delegation or free forwarding unless the plan says so explicitly."
-        in relay_loop_skill
-    )
-    assert list_action_path.is_file()
-    assert get_action_path.is_file()
-    assert remove_action_path.is_file()
+    assert "maintained mail support skills" in loop_pro_prepare_agents
+    assert "houmao-process-emails-via-gateway" in loop_pro_prepare_agents
+    assert easy_specialists_path.is_file()
+    assert easy_profiles_path.is_file()
+    assert easy_launch_path.is_file()
 
-    claude_reference_path = manage_specialist_references / "claude-credential-lookup.md"
-    codex_reference_path = manage_specialist_references / "codex-credential-lookup.md"
-    gemini_reference_path = manage_specialist_references / "gemini-credential-lookup.md"
+    claude_reference_path = manage_agent_definition_references / "claude-lookup.md"
+    codex_reference_path = manage_agent_definition_references / "codex-lookup.md"
+    gemini_reference_path = manage_agent_definition_references / "gemini-lookup.md"
     assert claude_reference_path.is_file()
     assert codex_reference_path.is_file()
     assert gemini_reference_path.is_file()
@@ -846,6 +969,7 @@ def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_file
     user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
     unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
     legacy_path = home_path / "skills/mailbox/houmao-agent-email-comms/SKILL.md"
+    retired_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
     obsolete_state_path = _obsolete_system_skill_state_path(home_path)
     _write(copied_skill_path, "copied skill\n")
     symlink_source.mkdir(parents=True)
@@ -855,6 +979,7 @@ def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_file
     _write(user_skill_path, "custom user skill\n")
     _write(unknown_houmao_path, "not catalog owned\n")
     _write(legacy_path, "legacy family path\n")
+    _write(retired_loop_path, "retired loop skill\n")
     _write(obsolete_state_path, "{}\n")
 
     result = uninstall_system_skills_for_home(tool="codex", home_path=home_path)
@@ -871,6 +996,10 @@ def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_file
         "skills/houmao-adv-usage-pattern",
         "skills/houmao-specialist-mgr",
     )
+    assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v5",)
+    assert result.removed_retired_projected_relative_dirs == (
+        "skills/houmao-agent-loop-pairwise-v5",
+    )
     assert "houmao-process-emails-via-gateway" in result.absent_skill_names
     assert "skills/houmao-process-emails-via-gateway" in result.absent_projected_relative_dirs
     assert "houmao-agent-gateway" in result.absent_skill_names
@@ -879,6 +1008,7 @@ def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_file
     assert not symlink_target.is_symlink()
     assert symlink_source.is_dir()
     assert not file_target.exists()
+    assert not retired_loop_path.exists()
     assert (home_path / "skills").is_dir()
     assert user_skill_path.is_file()
     assert unknown_houmao_path.is_file()
@@ -898,6 +1028,10 @@ def test_uninstall_system_skills_for_home_does_not_create_missing_home(tmp_path:
     assert result.absent_skill_names == catalog.skill_names
     assert result.absent_projected_relative_dirs == tuple(
         f"skills/{skill_name}" for skill_name in catalog.skill_names
+    )
+    assert result.absent_retired_skill_names == catalog.retired_skill_names
+    assert result.absent_retired_projected_relative_dirs == tuple(
+        f"skills/{skill_name}" for skill_name in catalog.retired_skill_names
     )
 
 
@@ -929,1181 +1063,89 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         use_cli_default=True,
     )
 
-    manage_agent_instance_path = home_path / "skills/houmao-agent-instance/SKILL.md"
-    manage_agent_instance_actions = home_path / "skills/houmao-agent-instance/actions"
-    specialist_mgr_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
-    specialist_mgr_actions = home_path / "skills/houmao-specialist-mgr/actions"
-    agent_inspect_path = home_path / "skills/houmao-agent-inspect/SKILL.md"
-    agent_inspect_actions = home_path / "skills/houmao-agent-inspect/actions"
-    mailbox_mgr_path = home_path / "skills/houmao-mailbox-mgr/SKILL.md"
-    mailbox_mgr_actions = home_path / "skills/houmao-mailbox-mgr/actions"
-    mailbox_mgr_references = home_path / "skills/houmao-mailbox-mgr/references"
-    memory_mgr_path = home_path / "skills/houmao-memory-mgr/SKILL.md"
-    agent_messaging_path = home_path / "skills/houmao-agent-messaging/SKILL.md"
-    agent_messaging_actions = home_path / "skills/houmao-agent-messaging/actions"
-    agent_messaging_references = home_path / "skills/houmao-agent-messaging/references"
-    agent_gateway_path = home_path / "skills/houmao-agent-gateway/SKILL.md"
-    agent_gateway_actions = home_path / "skills/houmao-agent-gateway/actions"
-    agent_gateway_references = home_path / "skills/houmao-agent-gateway/references"
-    utils_llm_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
-    utils_workspace_mgr_path = home_path / "skills/houmao-utils-workspace-mgr/SKILL.md"
-    advanced_usage_path = home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
-    advanced_usage_patterns = home_path / "skills/houmao-adv-usage-pattern/patterns"
-    touring_path = home_path / "skills/houmao-touring/SKILL.md"
-    touring_branches = home_path / "skills/houmao-touring/branches"
-    touring_references = home_path / "skills/houmao-touring/references"
-    stable_pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise/SKILL.md"
-    stable_pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise/authoring"
-    stable_pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise/operating"
-    pairwise_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v2/SKILL.md"
-    pairwise_loop_authoring = home_path / "skills/houmao-agent-loop-pairwise-v2/authoring"
-    pairwise_loop_prestart = home_path / "skills/houmao-agent-loop-pairwise-v2/prestart"
-    pairwise_loop_operating = home_path / "skills/houmao-agent-loop-pairwise-v2/operating"
-    pairwise_loop_references = home_path / "skills/houmao-agent-loop-pairwise-v2/references"
-    pairwise_loop_templates = home_path / "skills/houmao-agent-loop-pairwise-v2/templates"
-    pairwise_loop_v3_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
-    pairwise_loop_v3_authoring = home_path / "skills/houmao-agent-loop-pairwise-v3/authoring"
-    pairwise_loop_v3_prestart = home_path / "skills/houmao-agent-loop-pairwise-v3/prestart"
-    pairwise_loop_v3_operating = home_path / "skills/houmao-agent-loop-pairwise-v3/operating"
-    pairwise_loop_v3_references = home_path / "skills/houmao-agent-loop-pairwise-v3/references"
-    pairwise_loop_v3_templates = home_path / "skills/houmao-agent-loop-pairwise-v3/templates"
-    pairwise_loop_v4_path = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
-    pairwise_loop_v4_authoring = home_path / "skills/houmao-agent-loop-pairwise-v4/authoring"
-    pairwise_loop_v4_prestart = home_path / "skills/houmao-agent-loop-pairwise-v4/prestart"
-    pairwise_loop_v4_operating = home_path / "skills/houmao-agent-loop-pairwise-v4/operating"
-    pairwise_loop_v4_references = home_path / "skills/houmao-agent-loop-pairwise-v4/references"
-    pairwise_loop_v4_templates = home_path / "skills/houmao-agent-loop-pairwise-v4/templates"
-    pairwise_loop_v4_document_templates = (
-        home_path / "skills/houmao-agent-loop-pairwise-v4/document-templates"
-    )
-    relay_loop_path = home_path / "skills/houmao-agent-loop-generic/SKILL.md"
-    relay_loop_authoring = home_path / "skills/houmao-agent-loop-generic/authoring"
-    relay_loop_operating = home_path / "skills/houmao-agent-loop-generic/operating"
-    relay_loop_references = home_path / "skills/houmao-agent-loop-generic/references"
-    relay_loop_templates = home_path / "skills/houmao-agent-loop-generic/templates"
-
     assert result.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
     assert result.projection_mode == "copy"
     assert result.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert mailbox_mgr_path.is_file()
-    assert memory_mgr_path.is_file()
-    assert advanced_usage_path.is_file()
-    assert touring_path.is_file()
-    assert (home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
-    assert specialist_mgr_path.is_file()
-    assert manage_agent_instance_path.is_file()
-    assert agent_inspect_path.is_file()
-    assert agent_messaging_path.is_file()
-    assert agent_gateway_path.is_file()
-    assert utils_llm_wiki_path.is_file()
-    assert utils_workspace_mgr_path.is_file()
-    assert stable_pairwise_loop_path.is_file()
-    assert pairwise_loop_path.is_file()
-    assert pairwise_loop_v3_path.is_file()
-    assert pairwise_loop_v4_path.is_file()
-    assert relay_loop_path.is_file()
-    mailbox_mgr_skill = mailbox_mgr_path.read_text(encoding="utf-8")
-    memory_mgr_skill = memory_mgr_path.read_text(encoding="utf-8")
-    manage_agent_instance_skill = manage_agent_instance_path.read_text(encoding="utf-8")
-    agent_inspect_skill = agent_inspect_path.read_text(encoding="utf-8")
-    agent_messaging_skill = agent_messaging_path.read_text(encoding="utf-8")
-    agent_gateway_skill = agent_gateway_path.read_text(encoding="utf-8")
-    advanced_usage_skill = advanced_usage_path.read_text(encoding="utf-8")
-    touring_skill = touring_path.read_text(encoding="utf-8")
-    stable_pairwise_loop_skill = stable_pairwise_loop_path.read_text(encoding="utf-8")
-    pairwise_loop_skill = pairwise_loop_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_skill = pairwise_loop_v3_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_skill = pairwise_loop_v4_path.read_text(encoding="utf-8")
-    relay_loop_skill = relay_loop_path.read_text(encoding="utf-8")
-    launch_action_path = manage_agent_instance_actions / "launch.md"
-    specialist_launch_action_path = specialist_mgr_actions / "launch.md"
-    join_action_path = manage_agent_instance_actions / "join.md"
-    list_action_path = manage_agent_instance_actions / "list.md"
-    stop_action_path = manage_agent_instance_actions / "stop.md"
-    relaunch_action_path = manage_agent_instance_actions / "relaunch.md"
-    cleanup_action_path = manage_agent_instance_actions / "cleanup.md"
-    inspect_discover_action_path = agent_inspect_actions / "discover.md"
-    inspect_screen_action_path = agent_inspect_actions / "screen.md"
-    inspect_mailbox_action_path = agent_inspect_actions / "mailbox.md"
-    inspect_logs_action_path = agent_inspect_actions / "logs.md"
-    inspect_artifacts_action_path = agent_inspect_actions / "artifacts.md"
-    launch_action = launch_action_path.read_text(encoding="utf-8")
-    specialist_launch_action = specialist_launch_action_path.read_text(encoding="utf-8")
-    relaunch_action = relaunch_action_path.read_text(encoding="utf-8")
-    cleanup_action = cleanup_action_path.read_text(encoding="utf-8")
-    inspect_discover_action = inspect_discover_action_path.read_text(encoding="utf-8")
-    inspect_screen_action = inspect_screen_action_path.read_text(encoding="utf-8")
-    inspect_mailbox_action = inspect_mailbox_action_path.read_text(encoding="utf-8")
-    inspect_logs_action = inspect_logs_action_path.read_text(encoding="utf-8")
-    inspect_artifacts_action = inspect_artifacts_action_path.read_text(encoding="utf-8")
-    discover_action_path = agent_messaging_actions / "discover.md"
-    prompt_action_path = agent_messaging_actions / "prompt.md"
-    interrupt_action_path = agent_messaging_actions / "interrupt.md"
-    gateway_queue_action_path = agent_messaging_actions / "gateway-queue.md"
-    send_keys_action_path = agent_messaging_actions / "send-keys.md"
-    mail_action_path = agent_messaging_actions / "mail.md"
-    reset_context_action_path = agent_messaging_actions / "reset-context.md"
-    intent_matrix_reference_path = agent_messaging_references / "intent-matrix.md"
-    managed_agent_http_reference_path = agent_messaging_references / "managed-agent-http.md"
-    gateway_lifecycle_action_path = agent_gateway_actions / "lifecycle.md"
-    gateway_discover_action_path = agent_gateway_actions / "discover.md"
-    gateway_services_action_path = agent_gateway_actions / "gateway-services.md"
-    gateway_reminders_action_path = agent_gateway_actions / "reminders.md"
-    gateway_mail_notifier_action_path = agent_gateway_actions / "mail-notifier.md"
-    gateway_scope_reference_path = agent_gateway_references / "scope-and-routing.md"
-    gateway_http_reference_path = agent_gateway_references / "http-surface.md"
-    self_notification_pattern_path = advanced_usage_patterns / "self-notification.md"
-    self_notification_reminders_path = (
-        advanced_usage_patterns / "self-notification-via-reminders.md"
-    )
-    self_notification_mail_path = advanced_usage_patterns / "self-wakeup-via-self-mail.md"
-    pairwise_edge_loop_pattern_path = (
-        advanced_usage_patterns / "pairwise-edge-loop-via-gateway-and-mailbox.md"
-    )
-    relay_loop_pattern_path = advanced_usage_patterns / "relay-loop-via-gateway-and-mailbox.md"
-    touring_orient_path = touring_branches / "orient.md"
-    touring_setup_path = touring_branches / "setup-project-and-mailbox.md"
-    touring_author_launch_path = touring_branches / "author-and-launch.md"
-    touring_live_ops_path = touring_branches / "live-operations.md"
-    touring_advanced_usage_path = touring_branches / "advanced-usage.md"
-    touring_lifecycle_path = touring_branches / "lifecycle-follow-up.md"
-    touring_question_style_path = touring_references / "question-style.md"
-    stable_pairwise_loop_formulate_path = stable_pairwise_loop_authoring / "formulate-loop-plan.md"
-    stable_pairwise_loop_start_path = stable_pairwise_loop_operating / "start.md"
-    stable_pairwise_loop_status_path = stable_pairwise_loop_operating / "status.md"
-    stable_pairwise_loop_stop_path = stable_pairwise_loop_operating / "stop.md"
-    pairwise_loop_formulate_path = pairwise_loop_authoring / "formulate-loop-plan.md"
-    pairwise_loop_revise_path = pairwise_loop_authoring / "revise-loop-plan.md"
-    pairwise_loop_graph_path = pairwise_loop_authoring / "render-loop-graph.md"
-    pairwise_loop_prepare_path = pairwise_loop_prestart / "prepare-run.md"
-    pairwise_loop_start_path = pairwise_loop_operating / "start.md"
-    pairwise_loop_peek_path = pairwise_loop_operating / "peek.md"
-    pairwise_loop_ping_path = pairwise_loop_operating / "ping.md"
-    pairwise_loop_pause_path = pairwise_loop_operating / "pause.md"
-    pairwise_loop_resume_path = pairwise_loop_operating / "resume.md"
-    pairwise_loop_recover_and_continue_path = pairwise_loop_operating / "recover-and-continue.md"
-    pairwise_loop_stop_path = pairwise_loop_operating / "stop.md"
-    pairwise_loop_hard_kill_path = pairwise_loop_operating / "hard-kill.md"
-    pairwise_loop_charter_path = pairwise_loop_references / "run-charter.md"
-    pairwise_loop_policy_path = pairwise_loop_references / "delegation-policy.md"
-    pairwise_loop_stop_modes_path = pairwise_loop_references / "stop-modes.md"
-    pairwise_loop_reporting_path = pairwise_loop_references / "reporting-contract.md"
-    pairwise_loop_plan_structure_path = pairwise_loop_references / "plan-structure.md"
-    pairwise_loop_single_template_path = pairwise_loop_templates / "single-file-plan.md"
-    pairwise_loop_bundle_template_path = pairwise_loop_templates / "bundle-plan.md"
-    pairwise_loop_v3_formulate_path = pairwise_loop_v3_authoring / "formulate-loop-plan.md"
-    pairwise_loop_v3_revise_path = pairwise_loop_v3_authoring / "revise-loop-plan.md"
-    pairwise_loop_v3_graph_path = pairwise_loop_v3_authoring / "render-loop-graph.md"
-    pairwise_loop_v3_prepare_path = pairwise_loop_v3_prestart / "prepare-run.md"
-    pairwise_loop_v3_start_path = pairwise_loop_v3_operating / "start.md"
-    pairwise_loop_v3_peek_path = pairwise_loop_v3_operating / "peek.md"
-    pairwise_loop_v3_ping_path = pairwise_loop_v3_operating / "ping.md"
-    pairwise_loop_v3_pause_path = pairwise_loop_v3_operating / "pause.md"
-    pairwise_loop_v3_resume_path = pairwise_loop_v3_operating / "resume.md"
-    pairwise_loop_v3_recover_and_continue_path = (
-        pairwise_loop_v3_operating / "recover-and-continue.md"
-    )
-    pairwise_loop_v3_stop_path = pairwise_loop_v3_operating / "stop.md"
-    pairwise_loop_v3_hard_kill_path = pairwise_loop_v3_operating / "hard-kill.md"
-    pairwise_loop_v3_charter_path = pairwise_loop_v3_references / "run-charter.md"
-    pairwise_loop_v3_workspace_contract_path = pairwise_loop_v3_references / "workspace-contract.md"
-    pairwise_loop_v3_policy_path = pairwise_loop_v3_references / "delegation-policy.md"
-    pairwise_loop_v3_stop_modes_path = pairwise_loop_v3_references / "stop-modes.md"
-    pairwise_loop_v3_reporting_path = pairwise_loop_v3_references / "reporting-contract.md"
-    pairwise_loop_v3_plan_structure_path = pairwise_loop_v3_references / "plan-structure.md"
-    pairwise_loop_v3_single_template_path = pairwise_loop_v3_templates / "single-file-plan.md"
-    pairwise_loop_v3_bundle_template_path = pairwise_loop_v3_templates / "bundle-plan.md"
-    pairwise_loop_v4_formulate_path = pairwise_loop_v4_authoring / "formulate-loop-plan.md"
-    pairwise_loop_v4_revise_path = pairwise_loop_v4_authoring / "revise-loop-plan.md"
-    pairwise_loop_v4_graph_path = pairwise_loop_v4_authoring / "render-loop-graph.md"
-    pairwise_loop_v4_prepare_path = pairwise_loop_v4_prestart / "prepare-run.md"
-    pairwise_loop_v4_start_path = pairwise_loop_v4_operating / "start.md"
-    pairwise_loop_v4_peek_path = pairwise_loop_v4_operating / "peek.md"
-    pairwise_loop_v4_ping_path = pairwise_loop_v4_operating / "ping.md"
-    pairwise_loop_v4_pause_path = pairwise_loop_v4_operating / "pause.md"
-    pairwise_loop_v4_resume_path = pairwise_loop_v4_operating / "resume.md"
-    pairwise_loop_v4_recover_and_continue_path = (
-        pairwise_loop_v4_operating / "recover-and-continue.md"
-    )
-    pairwise_loop_v4_stop_path = pairwise_loop_v4_operating / "stop.md"
-    pairwise_loop_v4_hard_kill_path = pairwise_loop_v4_operating / "hard-kill.md"
-    pairwise_loop_v4_charter_path = pairwise_loop_v4_references / "run-charter.md"
-    pairwise_loop_v4_workspace_contract_path = pairwise_loop_v4_references / "workspace-contract.md"
-    pairwise_loop_v4_policy_path = pairwise_loop_v4_references / "delegation-policy.md"
-    pairwise_loop_v4_stop_modes_path = pairwise_loop_v4_references / "stop-modes.md"
-    pairwise_loop_v4_reporting_path = pairwise_loop_v4_references / "reporting-contract.md"
-    pairwise_loop_v4_plan_structure_path = pairwise_loop_v4_references / "plan-structure.md"
-    pairwise_loop_v4_single_template_path = pairwise_loop_v4_templates / "single-file-plan.md"
-    pairwise_loop_v4_bundle_template_path = pairwise_loop_v4_templates / "bundle-plan.md"
-    pairwise_loop_v4_plan_document_template_path = pairwise_loop_v4_document_templates / "plan.md"
-    pairwise_loop_v4_agent_note_template_path = (
-        pairwise_loop_v4_document_templates / "agent-note.md"
-    )
-    pairwise_loop_v4_reporting_template_path = (
-        pairwise_loop_v4_document_templates / "reporting-template.md"
-    )
-    pairwise_loop_v4_bookkeeping_template_path = (
-        pairwise_loop_v4_document_templates / "bookkeeping-template.md"
-    )
-    pairwise_loop_v4_audit_template_path = (
-        pairwise_loop_v4_document_templates / "constraint-coverage-audit.md"
-    )
-    relay_loop_formulate_path = relay_loop_authoring / "formulate-loop-plan.md"
-    relay_loop_revise_path = relay_loop_authoring / "revise-loop-plan.md"
-    relay_loop_graph_path = relay_loop_authoring / "render-loop-graph.md"
-    relay_loop_start_path = relay_loop_operating / "start.md"
-    relay_loop_status_path = relay_loop_operating / "status.md"
-    relay_loop_stop_path = relay_loop_operating / "stop.md"
-    relay_loop_charter_path = relay_loop_references / "run-charter.md"
-    relay_loop_policy_path = relay_loop_references / "graph-policy.md"
-    relay_loop_result_contract_path = relay_loop_references / "result-routing.md"
-    relay_loop_stop_modes_path = relay_loop_references / "stop-modes.md"
-    relay_loop_reporting_path = relay_loop_references / "reporting-contract.md"
-    relay_loop_plan_structure_path = relay_loop_references / "plan-structure.md"
-    relay_loop_single_template_path = relay_loop_templates / "single-file-plan.md"
-    relay_loop_bundle_template_path = relay_loop_templates / "bundle-plan.md"
-    mailbox_init_action_path = mailbox_mgr_actions / "init.md"
-    mailbox_register_action_path = mailbox_mgr_actions / "register.md"
-    mailbox_clear_messages_action_path = mailbox_mgr_actions / "clear-messages.md"
-    mailbox_export_action_path = mailbox_mgr_actions / "export.md"
-    mailbox_messages_get_action_path = mailbox_mgr_actions / "messages-get.md"
-    mailbox_agent_binding_register_action_path = mailbox_mgr_actions / "agent-binding-register.md"
-    mailbox_root_reference_path = mailbox_mgr_references / "root-selection.md"
-    mailbox_mode_reference_path = mailbox_mgr_references / "mode-vocabulary.md"
-    mailbox_structural_reference_path = mailbox_mgr_references / "structural-vs-actor-state.md"
-    mailbox_stalwart_reference_path = mailbox_mgr_references / "stalwart-boundary.md"
-    mailbox_register_action = mailbox_register_action_path.read_text(encoding="utf-8")
-    assert "description: \"Use when the user's intent is to read or write" in memory_mgr_skill
-    assert "Necessary trigger: `memo` is mentioned." in memory_mgr_skill
-    assert "Sufficient trigger: the prompt or context says `houmao memo`" in memory_mgr_skill
-    assert "prompt or recent context mentions `memo`" in memory_mgr_skill
-    assert "says `houmao memo`" in memory_mgr_skill
-    assert "says `agent memo`" in memory_mgr_skill
-    assert "read or write a Houmao-managed agent's `houmao-memo.md` file" in memory_mgr_skill
-    assert "explicit reference to `houmao-memo.md` is a very strong hint" in memory_mgr_skill
-    assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
-    assert "agents memory memo show|set|append" in memory_mgr_skill
-    assert "agents memory tree|resolve|read|write|append|delete" in memory_mgr_skill
-    assert "free-form Markdown" in memory_mgr_skill
-    assert "pages/" in memory_mgr_skill
-    mailbox_export_action = mailbox_export_action_path.read_text(encoding="utf-8")
-    touring_setup = touring_setup_path.read_text(encoding="utf-8")
-    discover_action = discover_action_path.read_text(encoding="utf-8")
-    interrupt_action = interrupt_action_path.read_text(encoding="utf-8")
-    reset_context_action = reset_context_action_path.read_text(encoding="utf-8")
-    mail_action = mail_action_path.read_text(encoding="utf-8")
-    intent_matrix_reference = intent_matrix_reference_path.read_text(encoding="utf-8")
-    managed_agent_http_reference = managed_agent_http_reference_path.read_text(encoding="utf-8")
-    gateway_discover_action = gateway_discover_action_path.read_text(encoding="utf-8")
-    gateway_lifecycle_action = gateway_lifecycle_action_path.read_text(encoding="utf-8")
-    gateway_reminders_action = gateway_reminders_action_path.read_text(encoding="utf-8")
-    gateway_mail_notifier_action = gateway_mail_notifier_action_path.read_text(encoding="utf-8")
-    gateway_http_reference = gateway_http_reference_path.read_text(encoding="utf-8")
-    self_notification_pattern = self_notification_pattern_path.read_text(encoding="utf-8")
-    self_notification_reminders = self_notification_reminders_path.read_text(encoding="utf-8")
-    self_notification_mail = self_notification_mail_path.read_text(encoding="utf-8")
-    pairwise_edge_loop_pattern = pairwise_edge_loop_pattern_path.read_text(encoding="utf-8")
-    relay_loop_pattern = relay_loop_pattern_path.read_text(encoding="utf-8")
-    touring_author_launch = touring_author_launch_path.read_text(encoding="utf-8")
-    touring_advanced_usage = touring_advanced_usage_path.read_text(encoding="utf-8")
-    touring_question_style = touring_question_style_path.read_text(encoding="utf-8")
-    stable_pairwise_loop_start = stable_pairwise_loop_start_path.read_text(encoding="utf-8")
-    stable_pairwise_loop_status = stable_pairwise_loop_status_path.read_text(encoding="utf-8")
-    stable_pairwise_loop_stop = stable_pairwise_loop_stop_path.read_text(encoding="utf-8")
-    pairwise_loop_formulate = pairwise_loop_formulate_path.read_text(encoding="utf-8")
-    pairwise_loop_revise = pairwise_loop_revise_path.read_text(encoding="utf-8")
-    pairwise_loop_graph = pairwise_loop_graph_path.read_text(encoding="utf-8")
-    pairwise_loop_prepare = pairwise_loop_prepare_path.read_text(encoding="utf-8")
-    pairwise_loop_start = pairwise_loop_start_path.read_text(encoding="utf-8")
-    pairwise_loop_peek = pairwise_loop_peek_path.read_text(encoding="utf-8")
-    pairwise_loop_ping = pairwise_loop_ping_path.read_text(encoding="utf-8")
-    pairwise_loop_pause = pairwise_loop_pause_path.read_text(encoding="utf-8")
-    pairwise_loop_resume = pairwise_loop_resume_path.read_text(encoding="utf-8")
-    pairwise_loop_recover_and_continue = pairwise_loop_recover_and_continue_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_stop = pairwise_loop_stop_path.read_text(encoding="utf-8")
-    pairwise_loop_hard_kill = pairwise_loop_hard_kill_path.read_text(encoding="utf-8")
-    pairwise_loop_charter = pairwise_loop_charter_path.read_text(encoding="utf-8")
-    pairwise_loop_policy = pairwise_loop_policy_path.read_text(encoding="utf-8")
-    pairwise_loop_reporting = pairwise_loop_reporting_path.read_text(encoding="utf-8")
-    pairwise_loop_plan_structure = pairwise_loop_plan_structure_path.read_text(encoding="utf-8")
-    pairwise_loop_single_template = pairwise_loop_single_template_path.read_text(encoding="utf-8")
-    pairwise_loop_bundle_template = pairwise_loop_bundle_template_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_formulate = pairwise_loop_v3_formulate_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_revise = pairwise_loop_v3_revise_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_prepare = pairwise_loop_v3_prepare_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_start = pairwise_loop_v3_start_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_charter = pairwise_loop_v3_charter_path.read_text(encoding="utf-8")
-    pairwise_loop_v3_workspace_contract = pairwise_loop_v3_workspace_contract_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v3_plan_structure = pairwise_loop_v3_plan_structure_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v3_single_template = pairwise_loop_v3_single_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v3_bundle_template = pairwise_loop_v3_bundle_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_formulate = pairwise_loop_v4_formulate_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_revise = pairwise_loop_v4_revise_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_prepare = pairwise_loop_v4_prepare_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_start = pairwise_loop_v4_start_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_charter = pairwise_loop_v4_charter_path.read_text(encoding="utf-8")
-    pairwise_loop_v4_workspace_contract = pairwise_loop_v4_workspace_contract_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_plan_structure = pairwise_loop_v4_plan_structure_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_single_template = pairwise_loop_v4_single_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_bundle_template = pairwise_loop_v4_bundle_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_plan_document_template = (
-        pairwise_loop_v4_plan_document_template_path.read_text(encoding="utf-8")
-    )
-    pairwise_loop_v4_agent_note_template = pairwise_loop_v4_agent_note_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_reporting_template = pairwise_loop_v4_reporting_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_bookkeeping_template = pairwise_loop_v4_bookkeeping_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v4_audit_template = pairwise_loop_v4_audit_template_path.read_text(
-        encoding="utf-8"
-    )
-    pairwise_loop_v3_contract_text = "\n".join(
-        (
-            pairwise_loop_v3_skill,
-            pairwise_loop_v3_formulate,
-            pairwise_loop_v3_revise,
-            pairwise_loop_v3_prepare,
-            pairwise_loop_v3_start,
-            pairwise_loop_v3_charter,
-            pairwise_loop_v3_plan_structure,
-            pairwise_loop_v3_single_template,
-            pairwise_loop_v3_bundle_template,
-        )
-    )
-    pairwise_loop_v4_contract_text = "\n".join(
-        (
-            pairwise_loop_v4_skill,
-            pairwise_loop_v4_formulate,
-            pairwise_loop_v4_revise,
-            pairwise_loop_v4_prepare,
-            pairwise_loop_v4_start,
-            pairwise_loop_v4_charter,
-            pairwise_loop_v4_workspace_contract,
-            pairwise_loop_v4_plan_structure,
-            pairwise_loop_v4_single_template,
-            pairwise_loop_v4_bundle_template,
-            pairwise_loop_v4_plan_document_template,
-            pairwise_loop_v4_agent_note_template,
-            pairwise_loop_v4_reporting_template,
-            pairwise_loop_v4_bookkeeping_template,
-            pairwise_loop_v4_audit_template,
-        )
-    )
-    relay_loop_formulate = relay_loop_formulate_path.read_text(encoding="utf-8")
-    relay_loop_revise = relay_loop_revise_path.read_text(encoding="utf-8")
-    relay_loop_graph = relay_loop_graph_path.read_text(encoding="utf-8")
-    relay_loop_start = relay_loop_start_path.read_text(encoding="utf-8")
-    relay_loop_status = relay_loop_status_path.read_text(encoding="utf-8")
-    relay_loop_stop = relay_loop_stop_path.read_text(encoding="utf-8")
-    relay_loop_policy = relay_loop_policy_path.read_text(encoding="utf-8")
-    relay_loop_result_contract = relay_loop_result_contract_path.read_text(encoding="utf-8")
-    relay_loop_plan_structure = relay_loop_plan_structure_path.read_text(encoding="utf-8")
-    relay_loop_single_template = relay_loop_single_template_path.read_text(encoding="utf-8")
-    relay_loop_bundle_template = relay_loop_bundle_template_path.read_text(encoding="utf-8")
+    assert result.removed_retired_skill_names == ()
+    assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-memory-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-pro/subskills/reference/runtime-mail-model.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-pro/subskills/reference/topology-modes.md"
+    ).is_file()
+    assert (home_path / "skills/houmao-agent-loop-pro/subskills/authoring/init.md").is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-pro/subskills/authoring/execplan-fast-forward.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-pro/subskills/execution/prepare-agents.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-pro/subskills/execution/prepare-workspace.md"
+    ).is_file()
+    assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
 
-    assert "actions/init.md" in mailbox_mgr_skill
-    assert "actions/register.md" in mailbox_mgr_skill
-    assert "actions/clear-messages.md" in mailbox_mgr_skill
-    assert "actions/export.md" in mailbox_mgr_skill
-    assert "actions/agent-binding-register.md" in mailbox_mgr_skill
-    assert "references/root-selection.md" in mailbox_mgr_skill
-    assert "command -v houmao-mgr" in mailbox_mgr_skill
-    assert "uv tool run --from houmao houmao-mgr" in mailbox_mgr_skill
-    assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
-    assert "manual mailbox-account administration" in mailbox_mgr_skill
+    loop_pro_skill = (home_path / "skills/houmao-agent-loop-pro/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    loop_lite_skill = (home_path / "skills/houmao-agent-loop-lite/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    advanced_usage_skill = (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    touring_skill = (home_path / "skills/houmao-touring/SKILL.md").read_text(encoding="utf-8")
+    touring_advanced_usage = (
+        home_path / "skills/houmao-touring/branches/advanced-usage.md"
+    ).read_text(encoding="utf-8")
+    pairwise_edge_loop_pattern = (
+        home_path
+        / "skills/houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
+    ).read_text(encoding="utf-8")
+    relay_loop_pattern = (
+        home_path / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
+    ).read_text(encoding="utf-8")
+
+    assert "tree-loop" in loop_pro_skill
+    assert "generic-loop" in loop_pro_skill
+    assert "MUST READ for mail-driven loops" in loop_pro_skill
+    assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
+    assert "Markdown/direct-SQL" in loop_lite_skill
+    assert "Loop-Template-Type" in loop_lite_skill
+    assert "direct SQLite" in loop_lite_skill
+    assert "houmao-agent-loop-pro" in advanced_usage_skill
+    assert "houmao-agent-loop-lite" in advanced_usage_skill
+    assert "Choose `tree-loop` or `generic-loop` inside pro" in advanced_usage_skill
     assert (
-        "mailbox registration may be owned by the later `project easy instance launch` step"
-        in mailbox_mgr_skill
-    )
-    assert "route to `actions/agent-binding-register.md` instead" in mailbox_mgr_skill
-    assert mailbox_init_action_path.is_file()
-    assert mailbox_register_action_path.is_file()
-    assert mailbox_clear_messages_action_path.is_file()
-    assert mailbox_export_action_path.is_file()
-    assert mailbox_messages_get_action_path.is_file()
-    assert mailbox_agent_binding_register_action_path.is_file()
-    assert mailbox_root_reference_path.is_file()
-    assert mailbox_mode_reference_path.is_file()
-    assert mailbox_structural_reference_path.is_file()
-    assert mailbox_stalwart_reference_path.is_file()
-    assert (
-        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
-        in mailbox_init_action_path.read_text(encoding="utf-8")
-    )
-    assert "<chosen houmao-mgr launcher>" in mailbox_init_action_path.read_text(encoding="utf-8")
-    assert "manually administered filesystem mailbox registration" in mailbox_register_action
-    assert "for a new specialist-backed easy instance" in mailbox_register_action
-    assert (
-        "may own mailbox registration instead of preregistering that address here"
-        in mailbox_register_action
-    )
-    assert "mailbox export" in mailbox_export_action
-    assert "--symlink-mode materialize|preserve" in mailbox_export_action
-    assert "Do not recommend raw recursive mailbox-root copying" in mailbox_export_action
-    assert "actions/launch.md" in manage_agent_instance_skill
-    assert "actions/join.md" in manage_agent_instance_skill
-    assert "actions/list.md" in manage_agent_instance_skill
-    assert "actions/stop.md" in manage_agent_instance_skill
-    assert "actions/relaunch.md" in manage_agent_instance_skill
-    assert "actions/cleanup.md" in manage_agent_instance_skill
-    assert "project easy specialist create" in manage_agent_instance_skill
-    assert "agents cleanup mailbox" in manage_agent_instance_skill
-    assert "agents relaunch" in manage_agent_instance_skill
-    assert launch_action_path.is_file()
-    assert specialist_launch_action_path.is_file()
-    assert join_action_path.is_file()
-    assert list_action_path.is_file()
-    assert stop_action_path.is_file()
-    assert relaunch_action_path.is_file()
-    assert cleanup_action_path.is_file()
-    assert "command -v houmao-mgr" in manage_agent_instance_skill
-    assert "uv tool run --from houmao houmao-mgr" in manage_agent_instance_skill
-    assert "agents launch" in launch_action
-    assert "--launch-profile" in launch_action
-    assert "launch-profile-backed" in launch_action
-    assert "project easy instance launch" in launch_action
-    assert "foreground-first" in launch_action
-    assert "Do not add one-shot background gateway overrides unless" in launch_action
-    assert "Do not add background gateway flags unless" in launch_action
-    assert "--mail-transport" in launch_action
-    assert "Launch-time gateway auto-attach is enabled by default" in specialist_launch_action
-    assert "Default launch-time gateway auto-attach uses foreground" in specialist_launch_action
-    assert "A headless managed-agent launch, including a required Gemini headless launch" in (
-        specialist_launch_action
-    )
-    assert "Do not add `--gateway-background` unless the user explicitly requested" in (
-        specialist_launch_action
-    )
-    assert "agents relaunch --agent-name" in relaunch_action
-    assert "current-session relaunch" in relaunch_action
-    assert "Do not reinterpret a relaunch request as `agents launch`" in relaunch_action
-    assert "agents cleanup session" in cleanup_action
-    assert "agents cleanup logs" in cleanup_action
-    assert "Prefer `--manifest-path` or `--session-root` from recent stop output" in cleanup_action
-    assert "bounded runtime-root fallback" in cleanup_action
-    assert "stopped-session tombstones" in cleanup_action
-    assert "admin cleanup runtime" in cleanup_action
-    assert "actions/discover.md" in agent_inspect_skill
-    assert "actions/screen.md" in agent_inspect_skill
-    assert "actions/mailbox.md" in agent_inspect_skill
-    assert "actions/logs.md" in agent_inspect_skill
-    assert "actions/artifacts.md" in agent_inspect_skill
-    assert "houmao-mgr agents list" in agent_inspect_skill
-    assert "houmao-mgr agents turn status|events|stdout|stderr" in agent_inspect_skill
-    assert "command -v houmao-mgr" in agent_inspect_skill
-    assert "uv tool run --from houmao houmao-mgr" in agent_inspect_skill
-    assert inspect_discover_action_path.is_file()
-    assert inspect_screen_action_path.is_file()
-    assert inspect_mailbox_action_path.is_file()
-    assert inspect_logs_action_path.is_file()
-    assert inspect_artifacts_action_path.is_file()
-    assert "GET /houmao/agents" in inspect_discover_action
-    assert "GET /houmao/agents/{agent_ref}/state/detail" in inspect_discover_action
-    assert "agents gateway tui state --agent-name <name>" in inspect_screen_action
-    assert "tmux capture-pane -p -e -S - <tmux-target>" in inspect_screen_action
-    assert "agents mail resolve-live --agent-name <name>" in inspect_mailbox_action
-    assert "houmao-mailbox-mgr" in inspect_mailbox_action
-    assert "agents turn events --agent-name <name> <turn-id>" in inspect_logs_action
-    assert "gateway/events.jsonl" in inspect_logs_action
-    assert "<session-root>/manifest.json" in inspect_artifacts_action
-    assert "gateway/state.json" in inspect_artifacts_action
-    assert "actions/discover.md" in agent_messaging_skill
-    assert "actions/prompt.md" in agent_messaging_skill
-    assert "actions/interrupt.md" in agent_messaging_skill
-    assert "actions/gateway-queue.md" in agent_messaging_skill
-    assert "actions/send-keys.md" in agent_messaging_skill
-    assert "actions/mail.md" in agent_messaging_skill
-    assert "actions/reset-context.md" in agent_messaging_skill
-    assert "houmao-mgr agents prompt" in agent_messaging_skill
-    assert "houmao-agent-inspect" in agent_messaging_skill
-    assert "command -v houmao-mgr" in agent_messaging_skill
-    assert "uv tool run --from houmao houmao-mgr" in agent_messaging_skill
-    assert discover_action_path.is_file()
-    assert prompt_action_path.is_file()
-    assert interrupt_action_path.is_file()
-    assert gateway_queue_action_path.is_file()
-    assert send_keys_action_path.is_file()
-    assert mail_action_path.is_file()
-    assert reset_context_action_path.is_file()
-    assert intent_matrix_reference_path.is_file()
-    assert managed_agent_http_reference_path.is_file()
-    assert "Use the `houmao-mgr` launcher already chosen by the top-level skill." in discover_action
-    assert "<chosen houmao-mgr launcher>" in discover_action
-    assert "best-effort `Escape` delivery" in interrupt_action
-    assert "tracked TUI state can lag the live visible surface" in interrupt_action
-    assert "no headless work is active" in interrupt_action
-    assert (
-        "Do not redirect ordinary TUI interrupt work to `agents gateway send-keys`"
-        in interrupt_action
-    )
-    assert "best-effort `Escape`" in intent_matrix_reference
-    assert "may no-op when idle" in intent_matrix_reference
-    assert "tracked TUI state currently looks idle" in managed_agent_http_reference
-    assert (
-        "Do not switch to raw `send-keys` merely to get the normal TUI interrupt behavior."
-        in managed_agent_http_reference
-    )
-    assert "actions/lifecycle.md" in agent_gateway_skill
-    assert "actions/discover.md" in agent_gateway_skill
-    assert "actions/gateway-services.md" in agent_gateway_skill
-    assert "actions/reminders.md" in agent_gateway_skill
-    assert "actions/mail-notifier.md" in agent_gateway_skill
-    assert "houmao-agent-inspect" in agent_gateway_skill
-    assert "patterns/self-notification.md" in advanced_usage_skill
-    assert "patterns/pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
-    assert "patterns/relay-loop-via-gateway-and-mailbox.md" in advanced_usage_skill
-    assert "manual guided tour skill" in touring_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for `houmao-touring`"
+        "advanced loop creation guidance through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`"
         in touring_skill
     )
-    assert "branches/orient.md" in touring_skill
-    assert "branches/advanced-usage.md" in touring_skill
-    assert "branches/lifecycle-follow-up.md" in touring_skill
-    assert "references/question-style.md" in touring_skill
-    assert "houmao-project-mgr" in touring_skill
-    assert "houmao-agent-loop-pairwise" in touring_skill
-    assert "houmao-agent-loop-pairwise-v2" in touring_skill
-    assert "houmao-agent-loop-pairwise-v3" in touring_skill
-    assert "houmao-agent-loop-pairwise-v4" in touring_skill
-    assert "houmao-agent-instance" in touring_skill
-    assert "## Welcome Message" in touring_skill
-    assert "framework and CLI toolkit for orchestrating teams" in touring_skill
-    assert "loosely coupled CLI-based AI agents" in touring_skill
-    assert "real CLI process with its own disk state, memory, and native TUI" in touring_skill
-    assert "mailbox messaging, per-agent gateways, and loop plans" in touring_skill
-    assert "A typical first setup path is:" in touring_skill
-    assert "initialize the mailbox root" in touring_skill
-    assert "Create a specialist: customize its system prompt" in touring_skill
-    assert "Create an optional launch profile" in touring_skill
-    assert "Set up and register the agent mail account" in touring_skill
-    assert "default tour posture is a visible TUI managed agent" in touring_skill
-    assert "gateway mail-notifier polling every 5 seconds" in touring_skill
-    assert "foreground-first gateway posture" in touring_author_launch
-    assert "not as detached background gateway execution" in touring_author_launch
-    assert "gateway_tmux_window_index" in touring_author_launch
-    assert "stable pairwise loop" in touring_advanced_usage
-    assert "enriched pairwise loop" in touring_advanced_usage
-    assert "Workspace-aware pairwise loop" in touring_advanced_usage
-    assert "Template-driven workspace-aware pairwise loop" in touring_advanced_usage
-    assert "authored `standard` or `custom` workspace contract" in touring_advanced_usage
-    assert "plan`, `start`, `status`, and `stop" in touring_advanced_usage
-    assert (
-        "plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, "
-        "`recover_and_continue`, `stop`" in touring_advanced_usage
-    )
-    assert "ask the user to select or explicitly invoke the desired pairwise skill" in (
-        touring_advanced_usage
-    )
-    assert "elemental immediate driver-worker edge protocol guidance belongs to" in (
-        touring_advanced_usage
-    )
-    assert "houmao-adv-usage-pattern" in touring_advanced_usage
-    assert "distinguish mailbox-root bootstrap from mailbox-account creation" in touring_setup
-    assert "launch-time mailbox bootstrap can own those per-agent addresses later" in touring_setup
-    assert "initialize the shared mailbox root now" in touring_question_style
-    assert "created by the later launch step" in touring_question_style
-    assert "authoring/formulate-loop-plan.md" in stable_pairwise_loop_skill
-    assert "operating/start.md" in stable_pairwise_loop_skill
-    assert "operating/status.md" in stable_pairwise_loop_skill
-    assert "operating/stop.md" in stable_pairwise_loop_skill
-    assert "prestart/prepare-run.md" not in stable_pairwise_loop_skill
-    assert "operating/hard-kill.md" not in stable_pairwise_loop_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise`." in stable_pairwise_loop_skill
-    )
-    assert "authoring/formulate-loop-plan.md" in pairwise_loop_skill
-    assert "authoring/render-loop-graph.md" in pairwise_loop_skill
-    assert "prestart/prepare-run.md" in pairwise_loop_skill
-    assert "operating/start.md" in pairwise_loop_skill
-    assert "operating/peek.md" in pairwise_loop_skill
-    assert "operating/ping.md" in pairwise_loop_skill
-    assert "operating/pause.md" in pairwise_loop_skill
-    assert "operating/resume.md" in pairwise_loop_skill
-    assert "operating/stop.md" in pairwise_loop_skill
-    assert "operating/hard-kill.md" in pairwise_loop_skill
-    assert "references/run-charter.md" in pairwise_loop_skill
-    assert "templates/single-file-plan.md" in pairwise_loop_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
-    )
-    assert (
-        "Do not auto-route generic pairwise loop planning or pairwise run-control "
-        "requests here when the user did not explicitly ask for "
-        "`houmao-agent-loop-pairwise-v2`." in pairwise_loop_skill
-    )
-    assert "houmao-mgr internals graph high" in pairwise_loop_skill
-    assert "authoring/formulate-loop-plan.md" in pairwise_loop_v3_skill
-    assert "references/workspace-contract.md" in pairwise_loop_v3_skill
-    assert (
-        "Use this Houmao skill only when the user explicitly asks for "
-        "`houmao-agent-loop-pairwise-v3`." in pairwise_loop_v3_skill
-    )
-    assert "workspace-aware enriched pairwise-loop skill" in pairwise_loop_v3_skill
-    assert "It extends `houmao-agent-loop-pairwise-v2`" in pairwise_loop_v3_skill
-    assert (
-        "Every authored plan records a `workspace_contract` with mode `standard` or `custom`."
-        in pairwise_loop_v3_skill
-    )
-    assert (
-        "Standard in-repo posture is task-scoped under `<repo-root>/houmao-ws/<task-name>/...`."
-        in (pairwise_loop_v3_skill)
-    )
-    assert (
-        "Runtime-owned recovery state stays under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/...`"
-        in (pairwise_loop_v3_skill)
-    )
-    assert "operator_preparation_wave" not in pairwise_loop_v3_contract_text
-    assert "`awaiting_ack`" not in pairwise_loop_v3_contract_text
-    assert "baseline initialize mail-notifier setup" in pairwise_loop_v3_skill
-    assert "gateway mail-notifier behavior has been verified or enabled" in (pairwise_loop_v3_start)
-    assert "Do not silently translate a custom workspace contract into `houmao-ws/...`." in (
-        pairwise_loop_v3_skill
-    )
-    assert "Do not prescribe a fixed subtree under per-agent `kb/`" in pairwise_loop_v3_skill
-    assert "authoring/formulate-loop-plan.md" in relay_loop_skill
-    assert "authoring/render-loop-graph.md" in relay_loop_skill
-    assert "operating/start.md" in relay_loop_skill
-    assert "operating/stop.md" in relay_loop_skill
-    assert "references/run-charter.md" in relay_loop_skill
-    assert "templates/single-file-plan.md" in relay_loop_skill
-    assert "houmao-mgr internals graph high" in relay_loop_skill
-    assert "HOUMAO_MANIFEST_PATH" in agent_gateway_skill
-    assert "HOUMAO_GATEWAY_ATTACH_PATH" in agent_gateway_skill
-    assert "houmao-mgr agents gateway attach|detach|status" in agent_gateway_skill
-    assert "houmao-mgr agents gateway reminders list|get|create|set|remove" in agent_gateway_skill
-    assert "command -v houmao-mgr" in agent_gateway_skill
-    assert "uv tool run --from houmao houmao-mgr" in agent_gateway_skill
-    assert gateway_lifecycle_action_path.is_file()
-    assert gateway_discover_action_path.is_file()
-    assert gateway_services_action_path.is_file()
-    assert gateway_reminders_action_path.is_file()
-    assert gateway_mail_notifier_action_path.is_file()
-    assert "`any_inbox`: default" in gateway_mail_notifier_action
-    assert "`unread_only`: notify only while unread inbox mail remains unarchived" in (
-        gateway_mail_notifier_action
-    )
-    assert "Processed mail should be archived" in gateway_mail_notifier_action
-    assert gateway_scope_reference_path.is_file()
-    assert gateway_http_reference_path.is_file()
-    assert self_notification_pattern_path.is_file()
-    assert self_notification_reminders_path.is_file()
-    assert self_notification_mail_path.is_file()
-    assert pairwise_edge_loop_pattern_path.is_file()
-    assert relay_loop_pattern_path.is_file()
-    assert touring_orient_path.is_file()
-    assert touring_setup_path.is_file()
-    assert touring_author_launch_path.is_file()
-    assert touring_live_ops_path.is_file()
-    assert touring_advanced_usage_path.is_file()
-    assert touring_lifecycle_path.is_file()
-    assert touring_question_style_path.is_file()
-    assert stable_pairwise_loop_formulate_path.is_file()
-    assert stable_pairwise_loop_start_path.is_file()
-    assert stable_pairwise_loop_status_path.is_file()
-    assert stable_pairwise_loop_stop_path.is_file()
-    assert not (home_path / "skills/houmao-agent-loop-pairwise/prestart").exists()
-    assert not (stable_pairwise_loop_operating / "peek.md").exists()
-    assert pairwise_loop_formulate_path.is_file()
-    assert pairwise_loop_revise_path.is_file()
-    assert pairwise_loop_graph_path.is_file()
-    assert pairwise_loop_prepare_path.is_file()
-    assert pairwise_loop_start_path.is_file()
-    assert pairwise_loop_peek_path.is_file()
-    assert pairwise_loop_ping_path.is_file()
-    assert pairwise_loop_pause_path.is_file()
-    assert pairwise_loop_resume_path.is_file()
-    assert pairwise_loop_recover_and_continue_path.is_file()
-    assert pairwise_loop_stop_path.is_file()
-    assert pairwise_loop_hard_kill_path.is_file()
-    assert not (pairwise_loop_operating / "status.md").exists()
-    assert pairwise_loop_charter_path.is_file()
-    assert pairwise_loop_policy_path.is_file()
-    assert pairwise_loop_stop_modes_path.is_file()
-    assert pairwise_loop_reporting_path.is_file()
-    assert pairwise_loop_plan_structure_path.is_file()
-    assert pairwise_loop_single_template_path.is_file()
-    assert pairwise_loop_bundle_template_path.is_file()
-    assert pairwise_loop_v3_formulate_path.is_file()
-    assert pairwise_loop_v3_revise_path.is_file()
-    assert pairwise_loop_v3_graph_path.is_file()
-    assert pairwise_loop_v3_prepare_path.is_file()
-    assert pairwise_loop_v3_start_path.is_file()
-    assert pairwise_loop_v3_peek_path.is_file()
-    assert pairwise_loop_v3_ping_path.is_file()
-    assert pairwise_loop_v3_pause_path.is_file()
-    assert pairwise_loop_v3_resume_path.is_file()
-    assert pairwise_loop_v3_recover_and_continue_path.is_file()
-    assert pairwise_loop_v3_stop_path.is_file()
-    assert pairwise_loop_v3_hard_kill_path.is_file()
-    assert pairwise_loop_v3_charter_path.is_file()
-    assert pairwise_loop_v3_workspace_contract_path.is_file()
-    assert pairwise_loop_v3_policy_path.is_file()
-    assert pairwise_loop_v3_stop_modes_path.is_file()
-    assert pairwise_loop_v3_reporting_path.is_file()
-    assert pairwise_loop_v3_plan_structure_path.is_file()
-    assert pairwise_loop_v3_single_template_path.is_file()
-    assert pairwise_loop_v3_bundle_template_path.is_file()
-    assert pairwise_loop_v4_formulate_path.is_file()
-    assert pairwise_loop_v4_revise_path.is_file()
-    assert pairwise_loop_v4_graph_path.is_file()
-    assert pairwise_loop_v4_prepare_path.is_file()
-    assert pairwise_loop_v4_start_path.is_file()
-    assert pairwise_loop_v4_peek_path.is_file()
-    assert pairwise_loop_v4_ping_path.is_file()
-    assert pairwise_loop_v4_pause_path.is_file()
-    assert pairwise_loop_v4_resume_path.is_file()
-    assert pairwise_loop_v4_recover_and_continue_path.is_file()
-    assert pairwise_loop_v4_stop_path.is_file()
-    assert pairwise_loop_v4_hard_kill_path.is_file()
-    assert pairwise_loop_v4_charter_path.is_file()
-    assert pairwise_loop_v4_workspace_contract_path.is_file()
-    assert pairwise_loop_v4_policy_path.is_file()
-    assert pairwise_loop_v4_stop_modes_path.is_file()
-    assert pairwise_loop_v4_reporting_path.is_file()
-    assert pairwise_loop_v4_plan_structure_path.is_file()
-    assert pairwise_loop_v4_single_template_path.is_file()
-    assert pairwise_loop_v4_bundle_template_path.is_file()
-    assert pairwise_loop_v4_plan_document_template_path.is_file()
-    assert pairwise_loop_v4_agent_note_template_path.is_file()
-    assert pairwise_loop_v4_reporting_template_path.is_file()
-    assert pairwise_loop_v4_bookkeeping_template_path.is_file()
-    assert pairwise_loop_v4_audit_template_path.is_file()
-    assert relay_loop_formulate_path.is_file()
-    assert relay_loop_revise_path.is_file()
-    assert relay_loop_graph_path.is_file()
-    assert relay_loop_start_path.is_file()
-    assert relay_loop_status_path.is_file()
-    assert relay_loop_stop_path.is_file()
-    assert relay_loop_charter_path.is_file()
-    assert relay_loop_policy_path.is_file()
-    assert relay_loop_result_contract_path.is_file()
-    assert relay_loop_stop_modes_path.is_file()
-    assert relay_loop_reporting_path.is_file()
-    assert relay_loop_plan_structure_path.is_file()
-    assert relay_loop_single_template_path.is_file()
-    assert relay_loop_bundle_template_path.is_file()
-    assert "HOUMAO_AGENT_ID" in gateway_discover_action
-    assert "foreground same-session auxiliary-window attach is the default" in (
-        gateway_lifecycle_action
-    )
-    assert "agents gateway attach --background --agent-name <name>" in (gateway_lifecycle_action)
-    assert "Do not choose `--background` by default" in gateway_lifecycle_action
-    assert "gateway_tmux_window_index" in gateway_lifecycle_action
-    assert (
-        "Use the `houmao-mgr` launcher already chosen by the top-level skill."
-        in gateway_discover_action
-    )
-    assert "<chosen houmao-mgr launcher>" in gateway_discover_action
-    assert "agents mail resolve-live" in gateway_discover_action
-    assert "/v1/reminders" in gateway_reminders_action
-    assert "send_keys" in gateway_reminders_action
-    assert "ensure_enter" in gateway_reminders_action
-    assert "agents gateway reminders create" in gateway_reminders_action
-    assert "--before-all" in gateway_reminders_action
-    assert "--after-all" in gateway_reminders_action
-    assert "paused effective reminder still blocks" in gateway_reminders_action
-    assert "process-local in-memory state" in gateway_reminders_action
-    assert "/houmao/agents/{agent_ref}/gateway/reminders" in gateway_http_reference
-    assert "/v1/reminders" in self_notification_pattern
-    assert (
-        "If you are not sure and durable recovery is not explicitly required, prefer live gateway reminders."
-        in self_notification_pattern
-    )
-    assert "ignore other new mail and work on this first" in self_notification_pattern
-    assert "one reminder per major work chunk" in self_notification_pattern
-    assert (
-        "work is high-priority and should stay focused ahead of unrelated new incoming mail"
-        in self_notification_reminders
-    )
-    assert "does not survive gateway shutdown or restart" in self_notification_reminders
-    assert "must survive gateway shutdown or restart" in self_notification_mail
-    assert "later rounds may reprioritize against external incoming mail" in self_notification_mail
-    assert "foreground-first and treats background gateway execution as explicit user intent" in (
-        self_notification_mail
-    )
-    assert "Do not imply that background gateway execution is the default setup" in (
-        self_notification_mail
-    )
-    assert "exactly one driver sends one worker request" in advanced_usage_skill
-    assert "ownership should keep moving forward along that lane" in advanced_usage_skill
-    assert "`houmao-agent-loop-generic` for composed topology" in advanced_usage_skill
-    assert "edge_loop_id" in pairwise_edge_loop_pattern
-    assert "Use a dedicated pairwise loop-planning skill for recursive child edge-loops" in (
-        pairwise_edge_loop_pattern
-    )
-    assert "ask the user for that value" in pairwise_edge_loop_pattern
-    assert "one repeating supervisor reminder as the live loop clock" in pairwise_edge_loop_pattern
-    assert "Subject: [edge-result] edge_loop=<edge_loop_id>" in pairwise_edge_loop_pattern
-    assert "operator-designated work artifact path" in relay_loop_pattern
-    assert "Do not use Houmao managed memory pages as the default home" in relay_loop_pattern
-    assert "ask the user for that parameter" in relay_loop_pattern
-    assert "one repeating supervisor reminder as the live loop clock" in relay_loop_pattern
-    assert "Subject: [relay-result] loop=<loop_id> result=<result_id>" in relay_loop_pattern
-    assert (
-        "After the master accepts the run, the master owns liveness" in stable_pairwise_loop_start
-    )
-    assert "The user agent may poll `status`, but status polling does not keep the run alive." in (
-        stable_pairwise_loop_start
-    )
-    assert "Status is observational and does not keep the run alive." in stable_pairwise_loop_status
-    assert "`interrupt-first` is the default stop posture for this skill." in (
-        stable_pairwise_loop_stop
-    )
-    assert (
-        "No free delegation is allowed unless the plan says so explicitly."
-        in pairwise_loop_formulate
-    )
-    assert "Resolve the plan output directory before drafting files" in pairwise_loop_formulate
-    assert "canonical entrypoint path: `<plan-output-dir>/plan.md`" in pairwise_loop_formulate
-    assert "Write the generated plan into the selected output directory" in pairwise_loop_formulate
-    assert "first-class structural preflight before authoring packets" in pairwise_loop_formulate
-    assert "houmao-mgr internals graph high analyze --input <graph.json>" in (
-        pairwise_loop_formulate
-    )
-    assert (
-        "houmao-mgr internals graph high slice --input <graph.json> --root <agent> --direction descendants"
-        in pairwise_loop_formulate
-    )
-    assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_formulate
-    assert "after `analyze` and any needed `slice` calls" in pairwise_loop_formulate
-    assert "houmao-mgr internals graph high packet-expectations" in pairwise_loop_revise
-    assert (
-        "Preserve the current output directory unless the user explicitly asks to move the plan."
-        in (pairwise_loop_revise)
-    )
-    assert "Write the revised plan back under the selected output directory" in pairwise_loop_revise
-    assert "by running graph analysis after `start`" in pairwise_loop_revise
-    assert "```mermaid" in pairwise_loop_graph
-    assert "The final plan must include one Mermaid fenced code block." in pairwise_loop_graph
-    assert "HOUMAO-operator@houmao.localhost" in pairwise_loop_prepare
-    assert "houmao-mgr internals graph high validate-packets" in pairwise_loop_prepare
-    assert (
-        "explicit deterministic structural check before entering `ready`" in pairwise_loop_prepare
-    )
-    assert "manually verify visible topology, descendant relationships, packet inventory" in (
-        pairwise_loop_prepare
-    )
-    assert "reply_policy=operator_mailbox" in pairwise_loop_prepare
-    assert "canonical `initialize` action" in pairwise_loop_prepare
-    assert "loop-runs/pairwise-v2/<run_id>/initialize.md" in pairwise_loop_prepare
-    assert "exact begin sentinel and one exact end sentinel keyed by `run_id` and slot" in (
-        pairwise_loop_prepare
-    )
-    assert "Preparation-mail targets are delegating or non-leaf participants by default" in (
-        pairwise_loop_prepare
-    )
-    assert "point the participant at its durable initialize page" in pairwise_loop_prepare
-    assert (
-        "Do not treat standalone participant preparation mail as the default initialize path."
-        in (pairwise_loop_prepare)
-    )
-    assert (
-        "Do not guess packet coverage, initialize page paths, or explicit preparation-wave targets when the topology is unclear"
-        in (pairwise_loop_prepare)
-    )
-    assert "`awaiting_ack`" in pairwise_loop_prepare
-    assert "`ready`" in pairwise_loop_prepare
-    assert "After the master accepts the run, the master owns liveness" in pairwise_loop_start
-    assert "houmao-agent-inspect" in pairwise_loop_start
-    assert "`<plan-output-dir>/plan.md` for the single-file form" in pairwise_loop_start
-    assert "`initialize` remains separate from `start`." in pairwise_loop_start
-    assert (
-        "durable initialize pages and exact-sentinel memo reference blocks have been written or refreshed"
-        in (pairwise_loop_start)
-    )
-    assert "required replies from targeted preparation recipients have arrived" in (
-        pairwise_loop_start
-    )
-    assert "compact start trigger" in pairwise_loop_start
-    assert "loop-runs/pairwise-v2/<run_id>/start-charter.md" in pairwise_loop_start
-    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_start
-    assert "Do not treat acknowledgement replies as readiness blockers" in pairwise_loop_start
-    assert (
-        "Later `peek` remains unintrusive, read-only, and does not keep the run alive."
-        in pairwise_loop_start
-    )
-    assert "Do not ask the master or intermediate drivers to run graph analysis" in (
-        pairwise_loop_start
-    )
-    assert "Use this page when the user wants canonical read-only inspection" in pairwise_loop_peek
-    assert "`peek master`, `peek all`, or `peek <agent-name>`" in pairwise_loop_peek
-    assert "`peek` is observational." in pairwise_loop_peek
-    assert (
-        "Use this page when the user wants to actively ask one selected pairwise-loop participant"
-        in pairwise_loop_ping
-    )
-    assert "`ping <agent-name>` is active messaging." in pairwise_loop_ping
-    assert "suspend the run's wakeup mechanisms" in pairwise_loop_pause
-    assert "Disabling mail notifier alone is not sufficient" in pairwise_loop_pause
-    assert "`resume` is not a synonym for `start`." in pairwise_loop_resume
-    assert "stopped, killed, or relaunched, use `recover_and_continue` instead" in (
-        pairwise_loop_resume
-    )
-    assert (
-        "restore one accepted pairwise loop after one or more participants were stopped, killed, or relaunched"
-        in (pairwise_loop_recover_and_continue)
-    )
-    assert "loop-runs/pairwise-v2/<run_id>/record.json" in pairwise_loop_recover_and_continue
-    assert "`recover_and_continue` preserves the same `run_id`." in (
-        pairwise_loop_recover_and_continue
-    )
-    assert "slot `recover-and-continue`" in pairwise_loop_recover_and_continue
-    assert "Do not replay stale reminder ids as though they were durable recovery state." in (
-        pairwise_loop_recover_and_continue
-    )
-    assert "`interrupt-first` is the default stop posture for this skill." in pairwise_loop_stop
-    assert (
-        "Do not mark the recovery record terminal merely because canonical `stop` completed."
-        in (pairwise_loop_stop)
-    )
-    assert "`broadcast-stop`" in pairwise_loop_stop
-    assert "participant-wide direct intervention" in pairwise_loop_hard_kill
-    assert "disable gateway mail-notifier polling" in pairwise_loop_hard_kill
-    assert "archive every open `message_ref`" in pairwise_loop_hard_kill
-    assert "marks the recovery record terminal" in pairwise_loop_hard_kill
-    assert "Do not collapse `hard-kill` into canonical `stop`." in pairwise_loop_hard_kill
-    assert "`peek master <run_id>`" in pairwise_loop_charter
-    assert "`pause <run_id>`" in pairwise_loop_charter
-    assert "`recover_and_continue <run_id>`" in pairwise_loop_charter
-    assert "path: <canonical plan path such as <plan-output-dir>/plan.md>" in pairwise_loop_charter
-    assert "prestart strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
-        pairwise_loop_charter
-    )
-    assert "root routing packet: <inline packet text or exact packet reference>" in (
-        pairwise_loop_charter
-    )
-    assert "Read the durable start-charter page at `pages/<relative-page>`." in (
-        pairwise_loop_charter
-    )
-    assert "## Compact Recover-And-Continue Trigger Template" in pairwise_loop_charter
-    assert "delegate_freely_within_named_set" in pairwise_loop_policy
-    assert "## Canonical Observed States" in pairwise_loop_reporting
-    assert "## Recovery Summary Fields" in pairwise_loop_reporting
-    assert "## Hard-Kill Summary Fields" in pairwise_loop_reporting
-    assert (
-        "Treat these state names as observations, not operator actions." in pairwise_loop_reporting
-    )
-    assert "## Lifecycle Vocabulary" in pairwise_loop_plan_structure
-    assert "## Output Directory Contract" in pairwise_loop_plan_structure
-    assert (
-        "Every authored pairwise-v2 plan should live under one user-chosen output directory."
-        in (pairwise_loop_plan_structure)
-    )
-    assert "`<plan-output-dir>/plan.md`" in pairwise_loop_plan_structure
-    assert "## Durable Initialize Material" in pairwise_loop_plan_structure
-    assert "Every plan using pairwise-v2 durable initialize pages should record" in (
-        pairwise_loop_plan_structure
-    )
-    assert "<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json" in (
-        pairwise_loop_plan_structure
-    )
-    assert (
-        "Do not describe explicit `operator_preparation_wave` as the default prestart strategy."
-        in (pairwise_loop_plan_structure)
-    )
-    assert "NetworkX node-link graph artifact location" in pairwise_loop_plan_structure
-    assert "packet JSON document location" in pairwise_loop_plan_structure
-    assert "optional `houmao-mgr internals graph high slice" in pairwise_loop_plan_structure
-    assert "preparation-mail target policy and delivery procedure" in (pairwise_loop_plan_structure)
-    assert "`hard-kill`" in pairwise_loop_plan_structure
-    assert (
-        "Treat `hard-kill` as a separate operator action"
-        in pairwise_loop_stop_modes_path.read_text(encoding="utf-8")
-    )
-    assert "# Prestart Procedure" in pairwise_loop_single_template
-    assert "Write this template as `<plan-output-dir>/plan.md`." in pairwise_loop_single_template
-    assert "## Expected Output Directory" in pairwise_loop_single_template
-    assert "prestart_strategy: <precomputed_routing_packets | operator_preparation_wave>" in (
-        pairwise_loop_single_template
-    )
-    assert "runtime-owned recovery record path" in pairwise_loop_single_template
-    assert "graph-tool preflight: <analyze, optional slice, and packet-expectations results" in (
-        pairwise_loop_single_template
-    )
-    assert "routing packet validation: <validate-packets result when graph and packet JSON" in (
-        pairwise_loop_single_template
-    )
-    assert (
-        "Initialize<br/>validate packets<br/>write durable pages" in pairwise_loop_single_template
-    )
-    assert "# Routing Packets" in pairwise_loop_single_template
-    assert "`stop`, `hard-kill`" in pairwise_loop_single_template
-    assert "`recover_and_continue`" in pairwise_loop_single_template
-    assert "The generated single-file output directory should contain only `plan.md`." in (
-        pairwise_loop_single_template
-    )
-    assert "`stop`, `hard-kill`" in pairwise_loop_bundle_template
-    assert (
-        "Ask for the output directory if it is not already known" in pairwise_loop_bundle_template
-    )
-    assert "<plan-output-dir>/" in pairwise_loop_bundle_template
-    assert "selected `prestart_strategy`: default `precomputed_routing_packets`" in (
-        pairwise_loop_bundle_template
-    )
-    assert "runtime-owned recovery record path family" in pairwise_loop_bundle_template
-    assert "graph artifact and packet JSON artifact locations when available" in (
-        pairwise_loop_bundle_template
-    )
-    assert "validation fallback when graph or packet JSON artifacts are unavailable" in (
-        pairwise_loop_bundle_template
-    )
-    assert "# Lifecycle Vocabulary" in pairwise_loop_single_template
-    assert "# Mermaid Control Graph" in pairwise_loop_single_template
-    assert "prestart.md" in pairwise_loop_bundle_template
-    assert "# Lifecycle Vocabulary" in pairwise_loop_bundle_template
-    assert "agents/<participant>.md" in pairwise_loop_bundle_template
-    assert "scripts/README.md" in pairwise_loop_bundle_template
-    assert "workspace contract mode: `standard` or `custom`" in pairwise_loop_v3_formulate
-    assert "explicit operator-owned launch cwd" in pairwise_loop_v3_formulate
-    assert "Do not invent a custom lane inside that workspace-preparation path." in (
-        pairwise_loop_v3_formulate
-    )
-    assert (
-        "Preserve the current output directory unless the user explicitly asks to move the plan."
-        in pairwise_loop_v3_revise
-    )
-    assert "memo slot: `initialize`" in pairwise_loop_v3_prepare
-    assert "launch profiles: <none | participant -> launch-profile mapping" in (
-        pairwise_loop_v3_single_template
-    )
-    assert "designated master's initialize memo block" in pairwise_loop_v3_start
-    assert "mail-delivery rule" in pairwise_loop_v3_plan_structure
-    assert (
-        "runtime-owned recovery record under `<runtime-root>/loop-runs/pairwise-v2/<run_id>/record.json`"
-        in (pairwise_loop_v3_start)
-    )
-    assert "mode: <standard | custom>" in pairwise_loop_v3_charter
-    assert "posture: <in-repo | out-of-repo | custom>" in pairwise_loop_v3_charter
-    assert "Do not translate `custom` into `houmao-ws/...`." in pairwise_loop_v3_charter
-    assert "Every pairwise-v3 plan records one workspace contract:" in (
-        pairwise_loop_v3_workspace_contract
-    )
-    assert "task-qualified branches such as `houmao/<task-name>/<agent-name>/main`" in (
-        pairwise_loop_v3_workspace_contract
-    )
-    assert (
-        "Do not use the standard workspace-preparation skill as a custom-workspace translation layer."
-        in (pairwise_loop_v3_workspace_contract)
-    )
-    assert "Every pairwise-v3 plan should record one authored workspace contract." in (
-        pairwise_loop_v3_plan_structure
-    )
-    assert "The workspace contract should describe allowed surfaces and ownership" in (
-        pairwise_loop_v3_plan_structure
-    )
-    assert (
-        "Do not describe custom bookkeeping as a fixed standard subtree under per-agent `kb/`."
-        in (pairwise_loop_v3_plan_structure)
-    )
-    assert "workspace_contract_mode: <standard | custom>" in pairwise_loop_v3_single_template
-    assert "runtime-owned recovery files: remain outside this workspace contract" in (
-        pairwise_loop_v3_single_template
-    )
-    assert "workspace contract mode: `standard` or `custom`" in pairwise_loop_v3_bundle_template
-    assert "for `custom`, the explicit operator-owned launch cwd" in (
-        pairwise_loop_v3_bundle_template
-    )
-    assert "document-templates/plan.md" in pairwise_loop_v4_skill
-    assert "template-driven workspace-aware enriched pairwise-loop skill" in pairwise_loop_v4_skill
-    assert "It extends `houmao-agent-loop-pairwise-v3`" in pairwise_loop_v4_skill
-    assert "source-constraint extraction, projection, and coverage audit" in pairwise_loop_v4_skill
-    assert "strict generated document templates" in pairwise_loop_v4_skill
-    assert "user-provided documents with schema-like policy verb patterns" in pairwise_loop_v4_skill
-    assert (
-        "ALWAYS`, `NEVER`, `CHECK`, `RUN`, `READ`, `ANALYZE`, `DECIDE`, "
-        "`OUTPUT`, `UPDATE`, `COMMIT`, `MERGE`, and `DISPATCH`" in pairwise_loop_v4_contract_text
-    )
-    assert "source task note path" in pairwise_loop_v4_formulate
-    assert "other user-provided source document paths" in pairwise_loop_v4_formulate
-    assert "user-provided source documents" in pairwise_loop_v4_formulate
-    assert "stable source-constraint ids such as `SC-001`" in pairwise_loop_v4_formulate
-    assert "constraint-coverage-audit.md" in pairwise_loop_v4_bundle_template
-    assert "Source Contract Summary" in pairwise_loop_v4_plan_structure
-    assert "schema-like policy verb patterns" in pairwise_loop_v4_plan_structure
-    assert "Source Contract Summary" in pairwise_loop_v4_single_template
-    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_single_template
-    assert "Source Contract Summary" in pairwise_loop_v4_bundle_template
-    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_bundle_template
-    assert "Source Constraints Carried Forward" in pairwise_loop_v4_plan_document_template
-    assert "Policy-Bearing Source Rules" in pairwise_loop_v4_plan_document_template
-    assert "Source Constraints Carried Forward" in pairwise_loop_v4_agent_note_template
-    assert "Reporting And Evidence Duties" in pairwise_loop_v4_agent_note_template
-    assert "Source Constraints Applied" in pairwise_loop_v4_reporting_template
-    assert "Record Schema" in pairwise_loop_v4_bookkeeping_template
-    assert "Coverage Table" in pairwise_loop_v4_audit_template
-    assert "user-provided document" in pairwise_loop_v4_audit_template
-    assert "Central Projection" in pairwise_loop_v4_audit_template
-    assert "Runtime Projection" in pairwise_loop_v4_audit_template
-    assert "UNRESOLVED - <reason>" in pairwise_loop_v4_contract_text
-    assert (
-        "No free delegation, free forwarding, or hidden dependency is allowed unless the plan says so explicitly."
-        in relay_loop_formulate
-    )
-    assert "first-class structural preflight" in relay_loop_formulate
-    assert "houmao-mgr internals graph high analyze" in relay_loop_formulate
-    assert "houmao-mgr internals graph high slice" in relay_loop_formulate
-    assert (
-        "do not use `graph low` primitives for normal typed loop planning" in relay_loop_formulate
-    )
-    assert "houmao-mgr internals graph high analyze" in relay_loop_revise
-    assert "houmao-mgr internals graph high slice" in relay_loop_revise
-    assert "Do not use `graph low` primitives for normal typed loop planning" in relay_loop_revise
-    assert "```mermaid" in relay_loop_graph
-    assert "The final plan must include one Mermaid fenced code block." in relay_loop_graph
-    assert "houmao-mgr internals graph high render-mermaid" in relay_loop_graph
-    assert "Do not treat graph-tool Mermaid output as final" in relay_loop_graph
-    assert "After the root owner accepts the run, the root owner owns liveness" in relay_loop_start
-    assert "Status is observational and does not keep the run alive." in relay_loop_status
-    assert "`interrupt-first` is the default stop posture for this skill." in relay_loop_stop
-    assert "forward_freely_within_named_set" in relay_loop_policy
-    assert (
-        "The designated loop egress returns the component final result to the relay origin."
-        in relay_loop_result_contract
-    )
-    assert "## Graph Artifact Fields" in relay_loop_plan_structure
-    assert "semantic review notes confirming graph policy" in relay_loop_plan_structure
-    assert "# Mermaid Generic Loop Graph" in relay_loop_single_template
-    assert "# Graph Artifact" in relay_loop_single_template
-    assert "semantic review: <graph policy, result routing" in relay_loop_single_template
-    assert "## `graph.md`" in relay_loop_bundle_template
-    assert "semantic review notes for graph policy" in relay_loop_bundle_template
-    assert "scripts/README.md" in relay_loop_bundle_template
-    assert "A specialist is a reusable agent template" in touring_question_style
-    assert "You can skip this now and come back later." in touring_question_style
-    assert "stop `research`" in touring_question_style
-    assert "POST /houmao/agents/{agent_ref}/gateway/control/prompt" in reset_context_action
-    assert 'chat_session.mode = "new"' in reset_context_action
-    assert "houmao-process-emails-via-gateway" in mail_action
-    assert "houmao-agent-email-comms" in mail_action
+    assert "Lite loop authoring" in touring_advanced_usage
+    assert "Pro loop authoring" in touring_advanced_usage
+    assert "Tree-loop mode" in touring_advanced_usage
+    assert "Generic-loop mode" in touring_advanced_usage
+    assert "Use `houmao-agent-loop-lite` instead" in pairwise_edge_loop_pattern
+    assert "Use `houmao-agent-loop-pro` in `tree-loop` mode" in pairwise_edge_loop_pattern
+    assert "Use `houmao-agent-loop-lite` instead" in relay_loop_pattern
+    assert "Use `houmao-agent-loop-pro` instead" in relay_loop_pattern
+
+    retired_names = load_system_skill_catalog().retired_skill_names
+    for retired_name in retired_names:
+        assert not (home_path / f"skills/{retired_name}").exists()
+        assert retired_name not in advanced_usage_skill
+        assert retired_name not in touring_skill
+        assert retired_name not in touring_advanced_usage
 
 
 def test_install_system_skills_for_home_supports_explicit_symlink_projection(

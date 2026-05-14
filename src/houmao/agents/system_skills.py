@@ -28,6 +28,7 @@ SYSTEM_SKILL_AGENT_INSPECT = "houmao-agent-inspect"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 SYSTEM_SKILL_MEMORY_MGR = "houmao-memory-mgr"
+SYSTEM_SKILL_AGENT_LOOP_PRO = "houmao-agent-loop-pro"
 SYSTEM_SKILL_UTILS_LLM_WIKI = "houmao-utils-llm-wiki"
 SYSTEM_SKILL_UTILS_WORKSPACE_MGR = "houmao-utils-workspace-mgr"
 
@@ -97,6 +98,7 @@ class SystemSkillCatalog:
     skills: dict[str, SystemSkillRecord]
     sets: dict[str, SystemSkillSetRecord]
     auto_install: AutoInstallSelection
+    retired_skill_names: tuple[str, ...]
 
     @property
     def skill_names(self) -> tuple[str, ...]:
@@ -116,6 +118,8 @@ class SystemSkillInstallResult:
     resolved_skill_names: tuple[str, ...]
     projected_relative_dirs: tuple[str, ...]
     projection_mode: SystemSkillProjectionMode
+    removed_retired_skill_names: tuple[str, ...] = ()
+    removed_retired_projected_relative_dirs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -128,11 +132,24 @@ class SystemSkillUninstallResult:
     removed_projected_relative_dirs: tuple[str, ...]
     absent_skill_names: tuple[str, ...]
     absent_projected_relative_dirs: tuple[str, ...]
+    removed_retired_skill_names: tuple[str, ...] = ()
+    removed_retired_projected_relative_dirs: tuple[str, ...] = ()
+    absent_retired_skill_names: tuple[str, ...] = ()
+    absent_retired_projected_relative_dirs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class InstalledSystemSkillStatusRecord:
     """One current packaged skill discovered in a live tool home."""
+
+    name: str
+    projected_relative_dir: str
+    projection_mode: SystemSkillProjectionMode
+
+
+@dataclass(frozen=True)
+class RetiredSystemSkillStatusRecord:
+    """One known retired Houmao-owned skill projection discovered in a tool home."""
 
     name: str
     projected_relative_dir: str
@@ -163,6 +180,14 @@ def projected_system_skill_relative_dir(*, tool: str, skill_name: str) -> str:
     relative_path = Path(
         system_skills_destination_for_tool(tool)
     ) / system_skill_reference_for_name(skill_name, tool=tool)
+    return str(relative_path)
+
+
+def projected_retired_system_skill_relative_dir(*, tool: str, skill_name: str) -> str:
+    """Return the home-relative directory path for one known retired skill projection."""
+
+    _validate_retired_system_skill_name(skill_name)
+    relative_path = Path(system_skills_destination_for_tool(tool)) / skill_name
     return str(relative_path)
 
 
@@ -265,6 +290,8 @@ def project_system_skills_to_destination(
 
     resolved_destination_root = destination_root.resolve()
     resolved_destination_root.mkdir(parents=True, exist_ok=True)
+    for retired_skill_name in catalog.retired_skill_names:
+        _remove_existing_path_if_present(resolved_destination_root / retired_skill_name)
     for skill_name in resolved_skill_names:
         skill_record = catalog.skills[skill_name]
         target_dir = resolved_destination_root / skill_name
@@ -318,6 +345,43 @@ def discover_installed_system_skills(
     return tuple(discovered)
 
 
+def discover_retired_system_skill_projections(
+    *,
+    tool: str,
+    home_path: Path,
+) -> tuple[RetiredSystemSkillStatusRecord, ...]:
+    """Return known retired Houmao-owned projections discovered in one tool home."""
+
+    catalog = load_system_skill_catalog()
+    resolved_home_path = home_path.resolve()
+    discovered: list[RetiredSystemSkillStatusRecord] = []
+    for skill_name in catalog.retired_skill_names:
+        projected_relative_dir = projected_retired_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_dir = resolved_home_path / projected_relative_dir
+        if target_dir.is_symlink():
+            discovered.append(
+                RetiredSystemSkillStatusRecord(
+                    name=skill_name,
+                    projected_relative_dir=projected_relative_dir,
+                    projection_mode="symlink",
+                )
+            )
+            continue
+        if not target_dir.is_dir():
+            continue
+        discovered.append(
+            RetiredSystemSkillStatusRecord(
+                name=skill_name,
+                projected_relative_dir=projected_relative_dir,
+                projection_mode="copy",
+            )
+        )
+    return tuple(discovered)
+
+
 def install_system_skills_for_home(
     *,
     tool: str,
@@ -355,6 +419,13 @@ def install_system_skills_for_home(
 
     resolved_home_path = home_path.resolve()
     resolved_home_path.mkdir(parents=True, exist_ok=True)
+    removed_retired_skill_names, removed_retired_projected_relative_dirs = (
+        _remove_retired_system_skill_projections_for_home(
+            catalog=catalog,
+            tool=tool,
+            home_path=resolved_home_path,
+        )
+    )
     projected_relative_dirs: list[str] = []
     for skill_name in resolved_skill_names:
         skill_record = catalog.skills[skill_name]
@@ -379,6 +450,8 @@ def install_system_skills_for_home(
         resolved_skill_names=resolved_skill_names,
         projected_relative_dirs=tuple(projected_relative_dirs),
         projection_mode=projection_mode,
+        removed_retired_skill_names=removed_retired_skill_names,
+        removed_retired_projected_relative_dirs=removed_retired_projected_relative_dirs,
     )
 
 
@@ -395,6 +468,10 @@ def uninstall_system_skills_for_home(
     removed_projected_relative_dirs: list[str] = []
     absent_skill_names: list[str] = []
     absent_projected_relative_dirs: list[str] = []
+    removed_retired_skill_names: list[str] = []
+    removed_retired_projected_relative_dirs: list[str] = []
+    absent_retired_skill_names: list[str] = []
+    absent_retired_projected_relative_dirs: list[str] = []
 
     for skill_name in catalog.skill_names:
         projected_relative_dir = projected_system_skill_relative_dir(
@@ -411,6 +488,21 @@ def uninstall_system_skills_for_home(
         removed_skill_names.append(skill_name)
         removed_projected_relative_dirs.append(projected_relative_dir)
 
+    for skill_name in catalog.retired_skill_names:
+        projected_relative_dir = projected_retired_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_path = resolved_home_path / projected_relative_dir
+        if not target_path.exists() and not target_path.is_symlink():
+            absent_retired_skill_names.append(skill_name)
+            absent_retired_projected_relative_dirs.append(projected_relative_dir)
+            continue
+
+        _remove_existing_path_if_present(target_path)
+        removed_retired_skill_names.append(skill_name)
+        removed_retired_projected_relative_dirs.append(projected_relative_dir)
+
     return SystemSkillUninstallResult(
         tool=tool,
         home_path=resolved_home_path,
@@ -418,6 +510,10 @@ def uninstall_system_skills_for_home(
         removed_projected_relative_dirs=tuple(removed_projected_relative_dirs),
         absent_skill_names=tuple(absent_skill_names),
         absent_projected_relative_dirs=tuple(absent_projected_relative_dirs),
+        removed_retired_skill_names=tuple(removed_retired_skill_names),
+        removed_retired_projected_relative_dirs=tuple(removed_retired_projected_relative_dirs),
+        absent_retired_skill_names=tuple(absent_retired_skill_names),
+        absent_retired_projected_relative_dirs=tuple(absent_retired_projected_relative_dirs),
     )
 
 
@@ -496,6 +592,7 @@ def _normalize_catalog_payload(
     return {
         "schema_version": raw_payload.get("schema_version"),
         "skills": normalized_skills,
+        "retired_skill_names": raw_payload.get("retired_skill_names", []),
         "sets": normalized_sets,
         "auto_install": {
             "managed_launch_sets": auto_install_mapping.get("managed_launch_sets"),
@@ -536,6 +633,7 @@ def _build_catalog_from_normalized_payload(payload: dict[str, Any]) -> SystemSki
             managed_join_sets=tuple(raw_auto_install["managed_join_sets"]),
             cli_default_sets=tuple(raw_auto_install["cli_default_sets"]),
         ),
+        retired_skill_names=tuple(payload["retired_skill_names"]),
     )
 
 
@@ -543,6 +641,21 @@ def _validate_catalog_cross_references(payload: dict[str, Any], *, source: str) 
     """Reject unknown set and auto-install references after schema validation."""
 
     known_skill_names = {record["name"] for record in payload["skills"]}
+    retired_skill_names = payload["retired_skill_names"]
+    duplicate_retired_names = sorted(
+        name for name in set(retired_skill_names) if retired_skill_names.count(name) > 1
+    )
+    if duplicate_retired_names:
+        raise SystemSkillCatalogError(
+            f"{source}: retired_skill_names contains duplicate skill name(s): "
+            f"{', '.join(duplicate_retired_names)}"
+        )
+    current_retired_overlap = known_skill_names.intersection(retired_skill_names)
+    if current_retired_overlap:
+        names = ", ".join(sorted(current_retired_overlap))
+        raise SystemSkillCatalogError(
+            f"{source}: skill name(s) cannot be both current and retired: {names}"
+        )
     for raw_set in payload["sets"]:
         for skill_name in raw_set["skills"]:
             if skill_name not in known_skill_names:
@@ -668,6 +781,38 @@ def _system_skill_record_for_name(skill_name: str) -> SystemSkillRecord:
     if record is None:
         raise SystemSkillCatalogError(f"Unknown system skill `{skill_name}`.")
     return record
+
+
+def _validate_retired_system_skill_name(skill_name: str) -> None:
+    """Reject names that are not known retired Houmao-owned skill projections."""
+
+    catalog = load_system_skill_catalog()
+    if skill_name not in catalog.retired_skill_names:
+        raise SystemSkillCatalogError(f"Unknown retired system skill `{skill_name}`.")
+
+
+def _remove_retired_system_skill_projections_for_home(
+    *,
+    catalog: SystemSkillCatalog,
+    tool: str,
+    home_path: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Remove known retired Houmao-owned projections from one concrete tool home."""
+
+    removed_skill_names: list[str] = []
+    removed_projected_relative_dirs: list[str] = []
+    for skill_name in catalog.retired_skill_names:
+        projected_relative_dir = projected_retired_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_path = home_path / projected_relative_dir
+        if not target_path.exists() and not target_path.is_symlink():
+            continue
+        _remove_existing_path_if_present(target_path)
+        removed_skill_names.append(skill_name)
+        removed_projected_relative_dirs.append(projected_relative_dir)
+    return tuple(removed_skill_names), tuple(removed_projected_relative_dirs)
 
 
 def _resolve_requested_set_names(

@@ -1,94 +1,62 @@
 ---
 name: houmao-specialist-mgr
-description: Use Houmao's supported project-easy workflow to create, update, list, inspect, or remove specialists and easy profiles, and to launch or stop easy instances from either source with the correct `houmao-mgr` launcher for the current environment.
+description: Compatibility wrapper. Route specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to the canonical `houmao-agent-definition` skill.
 license: MIT
 ---
 
-# Houmao Specialist Manager
+# Houmao Specialist Manager Compatibility Wrapper
 
-Use this Houmao skill when you need to manage project-local easy specialists, reusable easy profiles, and their easy-instance launch or stop flows through `houmao-mgr` instead of hand-editing project files.
+`houmao-specialist-mgr` is retained only as a compatibility entry point for older prompts and installed homes.
 
-The trigger word `houmao` is intentional. Use the `houmao-specialist-mgr` skill name directly when you intend to activate this Houmao-owned skill.
+## Help
 
-## Scope
+When the user asks `$houmao-specialist-mgr help`, `help for houmao-specialist-mgr`, `usage for houmao-specialist-mgr`, `available functionality for houmao-specialist-mgr`, or what this skill can do, answer from this section before switching to another subskill or workflow. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me create a specialist", explain the compatibility handoff and route to `houmao-agent-definition` instead of stopping at generic help.
 
-This packaged skill covers exactly these routed easy-workflow actions:
+Purpose: keep older specialist/profile prompts working by redirecting them to the canonical `houmao-agent-definition` skill.
 
-- `create specialist`
-- `create profile`
-- `update specialist`
-- `update profile`
-- `list specialists`
-- `list profiles`
-- `get specialist`
-- `get profile`
-- `remove specialist`
-- `remove profile`
-- `launch`
-- `stop`
+Available functionality:
 
-This packaged skill does not cover:
+- Explain that this wrapper has no independent command ownership.
+- Redirect specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to `houmao-agent-definition`.
+- Preserve older ready-profile wording as compatibility terminology.
+- Point credential discovery used during specialist creation to the canonical definition skill.
 
-- `houmao-mgr project easy instance list`
-- `houmao-mgr project easy instance get`
-- generic managed-agent lifecycle beyond easy-workflow `launch` and `stop`
+Common starting prompts:
+
+- `$houmao-specialist-mgr help`
+- `$houmao-specialist-mgr create a specialist`
+- `$houmao-specialist-mgr create-agent-fast-forward`
+- `$houmao-specialist-mgr launch-agent`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for current specialist, profile, easy launch, easy stop, and credential-reference workflows.
+- Use `houmao-agent-instance` for broad live-agent lifecycle after launch or stop.
+- Do not maintain separate command details in this wrapper.
+
+## Current Owner
+
+Use `houmao-agent-definition` for current specialist and profile work:
+
+- `specialists`: `houmao-agent-definition/subskills/easy/specialists.md`
+- `profiles`: `houmao-agent-definition/subskills/easy/profiles.md`
+- `create-agent-fast-forward`: `houmao-agent-definition/subskills/easy/create-agent-fast-forward.md`
+- `launch-agent`: `houmao-agent-definition/subskills/easy/launch-instance.md`
+- `stop-agent`: `houmao-agent-definition/subskills/easy/stop-instance.md`
+- credential discovery used during specialist creation: `houmao-agent-definition/references/credentials/`
 
 ## Workflow
 
-1. Identify which easy-workflow action the user wants: `create`, `update`, `list`, `get`, `remove`, `launch`, or `stop`, and whether it targets a `specialist`, a `profile`, or one easy instance.
-2. If the requested action or target resource kind is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-3. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-4. Reuse that same chosen launcher for the selected easy-workflow action.
-5. Load exactly one action page:
-   - `actions/create.md`
-   - `actions/list.md`
-   - `actions/get.md`
-   - `actions/remove.md`
-   - `actions/launch.md`
-   - `actions/stop.md`
-6. Follow the selected action page and report the result from the command that ran.
-7. After an easy-instance `launch` or `stop`, tell the user that further agent management should go through `houmao-agent-instance`.
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
-## Missing Input Questions
-
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
-- When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when several required fields or credential-lane choices need clarification
-- Name the command you intend to run and keep the question scoped to the selected easy-workflow action and target resource kind.
-
-## Routing Guidance
-
-- Use `actions/create.md` only when the user wants to create or update one reusable specialist, or create, update, or replace one reusable easy profile.
-- Use `actions/list.md` only when the user wants to list persisted specialists or persisted easy profiles.
-- Use `actions/get.md` only when the user wants to inspect one persisted specialist definition or one persisted easy profile.
-- Use `actions/remove.md` only when the user wants to remove one persisted specialist definition or one persisted easy profile.
-- Use `actions/launch.md` only when the user wants to launch one easy instance from an existing specialist or an existing easy profile.
-- Use `actions/stop.md` only when the user wants to stop one easy instance in the easy workflow.
+1. Tell the user or calling agent that `houmao-agent-definition` is the canonical skill.
+2. Switch to the matching `houmao-agent-definition` subskill.
+3. Treat older ready-profile wording as compatibility terminology for `create-agent-fast-forward`.
+4. Do not run commands from this wrapper.
+5. Do not maintain separate specialist, profile, launch, stop, or credential-reference guidance here.
 
 ## Guardrails
 
-- Do not guess the intended action when the prompt could mean specialist authoring, easy-profile authoring, or easy-instance runtime work.
-- Do not guess between specialist and easy-profile authoring when the prompt could mean either reusable source.
-- Do not remove and recreate a specialist for ordinary prompt, skill, setup, credential, model, prompt-mode, or env edits; use `project easy specialist set`.
-- Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
-- Do not route `project easy instance list|get` through this skill.
-- Do not route generic managed-agent `join`, `list`, `stop`, or `cleanup` requests through this skill.
-- Do not imply that this skill replaces `houmao-agent-instance` for broader live-agent lifecycle work.
-- Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
-- Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for specialist management.
-
-## References
-
-- `references/claude-credential-kinds.md` — user-facing credential kinds menu for Claude
-- `references/codex-credential-kinds.md` — user-facing credential kinds menu for Codex
-- `references/gemini-credential-kinds.md` — user-facing credential kinds menu for Gemini
-- `references/claude-credential-lookup.md` — discovery-mode lookup rules for Claude
-- `references/codex-credential-lookup.md` — discovery-mode lookup rules for Codex
-- `references/gemini-credential-lookup.md` — discovery-mode lookup rules for Gemini
+- Do not present this skill as the independent owner for specialist or easy-profile workflows.
+- Do not duplicate command details from `houmao-agent-definition`.
+- Do not route broad live-agent lifecycle work here; use `houmao-agent-instance` after any easy launch or stop.

@@ -1,5 +1,7 @@
 # List Definitions
 
+Legacy low-level-only action reference. Current routing should use the `roles` or `recipes` subcommands from `../SKILL.md`.
+
 Use this action only when the user wants to list low-level roles or named recipes.
 
 ## Workflow
@@ -7,7 +9,7 @@ Use this action only when the user wants to list low-level roles or named recipe
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine whether the user wants roles or recipes.
 3. Recover any explicit recipe filters from the current prompt first and recent chat context second when they were stated explicitly.
-4. If the target kind is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the target kind.
+4. If the target kind is still missing, ask the user in Markdown before proceeding. Follow `subskills/common/missing-inputs.md` so `Required` and `Optional` inputs are separate.
 5. Run `project agents roles list` for roles.
 6. Run `project agents recipes list` for recipes, adding `--role` or `--tool` only when the user explicitly asked for those filters.
 7. Report the returned list.

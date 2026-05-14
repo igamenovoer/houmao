@@ -60,6 +60,8 @@ When testing TUI agents automatically, default to unattended mode unless the tas
 ## Commit & Pull Request Guidelines
 Recent history follows Conventional Commit-style prefixes (`feat:`, `fix:`, `docs:`, `chore:`). Keep commits focused and imperative, e.g. `feat: add runtime health-check retry backoff`.
 
+**Branch policy: NEVER create `codex/*` branches unless the user explicitly requests that branch naming pattern.** When a task requires a new branch, use the branch name the user gave; if none was given, stay on the current branch or ask before creating one.
+
 PRs should include:
 - concise problem/solution summary
 - linked issue/spec (for behavior changes)

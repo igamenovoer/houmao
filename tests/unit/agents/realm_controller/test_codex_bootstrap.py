@@ -68,6 +68,7 @@ def test_codex_bootstrap_patches_config_idempotently_and_seeds_repo_trust(
     assert first_payload["model_provider"] == "yunwu-openai"
     assert first_payload["notice"]["hide_full_access_warning"] is True
     assert first_payload["notice"]["model_migrations"]["gpt-5.3-codex"] == "gpt-5.4"
+    assert first_payload["tui"]["show_tooltips"] is False
     assert first_payload["projects"][str(agent_def_dir.resolve())]["trust_level"] == "trusted"
     assert first_payload["features"]["unified_exec"] is True
 
@@ -85,11 +86,12 @@ def test_codex_bootstrap_falls_back_to_workdir_and_seeds_runtime_defaults(
     ensure_codex_home_bootstrap(home_path=home, env={}, working_directory=workdir)
     _, payload = _read_config(home)
 
-    assert payload["model"] == "gpt-5.4"
+    assert "model" not in payload
     assert payload["approval_policy"] == "never"
     assert payload["sandbox_mode"] == "danger-full-access"
     assert payload["notice"]["hide_full_access_warning"] is True
-    assert payload["notice"]["model_migrations"]["gpt-5.3-codex"] == "gpt-5.4"
+    assert payload["notice"].get("model_migrations") is None
+    assert payload["tui"]["show_tooltips"] is False
     assert payload["projects"][str(workdir.resolve())]["trust_level"] == "trusted"
 
 
@@ -111,6 +113,8 @@ def test_codex_bootstrap_accepts_non_empty_auth_json_without_api_key(
     assert payload["approval_policy"] == "never"
     assert payload["sandbox_mode"] == "danger-full-access"
     assert payload["notice"]["hide_full_access_warning"] is True
+    assert payload["notice"]["model_migrations"]["gpt-5.3-codex"] == "gpt-5.4"
+    assert payload["tui"]["show_tooltips"] is False
 
 
 @pytest.mark.parametrize(

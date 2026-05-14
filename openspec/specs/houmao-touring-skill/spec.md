@@ -384,3 +384,74 @@ This self-containment rule SHALL apply to `SKILL.md`, every file under `branches
 - **THEN** every branch page and reference cited by `SKILL.md` is reachable
 - **AND THEN** the user-facing tour experience is identical to running the tour from a source checkout
 
+### Requirement: Touring presents tree loop and generic loop families
+The packaged `houmao-touring` skill SHALL present `tree loop` and `generic loop` as the canonical advanced loop families in guided-tour and advanced-usage guidance.
+
+The touring guidance SHALL present pairwise-named loop skills as legacy-named or compatibility-named tree-loop skills.
+
+The touring guidance SHALL preserve explicit skill names such as `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-pairwise-v4`, and `houmao-agent-loop-pairwise-v5` when routing users to installed skill identities.
+
+The touring guidance SHALL describe the advanced-usage elemental protocol as a local-close edge loop while preserving pairwise edge-loop alias wording for compatibility.
+
+#### Scenario: Tour explains advanced loop choices
+- **WHEN** the guided tour explains advanced loop creation choices
+- **THEN** it names tree loop and generic loop as the primary families
+- **AND THEN** pairwise-named skills are explained as tree-loop skills with legacy invocation names
+
+#### Scenario: Tour routes to existing skill handles
+- **WHEN** a user selects a specific pairwise-named skill from the tour
+- **THEN** the tour routes to that existing skill handle
+- **AND THEN** it does not invent a renamed package or hidden alias skill
+
+### Requirement: Touring system-input questions label required and optional values
+When `houmao-touring` asks the user for Houmao system setup or lifecycle input, it SHALL identify required values separately from optional values or skip paths.
+
+The touring question SHALL keep first-time-user guidance, including plain-language concept names, short explanations, realistic examples, and recommended defaults where useful.
+
+This requirement SHALL apply to project overlay setup, mailbox setup, specialist or profile setup, managed-agent launch, post-launch gateway or mailbox setup, lifecycle follow-up, and cleanup choices.
+
+This requirement SHALL NOT apply to questions about the user's task content or domain goals unless the question is specifically about Houmao runtime behavior.
+
+#### Scenario: Project setup question labels required and optional values
+- **WHEN** the guided tour asks the user to create or select a Houmao project overlay
+- **THEN** the question labels the required project location or confirmation separately from optional naming, discovery-mode, or skip choices
+- **AND THEN** it still explains why the project overlay matters
+
+#### Scenario: Optional branch shows skip path as optional
+- **WHEN** the guided tour offers an optional mailbox, profile, gateway, or post-launch branch
+- **THEN** the question labels the branch-specific blocking values as required only if the user chooses that branch
+- **AND THEN** it labels the skip path or default as optional
+
+#### Scenario: Lifecycle choice explains terms and labels inputs
+- **WHEN** the guided tour asks whether to stop, relaunch, clean up, or inspect a managed agent
+- **THEN** it explains the difference between the lifecycle choices
+- **AND THEN** it labels the required target selector and selected lifecycle action separately from optional modifiers
+
+### Requirement: Touring presents pro as the current loop path
+The touring skill SHALL present `houmao-agent-loop-pro` as the current advanced loop authoring and execution path.
+
+The touring skill SHALL NOT enumerate retired pairwise or generic loop packages as current loop choices.
+
+#### Scenario: Touring user asks about advanced loops
+- **WHEN** a user asks touring for advanced loop creation or loop operation guidance
+- **THEN** touring identifies `houmao-agent-loop-pro` as the current loop skill
+- **AND THEN** it describes tree-loop and generic-loop as mode choices inside pro
+
+### Requirement: Touring presents lite and pro as current loop branches
+The `houmao-touring` skill SHALL present `houmao-agent-loop-lite` and `houmao-agent-loop-pro` as the current maintained loop-authoring branches.
+
+Touring SHALL route lightweight Markdown/direct-SQL/no-harness loop requests to `houmao-agent-loop-lite`.
+
+Touring SHALL route schema-rich, topology-heavy, harness-backed, validation-heavy, or complex generated-execplan requests to `houmao-agent-loop-pro`.
+
+Touring SHALL NOT route current loop planning or generated loop run-control requests to retired pairwise or generic loop packages.
+
+#### Scenario: Touring user asks for the simplest loop system
+- **WHEN** a touring user asks for a simple loop definition with Markdown and direct SQLite
+- **THEN** touring identifies `houmao-agent-loop-lite` as the current branch
+- **AND THEN** it explains that lite omits generated harness and docs layers
+
+#### Scenario: Touring user asks for complex generated execplans
+- **WHEN** a touring user asks for generated topology contracts, harness validation, or schema-typed mail
+- **THEN** touring identifies `houmao-agent-loop-pro` as the current branch
+- **AND THEN** it does not present lite as equivalent for that work

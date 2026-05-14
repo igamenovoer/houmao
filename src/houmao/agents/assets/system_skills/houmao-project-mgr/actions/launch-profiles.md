@@ -1,49 +1,9 @@
-# Manage Explicit Launch Profiles
+# Raw Profiles Have Moved
 
-Use this action only when the user wants to manage explicit recipe-backed launch profiles through `project agents launch-profiles ...`.
+This file is retained only as a routing note for older installed copies.
 
-## Workflow
+Use `houmao-agent-definition` subcommand `raw-profiles` for explicit recipe-backed launch-profile authoring through `project agents launch-profiles list|get|add|set|remove`.
 
-1. Determine whether the user wants to `list`, `get`, `add`, `set`, `replace`, or `remove` one explicit launch profile.
-2. Recover required launch-profile inputs from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the action or the required inputs are still ambiguous, ask before proceeding.
-4. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-5. Run the matching launch-profile command.
-6. Report the resulting launch-profile data from the command output.
+Current local route: `houmao-agent-definition/subskills/low-level/raw-profiles.md`.
 
-## Command Shape
-
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> project agents launch-profiles list
-<chosen houmao-mgr launcher> project agents launch-profiles get --name <profile>
-<chosen houmao-mgr launcher> project agents launch-profiles add --name <profile> --recipe <recipe> ...
-<chosen houmao-mgr launcher> project agents launch-profiles add --name <profile> --recipe <recipe> --yes ...
-<chosen houmao-mgr launcher> project agents launch-profiles set --name <profile> ...
-<chosen houmao-mgr launcher> project agents launch-profiles remove --name <profile>
-```
-
-## Boundary Notes
-
-- This is the explicit recipe-backed birth-time lane, not auth-bundle CRUD and not easy-profile authoring.
-- Use `launch-profiles set` for ordinary patch edits to existing explicit launch profiles.
-- `launch-profiles set` accepts the same default override options as `add`, plus clear flags such as `--clear-auth`, `--clear-env`, `--clear-mailbox`, `--clear-prompt-overlay`, and `--clear-memo-seed`.
-- Managed prompt-header section policy is stored with repeatable `--managed-header-section SECTION=enabled|disabled`; patch edits can remove one entry with `--clear-managed-header-section SECTION` or all entries with `--clear-managed-header-sections`.
-- Explicit launch profiles support a stored gateway mail-notifier appendix default through `--gateway-mail-notifier-appendix-text`. On launch, Houmao seeds that text into runtime gateway notifier state without enabling polling.
-- Use `--clear-gateway-mail-notifier-appendix` on `launch-profiles set` only when removing the stored profile-owned notifier appendix default.
-- Explicit launch profiles also support stored memo seeds through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`.
-- Memo seeds replace only components represented by the seed source. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present.
-- Supplying a new memo-seed source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new source.
-- Use `--memo-seed-text ''` for an intentional empty memo seed. Use `--clear-memo-seed` only when removing stored seed configuration.
-- Use `launch-profiles add --yes` only when the user intends same-name replacement; replacement is same-lane only and clears omitted optional fields.
-- `--auth` and `--clear-auth` here change the stored launch-profile auth override, not the underlying auth bundle contents. The CLI accepts auth display names, but the stored relationship resolves through auth-profile identity so later auth rename stays valid.
-- The shared conceptual model for easy profiles versus explicit launch profiles lives in `docs/getting-started/launch-profiles.md`.
-
-## Guardrails
-
-- Do not route `project easy profile ...` through this action.
-- Do not remove and recreate an explicit launch profile for ordinary edits; use `launch-profiles set` or `launch-profiles add --yes` when replacement is intended.
-- Do not treat launch-profile `--auth` changes as work for `houmao-credential-mgr`.
-- Do not route low-level recipe editing through this action; that belongs to `houmao-agent-definition`.
-- Do not invent launch-profile names, recipe names, or field overrides that the user did not provide.
+Do not run launch-profile authoring from `houmao-project-mgr`.

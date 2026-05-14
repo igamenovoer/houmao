@@ -17,6 +17,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     load_tmux_buffer,
     list_tmux_panes,
     list_tmux_sessions,
+    overlay_tmux_rich_color_environment,
     paste_tmux_buffer,
     probe_tmux_backed_authority,
     read_tmux_session_environment_value,
@@ -223,6 +224,156 @@ def test_create_tmux_session_surfaces_tmux_error(
             session_name="HOUMAO-gpu",
             working_directory=tmp_path,
         )
+
+
+def test_create_tmux_session_applies_default_config_injection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.delenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", raising=False)
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        calls.append(cmd)
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    create_tmux_session(session_name="HOUMAO-gpu", working_directory=tmp_path)
+
+    assert calls == [
+        [
+            "tmux",
+            "new-session",
+            "-d",
+            "-s",
+            "HOUMAO-gpu",
+            "-c",
+            str(tmp_path),
+        ],
+        ["tmux", "set-option", "-t", "HOUMAO-gpu", "mouse", "on"],
+        ["tmux", "set-option", "-t", "HOUMAO-gpu", "default-terminal", "tmux-256color"],
+        ["tmux", "set-option", "-at", "HOUMAO-gpu", "terminal-overrides", ",*256col*:Tc"],
+        ["tmux", "set-environment", "-t", "HOUMAO-gpu", "TERM", "tmux-256color"],
+        ["tmux", "set-environment", "-t", "HOUMAO-gpu", "COLORTERM", "truecolor"],
+        ["tmux", "set-environment", "-t", "HOUMAO-gpu", "-u", "NO_COLOR"],
+    ]
+
+
+def test_create_tmux_session_skips_config_injection_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", "0")
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        calls.append(cmd)
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    create_tmux_session(session_name="HOUMAO-gpu", working_directory=tmp_path)
+
+    assert calls == [
+        [
+            "tmux",
+            "new-session",
+            "-d",
+            "-s",
+            "HOUMAO-gpu",
+            "-c",
+            str(tmp_path),
+        ]
+    ]
+
+
+def test_create_tmux_session_cleans_up_and_guides_when_injection_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.delenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", raising=False)
+
+    def _fake_run(
+        cmd: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, capture_output, text, timeout
+        calls.append(cmd)
+        if cmd[1:4] == ["set-option", "-t", "HOUMAO-gpu"]:
+            return _completed(cmd, returncode=1, stderr="bad option")
+        return _completed(cmd)
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    with pytest.raises(
+        TmuxCommandError,
+        match="tmux config injection.*HOUMAO_ENABLE_TMUX_CONFIG_INJECTION=0",
+    ):
+        create_tmux_session(session_name="HOUMAO-gpu", working_directory=tmp_path)
+
+    assert calls[-1] == ["tmux", "kill-session", "-t", "HOUMAO-gpu"]
+
+
+def test_overlay_tmux_rich_color_environment_removes_color_suppression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", raising=False)
+    env = {
+        "NO_COLOR": "1",
+        "TERM": "dumb",
+        "COLORTERM": "",
+        "EXAMPLE_TOKEN": "abc",
+    }
+
+    overlay_tmux_rich_color_environment(env)
+
+    assert env["TERM"] == "tmux-256color"
+    assert env["COLORTERM"] == "truecolor"
+    assert "NO_COLOR" not in env
+    assert env["EXAMPLE_TOKEN"] == "abc"
+
+
+def test_overlay_tmux_rich_color_environment_preserves_env_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOUMAO_ENABLE_TMUX_CONFIG_INJECTION", "0")
+    env = {
+        "NO_COLOR": "1",
+        "TERM": "dumb",
+        "COLORTERM": "",
+        "EXAMPLE_TOKEN": "abc",
+    }
+
+    overlay_tmux_rich_color_environment(env)
+
+    assert env == {
+        "NO_COLOR": "1",
+        "TERM": "dumb",
+        "COLORTERM": "",
+        "EXAMPLE_TOKEN": "abc",
+    }
 
 
 def test_prepare_headless_agent_window_renames_and_selects_window_zero(

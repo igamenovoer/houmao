@@ -1,6 +1,6 @@
 ---
 name: houmao-memory-mgr
-description: "Use when the user's intent is to read or write a Houmao-managed agent's `houmao-memo.md` file or a launch profile's Houmao memo seed. Necessary trigger: `memo` is mentioned. Sufficient trigger: the prompt or context says `houmao memo`, says `agent memo` where the agent clearly refers to a Houmao-managed agent, or asks for a launch/easy profile memo seed. An explicit reference to `houmao-memo.md` is a very strong hint to call this skill."
+description: "Use when the user's intent is to read or write a Houmao-managed agent's `houmao-memo.md` file or a reusable profile's Houmao memo seed. Necessary trigger: `memo` is mentioned. Sufficient trigger: the prompt or context says `houmao memo`, says `agent memo` where the agent clearly refers to a Houmao-managed agent, or asks for an easy/raw profile memo seed. An explicit reference to `houmao-memo.md` is a very strong hint to call this skill."
 license: MIT
 ---
 
@@ -14,20 +14,48 @@ The sufficient trigger conditions are:
 
 - the prompt or recent context says `houmao memo`
 - the prompt or recent context says `agent memo`, and that agent clearly refers to a Houmao-managed agent
-- the prompt or recent context asks for a launch profile, easy profile, or reusable profile memo seed
+- the prompt or recent context asks for a raw profile, easy profile, or reusable profile memo seed
 
-When triggered, handle requests to edit, add something to, remove something from, inspect, or otherwise manage the Houmao/agent memo, a launch profile's Houmao memo seed, or memo-linked managed-agent memory pages.
+When triggered, handle requests to edit, add something to, remove something from, inspect, or otherwise manage the Houmao/agent memo, a reusable profile's Houmao memo seed, or memo-linked managed-agent memory pages.
+
+## Help
+
+When the user asks `$houmao-memory-mgr help`, `help for houmao-memory-mgr`, `usage for houmao-memory-mgr`, `available functionality for houmao-memory-mgr`, or what this skill can do, answer from this section before choosing a live-memory or launch-profile memo-seed workflow, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me append this to the agent memo", route to the matching workflow instead of stopping at generic help.
+
+Purpose: read and update Houmao-managed memo surfaces for live agents and reusable profile memo seeds.
+
+Available functionality:
+
+- Inspect, set, or append the fixed live `houmao-memo.md`.
+- Read, write, append, delete, resolve, and list memo-linked pages under `pages/`.
+- Locate live managed-agent memory paths.
+- Create, update, or clear easy-profile and raw-profile memo seeds for future launches.
+
+Common starting prompts:
+
+- `$houmao-memory-mgr help`
+- `$houmao-memory-mgr show memo for <agent>`
+- `$houmao-memory-mgr append to <agent> memo`
+- `$houmao-memory-mgr set memo seed for profile <name>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for non-memory profile authoring.
+- Use `houmao-agent-inspect` for runtime manifests, logs, screen, or mailbox posture.
+- Use `houmao-agent-gateway` for reminders, not managed memory.
+- Do not use this skill for provider-native memory, mailbox state, task queues, or arbitrary work artifacts.
 
 ## Scope
 
 This skill covers only Houmao-managed memo surfaces:
 
+- `help` (read-only meta operation)
 - `houmao-mgr agents memory path|status`
 - `houmao-mgr agents memory memo show|set|append`
 - `houmao-mgr agents memory tree|resolve|read|write|append|delete`
 - launch-profile memo seeds on reusable birth-time profiles:
   - easy-profile lane: `houmao-mgr project easy profile create|get|set`
-  - explicit launch-profile lane: `houmao-mgr project agents launch-profiles add|get|set`
+  - raw-profile lane: `houmao-mgr project agents launch-profiles add|get|set`
   - memo seed source options: `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`
   - clearing option: `--clear-memo-seed`
 - live-session environment variables `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`
@@ -35,6 +63,8 @@ This skill covers only Houmao-managed memo surfaces:
 It does not cover provider-native memory, mailbox state, gateway reminders, runtime manifests, task queues, or arbitrary work artifacts.
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Determine the target kind before choosing an edit surface:
    - If the prompt or recent context clearly says the user is working with a reusable launch profile, easy profile, profile defaults, birth-time config, future launches, or `--launch-profile`/`--profile`, update that launch profile's Houmao memo seed. Do not mutate any live agent memo for that request.
@@ -45,8 +75,8 @@ It does not cover provider-native memory, mailbox state, gateway reminders, runt
    - only then use a development launcher such as `pixi run houmao-mgr`, `.venv/bin/houmao-mgr`, or `uv run houmao-mgr`
 3. For a launch-profile memo seed, identify the lane:
    - easy profile: create, inspect, or update with `project easy profile create|get|set --name <profile>`
-   - explicit recipe-backed launch profile: create, inspect, or update with `project agents launch-profiles add|get|set --name <profile>`
-   - if the lane is ambiguous after checking prompt and context, ask whether the user means an easy profile or an explicit launch profile before editing.
+   - raw profile: create, inspect, or update with `project agents launch-profiles add|get|set --name <profile>`
+   - if the lane is ambiguous after checking prompt and context, ask whether the user means an easy profile or a raw profile before editing.
 4. For a launch-profile memo seed edit, read the profile first, then use exactly one memo seed source when setting content:
    - `--memo-seed-text <text>` for short inline memo content
    - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
@@ -57,6 +87,18 @@ It does not cover provider-native memory, mailbox state, gateway reminders, runt
 8. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions; for removals or rewrites, replace the full memo with `memo set` after preserving unrelated text.
 9. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
 10. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
+
+## Missing Input Questions
+
+- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
+- If the target kind, managed-agent selector, profile lane, profile name, memo path, page path, or mutation text is still missing, ask before editing.
+- When asking for Houmao memo-system inputs, use readable Markdown:
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected memory command or profile memo-seed edit
+  - `Optional`: launcher preference, profile lane defaults, seed source choice, page-path detail, output format, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the target kind, lane, or several required fields need clarification
+- Do not use this format for the user's memo content itself unless the question is about Houmao runtime behavior.
 
 ## Guardrails
 

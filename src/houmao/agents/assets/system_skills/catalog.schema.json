@@ -38,6 +38,13 @@
         }
       }
     },
+    "retired_skill_names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^houmao-[a-z0-9-]+$"
+      }
+    },
     "sets": {
       "type": "array",
       "minItems": 1,

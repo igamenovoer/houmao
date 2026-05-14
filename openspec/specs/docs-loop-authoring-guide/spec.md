@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the documentation requirements for the Houmao loop authoring getting-started guide — a page that helps readers choose a loop skill, understand the pairwise-v2 routing-packet and recovery model, understand pairwise-v3 workspace posture, and discover graph tooling that supports plan authoring.
-
 ## Requirements
-
 ### Requirement: docs site includes a loop authoring guide
 
 The docs site SHALL include a getting-started guide at `docs/getting-started/loop-authoring.md` that helps readers choose a loop skill and understand the current loop authoring models.
@@ -60,3 +58,42 @@ The guide SHALL NOT reproduce the full pairwise-v2 routing-packet JSON schema, t
 - **WHEN** a reader has a rich loop-task note with policy-bearing verbs and role-local hard gates
 - **THEN** the guide points them at `houmao-agent-loop-pairwise-v4`
 - **AND THEN** it explains that v4 preserves those constraints through strict document templates and a coverage audit
+
+### Requirement: Loop authoring guide is pro-oriented
+The loop authoring guide SHALL present `houmao-agent-loop-pro` as the current loop authoring skill.
+
+The guide SHALL explain that tree-loop and generic-loop are topology decisions inside pro-generated execplans.
+
+The guide SHALL NOT maintain a current skill-selection table among retired pairwise and generic loop packages.
+
+#### Scenario: Reader chooses topology inside pro
+- **WHEN** a reader wants to author a new loop
+- **THEN** the guide directs them to `houmao-agent-loop-pro`
+- **AND THEN** the guide explains when to choose tree-loop versus generic-loop mode
+
+### Requirement: Loop authoring guide preserves graph helper context
+The loop authoring guide SHALL continue to mention `houmao-mgr internals graph high` as deterministic graph tooling available to pro authoring when graph artifacts are useful.
+
+#### Scenario: Reader needs deterministic graph validation
+- **WHEN** a pro-generated loop has a topology graph that benefits from deterministic analysis
+- **THEN** the guide points to `houmao-mgr internals graph high`
+- **AND THEN** it does not require retired loop package names to use that tool
+
+### Requirement: Loop authoring guide presents pro and lite as current choices
+The loop authoring guide SHALL present both `houmao-agent-loop-pro` and `houmao-agent-loop-lite` as current maintained Houmao loop skills.
+
+The guide SHALL describe pro as the schema-rich generated-execplan path with generated contracts, harnesses, generated skills, agent bindings, workspace readiness, validation, launch, and run control.
+
+The guide SHALL describe lite as the Markdown/direct-SQL path with required communication templates, required generated skills, direct SQLite state, no JSON schemas, no Jinja2, no generated harness, and no generated docs layer.
+
+The guide SHALL NOT present retired pairwise or generic loop packages as current choices.
+
+#### Scenario: Reader chooses lite for a simple Markdown loop
+- **WHEN** a reader wants a lightweight loop with Markdown contracts and direct SQLite bookkeeping
+- **THEN** the guide directs them to `houmao-agent-loop-lite`
+- **AND THEN** it explains that lite does not generate harness or docs directories
+
+#### Scenario: Reader chooses pro for stronger generated validation
+- **WHEN** a reader wants topology contracts, schema-typed mail, harness commands, or stronger generated validation
+- **THEN** the guide directs them to `houmao-agent-loop-pro`
+- **AND THEN** it does not route that work to lite

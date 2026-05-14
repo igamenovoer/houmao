@@ -1,4 +1,4 @@
 interface:
-  display_name: "Houmao Manage Specialist"
-  short_description: "Manage Houmao easy specialists and profiles."
-  default_prompt: "Use $houmao-specialist-mgr to create, update, list, inspect, or remove Houmao easy specialists or profiles in this workspace, or to launch and stop easy instances from them."
+  display_name: "Houmao Specialist Compatibility"
+  short_description: "Compatibility wrapper that routes specialist, profile, and fast-forward work to houmao-agent-definition."
+  default_prompt: "Use $houmao-specialist-mgr only as a compatibility redirect. Route specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to $houmao-agent-definition."

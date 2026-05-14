@@ -21,6 +21,35 @@ license: MIT
 
 This is a Houmao-packaged utility system skill for creating and maintaining persistent Markdown knowledge bases. Install it with `houmao-mgr system-skills install --tool <tool> --skill-set all` or `houmao-mgr system-skills install --tool <tool> --skill houmao-utils-llm-wiki`.
 
+## Help
+
+When the user asks `$houmao-utils-llm-wiki help`, `help for houmao-utils-llm-wiki`, `usage for houmao-utils-llm-wiki`, `available functionality for houmao-utils-llm-wiki`, or what this skill can do, answer from this section before selecting a wiki operation, opening subskills, running helper scripts, writing wiki files, launching the viewer, or asking missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me ingest these papers into the wiki", route to the matching workflow instead of stopping at generic help.
+
+Purpose: create and maintain persistent Markdown LLM Wiki knowledge bases and launch the bundled local viewer.
+
+Available functionality:
+
+- Scaffold a new wiki directory tree.
+- `ingest` raw articles, papers, PDFs, web pages, notes, or references.
+- `compile` raw material into focused cross-linked wiki pages.
+- `query` the maintained wiki and optionally promote durable answers.
+- `lint` wiki structure, links, index coverage, and audit shape.
+- `audit` human feedback files and move resolved feedback with resolution notes.
+- Deploy or launch the packaged local web viewer.
+
+Common starting prompts:
+
+- `$houmao-utils-llm-wiki help`
+- `$houmao-utils-llm-wiki scaffold <wiki-root> "<topic>"`
+- `$houmao-utils-llm-wiki ingest these sources into <wiki-root>`
+- `$houmao-utils-llm-wiki query <wiki-root> about <question>`
+
+Related skills and boundaries:
+
+- This is a utility skill, not a managed-agent lifecycle, messaging, gateway, mailbox, memory, or credential control surface.
+- Use normal Houmao management skills for agent orchestration work.
+- Do not use this skill for general note-taking, daily journals, or non-wiki Obsidian maintenance.
+
 ## Core idea
 
 Instead of RAG (re-retrieving raw docs on every query), the LLM **compiles** raw sources into a persistent, cross-linked wiki. Every ingest, query, lint, and audit pass makes the wiki richer. Knowledge compounds — and the human stays in the loop via a structured feedback channel instead of ad-hoc corrections that get lost.
@@ -28,7 +57,7 @@ Instead of RAG (re-retrieving raw docs on every query), the LLM **compiles** raw
 - **You** own: sourcing raw material, asking good questions, steering direction, filing feedback on anything the AI got wrong.
 - **LLM** owns: all writing, cross-referencing, filing, bookkeeping, and acting on your feedback.
 
-The wiki is a living artifact with **five knowledge operations** — `compile`, `ingest`, `query`, `lint`, `audit`. Every session starts by reading `README.md` and `wiki/index.md`.
+The wiki is a living artifact with **five knowledge operations** — `compile`, `ingest`, `query`, `lint`, `audit` — plus the read-only meta operation `help`. Every non-help session starts by reading `README.md` and `wiki/index.md`.
 
 This Houmao utility skill also packages the local web viewer under `viewer/`. When the user asks to deploy, install, launch, or repair the viewer, read `subskills/viewer-deploy.md` and prefer `scripts/deploy_viewer.py` for the filesystem, install, and launch workflow.
 

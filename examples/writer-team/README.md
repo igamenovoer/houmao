@@ -122,11 +122,11 @@ houmao-mgr project easy instance launch --profile alex-char
 houmao-mgr project easy instance launch --profile alex-review
 ```
 
-The loop plan expects the master and workers to use mailbox-backed pairwise communication. When operating the run through the `houmao-agent-loop-pairwise` skill, enable gateway mail-notifier polling for live mailbox participants before sending the start charter unless your operator flow explicitly disables notifier setup.
+The loop plan expects the master and workers to use mailbox-backed tree-loop communication. When operating the run through `houmao-agent-loop-pro`, choose `tree-loop` mode and ensure gateway mail-notifier polling is ready for live mailbox participants before sending the start charter unless your operator flow explicitly disables notifier setup.
 
 ## Start A Run
 
-Edit `loop-plan/start-charter.md` to set the chapter count and premise. Then start through an operator agent with the `houmao-agent-loop-pairwise` skill, using:
+Edit `loop-plan/start-charter.md` to set the chapter count and premise. Then start through an operator agent with `houmao-agent-loop-pro`, using:
 
 - plan: `loop-plan/story-chapter-loop.md`
 - start charter: `loop-plan/start-charter.md`
@@ -138,7 +138,7 @@ For a direct CLI start without the loop skill's notifier preflight, send the cha
 houmao-mgr agents prompt --agent-name alex-story < loop-plan/start-charter.md
 ```
 
-The direct prompt path is useful for small local trials. For the full pairwise lifecycle, use the skill vocabulary: plan, start, status, and stop.
+The direct prompt path is useful for small local trials. For the full generated-loop lifecycle, use the pro workflow: prepare agents, prepare workspace when needed, validate, launch, start, status, and stop.
 
 ## Artifact Policy
 

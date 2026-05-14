@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Manage Agent Definition"
-  short_description: "Manage low-level Houmao roles and presets."
-  default_prompt: "Use $houmao-agent-definition to create, list, inspect, update, or remove Houmao low-level agent roles and presets in this workspace."
+  short_description: "Manage Houmao roles, recipes, raw-profiles, specialists, profiles, and create-agent-fast-forward."
+  default_prompt: "Use $houmao-agent-definition subcommands: roles, recipes, raw-profiles, specialists, profiles, create-agent-fast-forward, launch-agent, and stop-agent."

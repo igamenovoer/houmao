@@ -25,6 +25,7 @@ _CODEX_AUTH_FILENAME = "auth.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
 _CODEX_UNATTENDED_APPROVAL_POLICY = "never"
 _CODEX_UNATTENDED_SANDBOX_MODE = "danger-full-access"
+_CODEX_UNATTENDED_SHOW_TOOLTIPS = False
 _CODEX_MODEL_MIGRATION_SOURCE = "gpt-5.3-codex"
 _CODEX_MODEL_MIGRATION_TARGET = "gpt-5.4"
 _GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
@@ -305,6 +306,12 @@ def ensure_codex_unattended_runtime_state(
     )
     set_toml_key(
         path=config_path,
+        key_path=("tui", "show_tooltips"),
+        value=_CODEX_UNATTENDED_SHOW_TOOLTIPS,
+        repair_invalid=repair_invalid,
+    )
+    set_toml_key(
+        path=config_path,
         key_path=("projects", str(_resolve_codex_trust_target(working_directory)), "trust_level"),
         value="trusted",
         repair_invalid=repair_invalid,
@@ -503,6 +510,7 @@ def _codex_append_unattended_cli_overrides(args: list[str] | None) -> None:
                 _CODEX_UNATTENDED_SANDBOX_MODE,
             ),
             CodexCliConfigOverride(("notice", "hide_full_access_warning"), True),
+            CodexCliConfigOverride(("tui", "show_tooltips"), _CODEX_UNATTENDED_SHOW_TOOLTIPS),
         ),
     )
 
@@ -614,6 +622,7 @@ def _codex_override_targets_owned_surface(raw_override: str) -> bool:
         "approval_policy",
         "sandbox_mode",
         "notice.hide_full_access_warning",
+        "tui.show_tooltips",
     }:
         return True
     if normalized.startswith("notice.model_migrations.") and normalized.endswith(
@@ -681,14 +690,13 @@ def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bo
         repair_invalid=repair_invalid,
     )
     model_value = payload.get("model")
-    if model_value is None or model_value == _CODEX_MODEL_MIGRATION_SOURCE:
+    if model_value == _CODEX_MODEL_MIGRATION_SOURCE:
         set_toml_key(
             path=config_path,
             key_path=("model",),
             value=_CODEX_MODEL_MIGRATION_TARGET,
             repair_invalid=repair_invalid,
         )
-    if model_value is None or model_value == _CODEX_MODEL_MIGRATION_SOURCE:
         set_toml_key(
             path=config_path,
             key_path=("notice", "model_migrations", _CODEX_MODEL_MIGRATION_SOURCE),

@@ -12,6 +12,33 @@ Use this Houmao skill only when the user explicitly asks for `houmao-touring` or
 
 The trigger word `houmao` is intentional. Use the `houmao-touring` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section before presenting the welcome, inspecting state, choosing a branch page, routing to another skill, command execution, or missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me tour this Houmao project", route to the guided tour instead of stopping at generic help.
+
+Purpose: provide a manual guided Houmao tour that starts from current state and routes selected work to maintained direct-operation skills.
+
+Available functionality:
+
+- Orient from current project, specialist, profile, managed-agent, mailbox, and gateway state.
+- Guide quickstart, setup, author-and-launch, live-operations, advanced-usage, and lifecycle-follow-up branches.
+- Explain likely next branches in first-time-user-friendly language.
+- Route actual work to the Houmao skill that owns the selected surface.
+
+Common starting prompts:
+
+- `$houmao-touring help`
+- `$houmao-touring start a guided tour`
+- `$houmao-touring orient me in this project`
+- `$houmao-touring show advanced usage options`
+
+Related skills and boundaries:
+
+- Use direct-operation skills such as `houmao-project-mgr`, `houmao-agent-definition`, `houmao-mailbox-mgr`, `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-inspect`, and `houmao-agent-instance` for ordinary narrow tasks.
+- Use `houmao-agent-loop-lite` or `houmao-agent-loop-pro` for current loop authoring and generated loop operation.
+- Use `houmao-adv-usage-pattern` for elemental multi-skill mailbox or gateway patterns.
+- Do not use this skill as the default entrypoint when the user did not ask for a guided tour.
+
 ## Welcome Message
 
 When the user starts the guided tour, present a welcome message that adapts to the inspected current Houmao state. Keep the welcome user-facing and never imply that the user must restart from the beginning when Houmao state already exists. Do not repeat the welcome on every turn; if the recent conversation already covered it, skip it and proceed with the current-state orientation.
@@ -51,7 +78,7 @@ This packaged skill covers a branching guided tour for:
 - ordinary mailbox send or read entry
 - gateway mail-notifier follow-up when a live gateway and mailbox are both ready
 - reminders
-- advanced pairwise agent-loop creation guidance
+- advanced loop creation guidance through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`
 - managed-agent inspection, stop, relaunch, and cleanup follow-up
 
 This packaged skill does not cover:
@@ -62,6 +89,8 @@ This packaged skill does not cover:
 - destructive cleanup as an automatic side effect of stop
 
 ## Workflow
+
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Confirm that the user explicitly wants the guided touring experience instead of one narrow direct-operation task.
 2. Present the welcome message, including the typical first setup path, unless the recent conversation already covered it.
@@ -95,7 +124,7 @@ This packaged skill does not cover:
 - Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
 - Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
 - Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
-- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including the stable, enriched, workspace-aware, and generic loop skills, the advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
+- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including lite loop authoring, pro loop authoring, advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
 - Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
 
 ## References
@@ -107,14 +136,14 @@ This packaged skill does not cover:
 
 - Route project overlay setup or explanation to `houmao-project-mgr`.
 - Route mailbox administration to `houmao-mailbox-mgr`.
-- Route specialist or profile authoring plus easy-instance launch to `houmao-specialist-mgr`.
+- Route specialist or profile authoring, `create-agent-fast-forward`, and easy-instance launch to `houmao-agent-definition`.
 - Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, and runtime artifact inspection to `houmao-agent-inspect`.
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
 - Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
-- Route advanced stable pairwise loop creation to `houmao-agent-loop-pairwise` only after the user selects or explicitly invokes that skill.
-- Route advanced enriched pairwise loop creation to `houmao-agent-loop-pairwise-v2` only after the user selects or explicitly invokes that skill.
-- Route advanced workspace-aware pairwise loop creation to `houmao-agent-loop-pairwise-v3` only after the user selects or explicitly invokes that skill; route template-driven workspace-aware pairwise loop creation to `houmao-agent-loop-pairwise-v4` only after the user selects or explicitly invokes v4.
+- Route lightweight Markdown/direct-SQL loop authoring, validation, and generated loop execution to `houmao-agent-loop-lite` when the user explicitly asks for lite or no-harness Markdown loops.
+- Route schema-rich loop authoring, generated execplan validation, topology-heavy planning, and generated loop execution to `houmao-agent-loop-pro`.
+- Present tree-loop and generic-loop as topology choices inside `houmao-agent-loop-pro`, not as separate skill packages.
 - Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
 - Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
 
@@ -126,7 +155,7 @@ This packaged skill does not cover:
 - Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
 - Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
-- Do not silently auto-route generic pairwise loop planning or pairwise run-control requests into `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4`; ask the user to select or explicitly invoke the desired pairwise skill.
-- Do not restate composed pairwise topology, run-control details, or elemental pairwise edge-loop protocol inline; keep those on the selected pairwise loop skill and `houmao-adv-usage-pattern`.
+- Do not route current loop planning or generated loop run-control requests to retired loop packages.
+- Do not restate composed tree loop topology, run-control details, typed-template rules, direct-SQL state rules, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-lite` or `houmao-agent-loop-pro` and elemental patterns on `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
 - Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.

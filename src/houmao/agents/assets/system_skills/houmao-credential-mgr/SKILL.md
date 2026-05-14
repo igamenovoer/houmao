@@ -19,10 +19,39 @@ For plain agent-definition directories, credential identity is the directory bas
 
 The trigger word `houmao` is intentional. Use the `houmao-credential-mgr` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-credential-mgr help`, `help for houmao-credential-mgr`, `usage for houmao-credential-mgr`, `available functionality for houmao-credential-mgr`, or what this skill can do, answer from this section before choosing a credential action, command, reference page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me add a Codex credential", route to the matching workflow instead of stopping at generic help.
+
+Purpose: manage supported Houmao credential bundles for project overlays or explicit plain agent-definition directories.
+
+Available functionality:
+
+- `list` and `get` credentials with safe inspection posture.
+- `add` and `set` credential bundle contents for supported tool families.
+- `login` through maintained provider login/import workflows.
+- `rename` or `remove` one existing credential.
+- Choose project-backed versus explicit plain agent-definition directory targets.
+
+Common starting prompts:
+
+- `$houmao-credential-mgr help`
+- `$houmao-credential-mgr list codex credentials`
+- `$houmao-credential-mgr add claude credential`
+- `$houmao-credential-mgr login gemini`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` to change stored `--auth` overrides on easy or raw launch profiles.
+- Use `houmao-project-mgr` for project overlay lifecycle and status.
+- Use `houmao-agent-instance` for launch, join, list, stop, or cleanup.
+- Do not use this skill for direct filesystem editing under credential storage directories.
+
 ## Scope
 
 This packaged skill covers exactly these credential actions:
 
+- `help` (read-only meta operation)
 - `list`
 - `get`
 - `add`
@@ -49,10 +78,12 @@ This packaged skill does not cover:
 
 ## Workflow
 
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
 1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
 2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
-   - easy-profile auth override work belongs to `houmao-specialist-mgr`
-   - explicit launch-profile auth override work belongs to the supported `houmao-mgr project agents launch-profiles add|set --auth ...` or `--clear-auth` surface, not to credential CRUD
+   - easy-profile auth override work belongs to `houmao-agent-definition`
+   - raw-profile auth override work belongs to `houmao-agent-definition` subcommand `raw-profiles`, not to credential CRUD
 3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 4. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
@@ -79,9 +110,13 @@ This packaged skill does not cover:
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 - If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
 - When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the tool lane, target, or several required fields need clarification
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected credential command, such as action, tool family, target, credential name, supported credential input, supported change, or rename target
+  - `Optional`: launcher preference, output format, credential-kind modifiers, defaults, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the tool lane, target, or several required fields need clarification
 - Name the command you intend to run and show only the missing fields needed for that command.
+- Do not use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
 
 ## Routing Guidance
 

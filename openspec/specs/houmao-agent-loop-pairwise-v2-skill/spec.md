@@ -3,31 +3,6 @@
 ## Purpose
 Define the packaged versioned enriched pairwise loop skill, including its manual invocation boundary, prestart preparation lane, expanded operator actions, and targeted preparation behavior.
 ## Requirements
-### Requirement: Houmao provides a packaged `houmao-agent-loop-pairwise-v2` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pairwise-v2` under the maintained system-skill asset root.
-
-That packaged skill SHALL use `houmao-agent-loop-pairwise-v2` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
-
-The top-level `SKILL.md` for that packaged skill SHALL describe the skill as the versioned enriched pairwise authoring, prestart, and run-control surface rather than as the stable pairwise contract.
-
-The packaged `houmao-agent-loop-pairwise-v2` skill SHALL be manual-invocation-only. It SHALL instruct agents to use the skill only when the user explicitly asks for `houmao-agent-loop-pairwise-v2` by name.
-
-That packaged skill SHALL remain distinct from both the restored stable `houmao-agent-loop-pairwise` skill and the lower-level messaging, mailbox, gateway, and advanced-usage skills that it composes.
-
-That packaged skill SHALL own composed pairwise loop planning concerns, including multi-edge topology, recursive child-control edges, rendered control graphs, master-owned run planning, lifecycle preparation, run charters, and enriched run-control actions.
-
-When that packaged skill references `houmao-adv-usage-pattern`, it SHALL treat the advanced-usage pairwise page as the elemental immediate driver-worker edge protocol to use per edge rather than as the owner of composed pairwise topology.
-
-#### Scenario: User explicitly asks to invoke the v2 pairwise skill
-- **WHEN** a user explicitly asks for `houmao-agent-loop-pairwise-v2`
-- **THEN** `houmao-agent-loop-pairwise-v2` is the correct packaged Houmao-owned skill
-- **AND THEN** it presents itself as the versioned enriched pairwise skill rather than as the restored stable pairwise skill
-
-#### Scenario: Generic pairwise loop request does not auto-route to v2
-- **WHEN** a user asks generically to plan or operate a pairwise loop without explicitly asking for `houmao-agent-loop-pairwise-v2`
-- **THEN** `houmao-agent-loop-pairwise-v2` does not present itself as the default skill for that request
-- **AND THEN** the request remains outside this packaged skill entrypoint unless the user later invokes the skill explicitly
-
 ### Requirement: The v2 skill preserves the enriched pairwise workflow surface
 The packaged `houmao-agent-loop-pairwise-v2` skill SHALL preserve the enriched pairwise workflow currently carried by the renamed v2 asset tree.
 
@@ -380,3 +355,32 @@ The revise guidance SHALL preserve the current output directory unless the user 
 - **AND WHEN** the selected output directory is `/workspace/loop-plan`
 - **THEN** the guidance writes `/workspace/loop-plan/plan.md` and the supporting bundle files under `/workspace/loop-plan/`
 - **AND THEN** it does not scatter the authored plan across unrelated directories
+
+### Requirement: V2 pairwise-named loop skill presents tree loop terminology
+The packaged `houmao-agent-loop-pairwise-v2` skill SHALL keep its skill name, packaged asset directory name, and explicit activation handle unchanged.
+
+The skill SHALL describe its enriched authored topology as a tree loop or local-close tree loop in user-facing explanatory text.
+
+The skill SHALL present `pairwise loop` as a legacy alias for tree loop behavior rather than as the primary concept name.
+
+The skill SHALL not rename existing v2 runtime paths, recovery names, generated field names, or pairwise-named compatibility references as part of this terminology change.
+
+#### Scenario: V2 remains explicitly invokable
+- **WHEN** a user explicitly invokes `houmao-agent-loop-pairwise-v2`
+- **THEN** the skill remains the correct packaged entrypoint
+- **AND THEN** it explains that v2 authors or operates enriched tree-loop behavior
+
+#### Scenario: V2 preserves existing runtime compatibility
+- **WHEN** v2 guidance references existing runtime-owned paths or pairwise-named recovery records
+- **THEN** those references remain unchanged
+- **AND THEN** surrounding prose uses tree-loop terminology where it explains the topology to users
+
+### Requirement: Pairwise-v2 skill is retired
+The system SHALL NOT package `houmao-agent-loop-pairwise-v2` as a current installable Houmao-owned system skill.
+
+Current docs and routing guidance SHALL NOT present pairwise-v2 as a current choice for new loop authoring.
+
+#### Scenario: Pairwise-v2 name is absent from current inventory
+- **WHEN** the current system-skill inventory is loaded
+- **THEN** `houmao-agent-loop-pairwise-v2` is not present as a current installable skill
+- **AND THEN** current loop authoring guidance points to `houmao-agent-loop-pro`

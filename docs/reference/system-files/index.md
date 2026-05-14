@@ -32,7 +32,7 @@ Representative runtime-owned layout:
 <active-overlay>/runtime/
   homes/<home-id>/
   manifests/<home-id>.yaml
-  loop-runs/pairwise-v2/<run-id>/
+  loop-runs/pairwise-v2/<run-id>/   # legacy retained runtime-family reference
   sessions/<backend>/<session-id>/
   houmao_servers/<host>-<port>/
 ```

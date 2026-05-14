@@ -43,6 +43,39 @@ def easy_profile_group() -> None:
     help="Repeatable persistent launch env record (`NAME=value`).",
 )
 @click.option(
+    "--add-registered-skill",
+    "add_registered_skill",
+    multiple=True,
+    help="Add an existing project skill to launches from this easy profile.",
+)
+@click.option(
+    "--remove-registered-skill",
+    "remove_registered_skill",
+    multiple=True,
+    help="Remove a registered project skill override from this easy profile.",
+)
+@click.option(
+    "--add-private-skill",
+    "add_private_skill",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="Copy a profile-private skill directory into launches from this easy profile.",
+)
+@click.option(
+    "--add-private-skill-symlink",
+    "add_private_skill_symlink",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="Symlink a profile-private skill directory into launches from this easy profile.",
+)
+@click.option(
+    "--remove-private-skill",
+    "remove_private_skill",
+    multiple=True,
+    type=click.Path(path_type=Path),
+    help="Remove a profile-private skill source path from this easy profile.",
+)
+@click.option(
     "--mail-transport",
     type=click.Choice(("filesystem", "stalwart")),
     default=None,
@@ -135,6 +168,11 @@ def create_easy_profile_command(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
+    add_registered_skill: tuple[str, ...],
+    remove_registered_skill: tuple[str, ...],
+    add_private_skill: tuple[Path, ...],
+    add_private_skill_symlink: tuple[Path, ...],
+    remove_private_skill: tuple[Path, ...],
     mail_transport: str | None,
     mail_principal_id: str | None,
     mail_address: str | None,
@@ -182,6 +220,11 @@ def create_easy_profile_command(
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
+        add_registered_skill=add_registered_skill,
+        remove_registered_skill=remove_registered_skill,
+        add_private_skill=add_private_skill,
+        add_private_skill_symlink=add_private_skill_symlink,
+        remove_private_skill=remove_private_skill,
         mail_transport=mail_transport,
         mail_principal_id=mail_principal_id,
         mail_address=mail_address,
@@ -263,6 +306,39 @@ def create_easy_profile_command(
     help="Repeatable persistent launch env record replacement (`NAME=value`).",
 )
 @click.option("--clear-env", is_flag=True, help="Clear stored persistent launch env records.")
+@click.option(
+    "--add-registered-skill",
+    "add_registered_skill",
+    multiple=True,
+    help="Add an existing project skill to launches from this easy profile.",
+)
+@click.option(
+    "--remove-registered-skill",
+    "remove_registered_skill",
+    multiple=True,
+    help="Remove a registered project skill override from this easy profile.",
+)
+@click.option(
+    "--add-private-skill",
+    "add_private_skill",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="Copy a profile-private skill directory into launches from this easy profile.",
+)
+@click.option(
+    "--add-private-skill-symlink",
+    "add_private_skill_symlink",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+    help="Symlink a profile-private skill directory into launches from this easy profile.",
+)
+@click.option(
+    "--remove-private-skill",
+    "remove_private_skill",
+    multiple=True,
+    type=click.Path(path_type=Path),
+    help="Remove a profile-private skill source path from this easy profile.",
+)
 @click.option(
     "--mail-transport",
     type=click.Choice(("filesystem", "stalwart")),
@@ -395,6 +471,11 @@ def set_easy_profile_command(
     clear_prompt_mode: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    add_registered_skill: tuple[str, ...],
+    remove_registered_skill: tuple[str, ...],
+    add_private_skill: tuple[Path, ...],
+    add_private_skill_symlink: tuple[Path, ...],
+    remove_private_skill: tuple[Path, ...],
     mail_transport: str | None,
     mail_principal_id: str | None,
     mail_address: str | None,
@@ -450,6 +531,11 @@ def set_easy_profile_command(
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
+        add_registered_skill=add_registered_skill,
+        remove_registered_skill=remove_registered_skill,
+        add_private_skill=add_private_skill,
+        add_private_skill_symlink=add_private_skill_symlink,
+        remove_private_skill=remove_private_skill,
         mail_transport=mail_transport,
         mail_principal_id=mail_principal_id,
         mail_address=mail_address,
@@ -1581,6 +1667,8 @@ def launch_easy_instance_command(
     launch_profile_provenance = None
     launch_profile_memo_seed = None
     launch_profile_mail_notifier_appendix_text: str | None = None
+    launch_profile_registered_skill_names: tuple[str, ...] = ()
+    launch_profile_private_skills: tuple[Any, ...] = ()
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
@@ -1627,6 +1715,10 @@ def launch_easy_instance_command(
         )
         prompt_overlay_mode = resolved_profile.entry.prompt_overlay_mode
         prompt_overlay_text = resolved_profile.prompt_overlay_text
+        launch_profile_registered_skill_names = tuple(
+            getattr(resolved_profile.entry, "registered_skill_names", ())
+        )
+        launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
         launch_profile_memo_seed = resolved_profile.memo_seed
         launch_profile_mail_notifier_appendix_text = (
@@ -1787,6 +1879,8 @@ def launch_easy_instance_command(
         launch_profile_provenance=launch_profile_provenance,
         launch_profile_memo_seed=launch_profile_memo_seed,
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
+        launch_profile_registered_skill_names=launch_profile_registered_skill_names,
+        launch_profile_private_skills=launch_profile_private_skills,
         force_mode=force_mode,
         reuse_home=reuse_home,
     )

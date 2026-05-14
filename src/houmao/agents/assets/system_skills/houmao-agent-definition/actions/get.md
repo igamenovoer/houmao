@@ -1,5 +1,7 @@
 # Get Definition
 
+Legacy low-level-only action reference. Current routing should use the `roles` or `recipes` subcommands from `../SKILL.md`.
+
 Use this action only when the user wants to inspect one low-level role or one named recipe.
 
 ## Workflow
@@ -7,7 +9,7 @@ Use this action only when the user wants to inspect one low-level role or one na
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine whether the target is a role or a recipe.
 3. Recover the target name from the current prompt first and recent chat context second when it was stated explicitly.
-4. If the target kind or target name is still missing, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need one or two fields.
+4. If the target kind or target name is still missing, ask the user in Markdown before proceeding. Follow `subskills/common/missing-inputs.md` so `Required` and `Optional` inputs are separate.
 5. For one role:
    - run `project agents roles get --name <role>` for summary-oriented inspection
    - add `--include-prompt` only when the user explicitly asked for prompt text or the full low-level role definition

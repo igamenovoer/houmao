@@ -4,7 +4,7 @@ Use `in-repo` when the operator wants task-scoped workspace notes, per-agent kno
 
 Require the setup command to run from inside a Git repo. Resolve the repo top-level directory as `repo-root`.
 
-Resolve one `task-name` for the workspace team. If the task name cannot be inferred safely, ask for it instead of inventing one.
+Resolve one `task-name` for the workspace team. If the task name cannot be inferred safely, ask with `Required: task-name` and an `Optional` section for workspace root, branch naming preference, or `none for this step`; do not invent one.
 
 Default workspace root:
 
@@ -39,6 +39,19 @@ Create this layout:
         repo/                 # ignored Git worktree of <repo-root>
 ```
 
+Loop execplans may request additional task-scoped bookkeeping directories while still using this standard in-repo flavor. Keep the base layout above authoritative, then add only the requested bookkeeping paths, commonly:
+
+```text
+<repo-root>/houmao-ws/<task-name>/
+  runs/                       # run ids, run reports, and harness-state references
+  artifacts/                  # durable task-level evidence or generated outputs
+  <agent-name>/
+    artifacts/                # owner-produced durable artifacts and evidence
+    tmp/                      # ignored local scratch, logs, and transient outputs
+```
+
+Treat these as workspace-manager-created directories when a loop execplan asks for them. Durable bookkeeping paths should be documented in `workspace.md`; transient `tmp/` paths should be ignored unless the operator explicitly wants them tracked.
+
 Track these paths in the parent repo:
 
 - `<repo-root>/houmao-ws/README.md`
@@ -48,11 +61,13 @@ Track these paths in the parent repo:
 - `<repo-root>/houmao-ws/<task-name>/shared-kb/**`
 - `<repo-root>/houmao-ws/<task-name>/<agent-name>/README.md`
 - `<repo-root>/houmao-ws/<task-name>/<agent-name>/kb/**`
+- loop-requested durable bookkeeping directories such as `<repo-root>/houmao-ws/<task-name>/runs/**`, `<repo-root>/houmao-ws/<task-name>/artifacts/**`, and `<repo-root>/houmao-ws/<task-name>/<agent-name>/artifacts/**` when the execplan wants them tracked
 
 Ignore each agent repo worktree from the parent checkout:
 
 ```gitignore
 /houmao-ws/*/*/repo/
+/houmao-ws/*/*/tmp/
 ```
 
 The ignored `repo/` directory is still a real Git worktree of `repo-root`; it is ignored only so the parent checkout does not record it as an embedded repository.
@@ -125,6 +140,7 @@ For `plan`, include:
 - shared visibility surface and safe write targets
 - in-repo read/write ownership rules
 - parent-repo `.gitignore` additions
+- any loop-requested bookkeeping dirs, including tracked durable paths and ignored transient paths
 - private worktree source and shared-KB paths agents should write
 - parent-checkout agent KB paths each owning agent may write
 - submodule materialization decisions for `repo-root`
@@ -137,8 +153,8 @@ For `plan`, include:
 For `execute`:
 
 1. Verify `repo-root` is a Git repo.
-2. Create `houmao-ws/`, repo-level `workspaces.md`, task-local shared KB, per-agent KB, and README files as needed.
-3. Add `/houmao-ws/*/*/repo/` to the parent repo ignore rules if missing.
+2. Create `houmao-ws/`, repo-level `workspaces.md`, task-local shared KB, per-agent KB, loop-requested bookkeeping dirs, and README files as needed.
+3. Add `/houmao-ws/*/*/repo/` and any requested transient bookkeeping paths such as `/houmao-ws/*/*/tmp/` to the parent repo ignore rules if missing.
 4. Create one Git worktree per agent at `<task-root>/<agent-name>/repo`.
 5. Apply the shared local-state symlink policy from `SKILL.md`, preserving relative paths for linked local-only state.
 6. Apply the shared tracked-submodule policy from `SKILL.md`.

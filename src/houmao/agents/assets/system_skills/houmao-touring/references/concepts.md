@@ -12,9 +12,9 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 ## Agents, Specialists, Profiles, Launches
 
-- **Specialist** — a reusable agent template that pairs a role prompt, tool adapter, and credentials under one name. A specialist can be launched more than once. Owning skill: `houmao-specialist-mgr`.
-- **Easy profile** — an optional reusable launch-default wrapper layered on top of a specialist. It captures birth-time defaults such as a fixed instance name, working directory, authentication lane, or mailbox posture. Owning skill: `houmao-specialist-mgr`.
-- **Launch profile** — the explicit launch-profile object that can be attached to a build request to carry reusable birth-time defaults such as managed-agent identity, workdir, auth override, prompt mode, durable env records, mailbox config, gateway posture, and managed-header policy. Owning skill: `houmao-project-mgr`.
+- **Specialist** — a reusable agent template that pairs a role prompt, tool adapter, and credentials under one name. A specialist can be launched more than once. Owning skill: `houmao-agent-definition`.
+- **Easy profile** — an optional reusable launch-default wrapper layered on top of a specialist. It captures birth-time defaults such as a fixed instance name, working directory, authentication lane, or mailbox posture. Owning skill: `houmao-agent-definition`.
+- **Raw profile** — the low-level recipe-backed launch-profile object that can be attached to a build request to carry reusable birth-time defaults such as managed-agent identity, workdir, auth override, prompt mode, durable env records, mailbox config, gateway posture, and managed-header policy. Owning skill: `houmao-agent-definition` subcommand `raw-profiles`.
 - **Managed agent** — the running live instance of an agent that Houmao supervises inside a real tmux session. A managed agent has its own disk state, memory, gateway sidecar, and mailbox binding. Owning skill: `houmao-agent-instance`.
 - **Relaunch** — restart a relaunchable managed session without treating it as a fresh launch. Relaunch preserves the original managed-agent identity and supporting artifacts. Owning skill: `houmao-agent-instance`.
 - **Cleanup** — remove artifacts for a stopped managed-agent session. Cleanup takes a cleanup kind such as `session` or `logs` and is never safe for a live session. Owning skill: `houmao-agent-instance`.
@@ -34,9 +34,9 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 ## Roles In A Multi-Agent Run
 
-- **User agent** — the agent (human or CLI) that interacts with the user and composes Houmao plans. The user agent stays outside the execution loop; it plans, starts, checks, and stops rather than driving pairwise edges directly. Owning skill: the top-level `houmao-touring` tour and the loop skills.
-- **Master** — the designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling after accepting a loop run. Owning skills: `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-pairwise-v4`, `houmao-agent-loop-generic`.
-- **Loop plan** — a single-file or bundle plan that names a master, participants, and the intended pairwise or relay topology. The plan is the author-time artifact that the loop skills consume at `start`. Owning skills: `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-pairwise-v4`, `houmao-agent-loop-generic`.
+- **User agent** — the agent (human or CLI) that interacts with the user and composes Houmao plans. The user agent stays outside the execution loop; it plans, starts, checks, and stops rather than driving local-close edges directly. Owning skill: the top-level `houmao-touring` tour and the loop skills.
+- **Master** — an optional designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling when a generated loop design chooses central ownership. Owning skill: `houmao-agent-loop-lite` or `houmao-agent-loop-pro`.
+- **Loop plan** — generated execplan artifacts that define objective, participants, communication, generated skills, state, agent bindings, and run behavior. Lite plans use Markdown contracts with direct SQLite state; pro plans add schema-rich topology, harness behavior, workspace contracts, and run-control behavior. Owning skill: `houmao-agent-loop-lite` or `houmao-agent-loop-pro`.
 
 ## Memory And Pages
 

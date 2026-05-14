@@ -7,8 +7,10 @@ Use this reference when `houmao-touring` needs to ask the user for input during 
 - Name the concept in plain language before asking for the value.
 - Briefly explain why the value matters.
 - Give one to three realistic examples.
+- For Houmao system setup or lifecycle questions, label `Required` values separately from `Optional` defaults, modifiers, or skip paths.
 - When the branch is optional, offer either a recommended default or a clear skip-for-now path.
 - Keep the question helpful and readable for first-time users rather than terse for expert operators.
+- Do not force `Required`/`Optional` labels onto user-task or domain-goal questions unless the question is about Houmao runtime behavior.
 
 ## Example Prompts
 
@@ -20,6 +22,12 @@ Use a shape like:
 What specialist name do you want?
 
 A specialist is a reusable agent template that you can launch more than once later.
+
+Required:
+- specialist name
+
+Optional:
+- none for this step
 
 Examples:
 - `researcher`
@@ -42,6 +50,13 @@ The first decision is usually whether you only want to initialize the shared mai
 
 If you plan to launch specialist-backed agents with ordinary addresses such as `<agent-name>@houmao.localhost`, that per-agent mailbox can usually be created by the later launch step instead of by preregistering every agent address now.
 
+Required if you choose mailbox setup:
+- mailbox setup choice: root only, or root plus one manual account
+
+Optional:
+- manual mailbox address and principal id; skip them when you only want the shared root
+- skip this branch for now
+
 Examples:
 - address: `research@houmao.localhost`
 - principal id: `HOUMAO-research`
@@ -62,6 +77,12 @@ Do you want to create an easy profile too?
 
 An easy profile stores reusable launch defaults on top of a specialist. It is optional for a first launch.
 
+Required if you choose this branch:
+- easy profile name
+
+Optional:
+- skip this branch for the first launch
+
 Examples:
 - `reviewer-default`
 - `researcher-headless`
@@ -75,6 +96,13 @@ Use a shape like:
 
 ```text
 Your agent is running. What do you want to try next?
+
+Required:
+- next Houmao operation
+
+Optional:
+- target agent name when only one agent is running
+- skip live follow-up for now
 
 Common first actions:
 - send a normal prompt
@@ -91,6 +119,14 @@ Use a shape like:
 
 ```text
 What do you want to do with this agent now?
+
+Required:
+- lifecycle action
+- target managed-agent name or id
+
+Optional:
+- list current agents first when the target is unclear
+- cleanup scope or relaunch posture when relevant
 
 - `stop`: end the live session
 - `relaunch`: restart the managed session without treating it as a fresh launch

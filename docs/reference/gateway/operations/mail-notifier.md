@@ -184,6 +184,7 @@ Current source behavior:
 
 ## See Also
 
+- [Notifier-Prompt-Driven Loop Runtime](notifier-prompt-driven-loops.md)
 - [agents gateway mail-notifier](../../cli/agents-gateway.md#mail-notifier)
 - [Gateway Mailbox Facade](mailbox-facade.md)
 - [Gateway Reminders](reminders.md)

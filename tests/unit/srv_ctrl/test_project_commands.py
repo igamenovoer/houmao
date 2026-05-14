@@ -5402,6 +5402,167 @@ def test_project_easy_profile_set_without_updates_fails_without_mutation(
     assert json.loads(after_result.output) == json.loads(before_result.output)
 
 
+def test_project_launch_profile_skill_overlays_do_not_register_private_skills(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    registered_skill_dir = _make_skill_dir(tmp_path, "notes")
+    private_skill_dir = _make_skill_dir(repo_root / "private-skills", "notes")
+
+    add_skill_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(registered_skill_dir),
+        ],
+    )
+    assert add_skill_result.exit_code == 0, add_skill_result.output
+
+    add_profile_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "alice",
+            "--recipe",
+            "researcher-codex-default",
+            "--add-registered-skill",
+            "notes",
+            "--add-private-skill",
+            "private-skills/notes",
+        ],
+    )
+    assert add_profile_result.exit_code == 0, add_profile_result.output
+    add_payload = json.loads(add_profile_result.output)
+    assert add_payload["defaults"]["skills"] == {
+        "registered": ["notes"],
+        "private": [
+            {
+                "name": "notes",
+                "path": "private-skills/notes",
+                "resolved_path": str(private_skill_dir),
+                "mode": "copy",
+            }
+        ],
+    }
+
+    projection_payload = yaml.safe_load(
+        (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert projection_payload["defaults"]["skills"] == {
+        "registered": ["notes"],
+        "private": [{"name": "notes", "path": "private-skills/notes", "mode": "copy"}],
+    }
+    skills_payload = json.loads(runner.invoke(cli, ["project", "skills", "list"]).output)
+    assert [skill["name"] for skill in skills_payload["skills"]] == ["notes"]
+
+    blocked_remove = runner.invoke(cli, ["project", "skills", "remove", "--name", "notes"])
+    assert blocked_remove.exit_code != 0
+    assert "still referenced by launch profile(s): alice" in blocked_remove.output
+
+    remove_registered_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "alice",
+            "--remove-registered-skill",
+            "notes",
+        ],
+    )
+    assert remove_registered_result.exit_code == 0, remove_registered_result.output
+    removed_skill_result = runner.invoke(cli, ["project", "skills", "remove", "--name", "notes"])
+    assert removed_skill_result.exit_code == 0, removed_skill_result.output
+    get_profile_result = runner.invoke(
+        cli,
+        ["project", "agents", "launch-profiles", "get", "--name", "alice"],
+    )
+    assert get_profile_result.exit_code == 0, get_profile_result.output
+    get_payload = json.loads(get_profile_result.output)
+    assert get_payload["defaults"]["skills"] == {
+        "private": [
+            {
+                "name": "notes",
+                "path": "private-skills/notes",
+                "resolved_path": str(private_skill_dir),
+                "mode": "copy",
+            }
+        ]
+    }
+
+
+def test_project_easy_profile_private_skill_symlink_can_be_added_and_removed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+    private_skill_dir = _make_skill_dir(repo_root / "private-skills", "docs")
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--add-private-skill-symlink",
+            "private-skills/docs",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    assert create_payload["defaults"]["skills"] == {
+        "private": [
+            {
+                "name": "docs",
+                "path": "private-skills/docs",
+                "resolved_path": str(private_skill_dir),
+                "mode": "symlink",
+            }
+        ]
+    }
+
+    remove_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--remove-private-skill",
+            "private-skills/docs",
+        ],
+    )
+    assert remove_result.exit_code == 0, remove_result.output
+    assert "skills" not in json.loads(remove_result.output)["defaults"]
+
+
 def test_project_launch_profile_rejects_removed_persist_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

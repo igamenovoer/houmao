@@ -285,3 +285,101 @@ The guide SHALL state that the workspace manager is part of the utility group, i
 - **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
 - **THEN** the guide lists `houmao-utils-workspace-mgr`
 - **AND THEN** it describes the skill as workspace preparation guidance rather than an agent launch skill
+
+### Requirement: System-skills overview routes agent-definition concerns to unified skill
+The system-skills overview guide SHALL route persisted pre-launch agent-definition concerns to `houmao-agent-definition`.
+
+That routing SHALL include `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, and `create-agent-fast-forward`.
+
+The overview SHALL explain that loosely stated profile requests default to `profiles`, while `raw-profiles` is reserved for explicit raw, recipe-backed, or exact `project agents launch-profiles` requests.
+
+The overview SHALL keep credential CRUD, mailbox administration, workspace creation, and broad live-agent lifecycle routed to their existing dedicated skills.
+
+#### Scenario: Overview routes easy profile authoring to unified skill
+- **WHEN** a reader asks which skill creates or updates one easy profile
+- **THEN** the overview points to `houmao-agent-definition` and the `profiles` subcommand
+- **AND THEN** it does not point to `houmao-specialist-mgr` as the primary current skill
+
+#### Scenario: Overview distinguishes raw profiles
+- **WHEN** a reader asks which skill handles `project agents launch-profiles ...`
+- **THEN** the overview points to `houmao-agent-definition` and the `raw-profiles` subcommand
+- **AND THEN** it explains that ordinary profile wording defaults to easy profiles
+
+#### Scenario: Overview keeps live lifecycle separate
+- **WHEN** a reader asks which skill manages already-live agents
+- **THEN** the overview still points broad live-agent lifecycle work to `houmao-agent-instance`
+- **AND THEN** it does not imply that unified agent-definition owns generic live lifecycle
+
+### Requirement: System-skills overview presents pro-only loop control
+The system-skills overview guide SHALL describe `houmao-agent-loop-pro` as the current loop authoring, execplan generation, and generated-loop execution skill.
+
+The overview SHALL describe tree-loop and generic-loop as pro topology modes rather than separate packaged loop skills.
+
+#### Scenario: Reader uses overview to select loop skill
+- **WHEN** a reader uses the system-skills overview to identify the loop skill
+- **THEN** the overview points to `houmao-agent-loop-pro`
+- **AND THEN** it does not present retired pairwise or generic packages as current alternatives
+
+### Requirement: System-skills overview lists the lite loop skill
+The getting-started system-skills overview guide SHALL list `houmao-agent-loop-lite` as one of the currently shipped packaged Houmao-owned system skills.
+
+The guide SHALL describe `houmao-agent-loop-lite` as the lightweight Markdown/direct-SQL loop skill for generated skills, required typed Markdown templates, and direct SQLite state.
+
+The guide SHALL distinguish `houmao-agent-loop-lite` from `houmao-agent-loop-pro`.
+
+When the guide explains default install selections, it SHALL account for both current loop skills in the `core` and `all` sets.
+
+#### Scenario: Overview table includes lite
+- **WHEN** a reader opens the system-skills overview guide
+- **THEN** the packaged skills table contains exactly one row for `houmao-agent-loop-lite`
+- **AND THEN** the row describes lite as the no-harness Markdown/direct-SQL loop skill
+
+#### Scenario: Overview distinguishes lite from pro
+- **WHEN** a reader compares the loop skill rows in the overview guide
+- **THEN** the pro row describes schema-rich generated execplans and harness-backed workflows
+- **AND THEN** the lite row describes Markdown templates, generated skills, and direct SQLite state
+
+### Requirement: System-skills overview explains skill-level help
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL explain that every current packaged Houmao system skill supports an explicit help request from its top-level skill instructions.
+
+The guide SHALL explain that help responses are read-only and are meant to show purpose, available functionality, common starting prompts, and related skill boundaries.
+
+The guide SHALL explain that help is handled before normal workflow routing when the user explicitly asks for skill usage, but ordinary task requests still route to the task workflow.
+
+The guide SHALL include one or more example help prompts.
+
+#### Scenario: Reader learns the help convention
+- **WHEN** a reader opens the system-skills overview guide
+- **THEN** the guide states that each current packaged system skill supports explicit help
+- **AND THEN** the guide explains what a help response should contain
+- **AND THEN** it distinguishes explicit help from ordinary workflow requests
+
+### Requirement: System-skills overview explains installation choices
+
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL explain the two supported documentation-facing installation choices for packaged Houmao system skills.
+
+The guide SHALL recommend `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/` when `npx` and internet access are available, and SHALL state that the command points at the GitHub main-branch system-skill collection so the user can choose the packaged skill or skills to install.
+
+The guide SHALL describe `houmao-mgr system-skills install` as the Houmao-owned path for installed-package/offline use, project-local or explicit homes, named sets, subset skills, symlink/copy projection, and retired-skill cleanup.
+
+The guide SHALL continue to explain managed launch and join auto-install behavior separately from explicit user-driven installation.
+
+#### Scenario: Reader chooses between install paths
+- **WHEN** a reader opens the system-skills overview to learn how to install skills
+- **THEN** the guide presents the `npx skills add` path for `npx` plus internet environments
+- **AND THEN** it presents `houmao-mgr system-skills install` for offline, package-local, explicit-home, named-set, subset, symlink/copy, or cleanup needs
+- **AND THEN** it keeps managed auto-install behavior separate from explicit install choices
+
+### Requirement: System-skills overview explains prompt-level help
+
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL explain that every current packaged Houmao system skill supports explicit read-only help from its top-level skill instructions.
+
+The guide SHALL include one or more examples such as `$houmao-touring help`, `$houmao-agent-email-comms help`, or `usage for houmao-agent-definition`.
+
+The guide SHALL explain that explicit help or usage requests are handled before normal workflow routing, while ordinary task requests such as "help me send mail" still route to the task workflow.
+
+#### Scenario: Reader learns the skill help convention
+- **WHEN** a reader opens the system-skills overview guide
+- **THEN** they see prompt-level help examples for installed skills
+- **AND THEN** they understand help is read-only and handled before workflow routing
+- **AND THEN** they understand ordinary task-shaped requests continue into the task workflow

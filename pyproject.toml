@@ -1,6 +1,6 @@
 [project]
 name = "Houmao"
-version = "0.9.1"
+version = "0.10.0"
 description = "Framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,8 @@ classifiers = [
 dependencies = [
   "click>=8.3.1,<9",
   "fastapi>=0.135.1,<0.136",
+  "jinja2>=3.1,<4",
+  "jsonschema>=4.0,<5",
   "libtmux>=0.55.0,<0.56",
   "packaging>=24,<27",
   "Pillow>=11,<13",
@@ -92,6 +94,9 @@ target-version = "py311"
 [tool.mypy]
 python_version = "3.11"
 strict = true
+exclude = [
+  "^src/houmao/agents/assets/system_skills/.*/scripts/.*\\.py$",
+]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"

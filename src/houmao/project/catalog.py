@@ -34,7 +34,7 @@ from houmao.owned_mutation import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 15
+CATALOG_SCHEMA_VERSION = 16
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -70,6 +70,7 @@ _RELAUNCH_CHAT_SESSION_MODES = frozenset({"new", "tool_last_or_new", "exact"})
 _PROJECT_SKILL_MODE_COPY = "copy"
 _PROJECT_SKILL_MODE_SYMLINK = "symlink"
 _PROJECT_SKILL_MODE_VALUES = (_PROJECT_SKILL_MODE_COPY, _PROJECT_SKILL_MODE_SYMLINK)
+_LAUNCH_PROFILE_PRIVATE_SKILL_MODE_VALUES = _PROJECT_SKILL_MODE_VALUES
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,40 @@ class ProjectSkillCatalogEntry:
 
 
 @dataclass(frozen=True)
+class LaunchProfilePrivateSkillCatalogEntry:
+    """Resolved profile-private skill reference stored on one launch profile."""
+
+    name: str
+    source_path: str
+    mode: Literal["copy", "symlink"]
+    metadata_path: Path | None = None
+
+    def resolved_source_path(self, overlay: HoumaoProjectOverlay) -> Path:
+        """Return the private skill source path resolved against one project root."""
+
+        path = Path(self.source_path)
+        if path.is_absolute():
+            return path.resolve()
+        return (overlay.project_root / path).resolve()
+
+    def resolved_source_path_under_project_root(self, project_root: Path) -> Path:
+        """Return the private skill source path resolved against one explicit project root."""
+
+        path = Path(self.source_path)
+        if path.is_absolute():
+            return path.resolve()
+        return (project_root.resolve() / path).resolve()
+
+
+@dataclass(frozen=True)
+class LaunchProfilePrivateSkillInput:
+    """Input for storing one profile-private launch skill reference."""
+
+    source_path: Path
+    mode: Literal["copy", "symlink"]
+
+
+@dataclass(frozen=True)
 class LaunchProfileMemoSeed:
     """Managed memo-seed metadata stored on one launch profile."""
 
@@ -212,6 +247,9 @@ class LaunchProfileCatalogEntry:
     managed_header_section_policy: dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy] = (
         field(default_factory=dict)
     )
+    registered_skill_names: tuple[str, ...] = ()
+    registered_skill_entries: tuple[ProjectSkillCatalogEntry, ...] = ()
+    private_skill_entries: tuple[LaunchProfilePrivateSkillCatalogEntry, ...] = ()
     metadata_path: Path | None = None
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
@@ -243,6 +281,8 @@ class AuthProfileCatalogEntry:
     display_name: str
     bundle_ref: str
     content_ref: ManagedContentRef
+    created_at_utc: str
+    updated_at_utc: str
     metadata_path: Path | None = None
 
     def resolved_projection_path(self, overlay: HoumaoProjectOverlay) -> Path:
@@ -297,6 +337,11 @@ class ProjectCatalog:
 
         return self._managed_skill_projection_root() / name
 
+    def _project_root(self) -> Path:
+        """Return the project root inferred from this catalog's overlay roots."""
+
+        return self.m_content_root.parent.parent.resolve()
+
     def _managed_auth_content_root(self, tool: str) -> Path:
         """Return the canonical managed auth root for one tool."""
 
@@ -316,6 +361,20 @@ class ProjectCatalog:
         """Return one lexical derived auth bundle path."""
 
         return self._managed_auth_projection_root(tool) / bundle_ref
+
+    def normalize_launch_profile_private_skill_source_path(self, source_path: Path) -> str:
+        """Return the stored source path spelling for one profile-private skill."""
+
+        expanded_path = source_path.expanduser()
+        resolved_path = (
+            expanded_path.resolve()
+            if expanded_path.is_absolute()
+            else (self._project_root() / expanded_path).resolve()
+        )
+        try:
+            return resolved_path.relative_to(self._project_root()).as_posix()
+        except ValueError:
+            return str(resolved_path)
 
     def initialize(self, *, allow_pending_migration: bool = False) -> None:
         """Create the catalog schema and managed content roots when missing."""
@@ -395,6 +454,8 @@ class ProjectCatalog:
                         auth_profiles.tool,
                         auth_profiles.display_name,
                         auth_profiles.bundle_ref,
+                        auth_profiles.created_at,
+                        auth_profiles.updated_at,
                         content_refs.content_kind,
                         content_refs.storage_kind,
                         content_refs.relative_path
@@ -411,6 +472,8 @@ class ProjectCatalog:
                         auth_profiles.tool,
                         auth_profiles.display_name,
                         auth_profiles.bundle_ref,
+                        auth_profiles.created_at,
+                        auth_profiles.updated_at,
                         content_refs.content_kind,
                         content_refs.storage_kind,
                         content_refs.relative_path
@@ -441,6 +504,8 @@ class ProjectCatalog:
                     auth_profiles.tool,
                     auth_profiles.display_name,
                     auth_profiles.bundle_ref,
+                    auth_profiles.created_at,
+                    auth_profiles.updated_at,
                     content_refs.content_kind,
                     content_refs.storage_kind,
                     content_refs.relative_path
@@ -474,6 +539,8 @@ class ProjectCatalog:
                     auth_profiles.tool,
                     auth_profiles.display_name,
                     auth_profiles.bundle_ref,
+                    auth_profiles.created_at,
+                    auth_profiles.updated_at,
                     content_refs.content_kind,
                     content_refs.storage_kind,
                     content_refs.relative_path
@@ -793,6 +860,27 @@ class ProjectCatalog:
                 joined = ", ".join(referencing_specialists)
                 raise ValueError(
                     f"Project skill `{skill.name}` is still referenced by specialist(s): {joined}."
+                )
+            referencing_launch_profiles = tuple(
+                str(item["name"])
+                for item in connection.execute(
+                    """
+                    SELECT DISTINCT launch_profiles.name
+                    FROM launch_profiles
+                    INNER JOIN launch_profile_registered_skill_packages
+                        ON launch_profile_registered_skill_packages.launch_profile_id =
+                            launch_profiles.id
+                    WHERE launch_profile_registered_skill_packages.skill_package_id = ?
+                    ORDER BY launch_profiles.name
+                    """,
+                    (int(row["id"]),),
+                ).fetchall()
+            )
+            if referencing_launch_profiles:
+                joined = ", ".join(referencing_launch_profiles)
+                raise ValueError(
+                    f"Project skill `{skill.name}` is still referenced by launch profile(s): "
+                    f"{joined}."
                 )
             connection.execute("DELETE FROM skill_packages WHERE id = ?", (int(row["id"]),))
             self._delete_content_ref_if_unreferenced(
@@ -1130,6 +1218,7 @@ class ProjectCatalog:
             rows = connection.execute(
                 """
                 SELECT
+                    launch_profiles.id AS launch_profile_id,
                     launch_profiles.name,
                     launch_profiles.profile_lane,
                     launch_profiles.source_kind,
@@ -1172,7 +1261,7 @@ class ProjectCatalog:
                 ORDER BY launch_profiles.name
                 """
             ).fetchall()
-        return [self._launch_profile_from_row(row) for row in rows]
+            return [self._launch_profile_from_row(connection=connection, row=row) for row in rows]
 
     def load_launch_profile(self, name: str) -> LaunchProfileCatalogEntry:
         """Load one persisted launch profile from the catalog."""
@@ -1182,6 +1271,7 @@ class ProjectCatalog:
             row = connection.execute(
                 """
                 SELECT
+                    launch_profiles.id AS launch_profile_id,
                     launch_profiles.name,
                     launch_profiles.profile_lane,
                     launch_profiles.source_kind,
@@ -1226,9 +1316,11 @@ class ProjectCatalog:
                 """,
                 (name,),
             ).fetchone()
-        if row is None:
-            raise FileNotFoundError(f"Launch profile `{name}` was not found: {self.m_catalog_path}")
-        return self._launch_profile_from_row(row)
+            if row is None:
+                raise FileNotFoundError(
+                    f"Launch profile `{name}` was not found: {self.m_catalog_path}"
+                )
+            return self._launch_profile_from_row(connection=connection, row=row)
 
     def store_launch_profile(
         self,
@@ -1257,6 +1349,8 @@ class ProjectCatalog:
         memo_seed_source_path: Path | None = None,
         model_name: str | None = None,
         reasoning_level: int | None = None,
+        registered_skill_names: tuple[str, ...] = (),
+        private_skill_inputs: tuple[LaunchProfilePrivateSkillInput, ...] = (),
     ) -> LaunchProfileCatalogEntry:
         """Insert or update one shared launch-profile record."""
 
@@ -1311,6 +1405,12 @@ class ProjectCatalog:
         resolved_relaunch_chat_session = _normalize_relaunch_chat_session_payload(
             relaunch_chat_session_mapping,
             source="launch_profiles.relaunch_chat_session_payload",
+        )
+        resolved_registered_skill_names = _normalize_launch_profile_registered_skill_names(
+            registered_skill_names
+        )
+        resolved_private_skill_entries = self._normalize_launch_profile_private_skill_inputs(
+            private_skill_inputs
         )
 
         prompt_overlay_ref: ManagedContentRef | None = None
@@ -1447,6 +1547,17 @@ class ProjectCatalog:
                     timestamp,
                     timestamp,
                 ),
+            )
+            profile_row = connection.execute(
+                "SELECT id FROM launch_profiles WHERE name = ? LIMIT 1",
+                (name,),
+            ).fetchone()
+            assert profile_row is not None
+            self._replace_launch_profile_skills(
+                connection=connection,
+                launch_profile_id=int(profile_row["id"]),
+                registered_skill_names=resolved_registered_skill_names,
+                private_skill_entries=resolved_private_skill_entries,
             )
         return self.load_launch_profile(name)
 
@@ -2322,6 +2433,119 @@ class ProjectCatalog:
                 (preset_id, int(skill_row["id"]), ordinal),
             )
 
+    def _replace_launch_profile_skills(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        launch_profile_id: int,
+        registered_skill_names: tuple[str, ...],
+        private_skill_entries: tuple[LaunchProfilePrivateSkillCatalogEntry, ...],
+    ) -> None:
+        """Replace the ordered skill overlay bindings for one launch profile."""
+
+        connection.execute(
+            "DELETE FROM launch_profile_registered_skill_packages WHERE launch_profile_id = ?",
+            (launch_profile_id,),
+        )
+        for ordinal, skill_name in enumerate(registered_skill_names):
+            skill_row = connection.execute(
+                "SELECT id FROM skill_packages WHERE name = ? LIMIT 1",
+                (skill_name,),
+            ).fetchone()
+            if skill_row is None:
+                raise FileNotFoundError(
+                    f"Project skill `{skill_name}` was not found: {self.m_catalog_path}"
+                )
+            connection.execute(
+                """
+                INSERT INTO launch_profile_registered_skill_packages(
+                    launch_profile_id,
+                    skill_package_id,
+                    ordinal
+                )
+                VALUES (?, ?, ?)
+                """,
+                (launch_profile_id, int(skill_row["id"]), ordinal),
+            )
+
+        connection.execute(
+            "DELETE FROM launch_profile_private_skill_packages WHERE launch_profile_id = ?",
+            (launch_profile_id,),
+        )
+        for ordinal, entry in enumerate(private_skill_entries):
+            connection.execute(
+                """
+                INSERT INTO launch_profile_private_skill_packages(
+                    launch_profile_id,
+                    name,
+                    source_path,
+                    mode,
+                    ordinal
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (launch_profile_id, entry.name, entry.source_path, entry.mode, ordinal),
+            )
+
+    def _normalize_launch_profile_private_skill_inputs(
+        self,
+        private_skill_inputs: tuple[LaunchProfilePrivateSkillInput, ...],
+    ) -> tuple[LaunchProfilePrivateSkillCatalogEntry, ...]:
+        """Validate and normalize profile-private skill inputs for catalog storage."""
+
+        entries: list[LaunchProfilePrivateSkillCatalogEntry] = []
+        seen_paths: set[str] = set()
+        seen_names: set[str] = set()
+        for private_skill in private_skill_inputs:
+            if private_skill.mode not in _LAUNCH_PROFILE_PRIVATE_SKILL_MODE_VALUES:
+                raise ValueError(
+                    "Launch-profile private skill mode must be one of "
+                    f"{sorted(_LAUNCH_PROFILE_PRIVATE_SKILL_MODE_VALUES)}."
+                )
+            expanded_source_path = private_skill.source_path.expanduser()
+            resolved_source_path = (
+                expanded_source_path.resolve()
+                if expanded_source_path.is_absolute()
+                else (self._project_root() / expanded_source_path).resolve()
+            )
+            skill_markdown = resolved_source_path / "SKILL.md"
+            if not resolved_source_path.is_dir():
+                raise ValueError(
+                    f"Launch-profile private skill directory does not exist: {resolved_source_path}"
+                )
+            if not skill_markdown.is_file():
+                raise ValueError(
+                    "Launch-profile private skill directory must contain `SKILL.md`: "
+                    f"{skill_markdown}"
+                )
+            installed_name = _require_catalog_name(
+                resolved_source_path.name,
+                field_name="private skill directory name",
+            )
+            stored_source_path = self.normalize_launch_profile_private_skill_source_path(
+                resolved_source_path
+            )
+            if stored_source_path in seen_paths:
+                raise ValueError(
+                    f"Launch-profile private skill source is duplicated: {stored_source_path}"
+                )
+            if installed_name in seen_names:
+                raise ValueError(
+                    "Launch-profile private skills must have unique installed names; duplicate "
+                    f"`{installed_name}`."
+                )
+            seen_paths.add(stored_source_path)
+            seen_names.add(installed_name)
+            entries.append(
+                LaunchProfilePrivateSkillCatalogEntry(
+                    name=installed_name,
+                    source_path=stored_source_path,
+                    mode=private_skill.mode,
+                    metadata_path=self.m_catalog_path,
+                )
+            )
+        return tuple(entries)
+
     def _auth_profile_from_row(self, row: sqlite3.Row) -> AuthProfileCatalogEntry:
         """Build one structured auth-profile entry from a joined row."""
 
@@ -2330,6 +2554,8 @@ class ProjectCatalog:
             tool=str(row["tool"]),
             display_name=str(row["display_name"]),
             bundle_ref=str(row["bundle_ref"]),
+            created_at_utc=str(row["created_at"]),
+            updated_at_utc=str(row["updated_at"]),
             content_ref=ManagedContentRef(
                 content_kind=str(row["content_kind"]),
                 storage_kind=str(row["storage_kind"]),
@@ -2427,7 +2653,12 @@ class ProjectCatalog:
             metadata_path=self.m_catalog_path,
         )
 
-    def _launch_profile_from_row(self, row: sqlite3.Row) -> LaunchProfileCatalogEntry:
+    def _launch_profile_from_row(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> LaunchProfileCatalogEntry:
         """Build one structured launch-profile entry from a joined row."""
 
         prompt_overlay_ref: ManagedContentRef | None = None
@@ -2476,6 +2707,14 @@ class ProjectCatalog:
             if row["managed_header_section_policy"] is not None
             else {},
             source=f"launch profile `{row['name']}` managed_header_section_policy",
+        )
+        registered_skill_entries = self._launch_profile_registered_skill_entries(
+            connection=connection,
+            launch_profile_id=int(row["launch_profile_id"]),
+        )
+        private_skill_entries = self._launch_profile_private_skill_entries(
+            connection=connection,
+            launch_profile_id=int(row["launch_profile_id"]),
         )
         return LaunchProfileCatalogEntry(
             name=str(row["name"]),
@@ -2527,8 +2766,76 @@ class ProjectCatalog:
             gateway_mail_notifier_appendix_ref=appendix_ref,
             memo_seed=memo_seed,
             managed_header_section_policy=managed_header_section_policy,
+            registered_skill_names=tuple(entry.name for entry in registered_skill_entries),
+            registered_skill_entries=registered_skill_entries,
+            private_skill_entries=private_skill_entries,
             metadata_path=self.m_catalog_path,
         )
+
+    def _launch_profile_registered_skill_entries(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        launch_profile_id: int,
+    ) -> tuple[ProjectSkillCatalogEntry, ...]:
+        """Return ordered registered project-skill refs for one launch profile."""
+
+        rows = connection.execute(
+            """
+            SELECT
+                skill_packages.name AS skill_name,
+                skill_packages.mode AS mode,
+                skill_packages.source_path AS source_path,
+                content_refs.content_kind,
+                content_refs.storage_kind,
+                content_refs.relative_path
+            FROM launch_profile_registered_skill_packages
+            INNER JOIN skill_packages
+                ON skill_packages.id =
+                    launch_profile_registered_skill_packages.skill_package_id
+            INNER JOIN content_refs
+                ON content_refs.id = skill_packages.content_ref_id
+            WHERE launch_profile_registered_skill_packages.launch_profile_id = ?
+            ORDER BY launch_profile_registered_skill_packages.ordinal
+            """,
+            (launch_profile_id,),
+        ).fetchall()
+        return tuple(self._project_skill_from_row(skill_row) for skill_row in rows)
+
+    def _launch_profile_private_skill_entries(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        launch_profile_id: int,
+    ) -> tuple[LaunchProfilePrivateSkillCatalogEntry, ...]:
+        """Return ordered profile-private skill refs for one launch profile."""
+
+        rows = connection.execute(
+            """
+            SELECT name, source_path, mode
+            FROM launch_profile_private_skill_packages
+            WHERE launch_profile_id = ?
+            ORDER BY ordinal
+            """,
+            (launch_profile_id,),
+        ).fetchall()
+        entries: list[LaunchProfilePrivateSkillCatalogEntry] = []
+        for item in rows:
+            mode = str(item["mode"])
+            if mode not in _LAUNCH_PROFILE_PRIVATE_SKILL_MODE_VALUES:
+                raise ValueError(
+                    f"Unsupported launch-profile private skill mode {mode!r} in "
+                    f"{self.m_catalog_path}."
+                )
+            entries.append(
+                LaunchProfilePrivateSkillCatalogEntry(
+                    name=str(item["name"]),
+                    source_path=str(item["source_path"]),
+                    mode=cast(Literal["copy", "symlink"], mode),
+                    metadata_path=self.m_catalog_path,
+                )
+            )
+        return tuple(entries)
 
     def _ensure_projection_starter_tree(self) -> None:
         """Bootstrap the compatibility projection tree from packaged starter assets."""
@@ -2667,6 +2974,23 @@ def _table_schema_sql() -> str:
         memo_seed_content_ref_id INTEGER REFERENCES content_refs(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS launch_profile_registered_skill_packages (
+        launch_profile_id INTEGER NOT NULL REFERENCES launch_profiles(id) ON DELETE CASCADE,
+        skill_package_id INTEGER NOT NULL REFERENCES skill_packages(id) ON DELETE RESTRICT,
+        ordinal INTEGER NOT NULL,
+        PRIMARY KEY(launch_profile_id, skill_package_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS launch_profile_private_skill_packages (
+        launch_profile_id INTEGER NOT NULL REFERENCES launch_profiles(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK(mode IN ('copy', 'symlink')),
+        ordinal INTEGER NOT NULL,
+        PRIMARY KEY(launch_profile_id, source_path),
+        UNIQUE(launch_profile_id, name)
     );
     """
 
@@ -2957,6 +3281,18 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "created_at",
             "updated_at",
         ),
+        "launch_profile_registered_skill_packages": (
+            "launch_profile_id",
+            "skill_package_id",
+            "ordinal",
+        ),
+        "launch_profile_private_skill_packages": (
+            "launch_profile_id",
+            "name",
+            "source_path",
+            "mode",
+            "ordinal",
+        ),
     }
 
 
@@ -3098,6 +3434,20 @@ def _render_launch_profile_yaml(
         defaults["managed_header_sections"] = dict(
             sorted(entry.managed_header_section_policy.items())
         )
+    if entry.registered_skill_names or entry.private_skill_entries:
+        skills_payload: dict[str, Any] = {}
+        if entry.registered_skill_names:
+            skills_payload["registered"] = list(entry.registered_skill_names)
+        if entry.private_skill_entries:
+            skills_payload["private"] = [
+                {
+                    "name": private_skill.name,
+                    "path": private_skill.source_path,
+                    "mode": private_skill.mode,
+                }
+                for private_skill in entry.private_skill_entries
+            ]
+        defaults["skills"] = skills_payload
     if entry.prompt_overlay_mode is not None and entry.prompt_overlay_ref is not None:
         overlay_path = entry.prompt_overlay_ref.resolve_under_content_root(content_root)
         defaults["prompt_overlay"] = {
@@ -3329,3 +3679,19 @@ def _require_catalog_name(value: str, *, field_name: str) -> str:
     if not resolved:
         raise ValueError(f"`{field_name}` must not be empty.")
     return resolved
+
+
+def _normalize_launch_profile_registered_skill_names(
+    skill_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return validated registered skill names for one launch-profile overlay."""
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in skill_names:
+        skill_name = _require_catalog_name(value, field_name="registered_skill")
+        if skill_name in seen:
+            raise ValueError(f"Launch-profile registered skill `{skill_name}` is duplicated.")
+        normalized.append(skill_name)
+        seen.add(skill_name)
+    return tuple(normalized)

@@ -646,3 +646,47 @@ For multi-tool uninstall output, each tool entry SHALL distinguish the effective
 - **THEN** the plain output reports Gemini's effective home as `/workspace/repo`
 - **AND THEN** the plain output reports `.gemini/skills` or `.gemini/skills/houmao-specialist-mgr` as the removed projection location
 - **AND THEN** the plain output does not present `/workspace/repo` alone as the removed Gemini skill location
+
+### Requirement: System-skills CLI reports unified agent-definition ownership
+`houmao-mgr system-skills list`, `install`, `status`, and `uninstall` SHALL report `houmao-agent-definition` as the canonical skill for persisted agent definitions, specialists, easy profiles, raw recipe-backed profiles, and fast-forward profile preparation.
+
+If `houmao-specialist-mgr` remains installable, `system-skills list` and status-oriented output SHALL distinguish it as a compatibility wrapper.
+
+#### Scenario: List identifies canonical unified skill
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-agent-definition` as the canonical agent-definition skill
+- **AND THEN** any listed `houmao-specialist-mgr` entry is identified as compatibility-only rather than a separate canonical specialist-management skill
+
+#### Scenario: Default install does not duplicate canonical ownership
+- **WHEN** an operator installs the default Houmao-owned skill selection into a target tool home
+- **THEN** the resolved install list includes `houmao-agent-definition`
+- **AND THEN** it does not require a second canonical specialist-management skill for the same workflows
+
+### Requirement: `houmao-mgr system-skills` surfaces pro as the current loop skill
+`houmao-mgr system-skills list`, `install`, and `status` SHALL surface `houmao-agent-loop-pro` as the current packaged Houmao-owned loop skill.
+
+Those commands SHALL NOT surface retired pairwise or generic loop skill names as current installable skills.
+
+#### Scenario: List reports pro and omits retired loop packages
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the current skill inventory includes `houmao-agent-loop-pro`
+- **AND THEN** the current skill inventory omits retired pairwise and generic loop package names
+
+### Requirement: `houmao-mgr system-skills status` reports retired loop leftovers
+`houmao-mgr system-skills status` SHALL detect known retired loop skill projections in the resolved target home and report them separately from current installed skills.
+
+The JSON status output SHALL identify retired loop leftovers by skill name and projection path.
+
+#### Scenario: Status reports stale retired loop skill
+- **WHEN** one target tool home contains a stale `skills/houmao-agent-loop-pairwise-v2/`
+- **AND WHEN** an operator runs `houmao-mgr system-skills status` for that home
+- **THEN** the status output reports `houmao-agent-loop-pairwise-v2` as a retired leftover
+- **AND THEN** it does not report that skill as a current installed skill
+
+### Requirement: `houmao-mgr system-skills install` reports retired cleanup
+When installation removes known retired loop skill projections, `houmao-mgr system-skills install` SHALL include those removals in structured command output.
+
+#### Scenario: Install output includes retired removals
+- **WHEN** installing current system skills removes stale retired loop projections
+- **THEN** the command output lists the removed retired skill paths
+- **AND THEN** the command output lists `houmao-agent-loop-pro` as installed when selected

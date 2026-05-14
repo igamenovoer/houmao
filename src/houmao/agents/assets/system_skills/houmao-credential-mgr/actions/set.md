@@ -7,7 +7,7 @@ Use this action only when the user wants to update one existing credential.
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, credential name, target, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, target, or supported change is still missing, ask the user before proceeding.
-4. If the requested "credential change" is actually a stored easy-profile or explicit launch-profile `--auth` override change, stop and route it as profile authoring instead of running `set`.
+4. If the requested "credential change" is actually a stored easy-profile or raw-profile `--auth` override change, stop and route it as profile authoring instead of running `set`.
 5. Run the selected command.
 6. Report the resulting written env vars, cleared env vars, written files, and cleared files returned by the command.
 

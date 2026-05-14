@@ -110,7 +110,7 @@ At minimum, the skill SHALL require the agent to obtain:
 - no specialist name for `list`,
 - specialist name for `get`,
 - specialist name for `remove`,
-- specialist name, tool lane, and enough auth information for `create` unless an existing credential bundle for the intended credential name has already been confirmed,
+- specialist name for `create`; when tool or credential information is omitted, the skill first tries registered Houmao credential defaulting,
 - specialist name and instance name for `launch`,
 - easy-instance name for specialist-scoped `stop`.
 
@@ -118,7 +118,11 @@ When the user omits `--credential` on the create path, the skill MAY rely on the
 
 When required inputs remain unresolved after checking prompt and recent conversation context, the skill SHALL instruct the agent to ask the user for the missing inputs before proceeding.
 
-When the user explicitly requests `auto credentials`, the skill SHALL treat that as a create-action opt-in auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
+When the user explicitly requests `auto credentials`, the skill SHALL treat that as a create-action auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
+
+When the user omits tool or credential input, the skill SHALL inspect registered credentials from the active Houmao project or `HOUMAO_AGENT_DEF_DIR` target by running the supported `houmao-mgr ... credentials <tool> list` commands. If registered credentials exist, the skill SHALL pick a registered credential that matches the prompt or nearby context when possible; otherwise, it SHALL pick the credential with the latest listed update time.
+
+If no Houmao credential target can be resolved or if no credentials are registered, the skill SHALL stop before discovery and report the suggested fix.
 
 The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remove`.
 
@@ -138,6 +142,22 @@ The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remov
 - **AND WHEN** the skill confirms that the intended credential bundle already exists for that tool
 - **THEN** the skill allows the agent to proceed without asking the user to restate API-key or auth inputs
 - **AND THEN** it treats the confirmed credential bundle as satisfying the auth requirement for specialist creation
+
+#### Scenario: Create defaults missing tool and credential from registered credentials
+- **WHEN** the current prompt asks the agent to create a specialist
+- **AND WHEN** the specialist name is known
+- **AND WHEN** the tool lane or credential name is not explicit in the current prompt or recent conversation context
+- **AND WHEN** the active Houmao project or `HOUMAO_AGENT_DEF_DIR` target has registered credentials
+- **THEN** the skill chooses a registered credential by prompt or recent conversation context when possible
+- **AND THEN** it otherwise chooses the credential with the latest listed update time
+- **AND THEN** it uses that credential's tool lane and name for `--tool` and `--credential`
+
+#### Scenario: Create handles multiple registered tool lanes by context or recency
+- **WHEN** the current prompt asks the agent to create a specialist
+- **AND WHEN** the tool lane or credential name is not explicit in the current prompt or recent conversation context
+- **AND WHEN** credentials are registered for multiple tool lanes
+- **THEN** the skill selects a registered credential by prompt or recent conversation context when possible
+- **AND THEN** it otherwise selects the credential with the latest listed update time
 
 #### Scenario: Specialist launch asks before guessing the launch target
 - **WHEN** the current prompt asks to launch from a specialist
@@ -330,3 +350,33 @@ The kinds reference pages SHALL NOT replace the existing `*-credential-lookup.md
 - **WHEN** the Gemini kinds reference is presented to the user
 - **THEN** it describes the Vertex AI kind as pairing a Google API key with the Vertex AI selector
 - **AND THEN** it maps that kind to the `--google-api-key` plus `--use-vertex-ai` create flags rather than folding it into the generic API key kind
+
+### Requirement: `houmao-specialist-mgr` is no longer the canonical specialist-management skill
+The system SHALL treat `houmao-agent-definition` as the canonical packaged skill for specialist and easy-profile authoring.
+
+If `houmao-specialist-mgr` remains packaged, it SHALL act as a compatibility wrapper that routes users to the corresponding `houmao-agent-definition` easy subskill and states that `houmao-agent-definition` is the canonical current skill.
+
+#### Scenario: Old specialist skill invocation redirects to unified skill
+- **WHEN** a user or installed agent invokes `houmao-specialist-mgr` for specialist or easy-profile authoring
+- **THEN** the skill tells the agent to use the corresponding `houmao-agent-definition` easy subskill
+- **AND THEN** it does not present itself as the independent canonical owner of specialist and easy-profile workflows
+
+### Requirement: Existing specialist behavior is preserved inside unified easy subskills
+The unified `houmao-agent-definition` easy subskills SHALL preserve the supported specialist and easy-profile authoring behavior previously documented by `houmao-specialist-mgr`, including create, set, list, get, remove, profile create, profile set, easy launch, and easy stop routing.
+
+The unified guidance SHALL still tell users that broad follow-up live-agent lifecycle management belongs to `houmao-agent-instance` after easy launch or stop.
+
+#### Scenario: Specialist update still uses project easy specialist set
+- **WHEN** a user asks to patch an existing specialist through the unified skill
+- **THEN** the unified easy specialist subskill routes the request through `houmao-mgr project easy specialist set`
+- **AND THEN** it does not remove and recreate the specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits
+
+### Requirement: `houmao-specialist-mgr` compatibility wrapper routes renamed agent-definition subcommands
+If `houmao-specialist-mgr` remains packaged, it SHALL identify `houmao-agent-definition` as the canonical owner for `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`.
+
+The wrapper SHALL use `create-agent-fast-forward` as the primary name for the one-pass specialist-to-easy-profile workflow and SHALL treat older ready-profile wording as compatibility terminology.
+
+#### Scenario: Compatibility wrapper names fast-forward path
+- **WHEN** an agent opens `houmao-specialist-mgr`
+- **THEN** the wrapper points one-pass profile preparation requests to `houmao-agent-definition` and `create-agent-fast-forward`
+- **AND THEN** it does not present ready-profile generation as an independent wrapper-owned workflow

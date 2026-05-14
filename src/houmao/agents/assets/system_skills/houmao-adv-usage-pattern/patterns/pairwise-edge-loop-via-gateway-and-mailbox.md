@@ -1,4 +1,6 @@
-# Pairwise Driver-Worker Edge Loop Via Gateway Handoff And Mailbox Return
+# Local-Close Driver-Worker Edge Loop Via Gateway Handoff And Mailbox Return
+
+Compatibility alias: `pairwise edge-loop`.
 
 Use this pattern when one Houmao-managed agent acts as a driver, sends work to exactly one worker for one loop round, and expects that same worker to return the final result back to that same driver.
 
@@ -15,7 +17,9 @@ Choose this pattern when:
 
 Use the forward relay-loop pattern instead when ownership should keep moving forward across agents and a later downstream loop egress should return the final result directly to a more distant origin.
 
-Use a dedicated pairwise loop-planning skill instead when the user needs recursive child loops, multiple pairwise edges, a rendered control graph, master-owned run planning, or run-control actions.
+Use `houmao-agent-loop-lite` instead when the user explicitly wants to package this kind of small loop as generated skills with typed Markdown templates and direct SQLite state.
+
+Use `houmao-agent-loop-pro` in `tree-loop` mode instead when the user needs recursive child loops, multiple local-close edges, a rendered control graph, schema-rich generated execplans, or generated loop run-control actions.
 
 Do not choose this pattern for one direct prompt, one direct email, or one local self-reminder. Use the lower-level skills directly for those simpler tasks.
 
@@ -50,11 +54,11 @@ Every resend of the same edge-loop round reuses the same `edge_loop_id`.
 
 Unlike the forward relay-loop pattern, the worker for one edge-loop round is also the default source of the final result for that same round. The result does not bypass the immediate driver.
 
-This page intentionally covers only the elemental two-node round. Use a dedicated pairwise loop-planning skill for recursive child edge-loops, multiple pairwise edges, or a rendered control graph.
+This page intentionally covers only the elemental two-node round. Use `houmao-agent-loop-lite` for a small generated-skill package with typed Markdown templates and direct SQLite state, or use `houmao-agent-loop-pro` in `tree-loop` mode for recursive child edge-loops, multiple local-close edges, schema-rich generated execplans, or a rendered control graph.
 
 ## Mutable Loop State
 
-Each agent that drives or owns pairwise edge-loop work keeps a small mutable ledger outside Houmao managed memory. Treat this as pattern bookkeeping, not operator-facing memo/page memory.
+Each agent that drives or owns local-close edge-loop work keeps a small mutable ledger outside Houmao managed memory. Treat this as pattern bookkeeping, not operator-facing memo/page memory.
 
 Location guidance:
 
@@ -114,7 +118,7 @@ Whenever one agent receives one edge-loop request:
 6. Send the final result email back to the same driver.
 7. Keep follow-up until the driver's final-result acknowledgement arrives.
 
-If the worker needs a recursive pairwise tree, multiple downstream workers, or a rendered control graph, use a dedicated pairwise loop-planning skill instead of expanding this elemental protocol inline.
+If the worker needs a recursive tree loop, multiple downstream workers, or a rendered control graph, use `houmao-agent-loop-pro` instead of expanding this elemental protocol inline. If the operator wants only a small reusable generated-skill package around the elemental protocol, use `houmao-agent-loop-lite`.
 
 ## Thresholds And User Input
 
@@ -128,7 +132,7 @@ Choose those values from:
 - the chosen supervisor reminder cadence,
 - the fact that reminders and notifier wakeups only dispatch when the gateway is ready.
 
-If a timing value is materially important to correctness or to the user's expectation and you cannot choose it sensibly from the current context, ask the user for that value instead of inventing an arbitrary threshold.
+If a timing value is materially important to correctness or to the user's expectation and you cannot choose it sensibly from the current context, ask the user for that value instead of inventing an arbitrary threshold. Treat that as a Houmao system-operation question: separate `Required` timing/posture values from `Optional` defaults, modifiers, or skip choices.
 
 Keep these concepts separate in the ledger:
 

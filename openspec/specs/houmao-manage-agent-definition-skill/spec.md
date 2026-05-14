@@ -1,8 +1,6 @@
 ## Purpose
 Define the packaged Houmao-owned `houmao-agent-definition` system skill for low-level project-local role and preset management.
-
 ## Requirements
-
 ### Requirement: Houmao provides a packaged `houmao-agent-definition` system skill
 
 The system SHALL package a Houmao-owned system skill named `houmao-agent-definition` under the maintained system-skill asset root.
@@ -150,3 +148,92 @@ When the user asks to change env vars or auth files inside an auth bundle, the s
 - **WHEN** the selected definition-management action still lacks a required target or explicit mutation after checking the current prompt and recent chat context
 - **THEN** the skill tells the agent to ask the user for the missing input before proceeding
 - **AND THEN** it does not guess a role, preset name, tool, or field change
+
+### Requirement: `houmao-agent-definition` is the canonical pre-launch agent-definition skill
+The packaged `houmao-agent-definition` skill SHALL be the canonical Houmao-owned skill for persisted pre-launch agent definition workflows.
+
+That unified skill SHALL expose these skill-level subcommands:
+
+- `roles` for low-level prompt-only roles;
+- `recipes` for low-level recipes, with `presets` as a compatibility alias;
+- `raw-profiles` for low-level recipe-backed launch profiles using the underlying `houmao-mgr project agents launch-profiles ...` CLI;
+- `specialists` for project-easy specialist templates;
+- `profiles` for specialist-backed easy profiles;
+- `create-agent-fast-forward` for creating or selecting a specialist, creating or updating an easy profile, printing the launch command, and not launching a live agent;
+- `launch-agent` for the limited easy launch entry point that hands off broader live lifecycle work to `houmao-agent-instance`;
+- `stop-agent` for the limited easy stop entry point that hands off broader live lifecycle work to `houmao-agent-instance`.
+
+The skill SHALL treat loosely stated `profile`, `agent profile`, `launch profile`, and `ready profile` wording as the `profiles` subcommand by default unless the user explicitly asks for `raw-profiles`, raw profile behavior, recipe-backed profile behavior, or the exact `project agents launch-profiles` CLI surface.
+
+#### Scenario: Unified skill routes named subcommands
+- **WHEN** an agent reads the packaged `houmao-agent-definition` skill
+- **THEN** the top-level page lists the supported skill subcommands and their local subskill routes
+- **AND THEN** the agent can route a user request that explicitly names `profiles`, `raw-profiles`, or `create-agent-fast-forward` without asking which branch was intended
+
+#### Scenario: Ambiguous launch profile means easy profile
+- **WHEN** a user asks to create or update an agent launch profile without saying raw, recipe-backed, or `project agents launch-profiles`
+- **THEN** the skill routes the request to the `profiles` subcommand
+- **AND THEN** it does not route the request to low-level recipe-backed launch profiles by default
+
+### Requirement: `houmao-agent-definition` uses lane-specific subskills
+The unified `houmao-agent-definition` skill SHALL keep its entry page concise and SHALL route detailed behavior into lane-specific local subskills or references.
+
+At minimum, the skill SHALL distinguish `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`.
+
+The skill SHALL include shared guidance for launcher resolution, missing-input handling, profile-lane terminology, and credential-routing boundaries.
+
+The entry page SHALL either route existing generic `actions/*` pages through the new subcommand vocabulary or mark those pages as legacy low-level-only references so they do not conflict with the subcommand table.
+
+#### Scenario: Entry page loads only the relevant lane
+- **WHEN** the user asks to update one easy profile
+- **THEN** `houmao-agent-definition` routes to the `profiles` subcommand and easy-profile subskill
+- **AND THEN** it does not load or flatten unrelated low-level recipe, raw-profile, or easy-instance launch instructions into the entry page
+
+#### Scenario: Raw profile route is explicit
+- **WHEN** the user asks for `raw-profiles` or for the exact `project agents launch-profiles` surface
+- **THEN** `houmao-agent-definition` routes to the low-level recipe-backed profile subskill
+- **AND THEN** the subskill names the underlying `houmao-mgr project agents launch-profiles ...` commands
+
+### Requirement: Unified skill keeps neighboring platform concerns out of scope
+The unified `houmao-agent-definition` skill SHALL NOT become the owner for credential bundle CRUD, mailbox root/account administration, workspace creation, broad live managed-agent lifecycle, or direct filesystem edits under `.houmao/`.
+
+It SHALL route those concerns to `houmao-credential-mgr`, `houmao-mailbox-mgr`, `houmao-utils-workspace-mgr`, `houmao-agent-instance`, or other maintained Houmao skills as appropriate.
+
+#### Scenario: Credential content mutation is routed away
+- **WHEN** a user asks to mutate auth files or environment variables inside a credential bundle while using `houmao-agent-definition`
+- **THEN** the skill routes the request to `houmao-credential-mgr`
+- **AND THEN** it does not treat credential-bundle content mutation as specialist, recipe, or profile authoring
+
+### Requirement: `houmao-agent-definition` prefers TUI-supported launch posture when unspecified
+The packaged `houmao-agent-definition` skill SHALL instruct agents that omitted headless/TUI launch posture means "prefer TUI/local interactive when the selected tool or launch lane supports it."
+
+This default SHALL apply to skill guidance for specialist-backed easy profile authoring, raw recipe-backed launch-profile authoring, create-agent-fast-forward profile preparation, and the specialist-scoped easy launch entry point.
+
+The skill SHALL NOT tell agents to add `--headless`, persist profile `--headless`, or report headless as a stored default unless the user explicitly asks for headless posture or the selected tool/lane is known to require headless.
+
+The skill SHALL keep prompt mode separate from launch posture: `--prompt-mode unattended` SHALL NOT imply `--headless`, and an unspecified headless/TUI posture SHALL remain TUI-preferred when supported even if prompt mode defaults to unattended.
+
+The skill SHALL identify Gemini easy launches as a known required-headless exception and SHALL preserve explicit stored headless posture when inspecting or launching from an existing profile.
+
+#### Scenario: Easy profile creation omits headless by default
+- **WHEN** a user asks `houmao-agent-definition profiles` or `create-agent-fast-forward` to create a Codex or Claude easy profile
+- **AND WHEN** the user does not request headless execution
+- **THEN** the skill guidance directs the agent to omit `--headless` from `project easy profile create`
+- **AND THEN** it treats the resulting profile as TUI/local-interactive preferred for later launch when supported
+
+#### Scenario: Raw profile authoring omits headless by default
+- **WHEN** a user asks `houmao-agent-definition raw-profiles` to add or update a recipe-backed launch profile
+- **AND WHEN** the user does not request headless execution
+- **THEN** the skill guidance directs the agent to omit `--headless`
+- **AND THEN** it does not infer headless from unattended prompt mode, gateway defaults, mailbox defaults, or model defaults
+
+#### Scenario: Fast-forward launch command stays TUI-preferred when supported
+- **WHEN** `create-agent-fast-forward` prepares a launchable easy profile for a TUI-capable tool
+- **AND WHEN** the user does not request headless execution
+- **THEN** the workflow reports a launch command without `--headless`
+- **AND THEN** it reports that launch posture is TUI/local-interactive preferred when supported
+
+#### Scenario: Required-headless exception remains explicit
+- **WHEN** `houmao-agent-definition launch-agent` prepares a Gemini easy launch command
+- **THEN** the skill guidance may require `--headless`
+- **AND THEN** it describes that as a selected-tool requirement rather than the default for unspecified launch posture

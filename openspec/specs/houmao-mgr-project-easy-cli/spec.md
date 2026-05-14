@@ -1147,3 +1147,80 @@ If no compatible stopped preserved home can be resolved, the command SHALL fail 
 - **THEN** the delegated native launch requests reused-home restart on the preserved home
 - **AND THEN** the restart uses tmux session name `reviewer-restart-debug`
 - **AND THEN** it does not silently force the old tmux session name when the operator supplied a stronger override
+
+### Requirement: Easy profiles manage registered and private skill overlays
+`houmao-mgr project easy profile create` and `houmao-mgr project easy profile set` SHALL support storing profile-owned skill overlays without mutating the referenced source specialist.
+
+The easy-profile surface SHALL accept repeatable `--add-registered-skill <name>` options. Each registered skill name SHALL reference an existing project skill registration by name and SHALL NOT create, import, copy, or symlink a new project skill registration.
+
+The easy-profile surface SHALL accept repeatable `--remove-registered-skill <name>` options on `set`. Removing a registered skill SHALL remove only that easy-profile-owned reference and SHALL NOT remove the project skill registration.
+
+The easy-profile surface SHALL accept repeatable `--add-private-skill <path>` options. Each private skill path SHALL identify a directory containing `SKILL.md`, SHALL derive its installed skill name from that directory name, and SHALL be stored with copy mode.
+
+The easy-profile surface SHALL accept repeatable `--add-private-skill-symlink <path>` options. Each private skill path SHALL identify a directory containing `SKILL.md`, SHALL derive its installed skill name from that directory name, and SHALL be stored with symlink mode.
+
+The easy-profile surface SHALL accept repeatable `--remove-private-skill <path>` options on `set`. Removing a private skill SHALL remove only the matching easy-profile-owned private skill reference and SHALL NOT mutate the referenced source directory.
+
+Adding and removing the same registered skill name or the same normalized private skill path in one command SHALL fail clearly before mutating profile state.
+
+Adding the same private installed skill name more than once in a single easy profile SHALL fail clearly before mutating profile state.
+
+#### Scenario: Easy profile create stores registered and private skill overlays
+- **WHEN** project skill `llm-wiki` is registered
+- **AND WHEN** `/repo/profile-skills/audit/SKILL.md` exists
+- **AND WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-a --specialist reviewer --add-registered-skill llm-wiki --add-private-skill /repo/profile-skills/audit`
+- **THEN** easy profile `reviewer-a` stores registered skill ref `llm-wiki`
+- **AND THEN** it stores private skill `audit` with source path `/repo/profile-skills/audit` and mode `copy`
+- **AND THEN** project skill `audit` is not added to the project skill registry
+
+#### Scenario: Easy profile set patches private symlink skill
+- **WHEN** easy profile `reviewer-a` exists
+- **AND WHEN** `/repo/profile-skills/live-tools/SKILL.md` exists
+- **AND WHEN** an operator runs `houmao-mgr project easy profile set --name reviewer-a --add-private-skill-symlink /repo/profile-skills/live-tools`
+- **THEN** easy profile `reviewer-a` stores private skill `live-tools` with mode `symlink`
+- **AND THEN** project skill `live-tools` is not added to the project skill registry
+
+#### Scenario: Easy profile rejects unknown registered skill
+- **WHEN** project skill `unknown-skill` is not registered
+- **AND WHEN** an operator runs `houmao-mgr project easy profile create --name reviewer-a --specialist reviewer --add-registered-skill unknown-skill`
+- **THEN** the command fails clearly before mutating profile state
+- **AND THEN** it tells the operator that `unknown-skill` is not a registered project skill
+
+### Requirement: Easy profile inspection and projection report skill overlays
+`houmao-mgr project easy profile get --name <profile>` SHALL report stored registered skill refs and private skill refs as part of the profile defaults.
+
+`houmao-mgr project easy profile list` SHALL include enough structured skill-overlay summary data for operators to see that a profile contributes additional skills.
+
+The projected `.houmao/agents/launch-profiles/<profile>.yaml` file for an easy profile SHALL render registered skill refs separately from private skill refs. Private skill refs SHALL include installed name, source path, and mode.
+
+#### Scenario: Easy profile get reports registered and private skill overlays
+- **WHEN** easy profile `reviewer-a` stores registered skill `llm-wiki`
+- **AND WHEN** it stores private skill `audit` from `/repo/profile-skills/audit` with mode `copy`
+- **AND WHEN** an operator runs `houmao-mgr project easy profile get --name reviewer-a`
+- **THEN** the output reports registered skill ref `llm-wiki`
+- **AND THEN** it reports private skill `audit`, its source path, and mode `copy`
+
+#### Scenario: Easy profile projection renders skill overlays
+- **WHEN** easy profile `reviewer-a` stores registered skill `llm-wiki`
+- **AND WHEN** it stores private skill `audit` from `/repo/profile-skills/audit` with mode `symlink`
+- **THEN** `.houmao/agents/launch-profiles/reviewer-a.yaml` contains a launch-profile skills block with registered `llm-wiki`
+- **AND THEN** that file contains private skill `audit` with source path `/repo/profile-skills/audit` and mode `symlink`
+
+### Requirement: Easy profile env records are regression-tested through Codex TUI launch
+The test suite SHALL include coverage for a profile-backed Codex TUI launch where durable env records are created through the public easy-profile CLI surface and then observed inside the launched tmux-backed runtime.
+
+The test SHALL create an easy profile with repeatable `project easy profile create --env-set NAME=value` inputs, launch a managed agent from that profile with `project easy instance launch --profile <name>` using the Codex local interactive lane, and verify the profile env records reach the launched tmux session or provider process environment.
+
+The test SHALL use non-secret env names and values. It SHALL include lowercase proxy env names matching the issue report.
+
+#### Scenario: Profile env reaches Codex TUI launched from easy profile
+- **WHEN** a project contains a Codex-backed specialist and an easy profile created with `--env-set http_proxy=http://127.0.0.1:7990`, `--env-set https_proxy=http://127.0.0.1:7990`, and `--env-set FEATURE_FLAG_X=profile-env`
+- **AND WHEN** an operator launches the profile through `houmao-mgr project easy instance launch --profile <profile>`
+- **THEN** the launched tmux-backed Codex TUI environment exposes `http_proxy=http://127.0.0.1:7990`
+- **AND THEN** the launched tmux-backed Codex TUI environment exposes `https_proxy=http://127.0.0.1:7990`
+- **AND THEN** the launched tmux-backed Codex TUI environment exposes `FEATURE_FLAG_X=profile-env`
+
+#### Scenario: Regression uses the CLI profile storage path
+- **WHEN** the regression prepares the launch profile for the Codex TUI env propagation check
+- **THEN** it creates the profile through `project easy profile create --env-set` rather than direct catalog mutation
+- **AND THEN** it launches through `project easy instance launch --profile` rather than calling the runtime backend directly

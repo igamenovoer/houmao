@@ -1,0 +1,97 @@
+# Raw Profiles
+
+Use this subskill when the user explicitly wants `raw-profiles`, raw profiles, recipe-backed profiles, or the exact `project agents launch-profiles ...` surface.
+
+Raw profiles are low-level recipe-backed launch profiles. The underlying maintained CLI remains `houmao-mgr project agents launch-profiles ...`.
+
+## Preconditions
+
+- Read [../common/launcher.md](../common/launcher.md).
+- Read [../common/missing-inputs.md](../common/missing-inputs.md).
+- Read [../common/profile-lanes.md](../common/profile-lanes.md).
+- Read [../common/credential-routing.md](../common/credential-routing.md) when auth overrides are involved.
+- Confirm the profile lane is raw recipe-backed, not specialist-backed easy profile.
+
+## Workflow
+
+1. Determine the action: `list`, `get`, `add`, `set`, `replace`, or `remove`.
+2. Recover required raw-profile inputs from the prompt and explicit recent context.
+3. Ask for any missing required inputs before running a command.
+4. Use the chosen `houmao-mgr` launcher.
+5. Run the matching launch-profile command.
+6. Report the returned profile data and any defaults that affect later launch.
+
+## Command Shapes
+
+```text
+<chosen houmao-mgr launcher> project agents launch-profiles list
+<chosen houmao-mgr launcher> project agents launch-profiles get --name <profile>
+<chosen houmao-mgr launcher> project agents launch-profiles add --name <profile> --recipe <recipe> ...
+<chosen houmao-mgr launcher> project agents launch-profiles add --name <profile> --recipe <recipe> --yes ...
+<chosen houmao-mgr launcher> project agents launch-profiles set --name <profile> ...
+<chosen houmao-mgr launcher> project agents launch-profiles remove --name <profile>
+```
+
+## Add And Set Fields
+
+- `--agent-name`
+- `--agent-id`
+- `--workdir`
+- `--auth`
+- `--model`
+- `--reasoning-level`
+- `--prompt-mode unattended|as_is`
+- repeatable `--env-set NAME=value`
+- mailbox defaults: `--mail-transport filesystem|stalwart`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`
+- launch posture: `--headless`, `--no-gateway`, `--gateway-port`
+- relaunch chat-session defaults when supported by the current CLI
+- managed prompt header: `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
+- prompt overlay: `--prompt-overlay-mode append|replace`, `--prompt-overlay-text`, `--prompt-overlay-file`
+- gateway mail-notifier default: `--gateway-mail-notifier-appendix-text`
+- memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
+
+## Default Launch Posture
+
+When headless or TUI posture is unspecified, omit `--headless`. A raw profile without stored headless posture remains TUI/local-interactive preferred on later launch when the selected tool supports it.
+
+Only persist `--headless` when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from `--prompt-mode unattended`, gateway defaults, mailbox defaults, relaunch defaults, model defaults, or automation-oriented wording.
+
+## Set Clear Fields
+
+- `--clear-agent-name`
+- `--clear-agent-id`
+- `--clear-workdir`
+- `--clear-auth`
+- `--clear-model`
+- `--clear-reasoning-level`
+- `--clear-prompt-mode`
+- `--clear-env`
+- `--clear-mailbox`
+- `--clear-headless`
+- `--clear-relaunch-chat-session`
+- `--clear-managed-header`
+- `--clear-managed-header-section SECTION`
+- `--clear-managed-header-sections`
+- `--clear-prompt-overlay`
+- `--clear-gateway-mail-notifier-appendix`
+- `--clear-memo-seed`
+
+## Notes
+
+- The skill subcommand is `raw-profiles`; the CLI command family is still `project agents launch-profiles ...`.
+- `launch-profiles set` patches without dropping unspecified defaults.
+- `launch-profiles add --yes` is only for intended same-name replacement; omitted optional fields are cleared.
+- `--auth` and `--clear-auth` change the profile auth override by display name; they do not mutate credential bundle contents.
+- `--gateway-mail-notifier-appendix-text` stores a future runtime notifier prompt appendix default; launching from the profile seeds runtime notifier state but does not enable polling.
+- Memo seeds replace only represented components. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when present and pages only when `pages/` is present.
+- Use `--memo-seed-text ''` for an intentional empty memo seed. Use `--clear-memo-seed` only when removing stored seed configuration.
+
+## Guardrails
+
+- Do not route `project easy profile ...` through this subskill.
+- Do not route loosely stated profile requests here; use `profiles` unless the user explicitly asks for raw or recipe-backed behavior.
+- Do not remove and recreate a raw profile for ordinary edits.
+- Do not treat launch-profile `--auth` changes as credential CRUD.
+- Do not route low-level recipe editing through this subskill.
+- Do not store `--headless` by default for TUI-capable tools.
+- Do not invent raw-profile names, recipe names, or field overrides.

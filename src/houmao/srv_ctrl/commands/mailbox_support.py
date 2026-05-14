@@ -22,6 +22,7 @@ from houmao.mailbox.filesystem import (
 )
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
+    MailboxAccountMessageClearResult,
     MailboxCleanupRecord,
     MailboxCleanupResult,
     MailboxExportRequest,
@@ -30,6 +31,7 @@ from houmao.mailbox.managed import (
     ManagedMailboxOperationError,
     RegisterMailboxRequest,
     RepairRequest,
+    clear_mailbox_account_messages,
     clear_mailbox_messages,
     cleanup_mailbox_registrations,
     deregister_mailbox,
@@ -267,6 +269,22 @@ def clear_mailbox_messages_at_root(
         dry_run=dry_run,
     )
     return _mailbox_message_clear_payload(result=result)
+
+
+def clear_mailbox_account_messages_at_root(
+    *,
+    mailbox_root: Path,
+    address: str,
+    dry_run: bool,
+) -> dict[str, object]:
+    """Clear delivered messages visible to one mailbox account."""
+
+    result = clear_mailbox_account_messages(
+        mailbox_root.resolve(),
+        address=address,
+        dry_run=dry_run,
+    )
+    return _mailbox_account_message_clear_payload(result=result)
 
 
 def export_mailbox_root(
@@ -716,6 +734,42 @@ def _mailbox_message_clear_payload(
         scope={
             "kind": "mailbox_message_clear",
             "mailbox_root": str(result.mailbox_root),
+        },
+        resolution={"authority": "mailbox_root"},
+        planned_actions=planned_actions,
+        applied_actions=applied_actions,
+        blocked_actions=blocked_actions,
+        preserved_actions=preserved_actions,
+    )
+
+
+def _mailbox_account_message_clear_payload(
+    *,
+    result: MailboxAccountMessageClearResult,
+) -> dict[str, object]:
+    """Return the structured CLI payload for account-scoped message clearing."""
+
+    planned_actions: list[CleanupAction] = []
+    applied_actions: list[CleanupAction] = []
+    blocked_actions: list[CleanupAction] = []
+    preserved_actions: list[CleanupAction] = []
+
+    for record in result.planned:
+        planned_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.removed:
+        applied_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.blocked:
+        blocked_actions.append(_cleanup_action_from_mailbox_record(record))
+    for record in result.preserved:
+        preserved_actions.append(_cleanup_action_from_mailbox_record(record))
+
+    return build_cleanup_payload(
+        dry_run=result.dry_run,
+        scope={
+            "kind": "mailbox_account_message_clear",
+            "mailbox_root": str(result.mailbox_root),
+            "address": result.address,
+            "registration_id": result.registration_id,
         },
         resolution={"authority": "mailbox_root"},
         planned_actions=planned_actions,

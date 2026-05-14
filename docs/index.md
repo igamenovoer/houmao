@@ -4,7 +4,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 | Who you are | Where to start |
 |---|---|
-| **Installed user** (`uv tool install houmao`) | Run `houmao-mgr system-skills install --tool claude`, start your agent, invoke the `houmao-touring` skill — or read [Easy Specialists](getting-started/easy-specialists.md) for the manual path |
+| **Installed user** (`uv tool install houmao`) | Install system skills with `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/` when `npx` and internet are available; use [`houmao-mgr system-skills install`](reference/cli/system-skills.md) for offline/package-local or customized installs. Then start your agent and invoke `houmao-touring` or ask `$houmao-touring help`. |
 | **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) — covers `agents join` and project-overlay build/launch with `pixi run` |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
@@ -17,7 +17,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
 - [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the `houmao-memory-mgr` skill.
 - [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
-- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose between the five loop skills, understand the pairwise-v2 routing-packet prestart model plus pairwise-v3 workspace contracts and pairwise-v4 template-driven source contracts, and discover the graph tooling that supports plan authoring.
+- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose `houmao-agent-loop-lite` for Markdown/direct-SQL loops or `houmao-agent-loop-pro` for schema-rich topology loops, then discover the graph tooling that supports pro generated execplan authoring.
 
 ## Reference
 
@@ -33,7 +33,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
 - [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [admin cleanup](reference/cli/admin-cleanup.md): Registry and runtime maintenance commands.
-- [internals graph](reference/cli/internals.md): NetworkX-backed graph helpers for loop plan authoring, structural analysis, and packet validation.
+- [internals graph](reference/cli/internals.md): NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
 - [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.
 
 ### Build Phase
@@ -79,4 +79,4 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 ## Examples
 
-- [Writer Team](../examples/writer-team/): A complete pairwise loop example — three agents (story-writer, character-designer, reviewer) collaborating on a multi-chapter story. Contains role prompts, a pairwise loop plan, start charter, and local setup commands.
+- [Writer Team](../examples/writer-team/): A complete tree loop example — three agents (story-writer, character-designer, reviewer) collaborating on a multi-chapter story. Contains role prompts, a tree loop plan, start charter, and local setup commands.

@@ -3,40 +3,6 @@
 ## Purpose
 TBD - created by archiving change add-houmao-agent-loop-pairwise-skill. Update Purpose after archive.
 ## Requirements
-### Requirement: Houmao provides a packaged `houmao-agent-loop-pairwise` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pairwise` under the maintained system-skill asset root.
-
-That packaged skill SHALL use `houmao-agent-loop-pairwise` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
-
-The top-level `SKILL.md` for that packaged skill SHALL describe the skill as a user-controlled manual pairwise loop-planning and run-control skill rather than as a new runtime workflow engine or the versioned enriched pairwise surface.
-
-The packaged `houmao-agent-loop-pairwise` skill SHALL be manual-invocation-only. It SHALL instruct agents to use the skill only when the user explicitly asks for `houmao-agent-loop-pairwise` by name.
-
-That packaged skill SHALL organize its guidance through local authoring and operating pages beneath the same packaged skill directory.
-
-That packaged skill SHALL remain distinct from the direct-operation skills, the existing `houmao-adv-usage-pattern` pattern pages that it composes, and the versioned `houmao-agent-loop-pairwise-v2` skill.
-
-That packaged skill SHALL own composed pairwise loop planning concerns, including multi-edge topology, recursive child-control edges, rendered control graphs, master-owned run planning, run charters, and `start`/`status`/`stop` run-control actions.
-
-When that packaged skill references `houmao-adv-usage-pattern`, it SHALL treat the advanced-usage pairwise page as the elemental immediate driver-worker edge protocol to use per edge rather than as the owner of composed pairwise topology.
-
-That packaged skill SHALL NOT present itself as the default entrypoint for generic pairwise loop planning or pairwise run-control requests when the user did not explicitly invoke the skill by name.
-
-#### Scenario: User explicitly asks to invoke the restored stable pairwise skill
-- **WHEN** a user explicitly asks for `houmao-agent-loop-pairwise`
-- **THEN** `houmao-agent-loop-pairwise` is the correct packaged Houmao-owned skill
-- **AND THEN** it presents itself as the restored stable pairwise planning and run-control surface rather than as the enriched v2 workflow
-
-#### Scenario: User explicitly asks to use the stable pairwise skill for run control
-- **WHEN** a user explicitly asks for `houmao-agent-loop-pairwise` to formulate a pairwise loop plan or operate one accepted run
-- **THEN** `houmao-agent-loop-pairwise` is the correct packaged Houmao-owned skill
-- **AND THEN** it routes the request through its authoring or operating guidance rather than claiming a new runtime control API
-
-#### Scenario: Generic pairwise loop request does not auto-route to the stable skill
-- **WHEN** a user asks generically to plan, start, inspect, or stop a pairwise loop without explicitly asking for `houmao-agent-loop-pairwise`
-- **THEN** `houmao-agent-loop-pairwise` does not present itself as the default skill for that request
-- **AND THEN** the request remains outside this packaged skill entrypoint unless the user later invokes the skill explicitly
-
 ### Requirement: The authoring lane formulates user intent into an explicit pairwise loop plan
 The authoring guidance in `houmao-agent-loop-pairwise` SHALL turn natural-language user intent into one explicit pairwise loop plan before run start.
 
@@ -150,3 +116,32 @@ The lifecycle guidance SHALL keep composed run topology in the accepted pairwise
 - **WHEN** a reader opens the packaged `houmao-agent-loop-pairwise` operating guidance
 - **THEN** the stable run-control surface is described through `start`, `status`, and `stop`
 - **AND THEN** enriched v2-only verbs such as `initialize`, `peek`, `ping`, `pause`, `resume`, or `hard-kill` are not described as part of the stable skill contract
+
+### Requirement: Stable pairwise-named loop skill presents tree loop terminology
+The packaged `houmao-agent-loop-pairwise` skill SHALL keep its skill name, packaged asset directory name, and explicit activation handle unchanged.
+
+The skill SHALL describe its authored topology as a tree loop or local-close tree loop in user-facing explanatory text.
+
+The skill SHALL present `pairwise loop` as a legacy alias for tree loop behavior rather than as the primary concept name.
+
+The skill SHALL keep pairwise-named protocol references only where they identify existing skill handles, compatibility aliases, or elemental local-close edge behavior.
+
+#### Scenario: Stable skill is invoked by legacy name
+- **WHEN** a user explicitly invokes `houmao-agent-loop-pairwise`
+- **THEN** the skill remains the correct packaged entrypoint
+- **AND THEN** its guidance explains that the run is a tree loop with pairwise loop as an alias
+
+#### Scenario: Stable skill routes to elemental edge protocol
+- **WHEN** stable tree-loop guidance points to one immediate driver-worker edge protocol
+- **THEN** it uses local-close edge loop terminology
+- **AND THEN** it may mention the existing pairwise edge-loop pattern as the compatibility target
+
+### Requirement: Stable pairwise skill is retired
+The system SHALL NOT package `houmao-agent-loop-pairwise` as a current installable Houmao-owned system skill.
+
+Current guidance SHALL route tree-loop authoring and execution through `houmao-agent-loop-pro`.
+
+#### Scenario: Stable pairwise name is absent from current inventory
+- **WHEN** the current system-skill inventory is loaded
+- **THEN** `houmao-agent-loop-pairwise` is not present as a current installable skill
+- **AND THEN** `houmao-agent-loop-pro` is present as the current loop skill

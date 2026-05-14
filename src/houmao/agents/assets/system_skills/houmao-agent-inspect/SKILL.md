@@ -10,10 +10,38 @@ Use this Houmao skill when the task is to inspect the current state of one Houma
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-inspect` skill name directly when you intend to activate this Houmao-owned skill.
 
+## Help
+
+When the user asks `$houmao-agent-inspect help`, `help for houmao-agent-inspect`, `usage for houmao-agent-inspect`, `available functionality for houmao-agent-inspect`, or what this skill can do, answer from this section before choosing an inspection lane, action page, command, route, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me inspect this agent's screen", route to the matching workflow instead of stopping at generic help.
+
+Purpose: inspect Houmao-managed agents without mutating them.
+
+Available functionality:
+
+- Discover target managed agents and read summary liveness state.
+- Inspect visible screen posture and bounded tmux evidence after managed surfaces identify the target.
+- Inspect mailbox posture, unread state, logs, and runtime artifacts.
+- Use managed-agent HTTP inspection routes when operating through pair-managed control.
+
+Common starting prompts:
+
+- `$houmao-agent-inspect help`
+- `$houmao-agent-inspect discover agents`
+- `$houmao-agent-inspect screen for <agent>`
+- `$houmao-agent-inspect logs for <agent>`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-messaging` for prompt, interrupt, queueing, raw input, mailbox send or reply, or reset-context work.
+- Use `houmao-agent-gateway` for gateway lifecycle, reminders, mail-notifier control, or gateway-owned mutation.
+- Use `houmao-mailbox-mgr` for mailbox-root administration or late mailbox binding changes.
+- Use `houmao-agent-instance` for stop, relaunch, cleanup, or other lifecycle mutation.
+
 ## Scope
 
 This packaged skill covers exactly these read-only inspection actions:
 
+- `help` (read-only meta operation)
 - `discover`
 - `screen`
 - `mailbox`
@@ -44,6 +72,8 @@ This packaged skill does not cover:
 
 ## Workflow
 
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
 1. Identify the inspection intent first: discovery, visible screen posture, mailbox posture, logs, or runtime artifacts.
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the selected action still lacks a required target, ask the user in Markdown before proceeding.
@@ -73,9 +103,13 @@ This packaged skill does not cover:
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 - If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
 - When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the intended lane or several required fields need clarification
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected inspection path, such as managed-agent selector, inspection lane, turn id, log selector, mailbox selector, or artifact target
+  - `Optional`: launcher preference, output format, detail level, watch posture, filters, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the intended lane or several required fields need clarification
 - Name the command or route you intend to use and show only the missing fields needed for that path.
+- Do not use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
 
 ## Routing Guidance
 

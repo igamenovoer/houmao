@@ -1,5 +1,14 @@
 schema_version = 1
 
+retired_skill_names = [
+  "houmao-agent-loop-pairwise",
+  "houmao-agent-loop-pairwise-v2",
+  "houmao-agent-loop-pairwise-v3",
+  "houmao-agent-loop-pairwise-v4",
+  "houmao-agent-loop-pairwise-v5",
+  "houmao-agent-loop-generic",
+]
+
 [skills.houmao-process-emails-via-gateway]
 asset_subpath = "houmao-process-emails-via-gateway"
 description = "Round-oriented gateway mailbox workflow skill."
@@ -34,11 +43,11 @@ description = "Managed-agent memo and contained pages memory skill."
 
 [skills.houmao-project-mgr]
 asset_subpath = "houmao-project-mgr"
-description = "Project overlay lifecycle, layout, and project-scoped launch-profile or easy-instance management skill."
+description = "Project overlay lifecycle, layout, and project-scoped easy-instance inspection or stop skill."
 
 [skills.houmao-specialist-mgr]
 asset_subpath = "houmao-specialist-mgr"
-description = "Project-easy specialist and profile management skill."
+description = "Compatibility wrapper that routes project-easy specialist and profile work to houmao-agent-definition."
 
 [skills.houmao-credential-mgr]
 asset_subpath = "houmao-credential-mgr"
@@ -46,27 +55,15 @@ description = "Project-local credential management skill."
 
 [skills.houmao-agent-definition]
 asset_subpath = "houmao-agent-definition"
-description = "Low-level project-local role and preset definition management skill."
+description = "Canonical pre-launch agent-definition skill for roles, recipes, raw-profiles, specialists, profiles, and create-agent-fast-forward."
 
-[skills.houmao-agent-loop-pairwise]
-asset_subpath = "houmao-agent-loop-pairwise"
-description = "Manual invocation only restored stable pairwise loop authoring and `start|status|stop` master-run control skill."
+[skills.houmao-agent-loop-pro]
+asset_subpath = "houmao-agent-loop-pro"
+description = "Schema-rich loop authoring and generated-loop execution skill for tree-loop and generic-loop execplans."
 
-[skills.houmao-agent-loop-pairwise-v2]
-asset_subpath = "houmao-agent-loop-pairwise-v2"
-description = "Manual invocation only versioned enriched pairwise loop authoring, prestart, and expanded master-run control skill."
-
-[skills.houmao-agent-loop-pairwise-v3]
-asset_subpath = "houmao-agent-loop-pairwise-v3"
-description = "Manual invocation only workspace-aware enriched pairwise loop authoring, prestart, and expanded master-run control skill."
-
-[skills.houmao-agent-loop-pairwise-v4]
-asset_subpath = "houmao-agent-loop-pairwise-v4"
-description = "Manual invocation only template-driven workspace-aware enriched pairwise loop authoring, prestart, and expanded master-run control skill."
-
-[skills.houmao-agent-loop-generic]
-asset_subpath = "houmao-agent-loop-generic"
-description = "Generic pairwise/relay loop graph planning and root-run control skill for user-controlled agents."
+[skills.houmao-agent-loop-lite]
+asset_subpath = "houmao-agent-loop-lite"
+description = "Markdown/direct-SQL loop authoring and generated-loop execution skill with required typed templates and generated skills."
 
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
@@ -89,6 +86,7 @@ description = "Closed core control and automation system-skill set."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
+  "houmao-utils-workspace-mgr",
   "houmao-mailbox-mgr",
   "houmao-memory-mgr",
   "houmao-adv-usage-pattern",
@@ -97,11 +95,8 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
-  "houmao-agent-loop-pairwise",
-  "houmao-agent-loop-pairwise-v2",
-  "houmao-agent-loop-pairwise-v3",
-  "houmao-agent-loop-pairwise-v4",
-  "houmao-agent-loop-generic",
+  "houmao-agent-loop-pro",
+  "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
   "houmao-agent-messaging",
@@ -113,6 +108,7 @@ description = "All packaged Houmao system skills, including utility skills."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
+  "houmao-utils-workspace-mgr",
   "houmao-mailbox-mgr",
   "houmao-memory-mgr",
   "houmao-adv-usage-pattern",
@@ -121,17 +117,13 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
-  "houmao-agent-loop-pairwise",
-  "houmao-agent-loop-pairwise-v2",
-  "houmao-agent-loop-pairwise-v3",
-  "houmao-agent-loop-pairwise-v4",
-  "houmao-agent-loop-generic",
+  "houmao-agent-loop-pro",
+  "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
   "houmao-utils-llm-wiki",
-  "houmao-utils-workspace-mgr",
 ]
 
 [auto_install]

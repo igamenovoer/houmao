@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 import shutil
+import tomllib
 
 from click.testing import CliRunner
 import pytest
@@ -27,6 +28,35 @@ def _make_skill_dir(root: Path, name: str) -> Path:
         encoding="utf-8",
     )
     return skill_root
+
+
+def test_project_agent_starter_codex_setups_do_not_pin_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    bootstrap_project_overlay(repo_root)
+    overlay = require_project_overlay(repo_root)
+    ensure_project_agent_compatibility_tree(overlay)
+
+    setup_root = overlay.agents_root / "tools" / "codex" / "setups"
+    default_payload = tomllib.loads(
+        (setup_root / "default" / "config.toml").read_text(encoding="utf-8")
+    )
+    yunwu_payload = tomllib.loads(
+        (setup_root / "yunwu-openai" / "config.toml").read_text(encoding="utf-8")
+    )
+
+    assert "model" not in default_payload
+    assert default_payload["model_reasoning_effort"] == "medium"
+    assert default_payload["tui"]["show_tooltips"] is False
+    assert "model" not in yunwu_payload
+    assert yunwu_payload["model_provider"] == "yunwu-openai"
+    assert yunwu_payload["model_providers"]["yunwu-openai"]["wire_api"] == "responses"
+    assert yunwu_payload["tui"]["show_tooltips"] is False
 
 
 def test_project_catalog_exposes_sql_views_and_integrity_checks(

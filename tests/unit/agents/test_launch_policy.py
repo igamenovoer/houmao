@@ -97,12 +97,14 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
         '--config=approval_policy="never"',
         '--config=sandbox_mode="danger-full-access"',
         "--config=notice.hide_full_access_warning=true",
+        "--config=tui.show_tooltips=false",
     )
     assert payload["approval_policy"] == "never"
     assert payload["sandbox_mode"] == "danger-full-access"
-    assert payload["model"] == "gpt-5.4"
+    assert "model" not in payload
     assert payload["notice"]["hide_full_access_warning"] is True
-    assert payload["notice"]["model_migrations"]["gpt-5.3-codex"] == "gpt-5.4"
+    assert payload["notice"].get("model_migrations") is None
+    assert payload["tui"]["show_tooltips"] is False
     assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
 
 
@@ -115,7 +117,6 @@ def test_codex_unattended_strategy_supports_env_only_custom_provider(
     home.mkdir()
     (home / "config.toml").write_text(
         """
-model = "gpt-5.4"
 model_provider = "yunwu-openai"
 
 [model_providers.yunwu-openai]
@@ -147,8 +148,10 @@ wire_api = "responses"
     assert result.provenance.selected_strategy_id == "codex-unattended-0.116.x"
     assert "sk-test" not in " ".join(result.args)
     assert payload["model_provider"] == "yunwu-openai"
+    assert "model" not in payload
     assert payload["approval_policy"] == "never"
     assert payload["sandbox_mode"] == "danger-full-access"
+    assert payload["tui"]["show_tooltips"] is False
     assert payload["projects"][str((tmp_path / "workspace").resolve())]["trust_level"] == "trusted"
 
 
@@ -208,6 +211,7 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
                 "--config",
                 'sandbox_mode="workspace-write"',
                 "--config=notice.hide_full_access_warning=false",
+                "--config=tui.show_tooltips=true",
                 "-c",
                 'notice.model_migrations.gpt-5.3-codex="skip"',
                 "--config",
@@ -232,6 +236,7 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
         '--config=approval_policy="never"',
         '--config=sandbox_mode="danger-full-access"',
         "--config=notice.hide_full_access_warning=true",
+        "--config=tui.show_tooltips=false",
     )
 
 

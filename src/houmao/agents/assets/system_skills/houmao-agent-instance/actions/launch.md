@@ -1,19 +1,25 @@
 # Launch Agent Instance
 
-Use this action only when the user wants to create one new managed-agent instance from a predefined source. This remains the canonical general lifecycle launch action even though `houmao-specialist-mgr` may also front specialist-scoped launch requests.
+Use this action only when the user wants to create one new managed-agent instance from a predefined source. This remains the canonical general lifecycle launch action even though `houmao-agent-definition` also owns specialist-scoped easy launch requests.
 
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine which launch lane the request actually needs:
    - direct managed launch from a predefined role or preset
-   - explicit launch-profile-backed managed launch
+   - raw-profile-backed managed launch
    - specialist-backed managed launch from an existing easy specialist
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
-6. Run the correct launch command.
+6. Run the correct launch command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 7. Report the managed-agent identity and launch result returned by the command.
+
+## Default Launch Posture
+
+When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool or launch lane supports it.
+
+Only add a one-shot `--headless` flag when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from unattended prompt mode, gateway attachment, mailbox defaults, output rendering, or automation-oriented wording.
 
 ## Command Selection
 
@@ -45,12 +51,13 @@ Common optional inputs:
 Behavior note:
 
 - `--workdir` changes only the launched agent runtime cwd.
+- When launch posture is unspecified and the selected provider supports a TUI/local-interactive backend, omit `--headless`.
 - When the selected role or preset resolves from a Houmao project source, source-project overlay resolution stays pinned to that source instead of following `--workdir`.
 - Do not treat gateway attach as part of direct role or preset launch completion. If the user later asks to attach or operate a gateway, route that follow-up through `houmao-agent-gateway`, whose lifecycle guidance is foreground-first and treats background attach as explicit user intent.
 
-### Explicit Launch-Profile-Backed Managed Launch
+### Raw-Profile-Backed Managed Launch
 
-Use this lane when the user wants to launch through an existing explicit project launch profile.
+Use this lane when the user wants to launch through an existing raw profile. In the CLI this remains `--launch-profile`.
 
 Use:
 
@@ -76,8 +83,9 @@ Common optional inputs:
 Behavior note:
 
 - `--launch-profile` and `--agents` are mutually exclusive.
-- The stored launch profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
+- The stored raw profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
 - Stored launch-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
+- Preserve explicit stored launch-profile posture, but do not add a one-shot `--headless` override unless the user explicitly asks for it or the selected tool/lane requires it.
 - Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
 - Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
 - `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
@@ -112,11 +120,12 @@ Common optional inputs:
 Behavior note:
 
 - `--workdir` changes only the launched agent runtime cwd.
+- When launch posture is unspecified and the selected specialist's tool supports TUI/local-interactive launch, omit `--headless`.
 - The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
 - `--managed-header-section` is a one-shot section override for the launched instance.
-- Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-specialist-mgr`.
+- Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-agent-definition`.
 
-If the selected specialist is known to use Gemini, the launch must be headless.
+If the selected specialist is known to use Gemini, the launch must be headless. Treat that as a selected-tool requirement, not as the default for omitted launch posture.
 
 ## Guardrails
 
@@ -124,10 +133,11 @@ If the selected specialist is known to use Gemini, the launch must be headless.
 - Do not invent role selectors, launch profile names, specialist names, provider ids, or instance names.
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
 - Do not route specialist-backed launch through `agents launch`.
-- Do not route explicit launch-profile-backed launch through `project easy instance launch`.
+- Do not route raw-profile-backed launch through `project easy instance launch`.
 - Do not route role/preset launch through `project easy instance launch`.
 - Do not describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
 - Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.
+- Do not add `--headless` by default for TUI-capable tools or because prompt mode is unattended.
 - Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.

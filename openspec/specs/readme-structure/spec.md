@@ -9,37 +9,41 @@ The README SHALL present sections in this order: title/intro, What It Is, Quick 
 - **WHEN** a reader opens README.md and scans section headings
 - **THEN** they see step 0 (Install & Prerequisites), step 1 (Drive with Your CLI Agent), step 2 (Initialize a Project), step 3 (Create Specialists & Launch Agents), step 4 (Agent Loop), step 5 (Adopt an Existing Session), step 6 (Full Recipes and Launch Profiles)
 
-### Requirement: system-skills install is step 0
-
-The Quick Start SHALL begin with a step 0 that instructs the user to run `houmao-mgr system-skills install --tool <tool>[,<tool>...]` before any other Houmao workflow. The step SHALL explain that without system skills, agents cannot self-manage through their native skill interface.
-
-The step SHALL present omitted `--home` as the recommended default for project-local setup because each selected tool resolves its own env/default home. The step SHALL explain that `--home <home>` is valid only when installing for one tool and is intended for explicit external-home overrides.
-
-When the README shows named system-skill set selection examples, it SHALL use `--skill-set <name>` rather than the removed `--set <name>` spelling.
-
-#### Scenario: User follows step 0 with one or more tools
-- **WHEN** a user reads step 0 and runs the install command with one tool or a comma-separated tool list
-- **THEN** the system skills are installed into the resolved tool home or homes
-- **AND THEN** subsequent agent launches gain self-management capabilities
-
-#### Scenario: User understands explicit home override scope
-- **WHEN** a user reads step 0 and wants to install into a specific external tool home
-- **THEN** the README explains that they must run a single-tool install command with `--home <home>`
-- **AND THEN** it does not imply that one `--home` value can be shared by comma-separated tools
-
-#### Scenario: Skip note for join-only users
-- **WHEN** a user only wants to try `agents join` without project setup
-- **THEN** a visible note directs them to skip to step 4, explaining system skills are recommended but not required for the join path
-
 ### Requirement: Drive with Your CLI Agent is step 1
 
-Step 1 SHALL be titled "Drive with Your CLI Agent (Recommended)" and SHALL present the skill-driven path as the primary recommended entry point. It SHALL instruct the user to run `houmao-mgr system-skills install --tool <tool>[,<tool>...]` to install system skills into the resolved project-local tool home or homes, then start their agent from the same directory and invoke the `houmao-touring` skill. A note SHALL state that the remaining steps show the manual CLI equivalents for reference.
+Step 1 SHALL be titled "Drive with Your CLI Agent (Recommended)" and SHALL present the skill-driven path as the primary recommended entry point. It SHALL instruct the user to install system skills, start their agent from the same directory, and invoke `houmao-touring`.
+
+When `npx` is available and the target machine has internet access, step 1 SHALL recommend installing from the GitHub main-branch system-skill collection with:
+
+```bash
+npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+```
+
+Step 1 SHALL present `houmao-mgr system-skills install --tool <tool>[,<tool>...]` as the Houmao-owned installation path for environments without `npx` or internet access, installed-package/offline workflows, named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup.
+
+Step 1 SHALL explain that omitted `--home` resolves each selected tool through its own env/default home rules, and that explicit `--home` is valid only for a single selected tool.
+
+Step 1 SHALL mention that installed Houmao system skills support explicit read-only help such as `$houmao-touring help` or `$houmao-agent-email-comms help`.
 
 Step 1 SHALL NOT present `--set` as the current named system-skill set selection flag.
 
-#### Scenario: User follows step 1
-- **WHEN** a user reads step 1 and installs system skills then starts their agent
-- **THEN** they know to invoke `houmao-touring` for a guided walkthrough and understand the rest of the Quick Start is a manual reference
+A note SHALL state that the remaining steps show the manual CLI equivalents for reference.
+
+#### Scenario: User follows step 1 with npx available
+- **WHEN** a user reads step 1 on a machine with `npx` and internet access
+- **THEN** they see the `npx skills add` command pointed at the GitHub main-branch `system_skills/` directory
+- **AND THEN** they understand that the Skills CLI lets them choose which packaged skill or skills to install
+- **AND THEN** they know to start their agent and invoke `houmao-touring`
+
+#### Scenario: User follows step 1 without npx or with custom install needs
+- **WHEN** a user reads step 1 without `npx`, without internet access, or with explicit selection or home needs
+- **THEN** they see `houmao-mgr system-skills install --tool <tool>[,<tool>...]` as the supported Houmao-owned path
+- **AND THEN** they understand omitted-home and single-tool explicit-home behavior
+
+#### Scenario: User discovers read-only skill help from step 1
+- **WHEN** a reader finishes the recommended agent-driven setup guidance
+- **THEN** they see at least one explicit skill-help prompt example
+- **AND THEN** the README describes help as read-only usage guidance before workflows
 
 #### Scenario: Step 1 is clearly positioned as recommended
 - **WHEN** a reader scans the Quick Start section headings
@@ -150,4 +154,30 @@ The README SHALL distinguish the reusable example from the inline quick-start na
 - **WHEN** a reader finishes the README story-writing loop section
 - **THEN** they find a link to `examples/writer-team/`
 - **AND THEN** they understand that the linked example is the reusable template for creating the three-agent writing team locally
+
+### Requirement: README skill table uses unified agent-definition row
+The System Skills table in README.md SHALL list `houmao-agent-definition` with a description that includes low-level roles/recipes, `raw-profiles`, specialists, easy `profiles`, and `create-agent-fast-forward`.
+
+If the README still mentions `houmao-specialist-mgr`, that mention SHALL identify it as compatibility or migration guidance rather than as a primary separate row for current specialist management.
+
+#### Scenario: README table names the fast-forward path
+- **WHEN** the README System Skills table is inspected
+- **THEN** the `houmao-agent-definition` row includes `create-agent-fast-forward` or one-click agent profile preparation in its description
+- **AND THEN** specialist/easy-profile authoring is not described as belonging only to a separate primary skill
+
+#### Scenario: README table uses raw profile terminology
+- **WHEN** the README System Skills table mentions low-level recipe-backed profiles
+- **THEN** it names that lane as `raw-profiles`
+- **AND THEN** it keeps `profiles` available for specialist-backed easy profiles
+
+### Requirement: Install prerequisites are step 0
+
+The README Quick Start step 0 SHALL remain titled "Install & Prerequisites" or an equivalent install/prerequisite heading. It SHALL focus on installing Houmao itself and verifying host prerequisites such as `tmux`.
+
+Step 0 SHALL NOT be the only place where system-skill installation is introduced. System-skill installation choices SHALL appear in the recommended agent-driven step.
+
+#### Scenario: Reader sees Houmao install prerequisites first
+- **WHEN** a reader scans the README Quick Start section
+- **THEN** step 0 explains how to install Houmao and verify prerequisites
+- **AND THEN** system-skill installation choices are handled in the recommended agent-driven step rather than being the sole purpose of step 0
 

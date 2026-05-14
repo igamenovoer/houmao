@@ -1,0 +1,51 @@
+# Generated package metadata for this execplan revision.
+generated_source = true
+generated_with = "scripts/scaffold.py"
+scaffold_profile = "${scaffold_profile}"
+loop_slug = "${loop_slug}"
+generated_date = "${generated_date}"
+plan_revision = ${plan_revision}
+purpose_directories = ${purpose_directories_toml}
+omitted_default_layers = []
+
+# Generated contracts directory.
+[[artifacts]]
+id = "specs"
+description = "Generated machine-readable loop contracts."
+path = "specs/"
+artifact_kind = "dir"
+purpose = "generated loop contracts"
+
+# Generated skills directory.
+[[artifacts]]
+id = "skills"
+description = "Generated skill packages used by loop participants and operators."
+path = "skills/"
+artifact_kind = "dir"
+purpose = "generated skill packages"
+
+# Generated agent bindings directory.
+[[artifacts]]
+id = "agents"
+description = "Generated concrete agent bindings, profile material, and notifier prompt material."
+path = "agents/"
+artifact_kind = "dir"
+purpose = "generated concrete agent bindings"
+
+# Generated harness directory.
+[[artifacts]]
+id = "harness"
+description = "Generated loop-local helper surface for validation, query, rendering, and controlled apply."
+path = "harness/"
+artifact_kind = "dir"
+purpose = "generated loop-local helper surface"
+
+# Generated support docs directory.
+[[artifacts]]
+id = "docs"
+description = "Generated human support views that summarize authoritative artifacts."
+path = "docs/"
+artifact_kind = "dir"
+purpose = "generated human support views"
+
+${execplan_adrs_artifact_block}

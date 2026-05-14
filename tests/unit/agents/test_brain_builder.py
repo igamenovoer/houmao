@@ -10,6 +10,7 @@ import yaml
 from houmao.agents.brain_builder import (
     BuildError,
     BuildRequest,
+    PrivateSkillProjection,
     _load_tool_adapter,
     build_brain_home,
     load_brain_recipe,
@@ -62,7 +63,10 @@ auth_projection:
 
     _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
     _write(agent_def_dir / "skills/skill-b/SKILL.md", "# skill-b\n")
-    _write(agent_def_dir / "tools/codex/setups/default/config.toml", "model='x'\n")
+    _write(
+        agent_def_dir / "tools/codex/setups/default/config.toml",
+        'model_reasoning_effort = "medium"\n\n[tui]\nshow_tooltips = false\n',
+    )
     _write(
         agent_def_dir / "tools/codex/auth/personal-a/files/auth.json",
         '{"token": "secret"}\n',
@@ -245,6 +249,10 @@ def test_build_brain_home_projects_selected_components_and_manifest(
 
     # Fresh home content is built from selected inputs only.
     assert (home / "config.toml").is_file()
+    config_payload = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
+    assert "model" not in config_payload
+    assert config_payload["model_reasoning_effort"] == "medium"
+    assert config_payload["tui"]["show_tooltips"] is False
     assert (home / "skills/skill-a").is_symlink()
     visible_gateway_skill = home / "skills/houmao-agent-email-comms/SKILL.md"
     visible_processing_skill = home / "skills/houmao-process-emails-via-gateway/SKILL.md"
@@ -260,11 +268,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-pairwise-v3/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-pairwise-v4/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
@@ -276,6 +281,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
+        "houmao-utils-workspace-mgr",
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -283,11 +289,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-pairwise-v3",
-        "houmao-agent-loop-pairwise-v4",
-        "houmao-agent-loop-generic",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
         "houmao-agent-instance",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
@@ -324,8 +327,11 @@ def test_build_brain_home_copies_selected_setup_bundle_verbatim(
     _seed_repo(agent_def_dir)
     custom_setup = (
         """
-model = "gpt-5.4"
 model_provider = "yunwu-openai"
+model_reasoning_effort = "medium"
+
+[tui]
+show_tooltips = false
 
 [model_providers.yunwu-openai]
 name = "Yunwu"
@@ -355,7 +361,7 @@ wire_api = "responses"
     codex_overrides = manifest["runtime"]["launch_contract"]["model_selection"][
         "codex_cli_config_overrides"
     ]
-    assert '--config=model="gpt-5.4"' in codex_overrides["args"]
+    assert not any(arg.startswith("--config=model=") for arg in codex_overrides["args"])
     assert '--config=model_provider="yunwu-openai"' in codex_overrides["args"]
     assert (
         '--config=model_providers.yunwu-openai.base_url="https://api.example.test/v1"'
@@ -1034,6 +1040,92 @@ def test_build_brain_home_persists_launch_profile_provenance_and_role_prompt_ove
     }
 
 
+def test_build_brain_home_projects_private_skills_after_registered_skills(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    private_shadow = tmp_path / "private" / "skill-a"
+    private_live = tmp_path / "private" / "live-skill"
+    _write(private_shadow / "SKILL.md", "# skill-a\n\nPrivate shadow.\n")
+    _write(private_live / "SKILL.md", "# live-skill\n\nPrivate live.\n")
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a", "skill-b"],
+            private_skills=(
+                PrivateSkillProjection(
+                    name="skill-a",
+                    source_path=private_shadow,
+                    mode="copy",
+                ),
+                PrivateSkillProjection(
+                    name="live-skill",
+                    source_path=private_live,
+                    mode="symlink",
+                ),
+            ),
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-private-skills",
+        )
+    )
+
+    shadow_target = result.home_path / "skills/skill-a"
+    live_target = result.home_path / "skills/live-skill"
+    assert not shadow_target.is_symlink()
+    assert (shadow_target / "SKILL.md").read_text(encoding="utf-8") == (
+        "# skill-a\n\nPrivate shadow.\n"
+    )
+    assert live_target.is_symlink()
+    assert live_target.resolve() == private_live
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "private_skill_projections"
+    ] == [
+        {
+            "name": "skill-a",
+            "source_path": str(private_shadow),
+            "mode": "copy",
+        },
+        {
+            "name": "live-skill",
+            "source_path": str(private_live),
+            "mode": "symlink",
+        },
+    ]
+
+
+def test_build_brain_home_rejects_missing_private_skill_source(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    with pytest.raises(BuildError, match="Private skill projection source"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["skill-a"],
+                private_skills=(
+                    PrivateSkillProjection(
+                        name="missing-private",
+                        source_path=tmp_path / "missing-private",
+                        mode="copy",
+                    ),
+                ),
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="codex-home-missing-private-skill",
+            )
+        )
+
+
 def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path: Path) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
@@ -1077,6 +1169,47 @@ def test_build_brain_home_resolves_model_selection_precedence_for_codex(tmp_path
         "effective": {"name": "gpt-5.4-nano", "reasoning": {"level": 10}},
         "sources": {
             "name": "direct_launch",
+            "reasoning_level": "direct_launch",
+        },
+    }
+
+
+def test_build_brain_home_projects_codex_reasoning_without_forcing_model(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-reasoning-only",
+            direct_model_config=ModelConfig(
+                reasoning=ModelReasoningConfig(level=2),
+            ),
+        )
+    )
+
+    payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
+
+    assert "model" not in payload
+    assert payload["model_reasoning_effort"] == "medium"
+    assert model_selection["codex_cli_config_overrides"]["args"] == [
+        '--config=model_reasoning_effort="medium"',
+    ]
+    assert model_selection["native_projection"]["reasoning"]["model_name"] is None
+    assert model_selection["resolved"] == {
+        "effective": {"reasoning": {"level": 2}},
+        "sources": {
+            "name": None,
             "reasoning_level": "direct_launch",
         },
     }

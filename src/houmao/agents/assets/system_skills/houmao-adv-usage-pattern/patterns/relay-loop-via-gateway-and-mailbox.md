@@ -14,7 +14,9 @@ Choose this pattern when:
 - the sender needs robust resend and deduplication behavior under ambiguous network outcomes,
 - the sender can maintain a small mutable loop ledger through mailbox/reminder state or an operator-designated work artifact path.
 
-Use `houmao-agent-loop-generic` instead when the user needs multi-lane routing, fan-out, mixed pairwise/relay graph planning, graph policy authoring, a rendered graph, root-owned run planning, or `start`/`status`/`stop` run-control actions.
+Use `houmao-agent-loop-lite` instead when the user explicitly wants to package a small relay as generated skills with typed Markdown templates and direct SQLite state.
+
+Use `houmao-agent-loop-pro` instead when the user needs multi-lane routing, fan-out, mixed local-close/relay graph planning, graph policy authoring, a rendered graph, schema-rich generated execplans, or generated loop run-control actions.
 
 Do not choose this pattern for one direct prompt, one direct email, or one local self-reminder. Use the lower-level skills directly for those simpler tasks.
 
@@ -131,7 +133,7 @@ Choose those values from:
 - the chosen supervisor reminder cadence,
 - the fact that reminders and notifier wakeups only dispatch when the gateway is ready.
 
-If a timing value is materially important to correctness or to the user's expectation and you cannot choose it sensibly from the current context, ask the user for that parameter instead of inventing an arbitrary threshold.
+If a timing value is materially important to correctness or to the user's expectation and you cannot choose it sensibly from the current context, ask the user for that parameter instead of inventing an arbitrary threshold. Treat that as a Houmao system-operation question: separate `Required` timing/posture values from `Optional` defaults, modifiers, or skip choices.
 
 Keep these concepts separate in the ledger:
 

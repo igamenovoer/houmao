@@ -317,6 +317,50 @@ def project_mailbox_messages_group() -> None:
     """Inspect structural message projections under `mailbox/` in the selected overlay."""
 
 
+@project_mailbox_messages_group.command(name="clear")
+@click.option("--address", required=True, help="Full mailbox address.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview account-scoped message clearing without deleting mail.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="Confirm account-scoped message clearing non-interactively.",
+)
+def clear_project_mailbox_account_messages_command(
+    address: str,
+    dry_run: bool,
+    yes: bool,
+) -> None:
+    """Clear structurally projected messages for one selected project-local address."""
+
+    if not dry_run:
+        confirm_destructive_action(
+            prompt=(
+                "Clear delivered messages visible to "
+                f"`{address}` from the selected project mailbox root while preserving "
+                "mailbox registrations and other accounts?"
+            ),
+            yes=yes,
+            non_interactive_message=(
+                "Project account-scoped mailbox message clearing would delete selected "
+                "delivered message projections. Rerun with `--yes` to confirm "
+                "non-interactively or use `--dry-run` to preview."
+            ),
+            cancelled_message="Project account-scoped mailbox message clearing cancelled.",
+        )
+    roots = _resolve_existing_project_mailbox_roots()
+    payload = _call_project_mailbox_action(
+        roots,
+        clear_mailbox_account_messages_at_root,
+        address=address,
+        dry_run=dry_run,
+    )
+    emit(_project_mailbox_payload(roots=roots, payload=payload))
+
+
 @project_mailbox_messages_group.command(name="list")
 @click.option("--address", required=True, help="Full mailbox address.")
 def list_project_mailbox_messages_command(address: str) -> None:

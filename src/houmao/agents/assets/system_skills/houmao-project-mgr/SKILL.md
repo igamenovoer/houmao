@@ -1,22 +1,49 @@
 ---
 name: houmao-project-mgr
-description: Use Houmao's project-management skill for project overlay lifecycle, `.houmao/` layout, project-aware command effects, explicit launch profiles, and project-scoped easy-instance inspection or stop workflows.
+description: Use Houmao's project-management skill for project overlay lifecycle, `.houmao/` layout, project-aware command effects, and project-scoped easy-instance inspection or stop workflows.
 license: MIT
 ---
 
 # Houmao Project Manager
 
-Use this Houmao skill when the task is about the Houmao project overlay itself: initializing it, explaining its layout, understanding how project context changes other commands, managing explicit launch profiles, or inspecting or stopping easy instances through the selected overlay.
+Use this Houmao skill when the task is about the Houmao project overlay itself: initializing it, explaining its layout, understanding how project context changes other commands, or inspecting or stopping easy instances through the selected overlay.
 
 The trigger word `houmao` is intentional. Use the `houmao-project-mgr` skill name directly when you intend to activate this Houmao-owned skill.
+
+## Help
+
+When the user asks `$houmao-project-mgr help`, `help for houmao-project-mgr`, `usage for houmao-project-mgr`, `available functionality for houmao-project-mgr`, or what this skill can do, answer from this section before choosing a project action, reference page, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me initialize this Houmao project", route to the matching workflow instead of stopping at generic help.
+
+Purpose: manage and explain the Houmao project overlay and project-scoped easy-instance inspection or stop surfaces.
+
+Available functionality:
+
+- Initialize or validate a selected project overlay.
+- Inspect project overlay selection, effective project-aware roots, and bootstrap posture.
+- Explain `.houmao/` layout and project-aware command effects.
+- List, inspect, or stop project easy instances through the selected overlay.
+
+Common starting prompts:
+
+- `$houmao-project-mgr help`
+- `$houmao-project-mgr project status`
+- `$houmao-project-mgr explain .houmao layout`
+- `$houmao-project-mgr project easy instance list`
+
+Related skills and boundaries:
+
+- Use `houmao-agent-definition` for specialist, profile, easy launch, low-level role, recipe, or raw-profile work.
+- Use `houmao-credential-mgr` for project-local auth-bundle CRUD.
+- Use `houmao-mailbox-mgr` for project mailbox administration.
+- Use `houmao-agent-instance` for generic managed-agent lifecycle after project-scoped routing.
 
 ## Scope
 
 This packaged skill covers exactly these project-management surfaces:
 
+- `help` (read-only meta operation)
 - `houmao-mgr project init`
 - `houmao-mgr project status`
-- `houmao-mgr project agents launch-profiles ...`
 - `houmao-mgr project easy instance list|get|stop`
 
 This packaged skill does not cover:
@@ -27,15 +54,18 @@ This packaged skill does not cover:
 - `houmao-mgr project credentials <tool> ...`
 - `houmao-mgr project agents roles ...`
 - `houmao-mgr project agents recipes ...`
+- `houmao-mgr project agents launch-profiles ...`
 - `houmao-mgr project mailbox ...`
 - `houmao-mgr agents launch|join|list|state|stop|relaunch|cleanup`
 - direct hand-editing inside `.houmao/`
 
 ## Workflow
 
-1. Identify whether the user wants project overlay lifecycle, project layout explanation, project-aware side effects, explicit launch-profile management, or project-scoped easy-instance inspection or stop.
+Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+
+1. Identify whether the user wants project overlay lifecycle, project layout explanation, project-aware side effects, or project-scoped easy-instance inspection or stop.
 2. When the task is explanatory rather than operational, load the narrowest reference page you need before deciding whether any command should run.
-3. If the user really wants specialist/profile authoring, auth-bundle CRUD, low-level role/recipe editing, mailbox administration, or generic live-agent lifecycle, stop and route the request to the correct renamed Houmao skill before continuing.
+3. If the user really wants specialist/profile authoring, raw-profile authoring, auth-bundle CRUD, low-level role/recipe editing, mailbox administration, or generic live-agent lifecycle, stop and route the request to the correct Houmao skill before continuing.
 4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 5. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
@@ -50,7 +80,6 @@ This packaged skill does not cover:
 
 - Read [actions/init.md](actions/init.md) to create or validate the selected project overlay.
 - Read [actions/status.md](actions/status.md) to inspect which project overlay is selected and whether a stateful project-aware flow would bootstrap it.
-- Read [actions/launch-profiles.md](actions/launch-profiles.md) to list, inspect, add, update, or remove explicit recipe-backed launch profiles.
 - Read [actions/easy-instances.md](actions/easy-instances.md) to list, inspect, or stop easy instances through the selected project overlay.
 
 ## References
@@ -65,26 +94,29 @@ This packaged skill does not cover:
 - Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 - If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
 - When asking for missing input, use readable Markdown:
-  - a short bullet list when only one or two fields are missing
-  - a compact table when the project-management lane or several required fields need clarification
+  - separate `Required` values from `Optional` modifiers
+  - `Required`: values that block the selected project command, such as action, overlay target, easy-instance name, or stop/list/get selector
+  - `Optional`: launcher preference, discovery mode, explicit overlay env, output format, dry-run posture, or skip choices; if none apply, say `Optional: none for this step.`
+  - use a short bullet list when only one or two required fields are missing
+  - use a compact table when the project-management lane or several required fields need clarification
 - Name the command you intend to run and show only the missing fields needed for that command.
+- Do not use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
 
 ## Routing Guidance
 
 - Use `actions/init.md` only when the user wants to create or validate the selected project overlay.
 - Use `actions/status.md` only when the user wants to inspect overlay selection, effective project-aware roots, or bootstrap posture.
-- Use `actions/launch-profiles.md` only when the user wants to manage explicit recipe-backed launch profiles under `project agents launch-profiles ...`.
 - Use `actions/easy-instances.md` only when the user wants `project easy instance list|get|stop` through the selected project overlay.
-- Route easy specialist or easy profile authoring, and easy `launch|stop`, to `houmao-specialist-mgr`.
+- Route easy specialist authoring, `profiles`, `create-agent-fast-forward`, `launch-agent`, `stop-agent`, low-level `roles` and `recipes`, and `raw-profiles` to `houmao-agent-definition`.
 - Route project-local auth-bundle CRUD to `houmao-credential-mgr`.
-- Route low-level roles and recipes to `houmao-agent-definition`.
 - Route generic managed-agent lifecycle after project-scoped routing to `houmao-agent-instance`.
 - Route mailbox administration to `houmao-mailbox-mgr`.
 
 ## Guardrails
 
-- Do not guess whether the task is project explanation, launch-profile management, or project-scoped easy-instance inspection when the prompt is ambiguous.
-- Do not treat `project easy instance launch` as part of this skill; that belongs to `houmao-specialist-mgr`.
+- Do not guess whether the task is project explanation, project-scoped easy-instance inspection, or an agent-definition/profile task when the prompt is ambiguous.
+- Do not treat `project easy instance launch` as part of this skill; that belongs to `houmao-agent-definition`.
+- Do not treat `project agents launch-profiles ...` as part of this skill; that belongs to `houmao-agent-definition` subcommand `raw-profiles`.
 - Do not treat project-scoped launch-profile `--auth` overrides as auth-bundle CRUD.
 - Do not imply that `project easy instance list|get|stop` bootstrap a missing overlay automatically; they use non-creating selected-overlay resolution.
 - Do not hand-edit `.houmao/` files when the maintained `houmao-mgr` surfaces already cover the task.
