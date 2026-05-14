@@ -4,6 +4,41 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.10.0] - 2026-05-14
+
+### Added
+
+- **`houmao-agent-loop-pro` system skill**: new topology-aware loop authoring and execution workflow with intention scaffolds, generated execplan contracts, validation helpers, launch/prepare/start/resume/status controls, and reusable reference material for generated loop directories.
+- **`houmao-agent-loop-lite` system skill**: new lightweight Markdown/direct-SQL loop workflow for typed template generation, generated skills, and small operator-driven loop runs.
+- **System skill help operation**: `houmao-mgr system-skills` now exposes help-oriented lookup behavior so operators can discover packaged skill surfaces more directly.
+- **Launch-profile skill overlays and mailbox message clearing**: launch profiles can layer skill overlays, and mailbox tooling now includes account-scoped message clear support for managed mailbox cleanup.
+
+### Changed
+
+- **Agent definition workflow unified**: role, recipe, raw-profile, specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent guidance now routes through the canonical `houmao-agent-definition` skill, with the older specialist wrapper kept only as a compatibility entrypoint.
+- **Loop authoring guidance moved to the pro/lite model**: pairwise-v5 execplan guidance, workspace preparation, harness/scaffold generation, operator controls, terminology, and documentation were consolidated into the new pro skill and supporting docs.
+- **Legacy loop skills retired from the primary surface**: legacy pairwise/generic loop skills now point users toward current pro/lite workflows while preserving archived reference material.
+- **System skill install and input-question guidance refreshed**: README, docs, catalog metadata, OpenSpec specs, and bundled skill instructions now align on current install behavior, input-question conventions, and OpenAI-compatible agent defaults.
+
+### Notes
+
+- This release bumps the minor segment for the new pro/lite loop-authoring surfaces, the unified agent-definition workflow, system-skill help, and the launch-profile/mailbox management additions.
+- The `gh release create v0.10.0` event triggers both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
+## [0.9.1] - 2026-04-29
+
+### Fixed
+
+- **Stale/degraded managed-agent lifecycle recovery**: `houmao-mgr agents stop` and `houmao-mgr agents relaunch` now recover more cleanly from stale or degraded local managed-agent state.
+- **Stopped continuity preserved on stale-active relaunch failures**: failed relaunch paths keep recoverable stopped-agent continuity instead of discarding useful state.
+- **Stop-failure guidance improved**: failures now surface exact cleanup, retry, and relaunch follow-up commands.
+- **Historical CAO inventory labeling**: retired external `cao-server` upstream inventory coverage is now marked historical when the pinned source is absent.
+
+### Notes
+
+- This release bumped the patch segment for lifecycle recovery fixes and closed issues #56 and #57.
+- The `gh release create v0.9.1` event triggered both `pypi-release.yml` (PyPI publish via OIDC trusted publishing) and `docs.yml` (GitHub Pages deploy from the release tag).
+
 ## [0.9.0] - 2026-04-28
 
 ### Added
@@ -401,6 +436,17 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.10.0]: https://github.com/igamenovoer/houmao/compare/v0.9.1...v0.10.0
+[0.9.1]: https://github.com/igamenovoer/houmao/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/igamenovoer/houmao/compare/v0.8.3...v0.9.0
+[0.8.3]: https://github.com/igamenovoer/houmao/compare/v0.8.2...v0.8.3
+[0.8.2]: https://github.com/igamenovoer/houmao/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/igamenovoer/houmao/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/igamenovoer/houmao/compare/v0.7.3...v0.8.0
+[0.7.3]: https://github.com/igamenovoer/houmao/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/igamenovoer/houmao/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/igamenovoer/houmao/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/igamenovoer/houmao/compare/v0.6.6...v0.7.0
 [0.6.6]: https://github.com/igamenovoer/houmao/compare/v0.6.5...v0.6.6
 [0.6.5]: https://github.com/igamenovoer/houmao/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/igamenovoer/houmao/compare/v0.6.3...v0.6.4
