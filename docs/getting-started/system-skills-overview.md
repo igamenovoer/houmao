@@ -23,6 +23,26 @@ Every current packaged Houmao system skill supports explicit skill-level help fr
 
 The help trigger is intentionally narrow. Explicit help or usage requests are handled before normal workflow routing, action-page routing, branch selection, transport selection, or missing-input collection. Ordinary task requests such as "help me send mail to this agent" or "help me launch this profile" still route to the task workflow instead of stopping at generic usage text.
 
+## Installation Choices
+
+When `npx` is available and the target machine has internet access, the recommended user-driven install path is the external Skills CLI pointed at the GitHub main-branch system-skill collection:
+
+```bash
+npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+```
+
+That command points at the collection directory, not at one individual skill, so the user can choose which packaged skill or skills to install.
+
+Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when the install needs Houmao-specific projection behavior such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
+
+```bash
+houmao-mgr system-skills install --tool claude,codex,copilot,gemini
+houmao-mgr system-skills install --tool codex --skill-set core
+houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
+```
+
+Managed launch and join are separate from these explicit user-driven installation choices. `agents launch` and `agents join` auto-install the catalog's `core` set into managed homes; omitted-selection `houmao-mgr system-skills install` uses the catalog's `all` set for external or project-scoped tool homes.
+
 ## The Packaged Skills
 
 Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into three organization groups: **automation** for autonomous agent operation, mailbox/gateway/memory behavior, messaging, and inspection; **control** for operator-facing project, specialist, credential, definition, lifecycle, touring, and loop workflows; and **utils** for optional utility workflows.
