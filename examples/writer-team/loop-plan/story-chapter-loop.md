@@ -154,4 +154,4 @@ The user agent, meaning the operator or operator agent sending the start charter
 - optionally providing premise, setting, cast, tone, or constraints
 - sending status requests on demand only; status polling is not a liveness signal
 - sending stop requests if the run needs to end early
-- using the `houmao-agent-loop-pairwise` skill for full lifecycle handling when available
+- using `houmao-agent-loop-pro` in `tree-loop` mode for full generated-loop lifecycle handling when available

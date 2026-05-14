@@ -62,7 +62,7 @@ Question priority:
 5. Resolve loop process ambiguity next: how work moves through phases, what events/ticks advance it, what happens on timeout or failure, and how completion/recovery works.
 6. Ask about state, operator controls, workspace, artifacts, evidence, project integration, terminology, or file organization only after the core objective, topology, communication, and process shape is clear enough.
 
-Prioritize questions whose answers affect generated process, contracts, runtime safety, scheduling, recovery, validation, topology, or acceptance. Avoid low-impact local wording or file-organization questions while objective, topology, agent communication, predecessor context, or loop process logic is partial or missing.
+Prioritize questions whose answers affect generated process, contracts, runtime safety, scheduling, recovery, validation, topology, or acceptance. Avoid low-impact local wording or file-organization questions while objective, agent communication, or loop process logic is partial or missing.
 
 ## Visual Summary
 

@@ -18,40 +18,37 @@ Use this branch when a guided-tour user wants a flat enumeration of the broader 
 
 ## Advanced Entries
 
-- **Stable tree loop** — use `houmao-agent-loop-pairwise` to author a tree loop plan and operate an accepted master-owned run through `plan`, `start`, `status`, and `stop`.
-- **Enriched tree loop** — use `houmao-agent-loop-pairwise-v2` to author an enriched tree loop plan and operate a run through `plan`, `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` for extended runtime control and routing-packet prestart.
-- **Workspace-aware tree loop** — use `houmao-agent-loop-pairwise-v3` to extend the enriched tree loop workflow with an authored `standard` or `custom` workspace contract, including task-scoped standard in-repo posture when needed.
-- **Template-driven workspace-aware tree loop** — use `houmao-agent-loop-pairwise-v4` to extend v3 with strict generated document templates, source-contract summaries, and constraint coverage audits for rich task notes.
-- **Generic loop** — use `houmao-agent-loop-generic` for mixed local-close and relay component graphs where a user-controlled agent needs to decompose a multi-agent communication graph and operate the accepted root-owned run through `start`, `status`, and `stop`.
+- **Pro loop authoring** — use `houmao-agent-loop-pro` to scaffold intention files, clarify loop intent, generate execplan artifacts, validate readiness, launch agents, and operate the generated loop.
+- **Tree-loop mode** — choose `tree-loop` inside `houmao-agent-loop-pro` when downstream work is a local-close tree: each node replies to its immediate upstream, and non-tree cycles are handled through explicit relay choices in the generated execplan.
+- **Generic-loop mode** — choose `generic-loop` inside `houmao-agent-loop-pro` when the communication graph may contain cycles, relay lanes, or task-specific predecessor-context forwarding choices.
 - **Advanced usage patterns** — use `houmao-adv-usage-pattern` for multi-step workflow compositions built from existing Houmao skills, including self-notification, local-close edge loops, and forward relay loops, plus the elemental immediate driver-worker edge protocol that underlies loop components.
 - **Managed-agent memory** — use `houmao-memory-mgr` to read or write a managed agent's `houmao-memo.md` free-form memo file and the managed-agent pages memory.
 - **Gateway extras** — use `houmao-agent-gateway` for gateway mail-notifier polling, reminders, and other gateway-only control surfaces that live alongside an attached live gateway.
 - **Credential management** — use `houmao-credential-mgr` for project-local credential lifecycle, including list, inspect, add, update, log in, rename, and remove for credentials backing specialist launches.
 - **Agent definition** — use `houmao-agent-definition` for project-local `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, and `create-agent-fast-forward`.
 
-## Tree Loop Ownership Boundaries
+## Loop Ownership Boundaries
 
-Tree loops are advanced composed workflows:
+Generated loops are advanced composed workflows:
 
 - the user agent stays outside the execution loop,
-- the designated master owns supervision after accepting the run,
-- downstream work moves through local-close immediate driver-worker edges,
-- each edge closes locally before the immediate driver integrates the result.
+- generated execplan artifacts define the topology, mail schemas, harness, skills, workspace contracts, and run-control behavior,
+- tree-loop mode uses local-close immediate upstream/downstream result routing,
+- generic-loop mode records task-specific predecessor-context and relay choices when downstream nodes need context from earlier predecessors.
 
 Keep ownership boundaries explicit:
 
-- composed topology, rendered control graphs, run charters, lifecycle vocabulary, and run-control actions belong to the selected tree loop skill,
+- composed topology, rendered control graphs, generated artifacts, lifecycle vocabulary, and run-control actions belong to `houmao-agent-loop-pro`,
 - elemental immediate driver-worker edge protocol guidance belongs to `houmao-adv-usage-pattern`, specifically the local-close edge-loop pattern,
 - ordinary project setup, specialist authoring, launch, messaging, mailbox, gateway, and lifecycle work still routes to the existing direct-operation skills.
 
-When the user only wants the simplest maintained tree loop planner, point them at the stable tree loop entry and ask the user to select or explicitly invoke the desired tree loop skill. When the user needs routing-packet preflight, read-only peeking, ping, pause-only resume, restart recovery with `recover_and_continue`, or emergency hard-kill controls, point them at the enriched tree loop entry. When the user also needs the loop plan to own workspace posture, point them at the workspace-aware tree loop entry. In all cases, ask the user to select or explicitly invoke the desired tree loop skill.
+When the user asks for current loop authoring, route to `houmao-agent-loop-pro` and help them choose `tree-loop` or `generic-loop` mode. Do not ask them to choose among retired loop packages.
 
 ## Guardrails
 
-- Do not silently auto-route tree loop planning or tree loop run-control requests into `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, or `houmao-agent-loop-pairwise-v4`; ask the user to select or explicitly invoke the desired tree loop skill.
+- Do not route current loop planning or generated loop run-control requests to retired loop packages.
 - Do not make the user agent the upstream driver of the execution loop.
 - Do not restate tree-loop plan templates, run charters, stop modes, routing packets, mailbox result protocol, or reminder protocol inline.
 - Do not push composed tree loop topology, recursive child-control planning, rendered graph semantics, or run-control actions down into `houmao-adv-usage-pattern`.
-- Do not treat the stable, v2, and v3 tree loop skills as aliases; they are separate choices with different lifecycle and workspace surfaces.
 - Do not mark any advanced entry as recommended, preferred, primary, or default; the entries are peers.
 - Do not collapse the advanced entries into a single generic "advanced" surface; each entry has its own owning skill.

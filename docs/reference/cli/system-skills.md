@@ -18,7 +18,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-utils-workspace-mgr` for explicit multi-agent workspace planning and execution utilities: dry-run plans, task-scoped in-repo and out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, tracked submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users branch across project setup, mailbox setup, specialist/profile authoring, live-agent operations, and lifecycle follow-up
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
-- `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files
+- `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files across relaunch, reset, and `recover_and_continue` flows
 - `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, and project-scoped easy-instance inspection or stop routing
 - `houmao-agent-definition` for subcommands `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`; `raw-profiles` maps to the underlying `project agents launch-profiles ...` CLI, while ordinary profile wording defaults to easy `profiles`
 - `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile/ready-profile prompts to `houmao-agent-definition`
@@ -27,15 +27,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
-- `houmao-agent-loop-pairwise` for the restored stable tree loop surface: authoring master-owned tree loop plans and operating accepted runs through `start`, `status`, and `stop` while the user agent stays outside the execution loop
-- `houmao-agent-loop-pairwise-v2` for the versioned enriched tree loop workflow: authoring master-owned tree loop plans plus `initialize`, `start`, `peek`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and `hard-kill` while the user agent stays outside the execution loop
-- `houmao-agent-loop-pairwise-v3` for the workspace-aware enriched tree loop workflow: pairwise-v2 lifecycle plus authored `standard` or `custom` workspace contracts, including task-scoped standard in-repo posture
-- `houmao-agent-loop-pairwise-v4` for the template-driven workspace-aware enriched tree loop workflow: pairwise-v3 lifecycle plus strict generated document templates, source-contract summaries, policy-bearing source rules, and constraint coverage audits
-- `houmao-agent-loop-generic` for decomposing generic loop graphs into typed local-close and relay components and operating accepted root-owned runs through start, status, and stop
-
-The four pairwise skill names are distinct packaged choices, not aliases. `houmao-agent-loop-pairwise` is the restored stable `start|status|stop` surface, `houmao-agent-loop-pairwise-v2` preserves the enriched authoring, prestart, and expanded run-control workflow, `houmao-agent-loop-pairwise-v3` extends v2 with authored workspace contracts, and `houmao-agent-loop-pairwise-v4` extends v3 with strict generated document templates, policy-bearing source-rule projection, and source-constraint coverage audits.
-
-For pairwise-v4, generated `plan.md` files should expose source-derived structure directly. Rich bundles should include `# Source Contract Summary`, `## Policy-Bearing Source Rules`, `## Source Constraints Carried Forward`, and `# Constraint Coverage Audit`, plus a bundle-level `constraint-coverage-audit.md` when the plan has supporting files. The audit maps each extracted `SC-*` rule to a central plan projection and a runtime-facing projection, or keeps it visible as `UNRESOLVED - <reason>`.
+- `houmao-agent-loop-pro` for current generated loop authoring and execution across `tree-loop` and `generic-loop` topology modes
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -83,11 +75,12 @@ The authoritative packaged catalog lives in the runtime package:
 - `src/houmao/agents/assets/system_skills/catalog.toml`
 - `src/houmao/agents/assets/system_skills/catalog.schema.json`
 
-The catalog defines three things:
+The catalog defines four things:
 
 1. `skills`: the current installable Houmao-owned skills
 2. `sets`: named sets of explicit skill names
 3. `auto_install`: fixed set lists used for managed launch, managed join, and CLI default installation
+4. `retired_skill_names`: known retired Houmao-owned projection names that supported install/status/uninstall workflows clean or report, but never install
 
 The catalog is loaded by `src/houmao/agents/system_skills.py`, normalized, validated against the packaged JSON Schema, and then checked for cross-reference errors such as sets that mention unknown skills.
 
@@ -118,11 +111,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-specialist-mgr` (compatibility wrapper; canonical specialist/profile guidance is `houmao-agent-definition`)
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
-- `houmao-agent-loop-pairwise`
-- `houmao-agent-loop-pairwise-v2`
-- `houmao-agent-loop-pairwise-v3`
-- `houmao-agent-loop-pairwise-v4`
-- `houmao-agent-loop-generic`
+- `houmao-agent-loop-pro`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`
 - `houmao-agent-messaging`
@@ -162,6 +151,7 @@ For each selected current Houmao-owned skill, reinstall computes the exact curre
 Replacement policy:
 
 - selected current Houmao-owned skill paths are explicit overwrite targets
+- exact known retired loop skill projection paths are removed from the selected target home during install/reinstall
 - copied projection materializes the packaged skill tree into the selected destination
 - symlink projection replaces the selected destination with a directory symlink to the packaged asset root
 - unselected skill directories, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, and stale install-state files are not removed
@@ -174,8 +164,10 @@ Replacement policy:
 Removal policy:
 
 - every current catalog-known Houmao-owned skill path is an explicit removal target
+- every known retired loop skill projection path is also an explicit removal target
 - copied directories, symlinks, and files at those exact current paths are removed
 - missing current skill paths are reported as absent rather than errors
+- missing retired projection paths are reported separately from current absent skills
 - missing target homes are not created just to uninstall
 - parent skill roots, unrelated user skills, unrecognized `houmao-*` paths, legacy family-namespaced paths, and stale install-state files are not removed
 
@@ -212,8 +204,9 @@ pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 - installed current Houmao-owned skill names discovered in that home
 - the projected relative path for each discovered current skill
 - the inferred projection mode for each installed current skill (`copy` or `symlink`)
+- retired loop skill leftovers when exact known retired projection paths are still present
 
-If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths from the filesystem and ignores old install-state files.
+If the home has never been touched by the shared installer, `status` reports no installed current Houmao-owned skills. `status` discovers current packaged skill paths and retired leftovers from the filesystem and ignores old install-state files.
 
 ## `install`
 

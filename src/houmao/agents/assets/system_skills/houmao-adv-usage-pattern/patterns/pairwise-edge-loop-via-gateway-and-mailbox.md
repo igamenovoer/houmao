@@ -17,7 +17,7 @@ Choose this pattern when:
 
 Use the forward relay-loop pattern instead when ownership should keep moving forward across agents and a later downstream loop egress should return the final result directly to a more distant origin.
 
-Use a dedicated tree loop planning skill instead when the user needs recursive child loops, multiple local-close edges, a rendered control graph, master-owned run planning, or run-control actions.
+Use `houmao-agent-loop-pro` in `tree-loop` mode instead when the user needs recursive child loops, multiple local-close edges, a rendered control graph, generated execplans, or generated loop run-control actions.
 
 Do not choose this pattern for one direct prompt, one direct email, or one local self-reminder. Use the lower-level skills directly for those simpler tasks.
 
@@ -52,7 +52,7 @@ Every resend of the same edge-loop round reuses the same `edge_loop_id`.
 
 Unlike the forward relay-loop pattern, the worker for one edge-loop round is also the default source of the final result for that same round. The result does not bypass the immediate driver.
 
-This page intentionally covers only the elemental two-node round. Use a dedicated tree loop planning skill for recursive child edge-loops, multiple local-close edges, or a rendered control graph.
+This page intentionally covers only the elemental two-node round. Use `houmao-agent-loop-pro` in `tree-loop` mode for recursive child edge-loops, multiple local-close edges, generated execplans, or a rendered control graph.
 
 ## Mutable Loop State
 
@@ -116,7 +116,7 @@ Whenever one agent receives one edge-loop request:
 6. Send the final result email back to the same driver.
 7. Keep follow-up until the driver's final-result acknowledgement arrives.
 
-If the worker needs a recursive tree loop, multiple downstream workers, or a rendered control graph, use a dedicated tree loop planning skill instead of expanding this elemental protocol inline.
+If the worker needs a recursive tree loop, multiple downstream workers, or a rendered control graph, use `houmao-agent-loop-pro` instead of expanding this elemental protocol inline.
 
 ## Thresholds And User Input
 

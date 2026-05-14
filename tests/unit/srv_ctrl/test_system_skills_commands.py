@@ -26,16 +26,19 @@ _CATALOG_SKILLS = [
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
     "houmao-agent-definition",
+    "houmao-agent-loop-pro",
+    "houmao-agent-instance",
+    "houmao-agent-inspect",
+    "houmao-agent-messaging",
+    "houmao-agent-gateway",
+]
+_RETIRED_LOOP_SKILLS = [
     "houmao-agent-loop-pairwise",
     "houmao-agent-loop-pairwise-v2",
     "houmao-agent-loop-pairwise-v3",
     "houmao-agent-loop-pairwise-v4",
     "houmao-agent-loop-pairwise-v5",
     "houmao-agent-loop-generic",
-    "houmao-agent-instance",
-    "houmao-agent-inspect",
-    "houmao-agent-messaging",
-    "houmao-agent-gateway",
 ]
 
 
@@ -60,12 +63,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-specialist-mgr",
     "houmao-credential-mgr",
     "houmao-agent-definition",
-    "houmao-agent-loop-pairwise",
-    "houmao-agent-loop-pairwise-v2",
-    "houmao-agent-loop-pairwise-v3",
-    "houmao-agent-loop-pairwise-v4",
-    "houmao-agent-loop-pairwise-v5",
-    "houmao-agent-loop-generic",
+    "houmao-agent-loop-pro",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -164,6 +162,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
     assert payload["auto_install"]["managed_launch_sets"] == _CORE_SET_NAMES
     assert payload["auto_install"]["managed_join_sets"] == _CORE_SET_NAMES
+    assert payload["retired_skill_names"] == _RETIRED_LOOP_SKILLS
     skill_descriptions = {
         record["name"]: record["description"] for record in payload["skills"]
     }
@@ -181,6 +180,8 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
+    stale_retired_skill = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
+    _write(stale_retired_skill, "stale retired loop skill\n")
 
     install_result = CliRunner().invoke(
         cli,
@@ -201,6 +202,10 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
     assert install_payload["projection_mode"] == "copy"
     assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
+    assert install_payload["removed_retired_skills"] == ["houmao-agent-loop-pairwise-v4"]
+    assert install_payload["removed_retired_projected_relative_dirs"] == [
+        "skills/houmao-agent-loop-pairwise-v4"
+    ]
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()
@@ -211,12 +216,9 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md").is_file()
-    assert (home_path / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    for retired_name in _RETIRED_LOOP_SKILLS:
+        assert not (home_path / f"skills/{retired_name}").exists()
     assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
@@ -241,6 +243,8 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     status_payload = json.loads(status_result.output)
     assert status_payload["home_path"] == str(home_path)
     assert status_payload["installed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
+    assert status_payload["retired_skill_leftovers"] == []
+    assert status_payload["retired_skill_records"] == []
     assert status_payload["installed_skill_records"] == [
         {
             "name": skill_name,
@@ -297,6 +301,7 @@ def test_system_skills_install_status_and_uninstall_support_all_set(tmp_path: Pa
     assert status_result.exit_code == 0, status_result.output
     status_payload = json.loads(status_result.output)
     assert status_payload["installed_skills"] == _DEFAULT_INSTALLED_CATALOG_ORDER
+    assert status_payload["retired_skill_leftovers"] == []
     assert status_payload["installed_skill_records"] == [
         {
             "name": skill_name,
@@ -323,6 +328,7 @@ def test_system_skills_install_status_and_uninstall_support_all_set(tmp_path: Pa
     uninstall_payload = json.loads(uninstall_result.output)
     assert "houmao-utils-llm-wiki" in uninstall_payload["removed_skills"]
     assert "houmao-utils-workspace-mgr" in uninstall_payload["removed_skills"]
+    assert uninstall_payload["removed_retired_skills"] == []
     assert "skills/houmao-utils-llm-wiki" in uninstall_payload["removed_projected_relative_dirs"]
     assert (
         "skills/houmao-utils-workspace-mgr" in uninstall_payload["removed_projected_relative_dirs"]
@@ -389,6 +395,37 @@ def test_system_skills_install_overwrites_selected_existing_skill_path(tmp_path:
     assert not stale_child.exists()
 
 
+def test_system_skills_status_reports_retired_loop_leftovers(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    _write(home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md", "retired loop\n")
+    _write(home_path / "skills/houmao-agent-loop-pro/SKILL.md", "current loop\n")
+
+    status_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "status",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+        ],
+    )
+
+    assert status_result.exit_code == 0, status_result.output
+    payload = json.loads(status_result.output)
+    assert payload["installed_skills"] == ["houmao-agent-loop-pro"]
+    assert payload["retired_skill_leftovers"] == ["houmao-agent-loop-pairwise-v5"]
+    assert payload["retired_skill_records"] == [
+        {
+            "name": "houmao-agent-loop-pairwise-v5",
+            "projected_relative_dir": "skills/houmao-agent-loop-pairwise-v5",
+            "projection_mode": "copy",
+        }
+    ]
+
+
 def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
     tmp_path: Path,
 ) -> None:
@@ -407,6 +444,7 @@ def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
         ],
     )
     assert install_result.exit_code == 0, install_result.output
+    _write(home_path / "skills/houmao-agent-loop-generic/SKILL.md", "retired loop\n")
 
     uninstall_result = CliRunner().invoke(
         cli,
@@ -431,6 +469,13 @@ def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
     ]
     assert uninstall_payload["absent_skills"] == []
     assert uninstall_payload["absent_projected_relative_dirs"] == []
+    assert uninstall_payload["removed_retired_skills"] == ["houmao-agent-loop-generic"]
+    assert uninstall_payload["removed_retired_projected_relative_dirs"] == [
+        "skills/houmao-agent-loop-generic"
+    ]
+    assert uninstall_payload["absent_retired_skills"] == [
+        name for name in _RETIRED_LOOP_SKILLS if name != "houmao-agent-loop-generic"
+    ]
     assert (home_path / "skills").is_dir()
     assert not (home_path / "skills/houmao-specialist-mgr").exists()
 
@@ -450,6 +495,8 @@ def test_system_skills_uninstall_removes_all_current_skills_and_status_is_empty(
     status_payload = json.loads(status_result.output)
     assert status_payload["installed_skills"] == []
     assert status_payload["installed_skill_records"] == []
+    assert status_payload["retired_skill_leftovers"] == []
+    assert status_payload["retired_skill_records"] == []
 
 
 def test_system_skills_uninstall_does_not_create_missing_home(tmp_path: Path) -> None:
@@ -475,6 +522,10 @@ def test_system_skills_uninstall_does_not_create_missing_home(tmp_path: Path) ->
     assert uninstall_payload["absent_skills"] == _CATALOG_SKILLS
     assert uninstall_payload["absent_projected_relative_dirs"] == [
         f"skills/{skill_name}" for skill_name in _CATALOG_SKILLS
+    ]
+    assert uninstall_payload["absent_retired_skills"] == _RETIRED_LOOP_SKILLS
+    assert uninstall_payload["absent_retired_projected_relative_dirs"] == [
+        f"skills/{skill_name}" for skill_name in _RETIRED_LOOP_SKILLS
     ]
     assert not home_path.exists()
 
@@ -642,12 +693,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert (workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise-v3/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise-v4/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-pairwise-v5/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-generic/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-agent-loop-pro/SKILL.md").is_file()
     assert not (workspace / ".agents/skills").exists()
 
 
@@ -708,12 +754,7 @@ def test_system_skills_install_uses_project_scoped_copilot_default_home(
     assert (expected_home / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pairwise/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pairwise-v2/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pairwise-v3/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pairwise-v4/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-pairwise-v5/SKILL.md").is_file()
-    assert (expected_home / "skills/houmao-agent-loop-generic/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
 
 
 def test_system_skills_install_supports_comma_separated_tools_with_project_defaults(

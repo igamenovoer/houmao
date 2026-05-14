@@ -17,7 +17,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
 - [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the `houmao-memory-mgr` skill.
 - [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
-- [Loop Authoring Guide](getting-started/loop-authoring.md): Choose between the five loop skills, understand the pairwise-v2 routing-packet prestart model plus pairwise-v3 workspace contracts and pairwise-v4 template-driven source contracts, and discover the graph tooling that supports plan authoring.
+- [Loop Authoring Guide](getting-started/loop-authoring.md): Use `houmao-agent-loop-pro`, choose `tree-loop` or `generic-loop` topology, and discover the graph tooling that supports generated execplan authoring.
 
 ## Reference
 
@@ -33,7 +33,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
 - [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [admin cleanup](reference/cli/admin-cleanup.md): Registry and runtime maintenance commands.
-- [internals graph](reference/cli/internals.md): NetworkX-backed graph helpers for loop plan authoring, structural analysis, and packet validation.
+- [internals graph](reference/cli/internals.md): NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
 - [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.
 
 ### Build Phase

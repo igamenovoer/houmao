@@ -12,6 +12,7 @@ from houmao.agents.system_skills import (
     SystemSkillInstallResult,
     SystemSkillUninstallResult,
     discover_installed_system_skills,
+    discover_retired_system_skill_projections,
     install_system_skills_for_home,
     load_system_skill_catalog,
     resolve_system_skill_selection,
@@ -67,6 +68,7 @@ def list_system_skills_command() -> None:
             "managed_join_sets": list(catalog.auto_install.managed_join_sets),
             "cli_default_sets": list(catalog.auto_install.cli_default_sets),
         },
+        "retired_skill_names": list(catalog.retired_skill_names),
     }
     emit(payload, plain_renderer=_render_system_skills_list_plain)
 
@@ -87,6 +89,10 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
 
     resolved_home = _resolve_effective_system_skills_home(tool=tool, home=home)
     installed_records = discover_installed_system_skills(tool=tool, home_path=resolved_home)
+    retired_records = discover_retired_system_skill_projections(
+        tool=tool,
+        home_path=resolved_home,
+    )
     payload = {
         "tool": tool,
         "home_path": str(resolved_home),
@@ -99,6 +105,18 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
                 "projection_mode": record.projection_mode,
             }
             for record in installed_records
+        ],
+        "retired_skill_leftovers": [record.name for record in retired_records],
+        "retired_projected_relative_dirs": [
+            record.projected_relative_dir for record in retired_records
+        ],
+        "retired_skill_records": [
+            {
+                "name": record.name,
+                "projected_relative_dir": record.projected_relative_dir,
+                "projection_mode": record.projection_mode,
+            }
+            for record in retired_records
         ],
     }
     emit(payload, plain_renderer=_render_system_skills_status_plain)
@@ -284,6 +302,10 @@ def _build_system_skills_install_payload(result: SystemSkillInstallResult) -> di
         "resolved_skills": list(result.resolved_skill_names),
         "projected_relative_dirs": list(result.projected_relative_dirs),
         "projection_mode": result.projection_mode,
+        "removed_retired_skills": list(result.removed_retired_skill_names),
+        "removed_retired_projected_relative_dirs": list(
+            result.removed_retired_projected_relative_dirs
+        ),
     }
 
 
@@ -297,6 +319,14 @@ def _build_system_skills_uninstall_payload(result: SystemSkillUninstallResult) -
         "removed_projected_relative_dirs": list(result.removed_projected_relative_dirs),
         "absent_skills": list(result.absent_skill_names),
         "absent_projected_relative_dirs": list(result.absent_projected_relative_dirs),
+        "removed_retired_skills": list(result.removed_retired_skill_names),
+        "removed_retired_projected_relative_dirs": list(
+            result.removed_retired_projected_relative_dirs
+        ),
+        "absent_retired_skills": list(result.absent_retired_skill_names),
+        "absent_retired_projected_relative_dirs": list(
+            result.absent_retired_projected_relative_dirs
+        ),
     }
 
 
@@ -358,6 +388,11 @@ def _render_system_skills_list_plain(payload: object) -> None:
         marker_text = f" [{' '.join(markers)}]" if markers else ""
         skills = ", ".join(_coerce_string_list(record.get("skills")))
         click.echo(f"  - {name}{marker_text}: {skills}")
+    retired_skill_names = _coerce_string_list(payload.get("retired_skill_names"))
+    if retired_skill_names:
+        click.echo("Retired cleanup targets:")
+        for skill_name in retired_skill_names:
+            click.echo(f"  - {skill_name}")
 
 
 def _render_system_skills_status_plain(payload: object) -> None:
@@ -369,17 +404,27 @@ def _render_system_skills_status_plain(payload: object) -> None:
     click.echo(f"Tool: {payload.get('tool')}")
     click.echo(f"Home: {payload.get('home_path')}")
     installed_skill_records = _coerce_mapping_list(payload.get("installed_skill_records"))
+    retired_skill_records = _coerce_mapping_list(payload.get("retired_skill_records"))
     if not installed_skill_records:
         click.echo("Installed skills: (none)")
-        return
-    click.echo("Installed skills:")
-    for record in installed_skill_records:
-        skill_name = str(record.get("name", ""))
-        projection_mode = str(record.get("projection_mode", "")).strip()
-        projection_suffix = f" ({projection_mode})" if projection_mode else ""
-        projected_relative_dir = str(record.get("projected_relative_dir", "")).strip()
-        projected_path = f": {projected_relative_dir}" if projected_relative_dir else ""
-        click.echo(f"  - {skill_name}{projection_suffix}{projected_path}")
+    else:
+        click.echo("Installed skills:")
+        for record in installed_skill_records:
+            skill_name = str(record.get("name", ""))
+            projection_mode = str(record.get("projection_mode", "")).strip()
+            projection_suffix = f" ({projection_mode})" if projection_mode else ""
+            projected_relative_dir = str(record.get("projected_relative_dir", "")).strip()
+            projected_path = f": {projected_relative_dir}" if projected_relative_dir else ""
+            click.echo(f"  - {skill_name}{projection_suffix}{projected_path}")
+    if retired_skill_records:
+        click.echo("Retired skill leftovers:")
+        for record in retired_skill_records:
+            skill_name = str(record.get("name", ""))
+            projection_mode = str(record.get("projection_mode", "")).strip()
+            projection_suffix = f" ({projection_mode})" if projection_mode else ""
+            projected_relative_dir = str(record.get("projected_relative_dir", "")).strip()
+            projected_path = f": {projected_relative_dir}" if projected_relative_dir else ""
+            click.echo(f"  - {skill_name}{projection_suffix}{projected_path}")
 
 
 def _render_system_skills_install_plain(payload: object) -> None:
@@ -394,6 +439,11 @@ def _render_system_skills_install_plain(payload: object) -> None:
         for installation in installations:
             click.echo(f"  - {installation.get('tool')}:")
             click.echo(f"      home: {installation.get('home_path')}")
+            removed_retired_count = len(
+                _coerce_string_list(installation.get("removed_retired_skills"))
+            )
+            if removed_retired_count:
+                click.echo(f"      removed retired projections: {removed_retired_count}")
             _render_projection_location_lines(
                 installation,
                 projected_dirs_key="projected_relative_dirs",
@@ -423,6 +473,11 @@ def _render_system_skills_install_plain(payload: object) -> None:
     projection_mode = payload.get("projection_mode")
     if projection_mode is not None:
         click.echo(f"Projection mode: {projection_mode}")
+    removed_retired_skills = _coerce_string_list(payload.get("removed_retired_skills"))
+    if removed_retired_skills:
+        click.echo("Removed retired projections:")
+        for skill_name in removed_retired_skills:
+            click.echo(f"  - {skill_name}")
     resolved_skills = _coerce_string_list(payload.get("resolved_skills"))
     if resolved_skills:
         click.echo("Resolved skills:")
@@ -440,8 +495,12 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
     if uninstallations:
         click.echo("Removed Houmao system skills from resolved tool homes:")
         for uninstallation in uninstallations:
-            removed_count = len(_coerce_string_list(uninstallation.get("removed_skills")))
-            absent_count = len(_coerce_string_list(uninstallation.get("absent_skills")))
+            removed_count = len(_coerce_string_list(uninstallation.get("removed_skills"))) + len(
+                _coerce_string_list(uninstallation.get("removed_retired_skills"))
+            )
+            absent_count = len(_coerce_string_list(uninstallation.get("absent_skills"))) + len(
+                _coerce_string_list(uninstallation.get("absent_retired_skills"))
+            )
             click.echo(f"  - {uninstallation.get('tool')}:")
             click.echo(f"      home: {uninstallation.get('home_path')}")
             click.echo(f"      result: {removed_count} removed, {absent_count} absent")
@@ -454,9 +513,23 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
             )
             _render_projection_location_lines(
                 uninstallation,
+                projected_dirs_key="removed_retired_projected_relative_dirs",
+                root_label="removed retired root",
+                path_label="removed retired paths",
+                indent="      ",
+            )
+            _render_projection_location_lines(
+                uninstallation,
                 projected_dirs_key="absent_projected_relative_dirs",
                 root_label="absent root",
                 path_label="absent paths",
+                indent="      ",
+            )
+            _render_projection_location_lines(
+                uninstallation,
+                projected_dirs_key="absent_retired_projected_relative_dirs",
+                root_label="absent retired root",
+                path_label="absent retired paths",
                 indent="      ",
             )
         return
@@ -475,6 +548,18 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
         )
         for skill_name in removed_skills:
             click.echo(f"  - {skill_name}")
+    removed_retired_skills = _coerce_string_list(payload.get("removed_retired_skills"))
+    click.echo(f"Removed retired skills: {len(removed_retired_skills)}")
+    if removed_retired_skills:
+        _render_projection_location_lines(
+            payload,
+            projected_dirs_key="removed_retired_projected_relative_dirs",
+            root_label="Removed retired root",
+            path_label="Removed retired paths",
+            indent="",
+        )
+        for skill_name in removed_retired_skills:
+            click.echo(f"  - {skill_name}")
     absent_skills = _coerce_string_list(payload.get("absent_skills"))
     click.echo(f"Absent skills: {len(absent_skills)}")
     if absent_skills:
@@ -483,6 +568,16 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
             projected_dirs_key="absent_projected_relative_dirs",
             root_label="Absent root",
             path_label="Absent paths",
+            indent="",
+        )
+    absent_retired_skills = _coerce_string_list(payload.get("absent_retired_skills"))
+    click.echo(f"Absent retired skills: {len(absent_retired_skills)}")
+    if absent_retired_skills:
+        _render_projection_location_lines(
+            payload,
+            projected_dirs_key="absent_retired_projected_relative_dirs",
+            root_label="Absent retired root",
+            path_label="Absent retired paths",
             indent="",
         )
 

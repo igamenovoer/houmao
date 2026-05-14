@@ -37,7 +37,7 @@ Use when present:
    - `raw-profiles`: only when the execplan or operator explicitly requires raw profile control.
 5. Treat `houmao-mgr project easy ...` as the underlying surface owned by `houmao-agent-definition`, not as loop-local preparation logic.
 6. Attach generated skills, definitions, notifier prompt sources, memo seed posture, and pending cwd/memo mutation intent to the prepared profile material.
-7. Rely on Houmao managed-agent creation to preinstall Houmao system skills into agents; do not enumerate or manually bind ordinary Houmao support skills in generated profile guidance.
+7. Rely on Houmao managed-agent creation to preinstall Houmao system skills into agents; do not enumerate or manually bind ordinary Houmao support skills, including maintained mail support skills such as `houmao-process-emails-via-gateway`, in generated profile guidance.
 8. Resolve and record prepared agent facts:
    - concrete agent ids;
    - specialist names;

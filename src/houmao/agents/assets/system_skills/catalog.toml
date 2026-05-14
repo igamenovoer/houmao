@@ -1,5 +1,14 @@
 schema_version = 1
 
+retired_skill_names = [
+  "houmao-agent-loop-pairwise",
+  "houmao-agent-loop-pairwise-v2",
+  "houmao-agent-loop-pairwise-v3",
+  "houmao-agent-loop-pairwise-v4",
+  "houmao-agent-loop-pairwise-v5",
+  "houmao-agent-loop-generic",
+]
+
 [skills.houmao-process-emails-via-gateway]
 asset_subpath = "houmao-process-emails-via-gateway"
 description = "Round-oriented gateway mailbox workflow skill."
@@ -48,29 +57,9 @@ description = "Project-local credential management skill."
 asset_subpath = "houmao-agent-definition"
 description = "Canonical pre-launch agent-definition skill for roles, recipes, raw-profiles, specialists, profiles, and create-agent-fast-forward."
 
-[skills.houmao-agent-loop-pairwise]
-asset_subpath = "houmao-agent-loop-pairwise"
-description = "Manual invocation only restored stable pairwise loop authoring and `start|status|stop` master-run control skill."
-
-[skills.houmao-agent-loop-pairwise-v2]
-asset_subpath = "houmao-agent-loop-pairwise-v2"
-description = "Manual invocation only versioned enriched pairwise loop authoring, prestart, and expanded master-run control skill."
-
-[skills.houmao-agent-loop-pairwise-v3]
-asset_subpath = "houmao-agent-loop-pairwise-v3"
-description = "Manual invocation only workspace-aware enriched pairwise loop authoring, prestart, and expanded master-run control skill."
-
-[skills.houmao-agent-loop-pairwise-v4]
-asset_subpath = "houmao-agent-loop-pairwise-v4"
-description = "Manual invocation only template-driven workspace-aware enriched pairwise loop authoring, prestart, and expanded master-run control skill."
-
-[skills.houmao-agent-loop-pairwise-v5]
-asset_subpath = "houmao-agent-loop-pairwise-v5"
-description = "Manual invocation only general v5 loop authoring and execution skill with editable intention source and generated execplan packages."
-
-[skills.houmao-agent-loop-generic]
-asset_subpath = "houmao-agent-loop-generic"
-description = "Generic pairwise/relay loop graph planning and root-run control skill for user-controlled agents."
+[skills.houmao-agent-loop-pro]
+asset_subpath = "houmao-agent-loop-pro"
+description = "Current loop authoring and generated-loop execution skill for tree-loop and generic-loop execplans."
 
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
@@ -102,12 +91,7 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
-  "houmao-agent-loop-pairwise",
-  "houmao-agent-loop-pairwise-v2",
-  "houmao-agent-loop-pairwise-v3",
-  "houmao-agent-loop-pairwise-v4",
-  "houmao-agent-loop-pairwise-v5",
-  "houmao-agent-loop-generic",
+  "houmao-agent-loop-pro",
   "houmao-agent-instance",
   "houmao-agent-inspect",
   "houmao-agent-messaging",
@@ -128,12 +112,7 @@ skills = [
   "houmao-specialist-mgr",
   "houmao-credential-mgr",
   "houmao-agent-definition",
-  "houmao-agent-loop-pairwise",
-  "houmao-agent-loop-pairwise-v2",
-  "houmao-agent-loop-pairwise-v3",
-  "houmao-agent-loop-pairwise-v4",
-  "houmao-agent-loop-pairwise-v5",
-  "houmao-agent-loop-generic",
+  "houmao-agent-loop-pro",
   "houmao-agent-instance",
   "houmao-agent-inspect",
   "houmao-agent-messaging",
