@@ -36,6 +36,7 @@ CORE_SYSTEM_SKILLS = (
     "houmao-credential-mgr",
     "houmao-agent-definition",
     "houmao-agent-loop-pro",
+    "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -91,6 +92,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-credential-mgr",
         "houmao-agent-definition",
         "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
         "houmao-agent-instance",
         "houmao-agent-inspect",
         "houmao-agent-messaging",
@@ -98,6 +100,9 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     )
     assert "Canonical pre-launch agent-definition skill" in (
         catalog.skills["houmao-agent-definition"].description or ""
+    )
+    assert "Markdown/direct-SQL loop authoring" in (
+        catalog.skills["houmao-agent-loop-lite"].description or ""
     )
     assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
     assert catalog.retired_skill_names == (
@@ -144,11 +149,51 @@ def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
     )
 
 
+def test_agent_loop_lite_packaged_asset_contract() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-loop-lite")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    template_example = skill_text.split("```markdown", maxsplit=1)[1].split("```", maxsplit=1)[0]
+
+    assert "name: houmao-agent-loop-lite" in skill_text
+    assert "Use this Houmao skill only after the user explicitly selects" in skill_text
+    assert "Do not auto-route generic loop requests here" in skill_text
+    assert "<loop-dir>/intention/" in skill_text
+    assert "<loop-dir>/execplan/" in skill_text
+    assert "<loop-dir>/runs/" in skill_text
+    assert "Do not generate `execplan/harness/` or `execplan/docs/`" in skill_text
+    assert "Do not create JSON schemas, Jinja2 renderers" in skill_text
+    assert "Loop-Template-Type" in skill_text
+    assert "Loop-Template-Version" in skill_text
+    assert "<placeholder work_item_id>" in skill_text
+    assert "sender, receiver, subject, message id, thread id, timestamps" in skill_text.lower()
+    assert "Always generate one shared guidance skill" in skill_text
+    assert "Loop-Template-Type: task-request" in skill_text
+    assert "unresolved `<placeholder` tokens before sending" in skill_text
+    assert "execplan/specs/state/schema.sql" in skill_text
+    assert "runs/<run-id>/state.sqlite3" in skill_text
+    assert "BEGIN IMMEDIATE" in skill_text
+    assert "Do not tell agents to sleep, poll, tail logs, or wait in-chat" in skill_text
+    assert "houmao-agent-email-comms" in skill_text
+    assert "houmao-agent-gateway" in skill_text
+    assert "houmao-agent-definition" in skill_text
+    assert "houmao-agent-instance" in skill_text
+    for envelope_field in (
+        "sender",
+        "receiver",
+        "subject",
+        "message_id",
+        "thread_id",
+        "timestamp",
+    ):
+        assert f"<placeholder {envelope_field}" not in template_example
+
+
 def test_retired_loop_skill_sources_are_legacy_only() -> None:
     catalog = load_system_skill_catalog()
     asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
 
     assert "houmao-agent-loop-pro" in catalog.skills
+    assert "houmao-agent-loop-lite" in catalog.skills
     for retired_name in catalog.retired_skill_names:
         assert retired_name not in catalog.skills
         assert not (asset_root / retired_name).exists()
@@ -157,8 +202,7 @@ def test_retired_loop_skill_sources_are_legacy_only() -> None:
 
 def test_houmao_system_input_questions_distinguish_required_and_optional_inputs() -> None:
     definition_missing_inputs = (
-        _packaged_skill_asset_root("houmao-agent-definition")
-        / "subskills/common/missing-inputs.md"
+        _packaged_skill_asset_root("houmao-agent-definition") / "subskills/common/missing-inputs.md"
     ).read_text(encoding="utf-8")
     credential_skill = (_packaged_skill_asset_root("houmao-credential-mgr") / "SKILL.md").read_text(
         encoding="utf-8"
@@ -184,9 +228,7 @@ def test_houmao_system_input_questions_distinguish_required_and_optional_inputs(
     )
     assert "Optional: none for this step." in credential_skill
     assert "Required when not safely inferred:" in workspace_skill
-    assert "Do not force `Required`/`Optional` labels onto user-task" in (
-        touring_question_style
-    )
+    assert "Do not force `Required`/`Optional` labels onto user-task" in (touring_question_style)
 
 
 def test_loop_skills_route_system_input_question_guidance() -> None:
@@ -196,9 +238,9 @@ def test_loop_skills_route_system_input_question_guidance() -> None:
         encoding="utf-8"
     )
     init_page = (skill_root / "subskills/authoring/init.md").read_text(encoding="utf-8")
-    clarify_protocol = (
-        skill_root / "subskills/reference/clarification-protocol.md"
-    ).read_text(encoding="utf-8")
+    clarify_protocol = (skill_root / "subskills/reference/clarification-protocol.md").read_text(
+        encoding="utf-8"
+    )
     launch_agents = (skill_root / "subskills/execution/launch-agents.md").read_text(
         encoding="utf-8"
     )
@@ -405,6 +447,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     loop_pro_authoring = home_path / "skills/houmao-agent-loop-pro/subskills/authoring"
     loop_pro_execution = home_path / "skills/houmao-agent-loop-pro/subskills/execution"
     loop_pro_reference = home_path / "skills/houmao-agent-loop-pro/subskills/reference"
+    loop_lite_skill_path = home_path / "skills/houmao-agent-loop-lite/SKILL.md"
 
     assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
     assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
@@ -426,6 +469,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert manage_credentials_path.is_file()
     assert manage_agent_definition_path.is_file()
     assert loop_pro_skill_path.is_file()
+    assert loop_lite_skill_path.is_file()
     assert (loop_pro_authoring / "init.md").is_file()
     assert (loop_pro_authoring / "clarify-intent.md").is_file()
     assert (loop_pro_authoring / "execplan-fast-forward.md").is_file()
@@ -444,10 +488,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
     loop_pro_skill = loop_pro_skill_path.read_text(encoding="utf-8")
+    loop_lite_skill = loop_lite_skill_path.read_text(encoding="utf-8")
     loop_pro_init = (loop_pro_authoring / "init.md").read_text(encoding="utf-8")
-    loop_pro_clarify_intent = (loop_pro_authoring / "clarify-intent.md").read_text(
-        encoding="utf-8"
-    )
+    loop_pro_clarify_intent = (loop_pro_authoring / "clarify-intent.md").read_text(encoding="utf-8")
     loop_pro_generate_execplan = (
         (loop_pro_authoring / "execplan-fast-forward.md").read_text(encoding="utf-8")
         + "\n"
@@ -456,9 +499,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     loop_pro_validate_execplan = (loop_pro_authoring / "validate-execplan.md").read_text(
         encoding="utf-8"
     )
-    loop_pro_prepare_agents = (loop_pro_execution / "prepare-agents.md").read_text(
-        encoding="utf-8"
-    )
+    loop_pro_prepare_agents = (loop_pro_execution / "prepare-agents.md").read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
     project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
@@ -766,12 +807,15 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Do not duplicate maintained Houmao platform-operation contracts" in loop_pro_skill
     assert "tree-loop" in loop_pro_skill
     assert "generic-loop" in loop_pro_skill
+    assert "name: houmao-agent-loop-lite" in loop_lite_skill
+    assert "Do not auto-route generic loop requests here" in loop_lite_skill
+    assert "Loop-Template-Type" in loop_lite_skill
+    assert "runs/<run-id>/state.sqlite3" in loop_lite_skill
+    assert "Do not generate `execplan/harness/` or `execplan/docs/`" in loop_lite_skill
     assert "If `<loop-dir>` is missing, ask with `Required: <loop-dir>`" in loop_pro_init
     assert "<loop-dir>/intention/README.md" in loop_pro_init
     assert "<loop-dir>/intention/project-context.md" in loop_pro_init
-    assert "Show the provisional high-level Mermaid agent architecture" in (
-        loop_pro_clarify_intent
-    )
+    assert "Show the provisional high-level Mermaid agent architecture" in (loop_pro_clarify_intent)
     assert "Ask at most five accepted questions per session, exactly one at a time" in (
         loop_pro_clarify_intent
     )
@@ -784,9 +828,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         loop_pro_generate_execplan
     )
     assert "defaulting to `in-repo`" in loop_pro_generate_execplan
-    assert "schema-validated payload plus human-readable rendering" in (
-        loop_pro_generate_execplan
-    )
+    assert "schema-validated payload plus human-readable rendering" in (loop_pro_generate_execplan)
     assert "communication schemas, renderers, registry, and reply links" in (
         loop_pro_generate_execplan
     )
@@ -796,9 +838,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "which on-event skill handles each received message family" in (
         loop_pro_generate_execplan
     )
-    assert "generated skills under `execplan/skills/*/SKILL.md`" in (
-        loop_pro_validate_execplan
-    )
+    assert "generated skills under `execplan/skills/*/SKILL.md`" in (loop_pro_validate_execplan)
     assert "workspace setup contracts route workspace planning or creation" in (
         loop_pro_validate_execplan
     )
@@ -973,10 +1013,13 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (home_path / "skills/houmao-touring/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert (
         home_path / "skills/houmao-agent-loop-pro/subskills/reference/runtime-mail-model.md"
     ).is_file()
-    assert (home_path / "skills/houmao-agent-loop-pro/subskills/reference/topology-modes.md").is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-pro/subskills/reference/topology-modes.md"
+    ).is_file()
     assert (home_path / "skills/houmao-agent-loop-pro/subskills/authoring/init.md").is_file()
     assert (
         home_path / "skills/houmao-agent-loop-pro/subskills/authoring/execplan-fast-forward.md"
@@ -993,9 +1036,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     loop_pro_skill = (home_path / "skills/houmao-agent-loop-pro/SKILL.md").read_text(
         encoding="utf-8"
     )
-    advanced_usage_skill = (
-        home_path / "skills/houmao-adv-usage-pattern/SKILL.md"
-    ).read_text(encoding="utf-8")
+    loop_lite_skill = (home_path / "skills/houmao-agent-loop-lite/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    advanced_usage_skill = (home_path / "skills/houmao-adv-usage-pattern/SKILL.md").read_text(
+        encoding="utf-8"
+    )
     touring_skill = (home_path / "skills/houmao-touring/SKILL.md").read_text(encoding="utf-8")
     touring_advanced_usage = (
         home_path / "skills/houmao-touring/branches/advanced-usage.md"
@@ -1005,21 +1051,30 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         / "skills/houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
     ).read_text(encoding="utf-8")
     relay_loop_pattern = (
-        home_path
-        / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
+        home_path / "skills/houmao-adv-usage-pattern/patterns/relay-loop-via-gateway-and-mailbox.md"
     ).read_text(encoding="utf-8")
 
     assert "tree-loop" in loop_pro_skill
     assert "generic-loop" in loop_pro_skill
     assert "MUST READ for mail-driven loops" in loop_pro_skill
     assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
+    assert "Markdown/direct-SQL" in loop_lite_skill
+    assert "Loop-Template-Type" in loop_lite_skill
+    assert "direct SQLite" in loop_lite_skill
     assert "houmao-agent-loop-pro" in advanced_usage_skill
+    assert "houmao-agent-loop-lite" in advanced_usage_skill
     assert "Choose `tree-loop` or `generic-loop` inside pro" in advanced_usage_skill
-    assert "advanced loop creation guidance through `houmao-agent-loop-pro`" in touring_skill
+    assert (
+        "advanced loop creation guidance through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`"
+        in touring_skill
+    )
+    assert "Lite loop authoring" in touring_advanced_usage
     assert "Pro loop authoring" in touring_advanced_usage
     assert "Tree-loop mode" in touring_advanced_usage
     assert "Generic-loop mode" in touring_advanced_usage
+    assert "Use `houmao-agent-loop-lite` instead" in pairwise_edge_loop_pattern
     assert "Use `houmao-agent-loop-pro` in `tree-loop` mode" in pairwise_edge_loop_pattern
+    assert "Use `houmao-agent-loop-lite` instead" in relay_loop_pattern
     assert "Use `houmao-agent-loop-pro` instead" in relay_loop_pattern
 
     retired_names = load_system_skill_catalog().retired_skill_names
@@ -1028,6 +1083,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         assert retired_name not in advanced_usage_skill
         assert retired_name not in touring_skill
         assert retired_name not in touring_advanced_usage
+
 
 def test_install_system_skills_for_home_supports_explicit_symlink_projection(
     tmp_path: Path,

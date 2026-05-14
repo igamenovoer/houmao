@@ -27,7 +27,8 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
-- `houmao-agent-loop-pro` for current generated loop authoring and execution across `tree-loop` and `generic-loop` topology modes
+- `houmao-agent-loop-lite` for lightweight Markdown/direct-SQL generated loop authoring and execution with typed Markdown templates and generated skills
+- `houmao-agent-loop-pro` for schema-rich generated loop authoring and execution across `tree-loop` and `generic-loop` topology modes
 
 It does not yet generalize to non-skill asset kinds.
 
@@ -112,6 +113,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-credential-mgr`
 - `houmao-agent-definition`
 - `houmao-agent-loop-pro`
+- `houmao-agent-loop-lite`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`
 - `houmao-agent-messaging`

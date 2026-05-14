@@ -8,6 +8,7 @@ description: Manual invocation only; use only when the user explicitly requests 
 ## Activation
 
 - Use this Houmao skill only after the user explicitly selects it or names a supported loop operation.
+- This is the schema-rich generated-execplan loop path. Use `houmao-agent-loop-lite` instead only when the user explicitly wants the Markdown/direct-SQL lite loop path.
 - If the user invokes this skill without another operation or prompt:
   - treat it as `init`;
   - ask for the output `<loop-dir>`;

@@ -18,7 +18,8 @@ Use this branch when a guided-tour user wants a flat enumeration of the broader 
 
 ## Advanced Entries
 
-- **Pro loop authoring** — use `houmao-agent-loop-pro` to scaffold intention files, clarify loop intent, generate execplan artifacts, validate readiness, launch agents, and operate the generated loop.
+- **Lite loop authoring** — use `houmao-agent-loop-lite` to scaffold a small loop package with Markdown contracts, typed Markdown templates, required generated skills, direct SQLite state, and no generated harness or docs layer.
+- **Pro loop authoring** — use `houmao-agent-loop-pro` to scaffold intention files, clarify loop intent, generate schema-rich execplan artifacts, validate readiness, launch agents, and operate the generated loop.
 - **Tree-loop mode** — choose `tree-loop` inside `houmao-agent-loop-pro` when downstream work is a local-close tree: each node replies to its immediate upstream, and non-tree cycles are handled through explicit relay choices in the generated execplan.
 - **Generic-loop mode** — choose `generic-loop` inside `houmao-agent-loop-pro` when the communication graph may contain cycles, relay lanes, or task-specific predecessor-context forwarding choices.
 - **Advanced usage patterns** — use `houmao-adv-usage-pattern` for multi-step workflow compositions built from existing Houmao skills, including self-notification, local-close edge loops, and forward relay loops, plus the elemental immediate driver-worker edge protocol that underlies loop components.
@@ -32,17 +33,19 @@ Use this branch when a guided-tour user wants a flat enumeration of the broader 
 Generated loops are advanced composed workflows:
 
 - the user agent stays outside the execution loop,
-- generated execplan artifacts define the topology, mail schemas, harness, skills, workspace contracts, and run-control behavior,
+- lite execplans define Markdown contracts, typed templates, generated skills, direct SQLite state, participant bindings, and bounded run behavior,
+- pro execplans define topology, mail schemas, harness, skills, workspace contracts, and run-control behavior,
 - tree-loop mode uses local-close immediate upstream/downstream result routing,
 - generic-loop mode records task-specific predecessor-context and relay choices when downstream nodes need context from earlier predecessors.
 
 Keep ownership boundaries explicit:
 
-- composed topology, rendered control graphs, generated artifacts, lifecycle vocabulary, and run-control actions belong to `houmao-agent-loop-pro`,
+- lightweight Markdown/direct-SQL generated loops belong to `houmao-agent-loop-lite`,
+- composed topology, rendered control graphs, schema-rich generated artifacts, lifecycle vocabulary, and run-control actions belong to `houmao-agent-loop-pro`,
 - elemental immediate driver-worker edge protocol guidance belongs to `houmao-adv-usage-pattern`, specifically the local-close edge-loop pattern,
 - ordinary project setup, specialist authoring, launch, messaging, mailbox, gateway, and lifecycle work still routes to the existing direct-operation skills.
 
-When the user asks for current loop authoring, route to `houmao-agent-loop-pro` and help them choose `tree-loop` or `generic-loop` mode. Do not ask them to choose among retired loop packages.
+When the user asks for current loop authoring, route to `houmao-agent-loop-lite` if they explicitly want Markdown/direct-SQL or no-harness loop packages; otherwise route topology-rich generated execplans to `houmao-agent-loop-pro` and help them choose `tree-loop` or `generic-loop` mode. Do not ask them to choose among retired loop packages.
 
 ## Guardrails
 

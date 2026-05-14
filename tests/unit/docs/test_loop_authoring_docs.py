@@ -6,16 +6,24 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_loop_authoring_docs_cover_pro_loop_authoring() -> None:
-    """Guard loop-authoring docs for the current pro workflow."""
+def test_loop_authoring_docs_cover_current_loop_authoring() -> None:
+    """Guard loop-authoring docs for the current lite and pro workflows."""
 
     guide = (REPO_ROOT / "docs/getting-started/loop-authoring.md").read_text(encoding="utf-8")
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     system_skills = (REPO_ROOT / "docs/getting-started/system-skills-overview.md").read_text(
         encoding="utf-8"
     )
+    cli_reference = (REPO_ROOT / "docs/reference/cli/system-skills.md").read_text(encoding="utf-8")
 
-    assert "Houmao's current loop authoring entrypoint is `houmao-agent-loop-pro`" in guide
+    assert "Houmao has two current loop authoring entrypoints" in guide
+    assert "`houmao-agent-loop-lite`" in guide
+    assert "Markdown/direct-SQL loops" in guide
+    assert "Lite Default Shape" in guide
+    assert "Loop-Template-Type" in guide
+    assert "runs/<run-id>/state.sqlite3" in guide
+    assert "does not generate `execplan/harness/` or `execplan/docs/`" in guide
+    assert "`houmao-agent-loop-pro`" in guide
     assert "Do not choose among retired loop packages for new work" in guide
     assert "Choose `tree-loop`" in guide
     assert "Choose `generic-loop`" in guide
@@ -27,8 +35,14 @@ def test_loop_authoring_docs_cover_pro_loop_authoring() -> None:
     assert "generated skills in one flat skills directory" in guide
     assert "Generated TOML files should include comments above each section" in guide
     assert "`houmao-mgr internals graph high` remains available" in guide
+    assert "`houmao-agent-loop-lite`" in readme
     assert "`houmao-agent-loop-pro`" in readme
     assert "`tree-loop` versus `generic-loop` topology choice" in readme
+    assert "`houmao-agent-loop-lite`" in system_skills
     assert "`houmao-agent-loop-pro`" in system_skills
     assert "`tree-loop` and `generic-loop` topology modes" in system_skills
+    assert "typed Markdown templates" in system_skills
+    assert "`houmao-agent-loop-lite`" in cli_reference
+    assert "`houmao-agent-loop-pro`" in cli_reference
+    assert "Markdown/direct-SQL generated loop authoring" in cli_reference
     assert "email_initialization" not in guide

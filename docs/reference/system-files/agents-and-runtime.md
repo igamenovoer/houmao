@@ -95,7 +95,7 @@ Mailbox filesystem layout remains documented under [Mailbox Reference](../mailbo
 
 ## Legacy Runtime-Owned Loop-Run Recovery Artifacts
 
-Legacy pairwise-v2 accepted runs may also persist one runtime-owned recovery envelope under the effective runtime root. Current `houmao-agent-loop-pro` generated loops define their runtime state in generated execplan contracts instead of using this path family by default:
+Legacy pairwise-v2 accepted runs may also persist one runtime-owned recovery envelope under the effective runtime root. Current `houmao-agent-loop-lite` and `houmao-agent-loop-pro` generated loops define their runtime state in generated execplan contracts instead of using this path family by default:
 
 ```text
 <runtime-root>/loop-runs/pairwise-v2/<run-id>/

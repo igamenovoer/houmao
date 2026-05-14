@@ -51,7 +51,7 @@ This packaged skill covers a branching guided tour for:
 - ordinary mailbox send or read entry
 - gateway mail-notifier follow-up when a live gateway and mailbox are both ready
 - reminders
-- advanced loop creation guidance through `houmao-agent-loop-pro`
+- advanced loop creation guidance through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`
 - managed-agent inspection, stop, relaunch, and cleanup follow-up
 
 This packaged skill does not cover:
@@ -95,7 +95,7 @@ This packaged skill does not cover:
 - Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
 - Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
 - Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
-- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including pro loop authoring, advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
+- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including lite loop authoring, pro loop authoring, advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
 - Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
 
 ## References
@@ -112,7 +112,8 @@ This packaged skill does not cover:
 - Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
 - Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
-- Route advanced loop authoring, generated execplan validation, and generated loop execution to `houmao-agent-loop-pro`.
+- Route lightweight Markdown/direct-SQL loop authoring, validation, and generated loop execution to `houmao-agent-loop-lite` when the user explicitly asks for lite or no-harness Markdown loops.
+- Route schema-rich loop authoring, generated execplan validation, topology-heavy planning, and generated loop execution to `houmao-agent-loop-pro`.
 - Present tree-loop and generic-loop as topology choices inside `houmao-agent-loop-pro`, not as separate skill packages.
 - Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
 - Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
@@ -126,6 +127,6 @@ This packaged skill does not cover:
 - Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
 - Do not route current loop planning or generated loop run-control requests to retired loop packages.
-- Do not restate composed tree loop topology, run-control details, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-pro` and elemental patterns on `houmao-adv-usage-pattern`.
+- Do not restate composed tree loop topology, run-control details, typed-template rules, direct-SQL state rules, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-lite` or `houmao-agent-loop-pro` and elemental patterns on `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
 - Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.

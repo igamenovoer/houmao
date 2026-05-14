@@ -59,7 +59,11 @@ description = "Canonical pre-launch agent-definition skill for roles, recipes, r
 
 [skills.houmao-agent-loop-pro]
 asset_subpath = "houmao-agent-loop-pro"
-description = "Current loop authoring and generated-loop execution skill for tree-loop and generic-loop execplans."
+description = "Schema-rich loop authoring and generated-loop execution skill for tree-loop and generic-loop execplans."
+
+[skills.houmao-agent-loop-lite]
+asset_subpath = "houmao-agent-loop-lite"
+description = "Markdown/direct-SQL loop authoring and generated-loop execution skill with required typed templates and generated skills."
 
 [skills.houmao-agent-instance]
 asset_subpath = "houmao-agent-instance"
@@ -92,6 +96,7 @@ skills = [
   "houmao-credential-mgr",
   "houmao-agent-definition",
   "houmao-agent-loop-pro",
+  "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
   "houmao-agent-messaging",
@@ -113,6 +118,7 @@ skills = [
   "houmao-credential-mgr",
   "houmao-agent-definition",
   "houmao-agent-loop-pro",
+  "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
   "houmao-agent-messaging",

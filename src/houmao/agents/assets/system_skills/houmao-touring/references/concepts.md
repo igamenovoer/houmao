@@ -35,8 +35,8 @@ This reference is self-contained. It does not depend on any file outside the pac
 ## Roles In A Multi-Agent Run
 
 - **User agent** — the agent (human or CLI) that interacts with the user and composes Houmao plans. The user agent stays outside the execution loop; it plans, starts, checks, and stops rather than driving local-close edges directly. Owning skill: the top-level `houmao-touring` tour and the loop skills.
-- **Master** — an optional designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling when a generated loop design chooses central ownership. Owning skill: `houmao-agent-loop-pro`.
-- **Loop plan** — generated execplan artifacts that define objective, participants, topology, mail schemas, harness behavior, generated skills, workspace contracts, and run-control behavior. Owning skill: `houmao-agent-loop-pro`.
+- **Master** — an optional designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling when a generated loop design chooses central ownership. Owning skill: `houmao-agent-loop-lite` or `houmao-agent-loop-pro`.
+- **Loop plan** — generated execplan artifacts that define objective, participants, communication, generated skills, state, agent bindings, and run behavior. Lite plans use Markdown contracts with direct SQLite state; pro plans add schema-rich topology, harness behavior, workspace contracts, and run-control behavior. Owning skill: `houmao-agent-loop-lite` or `houmao-agent-loop-pro`.
 
 ## Memory And Pages
 

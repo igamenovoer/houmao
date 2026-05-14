@@ -140,13 +140,14 @@ For reusable birth-time defaults (fixed agent name, working directory, mailbox, 
 
 A **loop** lets multiple agents collaborate on a structured task. Depending on the generated execplan, the loop may have a master/root owner or a more distributed graph. The **user agent stays outside the execution loop**: you author, validate, launch, start, check status, and stop through operator surfaces while the generated loop agents communicate by mail.
 
-Houmao ships one current loop skill:
+Houmao ships two current loop skills:
 
 | Skill | Lifecycle | Best for |
 |---|---|---|
+| `houmao-agent-loop-lite` | `init`, `clarify`, `generate-skills`, `validate`, `prepare-agents`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` | Small generated loops with Markdown contracts, typed Markdown templates, required generated skills, and direct SQLite state under `runs/<run-id>/` |
 | `houmao-agent-loop-pro` | `init`, `clarify-intent`, `execplan-*`, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` | Generated tree-loop and generic-loop execplans with mail-schema events, harness/state contracts, generated skills, workspace contracts, and loop-specific operator controls |
 
-See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for pro workflow guidance, `tree-loop` versus `generic-loop` topology choice, mail-driven runtime expectations, and the `internals graph` tooling that can support generated execplan authoring.
+See the [Loop Authoring Guide](docs/getting-started/loop-authoring.md) for the pro-versus-lite choice, `tree-loop` versus `generic-loop` topology choice inside pro, mail-driven runtime expectations, and the `internals graph` tooling that can support pro generated execplan authoring.
 
 > This example uses creative-writing specialists to show Houmao isn't limited to coding agents. The same pattern works for code review, optimization, or any multi-agent pipeline.
 
@@ -287,7 +288,7 @@ story/review/
   ...
 ```
 
-For the full loop-authoring workflow, see the [`houmao-agent-loop-pro` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-pro/SKILL.md) and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
+For the full loop-authoring workflow, see the [`houmao-agent-loop-lite` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-lite/SKILL.md), the [`houmao-agent-loop-pro` skill](src/houmao/agents/assets/system_skills/houmao-agent-loop-pro/SKILL.md), and the [System Skills Overview](docs/getting-started/system-skills-overview.md).
 
 ### 5. Adopt an Existing Session (`agents join`)
 
@@ -396,9 +397,10 @@ Houmao installs packaged skills into agent tool homes so that agents themselves 
 | `houmao-adv-usage-pattern` | Supported advanced mailbox and gateway workflow compositions layered on top of the direct-operation skills, starting with self-wakeup through self-mail plus notifier-driven rounds |
 | `houmao-utils-llm-wiki` | Explicit utility skill for persistent Markdown LLM Wiki knowledge bases: scaffold, ingest, compile, query, lint, audit, and launch a bundled local viewer |
 | `houmao-utils-workspace-mgr` | Explicit utility skill for planning and executing multi-agent workspace layouts, including in-repo or out-of-repo workspaces, per-agent Git worktrees, shared/local-only repos, submodule materialization, launch-profile cwd updates, and optional memo-seed workspace rules |
+| `houmao-agent-loop-lite` | Author and operate lightweight generated loops with Markdown contracts, typed Markdown communication templates, required generated skills, direct SQLite state, and no generated harness or docs layer |
 | `houmao-agent-loop-pro` | Author and operate generated loop execplans in `tree-loop` or `generic-loop` mode, including intention clarification, generated process/contracts/harness/skills/agent bindings, workspace readiness, validation, launch, and run-control |
 
-`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and current loop orchestration through `houmao-agent-loop-pro`. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`. Supported install/reinstall/uninstall operations also clean exact retired loop skill projections from target tool homes:
+`agents join` and `agents launch` auto-install the closed `core` set into managed homes as defined in `src/houmao/agents/assets/system_skills/catalog.toml`. `core` includes the automation skills an agent needs to process mailbox rounds, message correctly, inspect other agents, use gateway/reminder flows, and maintain managed memory, plus the operator-control skills for project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and current loop orchestration through `houmao-agent-loop-lite` and `houmao-agent-loop-pro`. The CLI default installs `all`, which adds the utility skills `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`. Supported install/reinstall/uninstall operations also clean exact retired loop skill projections from target tool homes:
 
 ```bash
 houmao-mgr system-skills install --tool claude,codex,copilot,gemini

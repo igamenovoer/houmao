@@ -27,6 +27,7 @@ _CATALOG_SKILLS = [
     "houmao-credential-mgr",
     "houmao-agent-definition",
     "houmao-agent-loop-pro",
+    "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -64,6 +65,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-credential-mgr",
     "houmao-agent-definition",
     "houmao-agent-loop-pro",
+    "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
     "houmao-agent-messaging",
@@ -163,12 +165,11 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert payload["auto_install"]["managed_launch_sets"] == _CORE_SET_NAMES
     assert payload["auto_install"]["managed_join_sets"] == _CORE_SET_NAMES
     assert payload["retired_skill_names"] == _RETIRED_LOOP_SKILLS
-    skill_descriptions = {
-        record["name"]: record["description"] for record in payload["skills"]
-    }
-    assert "Canonical pre-launch agent-definition skill" in skill_descriptions[
-        "houmao-agent-definition"
-    ]
+    skill_descriptions = {record["name"]: record["description"] for record in payload["skills"]}
+    assert (
+        "Canonical pre-launch agent-definition skill"
+        in skill_descriptions["houmao-agent-definition"]
+    )
     assert "Compatibility wrapper" in skill_descriptions["houmao-specialist-mgr"]
     core_record = next(record for record in payload["sets"] if record["name"] == "core")
     assert core_record["skills"] == _DEFAULT_RESOLVED_SKILLS[:-1]
@@ -217,6 +218,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     for retired_name in _RETIRED_LOOP_SKILLS:
         assert not (home_path / f"skills/{retired_name}").exists()
     assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
@@ -694,6 +696,7 @@ def test_system_skills_install_uses_project_root_for_gemini_default_home(
     assert (workspace / ".gemini/skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-definition/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (workspace / ".gemini/skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert not (workspace / ".agents/skills").exists()
 
 
@@ -755,6 +758,7 @@ def test_system_skills_install_uses_project_scoped_copilot_default_home(
     assert (expected_home / "skills/houmao-credential-mgr/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-definition/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-loop-pro/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
 
 
 def test_system_skills_install_supports_comma_separated_tools_with_project_defaults(

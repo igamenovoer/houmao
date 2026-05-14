@@ -8,7 +8,7 @@ license: MIT
 
 Use this Houmao skill when the task is a supported multi-step Houmao workflow composition rather than one direct mailbox, gateway, or lifecycle action.
 
-This skill is intentionally above the direct-operation skills and below `houmao-agent-loop-pro`. Keep exact mailbox actions in `houmao-agent-email-comms`, gateway and notifier control in `houmao-agent-gateway`, one notifier-driven open-mail round in `houmao-process-emails-via-gateway`, and topology/run planning in `houmao-agent-loop-pro`.
+This skill is intentionally above the direct-operation skills and below the maintained generated-loop skills. Keep exact mailbox actions in `houmao-agent-email-comms`, gateway and notifier control in `houmao-agent-gateway`, one notifier-driven open-mail round in `houmao-process-emails-via-gateway`, topology-rich generated execplans in `houmao-agent-loop-pro`, and lightweight Markdown/direct-SQL generated loops in `houmao-agent-loop-lite`.
 
 ## Supported Patterns
 
@@ -22,7 +22,8 @@ This skill is intentionally above the direct-operation skills and below `houmao-
 - Prefer the local-close edge-loop pattern when exactly one driver sends one worker request for one local-close round and the final result should return to the same driver that sent that request.
 - Prefer the forward relay-loop pattern when one master or loop origin starts one ordered relay lane, ownership should keep moving forward along that lane, and a later downstream loop egress should return the final result directly to that origin.
 - Use the notifier-prompt-driven mail loop pattern for runtime wake-up posture, notifier appendix guidance, sender notify blocks, mail-event handling, and one-pass tick behavior inside a mailbox-driven loop.
-- Use `houmao-agent-loop-pro` for composed topology, generated execplans, rendered graphs, graph policy, multi-edge tree loops, multi-lane relay routes, or generated loop run-control actions. Choose `tree-loop` or `generic-loop` inside pro instead of routing to separate loop packages.
+- Use `houmao-agent-loop-lite` when the user explicitly wants a small generated-skill loop package with Markdown contracts, typed Markdown templates, and direct SQLite state.
+- Use `houmao-agent-loop-pro` for composed topology, schema-rich generated execplans, rendered graphs, graph policy, multi-edge tree loops, multi-lane relay routes, or generated loop run-control actions. Choose `tree-loop` or `generic-loop` inside pro instead of routing to retired loop packages.
 
 ## Guardrails
 
