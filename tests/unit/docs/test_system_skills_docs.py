@@ -18,10 +18,7 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
         encoding="utf-8"
     )
 
-    system_skills_collection = (
-        "https://github.com/igamenovoer/houmao/tree/main/"
-        "src/houmao/agents/assets/system_skills/"
-    )
+    system_skills_collection = "igamenovoer/tool-skills/houmao"
 
     assert "Recommended when `npx` is available and the target machine has internet access" in (
         readme
@@ -46,7 +43,8 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
 
     assert "## Installation Choices" in overview
     assert f"npx skills add {system_skills_collection}" in overview
-    assert "collection directory, not at one individual skill" in overview
+    assert "small release-synced `igamenovoer/tool-skills` repository" in overview
+    assert "not at the full Houmao source repository" in overview
     assert "Use Houmao's own installer when `npx` is unavailable" in overview
     assert "named sets, subset skills, explicit homes, symlink/copy projection" in overview
     assert "Managed launch and join are separate from these explicit user-driven" in overview
