@@ -75,6 +75,9 @@ Key options:
 | `--skill` | None | Repeatable. Bind one already registered project skill by name. |
 | `--with-skill` | None | Repeatable. Convenience path: register or update one skill directory (must contain `SKILL.md`) and then bind that resulting project skill name; Houmao reads the provided source directory but does not mutate it. |
 | `--env-set` | None | Repeatable. Persistent environment variable as `NAME=value`. |
+| `--system-skill-set` / `--system-skill` | None | Repeatable. Store managed system-skill policy for future managed homes built from this specialist. Selectors without a mode infer additive `extend`. |
+| `--system-skills-mode` | `default` when omitted | Source policy mode: `default`, `extend`, `replace`, or `none`. |
+| `--no-system-skills` | False | Shorthand for source policy `none`, disabling current Houmao-owned system skills for future launches from this specialist. |
 | `--no-unattended` | False | Use `prompt_mode: as_is` instead of the default `unattended` mode. |
 | `--model` | None | Optional launch-owned default model name. |
 | `--reasoning-level` | None | Optional launch-owned tool/model-specific reasoning preset index. |
@@ -135,6 +138,19 @@ houmao-mgr project easy specialist create \
   --skill repo-map
 ```
 
+Managed launch installs the catalog's `core` system-skill set by default. To add the optional LLM Wiki utility only for one specialist, store an additive source policy:
+
+```bash
+houmao-mgr project easy specialist create \
+  --name wiki-researcher \
+  --tool codex \
+  --system-prompt "Maintain the project wiki as you work." \
+  --api-key "$OPENAI_API_KEY" \
+  --system-skill houmao-utils-llm-wiki
+```
+
+That writes `launch.system_skills` into the generated recipe. Use `--system-skills-mode replace --system-skill-set all` when the specialist should use exactly a named set or `--no-system-skills` when it should launch without current Houmao-owned system skills.
+
 ## Editing a Specialist
 
 Use `specialist set` for ordinary changes to an existing specialist. It patches the catalog-backed definition, rematerializes the `.houmao/agents/` compatibility projection, and preserves unspecified fields.
@@ -162,8 +178,15 @@ Common patch options:
 | `--prompt-mode unattended|as_is` / `--clear-prompt-mode` | Replace or clear the stored operator prompt mode. |
 | `--model`, `--clear-model`, `--reasoning-level`, `--clear-reasoning-level` | Patch the launch-owned default model selection. |
 | `--env-set NAME=value` / `--clear-env` | Replace the stored specialist env mapping, or clear it. |
+| `--system-skill-set`, `--system-skill`, `--system-skills-mode`, `--no-system-skills`, `--clear-system-skills` | Patch or clear the specialist-owned managed system-skill policy stored under `launch.system_skills`. |
 
 `specialist set` requires at least one update or clear flag. It does not rename a specialist and does not move a specialist between tool lanes; create a new specialist when the name or tool lane should change. Changes affect future launches and profiles resolved from the updated specialist definition. Already-running easy instances keep their current runtime state.
+
+To return a specialist to the managed-launch catalog default after experimenting with a utility skill:
+
+```bash
+houmao-mgr project easy specialist set --name wiki-researcher --clear-system-skills
+```
 
 ## Easy Profiles
 
@@ -193,6 +216,9 @@ Key options:
 | `--auth` | None | Optional default auth display-name override. The stored relationship resolves through auth-profile identity, so later auth rename stays valid. |
 | `--prompt-mode` | None | Optional `unattended` or `as_is` operator prompt-mode override. |
 | `--env-set` | None | Repeatable durable launch env record (`NAME=value`). |
+| `--system-skill-set` / `--system-skill` | None | Repeatable. Store profile-owned managed system-skill policy for future launches from this profile. Selectors without a mode infer additive `extend` over the source specialist policy. |
+| `--system-skills-mode` | `inherit` when omitted | Profile policy mode: `inherit`, `extend`, `replace`, or `none`. |
+| `--no-system-skills` | False | Shorthand for profile policy `none`, disabling current Houmao-owned system skills for future launches from this profile. |
 | `--mail-transport` | None | Optional declarative mailbox transport (`filesystem` or `stalwart`). |
 | `--mail-root`, `--mail-principal-id`, `--mail-address`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url` | None | Optional declarative mailbox identity and endpoints (Stalwart-only fields apply only when `--mail-transport stalwart`). |
 | `--headless` | False | Persist headless launch as the default posture. |
@@ -212,6 +238,17 @@ Easy profile creation may also store managed prompt-header policy. `--managed-he
 
 Easy profiles may also store gateway mail-notifier appendix text through `--gateway-mail-notifier-appendix-text`. `profile set` preserves the stored appendix when the flag is omitted and removes it with `--clear-gateway-mail-notifier-appendix`. The stored appendix seeds runtime gateway notifier state on launches from the profile, but later live notifier edits such as `houmao-mgr agents gateway mail-notifier enable --appendix-text ...` remain runtime-owned and do not rewrite the easy profile.
 
+Easy profiles may also override or extend the source specialist's managed system-skill policy. The common additive case is:
+
+```bash
+houmao-mgr project easy profile create \
+  --name wiki-researcher-default \
+  --specialist wiki-researcher \
+  --system-skill houmao-utils-llm-wiki
+```
+
+Use `--no-system-skills` on a profile for a minimal future launch, or `houmao-mgr project easy profile set --name wiki-researcher-default --clear-system-skills` to remove the profile override and inherit the source specialist again.
+
 Easy profiles may store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacing the stored seed and `--clear-memo-seed` to remove the stored seed. Memo seeds always replace only the components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
 
 Manage existing easy profiles with:
@@ -223,7 +260,7 @@ houmao-mgr project easy profile set --name reviewer-default --workdir /repos/nex
 houmao-mgr project easy profile remove --name reviewer-default
 ```
 
-`profile set` patches stored easy-profile defaults for future launches while preserving unspecified fields such as mailbox config, prompt overlay, gateway mail-notifier appendix, or memo seed. Use it for ordinary edits instead of removing and recreating the profile.
+`profile set` patches stored easy-profile defaults for future launches while preserving unspecified fields such as managed system-skill policy, mailbox config, prompt overlay, gateway mail-notifier appendix, or memo seed. Use it for ordinary edits instead of removing and recreating the profile.
 
 If the profile should be rebuilt over a different specialist or should intentionally drop old optional defaults, run `project easy profile create --name reviewer-default --specialist <specialist> ... --yes`. Same-name replacement is lane-bounded: an easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name.
 

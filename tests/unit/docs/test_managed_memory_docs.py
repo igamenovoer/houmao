@@ -82,10 +82,12 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
         / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/raw-profiles.md"
     ).read_text(encoding="utf-8")
     easy_profile_create_skill = (
-        REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/profiles.md"
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/profiles.md"
     ).read_text(encoding="utf-8")
     easy_launch_skill = (
-        REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/launch-instance.md"
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/launch-instance.md"
     ).read_text(encoding="utf-8")
 
     assert "## Memo Seeds" in launch_profiles

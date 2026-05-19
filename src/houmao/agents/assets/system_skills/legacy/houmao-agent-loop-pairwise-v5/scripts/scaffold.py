@@ -336,7 +336,9 @@ purpose = "accepted execplan-generation decisions"
         "loop_dir_name": loop_dir_name,
         "loop_slug": slugify(loop_dir_name),
         "plan_revision": str(args.plan_revision),
-        "purpose_directories_toml": "[" + ", ".join(f'"{item}"' for item in purpose_directories) + "]",
+        "purpose_directories_toml": "["
+        + ", ".join(f'"{item}"' for item in purpose_directories)
+        + "]",
         "scaffold_profile": args.profile,
         "stage": stage,
     }

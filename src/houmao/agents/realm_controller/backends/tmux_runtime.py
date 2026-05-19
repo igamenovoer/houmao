@@ -109,8 +109,7 @@ TMUX_COLOR_ENV_UNSET_NAMES: Final[tuple[str, ...]] = ("NO_COLOR",)
 _TMUX_PANE_DEAD_FORMAT: Final[str] = "#{pane_dead}"
 _TMUX_PANE_PID_FORMAT: Final[str] = "#{pane_pid}"
 _TMUX_CONFIG_INJECTION_GUIDANCE: Final[str] = (
-    f"Set {TMUX_CONFIG_INJECTION_ENV_VAR}=0 to disable Houmao tmux config injection "
-    "and retry."
+    f"Set {TMUX_CONFIG_INJECTION_ENV_VAR}=0 to disable Houmao tmux config injection and retry."
 )
 
 

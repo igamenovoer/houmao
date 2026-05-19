@@ -103,9 +103,11 @@ The compatibility-projected declarative recipe file. The filename supplies the r
 - required `setup`
 - `skills`
 - optional `auth`
-- optional `launch`
+- optional `launch` (`prompt_mode`, `model`, `env_records`, `overrides`, and `system_skills`)
 - optional `mailbox`
 - optional `extra`
+
+`launch.system_skills` is the source-owned managed system-skill policy for managed homes built from that recipe. Omit it to keep the packaged managed-launch default, use `mode: extend` with `skills: [houmao-utils-llm-wiki]` to add one utility skill, use `mode: replace` with selected `sets` or `skills` for exact selection, or use `mode: none` to install no current Houmao-owned system skills.
 
 ### `launch-profiles/<profile>.yaml`
 
@@ -116,7 +118,7 @@ The compatibility-projected reusable birth-time launch profile. Easy profiles an
 
 Both lanes still project into the same `launch-profiles/<name>.yaml` compatibility area, but management remains lane-bounded; use the command family that matches the stored lane rather than treating the shared projection path as one unified CRUD surface.
 
-For the shared conceptual model — easy versus explicit lanes, the precedence chain, prompt overlays, gateway mail-notifier appendix defaults, and profile provenance reporting — see [Launch Profiles](launch-profiles.md).
+For the shared conceptual model — easy versus explicit lanes, the precedence chain, managed system-skill policy, prompt overlays, gateway mail-notifier appendix defaults, and profile provenance reporting — see [Launch Profiles](launch-profiles.md).
 
 ### `tools/<tool>/adapter.yaml`
 
@@ -156,8 +158,8 @@ Generated runtime homes, manifests, mailbox state, and managed-agent memory are 
 1. Houmao persists project-local semantic objects in `.houmao/catalog.sqlite` and stores prompt/auth/skill/setup payloads under `.houmao/content/`.
 2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
 3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to the unique named preset whose YAML declares the matching `role`, provider-derived `tool`, and `setup: default`.
-4. The resolved preset selects skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
-5. `BrainBuilder` combines the recipe with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, launch-profile-owned prompt or mailbox defaults when present, and any durable `launch.env_records` to materialize a runtime home.
+4. The resolved preset selects project skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` and managed `launch.system_skills` policy when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
+5. `BrainBuilder` combines the recipe with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, launch-profile-owned prompt or mailbox defaults when present, any durable `launch.env_records`, and the resolved managed system-skill policy to materialize a runtime home. On reused homes, unselected current Houmao-owned system-skill paths are removed while unrelated user skills remain.
 6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.
 
 ## Authoring Paths
@@ -170,6 +172,7 @@ The compatibility `.houmao/agents/` tree can still be inspected directly, but pr
 - `project agents launch-profiles ...` is the low-level authoring path for reusable recipe-backed birth-time launch profiles.
 - for maintained easy launch paths, `project easy specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
 - persistent non-credential launch env belongs to specialist config via repeatable `project easy specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
+- specialist-owned managed system-skill policy belongs to the recipe launch payload via repeatable `project easy specialist create|set --system-skill ...` / `--system-skill-set ...`, which projects into `launch.system_skills`.
 - `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
 - one-off runtime env belongs to `project easy instance launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
 - `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.

@@ -34,7 +34,7 @@ from houmao.owned_mutation import (
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
 
-CATALOG_SCHEMA_VERSION = 16
+CATALOG_SCHEMA_VERSION = 17
 PROJECT_CATALOG_FILENAME = "catalog.sqlite"
 PROJECT_CONTENT_DIRNAME = "content"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
@@ -238,6 +238,7 @@ class LaunchProfileCatalogEntry:
     env_payload: dict[str, str]
     mailbox_payload: dict[str, Any] | None
     posture_payload: dict[str, Any]
+    system_skills_payload: dict[str, Any]
     relaunch_chat_session_payload: dict[str, str] | None
     managed_header_policy: ManagedHeaderPolicy | None
     prompt_overlay_mode: str | None
@@ -1235,6 +1236,7 @@ class ProjectCatalog:
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
+                    launch_profiles.system_skills_payload,
                     launch_profiles.relaunch_chat_session_payload,
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
@@ -1288,6 +1290,7 @@ class ProjectCatalog:
                     launch_profiles.env_payload,
                     launch_profiles.mailbox_payload,
                     launch_profiles.posture_payload,
+                    launch_profiles.system_skills_payload,
                     launch_profiles.relaunch_chat_session_payload,
                     launch_profiles.managed_header_policy,
                     launch_profiles.managed_header_section_policy,
@@ -1338,6 +1341,7 @@ class ProjectCatalog:
         env_mapping: dict[str, str] | None,
         mailbox_mapping: dict[str, Any] | None,
         posture_mapping: dict[str, Any] | None,
+        system_skills_mapping: dict[str, Any] | None = None,
         relaunch_chat_session_mapping: dict[str, Any] | None = None,
         managed_header_policy: ManagedHeaderPolicy | None = None,
         managed_header_section_policy: dict[Any, Any] | None = None,
@@ -1481,6 +1485,7 @@ class ProjectCatalog:
                     env_payload,
                     mailbox_payload,
                     posture_payload,
+                    system_skills_payload,
                     relaunch_chat_session_payload,
                     managed_header_policy,
                     managed_header_section_policy,
@@ -1491,7 +1496,7 @@ class ProjectCatalog:
                     memo_seed_content_ref_id,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     profile_lane = excluded.profile_lane,
                     source_kind = excluded.source_kind,
@@ -1508,6 +1513,7 @@ class ProjectCatalog:
                     env_payload = excluded.env_payload,
                     mailbox_payload = excluded.mailbox_payload,
                     posture_payload = excluded.posture_payload,
+                    system_skills_payload = excluded.system_skills_payload,
                     relaunch_chat_session_payload = excluded.relaunch_chat_session_payload,
                     managed_header_policy = excluded.managed_header_policy,
                     managed_header_section_policy = excluded.managed_header_section_policy,
@@ -1536,6 +1542,7 @@ class ProjectCatalog:
                     json.dumps(env_mapping or {}, sort_keys=True),
                     json.dumps(mailbox_mapping or {}, sort_keys=True),
                     json.dumps(posture_mapping or {}, sort_keys=True),
+                    json.dumps(system_skills_mapping or {}, sort_keys=True),
                     json.dumps(resolved_relaunch_chat_session or {}, sort_keys=True),
                     resolved_managed_header_policy,
                     json.dumps(resolved_managed_header_section_policy, sort_keys=True),
@@ -2696,6 +2703,7 @@ class ProjectCatalog:
         env_payload = _load_json_mapping(str(row["env_payload"]))
         mailbox_payload = _load_json_mapping(str(row["mailbox_payload"]))
         posture_payload = _load_json_mapping(str(row["posture_payload"]))
+        system_skills_payload = _load_json_mapping(str(row["system_skills_payload"]))
         relaunch_chat_session_payload = _normalize_relaunch_chat_session_payload(
             _load_json_mapping(str(row["relaunch_chat_session_payload"]))
             if row["relaunch_chat_session_payload"] is not None
@@ -2752,6 +2760,7 @@ class ProjectCatalog:
             env_payload={str(key): str(value) for key, value in env_payload.items()},
             mailbox_payload=mailbox_payload if mailbox_payload else None,
             posture_payload=posture_payload,
+            system_skills_payload=system_skills_payload,
             relaunch_chat_session_payload=relaunch_chat_session_payload,
             managed_header_policy=normalize_managed_header_policy(
                 str(row["managed_header_policy"])
@@ -2962,6 +2971,7 @@ def _table_schema_sql() -> str:
         mailbox_payload TEXT NOT NULL DEFAULT '{{}}',
         posture_payload TEXT NOT NULL DEFAULT '{{}}',
         relaunch_chat_session_payload TEXT NOT NULL DEFAULT '{{}}',
+        system_skills_payload TEXT NOT NULL DEFAULT '{{}}',
         managed_header_policy TEXT,
         managed_header_section_policy TEXT NOT NULL DEFAULT '{{}}',
         prompt_overlay_mode TEXT,
@@ -3073,6 +3083,7 @@ def _view_sql() -> str:
         launch_profiles.mailbox_payload AS mailbox_payload,
         launch_profiles.posture_payload AS posture_payload,
         launch_profiles.relaunch_chat_session_payload AS relaunch_chat_session_payload,
+        launch_profiles.system_skills_payload AS system_skills_payload,
         launch_profiles.managed_header_policy AS managed_header_policy,
         launch_profiles.managed_header_section_policy AS managed_header_section_policy,
         launch_profiles.prompt_overlay_mode AS prompt_overlay_mode,
@@ -3271,6 +3282,7 @@ def _required_current_catalog_columns() -> dict[str, tuple[str, ...]]:
             "mailbox_payload",
             "posture_payload",
             "relaunch_chat_session_payload",
+            "system_skills_payload",
             "managed_header_policy",
             "managed_header_section_policy",
             "prompt_overlay_mode",
@@ -3428,6 +3440,8 @@ def _render_launch_profile_yaml(
         defaults["mailbox"] = entry.mailbox_payload
     if entry.posture_payload:
         defaults["posture"] = entry.posture_payload
+    if entry.system_skills_payload:
+        defaults["system_skills"] = dict(entry.system_skills_payload)
     if entry.managed_header_policy is not None:
         defaults["managed_header"] = entry.managed_header_policy
     if entry.managed_header_section_policy:

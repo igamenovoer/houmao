@@ -18,7 +18,11 @@ from houmao.agents.brain_builder import (
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
-from houmao.agents.system_skills import discover_installed_system_skills
+from houmao.agents.system_skills import (
+    SYSTEM_SKILL_UTILS_LLM_WIKI,
+    SystemSkillSelectionPolicy,
+    discover_installed_system_skills,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -317,6 +321,186 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     ]
     assert "NOT_ALLOWLISTED" not in manifest_text
     assert "sk-test-123" not in manifest_text
+
+
+def test_build_brain_home_applies_source_additive_system_skill_policy(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="extend",
+                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            ),
+            home_id="codex-home-source-system-skills",
+        )
+    )
+
+    installed_records = discover_installed_system_skills(tool="codex", home_path=result.home_path)
+    installed_names = tuple(record.name for record in installed_records)
+    assert SYSTEM_SKILL_UTILS_LLM_WIKI in installed_names
+    assert (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md").is_file()
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "system_skills"
+    ]
+    assert system_skill_provenance["source_policy"] == {
+        "mode": "extend",
+        "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI],
+    }
+    assert system_skill_provenance["profile_policy"] == {}
+    assert SYSTEM_SKILL_UTILS_LLM_WIKI in system_skill_provenance["resolved_skills"]
+
+
+def test_build_brain_home_profile_replacement_overrides_source_system_skill_policy(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="extend",
+                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            ),
+            launch_profile_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="replace",
+                set_names=("core",),
+            ),
+            home_id="codex-home-profile-system-skills",
+        )
+    )
+
+    installed_names = tuple(
+        record.name
+        for record in discover_installed_system_skills(tool="codex", home_path=result.home_path)
+    )
+    assert SYSTEM_SKILL_UTILS_LLM_WIKI not in installed_names
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "system_skills"
+    ]
+    assert system_skill_provenance["profile_policy"] == {"mode": "replace", "sets": ["core"]}
+    assert system_skill_provenance["selected_sets"] == ["core"]
+    assert SYSTEM_SKILL_UTILS_LLM_WIKI not in system_skill_provenance["resolved_skills"]
+
+
+def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on_reuse(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    first_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="extend",
+                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            ),
+            home_id="codex-home-reused-system-skills",
+        )
+    )
+    assert (first_result.home_path / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md").is_file()
+
+    second_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            launch_profile_system_skill_policy=SystemSkillSelectionPolicy(mode="none"),
+            home_id="codex-home-reused-system-skills",
+            reuse_home=True,
+        )
+    )
+
+    assert discover_installed_system_skills(tool="codex", home_path=second_result.home_path) == ()
+    manifest = yaml.safe_load(second_result.manifest_path.read_text(encoding="utf-8"))
+    system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "system_skills"
+    ]
+    assert system_skill_provenance["profile_policy"] == {"mode": "none"}
+    assert system_skill_provenance["resolved_skills"] == []
+    assert SYSTEM_SKILL_UTILS_LLM_WIKI in system_skill_provenance["removed_skills"]
+
+
+def test_build_brain_home_rejects_registered_system_skill_name_collision(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    _write(agent_def_dir / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md", "# collision\n")
+
+    with pytest.raises(BuildError, match="cannot collide with packaged Houmao system-skill names"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=[SYSTEM_SKILL_UTILS_LLM_WIKI],
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="codex-home-system-skill-collision",
+            )
+        )
+
+
+def test_build_brain_home_rejects_private_system_skill_name_collision(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    private_skill = tmp_path / "private" / SYSTEM_SKILL_UTILS_LLM_WIKI
+    _write(private_skill / "SKILL.md", "# collision\n")
+
+    with pytest.raises(BuildError, match="cannot collide with packaged Houmao system-skill names"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["skill-a"],
+                private_skills=(
+                    PrivateSkillProjection(
+                        name=SYSTEM_SKILL_UTILS_LLM_WIKI,
+                        source_path=private_skill,
+                        mode="copy",
+                    ),
+                ),
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="codex-home-private-system-skill-collision",
+            )
+        )
 
 
 def test_build_brain_home_copies_selected_setup_bundle_verbatim(
@@ -823,6 +1007,33 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
     assert "export GEMINI_API_KEY=" not in launch_script
     assert manifest["runtime"]["launch_contract"]["env_records"] == {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def test_build_brain_home_projects_gemini_policy_system_skills_under_gemini_root(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="replace",
+                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            ),
+            home_id="gemini-home-system-policy",
+        )
+    )
+
+    assert (result.home_path / f".gemini/skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md").is_file()
+    assert not (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}").exists()
 
 
 def test_build_brain_home_reuse_leaves_legacy_gemini_agents_skill_root_unmanaged(

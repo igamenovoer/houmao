@@ -396,3 +396,34 @@ The projected `.houmao/agents/launch-profiles/<profile>.yaml` file SHALL render 
 - **THEN** `.houmao/agents/launch-profiles/reviewer-a.yaml` contains a launch-profile skills block with registered `llm-wiki`
 - **AND THEN** that file contains private skill `audit` with source path `/repo/profile-skills/audit` and mode `symlink`
 
+### Requirement: `project agents launch-profiles` stores explicit managed system-skill policy
+`houmao-mgr project agents launch-profiles add` and `houmao-mgr project agents launch-profiles set` SHALL accept managed system-skill policy options for explicit recipe-backed launch profiles.
+
+The accepted options SHALL include repeatable `--system-skill-set <set>`, repeatable `--system-skill <skill>`, `--system-skills-mode inherit|extend|replace|none`, `--no-system-skills`, and the patch-only clear option `--clear-system-skills`.
+
+When a launch-profile command receives one or more system-skill selectors without an explicit mode, it SHALL store additive mode over the source recipe policy.
+
+`launch-profiles get --name <profile>` SHALL report stored managed system-skill policy separately from project registered/private skill overlays.
+
+#### Scenario: Add stores additive utility skill policy
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles add --name researcher-wiki --recipe researcher-codex-default --system-skill houmao-utils-llm-wiki`
+- **THEN** the command creates an explicit launch profile with additive managed system-skill policy
+- **AND THEN** the projected launch-profile YAML records that policy under profile defaults
+
+#### Scenario: Set stores exact all policy
+- **WHEN** explicit launch profile `researcher` already exists
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name researcher --system-skills-mode replace --system-skill-set all`
+- **THEN** the stored launch profile records exact replacement mode with set `all`
+- **AND THEN** future launches from that profile install the system-skill selection resolved from `all`
+
+#### Scenario: Set clears stored policy back to inherit
+- **WHEN** explicit launch profile `researcher` stores disabled system-skill policy
+- **AND WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name researcher --clear-system-skills`
+- **THEN** the stored launch profile no longer records explicit system-skill policy
+- **AND THEN** future launches from that profile inherit the source recipe policy
+
+#### Scenario: Mutually exclusive system-skill flags fail
+- **WHEN** an operator runs `houmao-mgr project agents launch-profiles set --name researcher --no-system-skills --system-skill houmao-utils-llm-wiki`
+- **THEN** the command fails before updating the launch profile
+- **AND THEN** the error explains that disabled mode cannot be combined with explicit system-skill selectors
+

@@ -146,6 +146,11 @@ def build_brain_command(
                 preset_launch_overrides=(
                     preset_payload.launch_overrides if preset_payload is not None else None
                 ),
+                source_system_skill_policy=(
+                    preset_payload.launch_system_skill_policy
+                    if preset_payload is not None
+                    else None
+                ),
                 runtime_root=resolved_runtime_root,
                 mailbox=preset_payload.mailbox if preset_payload is not None else None,
                 extra=preset_payload.extra if preset_payload is not None else None,

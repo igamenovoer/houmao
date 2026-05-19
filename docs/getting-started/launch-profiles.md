@@ -69,6 +69,7 @@ A launch profile may store, with no inline secrets:
 - an auth override selected by display name (the actual credentials still live in the auth bundle, while the stored relationship resolves through auth-profile identity),
 - an operator prompt-mode override (`unattended` or `as_is`),
 - durable non-secret env records,
+- managed system-skill policy for packaged Houmao-owned skills,
 - declarative mailbox configuration (transport, root, address, principal id, and Stalwart-only fields when applicable),
 - launch posture defaults (`headless`, gateway auto-attach, fixed loopback gateway port),
 - an optional gateway mail-notifier appendix default,
@@ -106,6 +107,49 @@ Rules:
 - Stored relaunch chat-session policy is not a birth-time launch default and does not affect first launch. It is carried as secret-free launch-profile provenance so later `agents relaunch` can decide whether the provider TUI should start fresh, ask the provider for its latest chat, or resume an exact provider session id.
 - Live runtime mutations such as late filesystem mailbox registration are runtime-owned. They affect the running session and the runtime manifest, but they never rewrite the stored launch profile.
 - For easy profiles, the easy lane compiles down through the same five layers — the specialist resolves into a recipe-backed source layer before the launch-profile layer applies.
+- Managed system-skill policy resolves as a source/profile pair before the managed home is built. Source specialists and recipes default to the catalog's managed-launch set list; launch profiles default to inheriting the source's effective selection.
+
+## Managed System-Skill Policy
+
+Managed system skills are packaged Houmao-owned instruction packages such as `houmao-agent-definition`, `houmao-agent-messaging`, and `houmao-utils-llm-wiki`. They share the visible tool skill root with project skills, but they are selected and synchronized separately.
+
+Source recipes and easy specialists may store source-owned policy under `launch.system_skills` with modes:
+
+- `default` — use the catalog's `auto_install.managed_launch_sets` selection.
+- `extend` — start from the managed-launch default and append selected system-skill sets or skills.
+- `replace` — use exactly the selected system-skill sets or skills.
+- `none` — install no current Houmao-owned system skills.
+
+Launch profiles may store profile-owned policy under `defaults.system_skills` with modes:
+
+- `inherit` — use the source recipe or specialist's effective selection.
+- `extend` — add selected system-skill sets or skills to the source's effective selection.
+- `replace` — use exactly the selected system-skill sets or skills from the profile.
+- `none` — install no current Houmao-owned system skills.
+
+Selectors are validated against the packaged system-skill catalog. On reused homes, Houmao removes exact catalog-known current Houmao system-skill paths that are no longer selected and removes known retired paths, while preserving unrelated user skills. Selected project registered skills and profile-private skills cannot use a current Houmao system-skill name because both surfaces project into the same visible skill root.
+
+Examples:
+
+```bash
+# Add one optional utility to all launches from an easy profile.
+houmao-mgr project easy profile create \
+  --name researcher-wiki \
+  --specialist researcher \
+  --system-skill houmao-utils-llm-wiki
+
+# Make an explicit launch profile use exactly every packaged system skill.
+houmao-mgr project agents launch-profiles set \
+  --name researcher \
+  --system-skills-mode replace \
+  --system-skill-set all
+
+# Disable current Houmao-owned system skills for future launches from a profile.
+houmao-mgr project easy profile set --name minimal --no-system-skills
+
+# Remove profile policy so the profile inherits the source again.
+houmao-mgr project agents launch-profiles set --name researcher --clear-system-skills
+```
 
 ## Relaunch Chat Sessions
 
@@ -236,7 +280,7 @@ houmao-mgr project easy profile set --name <profile> --workdir /repos/next-targe
 houmao-mgr project agents launch-profiles set --name <profile> --workdir /repos/next-target
 ```
 
-Patch commands preserve unspecified stored fields, so existing mailbox config, prompt overlay, gateway mail-notifier appendix, memo seed, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
+Patch commands preserve unspecified stored fields, so existing managed system-skill policy, mailbox config, prompt overlay, gateway mail-notifier appendix, memo seed, managed-header whole-header policy, managed-header section policy, and other advanced blocks remain in place unless you pass the matching `--clear-*` option.
 
 Use same-name replacement only when you want recreate semantics:
 
@@ -248,7 +292,7 @@ houmao-mgr project easy profile create --name <profile> --specialist <specialist
 houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> --yes
 ```
 
-Replacement is lane-bounded and clears omitted optional fields, including any previously stored gateway mail-notifier appendix or memo seed. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
+Replacement is lane-bounded and clears omitted optional fields, including any previously stored managed system-skill policy, gateway mail-notifier appendix, or memo seed. An easy-profile replacement cannot replace an explicit recipe-backed launch profile with the same name, and an explicit launch-profile replacement cannot replace an easy profile.
 
 ## CLI Surfaces
 

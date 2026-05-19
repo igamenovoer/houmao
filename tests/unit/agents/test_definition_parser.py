@@ -10,6 +10,7 @@ from houmao.agents.definition_parser import (
     parse_tool_adapter,
     resolve_agent_preset,
 )
+from houmao.agents.system_skills import SYSTEM_SKILL_UTILS_LLM_WIKI
 
 
 def _write(path: Path, content: str) -> None:
@@ -230,6 +231,53 @@ launch:
         "FEATURE_FLAG_X": "1",
         "OPENAI_MODEL": "gpt-5.4",
     }
+
+
+def test_parse_agent_preset_accepts_launch_system_skill_policy(tmp_path: Path) -> None:
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    _write(
+        preset_path,
+        """
+role: gpu-kernel-coder
+tool: claude
+setup: default
+skills:
+  - skill-a
+launch:
+  system_skills:
+    mode: extend
+    skills:
+      - houmao-utils-llm-wiki
+""".strip()
+        + "\n",
+    )
+
+    preset = parse_agent_preset(preset_path)
+
+    assert preset.launch_system_skill_policy is not None
+    assert preset.launch_system_skill_policy.mode == "extend"
+    assert preset.launch_system_skill_policy.skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+
+
+def test_parse_agent_preset_rejects_profile_system_skill_mode(tmp_path: Path) -> None:
+    preset_path = tmp_path / "presets/gpu-kernel-coder-claude-default.yaml"
+    _write(
+        preset_path,
+        """
+role: gpu-kernel-coder
+tool: claude
+setup: default
+skills:
+  - skill-a
+launch:
+  system_skills:
+    mode: inherit
+""".strip()
+        + "\n",
+    )
+
+    with pytest.raises(ValueError, match="mode `inherit` is not allowed"):
+        parse_agent_preset(preset_path)
 
 
 def test_parse_agent_preset_accepts_unified_model_config(tmp_path: Path) -> None:

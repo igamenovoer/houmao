@@ -57,6 +57,7 @@ When a managed agent was launched from a reusable launch profile (either an easy
 - effective auth selection (rendered by auth display name; secrets remain in the auth bundle, never inline, and stored relationships resolve through auth-profile identity),
 - operator prompt-mode intent (`unattended` or `as_is`),
 - durable non-secret env records,
+- requested and resolved managed system-skill policy provenance, including source/profile policy payloads and resolved installed Houmao-owned skill names,
 - declarative mailbox configuration (transport, root, address, principal, Stalwart-only fields when applicable),
 - managed-agent identity defaults (`agent_name`, optionally `agent_id`),
 - the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, launch-owned appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. The runtime does not replay the overlay, appendix, or managed header later as separate bootstrap steps on resumed turns.

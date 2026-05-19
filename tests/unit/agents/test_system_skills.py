@@ -12,14 +12,22 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_CORE,
     SYSTEM_SKILL_UTILS_LLM_WIKI,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
+    PROFILE_SYSTEM_SKILL_POLICY_MODES,
+    SOURCE_SYSTEM_SKILL_POLICY_MODES,
+    SystemSkillPolicyError,
+    SystemSkillSelectionPolicy,
     SystemSkillCatalogError,
     SystemSkillInstallError,
     discover_installed_system_skills,
     install_system_skills_for_home,
     load_system_skill_catalog,
     load_system_skill_catalog_from_paths,
+    parse_system_skill_selection_policy,
     resolve_auto_install_skill_selection,
+    resolve_managed_system_skill_selection,
     resolve_system_skill_selection,
+    sync_system_skills_for_home,
+    system_skill_selection_policy_to_payload,
     uninstall_system_skills_for_home,
 )
 
@@ -291,6 +299,138 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
     resolved = resolve_auto_install_skill_selection(catalog, kind="cli_default")
 
     assert resolved == ALL_SYSTEM_SKILLS
+
+
+def test_parse_system_skill_selection_policy_normalizes_and_serializes_selectors() -> None:
+    policy = parse_system_skill_selection_policy(
+        {
+            "mode": "extend",
+            "sets": [SYSTEM_SKILL_SET_CORE, SYSTEM_SKILL_SET_CORE],
+            "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI, SYSTEM_SKILL_UTILS_LLM_WIKI],
+        },
+        allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+        default_mode="default",
+        source="recipe.launch",
+    )
+
+    assert policy == SystemSkillSelectionPolicy(
+        mode="extend",
+        set_names=(SYSTEM_SKILL_SET_CORE,),
+        skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+    )
+    assert system_skill_selection_policy_to_payload(policy) == {
+        "mode": "extend",
+        "sets": [SYSTEM_SKILL_SET_CORE],
+        "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI],
+    }
+    assert (
+        parse_system_skill_selection_policy(
+            {},
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source="profile.defaults",
+        )
+        is None
+    )
+    assert system_skill_selection_policy_to_payload(None) == {}
+
+
+def test_parse_system_skill_selection_policy_rejects_invalid_modes_and_selectors() -> None:
+    with pytest.raises(SystemSkillPolicyError, match="mode `inherit` is not allowed"):
+        parse_system_skill_selection_policy(
+            {"mode": "inherit"},
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            source="recipe.launch",
+        )
+
+    with pytest.raises(SystemSkillPolicyError, match="cannot be combined"):
+        parse_system_skill_selection_policy(
+            {"mode": "none", "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI]},
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source="profile.defaults",
+        )
+
+    with pytest.raises(SystemSkillPolicyError, match="requires at least one"):
+        parse_system_skill_selection_policy(
+            {"mode": "replace"},
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source="profile.defaults",
+        )
+
+    with pytest.raises(SystemSkillCatalogError, match="Unknown system-skill set `utilities`"):
+        parse_system_skill_selection_policy(
+            {"mode": "extend", "sets": ["utilities"]},
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            source="recipe.launch",
+        )
+
+    with pytest.raises(SystemSkillCatalogError, match="Unknown system skill `not-a-skill`"):
+        parse_system_skill_selection_policy(
+            {"mode": "extend", "skills": ["not-a-skill"]},
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            source="recipe.launch",
+        )
+
+
+def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes() -> None:
+    catalog = load_system_skill_catalog()
+
+    default_selection = resolve_managed_system_skill_selection(catalog=catalog)
+    source_additive = resolve_managed_system_skill_selection(
+        catalog=catalog,
+        source_policy=SystemSkillSelectionPolicy(
+            mode="extend",
+            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+        ),
+    )
+    profile_additive = resolve_managed_system_skill_selection(
+        catalog=catalog,
+        source_policy=SystemSkillSelectionPolicy(
+            mode="extend",
+            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+        ),
+        profile_policy=SystemSkillSelectionPolicy(
+            mode="extend",
+            set_names=(SYSTEM_SKILL_SET_CORE,),
+            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+        ),
+    )
+    profile_replace = resolve_managed_system_skill_selection(
+        catalog=catalog,
+        source_policy=SystemSkillSelectionPolicy(
+            mode="extend",
+            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+        ),
+        profile_policy=SystemSkillSelectionPolicy(
+            mode="replace",
+            set_names=(SYSTEM_SKILL_SET_ALL,),
+        ),
+    )
+    profile_disabled = resolve_managed_system_skill_selection(
+        catalog=catalog,
+        profile_policy=SystemSkillSelectionPolicy(mode="none"),
+    )
+
+    assert default_selection.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert default_selection.explicit_skill_names == ()
+    assert default_selection.resolved_skill_names == CORE_SYSTEM_SKILLS
+    assert source_additive.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert source_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert source_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
+    assert profile_additive.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert profile_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert profile_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
+    assert profile_replace.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
+    assert profile_replace.explicit_skill_names == ()
+    assert profile_replace.resolved_skill_names == ALL_SYSTEM_SKILLS
+    assert profile_disabled.selected_set_names == ()
+    assert profile_disabled.explicit_skill_names == ()
+    assert profile_disabled.resolved_skill_names == ()
 
 
 def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> None:
@@ -1384,6 +1524,84 @@ def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_an
     ) == "unselected current skill\n"
     assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"
     assert state_path.read_text(encoding="utf-8") == stale_state
+
+
+def test_sync_system_skills_for_home_removes_unselected_current_and_retired_paths(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    stale_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
+    stale_project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
+    user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
+    unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
+    retired_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
+    _write(stale_wiki_path, "stale wiki\n")
+    _write(stale_project_mgr_path, "stale project manager\n")
+    _write(user_skill_path, "custom user skill\n")
+    _write(unknown_houmao_path, "not catalog owned\n")
+    _write(retired_loop_path, "retired loop skill\n")
+    selection = resolve_managed_system_skill_selection(
+        profile_policy=SystemSkillSelectionPolicy(mode="none")
+    )
+
+    result = sync_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        selection=selection,
+    )
+
+    assert result.selected_set_names == ()
+    assert result.explicit_skill_names == ()
+    assert result.resolved_skill_names == ()
+    assert result.projected_relative_dirs == ()
+    assert result.removed_skill_names == (
+        SYSTEM_SKILL_UTILS_LLM_WIKI,
+        "houmao-project-mgr",
+    )
+    assert result.removed_projected_relative_dirs == (
+        "skills/houmao-utils-llm-wiki",
+        "skills/houmao-project-mgr",
+    )
+    assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v5",)
+    assert result.removed_retired_projected_relative_dirs == (
+        "skills/houmao-agent-loop-pairwise-v5",
+    )
+    assert not stale_wiki_path.exists()
+    assert not stale_project_mgr_path.exists()
+    assert not retired_loop_path.exists()
+    assert user_skill_path.is_file()
+    assert unknown_houmao_path.is_file()
+    assert discover_installed_system_skills(tool="codex", home_path=home_path) == ()
+
+
+def test_sync_system_skills_for_home_projects_exact_replacement_selection(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+    stale_project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
+    _write(stale_project_mgr_path, "stale project manager\n")
+    selection = resolve_managed_system_skill_selection(
+        source_policy=SystemSkillSelectionPolicy(
+            mode="replace",
+            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+        )
+    )
+
+    result = sync_system_skills_for_home(
+        tool="codex",
+        home_path=home_path,
+        selection=selection,
+    )
+    installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
+
+    assert result.selected_set_names == ()
+    assert result.explicit_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert result.resolved_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert result.projected_relative_dirs == ("skills/houmao-utils-llm-wiki",)
+    assert result.removed_skill_names == ("houmao-project-mgr",)
+    assert not stale_project_mgr_path.exists()
+    assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
+    assert tuple(record.name for record in installed_records) == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
 
 
 def test_install_system_skills_for_home_ignores_superseded_skill_record(

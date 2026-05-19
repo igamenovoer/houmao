@@ -1844,6 +1844,81 @@ def test_project_easy_specialist_create_allows_promptless_specialist(
     assert prompt_path.read_text(encoding="utf-8") == ""
 
 
+def test_project_easy_specialist_stores_and_clears_system_skill_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    auth_json_path = tmp_path / "auth.json"
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--api-key",
+            "sk-openai",
+            "--codex-auth-json",
+            str(auth_json_path),
+            "--system-skill",
+            "houmao-utils-llm-wiki",
+        ],
+    )
+
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    assert create_payload["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+    preset_path = Path(create_payload["generated"]["preset"])
+    preset_payload = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
+    assert preset_payload["launch"]["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+
+    get_result = runner.invoke(
+        cli,
+        ["project", "easy", "specialist", "get", "--name", "researcher"],
+    )
+    assert get_result.exit_code == 0, get_result.output
+    assert json.loads(get_result.output)["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "specialist",
+            "set",
+            "--name",
+            "researcher",
+            "--clear-system-skills",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    clear_payload = json.loads(clear_result.output)
+    assert "system_skills" not in clear_payload
+    preset_payload_after_clear = yaml.safe_load(preset_path.read_text(encoding="utf-8"))
+    assert "system_skills" not in preset_payload_after_clear["launch"]
+
+
 def test_project_easy_specialist_list_fails_without_bootstrapping_missing_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4526,6 +4601,93 @@ def test_project_easy_profile_crud_round_trip(
     )
 
 
+def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, _repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "create",
+            "--name",
+            "alice",
+            "--specialist",
+            "researcher",
+            "--workdir",
+            "/repos/alice",
+            "--system-skill",
+            "houmao-utils-llm-wiki",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+    create_payload = json.loads(create_result.output)
+    assert create_payload["defaults"]["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+
+    patch_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--workdir",
+            "/repos/alice-next",
+        ],
+    )
+    assert patch_result.exit_code == 0, patch_result.output
+    patch_payload = json.loads(patch_result.output)
+    assert patch_payload["defaults"]["workdir"] == "/repos/alice-next"
+    assert patch_payload["defaults"]["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+
+    disable_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--no-system-skills",
+        ],
+    )
+    assert disable_result.exit_code == 0, disable_result.output
+    assert json.loads(disable_result.output)["defaults"]["system_skills"] == {"mode": "none"}
+
+    invalid_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "easy",
+            "profile",
+            "set",
+            "--name",
+            "alice",
+            "--no-system-skills",
+            "--system-skill",
+            "houmao-utils-llm-wiki",
+        ],
+    )
+    assert invalid_result.exit_code != 0
+    assert "`--no-system-skills` cannot be combined" in invalid_result.output
+
+
 def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4819,6 +4981,8 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
             "researcher",
             "--workdir",
             "/repos/alice",
+            "--system-skill",
+            "houmao-utils-llm-wiki",
             "--mail-transport",
             "filesystem",
             "--mail-principal-id",
@@ -4863,6 +5027,7 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert replace_payload["specialist"] == "reviewer-v2"
     assert replace_payload["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in replace_payload["defaults"]
+    assert "system_skills" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
     assert "relaunch" not in replace_payload
@@ -4875,9 +5040,83 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert projection["source"] == {"kind": "specialist", "name": "reviewer-v2"}
     assert projection["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in projection["defaults"]
+    assert "system_skills" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
     assert "relaunch" not in projection
+
+
+def test_project_launch_profiles_store_set_and_clear_system_skill_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, repo_root, _auth_json_path = _bootstrap_codex_researcher_project(
+        monkeypatch,
+        tmp_path,
+    )
+
+    add_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "add",
+            "--name",
+            "nightly",
+            "--recipe",
+            "researcher-codex-default",
+            "--system-skill",
+            "houmao-utils-llm-wiki",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+    add_payload = json.loads(add_result.output)
+    assert add_payload["defaults"]["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+
+    projection_path = repo_root / ".houmao" / "agents" / "launch-profiles" / "nightly.yaml"
+    projection_payload = yaml.safe_load(projection_path.read_text(encoding="utf-8"))
+    assert projection_payload["defaults"]["system_skills"] == {
+        "mode": "extend",
+        "skills": ["houmao-utils-llm-wiki"],
+    }
+
+    set_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "nightly",
+            "--system-skills-mode",
+            "replace",
+            "--system-skill-set",
+            "all",
+        ],
+    )
+    assert set_result.exit_code == 0, set_result.output
+    set_payload = json.loads(set_result.output)
+    assert set_payload["defaults"]["system_skills"] == {"mode": "replace", "sets": ["all"]}
+
+    clear_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch-profiles",
+            "set",
+            "--name",
+            "nightly",
+            "--clear-system-skills",
+        ],
+    )
+    assert clear_result.exit_code == 0, clear_result.output
+    assert "system_skills" not in json.loads(clear_result.output)["defaults"]
 
 
 def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
@@ -4907,6 +5146,8 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
             "researcher-codex-default",
             "--workdir",
             "/repos/alice",
+            "--system-skill",
+            "houmao-utils-llm-wiki",
             "--mail-transport",
             "filesystem",
             "--mail-principal-id",
@@ -4951,6 +5192,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert replace_payload["recipe"] == "reviewer-v2-codex-default"
     assert replace_payload["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in replace_payload["defaults"]
+    assert "system_skills" not in replace_payload["defaults"]
     assert "prompt_overlay" not in replace_payload["defaults"]
     assert "memo_seed" not in replace_payload["defaults"]
     assert "relaunch" not in replace_payload
@@ -4963,6 +5205,7 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert projection["source"] == {"kind": "recipe", "name": "reviewer-v2-codex-default"}
     assert projection["defaults"]["workdir"] == "/repos/alice-v2"
     assert "mailbox" not in projection["defaults"]
+    assert "system_skills" not in projection["defaults"]
     assert "prompt_overlay" not in projection["defaults"]
     assert "memo_seed" not in projection["defaults"]
     assert "relaunch" not in projection

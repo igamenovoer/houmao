@@ -41,7 +41,7 @@ houmao-mgr system-skills install --tool codex --skill-set core
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
 ```
 
-Managed launch and join are separate from these explicit user-driven installation choices. `agents launch` and `agents join` auto-install the catalog's `core` set into managed homes; omitted-selection `houmao-mgr system-skills install` uses the catalog's `all` set for external or project-scoped tool homes.
+Managed launch and join are separate from these explicit user-driven installation choices. `agents join` still auto-installs the catalog's `core` set into adopted managed homes. Managed launch defaults to the same `core` selection, but specialists, recipes, and launch profiles can now store a managed system-skill policy that extends, replaces, or disables that selection for future managed homes. Omitted-selection `houmao-mgr system-skills install` remains the explicit external/project-home installer and uses the catalog's `all` set.
 
 ## The Packaged Skills
 
@@ -135,6 +135,18 @@ The named sets resolve as:
 |---|---|
 | `core` | All non-utility packaged skills: automation plus operator-control skills |
 | `all` | `core` plus `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` |
+
+Managed launch stores policy separately from explicit `system-skills install`. A source recipe or easy specialist may record:
+
+```yaml
+launch:
+  system_skills:
+    mode: extend
+    skills:
+      - houmao-utils-llm-wiki
+```
+
+Source policies use `default`, `extend`, `replace`, or `none`; omitted source policy is `default`, which expands the catalog's `managed_launch_sets`. Launch profiles use `inherit`, `extend`, `replace`, or `none`; omitted profile policy is `inherit`, which uses the source's effective selection. On reused managed homes, the managed-home sync removes exact catalog-known Houmao system-skill paths that are no longer selected while preserving unrelated user skill paths.
 
 ### How to install the CLI-default set
 

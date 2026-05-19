@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     read_gateway_mail_notifier_record,
 )
 from houmao.agents.realm_controller.manifest import default_manifest_path
+from houmao.agents.system_skills import SystemSkillSelectionPolicy
 from houmao.project.catalog import ManagedContentRef
 from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
 from houmao.srv_ctrl.commands.agents.core import launch_managed_agent_locally
@@ -154,6 +155,11 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
         path.mkdir(parents=True, exist_ok=True)
     (private_source / "SKILL.md").write_text("# notes\n\nPrivate.\n", encoding="utf-8")
     manifest_path.write_text("{}\n", encoding="utf-8")
+    source_system_skill_policy = SystemSkillSelectionPolicy(
+        mode="extend",
+        skill_names=("houmao-utils-llm-wiki",),
+    )
+    profile_system_skill_policy = SystemSkillSelectionPolicy(mode="replace", set_names=("core",))
     _install_basic_launch_patches(
         monkeypatch,
         runtime_root=runtime_root,
@@ -174,6 +180,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
                 launch_overrides=None,
                 operator_prompt_mode=None,
                 launch_env_records=None,
+                launch_system_skill_policy=source_system_skill_policy,
                 mailbox=None,
                 extra=None,
             ),
@@ -217,6 +224,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
         launch_profile_private_skills=(
             SimpleNamespace(name="notes", source_path=private_source, mode="copy"),
         ),
+        launch_profile_system_skill_policy=profile_system_skill_policy,
         launch_profile_provenance={"name": "alice", "lane": "launch_profile"},
     )
 
@@ -224,6 +232,8 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
     assert build_request.skills == ["notes", "mailbox"]
     assert build_request.private_skills[0].name == "notes"
     assert build_request.private_skills[0].source_path == private_source
+    assert build_request.source_system_skill_policy == source_system_skill_policy
+    assert build_request.launch_profile_system_skill_policy == profile_system_skill_policy
     assert build_request.launch_profile_provenance["skills"] == {
         "registered": ["mailbox", "notes"],
         "private": [

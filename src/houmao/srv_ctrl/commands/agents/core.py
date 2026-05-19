@@ -50,6 +50,12 @@ from houmao.agents.native_launch_resolver import (
     resolve_native_launch_target,
     resolve_preset_owner_agent_def_dir,
 )
+from houmao.agents.system_skills import (
+    PROFILE_SYSTEM_SKILL_POLICY_MODES,
+    SystemSkillError,
+    SystemSkillSelectionPolicy,
+    parse_system_skill_selection_policy,
+)
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
@@ -591,6 +597,24 @@ def _resolve_operator_prompt_mode_or_click(
     return cast(OperatorPromptMode, value)
 
 
+def _resolve_launch_profile_system_skill_policy_or_click(
+    payload: object,
+    *,
+    source: str,
+) -> SystemSkillSelectionPolicy | None:
+    """Return one stored launch-profile system-skill policy or fail as Click error."""
+
+    try:
+        return parse_system_skill_selection_policy(
+            payload,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source=source,
+        )
+    except SystemSkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _managed_header_section_overrides_from_options(
     values: tuple[str, ...],
 ) -> dict[ManagedHeaderSectionName, ManagedHeaderSectionPolicy]:
@@ -734,6 +758,7 @@ def launch_managed_agent_locally(
     launch_profile_mail_notifier_appendix_text: str | None = None,
     launch_profile_registered_skill_names: tuple[str, ...] = (),
     launch_profile_private_skills: tuple[Any, ...] = (),
+    launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None,
     force_mode: str | None = None,
     reuse_home: bool = False,
 ) -> LocalManagedAgentLaunchResult:
@@ -800,9 +825,7 @@ def launch_managed_agent_locally(
             target.preset.skills,
             launch_profile_registered_skill_names,
         )
-        private_skill_projections = _coerce_private_skill_projections(
-            launch_profile_private_skills
-        )
+        private_skill_projections = _coerce_private_skill_projections(launch_profile_private_skills)
         effective_launch_profile_provenance = _with_launch_profile_skill_provenance(
             launch_profile_provenance=launch_profile_provenance,
             registered_skill_names=launch_profile_registered_skill_names,
@@ -869,6 +892,12 @@ def launch_managed_agent_locally(
                 preset_model_config=getattr(target.preset, "launch_model_config", None),
                 launch_profile_model_config=launch_profile_model_config,
                 direct_model_config=direct_model_config,
+                source_system_skill_policy=getattr(
+                    target.preset,
+                    "launch_system_skill_policy",
+                    None,
+                ),
+                launch_profile_system_skill_policy=launch_profile_system_skill_policy,
                 operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
                 persistent_env_records=effective_persistent_env_records,
                 mailbox=declared_mailbox or target.preset.mailbox,
@@ -1183,6 +1212,7 @@ def launch_agents_command(
     launch_profile_mail_notifier_appendix_text: str | None = None
     launch_profile_registered_skill_names: tuple[str, ...] = ()
     launch_profile_private_skills: tuple[Any, ...] = ()
+    launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
     gateway_auto_attach = False
     gateway_host = None
     gateway_port = None
@@ -1260,6 +1290,10 @@ def launch_agents_command(
             getattr(resolved_profile.entry, "registered_skill_names", ())
         )
         launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
+        launch_profile_system_skill_policy = _resolve_launch_profile_system_skill_policy_or_click(
+            getattr(resolved_profile.entry, "system_skills_payload", {}),
+            source=f"launch profile `{resolved_profile.entry.name}` system_skills",
+        )
         launch_profile_provenance = {
             "name": resolved_profile.entry.name,
             "lane": resolved_profile.entry.profile_lane,
@@ -1287,6 +1321,9 @@ def launch_agents_command(
                 else {"present": False}
             ),
         }
+        system_skills_payload = getattr(resolved_profile.entry, "system_skills_payload", {})
+        if system_skills_payload:
+            launch_profile_provenance["system_skills"] = dict(system_skills_payload)
         relaunch_payload = launch_profile_relaunch_payload(resolved_profile)
         if relaunch_payload:
             launch_profile_provenance["relaunch"] = relaunch_payload
@@ -1358,6 +1395,7 @@ def launch_agents_command(
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
         launch_profile_registered_skill_names=launch_profile_registered_skill_names,
         launch_profile_private_skills=launch_profile_private_skills,
+        launch_profile_system_skill_policy=launch_profile_system_skill_policy,
         force_mode=force_mode,
         reuse_home=reuse_home,
     )

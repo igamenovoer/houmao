@@ -39,6 +39,15 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
+from houmao.agents.system_skills import (
+    PROFILE_SYSTEM_SKILL_POLICY_MODES,
+    SOURCE_SYSTEM_SKILL_POLICY_MODES,
+    SystemSkillError,
+    SystemSkillPolicyMode,
+    SystemSkillSelectionPolicy,
+    parse_system_skill_selection_policy,
+    system_skill_selection_policy_to_payload,
+)
 from houmao.project.catalog import (
     AuthProfileCatalogEntry,
     LaunchProfilePrivateSkillInput,
@@ -434,6 +443,7 @@ def _write_named_preset(
     prompt_mode: str | None,
     model_config: ModelConfig | None = None,
     env_records: dict[str, str] | None = None,
+    system_skills: dict[str, object] | None = None,
     overwrite: bool = False,
 ) -> Path:
     """Write one canonical project-local named preset."""
@@ -464,6 +474,8 @@ def _write_named_preset(
         payload["launch"]["model"] = model_payload
     if env_records:
         payload["launch"]["env_records"] = dict(env_records)
+    if system_skills:
+        payload["launch"]["system_skills"] = dict(system_skills)
     _write_yaml_mapping(preset_file, payload)
     return preset_file
 
@@ -1250,6 +1262,78 @@ def _normalize_repeated_names_or_click(
     return tuple(normalized)
 
 
+def _resolve_system_skill_policy_payload_or_click(
+    *,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
+    allowed_modes: tuple[SystemSkillPolicyMode, ...],
+    default_mode: SystemSkillPolicyMode,
+    clear_allowed: bool,
+    source_label: str,
+) -> tuple[bool, dict[str, object]]:
+    """Resolve stored system-skill policy CLI inputs into a validated payload."""
+
+    has_selectors = bool(system_skill_sets or system_skills)
+    if clear_system_skills:
+        if not clear_allowed:
+            raise click.ClickException(
+                "`--clear-system-skills` requires an existing stored policy."
+            )
+        if no_system_skills or system_skills_mode is not None or has_selectors:
+            raise click.ClickException(
+                "`--clear-system-skills` cannot be combined with system-skill mode or selectors."
+            )
+        return True, {}
+
+    if no_system_skills:
+        if system_skills_mode is not None or has_selectors:
+            raise click.ClickException(
+                "`--no-system-skills` cannot be combined with system-skill mode or selectors."
+            )
+        system_skills_mode = "none"
+
+    if system_skills_mode is None and not has_selectors:
+        return False, {}
+
+    resolved_mode = system_skills_mode or "extend"
+    payload: dict[str, object] = {"mode": resolved_mode}
+    if system_skill_sets:
+        payload["sets"] = list(system_skill_sets)
+    if system_skills:
+        payload["skills"] = list(system_skills)
+    try:
+        policy = parse_system_skill_selection_policy(
+            payload,
+            allowed_modes=allowed_modes,
+            default_mode=default_mode,
+            source=source_label,
+        )
+    except SystemSkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return True, system_skill_selection_policy_to_payload(policy)
+
+
+def _resolve_launch_profile_system_skill_policy_or_click(
+    payload: object,
+    *,
+    source: str,
+) -> SystemSkillSelectionPolicy | None:
+    """Return one stored launch-profile system-skill policy or fail as Click error."""
+
+    try:
+        return parse_system_skill_selection_policy(
+            payload,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source=source,
+        )
+    except SystemSkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _private_skill_cli_records_or_click(
     *,
     catalog: ProjectCatalog,
@@ -1326,6 +1410,11 @@ def _store_launch_profile_from_cli(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     add_registered_skill: tuple[str, ...],
     remove_registered_skill: tuple[str, ...],
     add_private_skill: tuple[Path, ...],
@@ -1472,6 +1561,19 @@ def _store_launch_profile_from_cli(
             else None
         )
     )
+    system_skill_policy_supplied, requested_system_skills_payload = (
+        _resolve_system_skill_policy_payload_or_click(
+            system_skill_sets=system_skill_sets,
+            system_skills=system_skills,
+            system_skills_mode=system_skills_mode,
+            no_system_skills=no_system_skills,
+            clear_system_skills=clear_system_skills,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            clear_allowed=operation == "patch",
+            source_label=f"{profile_name}:system_skills",
+        )
+    )
     resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
     resolved_managed_header_policy: ManagedHeaderPolicy | None
     requested_section_policy = _managed_header_section_policy_from_options(managed_header_section)
@@ -1495,6 +1597,9 @@ def _store_launch_profile_from_cli(
         resolved_prompt_mode = _optional_non_empty_value(prompt_mode)
         resolved_mailbox = mailbox_mapping
         resolved_env = env_mapping if env_mapping is not None else {}
+        resolved_system_skills_payload = (
+            requested_system_skills_payload if system_skill_policy_supplied else {}
+        )
         resolved_posture = _resolve_profile_posture_mapping(
             current=None,
             headless=headless,
@@ -1601,6 +1706,11 @@ def _store_launch_profile_from_cli(
             if clear_env
             else (env_mapping if env_mapping is not None else dict(current.entry.env_payload))
         )
+        resolved_system_skills_payload = (
+            requested_system_skills_payload
+            if system_skill_policy_supplied
+            else dict(current.entry.system_skills_payload)
+        )
         resolved_posture = _resolve_profile_posture_mapping(
             current=current.entry.posture_payload,
             headless=headless,
@@ -1700,6 +1810,7 @@ def _store_launch_profile_from_cli(
             clear_prompt_mode,
             bool(env_set),
             clear_env,
+            system_skill_policy_supplied,
             bool(add_registered_skill),
             bool(remove_registered_skill),
             bool(add_private_skill),
@@ -1754,6 +1865,7 @@ def _store_launch_profile_from_cli(
         env_mapping=resolved_env,
         mailbox_mapping=resolved_mailbox,
         posture_mapping=resolved_posture,
+        system_skills_mapping=resolved_system_skills_payload,
         relaunch_chat_session_mapping=resolved_relaunch_chat_session,
         managed_header_policy=resolved_managed_header_policy,
         managed_header_section_policy=resolved_managed_header_section_policy,
@@ -1807,6 +1919,9 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
     skills_provenance = _launch_profile_skills_provenance_payload(resolved)
     if skills_provenance is not None:
         payload["skills"] = skills_provenance
+    system_skills_payload = getattr(resolved.entry, "system_skills_payload", {})
+    if system_skills_payload:
+        payload["system_skills"] = dict(system_skills_payload)
     relaunch_payload = launch_profile_relaunch_payload(resolved)
     if relaunch_payload:
         payload["relaunch"] = relaunch_payload
@@ -1843,7 +1958,7 @@ def _specialist_payload(
 ) -> dict[str, object]:
     """Return one structured specialist payload with generated canonical paths."""
 
-    return {
+    payload: dict[str, object] = {
         "name": metadata.name,
         "preset_name": metadata.preset_name,
         "tool": metadata.tool,
@@ -1867,6 +1982,10 @@ def _specialist_payload(
             "skills": [str(path) for path in metadata.resolved_skill_paths(overlay)],
         },
     }
+    raw_system_skills = metadata.launch_payload.get("system_skills")
+    if isinstance(raw_system_skills, dict):
+        payload["system_skills"] = dict(raw_system_skills)
+    return payload
 
 
 def _project_skill_payload(
@@ -2333,6 +2452,9 @@ __all__ = [
     "GatewayCurrentExecutionMode",
     "GatewayTuiTrackingTimingOverridesV1",
     "load_session_manifest",
+    "PROFILE_SYSTEM_SKILL_POLICY_MODES",
+    "SOURCE_SYSTEM_SKILL_POLICY_MODES",
+    "SystemSkillSelectionPolicy",
     "AuthProfileCatalogEntry",
     "ProjectCatalog",
     "SpecialistMetadata",
@@ -2420,6 +2542,8 @@ __all__ = [
     "_import_skill_directories",
     "_parse_specialist_env_records_or_click",
     "_resolve_instance_env_set_or_click",
+    "_resolve_system_skill_policy_payload_or_click",
+    "_resolve_launch_profile_system_skill_policy_or_click",
     "_load_recipe_or_click",
     "_profile_lane_label",
     "_load_launch_profile_or_click",

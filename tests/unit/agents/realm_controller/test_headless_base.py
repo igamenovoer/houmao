@@ -34,11 +34,20 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 
 
-def _sample_gemini_launch_plan(tmp_path: Path) -> LaunchPlan:
+def _fake_tool_executable(tmp_path: Path, name: str) -> Path:
+    executable = tmp_path / "fake-bin" / name
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    return executable
+
+
+def _sample_gemini_launch_plan(tmp_path: Path, *, executable: str | None = None) -> LaunchPlan:
+    resolved_executable = executable or str(_fake_tool_executable(tmp_path, "gemini"))
     return LaunchPlan(
         backend="gemini_headless",
         tool="gemini",
-        executable="gemini",
+        executable=resolved_executable,
         args=[],
         working_directory=tmp_path,
         home_env_var="GEMINI_CLI_HOME",
@@ -162,7 +171,7 @@ def test_gemini_headless_builds_exact_resume_turn_command(tmp_path: Path) -> Non
     session.send_prompt("hello")
 
     assert captured["command"] == [
-        "gemini",
+        str(tmp_path / "fake-bin" / "gemini"),
         "--resume",
         "sess-1",
         "-p",
@@ -217,7 +226,7 @@ def test_gemini_headless_builds_latest_resume_turn_command_from_selector(
     )
 
     assert captured["command"] == [
-        "gemini",
+        str(tmp_path / "fake-bin" / "gemini"),
         "--resume",
         "latest",
         "-p",
@@ -864,7 +873,7 @@ def test_headless_preflight_fails_when_tool_executable_missing(
 
     with pytest.raises(BackendExecutionError, match="command -v gemini"):
         GeminiHeadlessSession(
-            launch_plan=_sample_gemini_launch_plan(tmp_path),
+            launch_plan=_sample_gemini_launch_plan(tmp_path, executable="gemini"),
             role_name="gpu-kernel-coder",
             session_manifest_path=tmp_path / "session.json",
             state=HeadlessSessionState(

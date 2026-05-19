@@ -14,9 +14,7 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     overview = (REPO_ROOT / "docs/getting-started/system-skills-overview.md").read_text(
         encoding="utf-8"
     )
-    cli_reference = (REPO_ROOT / "docs/reference/cli/system-skills.md").read_text(
-        encoding="utf-8"
-    )
+    cli_reference = (REPO_ROOT / "docs/reference/cli/system-skills.md").read_text(encoding="utf-8")
 
     system_skills_collection = "igamenovoer/tool-skills/houmao"
 
@@ -48,7 +46,8 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "Use Houmao's own installer when `npx` is unavailable" in overview
     assert "named sets, subset skills, explicit homes, symlink/copy projection" in overview
     assert "Managed launch and join are separate from these explicit user-driven" in overview
-    assert "auto-install the catalog's `core` set" in overview
+    assert "Managed launch defaults to the same `core` selection" in overview
+    assert "managed system-skill policy that extends, replaces, or disables" in overview
     assert "uses the catalog's `all` set" in overview
     assert "Every current packaged Houmao system skill supports explicit skill-level help" in (
         overview

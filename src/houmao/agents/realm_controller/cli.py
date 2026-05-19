@@ -496,6 +496,7 @@ def _cmd_build_brain(args: argparse.Namespace) -> int:
             auth=str(auth),
             preset_path=preset_path,
             preset_launch_overrides=recipe.launch_overrides if recipe else None,
+            source_system_skill_policy=recipe.launch_system_skill_policy if recipe else None,
             mailbox=recipe.mailbox if recipe else None,
             agent_name=recipe.default_agent_name if recipe else None,
             home_id=args.home_id,

@@ -20,6 +20,12 @@ from houmao.agents.mailbox_runtime_models import MailboxDeclarativeConfig
 from houmao.agents.mailbox_runtime_support import parse_declarative_mailbox_config
 from houmao.agents.model_selection import ModelConfig, parse_model_config
 from houmao.agents.realm_controller.gateway_models import BlueprintGatewayDefaults
+from houmao.agents.system_skills import (
+    SOURCE_SYSTEM_SKILL_POLICY_MODES,
+    SystemSkillError,
+    SystemSkillSelectionPolicy,
+    parse_system_skill_selection_policy,
+)
 
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 _PRESET_TOP_LEVEL_FIELDS: frozenset[str] = frozenset(
@@ -95,6 +101,7 @@ class PresetLaunchSettings:
     model_config: ModelConfig | None = None
     overrides: LaunchOverrides | None = None
     env_records: dict[str, str] = field(default_factory=dict)
+    system_skill_policy: SystemSkillSelectionPolicy | None = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,12 @@ class AgentPreset:
         """Return persistent preset-owned model configuration."""
 
         return self.launch.model_config
+
+    @property
+    def launch_system_skill_policy(self) -> SystemSkillSelectionPolicy | None:
+        """Return preset-owned managed system-skill policy."""
+
+        return self.launch.system_skill_policy
 
     @property
     def default_agent_name(self) -> str | None:
@@ -487,13 +500,15 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
         raise ValueError(f"{source}: launch must be a mapping when set")
 
     unknown_fields = sorted(
-        key for key in raw_value if key not in {"prompt_mode", "model", "overrides", "env_records"}
+        key
+        for key in raw_value
+        if key not in {"prompt_mode", "model", "overrides", "env_records", "system_skills"}
     )
     if unknown_fields:
         joined = ", ".join(unknown_fields)
         raise ValueError(
-            f"{source}: launch supports only `prompt_mode`, `model`, `overrides`, and "
-            f"`env_records`, got {joined}"
+            f"{source}: launch supports only `prompt_mode`, `model`, `overrides`, "
+            f"`env_records`, and `system_skills`, got {joined}"
         )
 
     overrides_payload = raw_value.get("overrides")
@@ -508,6 +523,10 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
         raw_value.get("env_records"),
         source=f"{source}:launch.env_records",
     )
+    system_skill_policy = _parse_launch_system_skill_policy(
+        raw_value.get("system_skills"),
+        source=f"{source}:launch.system_skills",
+    )
 
     return PresetLaunchSettings(
         prompt_mode=_parse_operator_prompt_mode(
@@ -520,7 +539,26 @@ def _parse_preset_launch(raw_value: object, *, source: str) -> PresetLaunchSetti
         ),
         overrides=overrides,
         env_records=env_records,
+        system_skill_policy=system_skill_policy,
     )
+
+
+def _parse_launch_system_skill_policy(
+    raw_value: object,
+    *,
+    source: str,
+) -> SystemSkillSelectionPolicy | None:
+    """Parse optional source-owned launch system-skill policy."""
+
+    try:
+        return parse_system_skill_selection_policy(
+            raw_value,
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            source=source,
+        )
+    except SystemSkillError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _parse_launch_env_records(raw_value: object, *, source: str) -> dict[str, str]:
