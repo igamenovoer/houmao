@@ -96,7 +96,7 @@ houmao-mgr system-skills install --tool claude,codex,gemini
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
-Skills are installed to the selected agent tool home. With `houmao-mgr system-skills install`, omitted `--home` resolves to each project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`; use `--home` only for a single selected tool when you need an explicit external-home override. Each installed Houmao system skill also supports explicit read-only help before it performs a workflow; for example, ask `$houmao-touring help` or `$houmao-agent-email-comms help` to see what that skill can do. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through the rest.
+Skills are installed to the selected agent tool home. With `houmao-mgr system-skills install`, omitted `--home` resolves to each project-local tool home, such as `<cwd>/.claude/skills/`, `<cwd>/.codex/skills/`, or `<cwd>/.gemini/skills/`; use `--home` only for a single selected tool when you need an explicit external-home override. Each installed Houmao system skill also supports explicit read-only help before it performs a workflow; for example, ask `$houmao-touring help` or `$houmao-agent-email-comms help` to see what that skill can do. Now start your agent from the same directory and ask it to invoke the `houmao-touring` skill — it will guide you through beginner setup, intermediate live operation, and advanced coordination when those stages become relevant.
 
 > The remaining steps below show the manual CLI equivalents for reference. You don't need them if you're working through your agent.
 
@@ -393,7 +393,7 @@ Every installed Houmao system skill can answer explicit read-only help requests 
 
 | Skill | What it enables |
 |---|---|
-| `houmao-touring` | Manual guided tour for first-time or re-orienting users; branches across project setup, mailbox setup, specialist/profile authoring, launches, live-agent operations, and lifecycle follow-up. Use it only when the user explicitly asks for the tour |
+| `houmao-touring` | Manual guided tour for first-time or re-orienting users; teaches beginner agent creation and first conversation, intermediate memo/mailbox/gateway/inspection workflows, and advanced loop/workspace coordination when relevant. Use it only when the user explicitly asks for the tour |
 | `houmao-project-mgr` | Initialize or inspect project overlays, explain `.houmao/` layout and project-aware effects, and inspect or stop project easy instances |
 | `houmao-specialist-mgr` | Compatibility wrapper that redirects old specialist/profile/ready-profile requests to `houmao-agent-definition` subcommands |
 | `houmao-credential-mgr` | Add, update, inspect, and remove project-local tool auth bundles |

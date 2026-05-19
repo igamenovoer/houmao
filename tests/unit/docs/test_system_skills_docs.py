@@ -37,6 +37,7 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "$houmao-touring help" in readme
     assert "$houmao-agent-email-comms help" in readme
     assert "separate from the `houmao-mgr system-skills install` CLI surface" in readme
+    assert "beginner setup, intermediate live operation, and advanced coordination" in readme
 
     assert f"npx skills add {system_skills_collection}" in docs_index
     assert "offline/package-local or customized installs" in docs_index
@@ -58,6 +59,8 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "do not run commands, mutate files, send mail" in overview
     assert "Explicit help or usage requests are handled before normal workflow routing" in overview
     assert '"help me send mail to this agent"' in overview
+    assert "teaches Houmao in stages" in overview
+    assert "offers stage-aware next actions" in overview
 
     assert "This page documents `houmao-mgr system-skills` command behavior" in cli_reference
     assert f"npx skills add {system_skills_collection}" in cli_reference

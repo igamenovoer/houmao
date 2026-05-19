@@ -1127,14 +1127,22 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-agent-loop-pro" in advanced_usage_skill
     assert "houmao-agent-loop-lite" in advanced_usage_skill
     assert "Choose `tree-loop` or `generic-loop` inside pro" in advanced_usage_skill
-    assert (
-        "advanced loop creation guidance through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`"
-        in touring_skill
-    )
+    assert "beginner, intermediate, and advanced stages" in touring_skill
+    assert "Guide the beginner stage" in touring_skill
+    assert "Guide the intermediate stage" in touring_skill
+    assert "Guide the advanced stage" in touring_skill
+    assert "houmao-process-emails-via-gateway" in touring_skill
+    assert "houmao-memory-mgr" in touring_skill
+    assert "houmao-utils-workspace-mgr" in touring_skill
     assert "Lite loop authoring" in touring_advanced_usage
     assert "Pro loop authoring" in touring_advanced_usage
-    assert "Tree-loop mode" in touring_advanced_usage
-    assert "Generic-loop mode" in touring_advanced_usage
+    assert "Tree-loop mode in pro" in touring_advanced_usage
+    assert "Generic-loop mode in pro" in touring_advanced_usage
+    assert "Isolated multi-agent workspace management" in touring_advanced_usage
+    assert "Managed-agent memory" not in touring_advanced_usage
+    assert "Credential management" not in touring_advanced_usage
+    assert "houmao-utils-llm-wiki" not in touring_skill
+    assert "houmao-utils-llm-wiki" not in touring_advanced_usage
     assert "Use `houmao-agent-loop-lite` instead" in pairwise_edge_loop_pattern
     assert "Use `houmao-agent-loop-pro` in `tree-loop` mode" in pairwise_edge_loop_pattern
     assert "Use `houmao-agent-loop-lite` instead" in relay_loop_pattern

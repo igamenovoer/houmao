@@ -25,18 +25,29 @@ This reference is self-contained. It does not depend on any file outside the pac
 - **Gateway sidecar** — the tmux window or background process in which the gateway runs alongside the managed-agent window. A foreground gateway sidecar is visible in a non-zero auxiliary tmux window. Owning skill: `houmao-agent-gateway`.
 - **Foreground vs background posture** — whether the gateway sidecar runs in a visible tmux window (foreground) or detached as a background process. First-run tour launches prefer foreground posture unless the user explicitly asks for background or detached execution. Owning skill: `houmao-agent-gateway`.
 - **Execution mode** — the gateway status field that reports whether the current gateway is running in foreground or background. Use this field to explain current posture; do not infer posture from tmux window names. Owning skill: `houmao-agent-gateway`.
+- **Notifier round** — one bounded turn of work triggered by gateway mail-notifier reporting open mailbox work through a prompt-provided gateway base URL. The agent processes selected open mail, replies after successful work when needed, archives only successfully processed mail, and then stops until the next notification. Owning skill: `houmao-process-emails-via-gateway`.
 
 ## Mailbox
 
 - **Mailbox root** — the shared filesystem or JMAP root used by a Houmao project so that managed agents can send and receive mail. Initializing the mailbox root is separate from creating an individual mailbox account. Owning skill: `houmao-mailbox-mgr`.
 - **Mailbox account** — one per-agent or shared mailbox identity (address plus principal id) registered under the mailbox root. An easy-instance launch can own per-agent mailbox accounts for addresses like `<agent-name>@houmao.localhost`, so it is not always necessary to preregister them manually. Owning skill: `houmao-mailbox-mgr`.
 - **Principal id** — the Stalwart principal identifier bound to a mailbox account. Local parts beginning with `HOUMAO-` under `houmao.localhost` are reserved for Houmao-owned system principals. Owning skill: `houmao-mailbox-mgr`.
+- **Prompt injection through mail** — an intentional workflow where mailbox content is used as the carrier for an agent instruction, either through ordinary shared-mailbox operations or a notifier-driven round. It is an intermediate live-operation pattern, not a hidden side effect of every mailbox message. Owning skills: `houmao-agent-email-comms` and `houmao-process-emails-via-gateway`.
 
 ## Roles In A Multi-Agent Run
 
 - **User agent** — the agent (human or CLI) that interacts with the user and composes Houmao plans. The user agent stays outside the execution loop; it plans, starts, checks, and stops rather than driving local-close edges directly. Owning skill: the top-level `houmao-touring` tour and the loop skills.
 - **Master** — an optional designated managed agent that owns supervision, downstream dispatch, completion evaluation, and stop handling when a generated loop design chooses central ownership. Owning skill: `houmao-agent-loop-lite` or `houmao-agent-loop-pro`.
 - **Loop plan** — generated execplan artifacts that define objective, participants, communication, generated skills, state, agent bindings, and run behavior. Lite plans use Markdown contracts with direct SQLite state; pro plans add schema-rich topology, harness behavior, workspace contracts, and run-control behavior. Owning skill: `houmao-agent-loop-lite` or `houmao-agent-loop-pro`.
+- **Lite loop** — a lightweight generated loop package that uses Markdown contracts, typed Markdown templates, generated skills, and direct SQLite state without a generated harness or docs layer. Owning skill: `houmao-agent-loop-lite`.
+- **Pro loop** — a schema-rich generated loop package that can include topology contracts, mail schemas, harness behavior, workspace contracts, generated skills, validation, participant launch, and run-control actions. Owning skill: `houmao-agent-loop-pro`.
+- **Tree-loop** — a topology mode inside `houmao-agent-loop-pro` for local-close tree-shaped downstream work where results return to immediate upstream owners unless the generated execplan explicitly records relay choices. Owning skill: `houmao-agent-loop-pro`.
+- **Generic-loop** — a topology mode inside `houmao-agent-loop-pro` for graphs that may include cycles, relay lanes, or task-specific predecessor-context forwarding choices. Owning skill: `houmao-agent-loop-pro`.
+
+## Workspaces
+
+- **Isolated workspace** — a prepared multi-agent workspace layout that gives agents controlled per-agent worktrees, local shared repos, knowledge directories, safe local-state symlinks, and launch-profile cwd rules before agents are launched. Owning skill: `houmao-utils-workspace-mgr`.
+- **Workspace contract** — the human-readable record of a prepared workspace's layout, read/write ownership, Git branches, submodule decisions, launch-profile cwd changes, and optional memo-seed workspace rules. Owning skill: `houmao-utils-workspace-mgr`.
 
 ## Memory And Pages
 
