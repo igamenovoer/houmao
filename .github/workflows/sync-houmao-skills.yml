@@ -1,0 +1,32 @@
+name: Sync Houmao Skills
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch skills mirror sync
+        env:
+          GH_TOKEN: ${{ secrets.HOUMAO_SKILLS_SYNC_TOKEN }}
+          HOUMAO_REF: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "Missing HOUMAO_SKILLS_SYNC_TOKEN secret." >&2
+            echo "Create a fine-grained token with Actions: write access to igamenovoer/tool-skills." >&2
+            exit 1
+          fi
+
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/igamenovoer/tool-skills/actions/workflows/sync-houmao.yml/dispatches \
+            -f ref=main \
+            -f inputs[houmao_ref]="${HOUMAO_REF}"

@@ -25,13 +25,13 @@ The help trigger is intentionally narrow. Explicit help or usage requests are ha
 
 ## Installation Choices
 
-When `npx` is available and the target machine has internet access, the recommended user-driven install path is the external Skills CLI pointed at the GitHub main-branch system-skill collection:
+When `npx` is available and the target machine has internet access, the recommended user-driven install path is the external Skills CLI pointed at Houmao's namespace in the small release-synced `igamenovoer/tool-skills` repository:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+npx skills add igamenovoer/tool-skills/houmao
 ```
 
-That command points at the collection directory, not at one individual skill, so the user can choose which packaged skill or skills to install.
+That command points at `tool-skills/houmao`, not at the full Houmao source repository, so the clone is small and the user can choose which packaged skill or skills to install. The mirror is updated from Houmao releases.
 
 Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when the install needs Houmao-specific projection behavior such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
 

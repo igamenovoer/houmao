@@ -4,13 +4,13 @@
 
 > **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
-This page documents `houmao-mgr system-skills` command behavior: effective-home resolution, named sets, subset skill selection, copy versus symlink projection, status, uninstall, and retired-skill cleanup. When `npx` and internet access are available, users can alternatively install from the GitHub main-branch system-skill collection with:
+This page documents `houmao-mgr system-skills` command behavior: effective-home resolution, named sets, subset skill selection, copy versus symlink projection, status, uninstall, and retired-skill cleanup. When `npx` and internet access are available, users can alternatively install from Houmao's namespace in the small release-synced `igamenovoer/tool-skills` repository with:
 
 ```bash
-npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+npx skills add igamenovoer/tool-skills/houmao
 ```
 
-That external Skills CLI path is adjacent install guidance; the detailed command behavior below applies to `houmao-mgr system-skills`.
+That external Skills CLI path avoids cloning the full Houmao source repository and is adjacent install guidance; the detailed command behavior below applies to `houmao-mgr system-skills`.
 
 Installed Houmao system skills can answer prompt-level read-only help such as `$houmao-touring help` or `$houmao-agent-email-comms help`. That help is handled by the installed skill's top-level `SKILL.md`; it is not a `houmao-mgr system-skills help` subcommand.
 
