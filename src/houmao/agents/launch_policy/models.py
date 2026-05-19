@@ -18,7 +18,6 @@ LaunchSurface = Literal[
     "claude_headless",
     "gemini_headless",
     "cao_rest",
-    "houmao_server_rest",
 ]
 LaunchPolicySelectionSource = Literal["registry", "env_override"]
 LaunchPolicyApplicationKind = Literal["provider_start", "resume_control"]

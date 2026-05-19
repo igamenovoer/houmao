@@ -15,7 +15,6 @@ from .internals import internals_group
 from .mailbox import mailbox_group
 from .output import OutputContext, output_options, resolve_print_style
 from .project import project_group
-from .server import server_group
 from .system_skills import system_skills_group
 
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
@@ -27,7 +26,7 @@ _ROOT_HELP_EPILOG = f"More detailed docs: {_HOUMAO_DOCS_URL}"
 @output_options
 @click.pass_context
 def cli(ctx: click.Context, print_style: str | None) -> None:
-    """Houmao pair CLI with native server and managed-agent command families."""
+    """Houmao manager CLI for local projects and managed-agent workflows."""
 
     ctx.ensure_object(dict)
     ctx.obj["output"] = OutputContext(style=resolve_print_style(print_style))
@@ -42,7 +41,6 @@ cli.add_command(credentials_group)
 cli.add_command(internals_group)
 cli.add_command(mailbox_group)
 cli.add_command(project_group)
-cli.add_command(server_group)
 cli.add_command(system_skills_group)
 
 

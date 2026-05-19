@@ -11,9 +11,9 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 - A session can be gateway-capable without having a live gateway process attached.
 - Stable attachability is published through manifest-backed authority, tmux discovery env, and derived gateway bookkeeping even before the first live attach.
 - When a live gateway exists, it exposes a small HTTP surface, a durable queue, a non-durable ranked reminder surface, and optionally a shared mailbox facade for that same logical session.
-- `houmao-server` remains the shared coordination plane and public `/houmao/agents/*` surface.
-- When a gateway is attached and healthy, `houmao-server` projects live per-agent state, history, and request admission through the gateway HTTP surface instead of reading local runtime artifacts directly.
-- When no gateway is attached, or when direct fallback is still the safe path, `houmao-server` keeps the public managed-agent routes stable and falls back locally.
+- `houmao-passive-server` is the maintained shared coordination plane and public `/houmao/agents/*` server API surface.
+- When a gateway is attached and healthy, passive-server projects live per-agent state, history, and request admission through the gateway HTTP surface instead of reading local runtime artifacts directly.
+- When no gateway is attached, or when direct fallback is still the safe path, passive-server keeps the public managed-agent routes stable and falls back through registry-driven observation or runtime authority.
 - Gateway-local health is intentionally separate from managed-agent availability.
 
 ## Key Terms
@@ -49,7 +49,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 
 - [houmao-mgr agents gateway CLI](../cli/agents-gateway.md): Dedicated CLI reference for gateway lifecycle and request commands.
 - [Session Lifecycle](../run-phase/session-lifecycle.md): The broader runtime session model that the gateway attaches to.
-- [Managed-Agent API](../managed_agent_api.md): The server-owned `/houmao/agents/*` contract that keeps one public route family while switching between direct fallback and gateway-backed projection under the hood.
+- [Managed-Agent API](../managed_agent_api.md): The maintained `/houmao/agents/*` contract that keeps one public route family while switching between passive observation and gateway-backed projection under the hood.
 - [Realm Controller](../realm_controller.md): Overview page plus backend-specific notes.
 - [Mailbox Reference](../mailbox/index.md): Separate async message transport and runtime mailbox docs.
 - [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-managed session roots, nested gateway artifacts, and Stalwart credential material outside the mailbox transport-owned storage model.

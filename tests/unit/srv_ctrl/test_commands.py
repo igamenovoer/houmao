@@ -28,10 +28,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
 )
-from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
-    HoumaoCurrentInstance,
-    HoumaoHealthResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
 )
@@ -41,10 +38,6 @@ from houmao.mailbox.protocol import (
 )
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
-from houmao.srv_ctrl.server_startup import (
-    HoumaoDetachedServerStartResult,
-    HoumaoServerStartLogPaths,
-)
 from houmao.version import get_version
 
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
@@ -74,27 +67,6 @@ def _manifest_gateway_authority(
     return SimpleNamespace(attach=endpoint, control=endpoint)
 
 
-class _FakeSession:
-    def __init__(self, session_id: str) -> None:
-        self.id = session_id
-
-    def model_dump(self, mode: str = "json") -> dict[str, object]:
-        del mode
-        return {"id": self.id}
-
-
-class _FakePairClient:
-    def __init__(self) -> None:
-        self.m_delete_session_calls: list[str] = []
-
-    def list_sessions(self) -> list[_FakeSession]:
-        return [_FakeSession("sess-a"), _FakeSession("sess-b")]
-
-    def delete_session(self, session_name: str) -> object:
-        self.m_delete_session_calls.append(session_name)
-        return SimpleNamespace(success=True)
-
-
 _ACTIONABLE_SELECTOR_ERROR = "\n".join(
     (
         "No local managed agent matched friendly name `agent-test`.",
@@ -102,7 +74,7 @@ _ACTIONABLE_SELECTOR_ERROR = "\n".join(
         "`agent-test` matches the live local tmux/session alias for agent_name `gpu` "
         "(agent_id `agent-1234`).",
         "Fallback lookup through the default pair authority also failed: "
-        "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused",
+        "Failed to reach a Houmao pair authority at http://127.0.0.1:9891: connection refused",
         "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
         "or inspect `houmao-mgr agents list`.",
     )
@@ -168,7 +140,6 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
         "internals",
         "mailbox",
         "project",
-        "server",
         "system-skills",
     }
 
@@ -178,7 +149,6 @@ def test_bare_invocation_prints_help() -> None:
 
     assert result.exit_code == 0
     assert "Usage: houmao-mgr" in result.output
-    assert "server" in result.output
     assert "agents" in result.output
     assert "internals" in result.output
     assert "mailbox" in result.output
@@ -831,39 +801,12 @@ def test_agents_gateway_attach_forwards_background_flag(
     assert json.loads(result.output) == {"status": "ok"}
 
 
-def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authority(
+def test_agents_gateway_attach_current_session_rejects_retired_pair_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     manifest_path = (tmp_path / "manifest.json").resolve()
     manifest_path.write_text("{}\n", encoding="utf-8")
-    captured: dict[str, object] = {}
-    identity = HoumaoManagedAgentIdentity(
-        tracked_agent_id="tracked-pair",
-        transport="tui",
-        tool="codex",
-        session_name="pair-session",
-        terminal_id="term-123",
-        runtime_session_id=None,
-        tmux_session_name="pair-session",
-        tmux_window_name="agent",
-        manifest_path=str(manifest_path),
-        session_root=str(tmp_path.resolve()),
-        agent_name="HOUMAO-pair",
-        agent_id="agent-123",
-    )
-    client = SimpleNamespace(
-        pair_authority_kind="houmao-server",
-        attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
-            captured.update(
-                {
-                    "pair_agent_ref": agent_ref,
-                    "pair_execution_mode": getattr(request_model, "execution_mode", None),
-                }
-            )
-            or {"status": "ok", "agent_ref": agent_ref}
-        ),
-    )
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
@@ -913,26 +856,11 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
         ),
     )
 
-    def _require_pair(*, base_url: str) -> object:
-        captured["base_url"] = base_url
-        return client
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.require_houmao_server_pair",
-        _require_pair,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
-        lambda resolved_client, *, agent_ref: identity,
-    )
-
     result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
 
-    assert result.exit_code == 0, result.output
-    assert captured["base_url"] == "http://127.0.0.1:9889"
-    assert captured["pair_agent_ref"] == "pair-session"
-    assert captured["pair_execution_mode"] == "tmux_auxiliary_window"
-    assert json.loads(result.output) == {"status": "ok", "agent_ref": "pair-session"}
+    assert result.exit_code != 0
+    assert "retired backend `houmao_server_rest`" in result.output
+    assert "houmao-passive-server" in result.output
 
 
 def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
@@ -2145,116 +2073,6 @@ def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
     assert chat_session.session_id is None
 
 
-def test_server_status_reports_no_server_running(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raise_unavailable(*, base_url: str) -> object:
-        raise PairAuthorityConnectionError(
-            base_url=base_url,
-            cause=RuntimeError("connection refused"),
-        )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        _raise_unavailable,
-    )
-
-    result = CliRunner().invoke(cli, ["server", "status"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload == {
-        "api_base_url": "http://127.0.0.1:9889",
-        "detail": "No supported Houmao pair authority is running.",
-        "running": False,
-    }
-
-
-def test_server_start_defaults_to_detached_startup_result(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-
-    def _fake_start_detached(config: object) -> HoumaoDetachedServerStartResult:
-        captured["config"] = config
-        return HoumaoDetachedServerStartResult(
-            success=True,
-            running=True,
-            api_base_url="http://127.0.0.1:9999",
-            detail="Started houmao-server.",
-            pid=123,
-            server_root=str((tmp_path / "runtime").resolve()),
-            reused_existing=False,
-            log_paths=HoumaoServerStartLogPaths(
-                stdout=str((tmp_path / "stdout.log").resolve()),
-                stderr=str((tmp_path / "stderr.log").resolve()),
-            ),
-        )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.start_detached_server", _fake_start_detached
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "server",
-            "start",
-            "--api-base-url",
-            "http://127.0.0.1:9999",
-            "--runtime-root",
-            str((tmp_path / "runtime").resolve()),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["success"] is True
-    assert payload["running"] is True
-    assert payload["mode"] == "background"
-    assert payload["api_base_url"] == "http://127.0.0.1:9999"
-    assert payload["pid"] == 123
-    assert payload["reused_existing"] is False
-    assert payload["runtime_root"] == str((tmp_path / "runtime").resolve())
-    assert (
-        payload["runtime_root_detail"]
-        == "Selected runtime root from the explicit `--runtime-root` override."
-    )
-    assert payload["log_paths"]["stdout"].endswith("stdout.log")
-    assert captured["config"] is not None
-
-
-def test_server_start_foreground_keeps_direct_run_server_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_calls: list[dict[str, object]] = []
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.start_detached_server",
-        lambda config: (_ for _ in ()).throw(AssertionError("detached start should not run")),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.run_server",
-        lambda **kwargs: run_calls.append(kwargs),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "server",
-            "start",
-            "--foreground",
-            "--api-base-url",
-            "http://127.0.0.1:9998",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert result.output == ""
-    assert len(run_calls) == 1
-    assert run_calls[0]["api_base_url"] == "http://127.0.0.1:9998"
-    assert "startup_child" not in run_calls[0]
-
-
 def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3284,25 +3102,6 @@ def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
     assert captured["launch_profile_managed_header_policy"] == "disabled"
 
 
-def test_server_sessions_shutdown_all_uses_pair_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _FakePairClient()
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.require_houmao_server_pair",
-        lambda *, base_url: client,
-    )
-
-    result = CliRunner().invoke(cli, ["server", "sessions", "shutdown", "--all"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert client.m_delete_session_calls == ["sess-a", "sess-b"]
-    assert payload["results"] == [
-        {"session": "sess-a", "success": True},
-        {"session": "sess-b", "success": True},
-    ]
-
-
 def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3895,94 +3694,3 @@ def test_agents_launch_rejects_removed_yolo_flag() -> None:
 
     assert result.exit_code != 0
     assert "No such option: --yolo" in result.output
-
-
-def test_server_status_reports_health_and_current_instance(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _HealthyClient:
-        def __init__(self, base_url: str) -> None:
-            self.m_base_url = base_url
-
-        def health_extended(self) -> HoumaoHealthResponse:
-            return HoumaoHealthResponse(status="ok", service="cli-agent-orchestrator")
-
-        def current_instance(self) -> HoumaoCurrentInstance:
-            return HoumaoCurrentInstance(
-                pid=123,
-                api_base_url=self.m_base_url,
-                server_root="/tmp/houmao-server",
-            )
-
-        def list_sessions(self) -> list[_FakeSession]:
-            return [_FakeSession("sess-a")]
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=_HealthyClient(base_url),
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-server"),
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["server", "status", "--port", "9999"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["running"] is True
-    assert payload["api_base_url"] == "http://127.0.0.1:9999"
-    assert payload["active_session_count"] == 1
-
-
-def test_server_status_accepts_passive_pair_authority(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _PassiveClient:
-        def __init__(self, base_url: str) -> None:
-            self.m_base_url = base_url
-
-        def current_instance(self) -> HoumaoCurrentInstance:
-            return HoumaoCurrentInstance(
-                pid=456,
-                api_base_url=self.m_base_url,
-                server_root="/tmp/houmao-passive-server",
-            )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=_PassiveClient(base_url),
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["server", "status", "--port", "9891"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["running"] is True
-    assert payload["api_base_url"] == "http://127.0.0.1:9891"
-    assert payload["health"]["houmao_service"] == "houmao-passive-server"
-    assert payload["active_session_count"] is None
-    assert payload["active_sessions"] is None
-
-
-def test_server_stop_accepts_passive_pair_authority(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _PassiveClient:
-        def shutdown_server(self) -> object:
-            return SimpleNamespace(success=True)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=_PassiveClient(),
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["server", "stop", "--port", "9891"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload == {
-        "api_base_url": "http://127.0.0.1:9891",
-        "detail": "Shutdown request accepted.",
-        "running": False,
-        "success": True,
-    }

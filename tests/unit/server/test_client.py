@@ -857,6 +857,18 @@ def test_resolve_pair_authority_client_selects_passive_server(monkeypatch) -> No
     assert resolution.health.houmao_service == "houmao-passive-server"
 
 
+def test_resolve_pair_authority_client_rejects_retired_old_server(monkeypatch) -> None:
+    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
+        del self, method, kwargs
+        assert path == "/health"
+        return model.model_validate({"status": "ok", "houmao_service": "houmao-server"})
+
+    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+
+    with pytest.raises(UnsupportedPairAuthorityError, match="houmao-passive-server"):
+        resolve_pair_authority_client(base_url="http://127.0.0.1:9889")
+
+
 def test_resolve_pair_authority_client_rejects_unknown_pair_identity(monkeypatch) -> None:
     def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
         del self, method, kwargs

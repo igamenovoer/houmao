@@ -53,7 +53,7 @@ def test_start_session_rejects_retired_raw_cao_backend(
     assert exit_code == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "Standalone backend='cao_rest' operator workflows are retired" in captured.err
+    assert "Standalone CAO/old-server runtime workflows are retired" in captured.err
 
 
 def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
@@ -90,6 +90,31 @@ def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
     assert exit_code == 2
     assert captured_calls == []
     assert "retired" in capsys.readouterr().err
+
+
+def test_start_session_rejects_retired_houmao_server_backend_with_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    _isolate_agent_def_resolution(monkeypatch, tmp_path)
+
+    exit_code = cli.main(
+        [
+            "start-session",
+            "--brain-manifest",
+            "tmp/brain.yaml",
+            "--role",
+            "gpu-kernel-coder",
+            "--backend",
+            "houmao_server_rest",
+        ]
+    )
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "retired" in captured.err
 
 
 def test_start_session_forwards_mailbox_overrides(

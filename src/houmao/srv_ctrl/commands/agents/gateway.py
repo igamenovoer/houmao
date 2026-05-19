@@ -49,15 +49,11 @@ from houmao.agents.realm_controller.session_authority import (
     ManifestSessionAuthority,
     resolve_manifest_session_authority,
 )
-from houmao.server.models import HoumaoManagedAgentIdentity
-from houmao.server.pair_client import PairAuthorityClientProtocol
 
 from ..common import (
     managed_agent_selector_options,
     pair_port_option,
-    require_houmao_server_pair,
     resolve_managed_agent_selector,
-    resolve_managed_agent_identity,
     resolve_prompt_text,
 )
 from ..output import emit
@@ -1404,16 +1400,10 @@ def _resolve_gateway_tmux_session_target(
 
     try:
         if authority.backend == "houmao_server_rest":
-            managed_agent_ref, identity, client = _resolve_tmux_session_pair_target(
-                authority=authority,
-                context=context,
-            )
-            return ManagedAgentTarget(
-                mode="server",
-                agent_ref=managed_agent_ref,
-                identity=identity,
-                client=client,
-                record=resolution.registry_record,
+            raise click.ClickException(
+                f"{context.label} uses retired backend `houmao_server_rest`. Use "
+                "`houmao-passive-server` for maintained API-backed management or relaunch the "
+                "agent through a maintained local/headless workflow."
             )
 
         agent_def_dir = _resolve_tmux_session_agent_def_dir(
@@ -1436,35 +1426,6 @@ def _resolve_gateway_tmux_session_target(
         )
     except (OSError, RuntimeError, SessionManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
-
-
-def _resolve_tmux_session_pair_target(
-    *,
-    authority: ManifestSessionAuthority,
-    context: _TmuxSessionResolutionContext,
-) -> tuple[str, HoumaoManagedAgentIdentity, PairAuthorityClientProtocol]:
-    """Resolve one pair-managed tmux session to a managed-agent ref and pair client."""
-
-    try:
-        api_base_url, managed_agent_ref = authority.attach.require_pair_target()
-    except SessionManifestError as exc:
-        raise click.ClickException(
-            f"{context.label} metadata is invalid for `houmao_server_rest`: {exc}"
-        ) from exc
-
-    client = require_houmao_server_pair(base_url=api_base_url)
-    resolved = resolve_managed_agent_identity(client, agent_ref=managed_agent_ref)
-    if resolved.transport != "tui":
-        raise click.ClickException(
-            f"{context.label} resolved a non-TUI managed agent, which is invalid for a "
-            "pair-managed tmux session."
-        )
-    if resolved.session_name != managed_agent_ref:
-        raise click.ClickException(
-            f"{context.label} metadata is stale: the persisted session alias no longer "
-            "resolves to the expected managed agent."
-        )
-    return managed_agent_ref, resolved, client
 
 
 def _resolve_tmux_session_manifest(

@@ -62,7 +62,6 @@ from .backends.cao_rest import (
     CaoSessionState,
     cao_backend_state_payload,
 )
-from .backends.houmao_server_rest import HoumaoServerRestSession
 from .boundary_models import (
     RegistryLaunchAuthorityV1,
     SessionManifestAgentLaunchAuthorityV1,
@@ -231,8 +230,6 @@ from .registry_storage import (
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
 )
-from houmao.server.client import HoumaoServerClient
-from houmao.server.models import HoumaoRegisterLaunchRequest
 from houmao.mailbox import bootstrap_filesystem_mailbox, resolve_filesystem_mailbox_paths
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
@@ -248,7 +245,6 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "claude_headless",
         "gemini_headless",
         "cao_rest",
-        "houmao_server_rest",
     }
 )
 # Keep this narrow allowlist aligned with `_build_gateway_execution_adapter()`.
@@ -258,7 +254,6 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
     "claude_headless",
     "gemini_headless",
     "cao_rest",
-    "houmao_server_rest",
 )
 _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
     {
@@ -1254,6 +1249,11 @@ def start_runtime_session(
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
 
+    if backend == "houmao_server_rest":
+        raise SessionManifestError(
+            "backend='houmao_server_rest' is retired. Use maintained local/headless "
+            "manager workflows or `houmao-passive-server` API-managed launches instead."
+        )
     if (gateway_host is not None or gateway_port is not None) and not gateway_auto_attach:
         raise SessionManifestError(
             "Gateway host or port overrides require launch-time gateway attach."
@@ -1878,41 +1878,9 @@ def _create_backend_session(
         )
 
     if launch_plan.backend == "houmao_server_rest":
-        existing_state = _resume_houmao_server_state(resume_state)
-        configured_mode = configured_cao_parsing_mode(launch_plan)
-        resolved_parsing_mode = resolve_cao_parsing_mode(
-            tool=launch_plan.tool,
-            requested_mode=cao_parsing_mode,
-            configured_mode=configured_mode,
-        )
-        if existing_state is not None and existing_state.parsing_mode != resolved_parsing_mode:
-            raise SessionManifestError(
-                "houmao-server parsing mode mismatch on resume: "
-                f"manifest requires {existing_state.parsing_mode!r}, "
-                f"but current configuration resolves to {resolved_parsing_mode!r}."
-            )
-        resolved_api_base_url = (
-            existing_state.api_base_url if existing_state is not None else api_base_url
-        )
-        if resolved_api_base_url is None or not resolved_api_base_url.strip():
-            raise SessionManifestError(
-                "houmao-server start requires a non-empty api_base_url for "
-                "backend=houmao_server_rest"
-            )
-        return cast(
-            InteractiveSession,
-            HoumaoServerRestSession(
-                launch_plan=launch_plan,
-                api_base_url=resolved_api_base_url.strip(),
-                role_name=role_name,
-                role_prompt=role_prompt,
-                agent_def_dir=agent_def_dir,
-                profile_store_dir=cao_profile_store_dir,
-                existing_state=existing_state,
-                session_manifest_path=session_manifest_path,
-                tmux_session_name=agent_identity,
-                parsing_mode=resolved_parsing_mode,
-            ),
+        raise SessionManifestError(
+            "backend='houmao_server_rest' is retired. Use maintained local/headless "
+            "manager workflows or `houmao-passive-server` API-managed launches instead."
         )
 
     raise SessionManifestError(f"Unsupported backend: {launch_plan.backend}")
@@ -2423,16 +2391,6 @@ def _relaunch_backend_session(
     """Dispatch the shared relaunch primitive across supported tmux-backed backends."""
 
     backend_session = controller.backend_session
-    if isinstance(backend_session, HoumaoServerRestSession):
-        if chat_session.mode != "new":
-            return SessionControlResult(
-                status="error",
-                action="relaunch",
-                detail=(
-                    "Chat-session continuation is not supported for backend='houmao_server_rest'."
-                ),
-            )
-        return backend_session.relaunch()
     if isinstance(backend_session, LocalInteractiveSession):
         return backend_session.relaunch(chat_session=chat_session)
     if isinstance(backend_session, HeadlessInteractiveSession):
@@ -2459,33 +2417,7 @@ def _refresh_pair_launch_registration(controller: RuntimeSessionController) -> N
 
     if controller.launch_plan.backend != "houmao_server_rest":
         return
-    backend_session = controller.backend_session
-    if not isinstance(backend_session, HoumaoServerRestSession):
-        raise SessionManifestError(
-            "Pair-backed relaunch completed without a houmao_server_rest backend session."
-        )
-
-    state = backend_session.state
-    client = HoumaoServerClient(state.api_base_url)
-    try:
-        client.register_launch(
-            HoumaoRegisterLaunchRequest(
-                session_name=state.session_name,
-                terminal_id=state.terminal_id,
-                tool=controller.launch_plan.tool,
-                manifest_path=str(controller.manifest_path),
-                session_root=str(controller.manifest_path.parent),
-                agent_name=controller.agent_identity,
-                agent_id=controller.agent_id,
-                tmux_session_name=controller.tmux_session_name or state.session_name,
-                tmux_window_name=state.tmux_window_name,
-            )
-        )
-    except Exception as exc:
-        raise SessionManifestError(
-            "Pair-managed relaunch succeeded locally, but failed to refresh the owning "
-            f"`houmao-server` registration: {exc}"
-        ) from exc
+    raise SessionManifestError("backend='houmao_server_rest' relaunch is retired.")
 
 
 def _resume_cao_state(
@@ -2709,8 +2641,6 @@ def _backend_state_for_session(session: InteractiveSession) -> GatewayJsonObject
         return cast(GatewayJsonObject, codex_backend_state_payload(session.state))
     if isinstance(session, HeadlessInteractiveSession):
         return cast(GatewayJsonObject, headless_backend_state_payload(session.state))
-    if isinstance(session, HoumaoServerRestSession):
-        return cast(GatewayJsonObject, cao_backend_state_payload(session.state))
     if isinstance(session, CaoRestSession):
         return cast(GatewayJsonObject, cao_backend_state_payload(session.state))
     return {}

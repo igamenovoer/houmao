@@ -1,436 +1,51 @@
-# Houmao Server Pair
+# Retired Houmao Server Pair
 
-`houmao-server` and `houmao-mgr` are the supported Houmao server architecture for managing agent lifecycles, gateways, and the TUI watch plane.
+This page is historical reference only. The former `houmao-server` + `houmao-mgr server ...` pair is retired as a public operator workflow, and the package no longer installs a standalone `houmao-server` executable.
 
-- `houmao-server` (`src/houmao/server/cli.py`) is the public HTTP authority — a FastAPI application created via the `create_app()` factory in `src/houmao/server/app.py`
-- `houmao-mgr` (`src/houmao/srv_ctrl/cli.py`) is the manager CLI for lifecycle, agent, and server control
-
-The two components form a single supported pair. `houmao-mgr` sends commands to `houmao-server`, which owns managed agents, gateway proxying, TUI tracking, and registry integration.
-
-For the deeper explanation of live terminal tracking and managed-agent state, see the [Houmao Server Developer Guide](../developer/houmao-server/index.md).
-
-## Commands
-
-Primary entrypoints for the pair:
-
-- `houmao-server`: serves Houmao-owned root routes, managed-agent routes, terminal-tracking routes, and a legacy `/cao/*` compatibility namespace
-- `houmao-mgr`: exposes `server`, `agents`, `brains`, `project`, `mailbox`, and `admin` command groups
-- `houmao-cli`: legacy runtime-local CLI, not part of the supported pair
-
-Representative usage:
+Use the maintained surfaces instead:
 
 ```bash
-houmao-mgr server start --api-base-url http://127.0.0.1:9889
-houmao-mgr server start --foreground --api-base-url http://127.0.0.1:9889
-houmao-mgr project init
-houmao-mgr project credentials codex add --name default --api-key your-api-key-here
-houmao-mgr project easy specialist create \
-  --name gpu \
-  --system-prompt "You are a GPU specialist." \
-  --tool codex \
-  --api-key your-api-key-here \
-  --env-set OPENAI_MODEL=gpt-5.4
-OPENAI_BASE_URL=https://api.example.test/v1 \
-houmao-mgr project easy instance launch \
-  --specialist gpu \
-  --name gpu \
-  --env-set FEATURE_FLAG_X=1 \
-  --env-set OPENAI_BASE_URL
-houmao-mgr project mailbox init
-houmao-mgr server status --port 9889
-houmao-mgr server sessions list --port 9889
-houmao-mgr agents launch --agents your-role --agent-name gpu --provider codex --headless
-houmao-mgr agents launch --agents your-role --agent-name gpu --provider claude_code
-houmao-mgr agents join --agent-name gpu
-houmao-mgr agents join --headless --agent-name reviewer --provider codex --launch-args exec --launch-args=--json --resume-id last
-houmao-mgr mailbox init --mailbox-root tmp/shared-mail
-houmao-mgr agents mailbox register --agent-name gpu --mailbox-root tmp/shared-mail
-houmao-mgr agents mailbox status --agent-name gpu
-houmao-mgr agents prompt --agent-name gpu --prompt "Summarize the current state."
-houmao-mgr agents relaunch --agent-name gpu
-houmao-mgr agents gateway attach --agent-name gpu
-houmao-mgr agents gateway attach
-houmao-mgr brains build --tool codex --skill skills --setup dev --auth openai
-houmao-mgr admin cleanup registry --grace-seconds 0
-houmao-mgr mailbox cleanup --mailbox-root tmp/shared-mail --dry-run
+houmao-mgr --help
+houmao-passive-server serve --port 9891
 ```
 
-Gemini note:
+## What Replaced It
 
-- Project-local Gemini auth bundles now support `GEMINI_API_KEY`, optional `GOOGLE_GEMINI_BASE_URL`, and `oauth_creds.json` through `houmao-mgr project credentials gemini add|set`.
-- `houmao-mgr project easy specialist create --tool gemini` exposes the same maintained Gemini inputs through `--api-key`, optional `--base-url`, and `--gemini-oauth-creds`.
-- Managed Gemini homes resume follow-up headless turns with the persisted Gemini `session_id` in the same recorded working directory instead of relying on `--resume latest`.
+`houmao-mgr` remains the primary local management CLI for project overlays, agent launch and join, gateway attach, mailbox workflows, credentials, cleanup, and system-skill installation.
 
-Prompt-policy note:
+`houmao-passive-server` is the maintained server/API authority. It discovers running agents from the shared registry, observes local tmux-backed agents, proxies to attached gateways, exposes mailbox and memory proxy routes, and can own native headless agents with durable turn records.
 
-- current brain construction and recipe-backed launch flows treat omitted prompt mode as the unattended default
-- use `launch.prompt_mode: as_is` when you want provider startup posture left unchanged
-- `houmao-mgr project easy specialist create --no-unattended ...` persists that `as_is` posture into the specialist config and generated recipe under `.houmao/agents/presets/`
+## Retired Surfaces
 
-Easy launch env note:
+The following old surfaces are no longer maintained public workflows:
 
-- `houmao-mgr project easy specialist create --env-set NAME=value` stores durable non-credential launch env under `launch.env_records`
-- persistent `launch.env_records` survive recipe-backed rebuild and relaunch because they are specialist-owned launch semantics
-- `houmao-mgr project easy instance launch --env-set NAME=value|NAME` applies one-off env only to the current live session and drops it on relaunch
-- inherited one-off `NAME` bindings resolve from the invoking shell environment at launch time
-- durable specialist env remains separate from auth-bundle env, and auth-owned or Houmao-owned reserved names are rejected
-
-## Server Startup Controls
-
-`houmao-mgr server start` is detached by default. It starts or reuses `houmao-server`, waits for health, emits one JSON startup result, and returns the terminal to the operator. Use `--foreground` when you intentionally want the old attached `houmao-server serve` behavior in the current process.
-
-`houmao-mgr server start` and `houmao-server serve` still share the same server startup flag surface. That server-owned startup chain exposes:
-
-- `--compat-shell-ready-timeout-seconds` with default `10.0`
-- `--compat-shell-ready-poll-interval-seconds` with default `0.5`
-- `--compat-provider-ready-timeout-seconds` with default `45.0`
-- `--compat-provider-ready-poll-interval-seconds` with default `1.0`
-- `--compat-codex-warmup-seconds` with default `2.0`
-
-Setting `--compat-codex-warmup-seconds 0` disables the extra Codex warmup sleep. If you raise the server-side compatibility waits above the defaults, also raise `--compat-create-timeout-seconds` or `HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS` so the client budget remains larger than the server's bounded startup chain.
-
-Example:
-
-```bash
-houmao-mgr server start \
-  --api-base-url http://127.0.0.1:9889 \
-  --compat-provider-ready-timeout-seconds 90 \
-  --compat-codex-warmup-seconds 0
-```
-
-Detached startup result fields:
-
-- `success`, `running`, `mode`, `api_base_url`, and `detail`
-- `pid`, `server_root`, `started_at_utc`, and `current_instance` when a server instance is known
-- `reused_existing` when the command reports an already-healthy listener instead of spawning a duplicate process
-- `log_paths.stdout` and `log_paths.stderr`, which point at the owned files under `<runtime-root>/houmao_servers/<host>-<port>/logs/`
-
-If detached startup fails before health, inspect:
-
-- `<runtime-root>/houmao_servers/<host>-<port>/logs/houmao-server.stdout.log`
-- `<runtime-root>/houmao_servers/<host>-<port>/logs/houmao-server.stderr.log`
-
-Retired standalone surfaces (legacy):
-
+- `houmao-server` as a packaged executable
+- `houmao-mgr server start|status|stop|sessions ...`
+- `houmao-cli`
 - `houmao-cao-server`
-- `python -m houmao.cao.tools.cao_server_launcher`
-- standalone `houmao-cli` operator flows that created or controlled raw `backend="cao_rest"` sessions
-
-## Pair-Native CLI Tree
-
-`houmao-mgr` now has one native top-level tree for covered pair workflows:
-
-- `server`
-- `agents`
-- `brains`
-- `project`
-- `mailbox`
-- `admin`
-
-Repo-local authoring under `project` is intentionally split into three views:
-
-```text
-houmao-mgr project
-├── init | status
-├── agents  # low-level `.houmao/agents/` management
-├── easy    # specialist / instance authoring
-└── mailbox # project-scoped mailbox-root operations
-```
-
-Authority is split intentionally:
-
-- `server ...` manages the houmao-server process and server-owned sessions
-- `agents launch` builds and launches locally without `houmao-server`
-- `agents join` adopts an existing tmux-backed TUI or headless logical session into the same managed-agent control plane without pretending Houmao launched the current process itself
-- `project ...` bootstraps the repo-local `.houmao/` overlay, reports discovery state, and exposes `agents`, `easy`, and `mailbox` views over the project-local sources
-- `mailbox ...` manages the shared filesystem mailbox root, address lifecycle, and inactive-registration cleanup without `houmao-server`
-- `agents mailbox ...` attaches or removes one late filesystem mailbox binding on an existing local managed agent
-- `agents cleanup ...` handles one manifest-scoped local cleanup target for session envelopes, session-local logs, or session-local mailbox secrets
-- `agents ...` follow-up commands discover agents through the shared registry first and only hit `houmao-server` when needed
-- `brains build` is a local brain-construction wrapper
-- `admin cleanup ...` is local shared-registry and runtime maintenance; use `admin cleanup registry` for the registry janitor and `--print-json` only when you need the machine-readable cleanup payload
-
-For ordinary prompt submission, `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."` is the default documented path. `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` remains the explicit gateway-mediated alternative when queue admission and live-gateway execution semantics matter. For headless managed agents, `agents prompt`, `agents gateway prompt`, and `agents turn submit` now also accept request-scoped `--model` plus optional `--reasoning-level`; those overrides merge with the launch-resolved defaults for the current turn only, interpret reasoning through the resolved tool/model preset ladder, and TUI-backed targets reject them explicitly instead of silently ignoring them. Retry with `--agent-id <authoritative-id>` when the friendly name is not unique.
-
-For local serverless mailbox usage, the preferred `houmao-mgr` workflow is:
-
-1. `houmao-mgr mailbox init --mailbox-root <path>`
-2. `houmao-mgr agents launch ...` or `houmao-mgr agents join ...`
-3. `houmao-mgr agents mailbox register --agent-name <friendly-name> --mailbox-root <path>`
-4. `houmao-mgr agents mail ...`
-
-This keeps `agents launch` and `agents join` mailbox-agnostic. For supported tmux-backed managed sessions, including sessions adopted through `agents join`, `agents mailbox register` and `agents mailbox unregister` refresh the live mailbox projection without requiring relaunch solely for mailbox binding refresh. That includes joined sessions whose relaunch posture is unavailable, as long as Houmao can still update the durable session state and the owning tmux live mailbox projection safely. When direct mailbox work needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. Inside the owning tmux session, selectors may be omitted; outside tmux, or when targeting a different agent, use an explicit `--agent-id` or `--agent-name`. The resolver also surfaces optional live `gateway.base_url` data for attached `/v1/mail/*` work instead of requiring ad hoc port rediscovery.
-
-## Adopting Existing Sessions With `agents join`
-
-`houmao-mgr agents join` is the operator path for taking a user-started tmux session and making Houmao treat it like a normal managed agent from that point onward.
-
-Use it when:
-
-- the provider TUI is already running and you do not want Houmao to restart it
-- you already have a native headless tmux session and want later `turn submit`, `state`, or `interrupt` commands to target it through the normal managed-agent flow
-
-V1 assumptions are intentionally narrow:
-
-- run the command from inside the target tmux session
-- tmux window `0`, pane `0` is the adopted agent surface
-- TUI join auto-detects one supported provider from that pane: `claude_code`, `codex`, or `gemini_cli`
-- headless join requires explicit `--provider` plus recorded `--launch-args`
-
-Examples:
-
-```bash
-# Adopt a live TUI already running in window 0, pane 0.
-houmao-mgr agents join --agent-name gpu
-
-# Record relaunch options for a joined TUI.
-houmao-mgr agents join \
-  --agent-name gpu \
-  --provider codex \
-  --launch-args=--model \
-  --launch-args gpt-5 \
-  --launch-env CODEX_HOME \
-  --launch-env OPENAI_API_KEY
-
-# Adopt a native headless logical session between turns.
-houmao-mgr agents join --headless \
-  --agent-name reviewer \
-  --provider codex \
-  --launch-args exec \
-  --launch-args=--json \
-  --launch-env CODEX_HOME \
-  --resume-id last
-```
-
-Operational behavior after a successful join:
-
-- Houmao creates the normal runtime envelope: session root, `manifest.json`, placeholder artifacts, `gateway/`, and per-agent memory metadata
-- the tmux session publishes the same discovery pointers as a native launch: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`
-- the joined session is published into the shared registry immediately and becomes eligible for normal `agents state`, `agents prompt`, `agents interrupt`, `agents gateway attach`, and headless turn flows as appropriate
-
-Relaunch posture is explicit:
-
-- joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live, but `agents relaunch` fails explicitly because Houmao does not know how to restart that provider honestly
-- `--launch-env` follows Docker `--env` style: `NAME=value` stores a literal secret-free binding, while `NAME` means relaunch resolves that variable from the tmux session environment later
-- headless `--resume-id` is optional: omitted means fresh chat, `last` means resume the latest known chat, and any other non-empty value means one exact provider session id
-
-## Pair-Managed Gateway Attach
-
-For pair-managed terminal sessions, the supported public attach command is `houmao-mgr agents gateway attach`.
-
-Supported modes:
-
-- explicit target mode: `houmao-mgr agents gateway attach --agent-name <friendly-name> --pair-port <pair-port>`
-- exact-target mode: `houmao-mgr agents gateway attach --agent-id <authoritative-id> --pair-port <pair-port>`
-- outside-tmux tmux-session mode: `houmao-mgr agents gateway attach --target-tmux-session <tmux-session-name>`
-- current-session mode: run `houmao-mgr agents gateway attach` from inside the tmux session that owns the managed agent
-
-Current-session mode is intentionally strict:
-
-- the tmux session must publish `HOUMAO_MANIFEST_PATH` or, failing that, `HOUMAO_AGENT_ID` plus a fresh shared-registry `runtime.manifest_path`
-- the resolved manifest must belong to the current tmux session
-- the resolved manifest must use `backend = "houmao_server_rest"`
-- manifest-declared attach authority is authoritative
-- current-session attach becomes valid only after launch has completed managed-agent registration on that persisted `api_base_url`
-
-Outside-tmux tmux-session mode reuses the same manifest-backed authority, but begins from the addressed local tmux session name. It resolves `HOUMAO_MANIFEST_PATH` from that session first and falls back to a fresh exact shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
-
-The matching relaunch surface is `houmao-mgr agents relaunch`.
-
-- explicit relaunch resolves either `--agent-name <friendly-name>` or `--agent-id <authoritative-id>` through the managed-agent selector contract first
-- current-session relaunch runs inside the owning tmux session, resolves the manifest through `HOUMAO_MANIFEST_PATH` or shared-registry fallback from `HOUMAO_AGENT_ID`, and refreshes the tmux-backed runtime surface without rebuilding the managed-agent home
-
-Pair-managed tmux topology is intentionally narrow:
-
-- tmux window `0` is the only contractual agent surface for `houmao_server_rest`
-- same-session live gateway attach may create auxiliary non-zero windows inside that tmux session
-- those auxiliary windows are not public contract by name, count, or order; use `houmao-mgr agents gateway status` for the authoritative live `gateway_tmux_window_index`, or inspect `gateway/run/current-instance.json` directly when you need the full tmux execution handle
-
-## Architecture
-
-The pair uses a Houmao-owned control core for session and terminal lifecycle management.
-
-The control core owns:
-
-- session and terminal lifecycle (creation, bootstrap, teardown)
-- tmux session and window creation
-- provider bootstrap quirks for the supported launch surface
-- terminal-scoped inbox behavior
-- launch-time native selector resolution
-- registry persistence for sessions, terminals, and inbox messages
-
-The watch and tracking plane is Houmao-owned and separate from the control core:
-
-- direct tmux pane resolution and capture
-- process-tree inspection for supported TUI availability
-- official parser selection through the shared parser stack
-- continuous in-memory terminal state and bounded recent transitions
-
-The public server contract is Houmao-owned:
-
-- callers talk to `houmao-server`
-- legacy `/cao/*` routes are served locally by `houmao-server` for backward compatibility, not reverse-proxied to a child process
-- runtime-owned `houmao_server_rest` sessions persist the public Houmao server base URL and session identity
-- root `GET /health` reports `houmao_service="houmao-server"`
-- terminal-keyed Houmao extension routes resolve through Houmao-owned tracked-session identity
-
-The pair exposes three public server surfaces:
-
-- Houmao-owned root and terminal-tracking routes:
-  - `/health`
-  - `/houmao/terminals/{terminal_id}/*`
-- legacy compatibility routes (preserved for `cao_rest` backend sessions):
-  - `/cao/health`
-  - `/cao/sessions/*`
-  - `/cao/terminals/*`
-  - `/cao/terminals/{terminal_id}/working-directory`
-- shared managed-agent routes:
-  - `GET /houmao/agents`
-  - `GET /houmao/agents/{agent_ref}`
-  - `GET /houmao/agents/{agent_ref}/state`
-  - `GET /houmao/agents/{agent_ref}/state/detail`
-  - `GET /houmao/agents/{agent_ref}/history`
-  - `POST /houmao/agents/{agent_ref}/requests`
-  - `GET /houmao/agents/{agent_ref}/gateway`
-  - `POST /houmao/agents/{agent_ref}/gateway/attach`
-  - `POST /houmao/agents/{agent_ref}/gateway/detach`
-  - `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
-  - `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
-  - `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`
-  - `POST /houmao/agents/{agent_ref}/gateway/requests`
-  - `GET /houmao/agents/{agent_ref}/gateway/mail-notifier`
-  - `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier`
-  - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier`
-  - `GET /houmao/agents/{agent_ref}/mail/status`
-  - `GET /houmao/agents/{agent_ref}/mail/resolve-live`
-  - `POST /houmao/agents/{agent_ref}/mail/list`
-  - `POST /houmao/agents/{agent_ref}/mail/peek`
-  - `POST /houmao/agents/{agent_ref}/mail/read`
-  - `POST /houmao/agents/{agent_ref}/mail/send`
-  - `POST /houmao/agents/{agent_ref}/mail/post`
-  - `POST /houmao/agents/{agent_ref}/mail/reply`
-  - `POST /houmao/agents/{agent_ref}/mail/mark`
-  - `POST /houmao/agents/{agent_ref}/mail/move`
-  - `POST /houmao/agents/{agent_ref}/mail/archive`
-- native headless lifecycle and durable turn routes:
-  - `POST /houmao/agents/headless/launches`
-  - `POST /houmao/agents/{agent_ref}/stop`
-  - `POST /houmao/agents/{agent_ref}/turns`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout`
-  - `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stderr`
-  - `POST /houmao/agents/{agent_ref}/interrupt`
-
-Root `/sessions/*` and `/terminals/*` are intentionally not public at this boundary.
-
-## Provider Surface
-
-The preserved pair launch provider surface is explicit:
-
-- `kiro_cli`
-- `claude_code`
-- `codex`
-- `gemini_cli`
-- `kimi_cli`
-- `q_cli`
-
-If a provider is retired later, that narrowing must be explicit. The absorption change does not narrow provider support implicitly.
-
-## Persistence Boundary
-
-The pair boundary is intentionally split into three groups.
-
-Filesystem-authoritative artifacts:
-
-- runtime-owned session roots and manifests
-- runtime-owned manifest-backed gateway authority plus live gateway execution records
-- shared-registry `live_agents/<agent-id>/record.json` pointers while the bridge remains in use
-- server-backed managed-session manifests and session roots under `sessions/houmao_server_rest/...`
-- native headless authority and per-turn records under `state/managed_agents/<tracked_agent_id>/`
-
-Filesystem-backed debug views:
-
-- `run/current-instance.json` and `run/houmao-server.pid`
-- delegated-launch `sessions/<session-name>/registration.json`
-- registry snapshot under `state/registry.json`
-- launch-scoped sidecars under `state/launch_projection/`
-
-Memory-primary live state:
-
-- known-session registry entries rebuilt from registration records and verified against live tmux
-- active watch-worker ownership
-- explicit transport/process/parse state for tracked sessions
-- latest parsed supported-TUI surface, derived operator state, stability metadata, and bounded recent transitions
-- rebuilt managed-agent alias resolution across TUI registrations and native headless authority records
-
-Live terminal tracking remains authoritative in server memory. `houmao-server` does not write per-terminal tracker logs for the public contract.
-
-Managed-agent history retention is intentionally split:
-
-- TUI-backed `GET /houmao/agents/{agent_ref}/history` is a bounded in-memory projection built from the live tracker's recent transitions. It disappears when the server process forgets or loses that tracked live state.
-- Headless `GET /houmao/agents/{agent_ref}/history` is still coarse, but it is derived from persisted server-owned turn records under `state/managed_agents/<tracked_agent_id>/`.
-- Durable headless stdout, stderr, event streams, and return codes remain on `/houmao/agents/{agent_ref}/turns/*`, not on `/history`.
-
-## `houmao_server_rest` Runtime Identity
-
-Runtime-owned sessions that use the pair-backed mode persist `backend = "houmao_server_rest"`.
-
-That backend uses dedicated persisted sections instead of overloading the older legacy backend contract:
-
-- session manifests write a `houmao_server` section with `api_base_url`, `session_name`, `terminal_id`, `parsing_mode`, optional `tmux_window_name`, and `turn_index`
-- internal gateway bootstrap artifacts use Houmao-specific backend metadata
-- shared-registry records still point back to the runtime-owned manifest and session root instead of copying runtime state into the registry
-
-This keeps the pair-owned compatibility transport details out of the persisted public contract while preserving existing discovery and gateway flows.
-
-## Storage Model
-
-`houmao-server` provisions control state under a Houmao-owned per-server root:
-
-```text
-<runtime-root>/houmao_servers/<host>-<port>/
-  state/
-    registry.json
-    launch_projection/
-      <session-name>/
-        <terminal-id>/
-          context.md
-```
-
-Launch-time native homes and manifests remain runtime-owned under the shared runtime root:
-
-```bash
-<runtime-root>/homes/<tool>-brain-*/
-<runtime-root>/manifests/<tool>-brain-*.yaml
-```
-
-Those paths are internal implementation details. The supported operator workflow launches directly from native selectors (`--agents`) resolved from the effective agent-definition root.
-
-## Supported Operator Workflow
-
-The supported operator workflow is the pair itself:
-
-- `houmao-server` as the HTTP authority
-- `houmao-mgr` as the management CLI
-
-The legacy `/cao/*` compatibility routes remain as server-owned transport shims for existing `cao_rest` sessions. The following entrypoints are retired: `houmao-mgr cao ...`, top-level `houmao-mgr launch`, standalone `houmao-cao-server`, and raw standalone `cao_rest` operator entrypoints.
-
-## Source References
-
-- [`src/houmao/server/app.py`](../../src/houmao/server/app.py)
-- [`src/houmao/server/cli.py`](../../src/houmao/server/cli.py)
-- [`src/houmao/server/config.py`](../../src/houmao/server/config.py)
-- [`src/houmao/server/service.py`](../../src/houmao/server/service.py)
-- [`src/houmao/server/control_core/core.py`](../../src/houmao/server/control_core/core.py)
-- [`src/houmao/server/control_core/provider_adapters.py`](../../src/houmao/server/control_core/provider_adapters.py)
-- [`src/houmao/server/managed_agents.py`](../../src/houmao/server/managed_agents.py)
-- [`src/houmao/agents/native_launch_resolver.py`](../../src/houmao/agents/native_launch_resolver.py)
-- [`src/houmao/srv_ctrl/cli.py`](../../src/houmao/srv_ctrl/cli.py)
-- [`src/houmao/srv_ctrl/commands/admin.py`](../../src/houmao/srv_ctrl/commands/admin.py)
-- [`src/houmao/srv_ctrl/commands/brains.py`](../../src/houmao/srv_ctrl/commands/brains.py)
-- [`src/houmao/srv_ctrl/commands/agents/core.py`](../../src/houmao/srv_ctrl/commands/agents/core.py)
-- [`src/houmao/srv_ctrl/commands/agents/gateway.py`](../../src/houmao/srv_ctrl/commands/agents/gateway.py)
-- [`src/houmao/srv_ctrl/commands/agents/mail.py`](../../src/houmao/srv_ctrl/commands/agents/mail.py)
-- [`src/houmao/srv_ctrl/commands/agents/turn.py`](../../src/houmao/srv_ctrl/commands/agents/turn.py)
-- [`src/houmao/agents/realm_controller/runtime.py`](../../src/houmao/agents/realm_controller/runtime.py)
+- standalone `/cao/*` compatibility routes
+- new runtime manifests with `backend = "houmao_server_rest"`
+
+Some Python modules under `src/houmao/server/` remain importable because maintained manager and passive-server code still use shared models, compatibility records, TUI helpers, or managed-headless storage shapes. That module location is internal support only and does not imply a supported standalone server product.
+
+## Migration Guide
+
+Use these replacements for current workflows:
+
+| Old intent | Maintained path |
+|---|---|
+| Start the server API | `houmao-passive-server serve --port 9891` |
+| Launch a local managed agent | `houmao-mgr agents launch ...` |
+| Adopt an existing tmux agent | `houmao-mgr agents join ...` |
+| Attach or inspect a gateway on the owning host | `houmao-mgr agents gateway ...` |
+| Inspect or prompt through a server API authority | `houmao-mgr agents state|prompt|mail|turn ... --port 9891` or passive-server `/houmao/agents/*` routes |
+| Manage passive-server-owned headless turns | `houmao-mgr agents turn ... --port 9891` or `/houmao/agents/{agent_ref}/turns` |
+| Recognize old server filesystem artifacts | [Retired Houmao Server Filesystem Notes](system-files/houmao-server.md) |
+
+## Current References
+
+- [houmao-mgr CLI](cli/houmao-mgr.md)
+- [houmao-passive-server CLI and API](cli/houmao-passive-server.md)
+- [Managed-Agent API](managed_agent_api.md)
+- [Agent Gateway Reference](gateway/index.md)
+- [System Files Reference](system-files/index.md)

@@ -122,7 +122,6 @@ from houmao.agents.realm_controller.manifest import (
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
-from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.cao.rest_client import CaoApiError
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
@@ -345,14 +344,10 @@ def resolve_managed_agent_target(
     )
     if record is not None:
         if record.identity.backend == "houmao_server_rest":
-            client = require_supported_houmao_pair(base_url=_api_base_url_from_record(record))
-            identity = _resolve_server_identity_from_record(client=client, record=record)
-            return ManagedAgentTarget(
-                mode="server",
-                agent_ref=normalized_ref,
-                identity=identity,
-                client=client,
-                record=record,
+            raise click.ClickException(
+                "This managed agent is registered with retired backend "
+                "`houmao_server_rest`. Use `houmao-passive-server` for maintained API-backed "
+                "management or relaunch the agent through a maintained local/headless workflow."
             )
         if _is_local_tmux_backed_active_record(record):
             health = _probe_local_tmux_authority_for_record(record)
@@ -433,14 +428,9 @@ def resolve_relaunch_managed_agent_target(
                 record=record,
             )
         if record.identity.backend == "houmao_server_rest":
-            client = require_supported_houmao_pair(base_url=_api_base_url_from_record(record))
-            identity = _resolve_server_identity_from_record(client=client, record=record)
-            return ManagedAgentTarget(
-                mode="server",
-                agent_ref=normalized_ref,
-                identity=identity,
-                client=client,
-                record=record,
+            raise click.ClickException(
+                "This managed agent is registered with retired backend "
+                "`houmao_server_rest`. Relaunch it through a maintained local/headless workflow."
             )
         if _is_local_tmux_backed_active_record(record):
             health = _probe_local_tmux_authority_for_record(record)
@@ -3646,7 +3636,7 @@ def _resolve_server_identity_from_record(
             continue
     raise click.ClickException(
         f"Managed agent `{record.agent_name}` is registered in the shared registry but "
-        "could not be resolved from the owning houmao-server."
+        "could not be resolved from the owning pair authority."
     )
 
 
@@ -3689,23 +3679,6 @@ def _resolve_local_gateway_record_for_passive_pair(
         agent_id=None,
         agent_name=target.identity.agent_name or target.agent_ref,
     )
-
-
-def _api_base_url_from_record(record: ManagedAgentRegistryRecordV3) -> str:
-    """Extract one `houmao-server` base URL from a registry-backed manifest."""
-
-    handle = load_session_manifest(Path(record.runtime.manifest_path))
-    payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    authority = resolve_manifest_session_authority(
-        manifest_path=handle.path,
-        payload=payload,
-    )
-    api_base_url = authority.attach.api_base_url
-    if api_base_url is None or not api_base_url.strip():
-        raise click.ClickException(
-            f"Managed agent `{record.agent_name}` is missing a usable houmao-server api_base_url."
-        )
-    return api_base_url.strip()
 
 
 def _gateway_status_for_controller(controller: RuntimeSessionController) -> GatewayStatusV1:

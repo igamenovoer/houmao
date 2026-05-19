@@ -1,6 +1,6 @@
 # System Files Reference
 
-This subtree is the centralized reference for filesystem paths that Houmao creates, selects, or relies on during normal runtime, registry, and server lifecycles.
+This subtree is the centralized reference for filesystem paths that Houmao creates, selects, or relies on during normal runtime, registry, and maintained passive-server lifecycles.
 
 Use it when you need to answer questions like:
 
@@ -34,7 +34,7 @@ Representative runtime-owned layout:
   manifests/<home-id>.yaml
   loop-runs/pairwise-v2/<run-id>/   # legacy retained runtime-family reference
   sessions/<backend>/<session-id>/
-  houmao_servers/<host>-<port>/
+  houmao_servers/<host>-<port>/       # passive-server listener/headless state
 ```
 
 Representative registry-owned layout:
@@ -51,7 +51,7 @@ For maintained local-state command surfaces, `runtime/`, managed-agent memory st
 - [Roots And Ownership](roots-and-ownership.md): Default roots, override precedence, ownership categories, and the mailbox boundary.
 - [Agents And Runtime](agents-and-runtime.md): Generated homes, generated manifests, runtime-owned loop-run recovery records, runtime session roots, nested gateway files, and per-agent memory directories.
 - [Legacy CAO Server](cao-server.md): Historical reference for the retired standalone CAO launcher layout.
-- [Houmao Server](houmao-server.md): Server-owned listener roots, registration bridges, and memory-primary live tracking.
+- [Retired Houmao Server](houmao-server.md): Historical/internal notes for retained old-server state shapes; not a maintained executable.
 - [Shared Registry](shared-registry.md): Registry root placement, `live_agents/<agent-id>/record.json`, and the registry’s pointer-oriented scope.
 - [Operator Preparation](operator-preparation.md): Pre-creation, permissions, redirection surfaces, ignore rules, and cleanup expectations.
 
@@ -60,7 +60,7 @@ For maintained local-state command surfaces, `runtime/`, managed-agent memory st
 - [Session Lifecycle](../run-phase/session-lifecycle.md): Session lifecycle, targeting, and recovery behavior.
 - [Shared Registry Reference](../registry/index.md): Registry semantics, discovery, and cleanup behavior.
 - [Agent Gateway Reference](../gateway/index.md): Gateway protocol, queue behavior, and lifecycle handling.
-- [Houmao Server Pair](../houmao_server_pair.md): Supported pair boundary and backend identity.
+- [Passive Server API](../cli/houmao-passive-server.md): Maintained server API surface and passive-server runtime layout.
 
 ## Source References
 

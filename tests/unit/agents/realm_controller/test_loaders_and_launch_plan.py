@@ -1249,10 +1249,8 @@ def test_build_launch_plan_rejects_codex_partial_streaming_tool_param(tmp_path: 
         )
 
 
-@pytest.mark.parametrize("backend", ["cao_rest", "houmao_server_rest"])
-def test_build_launch_plan_rejects_rest_backends_that_cannot_honor_overrides(
+def test_build_launch_plan_rejects_cao_backend_when_it_cannot_honor_overrides(
     tmp_path: Path,
-    backend: str,
 ) -> None:
     env_file = tmp_path / "vars.env"
     env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
@@ -1286,7 +1284,7 @@ def test_build_launch_plan_rejects_rest_backends_that_cannot_honor_overrides(
             LaunchPlanRequest(
                 brain_manifest=manifest,
                 role_package=role,
-                backend=backend,  # type: ignore[arg-type]
+                backend="cao_rest",
                 working_directory=tmp_path,
             )
         )

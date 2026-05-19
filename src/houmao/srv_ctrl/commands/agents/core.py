@@ -299,7 +299,7 @@ def _load_managed_predecessor_home_context(
         raise RuntimeError(
             "Managed preserved-home launch only supports locally owned agents. "
             f"Managed agent `{managed_launch_identity.agent_name}` is currently owned by "
-            "`houmao-server`."
+            "retired backend `houmao_server_rest`."
         )
     if require_same_tool and record.identity.tool != requested_tool:
         raise RuntimeError(

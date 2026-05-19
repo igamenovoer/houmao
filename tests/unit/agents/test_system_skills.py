@@ -810,7 +810,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "easy/" in project_layout_reference
     assert "brains build" in project_effects_reference
     assert "agents launch" in project_effects_reference
-    assert "server start" in project_effects_reference
+    assert "server start" not in project_effects_reference
     assert "admin cleanup runtime" in project_effects_reference
     assert "houmao-specialist-mgr" not in project_routing_reference
     assert "houmao-credential-mgr" in project_routing_reference

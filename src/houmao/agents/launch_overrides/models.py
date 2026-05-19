@@ -13,7 +13,6 @@ SupportedLaunchBackend: TypeAlias = Literal[
     "claude_headless",
     "gemini_headless",
     "cao_rest",
-    "houmao_server_rest",
 ]
 ToolParamValueType: TypeAlias = Literal["boolean"]
 JsonScalar: TypeAlias = str | int | float | bool | None
@@ -27,7 +26,6 @@ _SUPPORTED_LAUNCH_BACKENDS: Final[frozenset[str]] = frozenset(
         "claude_headless",
         "gemini_headless",
         "cao_rest",
-        "houmao_server_rest",
     }
 )
 _SUPPORTED_TOOL_PARAM_TYPES: Final[frozenset[str]] = frozenset({"boolean"})

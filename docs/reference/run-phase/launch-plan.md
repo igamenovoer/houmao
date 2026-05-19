@@ -115,7 +115,7 @@ Returns the default backend for a given tool name.
 **Override behavior:**
 
 - When `prefer_local_interactive=True`, returns `local_interactive` for all tools. This routes the agent through a tmux-backed interactive session instead of the tool's native headless mode.
-- When `prefer_cao=True`, returns `cao_rest` (legacy server-backed path).
+- `prefer_cao=True` is legacy/internal compatibility input. New public operator workflows do not request standalone `cao_rest` launches.
 
 ## See also
 

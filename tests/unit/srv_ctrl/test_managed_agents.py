@@ -3176,29 +3176,27 @@ def test_attach_gateway_forwards_tui_timing_overrides_to_local_controller(
     assert controller.attach_calls == [("tmux_auxiliary_window", timings)]
 
 
-def test_attach_gateway_sends_execution_mode_to_pair_client() -> None:
+def test_attach_gateway_rejects_remote_passive_pair_without_local_authority() -> None:
     captured: list[tuple[str, object]] = []
     target = ManagedAgentTarget(
         mode="server",
         agent_ref="published-alpha",
         identity=_managed_identity(),
         client=SimpleNamespace(
-            pair_authority_kind="houmao-server",
+            pair_authority_kind="houmao-passive-server",
             attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
                 captured.append((agent_ref, request_model)) or _gateway_status()
             ),
         ),
     )
 
-    response = attach_gateway(target, background=True)
+    with pytest.raises(click.ClickException, match="local authority"):
+        attach_gateway(target, background=True)
 
-    assert response.gateway_port == 9901
-    assert len(captured) == 1
-    assert captured[0][0] == "published-alpha"
-    assert getattr(captured[0][1], "execution_mode") == "detached_process"
+    assert captured == []
 
 
-def test_attach_gateway_sends_tui_timing_overrides_to_pair_client() -> None:
+def test_attach_gateway_rejects_remote_passive_pair_with_tui_timing_overrides() -> None:
     captured: list[tuple[str, object]] = []
     timings = GatewayTuiTrackingTimingOverridesV1(
         watch_poll_interval_seconds=0.25,
@@ -3210,21 +3208,17 @@ def test_attach_gateway_sends_tui_timing_overrides_to_pair_client() -> None:
         agent_ref="published-alpha",
         identity=_managed_identity(),
         client=SimpleNamespace(
-            pair_authority_kind="houmao-server",
+            pair_authority_kind="houmao-passive-server",
             attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
                 captured.append((agent_ref, request_model)) or _gateway_status()
             ),
         ),
     )
 
-    response = attach_gateway(target, tui_tracking_timing_overrides=timings)
+    with pytest.raises(click.ClickException, match="local authority"):
+        attach_gateway(target, tui_tracking_timing_overrides=timings)
 
-    assert response.gateway_port == 9901
-    assert len(captured) == 1
-    assert captured[0][0] == "published-alpha"
-    request_model = captured[0][1]
-    assert getattr(request_model, "execution_mode") == "tmux_auxiliary_window"
-    assert getattr(request_model, "tui_tracking_timings") == timings
+    assert captured == []
 
 
 def test_submit_headless_turn_uses_local_runtime_controller(

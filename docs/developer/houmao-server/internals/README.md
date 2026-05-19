@@ -1,10 +1,10 @@
 # TUI Handling Internals
 
-This doc set explains how `houmao-server` performs server-owned live TUI tracking. It is intentionally about the internal watch plane: discovery, polling, parsing, and tracked-state authority.
+This doc set is internal reference for retained old-server live TUI tracking modules. It is intentionally about the internal watch plane: discovery, polling, parsing, and tracked-state authority. It does not describe a maintained standalone `houmao-server` executable.
 
 The key architectural boundary is:
 
-- `houmao-server` owns the `src/houmao/server/tui/` watch-plane module: discovery, polling, parsing, host-side lifecycle, and terminal-keyed live lookup.
+- Retained old-server modules own the `src/houmao/server/tui/` watch-plane module: discovery, polling, parsing, host-side lifecycle, and terminal-keyed live lookup.
 - `houmao.shared_tui_tracking` owns tracker semantics for raw-snapshot reduction, detector/profile resolution, and tracker-owned `surface` / `turn` / `last_turn`.
 - CAO-compatible control routes dispatch through the server-owned compatibility core, not through a supervised child `cao-server`.
 - Live tracker state is memory-primary. On restart, the server rebuilds watch authority from registration records plus current tmux liveness instead of replaying old tracker snapshots from disk.

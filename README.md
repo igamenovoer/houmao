@@ -467,10 +467,8 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 
 | Entrypoint | Purpose | Status |
 |---|---|---|
-| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, credential management, server control | **Active** |
-| `houmao-server` | Houmao-owned REST server for managed-agent session lifecycle | **Stabilizing — usable for the documented surfaces** |
-| `houmao-passive-server` | Registry-driven stateless server for distributed agent coordination | **Stabilizing — usable for the documented surfaces** |
-| `houmao-cli` | Legacy build/start/prompt/stop entrypoint | Deprecated — use `houmao-mgr` |
+| `houmao-mgr` | Primary operator CLI — build, launch, prompt, stop, credential management, and local workflow control | **Active** |
+| `houmao-passive-server` | Maintained registry-driven API server for discovering, observing, and managing running agents | **Active** |
 
 `houmao-mgr` exposes a dedicated top-level `credentials` command group for Claude, Codex, and Gemini credential CRUD, alongside the project-scoped `project credentials` wrapper. See the [`credentials`](docs/reference/cli/houmao-mgr.md#credentials-dedicated-credential-management) section of the CLI reference for the full surface.
 
@@ -479,7 +477,7 @@ The repository ships four maintained runnable demos under `scripts/demo/`:
 ```bash
 houmao-mgr --help
 houmao-mgr --version          # prints the packaged Houmao version and exits
-houmao-server --help
+houmao-passive-server --help
 ```
 
 ## Full Documentation
@@ -498,4 +496,4 @@ pixi run docs-serve          # local docs site with live reload
 
 ---
 
-> **Legacy note:** Houmao was originally inspired by [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Legacy `houmao-cli` and `cao_rest` backend paths are deprecated — use `houmao-mgr`, `houmao-server`, and `local_interactive` instead.
+> **Legacy note:** Houmao was originally inspired by [CAO (CLI Agent Orchestrator)](https://github.com/awslabs/cli-agent-orchestrator). Legacy `houmao-cli`, standalone `houmao-server`, and `cao_rest` backend paths are retired — use `houmao-mgr`, `houmao-passive-server`, and local/headless managed-agent workflows instead.

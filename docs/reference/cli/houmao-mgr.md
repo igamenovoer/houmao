@@ -1,8 +1,8 @@
 # houmao-mgr
 
-Houmao pair CLI with native server and managed-agent command families.
+Houmao manager CLI for local projects and managed-agent workflows.
 
-`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, packaged Houmao-owned system-skill installation, repo-local project overlays, and `houmao-server` control. It provides native command groups for agent orchestration, filesystem mailbox administration, brain construction, explicit tool-home skill installation, project bootstrap, server management, and administrative tasks.
+`houmao-mgr` is the primary management CLI for local lifecycle, managed agents, mailbox administration, packaged Houmao-owned system-skill installation, repo-local project overlays, and administrative tasks. API-backed coordination is handled by `houmao-passive-server`.
 
 ## Synopsis
 
@@ -79,7 +79,7 @@ For dedicated coverage of complex nested command families, see:
 | `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. `stop` and `relaunch` probe tmux authority first and route through recovery helpers when the session is degraded or stale. |
 | `mail` | Resolve live mailbox bindings, inspect status, check, send, reply, or mark messages read. |
 | `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
-| `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material without calling `houmao-server`. |
+| `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material locally. |
 | `gateway attach` | Attach a gateway to an agent session. |
 | `gateway status` | Show gateway status for a session. |
 | `gateway prompt` | Send a prompt through the gateway. |
@@ -190,7 +190,7 @@ Cleanup targeting rules:
 houmao-mgr mailbox [OPTIONS] COMMAND [ARGS]...
 ```
 
-Local operator commands for filesystem mailbox roots and address lifecycle. This surface does not require `houmao-server`.
+Local operator commands for filesystem mailbox roots and address lifecycle. This surface does not require a running server.
 
 #### Subcommands
 
@@ -221,7 +221,7 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 houmao-mgr brains [OPTIONS] COMMAND [ARGS]...
 ```
 
-Local brain-construction commands; these do not call houmao-server.
+Local brain-construction commands; these do not call a server.
 
 #### `brains build`
 
@@ -703,40 +703,6 @@ The primary subgroup is `internals graph`, which provides NetworkX-backed helper
 
 For the full subcommand reference, see [internals](internals.md).
 
-### `server` — Server lifecycle management
-
-```
-houmao-mgr server [OPTIONS] COMMAND [ARGS]...
-```
-
-Manage supported pair-authority lifecycle and houmao-server sessions.
-
-#### `server start`
-
-Start houmao-server in detached or explicit foreground mode.
-
-```
-houmao-mgr server start [OPTIONS]
-```
-
-**Options:**
-
-| Option | Description |
-|---|---|
-| `--foreground` | Run the server in the foreground instead of detaching. |
-| `--api-base-url TEXT` | Base URL for the server API. |
-| `--runtime-root PATH` | Root directory for runtime state. |
-| `--watch-poll-interval-seconds FLOAT` | Polling interval for the session watcher. |
-| `--supported-tui-process TEXT` | TUI process name the server should recognize. May be specified multiple times. |
-
-#### `server status`
-
-Show server health and a compact active-session summary.
-
-```
-houmao-mgr server status [OPTIONS]
-```
-
 ---
 
-**Deprecated entrypoints:** `houmao-cli` is deprecated. Use `houmao-mgr` and `houmao-server`/`houmao-passive-server` instead.
+**Removed entrypoints:** `houmao-cli`, standalone `houmao-server`, and `houmao-mgr server ...` are retired. Use `houmao-mgr` for local workflows and `houmao-passive-server` for the maintained server API surface.

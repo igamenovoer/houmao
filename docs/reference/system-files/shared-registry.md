@@ -44,13 +44,13 @@ It does not copy:
 
 The current active standalone schema for this artifact is `managed_agent_registry_record.v3.schema.json`, and the current typed boundary in live code is `ManagedAgentRegistryRecordV3`. Legacy v2 live records are still accepted on load and are upgraded to active lifecycle records in memory.
 
-For `houmao_server_rest` sessions, including server-backed managed-session flows, the registry continues to publish pointers back to the Houmao-owned runtime manifest and session root rather than copying runtime state into the registry record.
+For maintained tmux-backed managed sessions, the registry publishes pointers back to the Houmao-owned runtime manifest and session root rather than copying runtime state into the registry record. Legacy `houmao_server_rest` records may still be recognized as old artifacts, but new public launches do not create them.
 
 ## Ownership Notes
 
 - Shared-registry creation follows launch authority. Whoever launches the live agent creates the record.
 - Shared-registry lifecycle updates follow termination and cleanup authority. Authoritative stop for relaunchable tmux-backed local sessions publishes a stopped record; later session cleanup retires that record by default or purges it when the operator explicitly asks.
-- Discovery by `houmao-server` does not, by itself, transfer registry ownership or trigger republishing of an already valid external record.
+- Discovery by `houmao-passive-server` does not, by itself, transfer registry ownership or trigger republishing of an already valid external record.
 - Runtime-managed manifests, tmux bindings, gateway metadata, and mailbox pointers remain available regardless of who created the registry record, so another launcher can publish a pointer-oriented record without copying runtime state.
 - The registry directory key is authoritative `agent_id`, not the retired `agent_key`.
 - Canonical agent name remains persisted metadata inside the record and remains part of lookup semantics, but it is not the on-disk directory key.

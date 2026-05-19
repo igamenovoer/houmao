@@ -25,14 +25,14 @@ Use `houmao-mgr agents prompt` instead when you want normal prompt-turn behavior
 - advance persisted prompt-turn state
 - collect normal `SessionEvent` turn output
 
-For `local_interactive` and `houmao_server_rest` backends, the distinction is explicit:
+For `local_interactive` and other maintained tmux-backed managed sessions, the distinction is explicit:
 
 - `agents prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
 - `agents gateway send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
 
 ## Scope And Output
 
-- Supported backends include `local_interactive` and `houmao_server_rest`.
+- Supported backends include `local_interactive` and maintained tmux-backed managed sessions with raw control-input support.
 - Backends without raw control-input support return an explicit `action="control_input"` error result instead of trying to emulate prompt submission.
 - The runtime routes this path through the `send_input_ex()` method on sessions.
 - The CLI returns one JSON result and does not stream prompt-turn events.

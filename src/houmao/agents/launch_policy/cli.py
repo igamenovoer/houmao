@@ -74,7 +74,6 @@ def _parse_backend(raw_value: str) -> LaunchSurface:
         "claude_headless",
         "gemini_headless",
         "cao_rest",
-        "houmao_server_rest",
     }:
         raise SystemExit(f"Unsupported --backend value: {raw_value!r}")
     return cast(LaunchSurface, value)

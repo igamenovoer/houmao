@@ -22,11 +22,8 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
     "claude_headless": ("-p", "--append-system-prompt", "--output-format", "--resume"),
     "gemini_headless": ("-p", "--output-format", "--resume"),
     "cao_rest": (),
-    "houmao_server_rest": (),
 }
-_UNSUPPORTED_OVERRIDE_BACKENDS: Final[frozenset[SupportedLaunchBackend]] = frozenset(
-    {"cao_rest", "houmao_server_rest"}
-)
+_UNSUPPORTED_OVERRIDE_BACKENDS: Final[frozenset[SupportedLaunchBackend]] = frozenset({"cao_rest"})
 
 
 @dataclass(frozen=True)

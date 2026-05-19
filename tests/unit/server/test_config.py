@@ -6,7 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from houmao.project.overlay import bootstrap_project_overlay
-from houmao.server.commands.common import build_config
 from houmao.server.config import HoumaoServerConfig
 
 
@@ -43,59 +42,6 @@ def test_houmao_server_config_validates_compatibility_timing_fields(tmp_path: Pa
             runtime_root=tmp_path,
             compat_codex_warmup_seconds=-0.1,
         )
-
-
-def test_build_config_applies_compatibility_timing_overrides(tmp_path: Path) -> None:
-    config = build_config(
-        api_base_url="http://127.0.0.1:9889",
-        runtime_root=str(tmp_path),
-        watch_poll_interval_seconds=0.5,
-        recent_transition_limit=24,
-        stability_threshold_seconds=1.0,
-        completion_stability_seconds=1.0,
-        unknown_to_stalled_timeout_seconds=30.0,
-        supported_tui_processes=(),
-        compat_shell_ready_timeout_seconds=20.0,
-        compat_shell_ready_poll_interval_seconds=0.25,
-        compat_provider_ready_timeout_seconds=90.0,
-        compat_provider_ready_poll_interval_seconds=0.75,
-        compat_codex_warmup_seconds=0.0,
-    )
-
-    assert config.runtime_root == tmp_path.resolve()
-    assert config.compat_shell_ready_timeout_seconds == 20.0
-    assert config.compat_shell_ready_poll_interval_seconds == 0.25
-    assert config.compat_provider_ready_timeout_seconds == 90.0
-    assert config.compat_provider_ready_poll_interval_seconds == 0.75
-    assert config.compat_codex_warmup_seconds == 0.0
-
-
-def test_build_config_defaults_to_project_overlay_runtime_root(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    bootstrap_project_overlay(repo_root)
-    monkeypatch.chdir(repo_root)
-
-    config = build_config(
-        api_base_url="http://127.0.0.1:9889",
-        runtime_root=None,
-        watch_poll_interval_seconds=0.5,
-        recent_transition_limit=24,
-        stability_threshold_seconds=1.0,
-        completion_stability_seconds=1.0,
-        unknown_to_stalled_timeout_seconds=30.0,
-        supported_tui_processes=(),
-        compat_shell_ready_timeout_seconds=10.0,
-        compat_shell_ready_poll_interval_seconds=0.5,
-        compat_provider_ready_timeout_seconds=45.0,
-        compat_provider_ready_poll_interval_seconds=1.0,
-        compat_codex_warmup_seconds=2.0,
-    )
-
-    assert config.runtime_root == (repo_root / ".houmao" / "runtime").resolve()
 
 
 def test_houmao_server_config_defaults_runtime_root_project_aware(

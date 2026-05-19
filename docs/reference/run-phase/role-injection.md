@@ -12,12 +12,12 @@ flowchart TD
     CL["claude_headless"]
     GM["gemini_headless"]
     LI["local_interactive"]
-    LEG["cao_rest /<br/>houmao_server_rest"]
+    LEG["legacy/internal REST<br/>manifest rejection"]
 
     NDI["native_developer_instructions<br/>-c developer_instructions flag"]
     NAS["native_append_system_prompt<br/>+ bootstrap_message"]
     BM["bootstrap_message<br/>(first-turn prompt)"]
-    PB["cao_profile<br/>(legacy server-side)"]
+    PB["cao_profile<br/>(legacy/internal only)"]
 
     BE -->|codex| CX --> NDI
     BE -->|claude| CL --> NAS
@@ -57,7 +57,7 @@ The `RoleInjectionMethod` type enumerates the available injection strategies:
 - **`native_developer_instructions`** — the effective launch prompt is passed as a CLI flag that the tool natively supports for developer/system instructions when prompt content exists.
 - **`native_append_system_prompt`** — the effective launch prompt is appended to the tool's system prompt via a native CLI flag, optionally combined with a bootstrap message, when prompt content exists.
 - **`bootstrap_message`** — the effective launch prompt is delivered as the first user-turn message in the session when prompt content exists.
-- **`cao_profile`** — the effective launch prompt is injected via a server-side profile mechanism (legacy backends only).
+- **`cao_profile`** — the effective launch prompt was injected via a legacy profile mechanism. Current public launch paths do not target this method.
 
 The runtime does not ask providers to interpret those tags. Backends receive one opaque final prompt string and apply their normal native injection path or bootstrap fallback to that already-rendered prompt.
 
@@ -70,8 +70,8 @@ The runtime does not ask providers to interpret those tags. Backends receive one
 | `claude_headless` | `native_append_system_prompt` | When the effective launch prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty effective prompts skip both. |
 | `gemini_headless` | `bootstrap_message` | When the effective launch prompt is non-empty, Houmao sends it as a first-turn bootstrap message. Empty effective prompts skip bootstrap entirely. |
 | `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini uses bootstrap messaging. Empty effective prompts suppress those startup inputs regardless of tool. |
-| `cao_rest` | `cao_profile` | Legacy: the effective launch prompt is injected via the external server's profile-based mechanism. |
-| `houmao_server_rest` | `cao_profile` | Legacy: the effective launch prompt is injected via the server's profile-based mechanism. |
+| `cao_rest` | `cao_profile` | Legacy/internal: retained only for old manifests and explicit rejection paths. |
+| `houmao_server_rest` | `cao_profile` | Legacy/internal: retired old-server backend identity, rejected for new sessions. |
 
 ## Bootstrap message lifecycle
 
@@ -87,7 +87,7 @@ Role injection is intentionally backend-specific rather than using a single univ
 
 2. **Bootstrap messages are the fallback.** When a tool does not expose a native injection flag (Gemini, local interactive), the role prompt is sent as the first conversational turn. This is effective but less cleanly separated from user content.
 
-3. **Legacy backends delegate entirely.** The `cao_rest` and `houmao_server_rest` backends rely on server-side profile mechanisms that are outside the local launch plan's control.
+3. **Legacy backends are not public launch targets.** `cao_rest` and `houmao_server_rest` may still appear in old manifests or internal compatibility code, but new user-facing launches fail fast before relying on their profile mechanism.
 
 ## See also
 

@@ -10,23 +10,13 @@ pixi install
 
 ## Primary Commands
 
-- Supported operator CLIs: `houmao-mgr`, `houmao-server`, `houmao-passive-server`
-- Legacy runtime-local CLI: `houmao-cli`
-
-Legacy runtime CLI subcommands:
-
-- `build-brain`
-- `start-session`
-- `send-prompt`
-- `send-keys`
-- `mail`
-- `stop-session`
+- Supported operator CLI: `houmao-mgr`
+- Supported server/API CLI: `houmao-passive-server`
+- Removed historical entrypoints: `houmao-cli`, standalone `houmao-server`, and `houmao-cao-server`
 
 Module equivalents:
 
 ```bash
-pixi run python -m houmao.agents.realm_controller --help
-houmao-server --help
 houmao-passive-server --help
 houmao-mgr --help
 ```
@@ -41,32 +31,25 @@ houmao-mgr --help
 
 Set `HOUMAO_CLI_PRINT_STYLE=plain|json|fancy` for persistent preference without repeating the flag. Resolution order: explicit flag → env var → `plain`.
 
-High-traffic commands such as `agents list`, `agents state`, `server status`, and `agents gateway status|prompt` have curated plain and fancy renderers. All other commands use generic fallback renderers that auto-detect payload shape (flat key-value dict, single-list-key table, or nested structure).
+High-traffic commands such as `agents list`, `agents state`, and `agents gateway status|prompt` have curated plain and fancy renderers. All other commands use generic fallback renderers that auto-detect payload shape (flat key-value dict, single-list-key table, or nested structure).
 
 Scripts and CI pipelines that parse `houmao-mgr` output as JSON must add `--print-json` or set `HOUMAO_CLI_PRINT_STYLE=json`.
 
 ## Common Runtime Flags
 
-Useful `start-session` overrides:
-
-- `--houmao-base-url http://127.0.0.1:<port>` for the `houmao_server_rest` runtime backend
-- `--mailbox-transport filesystem`
-- `--mailbox-root <path>`
-- `--mailbox-principal-id <principal-id>`
-- `--mailbox-address <full-address>`
+Runtime launch is exposed through `houmao-mgr` command families. Historical `houmao-cli start-session`, `cao_rest`, and `houmao_server_rest` workflows are retired and are not packaged as supported commands.
 
 Useful `build-brain` or `houmao-mgr brains build` override:
 
 - `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain
 - `--operator-prompt-mode as_is` to keep the provider startup posture unchanged; omitted mode now defaults to `unattended`
 
-The preferred operator surface is `houmao-server + houmao-mgr`. Use [Houmao Server Pair](houmao_server_pair.md) for the contract boundary.
+The preferred operator/API surface is `houmao-mgr` for local workflows plus `houmao-passive-server` for API-based coordination.
 
 For pair-managed agents, the supported operator surface is the managed-agent command family on `houmao-mgr` and the matching `/houmao/agents/*` server routes. When an attached gateway is healthy, those same commands automatically gain richer live backing behavior such as gateway-owned admission, queueing, and live state projection without changing the public CLI shape.
 
 Within that pair, `houmao-mgr` is split deliberately:
 
-- `server` is the server lifecycle and server-session family
 - `agents` is the managed-agent lifecycle family
 - `brains` is the local brain-construction family
 - `credentials` is the first-class credential-management family for the active project overlay or an explicit plain agent-definition directory
@@ -94,18 +77,13 @@ The explicit `houmao-mgr cao ...` namespace and top-level `houmao-mgr launch` ar
 
 Useful pair runtime controls:
 
-- `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider> [--workdir <path>]` performs local brain build plus launch without requiring a running `houmao-server`. When `--workdir` is set, the invocation project or explicit preset owner still supplies the project-aware overlay, runtime root, managed-agent memory root, and mailbox root; `--workdir` only changes the launched session cwd.
+- `houmao-mgr agents launch --agents <selector> --agent-name <friendly-name> --provider <provider> [--workdir <path>]` performs local brain build plus launch without requiring a running server. When `--workdir` is set, the invocation project or explicit preset owner still supplies the project-aware overlay, runtime root, managed-agent memory root, and mailbox root; `--workdir` only changes the launched session cwd.
 - `houmao-mgr agents join --agent-name <friendly-name> [--workdir <path>]` adopts a supported TUI that is already running in tmux window `0`, pane `0` of the current session, publishes the normal manifest-first runtime envelope, and does not restart the live TUI.
 - `houmao-mgr agents join --headless --agent-name <friendly-name> --provider <provider> --launch-args <arg> ... [--workdir <path>]` adopts a tmux-backed native headless logical session between turns; `--resume-id` is optional, where omitted means start from no known chat, `last` means resume the latest known chat, and any other non-empty value means resume that exact provider session id.
 - `houmao-mgr agents relaunch --agent-name <friendly-name>` or `houmao-mgr agents relaunch` from inside the owning tmux session refreshes the supported tmux-backed runtime surface without rebuilding the managed-agent home. Relaunch now accepts both active records and stopped relaunchable records; stopped relaunch recreates tmux authority for the same managed-agent identity, session root, and built home instead of acting as a fresh launch.
 - `houmao-mgr agents stop --agent-name <friendly-name>` stops a live tmux-backed managed agent. For local relaunchable sessions, stop now preserves a stopped lifecycle registry record with the durable manifest path, session root, last-known tmux session name, and relaunch posture needed for later relaunch or cleanup.
 - `houmao-mgr agents list` shows active lifecycle records by default. Use `--state stopped`, `--state retired`, or `--state all` when you intentionally want lifecycle-inclusive discovery instead of the normal live-control view.
-- `houmao-mgr server start` is detached by default, emits one structured startup result (use `--print-json` for machine-readable output), and accepts `--foreground` when you want the server attached to the current terminal.
-- `houmao-mgr server start` exposes the same server startup flags as `houmao-server serve`, including `--compat-shell-ready-timeout-seconds`, `--compat-shell-ready-poll-interval-seconds`, `--compat-provider-ready-timeout-seconds`, `--compat-provider-ready-poll-interval-seconds`, and `--compat-codex-warmup-seconds`.
-- `houmao-mgr server stop`, `houmao-mgr server status`, and `houmao-mgr server sessions ...` are the supported server-management commands.
-- `houmao-mgr server status` and `houmao-mgr server stop` also accept `houmao-passive-server` pair authorities, so Step 7 side-by-side checks can target an alternate passive-server port such as `9891` without switching CLIs.
-
-Detached startup results include `success`, `running`, `mode`, `api_base_url`, `detail`, and server identity fields when available. On failed detached startup, inspect the owned log files under `<runtime-root>/houmao_servers/<host>-<port>/logs/`.
+Run the maintained server API surface with `houmao-passive-server serve`. Manager commands that accept a pair-authority port default to the passive-server port `9891` when no explicit port is supplied.
 
 Managed-agent launch prints distinct identity fields for follow-up control: `agent_name`, `agent_id`, `tmux_session_name`, and `manifest_path`. Use `--agent-id` for exact automation or disambiguation, and use the same raw creation-time `--agent-name` value for normal operator-facing targeting. When `--session-name` is omitted on tmux-backed managed launches, runtime generates `HOUMAO-<agent_name>-<epoch-ms>` and fails explicitly if that handle is already occupied.
 
@@ -147,21 +125,17 @@ Current-session attach requires the target tmux session to publish `HOUMAO_MANIF
 
 By default, `houmao-mgr agents gateway attach` uses same-session foreground execution for tmux-backed managed sessions. When foreground mode is active, `houmao-mgr agents gateway attach` and `houmao-mgr agents gateway status` report `execution_mode` plus the authoritative `gateway_tmux_window_index` for the live gateway surface. Treat that reported non-zero window index as the discovery contract; tmux window names and ordering remain non-contractual.
 
-For pair-managed `houmao_server_rest` sessions, the same-session auxiliary-window topology is also the default. Use `--background` only when you explicitly want detached execution for that attach.
-
 For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. On headless targets, `agents prompt`, `agents gateway prompt`, and `agents turn submit` also accept request-scoped `--model` plus optional `--reasoning-level`; those overrides apply only to the current turn, use the resolved tool/model preset ladder rather than a portable `1..10` scale, and TUI-backed targets reject them explicitly. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface, including runtime appendix updates through `mail-notifier enable --appendix-text`, opt-in degraded-context clearing through `--context-error-policy clear_context`, and opt-in pre-notification compaction through `--pre-notification-context-action compact`. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
-For pair-owned mailbox follow-up, use `houmao-mgr agents mail resolve-live|status|list|peek|read|send|post|reply|mark|move|archive ...`. For local artifact or maintenance work that should not hit `houmao-server`, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
+For pair-owned mailbox follow-up, use `houmao-mgr agents mail resolve-live|status|list|peek|read|send|post|reply|mark|move|archive ...`. For local artifact or maintenance work that should not hit a server API authority, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project easy ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
 For installation or removal of the packaged Houmao-owned skill surface outside managed launch or join, use `houmao-mgr system-skills list|status|install|uninstall ...`. `--home` is optional for single-tool install, uninstall, and status commands: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home. `install` can select sets or explicit skills, while `uninstall` removes all current catalog-known Houmao skill paths for the resolved home. That surface is documented in [system-skills](cli/system-skills.md).
 
 All grouped cleanup commands support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. Plain and fancy modes print populated cleanup actions line by line, while `--print-json` preserves the machine-readable output. When `houmao-mgr agents cleanup {session,logs,mailbox}` runs inside the target tmux session with no explicit selector, it resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus cleanup-capable lifecycle registry metadata when needed. Successful managed-agent stop responses include `manifest_path` and `session_root` when known, and stopped lifecycle records preserve the same locators for later relaunch or cleanup. Selector cleanup by `--agent-id` or `--agent-name` prefers a matching lifecycle registry record and scans the effective runtime root for exactly one stopped manifest only as a migration fallback when no matching lifecycle record exists. `agents cleanup session` retires stopped records by default so relaunch no longer targets deleted runtime artifacts, while `--purge-registry` explicitly deletes the lifecycle record. `agents cleanup logs` and `agents cleanup mailbox` never retire or purge the registry record, and active lifecycle records are preserved until the agent is stopped.
 
-During Step 7 side-by-side validation, keep the old `houmao-server` on `9889` and run `houmao-passive-server` on `9891`. The same `houmao-mgr` surface can then compare both pair authorities directly:
+For API-backed validation, run `houmao-passive-server` on `9891` and target it from `houmao-mgr` commands that accept pair-authority options:
 
 ```bash
-houmao-mgr server status --port 9889
-houmao-mgr server status --port 9891
 houmao-mgr agents state --agent-id <agent-id> --port 9891
 houmao-mgr agents turn submit --agent-id <agent-id> --port 9891 --prompt "Summarize the latest turn."
 ```
@@ -179,7 +153,7 @@ Command reminders:
 
 - `mail send` recipients must use full mailbox addresses such as `HOUMAO-orchestrator@agents.localhost`.
 - `mail send` and `mail reply` require body content via `--body-file` or `--body-content`.
-- `send-keys` is the low-level control-input surface for resumed legacy `cao_rest` sessions; new standalone `backend="cao_rest"` operator workflows are deprecated in favor of `houmao-server` with `houmao-mgr`.
+- `send-keys` is the low-level control-input surface for resumed legacy compatibility sessions; new standalone `backend="cao_rest"` operator workflows are retired in favor of maintained `houmao-mgr` local workflows and `houmao-passive-server` API workflows.
 - Managed-agent routes and `agents ...` commands are the preferred pair seam. The legacy compatibility namespace is no longer part of the supported operator workflow.
 
 For the dedicated mailbox quickstart, contracts, and operational guidance, see [Mailbox Reference](mailbox/index.md).

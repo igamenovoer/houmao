@@ -7,10 +7,10 @@ The standalone CAO launcher workflow has been removed:
 - `houmao-cao-server`
 - `python -m houmao.cao.tools.cao_server_launcher`
 
-Those entrypoints are no longer packaged. Use:
+Those entrypoints are no longer packaged. Use the maintained manager and passive-server surfaces instead:
 
 ```text
-houmao-server + houmao-mgr
+houmao-mgr + houmao-passive-server
 ```
 
 ## Why This Page Still Exists
@@ -41,5 +41,5 @@ That path family belonged to the retired standalone launcher and should not be u
 
 ## Related References
 
-- [Houmao Server Pair](../houmao_server_pair.md)
-- [Houmao Server Filesystem Reference](houmao-server.md)
+- [Passive Server API](../cli/houmao-passive-server.md)
+- [Retired Houmao Server Filesystem Notes](houmao-server.md)

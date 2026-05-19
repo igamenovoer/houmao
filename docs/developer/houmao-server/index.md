@@ -1,6 +1,8 @@
-# Houmao Server Developer Guide
+# Retired Houmao Server Developer Guide
 
-This guide documents the server-owned live terminal tracking contract implemented by `houmao-server`. It covers TUI state tracking, turn lifecycle, and the public state API exposed via `GET /houmao/terminals/{terminal_id}/state`.
+This guide is internal reference for retained old-server modules. The package no longer installs a standalone `houmao-server` executable, and current operator/API workflows should use `houmao-mgr` plus `houmao-passive-server`.
+
+The material below remains useful when changing shared TUI tracking helpers, retained `src/houmao/server/tui/` modules, or compatibility payload models that maintained manager/passive-server code still imports. It does not define a current public executable or route contract.
 
 ## Reading Paths
 
@@ -14,7 +16,7 @@ This guide documents the server-owned live terminal tracking contract implemente
 
 ## What This Guide Covers
 
-The server tracker is built around one core rule: `houmao-server` is the source of truth for live tracked terminal state, but it now expresses that ownership through a dedicated `src/houmao/server/tui/` watch-plane module that hosts the shared reducer rather than reimplementing it locally. The server owns:
+The retired old-server tracker was built around one core rule: old-server-owned routes were the source of truth for live tracked terminal state, but that ownership is now only internal context for the retained `src/houmao/server/tui/` watch-plane module that hosts the shared reducer rather than reimplementing it locally. The retained module owns:
 
 - tmux pane capture and transport health
 - process inspection for supported TUIs
@@ -22,7 +24,7 @@ The server tracker is built around one core rule: `houmao-server` is the source 
 - registration-backed session discovery and watch-worker lifecycle
 - the host adapter that merges shared tracker state with server-owned diagnostics, lifecycle timing, visible-state stability, and bounded recent transition history
 
-Native headless managed agents now sit beside that tracker rather than inside it. They use the shared `/houmao/agents/*` read API, persist server-owned admission state under `state/managed_agents/<tracked_agent_id>/`, and expose durable per-turn inspection under `/houmao/agents/{agent_ref}/turns/*`. That headless control plane is implemented in the same service, but it is intentionally separate from the terminal-tracking reducer documented by this guide.
+Native headless managed agents now sit beside that tracker rather than inside it. Current maintained ownership is through passive-server-managed headless state and `/houmao/agents/*` routes; retained old-server state shapes remain internal compatibility context only.
 
 ## Source Of Truth Map
 
@@ -61,7 +63,7 @@ Test sources:
 
 The shorter reference pages remain useful for quick lookups and operator workflows:
 
-- [Houmao Server Pair](../../reference/houmao_server_pair.md)
+- [Retired Houmao Server Pair](../../reference/houmao_server_pair.md)
 
 Those pages intentionally stay higher level. If you are changing tracker semantics, state transitions, or the public live-state payload, treat this developer guide as the maintained home for the detailed explanation.
 

@@ -45,7 +45,6 @@ _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "claude_headless",
     "gemini_headless",
     "cao_rest",
-    "houmao_server_rest",
 )
 _EVIDENCE_KINDS: tuple[Literal["official_docs", "source_reference", "live_probe"], ...] = (
     "official_docs",

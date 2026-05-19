@@ -61,7 +61,7 @@ Starts a new runtime session by:
 | `runtime_root` | Optional runtime root override; defaults to the standard resolved root |
 | `backend` | Target backend (see [Backends](backends.md)); resolved from manifest if omitted |
 | `working_directory` | Working directory for the agent process |
-| `api_base_url` | Base URL for `houmao_server_rest` or `cao_rest` backends |
+| `api_base_url` | Legacy/internal REST authority metadata; new public launches do not create `cao_rest` or `houmao_server_rest` sessions |
 | `agent_identity` | Legacy agent identity string for session addressing |
 | `agent_name` | Friendly managed-agent name |
 | `agent_id` | Authoritative managed-agent identifier |
