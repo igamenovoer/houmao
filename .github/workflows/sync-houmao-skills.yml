@@ -19,7 +19,7 @@ jobs:
         run: |
           if [[ -z "${GH_TOKEN}" ]]; then
             echo "Missing HOUMAO_SKILLS_SYNC_TOKEN secret." >&2
-            echo "Create a fine-grained token with Actions: write and Contents: read access to igamenovoer/tool-skills." >&2
+            echo "Create a fine-grained token with Actions: write access to igamenovoer/tool-skills." >&2
             exit 1
           fi
 
@@ -27,6 +27,6 @@ jobs:
             --method POST \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/igamenovoer/tool-skills/dispatches \
-            -f event_type=houmao-release-published \
-            -f client_payload[houmao_ref]="${HOUMAO_REF}"
+            /repos/igamenovoer/tool-skills/actions/workflows/sync-houmao.yml/dispatches \
+            -f ref=main \
+            -f inputs[houmao_ref]="${HOUMAO_REF}"
