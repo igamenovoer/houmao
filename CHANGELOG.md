@@ -4,6 +4,18 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.10.1] - 2026-05-19
+
+### Fixed
+
+- **Skills CLI install path now uses the small tool-skills distribution repo**: README and docs now recommend `npx skills add igamenovoer/tool-skills/houmao`, avoiding a full Houmao source-repository clone for ordinary system-skill installs.
+- **Houmao release sync now targets the shared tool-skills repository**: the release workflow dispatches `igamenovoer/tool-skills` so published Houmao releases refresh the `houmao/` tool namespace used by `npx skills add`.
+
+### Notes
+
+- This release bumps the patch segment for the system-skill distribution and install-instruction fix.
+- The `gh release create v0.10.1` event triggers `pypi-release.yml`, `docs.yml`, and the tool-skills sync workflow dispatch.
+
 ## [0.10.0] - 2026-05-14
 
 ### Added
@@ -436,6 +448,7 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.10.1]: https://github.com/igamenovoer/houmao/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/igamenovoer/houmao/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/igamenovoer/houmao/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/igamenovoer/houmao/compare/v0.8.3...v0.9.0
