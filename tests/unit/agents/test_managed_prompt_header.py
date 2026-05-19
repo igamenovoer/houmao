@@ -33,13 +33,16 @@ def test_compose_managed_launch_prompt_payload_renders_structured_sections_in_or
     assert "<task_reminder>" not in payload.prompt
     assert "<mail_ack>" not in payload.prompt
     assert _MEMO_FILE in payload.prompt
-    assert "Mandatory: before planning or acting" in payload.prompt
-    assert "every prompt turn, new dialog, topic change, after compaction" in payload.prompt
-    assert "never as a log, journal, transcript, or scratchpad" in payload.prompt
-    assert "Put long details in `pages/`" in payload.prompt
-    assert "`add to memo`, `update the houmao memo`" in payload.prompt
-    assert "obviously stale" in payload.prompt
-    assert "`pages/notes/todo.md`" in payload.prompt
+    assert "Before planning or acting, read the Houmao-managed memo" in payload.prompt
+    assert "Treat applicable memo entries as standing task context" in payload.prompt
+    assert "Follow them unless they conflict with system, developer, or user instructions" in (
+        payload.prompt
+    )
+    assert "Do not merely acknowledge the memo" in payload.prompt
+    assert "apply relevant facts and constraints in your next actions" in payload.prompt
+    assert "Keep the memo concise: current facts, standing rules" in payload.prompt
+    assert "longer `pages/` notes only" in payload.prompt
+    assert "existing memo content is clearly stale" in payload.prompt
     assert "DO NOT call Claude's AskUserQuestion tool" in payload.prompt
     assert "reply-enabled, reply to that thread" in payload.prompt
     assert payload.prompt.index("<role_prompt>") < payload.prompt.index("<launch_profile_overlay")
