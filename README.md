@@ -83,9 +83,9 @@ Houmao is designed to be driven from inside a CLI agent. Install system skills, 
 
 ```bash
 # Recommended when `npx` is available and the target machine has internet access:
-# point the Skills CLI at the GitHub main-branch system-skills collection,
+# point the Skills CLI at the small release-synced tool-skills repo,
 # then choose which packaged skill(s) to install from the prompt.
-npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/
+npx skills add igamenovoer/tool-skills/houmao
 
 # Use Houmao's installer when `npx` is unavailable, when working offline from
 # an installed Houmao package, or when you need customization such as named sets,
@@ -420,7 +420,7 @@ houmao-mgr system-skills install --tool claude,codex,copilot,gemini
 
 When you want the closed core surface without utility workflows, use `houmao-mgr system-skills install --tool codex --skill-set core`. Use `--skill-set all` or omit explicit selection to include utilities; on a home that already has `core`, install one utility with `--skill houmao-utils-llm-wiki` or `--skill houmao-utils-workspace-mgr`. When you need an explicit external home, run a single-tool command such as `houmao-mgr system-skills install --tool codex --home ~/.codex`.
 
-For the 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
+For ordinary internet-connected installs, use `npx skills add igamenovoer/tool-skills/houmao` to install from the small release-synced tool-skills repository. For the 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) getting-started guide. For the per-flag reference, see the [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
 ## Subsystems at a Glance
 
