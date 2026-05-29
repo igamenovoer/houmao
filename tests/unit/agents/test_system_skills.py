@@ -235,7 +235,9 @@ def test_houmao_system_input_questions_distinguish_required_and_optional_inputs(
         definition_missing_inputs
     )
     assert "Optional: none for this step." in credential_skill
-    assert "Required when not safely inferred:" in workspace_skill
+    assert "## Required Inputs" in workspace_skill
+    assert "Optional: none for this step." in workspace_skill
+    assert "Do not use this format for the user's task/domain intent" in workspace_skill
     assert "Do not force `Required`/`Optional` labels onto user-task" in (touring_question_style)
 
 
@@ -543,46 +545,145 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_WORKSPACE_MGR)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
     in_repo_text = (skill_root / "subskills/in-repo-workspace.md").read_text(encoding="utf-8")
+    out_of_repo_text = (skill_root / "subskills/out-of-repo-workspace.md").read_text(
+        encoding="utf-8"
+    )
+    plan_text = (skill_root / "subskills/operations/plan.md").read_text(encoding="utf-8")
+    create_text = (skill_root / "subskills/operations/create.md").read_text(encoding="utf-8")
+    validate_text = (skill_root / "subskills/operations/validate.md").read_text(encoding="utf-8")
+    summarize_text = (skill_root / "subskills/operations/summarize.md").read_text(
+        encoding="utf-8"
+    )
+    local_state_text = (skill_root / "subskills/reference/local-state-links.md").read_text(
+        encoding="utf-8"
+    )
+    submodules_text = (skill_root / "subskills/reference/submodules.md").read_text(
+        encoding="utf-8"
+    )
+    memo_seeds_text = (skill_root / "subskills/reference/memo-seeds.md").read_text(
+        encoding="utf-8"
+    )
+    contract_text = (skill_root / "subskills/reference/workspace-contract.md").read_text(
+        encoding="utf-8"
+    )
 
     assert (skill_root / "SKILL.md").is_file()
     assert (skill_root / "subskills/in-repo-workspace.md").is_file()
     assert (skill_root / "subskills/out-of-repo-workspace.md").is_file()
+    for operation_name in ("plan", "create", "validate", "summarize"):
+        assert (skill_root / f"subskills/operations/{operation_name}.md").is_file()
+    for reference_name in (
+        "local-state-links",
+        "memo-seeds",
+        "submodules",
+        "validation-checks",
+        "workspace-contract",
+    ):
+        assert (skill_root / f"subskills/reference/{reference_name}.md").is_file()
+
     assert "name: houmao-utils-workspace-mgr" in skill_text
-    assert "seeded-worktree" in skill_text
-    assert "Plan Mode" in skill_text
-    assert "Execute Mode" in skill_text
-    assert "For `in-repo`, the default planned launch cwd is `<repo-root>`" in skill_text
-    assert "For `in-repo` memo seeds" in skill_text
-    assert "discover local-state symlink candidates recursively" in skill_text
-    assert "reachable `.pixi/` directories, at any depth" in skill_text
-    assert "explicitly local-only files or directories whose basename does not start with `.`" in (
-        skill_text
-    )
-    assert "`.pixi/` is the only default dot-prefixed exception" in skill_text
-    assert "`.hidden-parent/.pixi/` is skipped" in skill_text
-    assert "Do not follow symlinked directories" in skill_text
-    assert "skip if Git tracks any files under the source subtree" in skill_text
+    assert len(skill_text.splitlines()) < 180
+    assert "## Operations" in skill_text
+    assert "## Routing" in skill_text
+    assert "## References" in skill_text
+    assert "`execute` is a compatibility alias for `create`" in skill_text
+    for operation_name in ("help", "plan", "create", "validate", "summarize"):
+        assert f"`{operation_name}`" in skill_text
+    assert "subskills/operations/validate.md" in skill_text
+    assert "subskills/reference/validation-checks.md" in skill_text
+    assert "Plan Mode" not in skill_text
+    assert "Execute Mode" not in skill_text
+    assert "Loop-Facing" not in skill_text
+    assert "houmao-agent-loop-pro" not in skill_text
     assert "The repo root is the shared visibility surface." in in_repo_text
-    assert "Loop execplans may request additional task-scoped bookkeeping directories" in (
+    assert "Operators, scripts, or upstream plans may request additional task-scoped" in (
         in_repo_text
     )
-    assert "<repo-root>/houmao-ws/<task-name>/<agent-name>/artifacts/**" in in_repo_text
-    assert "The per-agent `repo/` worktree is the safe mutation surface" in in_repo_text
+    assert "Loop execplans" not in in_repo_text
+    assert "loop-provided" not in in_repo_text
+    assert "loop contract" not in in_repo_text
+    assert "<repo-root>/houmao-ws/<task-name>/owner-states/<subdir>/..." in in_repo_text
+    assert "shared-kb/             # untracked cross-run task knowledge" in in_repo_text
+    assert "owner-states/          # untracked per-run task-owner bookkeeping" in in_repo_text
+    assert "Prefer writing that rule to `.git/info/exclude`" in in_repo_text
+    assert "The per-agent `repo/` worktree is the safe mutation surface for source changes" in (
+        in_repo_text
+    )
     assert "recursive local-state symlink decisions" in in_repo_text
     assert "hidden-path skips, symlink traversal skips, and tracked-content conflict skips" in (
         in_repo_text
     )
+    assert "## Create Steps" in in_repo_text
+    assert "For `create`:" in in_repo_text
+    assert "## Execute Steps" not in in_repo_text
+    assert "reference/local-state-links.md" in in_repo_text
+    assert "reference/submodules.md" in in_repo_text
     assert "Resolve one `task-name` for the workspace team." in in_repo_text
     assert "<repo-root>/houmao-ws/<task-name>" in in_repo_text
     assert "houmao/<task-name>/<agent-name>/main" in in_repo_text
-    assert "| `<repo-root>/houmao-ws/<task-name>/<agent-name>/kb/**` | yes | yes | yes | no |" in (
-        in_repo_text
+    assert (
+        "| `<repo-root>/houmao-ws/<task-name>/<agent-name>/states/**` | yes | yes | yes | no |"
+        in (in_repo_text)
+    )
+    assert (
+        "| `<repo-root>/houmao-ws/<task-name>/shared-kb/**` | yes | yes when assigned | yes | yes when assigned |"
+        in (in_repo_text)
     )
     assert (
         "| `<repo-root>/houmao-ws/workspaces.md` | yes | no by default | yes | no by default |"
         in (in_repo_text)
     )
+    assert "They are not Git merge surfaces." in in_repo_text
+    assert "shared-KB changes intended for Git merge" not in in_repo_text
     assert "Update launch profiles so each agent cwd points at `<repo-root>`." in in_repo_text
+    assert "## Create Steps" in out_of_repo_text
+    assert "For `create`:" in out_of_repo_text
+    assert "Create or verify `ws-root` as a Git repo." in out_of_repo_text
+    assert "reference/local-state-links.md" in out_of_repo_text
+    assert "reference/submodules.md" in out_of_repo_text
+    assert "## Execute Steps" not in out_of_repo_text
+    assert "Plan Sections" in plan_text
+    assert "Validation plan" in plan_text
+    assert "Create Order" in create_text
+    assert "recommended `validate` command" in create_text
+    assert "Validation does not create worktrees" in validate_text
+    assert "explicit validation commands" in validate_text
+    assert "safe documented project commands" in validate_text
+    assert "Pixi" in validate_text
+    assert "Python env" in validate_text
+    assert "C or C++" in validate_text
+    assert "Package scripts" in validate_text
+    assert "In-project scripts" in validate_text
+    assert "instead of inventing one" in validate_text
+    assert "checks considered" in validate_text
+    assert "commands run" in validate_text
+    assert "commands skipped and why" in validate_text
+    assert "missing local-state links" in validate_text
+    assert "consumer-neutral" in summarize_text
+    assert "humans, scripts, or upstream planners" in summarize_text
+    assert "validation posture when validation has run" in summarize_text
+    assert "Loop-Facing" not in summarize_text
+    assert "Do not blindly reuse generic worktree symlink defaults" in local_state_text
+    assert "Never symlink these AI tool directories" in local_state_text
+    assert "reachable `.pixi/` directories, at any depth" in local_state_text
+    assert "explicitly local-only files or directories whose basename does not start with `.`" in (
+        local_state_text
+    )
+    assert "`.pixi/` is the only default dot-prefixed exception" in local_state_text
+    assert "`.hidden-parent/.pixi/` is skipped" in local_state_text
+    assert "Do not follow symlinked directories" in local_state_text
+    assert "skip if Git tracks any files under the source subtree" in local_state_text
+    assert "Python virtual environments such as `.venv/` are validation signals" in (
+        local_state_text
+    )
+    assert "Creation must not leave necessary project state unlinked" in local_state_text
+    assert "seeded-worktree" in submodules_text
+    assert "Do not copy the source submodule `.git` file or directory." in submodules_text
+    assert "Validation must report each tracked submodule considered" in submodules_text
+    assert "For `in-repo` memo seeds" in memo_seeds_text
+    assert "Task-local `shared-kb/`, task-local `owner-states/<subdir>/...`" not in skill_text
+    assert "Workspace summaries are consumer-neutral" in contract_text
+    assert "sibling bookkeeping directories and worktrees as read-only" in contract_text
 
 
 def test_load_system_skill_catalog_rejects_unknown_set_member(tmp_path: Path) -> None:
@@ -703,6 +804,24 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         encoding="utf-8"
     )
     loop_pro_prepare_agents = (loop_pro_execution / "prepare-agents.md").read_text(encoding="utf-8")
+    loop_pro_prepare_workspace = (loop_pro_execution / "prepare-workspace.md").read_text(
+        encoding="utf-8"
+    )
+    loop_pro_validate_loop = (loop_pro_execution / "validate-loop.md").read_text(
+        encoding="utf-8"
+    )
+    loop_pro_launch_agents = (loop_pro_execution / "launch-agents.md").read_text(
+        encoding="utf-8"
+    )
+    loop_pro_generated_defaults = (loop_pro_reference / "generated-contract-defaults.md").read_text(
+        encoding="utf-8"
+    )
+    loop_pro_platform_boundaries = (loop_pro_reference / "platform-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    loop_pro_git_worktree_readiness = (
+        loop_pro_reference / "git-worktree-readiness.md"
+    ).read_text(encoding="utf-8")
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
     project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
@@ -1002,7 +1121,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Do not import policy from examples or reference plans as global behavior" in (
         loop_pro_skill
     )
-    assert "use `houmao-utils-workspace-mgr` through `prepare-workspace`" in loop_pro_skill
+    assert (
+        "use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace "
+        "planning, creation, validation, and summaries"
+        in loop_pro_skill
+    )
     assert "MUST READ for mail-driven loops" in loop_pro_skill
     assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
     assert "subskills/reference/topology-modes.md" in loop_pro_skill
@@ -1042,7 +1165,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         loop_pro_generate_execplan
     )
     assert "generated skills under `execplan/skills/*/SKILL.md`" in (loop_pro_validate_execplan)
-    assert "workspace setup contracts route workspace planning or creation" in (
+    assert "workspace setup contracts route workspace planning, creation, validation, and summaries" in (
+        loop_pro_validate_execplan
+    )
+    assert "`prepare-workspace` guidance consumes prepared agent/profile facts" in (
+        loop_pro_validate_execplan
+    )
+    assert "planned, created, validated, summarized, missing, inconsistent, and custom/manual" in (
         loop_pro_validate_execplan
     )
     assert "execplan/specs/comms/templates.toml" in loop_pro_validate_execplan
@@ -1056,6 +1185,73 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "maintained mail support skills" in loop_pro_prepare_agents
     assert "houmao-process-emails-via-gateway" in loop_pro_prepare_agents
+    assert "operation: `plan`, `create`, `validate`, or `summarize`" in (
+        loop_pro_prepare_workspace
+    )
+    assert (
+        "Treat legacy `execute` wording in older generated material or operator prompts as "
+        "workspace-manager `create`"
+        in loop_pro_prepare_workspace
+    )
+    assert "report the normalized operation as `create`" in loop_pro_prepare_workspace
+    assert "A workspace-manager `plan` report alone is not launch-ready evidence" in (
+        loop_pro_prepare_workspace
+    )
+    for expected_workspace_fact in (
+        "planned facts",
+        "created facts",
+        "validated facts",
+        "summarized facts",
+        "missing facts",
+        "inconsistent facts",
+        "custom/manual facts",
+    ):
+        assert expected_workspace_fact in loop_pro_prepare_workspace
+    assert "task-local `shared-kb/`" in loop_pro_generate_execplan
+    assert "task-local `owner-states/<subdir>/...`" in loop_pro_generate_execplan
+    assert "per-agent `<task-root>/<agent-name>/states/`" in loop_pro_generate_execplan
+    assert "per-agent `<task-root>/<agent-name>/repo/`" in loop_pro_generate_execplan
+    assert "project-scope validation command inputs" in loop_pro_generate_execplan
+    assert "documented safe project commands" in loop_pro_generate_execplan
+    assert "Pixi, Python virtual environments, C or C++ build systems" in (
+        loop_pro_generate_execplan
+    )
+    assert "needs_kb" not in loop_pro_generate_execplan
+    assert "[workspace.bookkeeping]" not in loop_pro_generate_execplan
+    assert 'task_dirs = ["runs", "artifacts"]' not in loop_pro_generate_execplan
+    assert 'per_agent_dirs = ["artifacts"]' not in loop_pro_generate_execplan
+    assert 'per_agent_ignored_dirs = ["tmp"]' not in loop_pro_generate_execplan
+    assert "`plan`, `create`, `validate`, or `summarize` inputs" in (
+        loop_pro_generated_defaults
+    )
+    assert "validation commands" in loop_pro_generated_defaults
+    assert (
+        "Treat a workspace-manager `plan` alone as incomplete readiness"
+        in loop_pro_validate_loop
+    )
+    assert "current validation evidence or summary" in loop_pro_launch_agents
+    assert "`houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries" in (
+        loop_pro_platform_boundaries
+    )
+    assert "Local-state completeness belongs to workspace-manager `validate` evidence" in (
+        loop_pro_git_worktree_readiness
+    )
+    assert "workspace-manager validation inputs" in loop_pro_git_worktree_readiness
+    assert "Do not create worktrees, repair local-only state" in (
+        loop_pro_git_worktree_readiness
+    )
+    assert "Symlink untracked source-repo directories into agent worktrees by default" not in (
+        loop_pro_git_worktree_readiness
+    )
+    assert "Repair missing local-only state from the source checkout" not in (
+        loop_pro_git_worktree_readiness
+    )
+    assert (
+        "Route workspace planning, creation, validation, or summaries through "
+        "`houmao-utils-workspace-mgr`"
+        in loop_lite_skill
+    )
+    assert "workspace-manager `execute`" not in loop_lite_skill
     assert easy_specialists_path.is_file()
     assert easy_profiles_path.is_file()
     assert easy_launch_path.is_file()

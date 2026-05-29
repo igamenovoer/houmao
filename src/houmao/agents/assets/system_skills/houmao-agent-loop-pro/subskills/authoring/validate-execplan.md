@@ -169,10 +169,10 @@ Check runtime state and records:
 - state contracts do not require a particular backend unless the generated loop explicitly selects it or the default sqlite rule applies because the SQL schema is clear.
 
 Check workspace contracts:
-- workspace setup contracts route workspace planning or creation through `prepare-workspace` and `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
-- default workspace policy is `in-repo` plus any explicitly listed loop bookkeeping directories, unless intention source chooses a different supported flavor or a custom operator-owned workspace.
-- workspace contracts identify launch cwd, per-agent work roots, per-agent note or knowledge paths, writable temporary or artifact paths, shared resources, and read/write rules when those facts apply.
-- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, expected or prepared concrete agent workspace names, easy profile or explicit raw launch profile names, launch cwd policy, loop bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture when those facts apply.
+- workspace setup contracts route workspace planning, creation, validation, and summaries through `prepare-workspace` and `houmao-utils-workspace-mgr` when the requested layout is a supported Houmao workspace flavor.
+- default workspace policy is `in-repo` plus standard workspace-manager surfaces such as `shared-kb/`, `owner-states/<subdir>/...`, and per-agent `states/`, unless intention source chooses a different supported flavor or a custom operator-owned workspace.
+- workspace contracts identify launch cwd, per-agent work roots, per-agent state paths, task shared knowledge paths, task-owner state paths, shared resources, project-scope validation commands, and read/write rules when those facts apply.
+- managed workspace contracts identify workspace flavor, task name, repo or workspace root policy, expected or prepared concrete agent workspace names, easy profile or explicit raw launch profile names, launch cwd policy, standard workspace-manager bookkeeping surfaces, shared resources, validation command inputs, and memo-seed posture when those facts apply.
 - managed workspace contracts are shaped so `prepare-workspace` can consume prepared agent/profile facts from `prepare-agents` without inventing placeholder agent ids or profile names.
 - workspace contracts or generated lifecycle docs identify the equivalent readiness facts required when an operator chooses manual workspace setup instead of the `prepare-workspace` command.
 - custom operator-owned workspace contracts are explicit and do not pretend to be standard workspace-manager layouts.
@@ -187,7 +187,7 @@ Check execution stage boundaries:
 - `launch-agents` guidance launches prepared participants through maintained Houmao launch surfaces, reports live-agent/session facts, and does not send loop-start work.
 - `start` guidance requires live-agent/session facts from `launch-agents` or an equivalent source, does not launch agents, and only sends the first loop trigger.
 - missing live agent/profile/workspace/mailbox/gateway readiness is not an authoring-time package-shape failure; it is a `validate-loop` or `launch-agents` blocker.
-- workspace postconditions distinguish ready facts, planned-but-not-executed facts, missing facts, and inconsistencies when the generated execplan records those reports.
+- workspace postconditions distinguish planned, created, validated, summarized, missing, inconsistent, and custom/manual workspace facts when the generated execplan records those reports.
 
 Check run artifacts:
 - durable-execution specs live under `execplan/specs/run/` when generated.

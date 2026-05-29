@@ -27,7 +27,7 @@ description = "LLM Wiki utility skill for persistent Markdown knowledge bases an
 
 [skills.houmao-utils-workspace-mgr]
 asset_subpath = "houmao-utils-workspace-mgr"
-description = "Utility skill for planning and executing multi-agent workspace layouts."
+description = "Utility skill for planning, creating, validating, and summarizing multi-agent workspace layouts."
 
 [skills.houmao-touring]
 asset_subpath = "houmao-touring"

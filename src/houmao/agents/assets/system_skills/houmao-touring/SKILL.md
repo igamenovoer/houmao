@@ -40,7 +40,7 @@ Related skills and boundaries:
 
 - Use direct-operation skills such as `houmao-project-mgr`, `houmao-agent-definition`, `houmao-mailbox-mgr`, `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-inspect`, `houmao-agent-email-comms`, `houmao-process-emails-via-gateway`, `houmao-memory-mgr`, and `houmao-agent-instance` for ordinary narrow tasks.
 - Use `houmao-agent-loop-lite` or `houmao-agent-loop-pro` for current loop authoring and generated loop operation.
-- Use `houmao-utils-workspace-mgr` for isolated multi-agent workspace planning or execution.
+- Use `houmao-utils-workspace-mgr` for isolated multi-agent workspace planning, creation, validation, or summaries.
 - Use `houmao-adv-usage-pattern` for elemental multi-skill mailbox or gateway patterns when the user asks for those patterns before generated loops.
 - Do not use this skill as the default entrypoint when the user did not ask for a guided tour.
 - Do not use this skill as the normal place to discover unrelated utility workflows; direct skill help and system-skills reference docs own that reference posture.
@@ -79,7 +79,7 @@ Advanced guidance teaches composed multi-agent systems:
 1. Use `houmao-agent-loop-lite` for lightweight Markdown/direct-SQL generated loops.
 2. Use `houmao-agent-loop-pro` for schema-rich generated loops.
 3. Choose `tree-loop` or `generic-loop` as topology modes inside pro.
-4. Use `houmao-utils-workspace-mgr` for isolated multi-agent workspace planning or execution before launches or loop runs.
+4. Use `houmao-utils-workspace-mgr` for isolated multi-agent workspace planning, creation, validation, or summaries before launches or loop runs.
 
 ## Welcome Message
 
@@ -127,7 +127,7 @@ This packaged skill covers a branching guided learning path for:
 - intermediate read-only inspection, screen watching, logs, turn-state evidence, and mailbox posture
 - intermediate reminders and manual multi-agent coordination
 - advanced loop creation or generated-loop operation through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`
-- advanced isolated multi-agent workspace planning or execution through `houmao-utils-workspace-mgr`
+- advanced isolated multi-agent workspace planning, creation, validation, or summaries through `houmao-utils-workspace-mgr`
 - managed-agent inspection, stop, relaunch, join/adopt, and cleanup follow-up
 
 This packaged skill does not cover:
@@ -198,7 +198,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Route lightweight Markdown/direct-SQL loop authoring, validation, and generated loop execution to `houmao-agent-loop-lite`.
 - Route schema-rich loop authoring, generated execplan validation, topology-heavy planning, and generated loop execution to `houmao-agent-loop-pro`.
 - Present tree-loop and generic-loop as topology choices inside `houmao-agent-loop-pro`, not as separate skill packages.
-- Route isolated multi-agent workspace planning or execution to `houmao-utils-workspace-mgr`.
+- Route isolated multi-agent workspace planning, creation, validation, or summaries to `houmao-utils-workspace-mgr`.
 - Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
 - Route stop, relaunch, join/adopt, list, and cleanup follow-up to `houmao-agent-instance`.
 
@@ -212,6 +212,6 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not collapse stop, relaunch, and cleanup into one vague "manage agent" action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
 - Do not route current loop planning or generated loop run-control requests to retired loop packages.
-- Do not restate composed tree/generic loop topology, run-control details, typed-template rules, direct-SQL state rules, isolated workspace execution rules, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-lite` or `houmao-agent-loop-pro`, workspace execution on `houmao-utils-workspace-mgr`, and elemental patterns on `houmao-adv-usage-pattern`.
+- Do not restate composed tree/generic loop topology, run-control details, typed-template rules, direct-SQL state rules, isolated workspace creation or validation rules, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-lite` or `houmao-agent-loop-pro`, workspace preparation on `houmao-utils-workspace-mgr`, and elemental patterns on `houmao-adv-usage-pattern`.
 - Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
 - Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.

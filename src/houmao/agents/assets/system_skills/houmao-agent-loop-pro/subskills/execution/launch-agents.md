@@ -23,7 +23,7 @@ Require:
 - generated execplan validation evidence or a current `validate-execplan` pass
 - pre-launch readiness validation report from `validate-loop`
 - prepared agent/easy-profile and launch facts from `prepare-agents`
-- workspace readiness facts from `prepare-workspace`, or explicit manual workspace evidence when managed workspaces are required
+- workspace readiness facts from `prepare-workspace`, including current validation evidence or summary when managed workspaces are required, or explicit manual workspace evidence
 
 Use when present:
 - generated agent bindings;

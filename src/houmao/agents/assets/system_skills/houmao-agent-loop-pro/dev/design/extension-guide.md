@@ -88,7 +88,7 @@ Execution should compose existing Houmao operation surfaces. Keep managed-agent 
 Keep execution preparation and readiness validation as separate ordered stages:
 
 - `prepare-agents` materializes easy profiles, concrete agent/profile facts, generated skill bindings, notifier prompt posture, memo/cwd posture, and launch facts;
-- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr` plan or execute inputs, then reports readiness facts; explicit manual evidence may replace this command only when it satisfies the generated workspace contract;
+- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr` `plan`, `create`, `validate`, or `summarize` inputs, then reports readiness facts; explicit manual evidence may replace this command only when it satisfies the generated workspace contract;
 - `validate-loop` checks concrete pre-launch readiness before `launch-agents`;
 - `launch-agents` launches prepared participants through maintained Houmao launch surfaces and does not send loop-start work;
 - `start` sends the first loop trigger after agents are live and does not launch agents;

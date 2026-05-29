@@ -226,15 +226,19 @@ For generated TOML contracts:
 
 ## Workspace Contracts
 
-When the process model requires managed workspaces, `workspace.toml` is the authority for workspace requirements. It should provide enough structured input for `prepare-workspace` to call `houmao-utils-workspace-mgr` without inventing topology, while still expecting `prepare-agents` to confirm concrete agent/profile facts before workspace execution.
+When the process model requires managed workspaces, `workspace.toml` is the authority for workspace requirements. It should provide enough structured input for `prepare-workspace` to call `houmao-utils-workspace-mgr` without inventing topology, while still expecting `prepare-agents` to confirm concrete agent/profile facts before workspace creation or validation.
 
 Include applicable fields:
 - workspace flavor, defaulting to `in-repo` unless source selects another supported flavor;
 - task name, repo root policy, and workspace root policy;
 - launch cwd policy;
-- loop-requested bookkeeping directories, including durable task/agent artifact paths and ignored transient paths;
+- task-local `shared-kb/` requirements for cross-run shared task knowledge;
+- task-local `owner-states/<subdir>/...` requirements for per-run task-owner bookkeeping;
+- per-agent `<task-root>/<agent-name>/states/` requirements for agent-local bookkeeping;
+- per-agent `<task-root>/<agent-name>/repo/` worktree requirements for source mutation;
+- project-scope validation command inputs, including explicit operator commands or documented safe project commands for tools such as Pixi, Python virtual environments, C or C++ build systems, package scripts, and in-project scripts;
 - expected concrete agent workspace names and easy profile names, or explicit raw launch profile fields that `prepare-agents` must resolve before `prepare-workspace`;
-- per-agent work-root, knowledge-path, shared-resource, memo-seed, and read/write requirements.
+- per-agent work-root, shared-resource, memo-seed, and read/write requirements.
 - manual workspace evidence fields required by `validate-loop` when the operator does not run `prepare-workspace`.
 
 Use `description` fields for sections or records that agents, operators, or harness explanation commands may read.
@@ -251,27 +255,39 @@ repo_root = "auto"
 ws_root = "houmao-ws"
 launch_cwd_policy = "repo-root"
 
-# Loop-owned directories requested from the workspace manager.
-[workspace.bookkeeping]
-description = "Durable and transient loop bookkeeping paths."
-task_dirs = ["runs", "artifacts"]
-per_agent_dirs = ["artifacts"]
-per_agent_ignored_dirs = ["tmp"]
+# Standard in-repo workspace-manager surfaces requested by this loop.
+[workspace.shared_kb]
+description = "Cross-run task knowledge requirements."
+required = true
+
+[workspace.owner_states]
+description = "Per-run task-owner bookkeeping requirements."
+required = true
+subdir = "<run-id>"
+
+[workspace.validation]
+description = "Project-scope readiness checks to pass to workspace-manager validate."
+commands = ["pixi run test"]
 
 # Workspace needs for one concrete participant agent.
+# The standard in-repo workspace maps this agent to <task-root>/agent-a/repo/
+# for source mutation and <task-root>/agent-a/states/ for local bookkeeping.
 [[workspace.agents]]
 description = "Workspace requirements for agent-a."
 agent_id = "agent-a"
 easy_profile = "agent-a"
 workspace_agent_name = "agent-a"
 needs_worktree = true
-needs_kb = true
+needs_states = true
+source_mutation_surface = "repo"
 needs_memo_seed = true
 ```
 
 Agent bindings later reference the relevant workspace policy; they do not replace this contract.
 
 During execution, `prepare-workspace` combines this contract with prepared agent/profile facts from `prepare-agents`. If prepared facts differ from the generated contract, the workspace stage reports the inconsistency instead of inventing replacement names. If the operator uses manual workspace setup, `validate-loop` checks the manual evidence against the same contract before `launch-agents`.
+
+Do not model standard in-repo workspace `runs/`, `artifacts/`, per-agent `artifacts/`, or ignored `tmp/` directories as Git-tracked workspace-manager surfaces. Represent durable loop execution artifacts under the loop run artifact layout, owner-managed workspace-local records under `owner-states/<subdir>/...`, agent-local workspace records under `<agent-name>/states/`, or an explicit custom operator-owned workspace contract.
 
 ## Downstream Effects
 

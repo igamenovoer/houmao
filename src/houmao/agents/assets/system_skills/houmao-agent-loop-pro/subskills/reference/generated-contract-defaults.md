@@ -165,8 +165,8 @@ Consider generic families such as:
 
 ## Workspace And Runs
 
-- Generated workspace contracts identify launch cwd, agent work roots, notes or knowledge paths, writable temp/artifact paths, shared resources, and read/write rules when applicable.
-- Managed workspace contracts include workspace-manager inputs when applicable: workspace flavor, task name, repo or workspace root policy, concrete agent workspace names, easy profile or explicit raw launch profile names, launch cwd policy, bookkeeping directories, ignored transient paths, shared resources, and memo-seed posture.
+- Generated workspace contracts identify launch cwd, agent work roots, standard workspace-manager surfaces, shared resources, validation command inputs, and read/write rules when applicable.
+- Managed workspace contracts include workspace-manager inputs when applicable: operation intent (`plan`, `create`, `validate`, or `summarize`), workspace flavor, task name, repo or workspace root policy, concrete agent workspace names, easy profile or explicit raw launch profile names, launch cwd policy, `shared-kb/`, `owner-states/<subdir>/...`, per-agent `states/`, shared resources, validation commands, and memo-seed posture.
 - Generated agent bindings reference workspace policies from `specs/workspace/`; they do not replace the workspace contract.
 - Generated execution preserves durable payloads, rendered outputs, send or reply responses, records, state files, logs, and evidence under a run artifact layout such as `<loop-dir>/runs/<run-id>/`.
 - Omit unused default layers only when the manifest and generated docs make the omission explicit.
@@ -175,7 +175,7 @@ Consider generic families such as:
 
 - `prepare-agents` materializes launchable Houmao easy profiles, generated skill bindings, definitions, notifier prompt paths, memo posture, pending cwd posture, and prepared agent facts.
 - `prepare-agents` does not launch live agents as normal preparation behavior.
-- `prepare-workspace` adapts generated workspace contracts, agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` plan or execute inputs.
+- `prepare-workspace` adapts generated workspace contracts, agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` `plan`, `create`, `validate`, or `summarize` inputs.
 - Workspace readiness may also come from explicit manual evidence when the generated execplan records the required facts.
 - `validate-loop` checks concrete pre-launch readiness, including mailbox, gateway, memory, notifier, harness, state, run-artifact, and launchability posture before `launch-agents`; `validate-execplan` only checks generated package shape and contracts.
 - `launch-agents` launches prepared participants through maintained Houmao launch surfaces and reports live-agent/session facts without beginning loop work.

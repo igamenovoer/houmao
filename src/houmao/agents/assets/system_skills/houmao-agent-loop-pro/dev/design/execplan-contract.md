@@ -134,7 +134,7 @@ start
 
 `prepare-agents` owns profile and agent preparation first. It materializes launchable easy profiles, generated skill bindings, prompt sources, notifier prompt material, memo posture, pending cwd posture, launch facts, and any profile mutation intent that workspace setup will later consume. It relies on Houmao managed-agent creation to preinstall system skills. It does not launch live agents as normal behavior.
 
-`prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` inputs. It owns plan/execute routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, knowledge paths, shared resources, bookkeeping paths, ignored transient paths, launch cwd posture, memo seeds, and mutable-path uniqueness.
+`prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` inputs. It owns plan/create/validate/summarize routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, task `shared-kb/`, task `owner-states/<subdir>/...`, per-agent `states/`, shared resources, validation commands, launch cwd posture, memo seeds, and mutable-path uniqueness.
 
 Manual workspace setup is valid only when explicit evidence satisfies the generated workspace contract. `validate-loop` checks either `prepare-workspace` output or equivalent manual evidence.
 
@@ -306,7 +306,7 @@ A mature generated loop plan is useful as a reference for the depth of a complet
 - participant role templates separated from concrete agent bindings;
 - generated skills scoped to role events, plus prompt-invoked tick skills for scheduler-like responsibilities;
 - a narrow per-loop harness rather than new Houmao core commands;
-- workspace setup routed through `houmao-utils-workspace-mgr`, defaulting to the standard in-repo workspace flavor with explicit loop bookkeeping directories when needed;
+- workspace setup routed through `houmao-utils-workspace-mgr`, defaulting to the standard in-repo workspace flavor with task `shared-kb/`, task `owner-states/<subdir>/...`, per-agent `states/`, and validation command inputs when needed;
 - generated Markdown metadata marking generated files.
 
 See `reference-execplan-patterns.md` for a more detailed maintainer-oriented reading of the generic pattern.

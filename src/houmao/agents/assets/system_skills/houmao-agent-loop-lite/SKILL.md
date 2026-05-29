@@ -209,7 +209,7 @@ Lite validation does not require pro-only schemas, TOML contracts, renderers, ha
 - Route notifier and gateway lifecycle work through `houmao-agent-gateway`.
 - Route prompt, interrupt, and managed-agent control messages through `houmao-agent-messaging`.
 - Route participant definition and profile preparation through `houmao-agent-definition`.
-- Route workspace planning or creation through `houmao-utils-workspace-mgr` when the generated lite process needs explicit workspace setup.
+- Route workspace planning, creation, validation, or summaries through `houmao-utils-workspace-mgr` when the generated lite process needs explicit workspace setup or readiness evidence.
 - Route live launch, join, stop, and relaunch actions through `houmao-agent-instance`.
 - Route liveness, mailbox posture, logs, and runtime inspection through `houmao-agent-inspect`.
 - Do not duplicate maintained Houmao platform-operation contracts inside lite specs or generated skills.

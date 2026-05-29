@@ -147,6 +147,6 @@ Execution pages:
 - Do not import policy from examples or reference plans as global behavior.
 - Treat `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` as separate ordered execution stages when managed workspaces are required.
 - Do not make `prepare-workspace` and `prepare-agents` call each other.
-- Do not create agent workspaces directly from general execution pages; use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace planning and execution.
+- Do not create agent workspaces directly from general execution pages; use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace planning, creation, validation, and summaries.
 - Do not duplicate maintained Houmao platform-operation contracts; route launch, messaging, mailbox, gateway, memory, lifecycle, and inspection work to their owning Houmao skills.
 - When asking for Houmao runtime or artifact-location inputs, separate `Required` and `Optional` values. Do not impose that shape on user-task or domain-intent questions unless they ask for Houmao runtime behavior.

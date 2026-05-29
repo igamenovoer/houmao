@@ -12,7 +12,7 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 
 ## Maintained Skill Ownership
 
-- `houmao-utils-workspace-mgr`: workspace planning and creation.
+- `houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries.
 - `houmao-mailbox-mgr`: mailbox setup, inspection, repair, cleanup, export, registration, and late mailbox binding.
 - `houmao-agent-email-comms`: ordinary mail status, list, read, send, post, reply, mark, move, and archive operations.
 - `houmao-process-emails-via-gateway`: notifier-driven open-mail rounds when the current round provides the gateway base URL.
@@ -34,8 +34,8 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 ## Workspace Rule
 
 - When a generated loop needs managed agent workspaces, `prepare-agents` first resolves concrete agent/easy-profile facts when workspace setup needs agent or profile names.
-- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr`.
-- Generated workspace contracts may describe launch cwd, work roots, shared resources, writable temp/artifact paths, notes paths, read/write rules, workspace-manager inputs, and readiness postconditions.
+- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr` `plan`, `create`, `validate`, or `summarize`.
+- Generated workspace contracts may describe launch cwd, work roots, task `shared-kb/`, task `owner-states/<subdir>/...`, per-agent `states/`, shared resources, read/write rules, workspace-manager inputs, validation commands, and readiness postconditions.
 - Do not create agent workspaces directly from general execution pages when the workspace manager can represent the layout.
 - Keep workspace preparation separate from agent preparation; neither stage calls the other.
 - Manual workspace setup is acceptable only when explicit readiness evidence satisfies the generated workspace contract.
@@ -77,6 +77,6 @@ Generated harnesses do not own:
 - managed-agent launch;
 - gateway discovery;
 - memory management;
-- workspace creation.
+- workspace planning, creation, validation, or summaries.
 
 Generated harnesses do own loop-local deterministic helpers such as validation, lookup, rendering, state initialization, state query, record validation, and controlled record application.
