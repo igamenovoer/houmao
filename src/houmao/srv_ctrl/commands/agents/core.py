@@ -113,6 +113,7 @@ from houmao.project.launch_profiles import (
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
+from .external import external_group
 from .gateway import (
     _require_current_tmux_session_name,
     _resolve_current_session_agent_def_dir,
@@ -1710,6 +1711,7 @@ def relaunch_agent_command(
 
 agents_group.add_command(gateway_group)
 agents_group.add_command(cleanup_group)
+agents_group.add_command(external_group)
 agents_group.add_command(mail_group)
 agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)

@@ -9,7 +9,8 @@ For the broader Houmao filesystem map and operator-facing preparation guidance, 
 The registry layout is deliberately small.
 
 - one per-user root,
-- one directory per authoritative live `agent_id`,
+- one directory per authoritative local lifecycle `agent_id`,
+- one directory per local external communication-only `external_agent_id`,
 - one authoritative `record.json` file per directory.
 
 That keeps cross-process coordination simple and avoids central hot files such as `index.json` or SQLite.
@@ -36,16 +37,22 @@ Representative layout:
   live_agents/
     <agent-id>/
       record.json
+  external_agents/
+    <external-agent-id>/
+      record.json
 ```
 
 Rules:
 
 - `live_agents/` holds the set of lifecycle-record directories keyed by authoritative logical `agent_id`,
+- `external_agents/` holds communication-only imports for remotely owned agents, keyed by local `external_agent_id`,
 - `<agent-id>` is the authoritative runtime-wide agent identifier,
 - the only durable file the runtime expects inside that directory is `record.json`,
 - temporary files may appear briefly during atomic writes but are cleaned on replace failure.
 
 The runtime session root itself can live anywhere else on disk. The registry stores pointers to that runtime-owned state rather than moving it under the registry root.
+
+External records are different: they do not point to local runtime session roots. They store local locator metadata for a remote `houmao-passive-server` plus a cached identity snapshot for offline listing.
 
 ## Record Shape
 
@@ -166,6 +173,49 @@ Current implementation scope:
 - `filesystem_root`
 - `bindings_version`
 
+### External Communication-Only Records
+
+External records use the separate schema `external_managed_agent_registry_record.v1.schema.json` and the model `ExternalManagedAgentRegistryRecordV1`.
+
+Representative record:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "external_communication_only",
+  "local_name": "teammate-coder",
+  "external_agent_id": "external-9e6dd9a4c8b54f0492741f033b9b7f1a",
+  "generation_id": "42d1f894-ea2f-4f49-a4e3-e472c266857b",
+  "pair_api_base_url": "http://127.0.0.1:9899",
+  "remote_agent_ref": "remote-coder",
+  "gateway_expected": true,
+  "lifecycle_owner": "remote",
+  "created_at_utc": "2026-05-29T00:00:00+00:00",
+  "updated_at_utc": "2026-05-29T00:00:00+00:00",
+  "verified_at_utc": "2026-05-29T00:00:00+00:00",
+  "cached_identity": {
+    "tracked_agent_id": "remote-coder",
+    "transport": "headless",
+    "tool": "codex",
+    "agent_name": "remote-coder",
+    "agent_id": "remote-agent-id",
+    "lifecycle_state": "active"
+  }
+}
+```
+
+Field semantics:
+
+- `local_name`: local unprefixed alias used by `--agent-name`.
+- `external_agent_id`: local id used by `--agent-id` for this external collection.
+- `pair_api_base_url`: normalized remote `houmao-passive-server` URL.
+- `remote_agent_ref`: id or name sent to the remote pair authority.
+- `gateway_expected`: whether register and verify require remote gateway status to be reachable.
+- `lifecycle_owner`: always `remote`; local commands must not stop, relaunch, clean, attach, or detach the remote lifecycle.
+- `cached_identity`: remote identity snapshot used for local listing without remote polling.
+
+Registration and verification contact the remote passive server, resolve `remote_agent_ref`, and refresh `cached_identity` plus `verified_at_utc`. Cleanup of stale local lifecycle records only scans `live_agents/`; valid external records are preserved until `houmao-mgr agents external remove` deletes the local import.
+
 ## What The Registry Does Not Store
 
 The registry is intentionally secret-free and pointer-oriented.
@@ -177,6 +227,8 @@ It does not copy:
 - mailbox contents or mailbox SQLite data,
 - environment snapshots,
 - secrets.
+
+External records also do not copy remote runtime-owned state. They store only a base URL, remote ref, timestamps, gateway expectation, and cached identity.
 
 That boundary is the main reason the registry can stay small and safe to inspect.
 
@@ -194,6 +246,7 @@ That boundary is the main reason the registry can stay small and safe to inspect
 - Active and relaunching records require `liveness` and `terminal.current_session_name`.
 - Stopped and retired records must clear `liveness`, `gateway`, and `terminal.current_session_name`.
 - Runtime-managed publish and refresh flows validate serialized payloads against the packaged schema before atomically replacing `record.json`.
+- External publish and verify flows validate serialized payloads against `external_managed_agent_registry_record.v1.schema.json` before atomically replacing `record.json`.
 - Cross-field invariants such as canonical-name enforcement, lifecycle-state requirements, active lease ordering, and complete live gateway field grouping remain model-enforced rather than schema-only.
 - Older `agent_key`-keyed registry directories are not part of a compatibility path in this change and remain manual cleanup.
 
@@ -202,5 +255,6 @@ That boundary is the main reason the registry can stay small and safe to inspect
 - [`src/houmao/agents/realm_controller/registry_models.py`](../../../../src/houmao/agents/realm_controller/registry_models.py)
 - [`src/houmao/agents/realm_controller/registry_storage.py`](../../../../src/houmao/agents/realm_controller/registry_storage.py)
 - [`src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v3.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/managed_agent_registry_record.v3.schema.json)
+- [`src/houmao/agents/realm_controller/schemas/external_managed_agent_registry_record.v1.schema.json`](../../../../src/houmao/agents/realm_controller/schemas/external_managed_agent_registry_record.v1.schema.json)
 - [`docs/reference/system-files/shared-registry.md`](../../system-files/shared-registry.md)
 - [`tests/unit/agents/realm_controller/test_registry_storage.py`](../../../../tests/unit/agents/realm_controller/test_registry_storage.py)

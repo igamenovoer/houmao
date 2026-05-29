@@ -56,6 +56,8 @@ The runtime root is where Houmao stores generated homes, generated manifests, ru
 
 Current operator-facing registry relocation happens through `HOUMAO_GLOBAL_REGISTRY_DIR`. The internal shared-path helper also supports explicit roots, but the main operational contract today is the env-var override and the default `~/.houmao/registry`.
 
+`live_agents/` records are local lifecycle locator metadata for Houmao-managed sessions. `external_agents/` records are also registry-owned, but they are remote locator metadata only: they store a remote passive-server URL, remote agent reference, timestamps, and cached identity. They do not make the local process the lifecycle owner of the remote agent.
+
 ### Project memory root and agent memory roots
 
 The project memory root is derived from the selected active overlay, not from the runtime root. Managed-agent memory roots are allocated below it by agent id:

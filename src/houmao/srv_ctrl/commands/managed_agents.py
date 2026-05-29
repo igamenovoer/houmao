@@ -98,13 +98,23 @@ from houmao.agents.realm_controller.mail_commands import (
     prepare_mail_prompt,
     run_mail_prompt,
 )
-from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
+from houmao.agents.realm_controller.registry_models import (
+    ExternalManagedAgentRegistryRecordV1,
+    ManagedAgentRegistryRecordV3,
+)
 from houmao.agents.realm_controller.registry_storage import (
     global_registry_paths,
     is_live_agent_record_fresh,
+    list_external_managed_agent_records,
+    load_external_managed_agent_record_by_agent_id,
     load_managed_agent_record_by_agent_id,
+    new_external_agent_id,
+    new_registry_generation_id,
+    publish_external_managed_agent_record,
     publish_managed_agent_record,
     remove_managed_agent_record,
+    remove_external_managed_agent_record,
+    resolve_external_managed_agent_records_by_name,
     resolve_live_agent_record_by_agent_id,
     resolve_live_agent_records_by_name,
     resolve_managed_agent_records_by_name,
@@ -123,6 +133,7 @@ from houmao.agents.realm_controller.manifest import (
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.cao.rest_client import CaoApiError
+from houmao.cao.no_proxy import normalize_cao_base_url
 from houmao.mailbox import MailboxBootstrapError, load_active_mailbox_registration
 from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.mailbox.protocol import (
@@ -166,6 +177,7 @@ from houmao.server.pair_client import PairAuthorityClientProtocol
 
 from .common import (
     pair_request,
+    require_managed_agent_ref,
     require_supported_houmao_pair,
     resolve_managed_agent_selector,
     resolve_managed_agent_identity,
@@ -191,6 +203,7 @@ class ManagedAgentTarget:
     client: PairAuthorityClientProtocol | None = None
     controller: RuntimeSessionController | None = None
     record: ManagedAgentRegistryRecordV3 | None = None
+    external_record: ExternalManagedAgentRegistryRecordV1 | None = None
 
 
 class GatewayPromptControlCliError(RuntimeError):
@@ -199,6 +212,101 @@ class GatewayPromptControlCliError(RuntimeError):
     def __init__(self, payload: GatewayPromptControlErrorV1) -> None:
         self.payload = payload
         super().__init__(payload.detail)
+
+
+def _target_uses_pair_api(target: ManagedAgentTarget) -> bool:
+    """Return whether the target routes communication through a pair API client."""
+
+    return target.mode in {"server", "external"}
+
+
+def _external_identity_from_record(
+    record: ExternalManagedAgentRegistryRecordV1,
+) -> HoumaoManagedAgentIdentity:
+    """Project one external registry record into the shared identity payload."""
+
+    return record.cached_identity.model_copy(
+        update={
+            "tracked_agent_id": record.external_agent_id,
+            "agent_name": record.local_name,
+            "agent_id": record.external_agent_id,
+            "session_name": None,
+            "tmux_session_name": None,
+            "tmux_window_name": None,
+            "manifest_path": None,
+            "session_root": None,
+            "management_kind": "external_communication_only",
+            "lifecycle_owner": "remote",
+            "external_agent_id": record.external_agent_id,
+            "remote_pair_api_base_url": record.pair_api_base_url,
+            "remote_agent_ref": record.remote_agent_ref,
+        }
+    )
+
+
+def _annotate_external_remote_identity(
+    identity: HoumaoManagedAgentIdentity,
+    record: ExternalManagedAgentRegistryRecordV1,
+) -> HoumaoManagedAgentIdentity:
+    """Annotate a remote identity with local external-target locator metadata."""
+
+    return identity.model_copy(
+        update={
+            "tracked_agent_id": record.external_agent_id,
+            "agent_name": record.local_name,
+            "agent_id": record.external_agent_id,
+            "management_kind": "external_communication_only",
+            "lifecycle_owner": "remote",
+            "external_agent_id": record.external_agent_id,
+            "remote_pair_api_base_url": record.pair_api_base_url,
+            "remote_agent_ref": record.remote_agent_ref,
+        }
+    )
+
+
+def _external_unsupported_message(
+    target: ManagedAgentTarget,
+    *,
+    operation: str,
+    hint: str | None = None,
+) -> str:
+    """Return one actionable unsupported-operation message for an external target."""
+
+    record = target.external_record
+    local_name = record.local_name if record is not None else target.identity.agent_name
+    remote_base_url = (
+        record.pair_api_base_url if record is not None else target.identity.remote_pair_api_base_url
+    )
+    remote_ref = record.remote_agent_ref if record is not None else target.identity.remote_agent_ref
+    supported = (
+        "agents list, agents state, agents prompt, agents interrupt, "
+        "agents gateway status, agents gateway prompt, agents gateway interrupt, "
+        "and supported agents mail commands"
+    )
+    detail = (
+        f"`{operation}` is unsupported for external communication-only managed agent "
+        f"`{local_name or target.agent_ref}`. Lifecycle is owned by the remote Houmao "
+        f"authority `{remote_base_url or '<unknown>'}` for remote agent "
+        f"`{remote_ref or target.agent_ref}`. Supported local operations: {supported}."
+    )
+    if hint is not None:
+        detail = f"{detail} {hint}"
+    return detail
+
+
+def _raise_external_unsupported(
+    target: ManagedAgentTarget,
+    *,
+    operation: str,
+    hint: str | None = None,
+) -> None:
+    """Raise a clear unsupported-operation error for one external target."""
+
+    if target.mode != "external":
+        return
+    raise click.ClickException(
+        _external_unsupported_message(target, operation=operation, hint=hint)
+    )
 
 
 @dataclass(frozen=True)
@@ -300,6 +408,10 @@ def list_managed_agents(
     )
     for identity in registry_identities:
         merged[_identity_merge_key(identity)] = identity
+    if lifecycle_state in {"active", "all"}:
+        for record in list_external_managed_agent_records():
+            identity = _external_identity_from_record(record)
+            merged[_identity_merge_key(identity)] = identity
 
     pair_client: PairAuthorityClientProtocol | None = (
         _optional_pair_client(base_url=resolve_server_base_url())
@@ -312,6 +424,306 @@ def list_managed_agents(
 
     identities = sorted(merged.values(), key=lambda item: (item.transport, item.tracked_agent_id))
     return HoumaoManagedAgentListResponse(agents=identities)
+
+
+def register_external_managed_agent(
+    *,
+    local_name: str,
+    api_base_url: str,
+    agent_ref: str,
+    gateway_expected: bool = False,
+    replace: bool = False,
+) -> dict[str, Any]:
+    """Register one remote managed agent as a local communication-only target."""
+
+    _, normalized_name = resolve_managed_agent_selector(
+        agent_id=None,
+        agent_name=local_name,
+    )
+    assert normalized_name is not None
+    normalized_ref = require_managed_agent_ref(agent_ref)
+    normalized_base_url = _normalize_external_pair_api_base_url(api_base_url)
+    _raise_if_external_registration_collides_with_local(local_name=normalized_name)
+
+    existing_matches = resolve_external_managed_agent_records_by_name(normalized_name)
+    if len(existing_matches) > 1:
+        raise click.ClickException(
+            "External managed-agent registration is ambiguous for local name "
+            f"`{normalized_name}`. Remove duplicate external records manually before retrying."
+        )
+    existing = existing_matches[0] if existing_matches else None
+    if existing is not None and not replace:
+        raise click.ClickException(
+            "External managed-agent "
+            f"`{normalized_name}` is already registered as `{existing.external_agent_id}`. "
+            "Use `--replace` to update that external import."
+        )
+
+    identity, gateway_status = _verify_external_remote_target(
+        base_url=normalized_base_url,
+        agent_ref=normalized_ref,
+        gateway_expected=gateway_expected,
+    )
+    now = _now_utc_iso()
+    record = ExternalManagedAgentRegistryRecordV1(
+        local_name=normalized_name,
+        external_agent_id=existing.external_agent_id
+        if existing is not None
+        else new_external_agent_id(),
+        generation_id=new_registry_generation_id(),
+        pair_api_base_url=normalized_base_url,
+        remote_agent_ref=normalized_ref,
+        gateway_expected=gateway_expected,
+        created_at_utc=existing.created_at_utc if existing is not None else now,
+        updated_at_utc=now,
+        verified_at_utc=now,
+        cached_identity=identity,
+    )
+    try:
+        published = publish_external_managed_agent_record(record)
+    except SessionManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    return _external_agent_action_payload(
+        action="registered" if existing is None else "replaced",
+        record=published,
+        gateway_status=gateway_status,
+    )
+
+
+def list_external_managed_agents() -> dict[str, object]:
+    """List locally registered external communication-only managed agents."""
+
+    return {
+        "external_agents": [
+            _external_agent_record_payload(record)
+            for record in sorted(
+                list_external_managed_agent_records(),
+                key=lambda item: (item.local_name, item.external_agent_id),
+            )
+        ],
+    }
+
+
+def get_external_managed_agent(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> dict[str, object]:
+    """Return one external communication-only managed-agent registry record."""
+
+    record = _resolve_external_record_for_cli(agent_id=agent_id, agent_name=agent_name)
+    return {"external_agent": _external_agent_record_payload(record)}
+
+
+def verify_external_managed_agent(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> dict[str, object]:
+    """Verify one external managed-agent authority and refresh its cached identity."""
+
+    record = _resolve_external_record_for_cli(agent_id=agent_id, agent_name=agent_name)
+    identity, gateway_status = _verify_external_remote_target(
+        base_url=record.pair_api_base_url,
+        agent_ref=record.remote_agent_ref,
+        gateway_expected=record.gateway_expected,
+    )
+    now = _now_utc_iso()
+    refreshed = record.model_copy(
+        update={
+            "generation_id": new_registry_generation_id(),
+            "updated_at_utc": now,
+            "verified_at_utc": now,
+            "cached_identity": identity,
+        }
+    )
+    try:
+        published = publish_external_managed_agent_record(refreshed)
+    except SessionManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return _external_agent_action_payload(
+        action="verified",
+        record=published,
+        gateway_status=gateway_status,
+    )
+
+
+def remove_external_managed_agent(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> dict[str, object]:
+    """Remove one local external managed-agent import without remote side effects."""
+
+    record = _resolve_external_record_for_cli(agent_id=agent_id, agent_name=agent_name)
+    try:
+        removed = remove_external_managed_agent_record(
+            record.external_agent_id,
+            generation_id=record.generation_id,
+        )
+    except SessionManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not removed:
+        raise click.ClickException(
+            "External managed-agent "
+            f"`{record.local_name}` changed before removal. Reload and retry."
+        )
+    return {
+        "action": "removed",
+        "removed": True,
+        "remote_lifecycle_untouched": True,
+        "external_agent": _external_agent_record_payload(record),
+    }
+
+
+def _normalize_external_pair_api_base_url(value: str) -> str:
+    """Normalize an external pair API base URL or raise a Click error."""
+
+    try:
+        return normalize_cao_base_url(value)
+    except ValueError as exc:
+        raise click.ClickException(f"`--api-base-url` {exc}") from exc
+
+
+def _raise_if_external_registration_collides_with_local(*, local_name: str) -> None:
+    """Reject external imports that would shadow local lifecycle registry records."""
+
+    local_matches = resolve_managed_agent_records_by_name(local_name)
+    if not local_matches:
+        return
+    matched_ids = ", ".join(sorted(record.agent_id for record in local_matches))
+    raise click.ClickException(
+        "External managed-agent local name "
+        f"`{local_name}` conflicts with local lifecycle registry record(s): {matched_ids}. "
+        "Local lifecycle records take precedence; choose a different external `--name`."
+    )
+
+
+def _verify_external_remote_target(
+    *,
+    base_url: str,
+    agent_ref: str,
+    gateway_expected: bool,
+) -> tuple[HoumaoManagedAgentIdentity, GatewayStatusV1 | None]:
+    """Verify the remote pair authority and resolve the referenced managed agent."""
+
+    client = require_supported_houmao_pair(base_url=base_url)
+    identity = resolve_managed_agent_identity(client, agent_ref=agent_ref)
+    gateway_status: GatewayStatusV1 | None = None
+    if gateway_expected:
+        gateway_status = pair_request(client.get_managed_agent_gateway_status, agent_ref)
+    return identity, gateway_status
+
+
+def _resolve_external_record_for_cli(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> ExternalManagedAgentRegistryRecordV1:
+    """Resolve exactly one external record from shared CLI selector options."""
+
+    normalized_agent_id, normalized_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    record = _resolve_external_managed_agent_record_for_selector(
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+    )
+    if record is not None:
+        return record
+    selector_name = "--agent-id" if normalized_agent_id is not None else "--agent-name"
+    selector_value = normalized_agent_id or normalized_agent_name
+    raise click.ClickException(
+        f"No external communication-only managed agent matches {selector_name} `{selector_value}`."
+    )
+
+
+def _resolve_external_managed_agent_record_for_selector(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> ExternalManagedAgentRegistryRecordV1 | None:
+    """Resolve one external record by external id or local external name."""
+
+    if agent_id is not None:
+        try:
+            return load_external_managed_agent_record_by_agent_id(agent_id)
+        except SessionManifestError as exc:
+            raise click.ClickException(str(exc)) from exc
+    if agent_name is None:
+        return None
+    matches = resolve_external_managed_agent_records_by_name(agent_name)
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"External managed-agent name `{agent_name}` is ambiguous across "
+            f"{len(matches)} records. Use `--agent-id`."
+        )
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _external_target_from_record(
+    record: ExternalManagedAgentRegistryRecordV1,
+) -> ManagedAgentTarget:
+    """Build a communication-only target from one external registry record."""
+
+    client = require_supported_houmao_pair(base_url=record.pair_api_base_url)
+    return ManagedAgentTarget(
+        mode="external",
+        agent_ref=record.remote_agent_ref,
+        identity=_external_identity_from_record(record),
+        client=client,
+        external_record=record,
+    )
+
+
+def _external_agent_action_payload(
+    *,
+    action: str,
+    record: ExternalManagedAgentRegistryRecordV1,
+    gateway_status: GatewayStatusV1 | None = None,
+) -> dict[str, object]:
+    """Return one stable external-agent action payload."""
+
+    payload: dict[str, object] = {
+        "action": action,
+        "external_agent": _external_agent_record_payload(record),
+    }
+    if gateway_status is not None:
+        payload["gateway"] = gateway_status.model_dump(mode="json")
+        payload["gateway_available"] = True
+    elif record.gateway_expected:
+        payload["gateway_available"] = False
+    return payload
+
+
+def _external_agent_record_payload(
+    record: ExternalManagedAgentRegistryRecordV1,
+) -> dict[str, object]:
+    """Return one concise external-agent registry payload for CLI output."""
+
+    return {
+        "local_name": record.local_name,
+        "external_agent_id": record.external_agent_id,
+        "kind": record.kind,
+        "lifecycle_owner": record.lifecycle_owner,
+        "pair_api_base_url": record.pair_api_base_url,
+        "remote_agent_ref": record.remote_agent_ref,
+        "gateway_expected": record.gateway_expected,
+        "created_at_utc": record.created_at_utc,
+        "updated_at_utc": record.updated_at_utc,
+        "verified_at_utc": record.verified_at_utc,
+        "cached_identity": _external_identity_from_record(record).model_dump(mode="json"),
+    }
+
+
+def _now_utc_iso() -> str:
+    """Return a compact UTC timestamp for registry records."""
+
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def resolve_managed_agent_target(
@@ -374,6 +786,13 @@ def resolve_managed_agent_target(
             controller=controller,
             record=record,
         )
+
+    external_record = _resolve_external_managed_agent_record_for_selector(
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+    )
+    if external_record is not None:
+        return _external_target_from_record(external_record)
 
     if miss_context is not None:
         return _resolve_default_pair_target_with_local_miss(
@@ -464,6 +883,13 @@ def resolve_relaunch_managed_agent_target(
     )
     if stopped_fallback_target is not None:
         return stopped_fallback_target
+
+    external_record = _resolve_external_managed_agent_record_for_selector(
+        agent_id=normalized_agent_id,
+        agent_name=normalized_agent_name,
+    )
+    if external_record is not None:
+        return _external_target_from_record(external_record)
 
     if miss_context is not None:
         return _resolve_default_pair_target_with_local_miss(
@@ -1129,21 +1555,57 @@ def _stop_cleanup_selector(
     return None
 
 
+def _annotate_external_state_response(
+    response: HoumaoManagedAgentStateResponse,
+    record: ExternalManagedAgentRegistryRecordV1,
+) -> HoumaoManagedAgentStateResponse:
+    """Attach local external-import metadata to one remote state response."""
+
+    return response.model_copy(
+        update={
+            "tracked_agent_id": record.external_agent_id,
+            "identity": _annotate_external_remote_identity(response.identity, record),
+        }
+    )
+
+
+def _annotate_external_detail_response(
+    response: HoumaoManagedAgentDetailResponse,
+    record: ExternalManagedAgentRegistryRecordV1,
+) -> HoumaoManagedAgentDetailResponse:
+    """Attach local external-import metadata to one remote detail response."""
+
+    summary_state = _annotate_external_state_response(response.summary_state, record)
+    return response.model_copy(
+        update={
+            "tracked_agent_id": record.external_agent_id,
+            "identity": summary_state.identity,
+            "summary_state": summary_state,
+        }
+    )
+
+
 def managed_agent_identity_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentIdentity:
     """Return the resolved managed-agent identity payload."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
-        return resolve_managed_agent_identity(target.client, agent_ref=target.agent_ref)
+        identity = resolve_managed_agent_identity(target.client, agent_ref=target.agent_ref)
+        if target.external_record is not None:
+            return _annotate_external_remote_identity(identity, target.external_record)
+        return identity
     return target.identity
 
 
 def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentStateResponse:
     """Return a managed-agent state payload for one resolved target."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
-        return pair_request(target.client.get_managed_agent_state, target.agent_ref)
+        response = pair_request(target.client.get_managed_agent_state, target.agent_ref)
+        if target.external_record is not None:
+            return _annotate_external_state_response(response, target.external_record)
+        return response
     assert target.controller is not None
     if target.identity.transport == "tui":
         tracked_state = _refresh_local_tui_state(controller=target.controller)
@@ -1160,9 +1622,12 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
 def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentDetailResponse:
     """Return a managed-agent detail payload for one resolved target."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
-        return pair_request(target.client.get_managed_agent_state_detail, target.agent_ref)
+        response = pair_request(target.client.get_managed_agent_state_detail, target.agent_ref)
+        if target.external_record is not None:
+            return _annotate_external_detail_response(response, target.external_record)
+        return response
     assert target.controller is not None
     if target.identity.transport == "tui":
         tracked_state = _refresh_local_tui_state(controller=target.controller)
@@ -1212,7 +1677,7 @@ def prompt_managed_agent(
         target=target,
         execution_model=execution_model,
     )
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentSubmitPromptRequest
 
@@ -1243,7 +1708,7 @@ def prompt_managed_agent(
 def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
     """Interrupt one managed agent through the resolved control path."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentInterruptRequest
 
@@ -1264,6 +1729,8 @@ def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
 
 def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionResponse:
     """Stop one managed agent through the resolved control path."""
+
+    _raise_external_unsupported(target, operation="agents stop")
 
     if target.mode == "server":
         assert target.client is not None
@@ -1485,6 +1952,8 @@ def relaunch_managed_agent(
 ) -> HoumaoManagedAgentActionResponse:
     """Relaunch one tmux-backed managed agent through the resolved runtime authority."""
 
+    _raise_external_unsupported(target, operation="agents relaunch")
+
     if target.mode in {"local_degraded", "local_stale"}:
         assert target.record is not None
         return _relaunch_degraded_or_stale_local_managed_agent(
@@ -1578,7 +2047,7 @@ def _relaunch_degraded_or_stale_local_managed_agent(
 def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Return gateway status for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_status, target.agent_ref)
 
@@ -1593,6 +2062,8 @@ def attach_gateway(
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
 ) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
+
+    _raise_external_unsupported(target, operation="agents gateway attach")
 
     target = _local_gateway_target_for_passive_pair(target, operation="attach")
     execution_mode_override: GatewayCurrentExecutionMode = (
@@ -1621,6 +2092,8 @@ def attach_gateway(
 
 def detach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Detach one live gateway for the resolved managed agent."""
+
+    _raise_external_unsupported(target, operation="agents gateway detach")
 
     target = _local_gateway_target_for_passive_pair(target, operation="detach")
     if target.mode == "server":
@@ -1652,7 +2125,7 @@ def gateway_prompt(
         target=target,
         execution_model=execution_model,
     )
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         try:
             return target.client.control_managed_agent_gateway_prompt(
@@ -1773,7 +2246,7 @@ def _prompt_control_error_code_from_status(status_code: int | None) -> str:
 def gateway_interrupt(target: ManagedAgentTarget) -> GatewayAcceptedRequestV1:
     """Submit a gateway interrupt for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.submit_managed_agent_gateway_request,
@@ -1795,6 +2268,8 @@ def gateway_send_keys(
     escape_special_keys: bool,
 ) -> GatewayControlInputResultV1:
     """Submit raw gateway control input for one managed agent."""
+
+    _raise_external_unsupported(target, operation="agents gateway send-keys")
 
     request_model = GatewayControlInputRequestV1(
         sequence=sequence,
@@ -1819,7 +2294,9 @@ def gateway_send_keys(
 def gateway_tui_state(target: ManagedAgentTarget) -> HoumaoTerminalStateResponse:
     """Return raw gateway-owned TUI state for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway tui state")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_tui_state, target.agent_ref)
 
@@ -1834,7 +2311,9 @@ def gateway_tui_state(target: ManagedAgentTarget) -> HoumaoTerminalStateResponse
 def gateway_tui_history(target: ManagedAgentTarget) -> HoumaoTerminalSnapshotHistoryResponse:
     """Return raw gateway-owned TUI snapshot history for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway tui history")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_tui_history, target.agent_ref)
 
@@ -1853,7 +2332,9 @@ def gateway_tui_note_prompt(
 ) -> HoumaoTerminalStateResponse:
     """Record prompt-note provenance through the live gateway tracker."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway tui note-prompt")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.note_managed_agent_gateway_tui_prompt,
@@ -1872,7 +2353,9 @@ def gateway_tui_note_prompt(
 def gateway_list_reminders(target: ManagedAgentTarget) -> GatewayReminderListV1:
     """Return the live gateway reminder set for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway reminders list")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.list_managed_agent_gateway_reminders, target.agent_ref)
 
@@ -1891,7 +2374,9 @@ def gateway_get_reminder(
 ) -> GatewayReminderV1:
     """Return one live gateway reminder for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway reminders get")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.get_managed_agent_gateway_reminder,
@@ -1914,7 +2399,9 @@ def gateway_create_reminders(
 ) -> GatewayReminderCreateResultV1:
     """Create one or more live gateway reminders for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway reminders create")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.create_managed_agent_gateway_reminders,
@@ -1938,7 +2425,9 @@ def gateway_put_reminder(
 ) -> GatewayReminderV1:
     """Replace one live gateway reminder for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway reminders put")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.put_managed_agent_gateway_reminder,
@@ -1962,7 +2451,9 @@ def gateway_delete_reminder(
 ) -> GatewayReminderDeleteResultV1:
     """Delete one live gateway reminder for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway reminders delete")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.delete_managed_agent_gateway_reminder,
@@ -1981,7 +2472,9 @@ def gateway_delete_reminder(
 def gateway_mail_notifier_status(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
     """Return gateway mail-notifier status for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway mail-notifier status")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(target.client.get_managed_agent_gateway_mail_notifier, target.agent_ref)
 
@@ -2004,6 +2497,8 @@ def gateway_mail_notifier_enable(
 ) -> GatewayMailNotifierStatusV1:
     """Enable or update gateway mail-notifier state for one managed agent."""
 
+    _raise_external_unsupported(target, operation="agents gateway mail-notifier enable")
+
     request_model = (
         GatewayMailNotifierPutV1(
             interval_seconds=interval_seconds,
@@ -2020,7 +2515,7 @@ def gateway_mail_notifier_enable(
             pre_notification_context_action=pre_notification_context_action,
         )
     )
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.put_managed_agent_gateway_mail_notifier,
@@ -2039,7 +2534,9 @@ def gateway_mail_notifier_enable(
 def gateway_mail_notifier_disable(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
     """Disable gateway mail-notifier state for one managed agent."""
 
-    if target.mode == "server":
+    _raise_external_unsupported(target, operation="agents gateway mail-notifier disable")
+
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return pair_request(
             target.client.delete_managed_agent_gateway_mail_notifier,
@@ -2606,7 +3103,7 @@ def _gateway_mail_archive(
 def mail_status(target: ManagedAgentTarget) -> object:
     """Return mailbox status for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         return build_verified_mail_command_result(
             operation="status",
@@ -2635,7 +3132,7 @@ def mail_list(
 ) -> object:
     """List mailbox contents for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailListRequest
 
@@ -2682,7 +3179,7 @@ def mail_peek(
 ) -> object:
     """Peek at one mailbox message for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailMessageRequest
 
@@ -2716,7 +3213,7 @@ def mail_read(
 ) -> object:
     """Read one mailbox message for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailMessageRequest
 
@@ -2755,7 +3252,7 @@ def mail_send(
 ) -> object:
     """Send a mailbox message for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailSendRequest
 
@@ -2858,7 +3355,7 @@ def mail_post(
 ) -> object:
     """Post one operator-origin mailbox note into one managed agent inbox."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailPostRequest
 
@@ -2943,7 +3440,7 @@ def mail_reply(
 ) -> object:
     """Reply to a mailbox message for one managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailReplyRequest
 
@@ -3028,7 +3525,7 @@ def mail_mark(
 ) -> object:
     """Mark selected mailbox messages for a managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailMarkRequest
 
@@ -3108,7 +3605,7 @@ def mail_move(
 ) -> object:
     """Move selected mailbox messages for a managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailMoveRequest
 
@@ -3144,7 +3641,7 @@ def mail_archive(
 ) -> object:
     """Archive selected mailbox messages for a managed agent."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailArchiveRequest
 
@@ -3169,7 +3666,7 @@ def mail_archive(
 def mail_resolve_live(target: ManagedAgentTarget) -> dict[str, Any]:
     """Resolve one managed agent's live mailbox bindings and gateway metadata."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         assert target.client is not None
         payload = pair_request(target.client.get_managed_agent_mail_resolve_live, target.agent_ref)
         return _normalized_live_mail_payload(
@@ -3253,6 +3750,8 @@ def submit_headless_turn(
 ) -> HoumaoHeadlessTurnAcceptedResponse:
     """Submit one headless turn for a managed agent."""
 
+    _raise_external_unsupported(target, operation="agents turn submit")
+
     execution_model = _resolve_execution_model_override(
         model=model,
         reasoning_level=reasoning_level,
@@ -3298,6 +3797,8 @@ def headless_turn_status(
 ) -> HoumaoHeadlessTurnStatusResponse:
     """Return headless turn status for one managed agent."""
 
+    _raise_external_unsupported(target, operation="agents turn status")
+
     if target.mode == "server":
         assert target.client is not None
         return pair_request(target.client.get_headless_turn_status, target.agent_ref, turn_id)
@@ -3328,6 +3829,8 @@ def headless_turn_events(
 ) -> HoumaoHeadlessTurnEventsResponse:
     """Return structured events for one headless turn."""
 
+    _raise_external_unsupported(target, operation="agents turn events")
+
     if target.mode == "server":
         assert target.client is not None
         return pair_request(target.client.get_headless_turn_events, target.agent_ref, turn_id)
@@ -3355,6 +3858,8 @@ def headless_turn_artifact_text(
     artifact_name: str,
 ) -> str:
     """Return one raw headless artifact text payload."""
+
+    _raise_external_unsupported(target, operation="agents turn artifact")
 
     if target.mode == "server":
         assert target.client is not None
@@ -3462,6 +3967,8 @@ def _identity_from_record(record: ManagedAgentRegistryRecordV3) -> HoumaoManaged
         agent_name=record.agent_name,
         agent_id=record.agent_id,
         lifecycle_state=_record_lifecycle_state(record),
+        management_kind="local_lifecycle",
+        lifecycle_owner="local",
     )
 
 
@@ -3601,6 +4108,8 @@ def _identity_from_controller(controller: RuntimeSessionController) -> HoumaoMan
         session_root=str(controller.manifest_path.parent),
         agent_name=controller.agent_identity,
         agent_id=controller.agent_id,
+        management_kind="local_lifecycle",
+        lifecycle_owner="local",
     )
 
 
@@ -4420,9 +4929,10 @@ def _require_local_filesystem_mailbox_target(
 ) -> RuntimeSessionController:
     """Return the local controller for one late mailbox workflow target."""
 
-    if target.mode == "server":
+    if _target_uses_pair_api(target):
         raise click.ClickException(
-            f"Late local mailbox {operation} is unavailable for server-backed managed agents."
+            f"Late local mailbox {operation} is unavailable for server-backed or external "
+            "pair-backed managed agents."
         )
     assert target.controller is not None
     return target.controller

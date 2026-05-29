@@ -11,6 +11,7 @@ from houmao.agents.realm_controller.boundary_models import (
     SessionManifestPayloadV4,
 )
 from houmao.agents.realm_controller.registry_models import (
+    ExternalManagedAgentRegistryRecordV1,
     LiveAgentRegistryRecordV2,
     ManagedAgentRegistryRecordV3,
 )
@@ -23,6 +24,10 @@ from houmao.agents.realm_controller.registry_models import (
         ("session_manifest.v4.schema.json", SessionManifestPayloadV4),
         ("live_agent_registry_record.v2.schema.json", LiveAgentRegistryRecordV2),
         ("managed_agent_registry_record.v3.schema.json", ManagedAgentRegistryRecordV3),
+        (
+            "external_managed_agent_registry_record.v1.schema.json",
+            ExternalManagedAgentRegistryRecordV1,
+        ),
     ],
 )
 def test_packaged_schema_matches_pydantic_model(
@@ -32,6 +37,7 @@ def test_packaged_schema_matches_pydantic_model(
         | type[SessionManifestPayloadV4]
         | type[LiveAgentRegistryRecordV2]
         | type[ManagedAgentRegistryRecordV3]
+        | type[ExternalManagedAgentRegistryRecordV1]
     ),
 ) -> None:
     packaged_schema = _load_packaged_schema(schema_name)

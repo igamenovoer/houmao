@@ -11,6 +11,7 @@ For the broader Houmao filesystem map and operator-preparation guidance, use [Sy
 The shared registry is a locator layer, not a replacement state store.
 
 - Runtime-owned tmux-backed sessions publish one secret-free lifecycle record per authoritative `agent_id`, with canonical agent name kept as lookup metadata.
+- Remotely owned communication-only agents can be imported into a separate `external_agents/` collection with local locator metadata and cached remote identity.
 - Active records carry liveness metadata plus optional live gateway details; stopped and retired records preserve last-known tmux identity and runtime pointers for relaunch, cleanup, and diagnostics.
 - Tmux-local discovery is still the first same-host lookup path when its pointers are present and valid.
 - The registry is the fallback when tmux-local discovery is missing or stale.
@@ -31,6 +32,7 @@ For live gateway recovery, that means:
 
 - `shared registry`: The per-user filesystem tree rooted at `~/.houmao/registry` by default, or at `HOUMAO_GLOBAL_REGISTRY_DIR` when that override is set.
 - `managed-agent lifecycle record`: The strict `record.json` payload stored for one managed-agent identity, whether the lifecycle state is active, stopped, relaunching, or retired.
+- `external communication-only record`: A strict `record.json` payload for a remotely owned agent imported through `houmao-mgr agents external`; lifecycle owner is always remote.
 - `canonical agent name`: The reserved-prefix form such as `HOUMAO-gpu`; registry-facing input also accepts unprefixed names such as `gpu`.
 - `agent_id`: The authoritative runtime-wide agent identifier used as the live-agent directory name.
 - `generation id`: The stable identifier for one live session instance; refreshes reuse it, replacement publishers do not.
@@ -57,6 +59,7 @@ For live gateway recovery, that means:
 The current implementation documents what exists today:
 
 - publication is for runtime-managed tmux-backed sessions,
+- external imports are stored separately under `external_agents/` and are not local lifecycle records,
 - records are validated through strict Pydantic models and the shipped v3 standalone JSON Schema,
 - legacy v2 live records still load through a compatibility upgrade path that maps them to active lifecycle records,
 - lookup treats malformed or expired records as unusable stale state,

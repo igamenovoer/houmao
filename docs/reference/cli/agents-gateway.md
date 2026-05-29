@@ -423,6 +423,8 @@ houmao-mgr agents gateway mail-notifier disable [OPTIONS]
 - `--target-tmux-session` resolves locally from the addressed tmux session's `HOUMAO_MANIFEST_PATH` first and falls back to an exact fresh shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
 - `--pair-port` is only supported with explicit `--agent-id` or `--agent-name` targeting. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 - Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.
+- External communication-only targets registered with `houmao-mgr agents external register` are supported for `gateway status`, `gateway prompt`, and `gateway interrupt`; those commands route through the stored remote pair API base URL and remote agent ref.
+- External targets are rejected for local gateway ownership commands such as `gateway attach`, `gateway detach`, `gateway send-keys`, current-session targeting, TUI snapshot helpers, reminders, and mail-notifier mutation.
 
 ## See Also
 

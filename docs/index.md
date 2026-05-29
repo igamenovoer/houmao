@@ -28,6 +28,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [houmao-mgr credentials](reference/cli/houmao-mgr.md#credentials-dedicated-credential-management): Dedicated top-level credential-management command family for Claude, Codex, and Gemini, with a matching `project credentials` wrapper.
 - [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
 - [agents gateway](reference/cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [agents external](reference/cli/agents-external.md): Local imports for remotely owned communication-only managed agents.
 - [agents turn](reference/cli/agents-turn.md): Managed headless turn submission and inspection.
 - [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
 - [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.

@@ -18,6 +18,9 @@ _AGENT_LIST_COLUMNS = (
     "tool",
     "transport",
     "lifecycle_state",
+    "management_kind",
+    "lifecycle_owner",
+    "remote_agent_ref",
     "tmux_session_name",
 )
 
@@ -86,6 +89,7 @@ def render_agent_state_plain(payload: object) -> None:
         agent_name = identity.get("agent_name") or identity.get("tracked_agent_id", "")
         tool = identity.get("tool", "")
         click.echo(f"Agent: {agent_name}  (tool={tool})")
+        _render_external_identity_plain(identity)
 
     avail = data.get("availability", "unknown")
     click.echo(f"  availability:  {avail}")
@@ -135,6 +139,7 @@ def render_agent_state_fancy(payload: object) -> None:
     if isinstance(identity, dict):
         table.add_row("agent_name", str(identity.get("agent_name", "-")))
         table.add_row("tool", str(identity.get("tool", "-")))
+        _render_external_identity_fancy(table, identity)
 
     avail = data.get("availability", "unknown")
     style = "green" if avail == "available" else "red" if avail == "error" else "yellow"
@@ -198,6 +203,92 @@ def render_launch_completion_fancy(payload: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# External managed-agent registry
+# ---------------------------------------------------------------------------
+
+_EXTERNAL_AGENT_COLUMNS = (
+    "local_name",
+    "external_agent_id",
+    "lifecycle_owner",
+    "pair_api_base_url",
+    "remote_agent_ref",
+    "gateway_expected",
+    "verified_at_utc",
+)
+
+
+def render_external_agent_list_plain(payload: object) -> None:
+    """Render external managed-agent records as aligned columns."""
+
+    agents = _extract_external_agents(payload)
+    if not agents:
+        click.echo("No external managed agents.")
+        return
+    _render_table_plain("External Managed Agents", agents, _EXTERNAL_AGENT_COLUMNS)
+
+
+def render_external_agent_list_fancy(payload: object) -> None:
+    """Render external managed-agent records as a rich table."""
+
+    agents = _extract_external_agents(payload)
+    if not agents:
+        from rich.console import Console
+
+        Console().print("[dim]No external managed agents.[/dim]")
+        return
+    _render_table_fancy(
+        title=f"External Managed Agents ({len(agents)})",
+        rows=agents,
+        columns=_EXTERNAL_AGENT_COLUMNS,
+    )
+
+
+def render_external_agent_detail_plain(payload: object) -> None:
+    """Render one external managed-agent record or action result."""
+
+    data = _as_dict(payload)
+    action = data.get("action")
+    if action is not None:
+        click.echo(f"action: {_pv(action)}")
+    if "removed" in data:
+        click.echo(f"removed: {_pv(data.get('removed'))}")
+    if "remote_lifecycle_untouched" in data:
+        click.echo(f"remote_lifecycle_untouched: {_pv(data.get('remote_lifecycle_untouched'))}")
+    if "gateway_available" in data:
+        click.echo(f"gateway_available: {_pv(data.get('gateway_available'))}")
+
+    record = _extract_external_agent(payload)
+    if record is None:
+        click.echo("(no external agent)")
+        return
+    _render_key_values_plain(record, title="external_agent")
+
+
+def render_external_agent_detail_fancy(payload: object) -> None:
+    """Render one external managed-agent record or action result as a rich panel."""
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    data = _as_dict(payload)
+    record = _extract_external_agent(payload)
+    if record is None:
+        Console().print("[dim](no external agent)[/dim]")
+        return
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Key", style="bold cyan", no_wrap=True)
+    table.add_column("Value")
+    for key in ("action", "removed", "remote_lifecycle_untouched", "gateway_available"):
+        if key in data:
+            table.add_row(key, _pv(data.get(key)))
+    for key in _EXTERNAL_AGENT_COLUMNS:
+        table.add_row(key, _pv(record.get(key)))
+    Console().print(Panel(table, title="[bold green]External Managed Agent[/bold green]"))
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -209,6 +300,27 @@ def _extract_agents(payload: object) -> list[dict[str, Any]]:
         if isinstance(agents, list):
             return [a if isinstance(a, dict) else {} for a in agents]
     return []
+
+
+def _extract_external_agents(payload: object) -> list[dict[str, Any]]:
+    """Extract external-agent rows from a list payload."""
+
+    if isinstance(payload, Mapping):
+        agents = payload.get("external_agents")
+        if isinstance(agents, list):
+            return [a if isinstance(a, dict) else {} for a in agents]
+    return []
+
+
+def _extract_external_agent(payload: object) -> dict[str, Any] | None:
+    """Extract one external-agent record from supported payload shapes."""
+
+    if not isinstance(payload, Mapping):
+        return None
+    record = payload.get("external_agent")
+    if isinstance(record, dict):
+        return dict(record)
+    return None
 
 
 def _as_dict(payload: object) -> dict[str, Any]:
@@ -225,3 +337,102 @@ def _pv(value: Any) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
     return str(value)
+
+
+def _render_table_plain(
+    title: str,
+    rows: list[dict[str, Any]],
+    columns: tuple[str, ...],
+) -> None:
+    """Render selected columns from rows as a plain table."""
+
+    widths = {column: len(column) for column in columns}
+    rendered_rows: list[dict[str, str]] = []
+    for row in rows:
+        rendered = {column: _pv(row.get(column)) for column in columns}
+        for column in columns:
+            widths[column] = max(widths[column], len(rendered[column]))
+        rendered_rows.append(rendered)
+
+    click.echo(f"{title} ({len(rows)}):")
+    click.echo("  " + "  ".join(f"{column:<{widths[column]}}" for column in columns))
+    for row in rendered_rows:
+        click.echo("  " + "  ".join(f"{row[column]:<{widths[column]}}" for column in columns))
+
+
+def _render_table_fancy(
+    *,
+    title: str,
+    rows: list[dict[str, Any]],
+    columns: tuple[str, ...],
+) -> None:
+    """Render selected columns from rows as a rich table."""
+
+    from rich.console import Console
+    from rich.table import Table
+
+    table = Table(title=title)
+    for column in columns:
+        table.add_column(column, no_wrap=True)
+    for row in rows:
+        table.add_row(*(_pv(row.get(column)) for column in columns))
+    Console().print(table)
+
+
+def _render_key_values_plain(data: dict[str, Any], *, title: str | None = None) -> None:
+    """Render a shallow mapping as plain key-value lines."""
+
+    if title is not None:
+        click.echo(f"{title}:")
+    visible = {
+        key: value
+        for key, value in data.items()
+        if key != "cached_identity" and not isinstance(value, dict)
+    }
+    max_key = max((len(key) for key in visible), default=0)
+    for key, value in visible.items():
+        click.echo(f"  {key:<{max_key}}  {_pv(value)}")
+    cached_identity = data.get("cached_identity")
+    if isinstance(cached_identity, dict):
+        click.echo("  cached_identity:")
+        identity_visible = {
+            key: value
+            for key, value in cached_identity.items()
+            if key
+            in {
+                "agent_name",
+                "agent_id",
+                "tracked_agent_id",
+                "tool",
+                "transport",
+                "remote_pair_api_base_url",
+                "remote_agent_ref",
+            }
+        }
+        identity_max_key = max((len(key) for key in identity_visible), default=0)
+        for key, value in identity_visible.items():
+            click.echo(f"    {key:<{identity_max_key}}  {_pv(value)}")
+
+
+def _render_external_identity_plain(identity: dict[str, Any]) -> None:
+    """Render external identity metadata when present."""
+
+    if identity.get("management_kind") != "external_communication_only":
+        return
+    click.echo(f"  management:    {_pv(identity.get('management_kind'))}")
+    click.echo(f"  lifecycle:     {_pv(identity.get('lifecycle_owner'))}")
+    click.echo(f"  external_id:   {_pv(identity.get('external_agent_id'))}")
+    click.echo(f"  remote_pair:   {_pv(identity.get('remote_pair_api_base_url'))}")
+    click.echo(f"  remote_ref:    {_pv(identity.get('remote_agent_ref'))}")
+
+
+def _render_external_identity_fancy(table: Any, identity: dict[str, Any]) -> None:
+    """Add external identity metadata rows to a rich table when present."""
+
+    if identity.get("management_kind") != "external_communication_only":
+        return
+    table.add_row("management_kind", _pv(identity.get("management_kind")))
+    table.add_row("lifecycle_owner", _pv(identity.get("lifecycle_owner")))
+    table.add_row("external_agent_id", _pv(identity.get("external_agent_id")))
+    table.add_row("remote_pair_api_base_url", _pv(identity.get("remote_pair_api_base_url")))
+    table.add_row("remote_agent_ref", _pv(identity.get("remote_agent_ref")))

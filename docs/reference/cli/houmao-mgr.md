@@ -64,6 +64,7 @@ Agent lifecycle: launch, stop, observe, send-prompt, mail, join, gateway operati
 For dedicated coverage of complex nested command families, see:
 
 - [agents gateway](agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
+- [agents external](agents-external.md) — local imports for remotely owned communication-only managed agents
 - [agents turn](agents-turn.md) — managed headless turn submission and inspection
 - [agents mail](agents-mail.md) — managed-agent mailbox follow-up
 - [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration for local managed agents
@@ -78,6 +79,7 @@ For dedicated coverage of complex nested command families, see:
 | `prompt` | Send a prompt to a running agent session. |
 | `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. `stop` and `relaunch` probe tmux authority first and route through recovery helpers when the session is degraded or stale. |
 | `mail` | Resolve live mailbox bindings, inspect status, check, send, reply, or mark messages read. |
+| `external` | Register, list, verify, inspect, or remove local imports for remotely owned communication-only managed agents. |
 | `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
 | `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material locally. |
 | `gateway attach` | Attach a gateway to an agent session. |
@@ -123,6 +125,8 @@ Managed-agent lifecycle listing rules:
 - `agents list` shows active lifecycle records by default.
 - Use `agents list --state stopped`, `--state retired`, or `--state all` when you intentionally want lifecycle-inclusive discovery instead of the normal live-control view.
 - Live control surfaces such as prompt, interrupt, gateway, mail, and stop still require active records. Stopped and retired records are for relaunch, cleanup, inspection, and explicit lifecycle-aware listings.
+- External communication-only records live in a separate `external_agents/` registry collection. Local lifecycle records always take precedence, then external records resolve by local external id or alias, and only then does resolution fall back to the default pair authority.
+- External targets support communication-safe operations such as `agents state`, `agents prompt`, `agents interrupt`, `agents gateway status|prompt|interrupt`, and pair-backed `agents mail ...`. Lifecycle and local tmux operations such as `stop`, `relaunch`, `cleanup`, `gateway attach`, `gateway detach`, and `gateway send-keys` are rejected because lifecycle ownership stays remote.
 
 Cleanup targeting rules:
 

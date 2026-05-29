@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.registry_models import (
+    ExternalManagedAgentRegistryRecordV1,
     LiveAgentRegistryRecordV2,
     ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
@@ -22,11 +23,19 @@ from houmao.agents.realm_controller.registry_models import (
 )
 from houmao.agents.realm_controller.registry_storage import (
     DEFAULT_REGISTRY_LEASE_TTL,
+    EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA,
     LIVE_AGENT_REGISTRY_SCHEMA,
     TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
     cleanup_stale_live_agent_records,
+    external_record_path_for_agent_id,
+    list_external_managed_agent_records,
+    load_external_managed_agent_record_by_agent_id,
+    new_external_agent_id,
     new_registry_generation_id,
+    publish_external_managed_agent_record,
     publish_live_agent_record,
+    remove_external_managed_agent_record,
+    resolve_external_managed_agent_records_by_name,
     resolve_cleanup_managed_agent_record_by_agent_id,
     resolve_global_registry_root,
     resolve_live_agent_record,
@@ -36,6 +45,7 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.agents.realm_controller.schema_validation import load_schema
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
+from houmao.server.models import HoumaoManagedAgentIdentity
 
 
 def _sample_record(
@@ -109,6 +119,35 @@ def _sample_lifecycle_record(
         ),
         gateway=None,
         mailbox=None,
+    )
+
+
+def _sample_external_record(
+    *,
+    local_name: str = "remote-worker",
+    external_agent_id: str | None = None,
+    generation_id: str = "external-generation-1",
+    now: datetime | None = None,
+) -> ExternalManagedAgentRegistryRecordV1:
+    timestamp = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    return ExternalManagedAgentRegistryRecordV1(
+        local_name=local_name,
+        external_agent_id=external_agent_id or new_external_agent_id(),
+        generation_id=generation_id,
+        pair_api_base_url="http://127.0.0.1:9899",
+        remote_agent_ref="remote-agent",
+        gateway_expected=True,
+        created_at_utc=timestamp,
+        updated_at_utc=timestamp,
+        verified_at_utc=timestamp,
+        cached_identity=HoumaoManagedAgentIdentity(
+            tracked_agent_id="remote-agent",
+            transport="headless",
+            tool="codex",
+            agent_name="remote-worker-upstream",
+            agent_id="remote-agent-id",
+            lifecycle_state="active",
+        ),
     )
 
 
@@ -851,3 +890,106 @@ def test_registry_cleanup_unlinks_symlinked_entry_without_touching_source(
     assert result.removed_agent_ids == ("stale-link",)
     assert not symlink_entry.exists()
     assert (external_entry / "record.json").is_file()
+
+
+def test_external_registry_publish_list_resolve_and_remove(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record = _sample_external_record(local_name="remote-a")
+
+    published = publish_external_managed_agent_record(record)
+    loaded = load_external_managed_agent_record_by_agent_id(record.external_agent_id)
+    matches = resolve_external_managed_agent_records_by_name("remote-a")
+
+    assert published.external_agent_id == record.external_agent_id
+    assert loaded == published
+    assert list_external_managed_agent_records() == (published,)
+    assert matches == (published,)
+
+    removed = remove_external_managed_agent_record(
+        record.external_agent_id,
+        generation_id=record.generation_id,
+    )
+
+    assert removed is True
+    assert load_external_managed_agent_record_by_agent_id(record.external_agent_id) is None
+
+
+def test_external_registry_schema_rejects_invalid_publish_dump(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    schema = load_schema(EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA)
+    record = _sample_external_record()
+    payload = record.model_dump(mode="json")
+    payload["cached_identity"] = {}
+
+    assert "cached_identity" in schema["required"]
+    with pytest.raises(ValidationError):
+        ExternalManagedAgentRegistryRecordV1.model_validate(payload)
+
+
+def test_external_registry_replaces_symlinked_entry_without_touching_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record = _sample_external_record()
+    external_entry = (tmp_path / "external-entry").resolve()
+    external_entry.mkdir(parents=True, exist_ok=True)
+    (external_entry / "record.json").write_text('{"external": true}\n', encoding="utf-8")
+    entry_path = registry_root / "external_agents" / record.external_agent_id
+    entry_path.parent.mkdir(parents=True, exist_ok=True)
+    entry_path.symlink_to(external_entry, target_is_directory=True)
+
+    publish_external_managed_agent_record(record)
+
+    assert entry_path.is_dir()
+    assert not entry_path.is_symlink()
+    assert (
+        json.loads((entry_path / "record.json").read_text(encoding="utf-8"))["external_agent_id"]
+        == record.external_agent_id
+    )
+    assert json.loads((external_entry / "record.json").read_text(encoding="utf-8")) == {
+        "external": True
+    }
+
+
+def test_external_registry_read_skips_symlinked_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record = _sample_external_record()
+    record_path = external_record_path_for_agent_id(record.external_agent_id)
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    external_record_path = tmp_path / "external-record.json"
+    external_record_path.write_text(
+        json.dumps(record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    record_path.symlink_to(external_record_path)
+
+    assert load_external_managed_agent_record_by_agent_id(record.external_agent_id) is None
+    assert list_external_managed_agent_records() == ()
+
+
+def test_stale_local_cleanup_preserves_external_registry_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    registry_root = tmp_path / "registry"
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    record = publish_external_managed_agent_record(_sample_external_record())
+
+    result = cleanup_stale_live_agent_records(dry_run=False)
+
+    assert record.external_agent_id not in result.removed_agent_ids
+    assert load_external_managed_agent_record_by_agent_id(record.external_agent_id) == record

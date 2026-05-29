@@ -7,18 +7,25 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from houmao.cao.no_proxy import normalize_cao_base_url
+from houmao.server.models import HoumaoManagedAgentIdentity
+
 from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_id,
     normalize_managed_agent_name,
+    normalize_user_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayHost, GatewayProtocolVersion
 from houmao.agents.realm_controller.models import BackendKind
 
 REGISTRY_SCHEMA_VERSION = 3
+EXTERNAL_REGISTRY_SCHEMA_VERSION = 1
 LEGACY_REGISTRY_SCHEMA_VERSION = 2
 TERMINAL_KIND_TMUX: Literal["tmux"] = "tmux"
 LifecycleState = Literal["active", "stopped", "relaunching", "retired"]
+EXTERNAL_AGENT_KIND: Literal["external_communication_only"] = "external_communication_only"
+EXTERNAL_LIFECYCLE_OWNER_REMOTE: Literal["remote"] = "remote"
 
 
 class _StrictRegistryModel(BaseModel):
@@ -418,6 +425,98 @@ class ManagedAgentRegistryRecordV3(_StrictRegistryModel):
         return self.liveness
 
 
+class ExternalManagedAgentRegistryRecordV1(_StrictRegistryModel):
+    """Communication-only registry contract for an externally owned managed agent."""
+
+    schema_version: int = Field(default=EXTERNAL_REGISTRY_SCHEMA_VERSION)
+    kind: Literal["external_communication_only"] = Field(default=EXTERNAL_AGENT_KIND)
+    local_name: str
+    external_agent_id: str
+    generation_id: str
+    pair_api_base_url: str
+    remote_agent_ref: str
+    gateway_expected: bool = False
+    lifecycle_owner: Literal["remote"] = Field(default=EXTERNAL_LIFECYCLE_OWNER_REMOTE)
+    created_at_utc: str
+    updated_at_utc: str
+    verified_at_utc: str | None = None
+    cached_identity: HoumaoManagedAgentIdentity
+
+    @field_validator("local_name")
+    @classmethod
+    def _local_name_is_user_managed_agent_name(cls, value: str) -> str:
+        """Validate one external local alias."""
+
+        try:
+            return normalize_user_managed_agent_name(value)
+        except SessionManifestError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("external_agent_id")
+    @classmethod
+    def _external_agent_id_is_managed_agent_id(cls, value: str) -> str:
+        """Validate one external local id."""
+
+        try:
+            return normalize_managed_agent_id(value)
+        except SessionManifestError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("generation_id", "remote_agent_ref")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Validate non-empty external registry strings."""
+
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @field_validator("pair_api_base_url")
+    @classmethod
+    def _normalize_pair_api_base_url(cls, value: str) -> str:
+        """Validate and normalize the remote pair API base URL."""
+
+        try:
+            return normalize_cao_base_url(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("created_at_utc", "updated_at_utc", "verified_at_utc")
+    @classmethod
+    def _optional_timestamp_not_blank(cls, value: str | None) -> str | None:
+        """Validate optional timestamp strings."""
+
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_external_record(self) -> "ExternalManagedAgentRegistryRecordV1":
+        """Validate schema version and timestamp invariants."""
+
+        if self.schema_version != EXTERNAL_REGISTRY_SCHEMA_VERSION:
+            raise ValueError(f"schema_version must be {EXTERNAL_REGISTRY_SCHEMA_VERSION}")
+        if self.kind != EXTERNAL_AGENT_KIND:
+            raise ValueError(f"kind must be {EXTERNAL_AGENT_KIND!r}")
+        if self.lifecycle_owner != EXTERNAL_LIFECYCLE_OWNER_REMOTE:
+            raise ValueError("lifecycle_owner must be 'remote'")
+
+        created = _parse_iso8601_timestamp(self.created_at_utc, field_name="created_at_utc")
+        updated = _parse_iso8601_timestamp(self.updated_at_utc, field_name="updated_at_utc")
+        if updated < created:
+            raise ValueError("updated_at_utc must be later than or equal to created_at_utc")
+        if self.verified_at_utc is not None:
+            verified = _parse_iso8601_timestamp(
+                self.verified_at_utc,
+                field_name="verified_at_utc",
+            )
+            if verified < created:
+                raise ValueError("verified_at_utc must be later than or equal to created_at_utc")
+        return self
+
+
 def canonicalize_registry_agent_name(value: str) -> str:
     """Validate and normalize registry-facing agent input."""
 
@@ -509,3 +608,4 @@ def _parse_iso8601_timestamp(value: str, *, field_name: str) -> datetime:
 
 LiveAgentRegistryRecordV2.model_rebuild()
 ManagedAgentRegistryRecordV3.model_rebuild()
+ExternalManagedAgentRegistryRecordV1.model_rebuild()

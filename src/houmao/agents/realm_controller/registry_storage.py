@@ -14,10 +14,14 @@ from pydantic import ValidationError
 from houmao.owned_mutation import remove_tree_or_path
 from houmao.owned_paths import resolve_registry_root
 
-from houmao.agents.realm_controller.agent_identity import normalize_managed_agent_id
+from houmao.agents.realm_controller.agent_identity import (
+    normalize_managed_agent_id,
+    normalize_user_managed_agent_name,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
 from houmao.agents.realm_controller.errors import SchemaValidationError, SessionManifestError
 from houmao.agents.realm_controller.registry_models import (
+    ExternalManagedAgentRegistryRecordV1,
     LiveAgentRegistryRecordV2,
     ManagedAgentRegistryRecordV3,
     canonicalize_registry_agent_name,
@@ -32,6 +36,7 @@ JOINED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=30)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
 MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v3.schema.json"
 LIVE_AGENT_REGISTRY_SCHEMA = MANAGED_AGENT_REGISTRY_SCHEMA
+EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA = "external_managed_agent_registry_record.v1.schema.json"
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,13 @@ class GlobalRegistryPaths:
 
     root: Path
     live_agents_dir: Path
+    external_agents_dir: Path | None = None
+
+    def __post_init__(self) -> None:
+        """Fill newer registry subdirectories for older test fixtures."""
+
+        if self.external_agents_dir is None:
+            object.__setattr__(self, "external_agents_dir", self.root / "external_agents")
 
 
 @dataclass(frozen=True)
@@ -77,13 +89,23 @@ def global_registry_paths(*, env: Mapping[str, str] | None = None) -> GlobalRegi
     """Return the resolved shared-registry directory layout."""
 
     root = resolve_global_registry_root(env=env)
-    return GlobalRegistryPaths(root=root, live_agents_dir=root / "live_agents")
+    return GlobalRegistryPaths(
+        root=root,
+        live_agents_dir=root / "live_agents",
+        external_agents_dir=root / "external_agents",
+    )
 
 
 def new_registry_generation_id() -> str:
     """Return a new stable generation id for one registry record publication."""
 
     return str(uuid.uuid4())
+
+
+def new_external_agent_id() -> str:
+    """Return a new local id for one external communication-only record."""
+
+    return f"external-{uuid.uuid4().hex}"
 
 
 def record_path_for_agent_id(
@@ -96,6 +118,19 @@ def record_path_for_agent_id(
     normalized_agent_id = _normalize_agent_id_component(agent_id)
     paths = global_registry_paths(env=env)
     return paths.live_agents_dir / normalized_agent_id / "record.json"
+
+
+def external_record_path_for_agent_id(
+    external_agent_id: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> Path:
+    """Return the external-registry ``record.json`` path for one external id."""
+
+    normalized_agent_id = _normalize_agent_id_component(external_agent_id)
+    paths = global_registry_paths(env=env)
+    assert paths.external_agents_dir is not None
+    return paths.external_agents_dir / normalized_agent_id / "record.json"
 
 
 def load_managed_agent_record_by_agent_id(
@@ -111,6 +146,80 @@ def load_managed_agent_record_by_agent_id(
     if not path.is_file():
         return None
     return _read_managed_agent_record(path)
+
+
+def load_external_managed_agent_record_by_agent_id(
+    external_agent_id: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> ExternalManagedAgentRegistryRecordV1 | None:
+    """Load one external communication-only record by local external id."""
+
+    path = external_record_path_for_agent_id(external_agent_id, env=env)
+    if path.parent.parent.is_symlink() or path.parent.is_symlink() or path.is_symlink():
+        return None
+    if not path.is_file():
+        return None
+    return _read_external_managed_agent_record(path)
+
+
+def list_external_managed_agent_records(
+    *,
+    env: Mapping[str, str] | None = None,
+) -> tuple[ExternalManagedAgentRegistryRecordV1, ...]:
+    """Return every valid external communication-only registry record."""
+
+    paths = global_registry_paths(env=env)
+    assert paths.external_agents_dir is not None
+    if paths.external_agents_dir.is_symlink() or not paths.external_agents_dir.exists():
+        return ()
+
+    records: list[ExternalManagedAgentRegistryRecordV1] = []
+    for candidate in sorted(paths.external_agents_dir.iterdir()):
+        if candidate.is_symlink() or not candidate.is_dir():
+            continue
+        record_path = candidate / "record.json"
+        if record_path.is_symlink() or not record_path.is_file():
+            continue
+        try:
+            records.append(_read_external_managed_agent_record(record_path))
+        except SessionManifestError:
+            continue
+    return tuple(records)
+
+
+def resolve_external_managed_agent_records_by_name(
+    local_name: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> tuple[ExternalManagedAgentRegistryRecordV1, ...]:
+    """Resolve external communication-only records by local user-facing name."""
+
+    try:
+        normalized_name = canonicalize_external_registry_agent_name(local_name)
+    except SessionManifestError:
+        return ()
+    return tuple(
+        record
+        for record in list_external_managed_agent_records(env=env)
+        if record.local_name == normalized_name
+    )
+
+
+def resolve_external_managed_agent_record(
+    agent_identity: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> ExternalManagedAgentRegistryRecordV1 | None:
+    """Resolve one external record by local id or unique local name."""
+
+    direct_record = load_external_managed_agent_record_by_agent_id(agent_identity, env=env)
+    if direct_record is not None:
+        return direct_record
+    matches = resolve_external_managed_agent_records_by_name(agent_identity, env=env)
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def resolve_active_managed_agent_record_by_agent_id(
@@ -369,6 +478,93 @@ def publish_managed_agent_record(
     return observed
 
 
+def publish_external_managed_agent_record(
+    record: ExternalManagedAgentRegistryRecordV1,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> ExternalManagedAgentRegistryRecordV1:
+    """Publish or refresh one external communication-only record atomically."""
+
+    try:
+        publish_record = ExternalManagedAgentRegistryRecordV1.model_validate(
+            record.model_dump(mode="json")
+        )
+    except ValidationError as exc:
+        agent_id = getattr(record, "external_agent_id", "<unknown>")
+        raise SessionManifestError(
+            format_registry_validation_error(
+                "External managed-agent registry record schema validation failed before "
+                f"publish for `{agent_id}`",
+                exc,
+            )
+        ) from exc
+
+    payload = publish_record.model_dump(mode="json")
+    try:
+        validate_payload(payload, EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA)
+    except SchemaValidationError as exc:
+        raise SessionManifestError(
+            "External managed-agent registry record schema validation failed before publish for "
+            f"`{publish_record.external_agent_id}`: {exc}"
+        ) from exc
+
+    _raise_if_external_name_conflicts_with_different_record(publish_record, env=env)
+
+    path = external_record_path_for_agent_id(publish_record.external_agent_id, env=env)
+    paths = global_registry_paths(env=env)
+    assert paths.external_agents_dir is not None
+    if paths.external_agents_dir.is_symlink():
+        remove_tree_or_path(paths.external_agents_dir, allowed_roots=(paths.root,))
+    if path.parent.is_symlink():
+        remove_tree_or_path(path.parent, allowed_roots=(paths.external_agents_dir,))
+    paths.external_agents_dir.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json_atomically(path, payload)
+
+    observed = load_external_managed_agent_record_by_agent_id(
+        publish_record.external_agent_id,
+        env=env,
+    )
+    if observed is None:
+        raise SessionManifestError(
+            "External registry publish verification failed for "
+            f"external_agent_id `{publish_record.external_agent_id}`."
+        )
+    return observed
+
+
+def remove_external_managed_agent_record(
+    external_agent_id: str,
+    *,
+    generation_id: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> bool:
+    """Remove one external communication-only registry record."""
+
+    path = external_record_path_for_agent_id(external_agent_id, env=env)
+    record_dir = path.parent
+
+    if path.is_file():
+        try:
+            record = _read_external_managed_agent_record(path)
+        except SessionManifestError:
+            record = None
+        if (
+            generation_id is not None
+            and record is not None
+            and record.generation_id != generation_id
+        ):
+            return False
+
+    if not record_dir.exists():
+        return False
+
+    paths = global_registry_paths(env=env)
+    assert paths.external_agents_dir is not None
+    remove_tree_or_path(record_dir, allowed_roots=(paths.external_agents_dir,))
+    return True
+
+
 def remove_managed_agent_record(
     agent_id: str,
     *,
@@ -610,6 +806,15 @@ def is_managed_agent_record_cleanup_candidate(record: ManagedAgentRegistryRecord
     )
 
 
+def canonicalize_external_registry_agent_name(value: str) -> str:
+    """Validate and normalize an external registry local alias."""
+
+    try:
+        return normalize_user_managed_agent_name(value)
+    except SessionManifestError:
+        raise
+
+
 def _resolve_records_by_name(
     *,
     agent_name: str,
@@ -667,6 +872,23 @@ def _raise_if_conflicting_active_generation(
     )
 
 
+def _raise_if_external_name_conflicts_with_different_record(
+    desired: ExternalManagedAgentRegistryRecordV1,
+    *,
+    env: Mapping[str, str] | None,
+) -> None:
+    """Reject duplicate external local aliases owned by another external id."""
+
+    for existing in resolve_external_managed_agent_records_by_name(desired.local_name, env=env):
+        if existing.external_agent_id == desired.external_agent_id:
+            continue
+        raise SessionManifestError(
+            "External managed-agent registry name conflict: local_name "
+            f"`{desired.local_name}` is already owned by external_agent_id "
+            f"`{existing.external_agent_id}`."
+        )
+
+
 def _record_expired_beyond_grace(
     record: ManagedAgentRegistryRecordV3,
     *,
@@ -702,6 +924,32 @@ def _read_managed_agent_record(path: Path) -> ManagedAgentRegistryRecordV3:
         raise SessionManifestError(
             format_registry_validation_error(
                 f"Invalid registry record `{path}`",
+                exc,
+            )
+        ) from exc
+
+
+def _read_external_managed_agent_record(path: Path) -> ExternalManagedAgentRegistryRecordV1:
+    """Load and validate one external managed-agent registry record from disk."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise
+    except json.JSONDecodeError as exc:
+        raise SessionManifestError(f"Invalid JSON in external registry record `{path}`.") from exc
+
+    try:
+        validate_payload(payload, EXTERNAL_MANAGED_AGENT_REGISTRY_SCHEMA)
+    except SchemaValidationError as exc:
+        raise SessionManifestError(f"Invalid external registry record `{path}`: {exc}") from exc
+
+    try:
+        return ExternalManagedAgentRegistryRecordV1.model_validate(payload)
+    except ValidationError as exc:
+        raise SessionManifestError(
+            format_registry_validation_error(
+                f"Invalid external registry record `{path}`",
                 exc,
             )
         ) from exc

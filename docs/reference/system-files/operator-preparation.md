@@ -64,6 +64,7 @@ If you intentionally redirect the runtime root or registry root into a repo-loca
 | `<runtime-root>/sessions/<backend>/<session-id>/manifest.json` and stable gateway artifacts | Treat as durable runtime state while the session is active or resumable; `houmao-mgr agents cleanup session` and `houmao-mgr admin cleanup runtime sessions` remove whole stopped envelopes, while log cleanup intentionally leaves durable gateway state behind |
 | `<runtime-root>/sessions/<backend>/<session-id>/mailbox-secrets/` | Session-local Stalwart secret material is cleanup-sensitive, not scratch; remove it only after the session is stopped, typically through `houmao-mgr agents cleanup mailbox` |
 | `<registry-root>/live_agents/<agent-id>/record.json` | Let the runtime or `houmao-mgr admin cleanup registry` manage freshness; registry cleanup probes tmux-backed records locally by default, so do not treat fresh live entries as scratch |
+| `<registry-root>/external_agents/<external-agent-id>/record.json` | Registry-owned remote locator metadata for `houmao-mgr agents external`; remove with `agents external remove` rather than local lifecycle cleanup |
 | legacy `<registry-root>/live_agents/<agent-key>/` leftovers | Manual cleanup is acceptable after confirming they are pre-cutover leftovers |
 
 ## Recommended Preparation Patterns

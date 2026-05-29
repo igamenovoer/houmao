@@ -19,6 +19,8 @@ houmao-mgr agents mail [OPTIONS] COMMAND [ARGS]...
 - Inside the owning managed tmux session, omitting both selectors resolves the current session through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus shared-registry metadata second.
 - Outside tmux, omitting both selectors fails explicitly instead of guessing from cwd or ambient shell state.
 - `--port` is only supported with an explicit `--agent-id` or `--agent-name` target.
+- External communication-only targets registered with `houmao-mgr agents external register` are supported with explicit `--agent-id` or `--agent-name`; mail operations route through the stored remote pair API and remote agent ref.
+- Current-session targeting remains local tmux-only and does not resolve external records.
 
 ## Commands
 
