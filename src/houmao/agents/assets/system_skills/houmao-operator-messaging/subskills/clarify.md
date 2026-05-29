@@ -1,6 +1,6 @@
 # Clarify
 
-Use this page when the operator selects `clarify` or asks to clarify an operator-to-agent message before dispatch.
+Use this page when the operator selects `clarify`, asks to clarify an operator-to-agent message before dispatch, or invokes `houmao-operator-messaging` with an actionable prompt but no subcommand.
 
 ## Purpose
 
@@ -82,3 +82,18 @@ Stop clarification when:
 - remaining ambiguity is explicitly accepted.
 
 End with a concise summary and say whether the intent is ready for `dispatch`.
+
+## Prompt-Only Invocation Output
+
+When this page is reached because the operator invoked `houmao-operator-messaging` with only an actionable prompt:
+
+- Infer the intended target(s), message, route, ordering, and reply expectation from the prompt and chat context.
+- If a target or message is ambiguous, show the ambiguity in the table instead of inventing a value.
+- Show a compact Markdown table before asking the next question:
+
+| Target or selection rule | Route | Message to send | Reply expectation | Notes |
+| --- | --- | --- | --- | --- |
+| `<agent or rule>` | `prompt` or `mailbox` | `<operator-facing message summary or short exact message>` | `<expected acknowledgement/evidence>` | `<constraints, ordering, or ambiguity>` |
+
+- Ask: "Do you want to refine this first, or dispatch it directly?"
+- Do not dispatch until the operator explicitly chooses direct dispatch.

@@ -10,6 +10,7 @@ description: Manual invocation only; use only when the user explicitly requests 
 - Use this Houmao skill only after the user explicitly selects `houmao-operator-messaging` or names a supported operator messaging operation.
 - Do not auto-route generic requests such as "tell the coder" or "message the reviewer" here unless the user selects this skill or asks for operator messaging clarification/dispatch.
 - If the user invokes explicit help intent, answer from `## Help` before reading routed pages, asking missing-input questions, sending prompts, sending mail, or changing runtime state.
+- If the user invokes this skill with an actionable prompt but no subcommand, treat it as `clarify`: extract the intended target(s) and message, show them in a table, and ask whether to refine the plan or dispatch directly. Do not dispatch until the user confirms dispatch.
 - If the user invokes this skill without a subcommand or actionable prompt, explain the supported subcommands and ask which operation they want; do not default to dispatch.
 
 ## Help
@@ -29,6 +30,7 @@ Available functionality:
 Common starting prompts:
 
 - `$houmao-operator-messaging help`
+- `$houmao-operator-messaging ask the implementation agent to check issue 53 and report whether the operator messaging skill covers it`
 - `$houmao-operator-messaging clarify: ask the implementation and review agents to coordinate on issue 53`
 - `$houmao-operator-messaging dispatch using ./operator-intent.md`
 
@@ -51,6 +53,12 @@ Meta:
 Operator workflow:
 - `clarify`: resolve operator intent without dispatching; read [subskills/clarify.md](subskills/clarify.md).
 - `dispatch`: plan and send one or more routed command packets; read [subskills/dispatch.md](subskills/dispatch.md).
+
+Prompt-only workflow:
+- Treat `$houmao-operator-messaging <actionable operator prompt>` as `clarify`.
+- Present the inferred target(s), route, and message in a compact Markdown table.
+- Ask whether the operator wants to refine the table or dispatch it directly.
+- Dispatch only after explicit confirmation.
 
 ## Dispatch Model
 
