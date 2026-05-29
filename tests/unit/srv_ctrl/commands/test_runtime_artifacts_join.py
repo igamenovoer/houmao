@@ -388,6 +388,7 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
         "houmao-specialist-mgr",
         "houmao-credential-mgr",
         "houmao-agent-definition",
+        "houmao-operator-messaging",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     } <= installed_names
@@ -449,6 +450,7 @@ def test_materialize_joined_launch_projects_claude_top_level_skills(
     assert mailbox_mgr_skill_path.is_file()
     assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
+    assert (claude_home / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (claude_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (claude_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()
@@ -514,6 +516,7 @@ def test_materialize_joined_launch_projects_gemini_top_level_skills(
     assert mailbox_mgr_skill_path.is_file()
     assert memory_mgr_skill_path.is_file()
     assert advanced_skill_path.is_file()
+    assert (gemini_home / ".gemini/skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (gemini_home / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert user_skill.is_file()

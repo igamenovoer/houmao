@@ -138,6 +138,10 @@ Lite generated skills SHALL route ordinary mailbox operations through maintained
 
 Lite generated skills SHALL route gateway, notifier, launch, messaging, inspection, workspace, and agent-definition operations through their owning maintained Houmao skills or supported CLI surfaces.
 
+When explicit workspace setup is needed, lite guidance SHALL route standard Houmao workspace planning, creation, validation, and summaries through `houmao-utils-workspace-mgr`.
+
+Lite guidance SHALL NOT describe workspace-manager `execute` as the standard workspace setup operation.
+
 #### Scenario: Mail-driven lite event stops after one action
 - **WHEN** a lite generated receiver skill handles one recognized template type
 - **THEN** it performs one bounded role-owned action
@@ -147,6 +151,11 @@ Lite generated skills SHALL route gateway, notifier, launch, messaging, inspecti
 - **WHEN** a lite generated operator skill needs to enable notifier behavior for a participant
 - **THEN** it routes that operation through `houmao-agent-gateway`
 - **AND THEN** it does not restate the low-level gateway notifier contract inline
+
+#### Scenario: Lite routes workspace readiness through workspace manager
+- **WHEN** a lite generated process needs explicit standard workspace setup or readiness evidence
+- **THEN** lite guidance routes planning, creation, validation, or summaries through `houmao-utils-workspace-mgr`
+- **AND THEN** it does not use `execute` as the standard workspace-manager operation name
 
 ### Requirement: Lite exposes a small authoring and execution operation surface
 The packaged lite skill SHALL support operations for initialization, intent clarification, generated-skill generation, validation, agent preparation, launch, start, status, pause, resume, stop, and recovery when those operations apply to the selected lite loop.

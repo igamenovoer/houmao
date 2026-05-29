@@ -3,9 +3,12 @@
 ## Purpose
 Define the documentation requirements for Houmao CLI reference content.
 ## Requirements
+
 ### Requirement: houmao-mgr reference documents all command groups
 
-The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `internals`, `mailbox`, `project`, and `server`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
+The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `internals`, `mailbox`, and `project`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
+
+The CLI reference SHALL NOT document a top-level `houmao-mgr server` command group as part of the maintained manager surface.
 
 The CLI reference SHALL make the major nested managed-agent and project command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
@@ -37,7 +40,8 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 
 #### Scenario: Reader finds current agent lifecycle and project command groups
 - **WHEN** a reader looks up `houmao-mgr`
-- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `internals`, `mailbox`, `project`, `server`, and `admin`
+- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `internals`, `mailbox`, `project`, and `admin`
+- **AND THEN** they do not find `server` documented as a maintained top-level manager command group
 - **AND THEN** the CLI reference does not present removed or outdated project group names such as `agent-tools` as the supported public project surface
 
 #### Scenario: Reader can discover the internals graph command family
@@ -85,7 +89,6 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 - **THEN** the page shows that `project credentials claude` and `credentials claude --agent-def-dir <path>` use `--auth-token`, `--oauth-token`, `--config-dir`
 - **AND THEN** the page shows that `project easy specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
 - **AND THEN** the page states that both surfaces accept the same credential semantics
-
 ### Requirement: CLI reference documents the dedicated credential-management families
 The CLI reference SHALL document the dedicated credential-management families for `houmao-mgr`.
 
@@ -109,7 +112,6 @@ The `houmao-mgr` reference SHALL position `credentials` as the first-class crede
 - **WHEN** a reader checks the CLI reference for project-local tool management
 - **THEN** the reference explains that `project agents tools <tool>` remains for tool inspection and setup bundles
 - **AND THEN** the reference directs credential CRUD to `credentials ...` or `project credentials ...`
-
 ### Requirement: CLI reference documents the credential login helper
 The CLI reference SHALL document the credential `login` helper for the dedicated credential-management families.
 
@@ -141,52 +143,32 @@ The CLI reference SHALL explain that the helper invokes installed provider CLIs 
 - **WHEN** a reader compares Codex, Claude, and Gemini credential login behavior
 - **THEN** the CLI reference identifies the provider home env var and expected auth artifact for each tool
 - **AND THEN** it explains that Gemini may require an interactive OAuth session rather than a fully headless login command
-
 ### Requirement: CLI reference lists only retained server binaries
-The CLI reference SHALL present `houmao-server` and `houmao-passive-server` as the retained server binaries.
+The CLI reference SHALL present `houmao-passive-server` as the retained server binary.
 
-The CLI reference SHALL NOT list `houmao-cao-server` as an active, deprecated, or installable package entrypoint. Historical references MAY mention the removed launcher only when explicitly framed as removed history or migration context.
+The CLI reference SHALL NOT list `houmao-server`, `houmao-cli`, or `houmao-cao-server` as active, deprecated-installable, or installable package entrypoints. Historical references MAY mention removed launchers only when explicitly framed as removed history or migration context.
 
-#### Scenario: Reader sees retained server binaries
+#### Scenario: Reader sees the retained server binary
 - **WHEN** a reader scans CLI reference entrypoint tables or server comparison sections
-- **THEN** the retained server binaries are `houmao-server` and `houmao-passive-server`
-- **AND THEN** `houmao-cao-server` is not presented as a command the current package installs
-
-### Requirement: houmao-server reference documents serve and query commands
-
-The CLI reference SHALL include a page for `houmao-server` documenting its commands (`serve`, `health`, `current-instance`, `register-launch`, `sessions`, and `terminals`) derived from `server/commands/` module docstrings and live help output.
-
-The `serve` reference SHALL describe the implemented startup behavior and the current flag surface, including compatibility readiness and warmup flags when those flags are present in the live CLI. It SHALL NOT document child-CAO startup flags or child-CAO process configuration.
-
-#### Scenario: Reader understands server startup
-
-- **WHEN** a reader looks up `houmao-server serve`
-- **THEN** they find the current startup behavior plus the live configuration options for compatibility readiness timeouts or poll intervals, warmup timing, runtime root, API base URL, and supported TUI process overrides
-- **AND THEN** they do not find `startup-child` options documented as live configuration
-
-#### Scenario: Reader finds query commands
-
-- **WHEN** a reader looks up `houmao-server` query commands
-- **THEN** they find documented coverage for `health`, `current-instance`, `register-launch`, `sessions`, and `terminals`
-- **AND THEN** the page reflects the current command tree rather than a partial or stale subset
-
+- **THEN** the retained server binary is `houmao-passive-server`
+- **AND THEN** `houmao-server`, `houmao-cli`, and `houmao-cao-server` are not presented as commands the current package installs
 ### Requirement: houmao-passive-server reference documents registry-driven model
 
-The CLI reference SHALL include a page for `houmao-passive-server` documenting its registry-driven discovery model, serve command, and API surface derived from `passive_server/` module docstrings. The page SHALL position passive-server as the clean, CAO-free server path.
+The CLI reference SHALL include a page for `houmao-passive-server` documenting its registry-driven discovery model, serve command, and API surface derived from `passive_server/` module docstrings. The page SHALL position passive-server as the maintained server path.
 
-The comparison table SHALL list the correct default ports: 9891 for `houmao-passive-server` and 9889 for `houmao-server`.
+The page SHALL describe passive-server as the active API authority for collecting running Houmao agents and managing them through supported passive-server routes. It SHALL NOT compare passive-server against standalone `houmao-server` as another maintained deployment choice.
 
-#### Scenario: Reader understands passive vs active server difference
+The comparison table, if present, SHALL list `houmao-passive-server` default port 9891 and SHALL NOT list a retained default port for standalone `houmao-server`.
 
-- **WHEN** a reader compares passive-server and houmao-server pages
-- **THEN** they understand that passive-server is stateless/registry-driven with no CAO dependency, while houmao-server is the CAO-compatible path
+#### Scenario: Reader understands passive-server is the maintained server path
+- **WHEN** a reader opens the passive-server CLI reference
+- **THEN** they understand that passive-server is the maintained registry-driven API server
+- **AND THEN** the page does not tell the reader to choose standalone `houmao-server` instead for current workflows
 
-#### Scenario: Comparison table shows correct default ports
-
-- **WHEN** a reader checks the comparison table in houmao-passive-server.md
+#### Scenario: Comparison table shows passive-server default port only
+- **WHEN** a reader checks the comparison table in `houmao-passive-server.md`
 - **THEN** the default port for `houmao-passive-server` is listed as 9891
-- **AND THEN** the default port for `houmao-server` is listed as 9889
-
+- **AND THEN** standalone `houmao-server` is not presented as a retained server binary with a current default port
 ### Requirement: CLI reference uses `.houmao` ambient resolution and deprecation-only legacy notes
 Repo-owned CLI reference docs that describe agent-definition-directory resolution for active commands, or that mention deprecated or removed compatibility entrypoints, SHALL describe ambient agent-definition resolution as:
 
@@ -206,7 +188,7 @@ When the CLI reference describes `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, it SHA
 The CLI reference SHALL describe `HOUMAO_PROJECT_OVERLAY_DIR` as an absolute-path env override that selects the overlay directory directly for CI and controlled automation.
 When the CLI reference explains the discovered project path, it SHALL describe `houmao-config.toml` as the discovery anchor at the selected overlay root and `agents/` as the compatibility projection used by file-tree consumers beneath that overlay root.
 It SHALL NOT present `<cwd>/.agentsys/agents` as a supported default or fallback path.
-The CLI reference SHALL keep `houmao-cli` in explicit deprecation-only posture and SHALL keep `houmao-cao-server` only in explicit removed, historical, or migration context rather than presenting either surface as an active operator workflow.
+The CLI reference SHALL keep `houmao-cli`, standalone `houmao-server`, and `houmao-cao-server` only in explicit removed, historical, retirement, or migration context rather than presenting any of those surfaces as active or deprecated-installable operator workflows.
 
 #### Scenario: Reader sees the project-overlay env contract in the CLI precedence documentation
 - **WHEN** a reader checks the CLI reference for agent-definition-directory resolution
@@ -221,11 +203,10 @@ The CLI reference SHALL keep `houmao-cli` in explicit deprecation-only posture a
 - **AND THEN** it does not present `<cwd>/.agentsys/agents` as a supported fallback
 
 #### Scenario: Deprecated and removed entrypoints remain historical while using current precedence
-- **WHEN** a reader scans the CLI reference for mentions of `houmao-cli` or `houmao-cao-server`
-- **THEN** `houmao-cli` remains a brief deprecated compatibility note where needed
-- **AND THEN** `houmao-cao-server` appears only as a removed historical launcher, not as an installable current command
+- **WHEN** a reader scans the CLI reference for mentions of `houmao-cli`, `houmao-server`, or `houmao-cao-server`
+- **THEN** those names appear only as removed or historical notes when needed
+- **AND THEN** none appears as an installable current command
 - **AND THEN** any documented ambient agent-definition resolution uses the current `.houmao` precedence contract including the discovery-mode env rather than preserving `.agentsys`
-
 ### Requirement: CLI reference stubs completed for all agents subcommand pages
 
 The CLI reference SHALL complete all truncated stub pages for `houmao-mgr agents` subcommand families. Specifically:
@@ -255,7 +236,6 @@ Each completed page SHALL follow the style of `docs/reference/cli/admin-cleanup.
 - **WHEN** a reader opens `docs/reference/cli/agents-turn.md`
 - **THEN** they find complete documentation for `submit`, `status`, `events`, `stdout`, and `stderr` with option tables
 - **AND THEN** the page is not truncated mid-content
-
 ### Requirement: CLI reference documents the `agents gateway reminders` subgroup
 The CLI reference SHALL document `houmao-mgr agents gateway reminders` as a first-class subgroup of `agents gateway`.
 
@@ -287,28 +267,28 @@ That reminder coverage SHALL explain:
 - **WHEN** a reader looks up `houmao-mgr agents gateway reminders create` or `set`
 - **THEN** the option tables and prose explain `--ranking`, `--before-all`, and `--after-all`
 - **AND THEN** the page makes clear that ranking is numeric and that the convenience flags resolve to concrete numeric positions relative to the live reminder set
-
 ### Requirement: houmao-passive-server reference rewritten with operational depth
 
-The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be rewritten from the current 30-line stub to a comprehensive reference covering:
+The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be rewritten from the current stub to a comprehensive reference covering:
 
-- When to use passive-server vs houmao-server: a comparison table showing that passive-server is stateless/registry-driven with no child process supervision, while houmao-server provides full session management.
-- API contract: the routes and capabilities available through the passive-server REST API.
-- Operational guidance: how to start, configure, and use the passive-server in a distributed agent coordination setup.
-- The `serve` command with all current options.
+- when to use passive-server as the maintained server API surface,
+- the registry-driven discovery and observation model,
+- the route families and capabilities available through the passive-server REST API,
+- operational guidance for starting, configuring, and using passive-server in distributed agent coordination setups,
+- the `serve` command with all current options,
+- which `houmao-mgr` commands can target passive-server through supported pair-authority options.
+
+The page SHALL NOT instruct users to choose standalone `houmao-server` as a maintained alternative.
 
 #### Scenario: Reader understands when to use passive-server
-
-- **WHEN** a reader opens the houmao-passive-server reference
-- **THEN** they find a comparison table or section explaining passive-server vs houmao-server trade-offs
-- **AND THEN** they can make an informed decision about which server to deploy
+- **WHEN** a reader opens the `houmao-passive-server` reference
+- **THEN** they find guidance that positions passive-server as the maintained server API surface
+- **AND THEN** they are not asked to choose between two maintained Houmao server executables
 
 #### Scenario: passive-server API surface documented
-
 - **WHEN** a reader needs to integrate with the passive-server
 - **THEN** the page documents the available REST routes and their response contracts
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
-
 ### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
 The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both the dedicated credential-management surface and the easy-specialist surface:
 
@@ -321,7 +301,6 @@ When the reference documents Claude-specific flags, it SHALL make clear that `cl
 - **WHEN** a reader looks up the Claude credential-management or easy-specialist options in `docs/reference/cli/houmao-mgr.md`
 - **THEN** the page distinguishes credential-providing Claude inputs from the optional state-template input
 - **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
-
 ### Requirement: CLI reference documents specialist editing controls
 The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable easy specialists.
 
@@ -340,7 +319,6 @@ The reference SHALL state that `specialist set` updates the reusable specialist 
 - **WHEN** a reader looks up same-name specialist creation
 - **THEN** the CLI reference explains when to use `--yes` for replacement
 - **AND THEN** it distinguishes replacement from patching through `set`
-
 ### Requirement: CLI reference documents the root `houmao-mgr --version` option
 The CLI reference page `docs/reference/cli/houmao-mgr.md` SHALL document `--version` as a root option on `houmao-mgr`.
 
@@ -357,7 +335,6 @@ That page SHALL explain that `houmao-mgr --version` prints the packaged Houmao v
 - **WHEN** a reader looks up `houmao-mgr --version` in `docs/reference/cli/houmao-mgr.md`
 - **THEN** the page explains that the command prints the packaged Houmao version
 - **AND THEN** it explains that the command exits successfully after reporting that version
-
 ### Requirement: System-skills reference documents the renamed specialist-management skill
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-specialist-mgr`.
 
@@ -375,7 +352,6 @@ The page SHALL NOT continue to describe `houmao-manage-specialist` as the active
 #### Scenario: Reader does not see the superseded packaged specialist name
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page does not present `houmao-manage-specialist` as the current packaged specialist-management skill
-
 ### Requirement: System-skills reference documents the packaged `houmao-project-mgr` skill and its project-management boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-project-mgr` as a packaged Houmao-owned system skill.
 
@@ -405,7 +381,6 @@ That page SHALL explain that neighboring renamed packaged skills keep their curr
 - **WHEN** a reader opens the packaged project-management skill section of `docs/reference/cli/system-skills.md`
 - **THEN** the page distinguishes `houmao-project-mgr` from `houmao-specialist-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`, `houmao-agent-instance`, and `houmao-mailbox-mgr`
 - **AND THEN** it does not use obsolete `houmao-manage-*` identifiers as the current routing targets
-
 ### Requirement: System-skills reference documents the packaged `houmao-mailbox-mgr` skill and its mailbox-admin boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-mailbox-mgr` as a packaged Houmao-owned system skill.
 
@@ -431,7 +406,6 @@ That page SHALL explain that the maintained mailbox-admin CLI remains filesystem
 - **THEN** the page distinguishes mailbox root and binding administration from ordinary mailbox send/check/reply work
 - **AND THEN** it does not imply that `houmao-mailbox-mgr` replaces `houmao-agent-email-comms`, `houmao-process-emails-via-gateway`, or `houmao-agent-gateway`
 - **AND THEN** it explains that follow-up live-agent management after specialist launch or stop belongs to `houmao-agent-instance`
-
 ### Requirement: System-skills reference documents the packaged agent-instance lifecycle skill and its boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-instance` as a packaged Houmao-owned system skill.
 
@@ -466,7 +440,6 @@ That page SHALL explain that managed launch and managed join auto-install the pr
 - **WHEN** a reader checks the install-selection behavior in `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that CLI-default installation includes project-management, lifecycle, messaging, and gateway skills
 - **AND THEN** it explains that managed launch and managed join auto-install the project-management, messaging, and gateway skills without auto-installing the lifecycle-only skill
-
 ### Requirement: System-skills reference documents the packaged agent-messaging skill and its communication-path boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-messaging` as a packaged Houmao-owned system skill.
 
@@ -496,7 +469,6 @@ That page SHALL explain that transport-specific mailbox behavior remains in the 
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page explains the distinction between synchronous prompt turns, queued gateway requests, raw `send-keys`, mailbox handoff, ordinary mailbox operations in the mailbox skills, and the separate gateway skill's lifecycle or reminder services
 - **AND THEN** it does not imply that those paths are interchangeable shortcuts
-
 ### Requirement: Managed-launch CLI reference documents `--workdir` and source-project pinning
 The CLI reference pages that document `houmao-mgr agents launch`, `houmao-mgr agents join`, and `houmao-mgr project easy instance launch` SHALL describe `--workdir` as the current public runtime-cwd flag.
 
@@ -524,7 +496,6 @@ That coverage SHALL NOT present `--working-directory` as part of the current pub
 - **WHEN** a reader looks up `houmao-mgr project easy instance launch --workdir`
 - **THEN** the reference explains that the selected project overlay and specialist source remain authoritative
 - **AND THEN** it explains that `--workdir` only changes the launched agent cwd
-
 ### Requirement: System-skills reference documents effective-home resolution and omitted-selection defaults
 The CLI reference pages `docs/reference/cli/system-skills.md` and `docs/reference/cli/houmao-mgr.md` SHALL describe `houmao-mgr system-skills install` as requiring `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
 
@@ -631,7 +602,6 @@ That coverage SHALL explain that single-tool JSON output keeps the scalar instal
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md` or `docs/reference/cli/houmao-mgr.md`
 - **THEN** the current command shape does not present `--set` or `--default` as a supported `system-skills install` option
 - **AND THEN** the reference explains that omitting both `--skill-set` and `--skill` is the supported way to request CLI-default selection
-
 ### Requirement: CLI reference documents tmux-session targeting for `agents gateway`
 The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document `--target-tmux-session <tmux-session-name>` as an explicit selector for single-target `houmao-mgr agents gateway ...` commands.
 
@@ -655,7 +625,6 @@ The `agents-gateway` reference SHALL distinguish outside-tmux `--target-tmux-ses
 - **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
 - **THEN** the page explains that `--pair-port` selects the Houmao pair authority
 - **AND THEN** the page does not imply that `--pair-port` controls the live gateway listener port
-
 ### Requirement: CLI reference documents the top-level project agents presets surface
 
 The `houmao-mgr` CLI reference SHALL document the canonical low-level recipe surface and the compatibility preset alias as one resource family.
@@ -715,7 +684,6 @@ The CLI reference SHALL link to `docs/getting-started/launch-profiles.md` for th
 - **WHEN** a reader checks the `Command shape` overview in the CLI reference
 - **THEN** `project agents` lists `roles`, `recipes`, `presets`, `launch-profiles`, and `tools <tool>`
 - **AND THEN** `project easy` lists `specialist`, `profile`, and `instance`
-
 ### Requirement: Easy-specialist launch options table includes mail-account-dir
 
 The `docs/getting-started/easy-specialists.md` options table for `project easy instance launch` SHALL include the `--mail-account-dir` option with its default (None) and its description as an optional private filesystem mailbox directory to symlink into the shared root.
@@ -725,7 +693,6 @@ The `docs/getting-started/easy-specialists.md` options table for `project easy i
 - **WHEN** a reader checks the options table for `project easy instance launch` in `easy-specialists.md`
 - **THEN** the table includes a row for `--mail-account-dir` with default `None`
 - **AND THEN** the description explains it is an optional private filesystem mailbox directory to symlink into the shared root
-
 ### Requirement: System-skills reference documents the packaged agent-gateway skill and its gateway-service boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-gateway` as a packaged Houmao-owned system skill.
 
@@ -753,7 +720,6 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that current reminder control prefers `houmao-mgr agents gateway reminders ...` or the matching managed-agent reminder proxy when available and keeps direct live `/v1/reminders` as the lower-level contract
 - **AND THEN** it does not imply that reminders are durable across gateway restart
-
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
 
@@ -779,7 +745,6 @@ The CLI reference SHALL explain that:
 - **WHEN** a reader checks the option notes for managed-header controls
 - **THEN** the CLI reference explains direct-override precedence over stored profile policy
 - **AND THEN** it explains that `--clear-managed-header` returns the stored profile field to inherit behavior
-
 ### Requirement: CLI reference removes retired `--yolo` launch option from all pages
 
 The CLI reference SHALL NOT present `--yolo` as a supported option on `houmao-mgr agents launch`, `houmao-mgr project easy instance launch`, or any other live launch surface. Any remaining `--yolo` references in `docs/reference/cli/houmao-mgr.md`, `docs/reference/cli/agents-gateway.md`, `docs/reference/cli/system-skills.md`, or other CLI reference pages SHALL be removed during this resync pass.
@@ -797,7 +762,6 @@ The CLI reference SHALL state that prompt-mode posture is now controlled exclusi
 - **WHEN** a reader looks up how to launch an agent without provider startup prompts
 - **THEN** the CLI reference points the reader at `launch.prompt_mode: unattended` in stored profiles or the equivalent launch-profile flags
 - **AND THEN** the reference does not present `--yolo` as the way to achieve that posture
-
 ### Requirement: CLI reference documents the unified `--model` selection on launch surfaces
 
 The `houmao-mgr` CLI reference SHALL document `--model` as a unified model-selection flag on the relevant managed launch and launch-profile commands.
@@ -818,7 +782,6 @@ That coverage SHALL link to the underlying tool-specific model identifiers docum
 
 - **WHEN** a reader looks up the `--model` flag
 - **THEN** the CLI reference states that `--model` does not bypass tool authentication or provider configuration
-
 ### Requirement: CLI reference for `agents mail` reflects the unified email-comms skill boundary
 
 The CLI reference page `docs/reference/cli/agents-mail.md` SHALL describe the current `agents mail` command surface as the operator-facing mailbox follow-up family that pairs with the unified `houmao-agent-email-comms` packaged system skill.
@@ -856,7 +819,6 @@ That page SHALL explain that:
 - **AND THEN** the page states that omitted `--reply-policy` defaults to replies through `HOUMAO-operator@houmao.localhost`
 - **AND THEN** the page states that `--reply-policy none` keeps one operator-origin post no-reply
 - **AND THEN** the page states that `post` is filesystem-only in v1
-
 ### Requirement: CLI reference resync against current Click decorators for stale `agents` and `admin` pages
 
 The CLI reference pages `docs/reference/cli/agents-mailbox.md`, `docs/reference/cli/agents-turn.md`, `docs/reference/cli/admin-cleanup.md`, and `docs/reference/cli/houmao-server.md` SHALL be reverified against the current Click decorators in `src/houmao/srv_ctrl/commands/` (and `src/houmao/server/commands/` for the server page) and updated to match the live CLI shape as of this change.
@@ -891,7 +853,6 @@ For each of those pages:
 - **WHEN** a reader opens `docs/reference/cli/houmao-server.md`
 - **THEN** the documented subcommands match the live Click groups in `src/houmao/server/commands/`
 - **AND THEN** the option tables match current decorators
-
 ### Requirement: CLI reference cross-links the managed prompt header reference page
 
 The `houmao-mgr` CLI reference and the relevant launch-surface coverage in `docs/reference/cli/houmao-mgr.md` SHALL link to the managed prompt header reference page (`docs/reference/run-phase/managed-prompt-header.md`) wherever they document `--managed-header`, `--no-managed-header`, or related stored launch-profile policy flags.
@@ -903,7 +864,6 @@ The link SHALL be a direct cross-reference, not a tooltip or footnote, so a read
 - **WHEN** a reader looks up `--managed-header` or `--no-managed-header` on `agents launch` in the CLI reference
 - **THEN** the page contains a direct link to `docs/reference/run-phase/managed-prompt-header.md`
 - **AND THEN** the link is presented inline with the flag coverage rather than only at the bottom of the page
-
 ### Requirement: CLI reference cross-links the system-skills overview guide
 
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the new getting-started guide `docs/getting-started/system-skills-overview.md` from its introduction so that readers reaching the reference page have a single click into the narrative tour.
@@ -913,7 +873,6 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the n
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the introduction or top section of the page contains a link to `docs/getting-started/system-skills-overview.md`
 - **AND THEN** the link is presented as a "see also" or "narrative overview" pointer rather than buried in the bottom of the page
-
 ### Requirement: houmao-mgr reference dedicates a section to the credentials command group
 
 `docs/reference/cli/houmao-mgr.md` SHALL include a dedicated `credentials` command-group section inside its "Command Groups" heading, parallel to the existing `admin`, `agents`, `brains`, `mailbox`, `project`, `server`, and `system-skills` sections.
@@ -942,7 +901,6 @@ That section SHALL:
 - **THEN** the page documents `claude`, `codex`, and `gemini` as the three supported tool subcommands
 - **AND THEN** it lists `list`, `get`, `add`, `set`, `remove`, and `rename` as the supported CRUD verbs
 - **AND THEN** the supported credential input flags on each tool subcommand (for example `--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`, `--oauth-creds`) match the current Click decorators at `src/houmao/srv_ctrl/commands/credentials.py`
-
 ### Requirement: docs/index.md surfaces the credentials command family
 
 `docs/index.md` SHALL list the `houmao-mgr credentials` command family (or its `houmao-mgr.md` in-page anchor) alongside the other CLI Surfaces entries, so the credentials surface is discoverable from the documentation site landing page.
@@ -951,7 +909,6 @@ That section SHALL:
 - **WHEN** a reader opens `docs/index.md`
 - **THEN** the "CLI Surfaces" section either links directly to the `credentials` heading inside `docs/reference/cli/houmao-mgr.md` or lists the `credentials` command family as a top-level entry point
 - **AND THEN** a reader arriving via `docs/index.md` never has to guess that `houmao-mgr credentials` exists
-
 ### Requirement: CLI reference documents headless execution overrides on all supported prompt surfaces
 
 `docs/reference/cli/houmao-mgr.md` (and its child reference pages for `agents turn` and `agents gateway`) SHALL document the request-scoped headless execution overrides on every supported prompt submission CLI surface.
@@ -997,7 +954,6 @@ For each of those three surfaces the reference SHALL document:
 - **WHEN** a reader looks up reasoning-level documentation for Gemini-backed launch or prompt submission
 - **THEN** the reference explains that Gemini reasoning levels are Houmao-maintained presets that may map to multiple native Gemini settings together
 - **AND THEN** the reference explains that operators needing finer Gemini-native control should omit Houmao reasoning-level and manage native config or env directly
-
 ### Requirement: System-skills reference documents both pairwise skill variants and their boundary
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` as packaged Houmao-owned system skills.
 
@@ -1018,7 +974,6 @@ When the page describes current install selections that expand `user-control`, i
 - **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
 - **THEN** the page lists both `houmao-agent-loop-pairwise` and `houmao-agent-loop-pairwise-v2` when the packaged catalog includes both
 - **AND THEN** the page explains that both arrive through `user-control` when that set contains both
-
 ### Requirement: System-skills reference documents the generic loop planner replacement
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-agent-loop-generic` as a packaged Houmao-owned system skill.
 
@@ -1037,7 +992,6 @@ When the page describes current install selections that expand `user-control`, i
 - **WHEN** a reader checks the current packaged inventory or install-selection behavior in `docs/reference/cli/system-skills.md`
 - **THEN** the page lists `houmao-agent-loop-generic` when the packaged catalog includes it
 - **AND THEN** the page does not list `houmao-agent-loop-relay` as a current installable skill after the replacement
-
 ### Requirement: CLI reference documents launch-profile editing controls
 The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable launch profiles.
 
@@ -1058,7 +1012,6 @@ The reference SHALL state that replacement does not cross easy-profile and expli
 - **WHEN** a reader looks up same-name reusable profile creation
 - **THEN** the CLI reference explains when to use `--yes` for same-lane replacement
 - **AND THEN** it distinguishes replacement from patching through `set`
-
 ### Requirement: CLI reference documents managed-header section flags
 The `houmao-mgr` CLI reference SHALL document managed-header section flags on every CLI surface that supports them.
 
@@ -1088,7 +1041,6 @@ The CLI reference SHALL list supported section names and states, and SHALL state
 - **THEN** the reference lists `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack` as supported sections
 - **AND THEN** the reference lists `enabled` and `disabled` as supported states
 - **AND THEN** the reference states that `task-reminder` and `mail-ack` default to disabled
-
 ### Requirement: CLI reference documents revised `agents mail` lifecycle commands
 When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
@@ -1113,7 +1065,6 @@ The CLI reference SHALL NOT present `check` or `mark-read` as the current mailbo
 - **WHEN** a reader looks up mailbox message inspection commands
 - **THEN** the CLI reference explains that `peek` does not mark a message read
 - **AND THEN** it explains that `read` returns the message and marks it read
-
 ### Requirement: CLI reference documents gateway mail-notifier mode
 The CLI reference page for `houmao-mgr agents gateway` SHALL document the mail-notifier notification mode option on `mail-notifier enable`.
 
@@ -1128,7 +1079,6 @@ That documentation SHALL list supported mode values `any_inbox` and `unread_only
 - **WHEN** a reader studies the `unread_only` mode documentation
 - **THEN** the CLI reference explains that only unread unarchived inbox mail triggers notifications in that mode
 - **AND THEN** it does not imply that read-but-unarchived mail will continue to wake the agent in `unread_only` mode
-
 ### Requirement: CLI reference hides compatibility-profile bootstrap
 The CLI reference SHALL NOT document `--with-compatibility-profiles` as an option for `houmao-mgr project init`.
 
@@ -1144,7 +1094,6 @@ If CLI reference content mentions internal CAO compatibility elsewhere, that con
 #### Scenario: Reader sees no compatibility-profile project layout guidance
 - **WHEN** a reader scans CLI reference project-layout notes
 - **THEN** the reference does not present `.houmao/agents/compatibility-profiles/` as a maintained local project directory
-
 ### Requirement: System-skills reference documents Copilot support
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL document Copilot as a supported explicit `system-skills install|status --tool` target.
 
@@ -1165,7 +1114,6 @@ That page SHALL document:
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that Copilot skills project under `skills/<houmao-skill>/` relative to the resolved Copilot home
 - **AND THEN** it gives examples for both `.github/skills/<houmao-skill>/` and `~/.copilot/skills/<houmao-skill>/`
-
 ### Requirement: CLI reference explains component-scoped memo seed policies
 The `houmao-mgr` CLI reference SHALL explain that launch-profile memo seeds do not expose a memo seed policy option.
 
@@ -1187,7 +1135,6 @@ When the reference documents `--clear-memo-seed`, it SHALL distinguish removing 
 - **WHEN** a reader looks up `--memo-seed-text`
 - **THEN** the CLI reference states that the launch replaces `houmao-memo.md`
 - **AND THEN** it does not state that pages are cleared for memo-only seeds
-
 ### Requirement: CLI reference documents system-skills uninstall
 The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Copilot, and Gemini homes.
 
@@ -1232,7 +1179,6 @@ That coverage SHALL show at least one single-tool explicit-home uninstall exampl
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page explains that uninstall removes exact current Houmao skill paths only
 - **AND THEN** it explains that unrelated user skills, parent roots, legacy paths, and stale install-state files are not removed
-
 ### Requirement: CLI reference documents the LLM Wiki utility system skill
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-utils-llm-wiki` as a packaged Houmao-owned system skill.
 
@@ -1256,7 +1202,6 @@ The reference SHALL include `houmao-utils-llm-wiki` anywhere it enumerates the c
 - **WHEN** a reader checks managed-launch, managed-join, or CLI-default selection lists in CLI reference docs
 - **THEN** those default-selection lists do not include `utils`
 - **AND THEN** they do not imply `houmao-utils-llm-wiki` is installed by default
-
 ### Requirement: CLI reference explains system-skills home and projection output
 The CLI reference SHALL document that `houmao-mgr system-skills` plain output distinguishes effective tool homes from tool-native skill projection locations.
 
@@ -1267,7 +1212,6 @@ The `system-skills` reference SHALL explain that Gemini's effective home may be 
 - **THEN** the page explains that a Gemini home line such as `/workspace/repo` is the effective home
 - **AND THEN** the page explains that the corresponding Houmao-owned skill files live under `/workspace/repo/.gemini/skills/`
 - **AND THEN** the page describes the projection location information reported by plain install/status/uninstall output
-
 ### Requirement: CLI reference documents relaunch chat-session selection
 The CLI reference SHALL document the `houmao-mgr agents relaunch` relaunch chat-session selector.
 
@@ -1295,7 +1239,6 @@ The CLI reference SHALL NOT present relaunch continuation as a build-time `agent
 - **WHEN** a reader looks up relaunch chat-session selection for a native headless managed agent
 - **THEN** the CLI reference states that the relaunch command records the selector for the next managed prompt
 - **AND THEN** it does not imply that relaunch itself sends a prompt
-
 ### Requirement: CLI reference documents degraded and stale recovery paths
 
 The CLI reference SHALL document degraded and stale recovery behavior in the `agents stop` and `agents relaunch` command descriptions. The descriptions SHALL state that these commands probe the target tmux session before acting and route through recovery helpers when the session is degraded or stale. The descriptions SHALL link to the dedicated degraded-stale recovery reference page.
@@ -1304,7 +1247,6 @@ The CLI reference SHALL document degraded and stale recovery behavior in the `ag
 
 - **WHEN** a reader reads the `agents stop` or `agents relaunch` CLI description
 - **THEN** they see mention of the degraded/stale recovery path and a link to the dedicated recovery page
-
 ### Requirement: CLI reference documents cleanup purge-registry flag
 
 The CLI reference SHALL document the `agents cleanup session --purge-registry` flag in the cleanup command family. The description SHALL explain that this flag deletes the lifecycle record entirely (rather than retiring it) and is intended for confirmed broken active local authority after tmux inspection.
@@ -1313,7 +1255,6 @@ The CLI reference SHALL document the `agents cleanup session --purge-registry` f
 
 - **WHEN** a reader reads the `agents cleanup session` CLI description
 - **THEN** they see `--purge-registry` documented with its destructive semantics and the condition that it requires confirmed broken authority
-
 ### Requirement: CLI reference describes unified agent-definition skill
 The CLI reference SHALL describe `houmao-agent-definition` as the packaged skill for low-level definitions, `raw-profiles`, project-easy specialists, easy `profiles`, and `create-agent-fast-forward`.
 
@@ -1330,7 +1271,6 @@ If `houmao-specialist-mgr` remains documented, the reference SHALL identify it a
 - **WHEN** a reader checks which skill supports one-click agent profile preparation
 - **THEN** the CLI reference identifies `houmao-agent-definition` and `create-agent-fast-forward`
 - **AND THEN** it describes that path as creating or updating a launchable easy profile without launching the agent
-
 ### Requirement: CLI reference documents pro as current loop skill
 The CLI reference page for system skills SHALL describe `houmao-agent-loop-pro` as the current packaged loop skill.
 
@@ -1340,14 +1280,12 @@ The reference SHALL omit retired pairwise and generic loop package names from cu
 - **WHEN** a reader checks the CLI reference for current packaged system skills
 - **THEN** the loop inventory includes `houmao-agent-loop-pro`
 - **AND THEN** retired loop package names are not listed as current installable skills
-
 ### Requirement: CLI reference documents retired cleanup when relevant
 The CLI reference SHALL explain that known retired Houmao loop skill projections may be removed during current install or uninstall operations.
 
 #### Scenario: Reader sees stale skill cleanup behavior
 - **WHEN** a reader checks install or uninstall semantics
 - **THEN** the CLI reference explains cleanup of known retired loop skill projections
-
 ### Requirement: CLI reference includes lite in current system-skill inventory
 The CLI reference for system-skills SHALL list `houmao-agent-loop-lite` as a current catalog-known Houmao-owned system skill.
 
@@ -1364,7 +1302,6 @@ The reference SHALL preserve retired loop cleanup guidance for retired pairwise 
 - **WHEN** the CLI reference shows resolved `core` or `all` system-skill sets
 - **THEN** those examples include `houmao-agent-loop-lite`
 - **AND THEN** they still include `houmao-agent-loop-pro`
-
 ### Requirement: System-skills CLI reference distinguishes CLI management from installed-skill help
 
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL state that `houmao-mgr system-skills` is the operator-facing CLI surface for installing, inspecting, and removing packaged Houmao-owned skill projections.
@@ -1378,7 +1315,6 @@ The page SHALL link to `docs/getting-started/system-skills-overview.md` for the 
 - **THEN** the page explains that `$<skill> help` is prompt-level installed-skill behavior
 - **AND THEN** the page does not present `houmao-mgr system-skills help` as a command
 - **AND THEN** the page still documents the real `list`, `status`, `install`, and `uninstall` subcommands
-
 ### Requirement: System-skills CLI reference notes the external Skills CLI install path
 
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL mention that users with `npx` and internet access can alternatively install from the GitHub main-branch system-skill collection with `npx skills add https://github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills/`.

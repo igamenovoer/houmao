@@ -10,6 +10,7 @@ import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_ALL,
     SYSTEM_SKILL_SET_CORE,
+    SYSTEM_SKILL_OPERATOR_MESSAGING,
     SYSTEM_SKILL_UTILS_LLM_WIKI,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     PROFILE_SYSTEM_SKILL_POLICY_MODES,
@@ -47,6 +48,7 @@ CORE_SYSTEM_SKILLS = (
     "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
+    SYSTEM_SKILL_OPERATOR_MESSAGING,
     "houmao-agent-messaging",
     "houmao-agent-gateway",
 )
@@ -103,6 +105,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-loop-lite",
         "houmao-agent-instance",
         "houmao-agent-inspect",
+        SYSTEM_SKILL_OPERATOR_MESSAGING,
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -113,6 +116,9 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         catalog.skills["houmao-agent-loop-lite"].description or ""
     )
     assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
+    assert "Manual operator messaging skill" in (
+        catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
+    )
     assert catalog.retired_skill_names == (
         "houmao-agent-loop-pairwise",
         "houmao-agent-loop-pairwise-v2",
@@ -194,6 +200,62 @@ def test_agent_loop_lite_packaged_asset_contract() -> None:
         "timestamp",
     ):
         assert f"<placeholder {envelope_field}" not in template_example
+
+
+def test_houmao_operator_messaging_packaged_asset_contract() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_OPERATOR_MESSAGING)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    clarify_text = (skill_root / "subskills/clarify.md").read_text(encoding="utf-8")
+    dispatch_text = (skill_root / "subskills/dispatch.md").read_text(encoding="utf-8")
+
+    assert (skill_root / "SKILL.md").is_file()
+    assert (skill_root / "agents/openai.yaml").is_file()
+    assert (skill_root / "subskills/clarify.md").is_file()
+    assert (skill_root / "subskills/dispatch.md").is_file()
+
+    assert "name: houmao-operator-messaging" in skill_text
+    assert "Manual invocation only" in skill_text
+    assert "Do not auto-route generic requests" in skill_text
+    assert "## Help" in skill_text
+    assert "Available functionality:" in skill_text
+    for operation_name in ("help", "clarify", "dispatch"):
+        assert f"`{operation_name}`" in skill_text
+    assert "`dispatch-one`" not in skill_text
+    assert "`dispatch-many`" not in skill_text
+    assert "subskills/clarify.md" in skill_text
+    assert "subskills/dispatch.md" in skill_text
+    assert "Default every packet to prompt delivery" in skill_text
+    assert "use the target gateway when available" in skill_text
+    assert "prompt surface supports `--force`" in skill_text
+    assert "choose mailbox only from operator intent or chat context" in skill_text
+    assert "Do not depend on loop-internal pages" in skill_text
+
+    assert "must not send direct prompts, mailbox messages" in clarify_text
+    assert "Build an internal coverage map" in clarify_text
+    assert "default prompt delivery, operator-requested mailbox delivery" in clarify_text
+    assert "Ask one question at a time" in clarify_text
+    assert "at most five accepted clarification answers" in clarify_text
+    assert "Require an explicit path before writing" in clarify_text
+    assert "Do not invent a path" in clarify_text
+    assert "Default to chat memory" in clarify_text
+
+    assert "Packet Plan" in dispatch_text
+    assert "Do not ask the operator to choose a separate single-agent or multi-agent" in (
+        dispatch_text
+    )
+    assert "Default to prompt delivery" in dispatch_text
+    assert "If the target has a live gateway, use gateway-backed prompt delivery" in (
+        dispatch_text
+    )
+    assert "request forced fallback behavior" in dispatch_text
+    assert "Do not choose mailbox merely because the target has a mailbox" in dispatch_text
+    assert "Use `houmao-agent-messaging`" in dispatch_text
+    assert "Use `houmao-agent-email-comms`" in dispatch_text
+    assert "chat context says the dispatch should be delivered by mail" in dispatch_text
+    assert "operator-origin mailbox `post` path" in dispatch_text
+    assert "Do not invent per-operator mailbox identities" in dispatch_text
+    assert "If a required route is unavailable" in dispatch_text
+    assert "recommend `houmao-agent-loop-pro` or `houmao-agent-loop-lite`" in dispatch_text
 
 
 def test_retired_loop_skill_sources_are_legacy_only() -> None:
@@ -505,6 +567,7 @@ def test_current_packaged_system_skills_route_explicit_help_before_workflows() -
         "houmao-agent-gateway": "- `help` (read-only meta operation)",
         "houmao-agent-instance": "- `help` (read-only meta operation)",
         "houmao-agent-inspect": "- `help` (read-only meta operation)",
+        SYSTEM_SKILL_OPERATOR_MESSAGING: "- `help`: explain this skill's purpose",
         "houmao-agent-messaging": "- `help` (read-only meta operation)",
         "houmao-mailbox-mgr": "- `help` (read-only meta operation)",
         "houmao-memory-mgr": "- `help` (read-only meta operation)",
@@ -774,6 +837,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert manage_agent_definition_path.is_file()
     assert loop_pro_skill_path.is_file()
     assert loop_lite_skill_path.is_file()
+    assert (home_path / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (loop_pro_authoring / "init.md").is_file()
     assert (loop_pro_authoring / "clarify-intent.md").is_file()
     assert (loop_pro_authoring / "execplan-fast-forward.md").is_file()
@@ -1405,6 +1469,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert result.removed_retired_skill_names == ()
     assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-mailbox-mgr/SKILL.md").is_file()

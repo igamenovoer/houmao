@@ -37,6 +37,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
 - `houmao-agent-instance` for live managed-agent instance lifecycle
 - `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking
+- `houmao-operator-messaging` for manual operator intent clarification and dispatch to one or more managed agents by prompt by default, or by mailbox when requested
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
 - `houmao-agent-loop-lite` for lightweight Markdown/direct-SQL generated loop authoring and execution with typed Markdown templates and generated skills
@@ -130,6 +131,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-agent-loop-lite`
 - `houmao-agent-instance`
 - `houmao-agent-inspect`
+- `houmao-operator-messaging`
 - `houmao-agent-messaging`
 - `houmao-agent-gateway`
 
@@ -335,7 +337,7 @@ This removes the old mailbox-only special path and family-specific Codex subtree
 
 The conceptual groups are:
 
-- automation: mailbox rounds, ordinary mailbox operations, managed memory, advanced workflow patterns, read-only inspection, managed-agent messaging, and gateway/reminder control
+- automation: mailbox rounds, ordinary mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control
 - control: touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration
 - utils: `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`
 
@@ -347,7 +349,7 @@ Use `system-skills` when:
 
 - you want to prepare an external Claude, Codex, Copilot, or Gemini home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
-- you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, messaging/control, gateway-management, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
+- you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, operator message clarification/dispatch, messaging/control, gateway-management, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 
 Do not use it for:
 

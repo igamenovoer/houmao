@@ -30,6 +30,7 @@ _CATALOG_SKILLS = [
     "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
+    "houmao-operator-messaging",
     "houmao-agent-messaging",
     "houmao-agent-gateway",
 ]
@@ -68,6 +69,7 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-loop-lite",
     "houmao-agent-instance",
     "houmao-agent-inspect",
+    "houmao-operator-messaging",
     "houmao-agent-messaging",
     "houmao-agent-gateway",
     "houmao-utils-llm-wiki",
@@ -223,6 +225,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
         assert not (home_path / f"skills/{retired_name}").exists()
     assert (home_path / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-inspect/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
@@ -663,6 +666,7 @@ def test_system_skills_install_uses_project_scoped_codex_default_home(
     assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
     assert (expected_home / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-inspect/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-memory-mgr/SKILL.md").is_file()

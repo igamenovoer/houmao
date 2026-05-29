@@ -73,6 +73,10 @@ description = "Managed agent instance lifecycle skill."
 asset_subpath = "houmao-agent-inspect"
 description = "Managed agent read-only inspection skill."
 
+[skills.houmao-operator-messaging]
+asset_subpath = "houmao-operator-messaging"
+description = "Manual operator messaging skill for clarifying and dispatching messages to one or more managed agents."
+
 [skills.houmao-agent-messaging]
 asset_subpath = "houmao-agent-messaging"
 description = "Managed agent communication and control skill."
@@ -99,6 +103,7 @@ skills = [
   "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
+  "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
 ]
@@ -121,6 +126,7 @@ skills = [
   "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
+  "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
   "houmao-utils-llm-wiki",

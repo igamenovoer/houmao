@@ -3,12 +3,13 @@
 ## Purpose
 TBD - created by archiving change clean-canonical-repo-identity-after-github-rename. Update Purpose after archive.
 ## Requirements
+
 ### Requirement: User-facing repository metadata and guidance use the canonical Houmao identity
-The repository SHALL present its user-facing metadata, contributor guidance, assistant instruction files, docstrings, CLI help, and shipped documentation using the canonical `Houmao` identity, the `houmao` Python package namespace, the `houmao-mgr` operator CLI, the `houmao-server` service surface, and the current GitHub repository URL.
+The repository SHALL present its user-facing metadata, contributor guidance, assistant instruction files, docstrings, CLI help, and shipped documentation using the canonical `Houmao` identity, the `houmao` Python package namespace, the `houmao-mgr` operator CLI, the `houmao-passive-server` service surface, and the current GitHub repository URL.
 
 User-facing guidance includes package metadata links, contributor instructions, AI-assistant guidance files, exported docstrings, CLI help or output, and repo-owned instructional docs that describe the current active public surface.
 
-Active guidance MAY mention `houmao-cli`, `houmao-cao-server`, `houmao.agents.realm_controller`, or `houmao.cao.tools.cao_server_launcher` only in explicit migration, legacy, retirement, or historical contexts. It SHALL NOT teach those surfaces as the canonical active operator contract.
+Active guidance MAY mention `houmao-cli`, `houmao-server`, `houmao-cao-server`, `houmao.agents.realm_controller`, or `houmao.cao.tools.cao_server_launcher` only in explicit migration, legacy, retirement, historical, or internal-module contexts. It SHALL NOT teach those surfaces as the canonical active operator contract.
 
 #### Scenario: Package metadata and active guidance use the current GitHub repository identity
 - **WHEN** a maintainer inspects active repository metadata or active guidance
@@ -18,20 +19,21 @@ Active guidance MAY mention `houmao-cli`, `houmao-cao-server`, `houmao.agents.re
 #### Scenario: Assistant guidance files teach the current active public names
 - **WHEN** a contributor or AI assistant reads repo-owned instruction files for project overview, CLI entrypoints, or runtime paths
 - **THEN** those files describe the project as `Houmao`
-- **AND THEN** they teach `houmao-mgr` and `houmao-server` as the canonical active surfaces
-- **AND THEN** any mention of `houmao-cli` or `houmao-cao-server` is explicitly marked as legacy or retired
+- **AND THEN** they teach `houmao-mgr` and `houmao-passive-server` as the canonical active surfaces
+- **AND THEN** any mention of `houmao-cli`, standalone `houmao-server`, or `houmao-cao-server` is explicitly marked as legacy, retired, or internal-only
 
 #### Scenario: User-facing source and CLI help avoid retired surfaces as the active contract
 - **WHEN** a user inspects shipped source docstrings or runs repo-owned CLI help
 - **THEN** the visible names and examples use only the current Houmao identity for active surfaces
-- **AND THEN** they do not expose `gig_agents`, `gig-agents`, `gig-cao-server`, or retired Houmao CLI surfaces as the current default contract
-
+- **AND THEN** they do not expose `gig_agents`, `gig-agents`, `gig-cao-server`, `houmao-cli`, or standalone `houmao-server` executable surfaces as the current default contract
 ### Requirement: Canonical source-package and module-entrypoint surfaces use `houmao`
 The repository SHALL keep its active Python source package under `src/houmao/`, and repo-owned code, tests, scripts, packaged-resource lookups, runnable documentation, and user-facing docstrings or help text SHALL use `houmao...` import and module-entrypoint paths as the current contract.
 
-The repository SHALL present `houmao-mgr` and `houmao-server` as the active user-facing CLI binaries for current operator workflows.
+The repository SHALL present `houmao-mgr` and `houmao-passive-server` as the active user-facing CLI binaries for current operator and server workflows.
 
-Historical, migration, or retirement materials MAY mention `houmao-cli` or `houmao-cao-server`, but the repository SHALL NOT present those binaries as the canonical current operator surface outside those explicitly marked contexts.
+Historical, migration, retirement, or internal implementation materials MAY mention `houmao-cli`, `houmao-server`, or `houmao-cao-server`, but the repository SHALL NOT present those binaries as the canonical current operator surface outside those explicitly marked contexts.
+
+The repository MAY retain Python modules under `houmao.server` as internal/shared implementation modules when maintained surfaces still import them. Retaining those module paths SHALL NOT imply that `houmao-server` remains a packaged executable or maintained standalone server product.
 
 The repository SHALL NOT present `src/gig_agents/`, `gig_agents...`, or `gig-*` CLI names as the canonical current package surface outside clearly non-user-facing historical or provenance-preserving contexts.
 
@@ -47,9 +49,13 @@ The repository SHALL NOT present `src/gig_agents/`, `gig_agents...`, or `gig-*` 
 
 #### Scenario: User-facing CLI binaries use the active Houmao operator names
 - **WHEN** a developer inspects the published CLI entrypoints or command examples for current operator workflows
-- **THEN** the repo presents `houmao-mgr` and `houmao-server` as the supported user-facing binaries
-- **AND THEN** active command examples do not teach `houmao-cli` or `houmao-cao-server` as the primary current path
+- **THEN** the repo presents `houmao-mgr` and `houmao-passive-server` as the supported user-facing binaries
+- **AND THEN** active command examples do not teach `houmao-cli`, standalone `houmao-server`, or `houmao-cao-server` as the primary current path
 
+#### Scenario: Internal `houmao.server` imports do not define an executable surface
+- **WHEN** maintained `houmao-mgr` or `houmao-passive-server` code imports retained helpers from `houmao.server`
+- **THEN** that import remains allowed as an internal implementation detail
+- **AND THEN** packaging and active docs still do not expose `houmao-server` as an installed executable
 ### Requirement: Active instructional guidance uses portable execution paths by default
 Repo-owned active instructional guidance SHALL use repo-relative paths or explicit placeholders such as `<repo-root>` when describing commands, files, or execution flows that the reader is expected to follow directly.
 
@@ -59,7 +65,6 @@ Active instructional guidance SHALL NOT present one maintainer's host-specific a
 - **WHEN** a developer follows active repo-owned instructions for commands, file inspection, or local workflows
 - **THEN** the documented paths are expressed as repo-relative locations or explicit placeholders
 - **AND THEN** the guidance does not require the reader to mirror a host-specific `/data/.../gig-agents/...` checkout path unless that path is explicitly part of observed diagnostic output
-
 ### Requirement: Non-user-facing historical and provenance references may preserve former names and observed paths
 The repository SHALL allow non-user-facing historical, provenance, archive, review, and observed-diagnostic materials to retain former repo names, former module names, or checkout-local absolute paths when those references are preserving what happened rather than defining the current active contract.
 
