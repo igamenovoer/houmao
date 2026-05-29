@@ -23,8 +23,8 @@ Available functionality:
 
 | Subcommand | Use when | Side effects |
 | --- | --- | --- |
-| `help` | Explain purpose, operations, records, routes, and boundaries. | None. |
-| `clarify` | Resolve the operator's intent, target-selection facts, constraints, route preference, reply expectations, and record mode before sending anything. | May update a user-specified Markdown record; never dispatches. |
+| `help` | Explain purpose, operations, in-chat clarification, routes, and boundaries. | None. |
+| `clarify` | Resolve the operator's intent in chat, showing the current send plan each round and asking one unclear decision question at a time. | None; never writes files or dispatches. |
 | `dispatch` | Send one or more command packets from clarified intent, an explicit dispatch prompt, or a user-specified Markdown intent record. | May send direct prompts or mailbox messages through lower-level skills. |
 
 Common starting prompts:
@@ -34,10 +34,10 @@ Common starting prompts:
 - `$houmao-operator-messaging clarify: ask the implementation and review agents to coordinate on issue 53`
 - `$houmao-operator-messaging dispatch using ./operator-intent.md`
 
-Records:
+Clarification state:
 
-- Default: keep clarified intent in chat memory and summarize it back to the operator.
-- External Markdown: use only when the user requests it and provides a path. Do not invent a default path.
+- `clarify` is in-chat only. It must not create, update, or append Markdown decision files.
+- `dispatch` may consume a user-specified Markdown intent record when the user explicitly supplies one.
 
 Related skills and boundaries:
 
@@ -48,7 +48,7 @@ Related skills and boundaries:
 ## Operations
 
 Meta:
-- `help`: explain this skill's purpose, subcommands, record modes, route choices, common prompts, and related-skill boundaries without requiring target agents or dispatching anything.
+- `help`: explain this skill's purpose, subcommands, in-chat clarification, route choices, common prompts, and related-skill boundaries without requiring target agents or dispatching anything.
 
 Operator workflow:
 - `clarify`: resolve operator intent without dispatching; read [subskills/clarify.md](subskills/clarify.md).
