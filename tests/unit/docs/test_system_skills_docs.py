@@ -69,3 +69,39 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "├── status --tool <tool> [--home <path>]" in cli_reference
     assert "├── install --tool <tool>[,<tool>...]" in cli_reference
     assert "└── uninstall --tool <tool>[,<tool>...]" in cli_reference
+
+
+def test_readme_uses_agent_first_onboarding() -> None:
+    """Guard the README's agent-first onboarding shape."""
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    expected_heading_order = [
+        "## Quick Start",
+        "## Agent-Driven Examples",
+        "## Core Concepts",
+        "## Agent Loops",
+        "## Typical Use Cases",
+        "## System Skills: Agent Self-Management",
+        "## Subsystems at a Glance",
+        "## Demos and Examples",
+        "## CLI Entry Points",
+    ]
+    positions = [readme.index(heading) for heading in expected_heading_order]
+
+    assert positions == sorted(positions)
+    assert "### 2. Initialize a Project" not in readme
+    assert "### 3. Create Specialists & Launch Agents" not in readme
+    assert "### 5. Adopt an Existing Session (`agents join`)" not in readme
+    assert "### 6. Full Recipes and Raw Profiles" not in readme
+    assert "You: Create a Codex backend reviewer specialist" in readme
+    assert "AI: Done." in readme
+    assert "attached or discovered its gateway" in readme
+    assert "npx skills add igamenovoer/tool-skills/houmao" in readme
+    assert (
+        "github.com/igamenovoer/houmao/tree/main/src/houmao/agents/assets/system_skills"
+        not in readme
+    )
+    assert "`houmao-agent-loop-pro` a complex multi-agent plan" in readme
+    assert "`houmao-agent-loop-lite` is the lighter Markdown/direct-SQL path" in readme
+    assert "`houmao-specialist-mgr` may still appear in older installed homes" in readme
