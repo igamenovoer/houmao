@@ -298,6 +298,22 @@ def ensure_codex_unattended_runtime_state(
         value=_CODEX_UNATTENDED_SANDBOX_MODE,
         repair_invalid=repair_invalid,
     )
+    ensure_codex_startup_runtime_state(
+        home_path=home_path,
+        working_directory=working_directory,
+        repair_invalid=repair_invalid,
+    )
+
+
+def ensure_codex_startup_runtime_state(
+    *,
+    home_path: Path,
+    working_directory: Path,
+    repair_invalid: bool = False,
+) -> None:
+    """Seed Codex startup state that avoids launch-time onboarding modals."""
+
+    config_path = home_path / _CODEX_CONFIG_FILENAME
     set_toml_key(
         path=config_path,
         key_path=("notice", "hide_full_access_warning"),

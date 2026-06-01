@@ -8,8 +8,9 @@ Use this action only when the user wants to update one existing credential.
 2. Recover the tool family, credential name, target, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, target, or supported change is still missing, ask the user before proceeding.
 4. If the requested "credential change" is actually a stored easy-profile or raw-profile `--auth` override change, stop and route it as profile authoring instead of running `set`.
-5. Run the selected command.
-6. Report the resulting written env vars, cleared env vars, written files, and cleared files returned by the command.
+5. Render the selected command template: `project.credentials.<tool>.set` for the project lane or `credentials.<tool>.set` for the plain agent-definition lane.
+6. Run the rendered `argv` only if there are no blockers.
+7. Report the resulting written env vars, cleared env vars, written files, and cleared files returned by the command.
 
 ## Required Inputs
 
@@ -22,18 +23,14 @@ Use this action only when the user wants to update one existing credential.
 
 ## Command Shape
 
-Use one of:
+Use the matching CLI-owned template, then run its rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> project credentials <tool> set --name <name> ...
-<chosen houmao-mgr launcher> credentials <tool> set --agent-def-dir <path> --name <name> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.set --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id credentials.<tool>.set --intent '<json>'
 ```
 
-Supported tool-specific changes:
-
-- Claude: explicit env-backed inputs, optional `--state-template-file`, optional `--config-dir`, and the documented `--clear-*` flags exposed by the Claude credential surface
-- Codex: explicit env-backed inputs, optional `--auth-json`, and the documented `--clear-api-key`, `--clear-base-url`, `--clear-org-id`, and `--clear-auth-json` flags
-- Gemini: explicit env-backed inputs, optional `--oauth-creds`, and the documented `--clear-api-key`, `--clear-base-url`, `--clear-google-api-key`, and `--clear-use-vertex-ai` flags
+Use `show --id <template-id>` for the authoritative tool-specific update fields, clear flags, and conflicts.
 
 ## Guardrails
 
@@ -43,3 +40,4 @@ Supported tool-specific changes:
 - Do not dump raw secret values while explaining the update result.
 - Do not use `set` when the requested change is only to repoint a reusable easy profile or explicit launch profile at a different credential name.
 - Do not route update requests through `add` or direct file editing when `set` is the supported patch-style surface.
+- Do not duplicate Claude/Codex/Gemini option menus from skill prose; use the template metadata.

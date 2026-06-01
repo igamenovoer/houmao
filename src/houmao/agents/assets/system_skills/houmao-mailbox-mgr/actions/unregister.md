@@ -11,13 +11,13 @@ Use this action only when the user wants to deactivate or purge one filesystem m
 5. Run the matching mailbox deregistration command.
 6. Report the resulting deregistration posture clearly.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox unregister --address <full-address> [--mailbox-root <path>] [--mode deactivate|purge]
-<chosen houmao-mgr launcher> project mailbox unregister --address <full-address> [--mode deactivate|purge]
+mailbox.unregister
+project.mailbox.unregister
 ```
 
 ## Guardrails

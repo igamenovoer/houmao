@@ -85,20 +85,29 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 6. Reuse that same chosen launcher for the selected gateway action.
-7. Prefer the managed-agent seam first for outside callers:
+7. For supported `houmao-mgr agents gateway ...` command authoring, inspect and render the matching CLI-owned template before executing:
+   - `agents.gateway.status|attach|detach|prompt|interrupt|send-keys`
+   - `agents.gateway.tui.state|history|watch|note-prompt`
+   - `agents.gateway.mail-notifier.status|enable|disable`
+   - `agents.gateway.reminders.list|get|create|set|remove`
+8. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
+9. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+10. Prefer the managed-agent seam first for outside callers:
    - `houmao-mgr agents gateway ...` for CLI-driven work
    - `/houmao/agents/*/gateway...` for pair-managed HTTP control
-8. When the caller is already the attached agent or another process inside the same managed tmux session:
+11. When the caller is already the attached agent or another process inside the same managed tmux session:
    - use manifest-first current-session discovery through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` second
    - use live gateway env only after the task genuinely needs direct gateway `/v1/...` HTTP
-   - use `houmao-mgr agents mail resolve-live` when shared mailbox work needs the exact live `gateway.base_url`
-9. Load exactly one action page:
+   - render `agents.mail.resolve-live` when shared mailbox work needs the exact live `gateway.base_url`
+12. Load exactly one action page:
    - `actions/lifecycle.md`
    - `actions/discover.md`
    - `actions/gateway-services.md`
    - `actions/reminders.md`
    - `actions/mail-notifier.md`
-10. Use the local references only when you need the routing boundary or the HTTP route summary:
+13. Use the local references only when you need the routing boundary or the HTTP route summary:
    - `references/scope-and-routing.md`
    - `references/http-surface.md`
 
@@ -135,7 +144,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not teach `HOUMAO_GATEWAY_ATTACH_PATH` or `HOUMAO_GATEWAY_ROOT` as supported current-session discovery.
-- Do not scrape live gateway env for shared mailbox work when `houmao-mgr agents mail resolve-live` is the supported exact `gateway.base_url` resolver.
+- Do not scrape live gateway env for shared mailbox work when `agents.mail.resolve-live` is the supported exact `gateway.base_url` resolver.
 - Do not describe `/v1/reminders` as durable across gateway stop or restart.
 - Do not invent reminder surfaces beyond the supported `houmao-mgr agents gateway reminders ...`, `/houmao/agents/{agent_ref}/gateway/reminders...`, and direct `/v1/reminders` routes.
+- Do not hand-author supported gateway CLI commands from Markdown skeletons when a command template supports the surface.
 - Do not restate transport-specific mailbox detail here; delegate that to the mailbox skill family.

@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the packaged Houmao-owned `houmao-credential-mgr` skill for credential-management guidance across project overlays and plain agent-definition directories.
-
 ## Requirements
-
 ### Requirement: Houmao provides a packaged `houmao-credential-mgr` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-credential-mgr` under the maintained system-skill asset root.
 
@@ -245,3 +243,36 @@ The kinds reference pages SHALL use flag spellings that match the `houmao-creden
 - **WHEN** the Claude kinds reference for `houmao-credential-mgr` is presented to the user
 - **THEN** it describes the vendor-login config-directory kind that carries `.credentials.json` plus companion `.claude.json` when present
 - **AND THEN** it maps that kind to the `--config-dir` add flag rather than inventing separate file flags
+
+### Requirement: `houmao-credential-mgr` uses CLI-owned templates for credential command authoring
+The packaged `houmao-credential-mgr` skill SHALL instruct agents to use `houmao-mgr internals command-templates show|render` before authoring supported credential commands for Claude, Codex, and Gemini.
+
+At minimum, covered credential verbs SHALL include:
+
+- `add`
+- `set`
+- `login`
+- `list`
+- `get`
+- `rename`
+- `remove`
+
+The skill SHALL use CLI-owned template metadata for project-vs-plain agent-definition lane selection and tool-specific option shapes.
+
+The skill SHALL NOT maintain independent default-bearing command skeletons or tool-specific credential option menus for covered command authoring.
+
+#### Scenario: Codex credential add uses template renderer
+- **WHEN** a user asks the skill to add project Codex credential `main`
+- **THEN** the skill guidance directs the agent to render `project.credentials.codex.add`
+- **AND THEN** Codex-specific fields come from the rendered template metadata rather than a skill-owned option menu
+
+#### Scenario: Claude login update uses template renderer
+- **WHEN** a user asks the skill to update an existing Claude login credential
+- **THEN** the skill guidance directs the agent to render the matching Claude login template with the explicit update field
+- **AND THEN** omitted login options remain absent from the rendered argv
+
+#### Scenario: Plain agent-definition lane stays explicit
+- **WHEN** a user targets a plain agent-definition directory instead of the active project
+- **THEN** the skill guidance renders a plain-lane credential template with the explicit `agent_def_dir`
+- **AND THEN** it does not silently switch to `project credentials`
+

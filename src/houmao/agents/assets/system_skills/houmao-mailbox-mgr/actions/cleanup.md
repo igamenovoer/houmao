@@ -10,13 +10,13 @@ Use this action only when the user wants to remove inactive or stashed mailbox r
 4. Run the matching mailbox cleanup command.
 5. Report planned or applied cleanup actions from the payload.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox cleanup [--mailbox-root <path>] [--inactive-older-than-seconds <n>] [--stashed-older-than-seconds <n>] [--dry-run]
-<chosen houmao-mgr launcher> project mailbox cleanup [--inactive-older-than-seconds <n>] [--stashed-older-than-seconds <n>] [--dry-run]
+mailbox.cleanup
+project.mailbox.cleanup
 ```
 
 ## Guardrails

@@ -2,10 +2,10 @@
 
 Use this action when the caller is acting as operator and needs to deliver one operator-origin note into a managed agent mailbox.
 
-When the caller is outside the Houmao managed-agent runtime, or current discovery shows there is no usable live gateway for the current session, use the authoritative operator surface:
+When the caller is outside the Houmao managed-agent runtime, or current discovery shows there is no usable live gateway for the current session, render `agents.mail.post`, then run the rendered `argv`:
 
-```bash
-houmao-mgr agents mail post --subject "..." --body-content "..."
+```text
+agents.mail.post
 ```
 
 When the exact target managed-agent `gateway.base_url` is already known for this turn, `POST /v1/mail/post` is also supported:

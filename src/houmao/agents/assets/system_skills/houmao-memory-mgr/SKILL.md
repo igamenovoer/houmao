@@ -74,19 +74,20 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - otherwise use `uv tool run --from houmao houmao-mgr`
    - only then use a development launcher such as `pixi run houmao-mgr`, `.venv/bin/houmao-mgr`, or `uv run houmao-mgr`
 3. For a launch-profile memo seed, identify the lane:
-   - easy profile: create, inspect, or update with `project easy profile create|get|set --name <profile>`
-   - raw profile: create, inspect, or update with `project agents launch-profiles add|get|set --name <profile>`
+   - easy profile: inspect directly when needed, then create or update through `project.easy.profile.create` or `project.easy.profile.set`
+   - raw profile: inspect directly when needed, then create or update through `project.agents.launch-profiles.add` or `project.agents.launch-profiles.set`
    - if the lane is ambiguous after checking prompt and context, ask whether the user means an easy profile or a raw profile before editing.
-4. For a launch-profile memo seed edit, read the profile first, then use exactly one memo seed source when setting content:
+4. For a launch-profile memo seed edit, read the profile first, then render the matching profile command template with exactly one memo seed source when setting content:
    - `--memo-seed-text <text>` for short inline memo content
    - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
    - `--memo-seed-dir <path>` for a memo-shaped directory containing `houmao-memo.md` and/or `pages/`
-5. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
-6. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
-7. For a live managed-agent edit, read before editing. Use `agents memory memo show` for the fixed memo and `agents memory read --path <page>` for a page.
-8. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions; for removals or rewrites, replace the full memo with `memo set` after preserving unrelated text.
-9. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
-10. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
+5. Use `<chosen houmao-mgr launcher> --print-json internals command-templates show|render --id <template-id>` for profile-owned memo seed command authoring. Live memory commands remain direct skill guidance and are not profile-template commands.
+6. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
+7. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
+8. For a live managed-agent edit, read before editing. Use `agents memory memo show` for the fixed memo and `agents memory read --path <page>` for a page.
+9. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions; for removals or rewrites, replace the full memo with `memo set` after preserving unrelated text.
+10. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
+11. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
 
 ## Missing Input Questions
 
@@ -112,4 +113,5 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not write arbitrary files beside `houmao-memo.md` at the memory root.
 - Do not store live runtime bookkeeping, retry counters, mailbox receipts, gateway state, or supervision state in managed memory pages.
 - Do not hand-edit `.houmao/agents/launch-profiles/<name>.yaml` when the maintained profile `create|add|set` command exposes memo seed operations.
+- Do not hand-author profile memo-seed command skeletons; render the profile command template and leave omitted profile defaults omitted.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows.

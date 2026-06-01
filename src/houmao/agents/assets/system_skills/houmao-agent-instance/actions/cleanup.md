@@ -13,32 +13,17 @@ Use this action only when the user wants to clean stopped-session managed-agent 
    - Use `--agent-id` or `--agent-name` when no durable path locator is available but the target identity was stated explicitly. These selectors prefer cleanup-capable lifecycle registry records, including stopped records preserved by `agents stop`, and fall back to bounded runtime-root fallback scanning only when no matching lifecycle record exists.
 4. If the cleanup kind or selector is still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the cleanup kind choices and the selectors still needed.
 5. Include `--dry-run` only when the user explicitly asks to preview cleanup.
-6. Run the selected cleanup command. Session cleanup removes the stopped session envelope, retires the stopped lifecycle record by default, and does not remove the managed-agent memory root. Add `--purge-registry` only when the user explicitly wants to delete the lifecycle record entirely.
-7. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
+6. Render `agents.cleanup.session` or `agents.cleanup.logs`.
+7. Run the rendered `argv`. Session cleanup removes the stopped session envelope, retires the stopped lifecycle record by default, and does not remove the managed-agent memory root. Add `purge_registry=true` only when the user explicitly wants to delete the lifecycle record entirely.
+8. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
 
 ## Command Shape
 
-Prefer the durable locators returned by stop output:
+Use the CLI-owned cleanup templates, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> agents cleanup session --manifest-path <path>
-<chosen houmao-mgr launcher> agents cleanup session --session-root <path>
-```
-
-If no path locator is available, use an explicit name or id selector:
-
-```text
-<chosen houmao-mgr launcher> agents cleanup session --agent-name <name>
-<chosen houmao-mgr launcher> agents cleanup session --agent-id <id>
-```
-
-For log cleanup, use:
-
-```text
-<chosen houmao-mgr launcher> agents cleanup logs --manifest-path <path>
-<chosen houmao-mgr launcher> agents cleanup logs --session-root <path>
-<chosen houmao-mgr launcher> agents cleanup logs --agent-name <name>
-<chosen houmao-mgr launcher> agents cleanup logs --agent-id <id>
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.cleanup.session --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.cleanup.logs --intent '<json>'
 ```
 
 ## Guardrails
@@ -50,3 +35,4 @@ For log cleanup, use:
 - Do not assume cleanup is safe for a live session; this skill is for stopped-session cleanup only.
 - Do not add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.
 - Do not create or search stopped-session tombstones, stopped-agent indexes, or unsupported registry state.
+- Do not hand-author covered cleanup commands from Markdown skeletons.

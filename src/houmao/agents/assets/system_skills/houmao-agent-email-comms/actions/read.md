@@ -28,4 +28,4 @@ When multiple open messages exist:
 - choose the message or messages to inspect,
 - re-list if the inbox snapshot may have changed before taking more actions.
 
-When no live gateway facade is available, use `houmao-mgr agents mail peek` or `houmao-mgr agents mail read` for the selected message.
+When no live gateway facade is available, render `agents.mail.peek` or `agents.mail.read`, then run the rendered `argv` for the selected message.

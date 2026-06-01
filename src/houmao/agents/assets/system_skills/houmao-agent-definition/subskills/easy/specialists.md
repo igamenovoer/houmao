@@ -23,10 +23,22 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 ```text
 <chosen houmao-mgr launcher> project easy specialist list
 <chosen houmao-mgr launcher> project easy specialist get --name <name>
-<chosen houmao-mgr launcher> project easy specialist create --name <name> --tool <tool> ...
-<chosen houmao-mgr launcher> project easy specialist set --name <name> ...
 <chosen houmao-mgr launcher> project easy specialist remove --name <name>
 ```
+
+For `create` and `set`, use the CLI-owned templates:
+
+- `project.easy.specialist.create`
+- `project.easy.specialist.set`
+
+Render sparse intent with only explicit fields:
+
+```text
+<chosen houmao-mgr launcher> --print-json internals command-templates show --id project.easy.specialist.create
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.specialist.create --intent '<json>'
+```
+
+Then run the rendered `argv` if there are no blockers.
 
 ## Create Inputs
 
@@ -37,7 +49,7 @@ Common specialist inputs:
 - `--credential <name>`; when omitted, the CLI default is `<specialist-name>-creds`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
-- `--no-unattended` to persist `as_is`; otherwise easy specialists default to unattended prompt mode, which does not imply headless launch posture
+- `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference
 - `--model`
 - `--reasoning-level`
 - repeatable `--with-skill <dir>`
@@ -108,3 +120,4 @@ Common update and clear inputs:
 - Do not execute login flows or auth-generation helpers.
 - Do not treat `auto credentials` as a literal CLI flag.
 - Do not infer auth identity from `.houmao/` auth directory names.
+- Do not hand-author create or set command skeletons; use `internals command-templates render` for supported specialist authoring.

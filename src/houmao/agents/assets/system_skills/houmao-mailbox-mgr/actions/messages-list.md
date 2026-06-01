@@ -10,13 +10,13 @@ Use this action only when the user wants structural message projections for one 
 4. Run the matching mailbox messages list command.
 5. Report the structural message payload and keep the structural-only boundary explicit.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox messages list --address <full-address> [--mailbox-root <path>]
-<chosen houmao-mgr launcher> project mailbox messages list --address <full-address>
+mailbox.messages.list
+project.mailbox.messages.list
 ```
 
 ## Guardrails

@@ -83,8 +83,18 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 7. Reuse that same chosen launcher for the selected mailbox-admin action.
-8. Load exactly one action page for the task you need to complete.
-9. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
+8. For supported mailbox command authoring, inspect and render the matching CLI-owned template before executing:
+   - `mailbox.<verb>` for arbitrary filesystem mailbox-root commands
+   - `project.mailbox.<verb>` for active project mailbox-root commands
+   - `mailbox.accounts.<verb>` and `project.mailbox.accounts.<verb>` for account inspection
+   - `mailbox.messages.<verb>` and `project.mailbox.messages.<verb>` for structural message inspection or clearing
+   - `agents.mailbox.status|register|unregister` for late binding on an existing local managed agent
+9. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
+10. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+11. Load exactly one action page for the task you need to complete.
+12. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
 
 ## Actions
 
@@ -152,6 +162,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not hand-edit mailbox-root files when the maintained `houmao-mgr` surfaces already cover the task.
+- Do not hand-author supported mailbox CLI commands from Markdown skeletons when a command template supports the surface.
 - Do not use `mailbox cleanup` when the user asked to remove delivered email content while preserving accounts; use `mailbox clear-messages` or `project mailbox clear-messages` for all-account scope, and use `mailbox messages clear --address` or `project mailbox messages clear --address` for one selected account.
 - Do not recommend ad hoc recursive mailbox-root copying when the maintained export command covers the request.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for mailbox administration.

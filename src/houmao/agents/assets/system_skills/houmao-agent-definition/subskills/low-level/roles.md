@@ -21,9 +21,18 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 ```text
 <chosen houmao-mgr launcher> project agents roles list
 <chosen houmao-mgr launcher> project agents roles get --name <role> [--include-prompt]
-<chosen houmao-mgr launcher> project agents roles init --name <role> [--system-prompt <text> | --system-prompt-file <path>]
-<chosen houmao-mgr launcher> project agents roles set --name <role> [--system-prompt <text> | --system-prompt-file <path> | --clear-system-prompt]
 <chosen houmao-mgr launcher> project agents roles remove --name <role>
+```
+
+For `init` and `set`, use the CLI-owned templates:
+
+- `project.agents.roles.init`
+- `project.agents.roles.set`
+
+Render sparse intent before running the target command:
+
+```text
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.roles.init --intent '<json>'
 ```
 
 ## Guardrails
@@ -33,3 +42,4 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 - Do not guess prompt text.
 - Do not hand-edit `.houmao/agents/roles/`.
 - Do not use roles when the user asked for a specialist template with credentials, skills, setup, model, or env defaults.
+- Do not hand-author covered role init or set commands from Markdown skeletons.

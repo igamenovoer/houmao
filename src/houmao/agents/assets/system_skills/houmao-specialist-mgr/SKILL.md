@@ -20,6 +20,7 @@ Available functionality:
 - Redirect specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to `houmao-agent-definition`.
 - Preserve older ready-profile wording as compatibility terminology.
 - Point credential discovery used during specialist creation to the canonical definition skill.
+- Delegate CLI template rendering to `houmao-agent-definition` and the CLI-owned `internals command-templates` workflow.
 
 Common starting prompts:
 
@@ -54,6 +55,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 3. Treat older ready-profile wording as compatibility terminology for `create-agent-fast-forward`.
 4. Do not run commands from this wrapper.
 5. Do not maintain separate specialist, profile, launch, stop, or credential-reference guidance here.
+6. Do not duplicate command-template ids or option shapes here; the canonical skill owns the routing guidance.
 
 ## Guardrails
 

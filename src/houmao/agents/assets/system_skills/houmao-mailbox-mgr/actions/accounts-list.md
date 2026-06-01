@@ -9,13 +9,13 @@ Use this action only when the user wants operator-facing mailbox registrations u
 3. Run the matching mailbox accounts list command.
 4. Report the listed registrations without inventing extra filtering.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox accounts list [--mailbox-root <path>]
-<chosen houmao-mgr launcher> project mailbox accounts list
+mailbox.accounts.list
+project.mailbox.accounts.list
 ```
 
 ## Guardrails

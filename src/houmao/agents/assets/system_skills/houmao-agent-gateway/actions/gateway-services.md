@@ -8,25 +8,19 @@ Use this action when the task specifically needs the live gateway's own control,
 2. Recover the target selector and the exact gateway service the user wants from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the task still lacks a required target, prompt body, sequence, or direct-gateway endpoint, ask the user in Markdown before proceeding.
 4. Run `agents gateway status` first unless current context already proves that a live gateway is attached.
-5. Use `agents gateway prompt` or `POST /houmao/agents/{agent_ref}/gateway/control/prompt` for immediate gateway-owned prompt control.
-6. Use `agents gateway interrupt` or `POST /houmao/agents/{agent_ref}/gateway/requests` when the task explicitly wants gateway-mediated interrupt handling.
-7. Use `agents gateway send-keys` or `POST /houmao/agents/{agent_ref}/gateway/control/send-keys` for exact raw key delivery.
-8. Use `agents gateway tui state|history|watch|note-prompt` or the matching pair-managed routes for raw gateway-owned tracker inspection.
-9. Use direct `{gateway.base_url}/v1/...` routes only when the task genuinely needs the lower-level gateway seam and the exact live base URL is already available from current context or supported discovery.
-10. When the attached agent needs to communicate with other agents through the shared mailbox facade, use `houmao-mgr agents mail resolve-live` to obtain the exact current `gateway.base_url`, then hand off the exact `/v1/mail/*` contract to `houmao-agent-email-comms`.
+5. Render the matching gateway command template for CLI prompt, interrupt, send-keys, or TUI work.
+6. Use the matching pair-managed routes when the task is already operating through pair-managed HTTP.
+7. Use direct `{gateway.base_url}/v1/...` routes only when the task genuinely needs the lower-level gateway seam and the exact live base URL is already available from current context or supported discovery.
+8. When the attached agent needs to communicate with other agents through the shared mailbox facade, render `agents.mail.resolve-live` to obtain the exact current `gateway.base_url`, then hand off the exact `/v1/mail/*` contract to `houmao-agent-email-comms`.
 
 ## Command Shapes
 
-Gateway-mediated CLI control:
+Use CLI-owned templates, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> agents gateway prompt --agent-name <name> --prompt "<message>"
-<chosen houmao-mgr launcher> agents gateway interrupt --agent-name <name>
-<chosen houmao-mgr launcher> agents gateway send-keys --agent-name <name> --sequence "<[Escape]>"
-<chosen houmao-mgr launcher> agents gateway tui state --agent-name <name>
-<chosen houmao-mgr launcher> agents gateway tui history --agent-name <name>
-<chosen houmao-mgr launcher> agents gateway tui watch --agent-name <name>
-<chosen houmao-mgr launcher> agents gateway tui note-prompt --agent-name <name> --prompt "<note>"
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.gateway.prompt --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.gateway.send-keys --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.gateway.tui.state --intent '<json>'
 ```
 
 Pair-managed gateway routes:
@@ -58,3 +52,4 @@ Direct live gateway routes:
 - Do not claim that `tui note-prompt` submits work to the agent.
 - Do not guess `{gateway.base_url}` when the exact live gateway endpoint is not already available.
 - Do not restate the full shared mailbox route contract here; use `houmao-agent-email-comms` after discovery hands you the exact live base URL.
+- Do not hand-author supported gateway service commands from Markdown skeletons.

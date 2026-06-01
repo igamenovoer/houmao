@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the dedicated `houmao-mgr credentials` and `houmao-mgr project credentials` command families for credential management across project overlays and plain agent-definition directories.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr credentials` exposes a dedicated credential-management tree
 `houmao-mgr` SHALL expose a first-class credential-management family shaped as:
 
@@ -296,3 +294,26 @@ When credential commands consume caller-provided source files, those files SHALL
 - **WHEN** an operator runs a credential update that copies one caller-provided source file into a managed credential bundle
 - **THEN** the managed credential bundle is updated
 - **AND THEN** the caller-provided source file remains intact
+
+### Requirement: Credential CLI surfaces provide command-template entries
+The CLI-owned command-template registry SHALL provide template entries for project-scoped and plain agent-definition credential command surfaces for Claude, Codex, and Gemini.
+
+Template entries SHALL cover credential command verbs `add`, `set`, `login`, `list`, `get`, `rename`, and `remove` where those verbs exist in the maintained `houmao-mgr credentials` or `houmao-mgr project credentials` command surfaces.
+
+Each credential template SHALL map structured fields to CLI options, SHALL describe required target fields, SHALL describe tool-specific credential material fields, and SHALL report conflicts between mutually exclusive credential sources.
+
+#### Scenario: Project credential add has tool-specific metadata
+- **WHEN** an agent shows `project.credentials.gemini.add`
+- **THEN** the template reports Gemini credential source fields such as API key, Vertex AI key posture, OAuth credentials, and base URL
+- **AND THEN** it does not report Claude-only or Codex-only credential fields
+
+#### Scenario: Plain credential list carries agent-definition target
+- **WHEN** an agent renders a plain-lane credential list template
+- **THEN** the rendered argv includes the explicit plain agent-definition directory target
+- **AND THEN** it does not render the project-scoped command path
+
+#### Scenario: Credential source conflicts block rendering
+- **WHEN** an agent renders a credential add template with two mutually exclusive credential sources for the same tool
+- **THEN** the renderer reports a blocker
+- **AND THEN** it does not return executable argv
+

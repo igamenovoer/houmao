@@ -12,16 +12,16 @@ Use this action only when the user wants to create one new low-level role or one
 4. If the target kind is still missing, ask the user in Markdown before proceeding. Follow `subskills/common/missing-inputs.md` so `Required` and `Optional` inputs are separate.
 5. For one new role, require the role name. Include an initial prompt only when the user explicitly provided prompt text or a prompt file.
 6. For one new recipe, require the recipe name, role name, and tool. Include optional `--setup`, `--auth`, repeatable `--skill`, and `--prompt-mode` only when the user explicitly asked for them.
-7. Run the matching maintained command.
+7. Render the matching CLI-owned template, then run the rendered `argv`.
 8. Report the created role or recipe details returned by the command.
 
-## Command Shapes
+## Template Rendering
 
-Use one of these maintained command shapes:
+Use one of these template ids:
 
 ```text
-<chosen houmao-mgr launcher> project agents roles init --name <role> [--system-prompt <text> | --system-prompt-file <path>]
-<chosen houmao-mgr launcher> project agents recipes add --name <recipe> --role <role> --tool <tool> [--setup <name>] [--auth <bundle>] [--skill <name> ...] [--prompt-mode unattended|as_is]
+project.agents.roles.init
+project.agents.recipes.add
 ```
 
 ## Guardrails

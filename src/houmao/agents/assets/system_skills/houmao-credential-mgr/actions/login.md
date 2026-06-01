@@ -8,8 +8,9 @@ Use this action only when the user wants to run a provider login flow for a fres
 2. Recover the tool family, credential name, target, and whether this is a create or explicit update from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, or target is still missing, ask the user before proceeding.
 4. Use the default create-only login behavior unless the user explicitly said to update, replace, or refresh an existing credential.
-5. Run the selected command and let the user complete any provider browser, device-code, console, or paste-back authentication steps.
-6. Report the credential name, provider command, and temp-home cleanup status returned by the command.
+5. Render the selected command template: `project.credentials.<tool>.login` for the project lane or `credentials.<tool>.login` for the plain agent-definition lane.
+6. Run the rendered `argv` and let the user complete any provider browser, device-code, console, or paste-back authentication steps.
+7. Report the credential name, provider command, and temp-home cleanup status returned by the command.
 
 ## Required Inputs
 
@@ -19,30 +20,14 @@ Use this action only when the user wants to run a provider login flow for a fres
 
 ## Command Shape
 
-Use one of:
+Use the matching CLI-owned template, then run its rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> project credentials <tool> login --name <name>
-<chosen houmao-mgr launcher> credentials <tool> login --agent-def-dir <path> --name <name>
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.login --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id credentials.<tool>.login --intent '<json>'
 ```
 
-Use `--update` only when the user explicitly intends to replace an existing credential:
-
-```text
-<chosen houmao-mgr launcher> project credentials <tool> login --name <name> --update
-<chosen houmao-mgr launcher> credentials <tool> login --agent-def-dir <path> --name <name> --update
-```
-
-Common options:
-
-- `--keep-temp-home`: preserve the temporary provider home after a successful import.
-- `--inherit-auth-env`: allow ambient provider auth-related environment variables to reach the provider login process.
-
-Provider-specific options:
-
-- Claude: `--claudeai`, `--console`, `--email <value>`, `--sso`
-- Codex: `--browser` to use ordinary browser login instead of the default device-auth login
-- Gemini: `--no-browser` to set `NO_BROWSER=true` for the OAuth flow
+Use `show --id <template-id>` for authoritative login options. Render `update=true` only when the user explicitly intends to replace an existing credential.
 
 ## Guardrails
 

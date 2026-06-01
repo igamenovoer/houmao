@@ -10,13 +10,13 @@ Use this action only when the user wants to remove delivered filesystem mailbox 
 4. Run the matching mailbox message-clear command.
 5. Report planned, applied, blocked, and preserved actions from the payload.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox clear-messages [--mailbox-root <path>] [--dry-run] [--yes]
-<chosen houmao-mgr launcher> project mailbox clear-messages [--dry-run] [--yes]
+mailbox.clear-messages
+project.mailbox.clear-messages
 ```
 
 ## Guardrails

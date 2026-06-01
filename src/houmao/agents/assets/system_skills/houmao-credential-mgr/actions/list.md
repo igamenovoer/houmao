@@ -10,15 +10,16 @@ Use this action only when the user wants to list credentials for one supported t
    - use `project credentials <tool> list` when the request is project-local
    - use `credentials <tool> list --agent-def-dir <path>` when the user explicitly targets a plain agent-definition directory
 4. If the tool family or target is still missing, ask the user in Markdown before proceeding.
-5. Run the selected command and report the listed credential names.
+5. Render the selected command template: `project.credentials.<tool>.list` or `credentials.<tool>.list`.
+6. Run the rendered `argv` and report the listed credential names.
 
 ## Command Shape
 
-Use one of:
+Use the matching CLI-owned template, then run its rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> project credentials <tool> list
-<chosen houmao-mgr launcher> credentials <tool> list --agent-def-dir <path>
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.list --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id credentials.<tool>.list --intent '<json>'
 ```
 
 ## Guardrails

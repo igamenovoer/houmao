@@ -10,13 +10,13 @@ Use this action only when the user wants one operator-facing mailbox registratio
 4. Run the matching mailbox accounts get command.
 5. Report the returned mailbox registration payload.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox accounts get --address <full-address> [--mailbox-root <path>]
-<chosen houmao-mgr launcher> project mailbox accounts get --address <full-address>
+mailbox.accounts.get
+project.mailbox.accounts.get
 ```
 
 ## Guardrails

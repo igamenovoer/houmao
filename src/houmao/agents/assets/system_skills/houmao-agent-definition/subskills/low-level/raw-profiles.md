@@ -26,10 +26,18 @@ Raw profiles are low-level recipe-backed launch profiles. The underlying maintai
 ```text
 <chosen houmao-mgr launcher> project agents launch-profiles list
 <chosen houmao-mgr launcher> project agents launch-profiles get --name <profile>
-<chosen houmao-mgr launcher> project agents launch-profiles add --name <profile> --recipe <recipe> ...
-<chosen houmao-mgr launcher> project agents launch-profiles add --name <profile> --recipe <recipe> --yes ...
-<chosen houmao-mgr launcher> project agents launch-profiles set --name <profile> ...
 <chosen houmao-mgr launcher> project agents launch-profiles remove --name <profile>
+```
+
+For `add`, same-name replacement, and `set`, use the CLI-owned templates:
+
+- `project.agents.launch-profiles.add`
+- `project.agents.launch-profiles.set`
+
+Render sparse intent before running the target command:
+
+```text
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch-profiles.add --intent '<json>'
 ```
 
 ## Add And Set Fields
@@ -81,6 +89,7 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - The skill subcommand is `raw-profiles`; the CLI command family is still `project agents launch-profiles ...`.
 - `launch-profiles set` patches without dropping unspecified defaults.
 - `launch-profiles add --yes` is only for intended same-name replacement; omitted optional fields are cleared.
+- For covered add and set commands, treat `internals command-templates render` output as authoritative for required fields, option mappings, clear flags, conflicts, and omitted-field semantics.
 - `--auth` and `--clear-auth` change the profile auth override by display name; they do not mutate credential bundle contents.
 - `--gateway-mail-notifier-appendix-text` stores a future runtime notifier prompt appendix default; launching from the profile seeds runtime notifier state but does not enable polling.
 - Memo seeds replace only represented components. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when present and pages only when `pages/` is present.
@@ -94,4 +103,5 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - Do not treat launch-profile `--auth` changes as credential CRUD.
 - Do not route low-level recipe editing through this subskill.
 - Do not store `--headless` by default for TUI-capable tools.
+- Do not add `--prompt-mode`, `--headless`, or clear flags unless the rendered sparse intent includes those explicit fields.
 - Do not invent raw-profile names, recipe names, or field overrides.

@@ -10,12 +10,12 @@ Use this action only when the user wants to remove one filesystem mailbox bindin
 4. Run the late mailbox-binding deregistration command.
 5. Report the resulting binding posture for that managed agent.
 
-## Command Shape
+## Template Rendering
 
-Use:
+Use this template id, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> agents mailbox unregister (--agent-id <id> | --agent-name <name>) [--mode deactivate|purge]
+agents.mailbox.unregister
 ```
 
 ## Guardrails

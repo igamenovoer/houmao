@@ -12,8 +12,9 @@ Use this action only when the user wants to create one new managed-agent instanc
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
-6. Run the correct launch command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
-7. Report the managed-agent identity and launch result returned by the command.
+6. Render the correct launch template, omitting `headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+7. Run the rendered `argv` only if there are no blockers.
+8. Report the managed-agent identity and launch result returned by the command.
 
 ## Default Launch Posture
 
@@ -27,10 +28,10 @@ Only add a one-shot `--headless` flag when the user explicitly asks for headless
 
 Use this lane when the user wants to launch from a predefined role or preset through the canonical managed-agent lifecycle surface.
 
-Use:
+Use template `agents.launch`, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> agents launch --agents <selector> --provider <provider> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.launch --intent '<json>'
 ```
 
 Required inputs:
@@ -59,10 +60,10 @@ Behavior note:
 
 Use this lane when the user wants to launch through an existing raw profile. In the CLI this remains `--launch-profile`.
 
-Use:
+Use template `agents.launch-profile.launch`, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> agents launch --launch-profile <profile> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.launch-profile.launch --intent '<json>'
 ```
 
 Required inputs:
@@ -97,10 +98,10 @@ Behavior note:
 
 Use this lane when the user wants to launch from an existing easy specialist.
 
-Use:
+Use template `project.easy.instance.launch`, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> project easy instance launch --specialist <specialist> --name <instance> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
 ```
 
 Required inputs:
@@ -140,4 +141,5 @@ If the selected specialist is known to use Gemini, the launch must be headless. 
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.
 - Do not add `--headless` by default for TUI-capable tools or because prompt mode is unattended.
+- Do not hand-author covered launch commands from Markdown skeletons when a command template supports the lane.
 - Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.

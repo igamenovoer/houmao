@@ -51,12 +51,15 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 1. Decide the caller posture up front.
 2. If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` action instead of the ordinary managed-agent gateway workflow. Strong signals include: no agent gateway is attached, `houmao-mgr agents mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
 3. For Houmao-managed agent mailbox work, if the current prompt or recent mailbox context already provides the exact current gateway base URL, use that value directly for shared `/v1/mail/*` operations.
-4. Otherwise run `houmao-mgr agents mail resolve-live`.
+4. Otherwise render `agents.mail.resolve-live` with any explicit managed-agent selector, then run the rendered `argv`.
 5. Treat the resolver output as the supported mailbox-discovery contract for this turn.
 6. When the resolver returns a `gateway` object, use the action page that matches the mailbox task you need and use that exact `gateway.base_url` for shared `/v1/mail/*` work.
-7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and the supported `houmao-mgr agents mail ...` fallback surface for that turn.
+7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and render the matching `agents.mail.<verb>` fallback template before running CLI fallback commands.
 8. Treat `message_ref` and `thread_ref` as opaque shared-mailbox references.
 9. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
+10. Render sparse fallback intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id agents.mail.<verb>`
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.mail.<verb> --intent '<json>'`
 
 ## Missing Input Questions
 
@@ -108,3 +111,4 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not archive a message before the corresponding mailbox action and any required reply succeed.
 - Do not treat this ordinary communication skill as the whole notifier-round workflow when `houmao-process-emails-via-gateway` is available.
 - Do not present direct transport-local access as the first-choice path when a live shared gateway mailbox facade is available.
+- Do not hand-author supported `houmao-mgr agents mail ...` fallback commands from Markdown skeletons when a command template supports the surface.

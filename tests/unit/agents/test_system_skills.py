@@ -317,9 +317,7 @@ def test_houmao_operator_messaging_packaged_asset_contract() -> None:
         dispatch_text
     )
     assert "Default to prompt delivery" in dispatch_text
-    assert "If the target has a live gateway, use gateway-backed prompt delivery" in (
-        dispatch_text
-    )
+    assert "If the target has a live gateway, use gateway-backed prompt delivery" in (dispatch_text)
     assert "request forced fallback behavior" in dispatch_text
     assert "Do not choose mailbox merely because the target has a mailbox" in dispatch_text
     assert "Use `houmao-agent-messaging`" in dispatch_text
@@ -687,18 +685,12 @@ def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
     plan_text = (skill_root / "subskills/operations/plan.md").read_text(encoding="utf-8")
     create_text = (skill_root / "subskills/operations/create.md").read_text(encoding="utf-8")
     validate_text = (skill_root / "subskills/operations/validate.md").read_text(encoding="utf-8")
-    summarize_text = (skill_root / "subskills/operations/summarize.md").read_text(
-        encoding="utf-8"
-    )
+    summarize_text = (skill_root / "subskills/operations/summarize.md").read_text(encoding="utf-8")
     local_state_text = (skill_root / "subskills/reference/local-state-links.md").read_text(
         encoding="utf-8"
     )
-    submodules_text = (skill_root / "subskills/reference/submodules.md").read_text(
-        encoding="utf-8"
-    )
-    memo_seeds_text = (skill_root / "subskills/reference/memo-seeds.md").read_text(
-        encoding="utf-8"
-    )
+    submodules_text = (skill_root / "subskills/reference/submodules.md").read_text(encoding="utf-8")
+    memo_seeds_text = (skill_root / "subskills/reference/memo-seeds.md").read_text(encoding="utf-8")
     contract_text = (skill_root / "subskills/reference/workspace-contract.md").read_text(
         encoding="utf-8"
     )
@@ -962,21 +954,17 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     loop_pro_prepare_workspace = (loop_pro_execution / "prepare-workspace.md").read_text(
         encoding="utf-8"
     )
-    loop_pro_validate_loop = (loop_pro_execution / "validate-loop.md").read_text(
-        encoding="utf-8"
-    )
-    loop_pro_launch_agents = (loop_pro_execution / "launch-agents.md").read_text(
-        encoding="utf-8"
-    )
+    loop_pro_validate_loop = (loop_pro_execution / "validate-loop.md").read_text(encoding="utf-8")
+    loop_pro_launch_agents = (loop_pro_execution / "launch-agents.md").read_text(encoding="utf-8")
     loop_pro_generated_defaults = (loop_pro_reference / "generated-contract-defaults.md").read_text(
         encoding="utf-8"
     )
     loop_pro_platform_boundaries = (loop_pro_reference / "platform-boundaries.md").read_text(
         encoding="utf-8"
     )
-    loop_pro_git_worktree_readiness = (
-        loop_pro_reference / "git-worktree-readiness.md"
-    ).read_text(encoding="utf-8")
+    loop_pro_git_worktree_readiness = (loop_pro_reference / "git-worktree-readiness.md").read_text(
+        encoding="utf-8"
+    )
     project_init_action_path = project_mgr_actions / "init.md"
     project_status_action_path = project_mgr_actions / "status.md"
     project_launch_profiles_action_path = project_mgr_actions / "launch-profiles.md"
@@ -1109,8 +1097,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "project easy specialist create" in definition_credential_routing
     assert "Explicit Auth Mode" in easy_specialists
-    assert "project easy profile create" in easy_profiles
-    assert "project easy specialist set --name <name>" in easy_specialists
+    assert "project.easy.profile.create" in easy_profiles
+    assert "project.easy.specialist.set" in easy_specialists
     assert "Do not remove and recreate an easy specialist" in easy_specialists
     assert "--prompt-overlay-mode append|replace" in easy_profiles
     assert "Env Lookup Mode" in easy_specialists
@@ -1149,7 +1137,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project easy profile list" in easy_profiles
     assert "project easy profile get --name <name>" in easy_profiles
     assert "project easy profile remove --name <profile>" in easy_profiles
-    assert "project easy instance launch --profile <profile>" in easy_launch
+    assert "project.easy.instance.launch" in easy_launch
     assert "project easy profile get --name <profile>" in easy_launch
     assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
     assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
@@ -1170,8 +1158,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/add.md" in manage_credentials_skill
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
-    assert "project credentials <tool> ..." in manage_credentials_skill
-    assert "credentials <tool> ... --agent-def-dir <path>" in manage_credentials_skill
+    assert "project.credentials.<tool>.<verb>" in manage_credentials_skill
+    assert "credentials.<tool>.<verb>" in manage_credentials_skill
     assert "project easy profile ..." in manage_credentials_skill
     assert "project agents launch-profiles ..." in manage_credentials_skill
     assert (
@@ -1189,8 +1177,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in credentials_get_action
     )
     assert "<chosen houmao-mgr launcher>" in credentials_get_action
-    assert "project credentials <tool> get --name <name>" in credentials_get_action
-    assert "credentials <tool> get --agent-def-dir <path> --name <name>" in credentials_get_action
+    assert "project.credentials.<tool>.get" in credentials_get_action
+    assert "credentials.<tool>.get" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
     assert "stored easy-profile or raw-profile `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
@@ -1214,9 +1202,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "`profiles` as the default meaning" in manage_agent_definition_skill
     assert "project agents roles list" in definition_roles
     assert "project agents recipes list" in definition_recipes
-    assert "project agents launch-profiles add --name <profile> --recipe <recipe>" in (
-        definition_launch_profiles
-    )
+    assert "project.agents.launch-profiles.add" in definition_launch_profiles
     assert "project agents presets ..." in definition_recipes
     assert "houmao-credential-mgr" in manage_agent_definition_skill
     assert "direct hand-editing under `.houmao/`" in manage_agent_definition_skill
@@ -1243,19 +1229,14 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in definition_get_action
     )
     assert "<chosen houmao-mgr launcher>" in definition_get_action
-    assert "project agents roles init --name <role>" in definition_create_action_path.read_text(
-        encoding="utf-8"
-    )
-    assert (
-        "project agents recipes add --name <recipe> --role <role> --tool <tool>"
-        in definition_create_action_path.read_text(encoding="utf-8")
-    )
+    assert "project.agents.roles.init" in definition_create_action_path.read_text(encoding="utf-8")
+    assert "project.agents.recipes.add" in definition_create_action_path.read_text(encoding="utf-8")
     assert "project agents roles list" in definition_list_action_path.read_text(encoding="utf-8")
     assert "project agents recipes list" in definition_list_action_path.read_text(encoding="utf-8")
     assert "project agents roles get --name <role> --include-prompt" in definition_get_action
     assert "project agents recipes get --name <recipe>" in definition_get_action
-    assert "project agents roles set --name <role>" in definition_set_action
-    assert "project agents recipes set --name <recipe>" in definition_set_action
+    assert "project.agents.roles.set" in definition_set_action
+    assert "project.agents.recipes.set" in definition_set_action
     assert "--clear-auth" in definition_set_action
     assert "houmao-credential-mgr" in definition_set_action
     assert "project agents roles remove --name <role>" in definition_remove_action_path.read_text(
@@ -1278,8 +1259,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert (
         "use `houmao-utils-workspace-mgr` through `prepare-workspace` for supported workspace "
-        "planning, creation, validation, and summaries"
-        in loop_pro_skill
+        "planning, creation, validation, and summaries" in loop_pro_skill
     )
     assert "MUST READ for mail-driven loops" in loop_pro_skill
     assert "subskills/reference/runtime-mail-model.md" in loop_pro_skill
@@ -1320,8 +1300,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         loop_pro_generate_execplan
     )
     assert "generated skills under `execplan/skills/*/SKILL.md`" in (loop_pro_validate_execplan)
-    assert "workspace setup contracts route workspace planning, creation, validation, and summaries" in (
-        loop_pro_validate_execplan
+    assert (
+        "workspace setup contracts route workspace planning, creation, validation, and summaries"
+        in (loop_pro_validate_execplan)
     )
     assert "`prepare-workspace` guidance consumes prepared agent/profile facts" in (
         loop_pro_validate_execplan
@@ -1340,13 +1321,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "maintained mail support skills" in loop_pro_prepare_agents
     assert "houmao-process-emails-via-gateway" in loop_pro_prepare_agents
-    assert "operation: `plan`, `create`, `validate`, or `summarize`" in (
-        loop_pro_prepare_workspace
-    )
+    assert "operation: `plan`, `create`, `validate`, or `summarize`" in (loop_pro_prepare_workspace)
     assert (
         "Treat legacy `execute` wording in older generated material or operator prompts as "
-        "workspace-manager `create`"
-        in loop_pro_prepare_workspace
+        "workspace-manager `create`" in loop_pro_prepare_workspace
     )
     assert "report the normalized operation as `create`" in loop_pro_prepare_workspace
     assert "A workspace-manager `plan` report alone is not launch-ready evidence" in (
@@ -1376,25 +1354,21 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert 'task_dirs = ["runs", "artifacts"]' not in loop_pro_generate_execplan
     assert 'per_agent_dirs = ["artifacts"]' not in loop_pro_generate_execplan
     assert 'per_agent_ignored_dirs = ["tmp"]' not in loop_pro_generate_execplan
-    assert "`plan`, `create`, `validate`, or `summarize` inputs" in (
-        loop_pro_generated_defaults
-    )
+    assert "`plan`, `create`, `validate`, or `summarize` inputs" in (loop_pro_generated_defaults)
     assert "validation commands" in loop_pro_generated_defaults
     assert (
-        "Treat a workspace-manager `plan` alone as incomplete readiness"
-        in loop_pro_validate_loop
+        "Treat a workspace-manager `plan` alone as incomplete readiness" in loop_pro_validate_loop
     )
     assert "current validation evidence or summary" in loop_pro_launch_agents
-    assert "`houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries" in (
-        loop_pro_platform_boundaries
+    assert (
+        "`houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries"
+        in (loop_pro_platform_boundaries)
     )
     assert "Local-state completeness belongs to workspace-manager `validate` evidence" in (
         loop_pro_git_worktree_readiness
     )
     assert "workspace-manager validation inputs" in loop_pro_git_worktree_readiness
-    assert "Do not create worktrees, repair local-only state" in (
-        loop_pro_git_worktree_readiness
-    )
+    assert "Do not create worktrees, repair local-only state" in (loop_pro_git_worktree_readiness)
     assert "Symlink untracked source-repo directories into agent worktrees by default" not in (
         loop_pro_git_worktree_readiness
     )
@@ -1403,8 +1377,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert (
         "Route workspace planning, creation, validation, or summaries through "
-        "`houmao-utils-workspace-mgr`"
-        in loop_lite_skill
+        "`houmao-utils-workspace-mgr`" in loop_lite_skill
     )
     assert "workspace-manager `execute`" not in loop_lite_skill
     assert easy_specialists_path.is_file()

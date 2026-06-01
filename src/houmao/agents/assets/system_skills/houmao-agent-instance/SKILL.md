@@ -87,14 +87,25 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Reuse that same chosen launcher for the selected instance-lifecycle action.
-6. Load exactly one action page:
+6. For supported lifecycle command authoring, inspect and render the matching CLI-owned template before executing:
+   - `agents.launch` or `agents.launch-profile.launch`
+   - `project.easy.instance.launch` for specialist-backed easy launch
+   - `agents.join`
+   - `agents.relaunch`
+   - `agents.cleanup.session`
+   - `agents.cleanup.logs`
+7. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
+   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
+8. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+9. Load exactly one action page:
    - `actions/launch.md`
    - `actions/join.md`
    - `actions/list.md`
    - `actions/stop.md`
    - `actions/relaunch.md`
    - `actions/cleanup.md`
-7. Follow the selected action page and report the result from the command that ran.
+10. Follow the selected action page and report the result from the command that ran.
 
 ## Missing Input Questions
 

@@ -15,13 +15,13 @@ Use this action only when the user wants to create or reuse one manually adminis
 7. Run the matching mailbox registration command.
 8. Report the returned registration payload, including replacement posture when relevant.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox register --address <full-address> --principal-id <principal-id> [--mailbox-root <path>] [--mode safe|force|stash] [--yes]
-<chosen houmao-mgr launcher> project mailbox register --address <full-address> --principal-id <principal-id> [--mode safe|force|stash] [--yes]
+mailbox.register
+project.mailbox.register
 ```
 
 ## Guardrails

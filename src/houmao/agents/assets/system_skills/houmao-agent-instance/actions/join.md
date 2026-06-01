@@ -8,15 +8,16 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 2. Recover the join inputs from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the managed-agent name is still missing, ask the user in Markdown before proceeding.
 4. If the request is for headless join and the provider or `--launch-args` values are still missing, ask the user in Markdown for those missing fields before proceeding.
-5. Run `agents join`.
-6. Report the adopted managed-agent identity and resulting lifecycle state returned by the command.
+5. Render template `agents.join`.
+6. Run the rendered `argv`.
+7. Report the adopted managed-agent identity and resulting lifecycle state returned by the command.
 
 ## Command Shape
 
-Use:
+Use the CLI-owned template, then run its rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> agents join --agent-name <name> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.join --intent '<json>'
 ```
 
 Headless join requires:
@@ -40,3 +41,4 @@ Other optional inputs:
 - Do not treat join as mailbox registration, gateway attach, or prompt submission.
 - Do not claim that join restarts the live provider process; it adopts the existing session into Houmao control.
 - Do not route join work through launch commands.
+- Do not hand-author covered join commands from Markdown skeletons.

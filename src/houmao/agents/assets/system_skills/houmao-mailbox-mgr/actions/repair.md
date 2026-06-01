@@ -10,13 +10,13 @@ Use this action only when the user wants to rebuild filesystem mailbox index sta
 4. Run the matching mailbox repair command.
 5. Report the repair result and any staging cleanup posture that mattered.
 
-## Command Shape
+## Template Rendering
 
-Use one of:
+Use one of these template ids, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> mailbox repair [--mailbox-root <path>] [--cleanup-staging|--no-cleanup-staging] [--quarantine-staging|--remove-staging]
-<chosen houmao-mgr launcher> project mailbox repair [--cleanup-staging|--no-cleanup-staging] [--quarantine-staging|--remove-staging]
+mailbox.repair
+project.mailbox.repair
 ```
 
 ## Guardrails

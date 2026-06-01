@@ -15,16 +15,20 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 3. For specialist launch, require specialist name and managed-agent name.
 4. For profile launch, require profile name.
 5. If profile launch lacks a managed-agent name, inspect the profile with `project easy profile get --name <profile>` to see whether it stores one.
-6. Run `project easy instance launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
-7. Report the launched instance identity and command output.
-8. Tell the user that broader live-agent management now belongs to `houmao-agent-instance`.
+6. Render `project.easy.instance.launch` with only explicit source, identity, and one-shot override fields.
+7. If render output has blockers, recover missing or conflicting inputs before launching.
+8. Run the rendered `argv`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+9. Report the launched instance identity and command output.
+10. Tell the user that broader live-agent management now belongs to `houmao-agent-instance`.
 
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> project easy instance launch --specialist <specialist> --name <instance> ...
-<chosen houmao-mgr launcher> project easy instance launch --profile <profile> [--name <instance>] ...
+<chosen houmao-mgr launcher> --print-json internals command-templates show --id project.easy.instance.launch
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
 ```
+
+Run the rendered `argv` if there are no blockers.
 
 ## Common Options
 
@@ -68,6 +72,7 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 - Do not route specialist-backed launch through `agents launch`.
 - Do not route profile-backed launch through `agents launch`.
 - Do not add `--headless` by default for TUI-capable tools.
+- Do not hand-author the launch command when `project.easy.instance.launch` can render it.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
 - Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled easy launch.
 - Do not describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.

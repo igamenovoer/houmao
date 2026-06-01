@@ -24,6 +24,7 @@ Build an internal coverage map before asking questions:
 
 - Start each clarification round by showing what would be sent to the agent(s) in a compact Markdown table.
 - Ask only high-impact questions that affect target selection, message content, route, safety, success criteria, or ordering.
+- Ask one question at a time.
 - Ask exactly one unclear decision-point question per round.
 - Provide exactly three concrete answer choices for that question; mark one choice as `(Recommended)`.
 - Add a fourth `Other` option so the operator can specify a different answer in their own prompt.
@@ -31,6 +32,9 @@ Build an internal coverage map before asking questions:
 - Prefer at most five accepted clarification answers before summarizing current intent and remaining ambiguity.
 - Do not ask wording-only questions while target selection, transport, safety, success criteria, or ordering is materially unclear.
 - If the operator accepts ambiguity, note the accepted ambiguity explicitly in chat instead of continuing to question.
+- Require an explicit path before writing any durable clarification artifact.
+- Do not invent a path for clarification notes or decisions.
+- Default to chat memory unless the operator explicitly names a durable output path.
 - Do not force `Required`/`Optional` labels onto domain-intent questions. Use that shape only when asking for Houmao runtime inputs.
 
 ## Stop Conditions

@@ -14,8 +14,8 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/send" \
 
 Use the exact `gateway.base_url` resolved for this turn.
 
-When no live gateway facade is available, use the supported managed fallback surface instead:
+When no live gateway facade is available, render `agents.mail.send`, then run the rendered `argv`:
 
-```bash
-houmao-mgr agents mail send --to recipient@houmao.localhost --subject "..." --body-content "..."
+```text
+agents.mail.send
 ```

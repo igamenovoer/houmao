@@ -26,8 +26,8 @@ This workflow creates or selects a specialist, creates or updates an easy profil
    - create when the profile does not exist or the user asks for a new profile;
    - set when updating an existing profile;
    - create `--yes` only when the user explicitly wants same-name replacement.
-4. Store all supplied launch defaults on the easy profile, omitting stored headless posture unless the user explicitly asked for headless or the selected tool/lane requires it.
-5. Print the exact launch command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+4. Store all supplied launch defaults on the easy profile by rendering `project.easy.profile.create` or `project.easy.profile.set` with sparse intent.
+5. Print the exact launch command by rendering `project.easy.instance.launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 6. Report durable identity facts and stored posture, including that unspecified launch posture is TUI/local-interactive preferred when supported.
 7. Stop. Do not run the launch command.
 
@@ -37,7 +37,7 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 - easy profile name
 - managed-agent identity: `--agent-name`, `--agent-id`
 - workdir: `--workdir`
-- prompt mode: default to unattended unless the user requests `as_is`; prompt mode does not imply headless execution
+- prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution
 - launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane
 - model: `--model`
 - reasoning: `--reasoning-level`
@@ -54,22 +54,22 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 
 ```text
 <chosen houmao-mgr launcher> project easy specialist get --name <specialist>
-<chosen houmao-mgr launcher> project easy specialist create --name <specialist> --tool <tool> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.specialist.create --intent '<json>'
 <chosen houmao-mgr launcher> project easy profile get --name <profile>
-<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
-<chosen houmao-mgr launcher> project easy profile set --name <profile> ...
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.profile.create --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.profile.set --intent '<json>'
 ```
 
 Report this launch command without executing it:
 
 ```text
-<chosen houmao-mgr launcher> project easy instance launch --profile <profile>
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
 ```
 
-If the profile does not store an agent name, show the explicit form:
+If the profile does not store an agent name, include `name` in the rendered `project.easy.instance.launch` intent.
 
 ```text
-<chosen houmao-mgr launcher> project easy instance launch --profile <profile> --name <managed-agent-name>
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json-with-profile-and-name>'
 ```
 
 ## Output
@@ -87,6 +87,7 @@ Report:
 - Do not launch the managed agent.
 - Do not guess missing specialist, profile, tool, credential, identity, workdir, mailbox, gateway, prompt, model, or env inputs.
 - Do not persist profile `--headless` or include launch-command `--headless` by default for TUI-capable tools.
+- Do not persist profile `--prompt-mode` unless prompt mode is explicit in the user request or recovered explicit context.
 - Do not treat unattended prompt mode as evidence that headless launch was requested.
 - When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
 - Do not continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.

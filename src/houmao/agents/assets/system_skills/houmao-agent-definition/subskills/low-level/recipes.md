@@ -22,9 +22,18 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 ```text
 <chosen houmao-mgr launcher> project agents recipes list
 <chosen houmao-mgr launcher> project agents recipes get --name <recipe>
-<chosen houmao-mgr launcher> project agents recipes add --name <recipe> --role <role> --tool <tool> [--setup <name>] [--auth <bundle>] [--skill <name> ...] [--prompt-mode unattended|as_is]
-<chosen houmao-mgr launcher> project agents recipes set --name <recipe> [--role <role>] [--tool <tool>] [--setup <setup>] [--auth <bundle> | --clear-auth] [--add-skill <skill> ...] [--remove-skill <skill> ...] [--clear-skills] [--prompt-mode unattended|as_is | --clear-prompt-mode]
 <chosen houmao-mgr launcher> project agents recipes remove --name <recipe>
+```
+
+For `add` and `set`, use the CLI-owned templates:
+
+- `project.agents.recipes.add`
+- `project.agents.recipes.set`
+
+Render sparse intent before running the target command:
+
+```text
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.recipes.add --intent '<json>'
 ```
 
 ## Preset Alias
@@ -37,3 +46,4 @@ Use `project agents presets ...` only when the user explicitly asks for the comp
 - Do not treat auth-bundle content mutation as recipe authoring; use `houmao-credential-mgr`.
 - Do not remove and recreate a recipe for ordinary edits.
 - Do not hand-edit `.houmao/agents/presets/`.
+- Do not add `--prompt-mode` by default; render it only when prompt mode is explicit.

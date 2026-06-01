@@ -24,11 +24,22 @@ Use this subskill when the user wants to create, inspect, update, list, replace,
 ```text
 <chosen houmao-mgr launcher> project easy profile list
 <chosen houmao-mgr launcher> project easy profile get --name <name>
-<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
-<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> --yes ...
-<chosen houmao-mgr launcher> project easy profile set --name <profile> ...
 <chosen houmao-mgr launcher> project easy profile remove --name <profile>
 ```
+
+For `create`, same-name replacement, and `set`, use the CLI-owned templates:
+
+- `project.easy.profile.create`
+- `project.easy.profile.set`
+
+Render sparse intent with only explicit fields:
+
+```text
+<chosen houmao-mgr launcher> --print-json internals command-templates show --id project.easy.profile.create
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.profile.create --intent '<json>'
+```
+
+Then run the rendered `argv` if there are no blockers.
 
 ## Stored Defaults
 
@@ -78,6 +89,7 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 
 - Use `project easy profile set` for ordinary edits.
 - Use `project easy profile create --yes` only for intended same-name replacement; replacement clears omitted optional fields.
+- For covered create and set commands, treat `internals command-templates render` output as authoritative for required fields, option mappings, clear flags, conflicts, and omitted-field semantics.
 - `--auth` selects a stored auth display-name override; it does not create or edit credentials.
 - `--mail-transport` is required when declarative mailbox fields are present.
 - `filesystem` mailbox defaults accept `--mail-root` and reject Stalwart URL flags.
@@ -95,4 +107,5 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - Do not remove and recreate an easy profile for ordinary default edits.
 - Do not treat profile creation as launching or mutating a live easy instance.
 - Do not store `--headless` by default for TUI-capable tools.
+- Do not add `--prompt-mode`, `--headless`, or clear flags unless the rendered sparse intent includes those explicit fields.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch.
