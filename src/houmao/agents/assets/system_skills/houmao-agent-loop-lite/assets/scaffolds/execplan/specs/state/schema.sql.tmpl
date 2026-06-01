@@ -1,0 +1,13 @@
+-- SQLite schema for ${loop_dir_name}.
+-- Replace or extend these placeholder tables during execplan generation.
+
+CREATE TABLE IF NOT EXISTS loop_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    participant_id TEXT,
+    work_item_id TEXT,
+    mail_ref TEXT,
+    artifact_ref TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -156,6 +156,13 @@ def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
     assert "`raw-profiles`: only when the execplan or operator explicitly requires" in (
         prepare_agents
     )
+    assert "launch interface mode (`tui` or `headless`)" in prepare_agents
+    assert "Treat unknown, missing, or contradictory TUI/headless launch mode facts" in (
+        prepare_agents
+    )
+    assert "| Agent | Participant | Launch mode | Credential | Skill groups | Workdir |" in (
+        prepare_agents
+    )
     assert "Do not reimplement specialist creation" in prepare_agents
     assert "credential-defaulting" in platform_boundaries
     assert "Treat `houmao-mgr project easy ...` as its underlying CLI surface" in (
@@ -166,7 +173,23 @@ def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
 def test_agent_loop_lite_packaged_asset_contract() -> None:
     skill_root = _packaged_skill_asset_root("houmao-agent-loop-lite")
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    template_example = skill_text.split("```markdown", maxsplit=1)[1].split("```", maxsplit=1)[0]
+    template_events = (skill_root / "subskills/reference/markdown-template-events.md").read_text(
+        encoding="utf-8"
+    )
+    direct_sqlite = (skill_root / "subskills/reference/direct-sqlite-state.md").read_text(
+        encoding="utf-8"
+    )
+    prepare_agents = (skill_root / "subskills/execution/prepare-agents.md").read_text(
+        encoding="utf-8"
+    )
+    validate_execplan = (skill_root / "subskills/authoring/validate-execplan.md").read_text(
+        encoding="utf-8"
+    )
+    scaffold_script = (skill_root / "scripts/scaffold.py").read_text(encoding="utf-8")
+    template_example = template_events.split("```markdown", maxsplit=1)[1].split(
+        "```",
+        maxsplit=1,
+    )[0]
 
     assert "name: houmao-agent-loop-lite" in skill_text
     assert "Use this Houmao skill only after the user explicitly selects" in skill_text
@@ -176,21 +199,71 @@ def test_agent_loop_lite_packaged_asset_contract() -> None:
     assert "<loop-dir>/runs/" in skill_text
     assert "Do not generate `execplan/harness/` or `execplan/docs/`" in skill_text
     assert "Do not create JSON schemas, Jinja2 renderers" in skill_text
+    assert "subskills/authoring/init.md" in skill_text
+    assert "subskills/authoring/execplan-fast-forward.md" in skill_text
+    assert "subskills/execution/prepare-agents.md" in skill_text
+    assert "subskills/execution/validate-loop.md" in skill_text
+    assert "subskills/reference/direct-sqlite-state.md" in skill_text
+    assert (skill_root / "subskills/authoring/init.md").is_file()
+    assert (skill_root / "subskills/authoring/create-intention.md").is_file()
+    assert (skill_root / "subskills/authoring/clarify-intent.md").is_file()
+    assert (skill_root / "subskills/authoring/clarify-execplan.md").is_file()
+    assert (skill_root / "subskills/authoring/execplan-fast-forward.md").is_file()
+    assert (skill_root / "subskills/authoring/execplan-specs-process.md").is_file()
+    assert (skill_root / "subskills/authoring/execplan-specs-contract.md").is_file()
+    assert (skill_root / "subskills/authoring/execplan-skills.md").is_file()
+    assert (skill_root / "subskills/authoring/execplan-agent-bindings.md").is_file()
+    assert (skill_root / "subskills/authoring/execplan-finalize.md").is_file()
+    assert (skill_root / "subskills/authoring/validate-execplan.md").is_file()
+    assert (skill_root / "subskills/authoring/update-execplan.md").is_file()
+    assert (skill_root / "subskills/execution/prepare-agents.md").is_file()
+    assert (skill_root / "subskills/execution/prepare-workspace.md").is_file()
+    assert (skill_root / "subskills/execution/validate-loop.md").is_file()
+    assert (skill_root / "subskills/execution/launch-agents.md").is_file()
+    assert (skill_root / "subskills/execution/start.md").is_file()
+    assert (skill_root / "subskills/execution/status.md").is_file()
+    assert (skill_root / "subskills/execution/pause.md").is_file()
+    assert (skill_root / "subskills/execution/resume.md").is_file()
+    assert (skill_root / "subskills/execution/recover.md").is_file()
+    assert (skill_root / "subskills/execution/stop.md").is_file()
+    assert (skill_root / "subskills/reference/markdown-contract-defaults.md").is_file()
+    assert (skill_root / "subskills/reference/markdown-template-events.md").is_file()
+    assert (skill_root / "subskills/reference/direct-sqlite-state.md").is_file()
+    assert (skill_root / "assets/scaffolds/execplan/manifest.md.tmpl").is_file()
+    assert (skill_root / "assets/scaffolds/execplan/specs/templates/task-request.md.tmpl").is_file()
+    assert (skill_root / "assets/scaffolds/execplan/specs/state/schema.sql.tmpl").is_file()
+    assert (skill_root / "scripts/scaffold.py").is_file()
+    assert "execplan-harness" not in skill_text
     assert "Loop-Template-Type" in skill_text
     assert "Loop-Template-Version" in skill_text
-    assert "<placeholder work_item_id>" in skill_text
-    assert "sender, receiver, subject, message id, thread id, timestamps" in skill_text.lower()
-    assert "Always generate one shared guidance skill" in skill_text
-    assert "Loop-Template-Type: task-request" in skill_text
-    assert "unresolved `<placeholder` tokens before sending" in skill_text
-    assert "execplan/specs/state/schema.sql" in skill_text
-    assert "runs/<run-id>/state.sqlite3" in skill_text
-    assert "BEGIN IMMEDIATE" in skill_text
-    assert "Do not tell agents to sleep, poll, tail logs, or wait in-chat" in skill_text
+    assert "<placeholder work_item_id>" in template_events
+    assert "sender, receiver, subject, message id, thread id, timestamps" in (
+        template_events.lower()
+    )
+    assert "Always generate one shared guidance skill" in (
+        skill_root / "subskills/authoring/execplan-skills.md"
+    ).read_text(encoding="utf-8")
+    assert "Loop-Template-Type: task-request" in template_events
+    assert "unresolved `<placeholder` tokens before sending" in template_events
+    assert "execplan/specs/state/schema.sql" in direct_sqlite
+    assert "runs/<run-id>/state.sqlite3" in direct_sqlite
+    assert "BEGIN IMMEDIATE" in direct_sqlite
+    assert "Do not tell agents to sleep, poll, tail logs, or wait in-chat" in (
+        skill_root / "subskills/reference/runtime-mail-model.md"
+    ).read_text(encoding="utf-8")
     assert "houmao-agent-email-comms" in skill_text
     assert "houmao-agent-gateway" in skill_text
     assert "houmao-agent-definition" in skill_text
     assert "houmao-agent-instance" in skill_text
+    assert "launch interface mode (`tui` or `headless`)" in prepare_agents
+    assert "Treat unknown, missing, or contradictory TUI/headless launch mode facts" in (
+        prepare_agents
+    )
+    assert "| Agent | Participant | Launch mode | Credential | Skill groups | Workdir |" in (
+        prepare_agents
+    )
+    assert "JSON schema files, and Jinja2 renderer files are absent" in validate_execplan
+    assert "execplan-shell" in scaffold_script
     for envelope_field in (
         "sender",
         "receiver",
@@ -815,6 +888,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     loop_pro_execution = home_path / "skills/houmao-agent-loop-pro/subskills/execution"
     loop_pro_reference = home_path / "skills/houmao-agent-loop-pro/subskills/reference"
     loop_lite_skill_path = home_path / "skills/houmao-agent-loop-lite/SKILL.md"
+    loop_lite_root = home_path / "skills/houmao-agent-loop-lite"
+    loop_lite_authoring = loop_lite_root / "subskills/authoring"
+    loop_lite_execution = loop_lite_root / "subskills/execution"
+    loop_lite_reference = loop_lite_root / "subskills/reference"
 
     assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
     assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
@@ -851,6 +928,20 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert (loop_pro_execution / "status.md").is_file()
     assert (loop_pro_execution / "recover.md").is_file()
     assert (loop_pro_reference / "runtime-mail-model.md").is_file()
+    assert (loop_lite_authoring / "init.md").is_file()
+    assert (loop_lite_authoring / "execplan-fast-forward.md").is_file()
+    assert (loop_lite_authoring / "validate-execplan.md").is_file()
+    assert (loop_lite_execution / "prepare-agents.md").is_file()
+    assert (loop_lite_execution / "prepare-workspace.md").is_file()
+    assert (loop_lite_execution / "validate-loop.md").is_file()
+    assert (loop_lite_execution / "launch-agents.md").is_file()
+    assert (loop_lite_execution / "start.md").is_file()
+    assert (loop_lite_execution / "status.md").is_file()
+    assert (loop_lite_execution / "recover.md").is_file()
+    assert (loop_lite_reference / "direct-sqlite-state.md").is_file()
+    assert (loop_lite_reference / "markdown-template-events.md").is_file()
+    assert (loop_lite_root / "assets/scaffolds/execplan/manifest.md.tmpl").is_file()
+    assert (loop_lite_root / "scripts/scaffold.py").is_file()
     project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
@@ -1493,6 +1584,18 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     ).is_file()
     assert (
         home_path / "skills/houmao-agent-loop-pro/subskills/execution/prepare-workspace.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-lite/subskills/authoring/execplan-fast-forward.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-lite/subskills/execution/prepare-agents.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-lite/subskills/reference/direct-sqlite-state.md"
+    ).is_file()
+    assert (
+        home_path / "skills/houmao-agent-loop-lite/assets/scaffolds/execplan/manifest.md.tmpl"
     ).is_file()
     assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
     assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
