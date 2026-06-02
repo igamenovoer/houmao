@@ -14,6 +14,7 @@ The workflow contract is:
 - Validation: run `twine check` on the exact built artifacts
 - Publish behavior: publish the downloaded build artifacts to PyPI
 - Docs publication: publishing a GitHub release also triggers the docs workflow to build from the same tag and deploy GitHub Pages
+- Tool-skills sync: stable releases dispatch `igamenovoer/tool-skills` on `main`; prereleases dispatch it on `release-candidates`
 - Authentication: GitHub OIDC trusted publishing, using the GitHub environment `pypi`
 
 Because the workflow is release-driven, the workflow file must already exist on `main` before maintainers publish a release.
@@ -71,6 +72,8 @@ gh release create v0.4.0 --verify-tag --generate-notes
 8. Confirm that the `docs` workflow run triggered by the same release completes successfully and that GitHub Pages reflects the release tag content.
 
 For clarity and conventional GitHub release handling, use `v0.4.0` as the public tag name.
+
+Release candidates should be published as GitHub prereleases, for example `v0.11.0rc1`. A prerelease still publishes the Python package and docs from the release tag, but the Houmao skills mirror dispatch targets the `release-candidates` branch of `igamenovoer/tool-skills` instead of the stable `main` branch.
 
 ## Release Artifact Scope
 

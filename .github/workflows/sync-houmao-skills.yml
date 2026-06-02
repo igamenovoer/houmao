@@ -16,6 +16,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HOUMAO_SKILLS_SYNC_TOKEN }}
           HOUMAO_REF: ${{ github.event.release.tag_name }}
+          TOOL_SKILLS_REF: ${{ github.event.release.prerelease && 'release-candidates' || 'main' }}
         run: |
           if [[ -z "${GH_TOKEN}" ]]; then
             echo "Missing HOUMAO_SKILLS_SYNC_TOKEN secret." >&2
@@ -23,10 +24,11 @@ jobs:
             exit 1
           fi
 
+          echo "Dispatching igamenovoer/tool-skills sync on ${TOOL_SKILLS_REF} for ${HOUMAO_REF}."
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             /repos/igamenovoer/tool-skills/actions/workflows/sync-houmao.yml/dispatches \
-            -f ref=main \
+            -f ref="${TOOL_SKILLS_REF}" \
             -f inputs[houmao_ref]="${HOUMAO_REF}"
