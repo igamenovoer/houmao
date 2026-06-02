@@ -9,8 +9,6 @@ from houmao.version import get_version
 
 from .admin import admin_group
 from .agents import agents_group
-from .brains import brains_group
-from .credentials import credentials_group
 from .internals import internals_group
 from .mailbox import mailbox_group
 from .output import OutputContext, output_options, resolve_print_style
@@ -36,8 +34,6 @@ def cli(ctx: click.Context, print_style: str | None) -> None:
 
 cli.add_command(admin_group)
 cli.add_command(agents_group)
-cli.add_command(brains_group)
-cli.add_command(credentials_group)
 cli.add_command(internals_group)
 cli.add_command(mailbox_group)
 cli.add_command(project_group)

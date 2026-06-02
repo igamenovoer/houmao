@@ -1,91 +1,62 @@
 # houmao-mgr-credentials-cli Specification
 
 ## Purpose
-Define the dedicated `houmao-mgr credentials` and `houmao-mgr project credentials` command families for credential management across project overlays and plain agent-definition directories.
+Define the maintained credential-management command families for Houmao project overlays and retained direct native-agent credential internals.
+
 ## Requirements
-### Requirement: `houmao-mgr credentials` exposes a dedicated credential-management tree
-`houmao-mgr` SHALL expose a first-class credential-management family shaped as:
+
+### Requirement: Project credentials are selected through the project command group
+Project-backed credential management SHALL be exposed through:
 
 ```text
-houmao-mgr credentials [--project|--agent-def-dir <path>] <tool> list|get|add|set|rename|remove
+houmao-mgr project [--project-dir <dir>] credentials <tool> list|get|add|set|rename|remove|login
 ```
 
-`houmao-mgr project` SHALL also expose a project-scoped wrapper shaped as:
+`project credentials` SHALL use the selected project overlay supplied by the `project` command group. It SHALL NOT expose `--project`, `--agent-def-dir`, or direct native-agent root selectors.
 
-```text
-houmao-mgr project credentials <tool> list|get|add|set|rename|remove
-```
-
-At minimum, both command families SHALL expose Houmao-owned tool lanes for:
+At minimum, the project credential family SHALL expose Houmao-owned tool lanes for:
 
 - `claude`
 - `codex`
 - `gemini`
 
-At minimum, each supported tool lane SHALL expose:
+#### Scenario: Explicit project directory selects project credentials
+- **WHEN** `/repo/.houmao/houmao-config.toml` exists
+- **AND WHEN** an operator runs `houmao-mgr project --project-dir /repo credentials claude list`
+- **THEN** the command manages credentials in `/repo/.houmao`
+- **AND THEN** it does not require a top-level `credentials --project` wrapper
 
-- `list`
-- `get`
-- `add`
-- `set`
-- `rename`
-- `remove`
+#### Scenario: Project credentials reject direct native target options
+- **WHEN** an operator runs `houmao-mgr project credentials codex list --agent-def-dir /tmp/agents`
+- **THEN** the command fails as an unsupported option
+- **AND THEN** the diagnostic does not imply that project credentials can directly target native-agent roots
 
-The help text for these command families SHALL present them as the supported credential-management surface rather than as manual filesystem editing guidance.
+### Requirement: Direct native-agent credentials are internals-only when retained
+Direct credential CRUD for a plain native-agent root, if retained, SHALL be exposed under the internal native-agent command family rather than as a public top-level command.
 
-#### Scenario: Operator sees the dedicated top-level credential family
-- **WHEN** an operator runs `houmao-mgr credentials --help`
-- **THEN** the help output lists the supported tool lanes
-- **AND THEN** the help output presents `credentials` as the supported credential-management surface
+The retained internal shape SHALL be:
 
-#### Scenario: Operator sees the project-scoped credential wrapper
-- **WHEN** an operator runs `houmao-mgr project credentials --help`
-- **THEN** the help output lists the supported tool lanes
-- **AND THEN** the help output presents `project credentials` as project-scoped credential management
+```text
+houmao-mgr internals native-agent credentials <tool> list|get|add|set|rename|remove|login
+```
 
-### Requirement: `credentials` resolves one target backend before running actions
-`houmao-mgr credentials ...` SHALL resolve exactly one target backend before listing, inspecting, or mutating credentials.
+The internal command SHALL use the native-agent root selection contract from `internals native-agent`, including explicit `--native-agent-root` or the maintained native-agent root environment selector.
 
-Target resolution SHALL use this order:
-
-1. explicit `--agent-def-dir`,
-2. explicit `--project`,
-3. `HOUMAO_NATIVE_AGENT_ROOT`,
-4. active project-overlay discovery,
-5. otherwise fail with a clear target-resolution error.
-
-If an explicit or env-provided agent-definition directory resolves to the compatibility projection owned by a valid project overlay, the command SHALL use the project backend for that target instead of the plain-directory backend.
-
-`houmao-mgr project credentials ...` SHALL always resolve the active project overlay and SHALL NOT require `--project`.
-
-#### Scenario: Explicit agent-definition directory selects the direct-dir backend
-- **WHEN** an operator runs `houmao-mgr credentials codex list --agent-def-dir /tmp/agents`
-- **AND WHEN** `/tmp/agents` is a valid plain agent-definition directory and not an overlay-managed compatibility tree
-- **THEN** the command manages credentials through the direct directory backend
-
-#### Scenario: Overlay-managed compatibility tree is promoted to the project backend
-- **WHEN** an operator runs `houmao-mgr credentials claude get --agent-def-dir /repo/.houmao/agents --name work`
-- **AND WHEN** `/repo/.houmao/agents` is the compatibility projection for a valid project overlay
-- **THEN** the command resolves the owning project overlay
-- **AND THEN** it uses the project backend instead of treating `/repo/.houmao/agents` as a plain direct-dir backend
-
-#### Scenario: Missing target fails clearly
-- **WHEN** an operator runs `houmao-mgr credentials gemini list`
-- **AND WHEN** no explicit selector, `HOUMAO_NATIVE_AGENT_ROOT`, or active project overlay can be resolved
-- **THEN** the command fails explicitly
-- **AND THEN** the error explains how to select either a project target or an agent-definition directory target
+#### Scenario: Direct native credentials use native-agent root
+- **WHEN** `/tmp/native/tools/codex/auth/work/` exists
+- **AND WHEN** an operator runs `houmao-mgr internals native-agent credentials codex list --native-agent-root /tmp/native`
+- **THEN** the command lists direct Codex credentials under `/tmp/native/tools/codex/auth/`
+- **AND THEN** it does not require a Houmao project overlay
 
 ### Requirement: Project-targeted credential actions manage catalog-backed auth profiles
-When the resolved target is a project overlay, `list|get|add|set|rename|remove` SHALL manage project-local catalog-backed auth profiles.
+When the resolved target is a project overlay, `list|get|add|set|rename|remove|login` SHALL manage project-local catalog-backed auth profiles.
 
 For the project backend:
 
 - auth display names SHALL remain the operator-facing selector,
 - opaque bundle refs SHALL remain the stable storage and projection identity,
 - `rename` SHALL change only the display name,
-- add, set, get, list, and remove SHALL use the catalog as the source of truth.
-
-`houmao-mgr project credentials ...` and `houmao-mgr credentials ...` when they resolve to the same project overlay SHALL expose the same project-backed credential behavior.
+- add, set, get, list, login, and remove SHALL use the catalog as the source of truth.
 
 Credential list payloads SHALL preserve the existing credential-name list and SHALL also include timestamped credential records. For project-backed credentials, each record's last update time SHALL come from the project catalog database timestamp.
 
@@ -102,11 +73,11 @@ Credential list payloads SHALL preserve the existing credential-name list and SH
 
 #### Scenario: Project rename preserves stable identity
 - **WHEN** one project-local Codex auth profile named `work` exists
-- **AND WHEN** an operator runs `houmao-mgr credentials codex rename --project --name work --to breakglass`
+- **AND WHEN** an operator runs `houmao-mgr project credentials codex rename --name work --to breakglass`
 - **THEN** later project-backed credential inspection resolves the renamed profile by `breakglass`
 - **AND THEN** the underlying bundle ref and downstream project relationships remain unchanged
 
-### Requirement: Credential inspection and update semantics stay safe and patch-oriented across both backends
+### Requirement: Credential inspection and update semantics stay safe and patch-oriented across maintained backends
 `get` SHALL report one credential safely as structured data selected by tool lane plus credential name.
 
 By default, `get` SHALL redact secret-like values such as API keys, auth tokens, and OAuth tokens instead of printing them verbatim.
@@ -115,24 +86,24 @@ File-backed credential material SHALL be reported through presence and path meta
 
 `set` SHALL only update fields explicitly provided by the operator. Omitted fields SHALL remain unchanged unless the operator uses an explicit clear-style flag supported by the selected tool lane.
 
-Both backends SHALL validate env names and file inputs against the selected tool adapter contract and SHALL reject unsupported env names, auth-file inputs, or clear flags.
+Both project-backed and internal native-agent credential backends SHALL validate env names and file inputs against the selected tool adapter contract and SHALL reject unsupported env names, auth-file inputs, or clear flags.
 
 #### Scenario: Credential inspection stays redacted
 - **WHEN** one credential stores both a secret env value and a non-secret endpoint override
-- **AND WHEN** an operator runs the supported `credentials <tool> get --name <name>` command against either backend
+- **AND WHEN** an operator runs a maintained credential `get --name <name>` command against either backend
 - **THEN** the command reports presence and non-secret metadata without printing the raw secret value
 - **AND THEN** file-backed credential material is reported by presence and path metadata rather than raw file content
 
 #### Scenario: Set preserves unspecified fields
 - **WHEN** one existing credential already stores both an API key and a base URL
-- **AND WHEN** an operator runs `credentials <tool> set --name <name> --base-url https://proxy.example.test`
+- **AND WHEN** an operator runs a maintained credential `set --name <name> --base-url https://proxy.example.test`
 - **THEN** the command updates the stored base URL
 - **AND THEN** it does not delete the existing API key only because `--api-key` was omitted
 
-### Requirement: Direct agent-definition-dir credential actions manage named auth directories
-When the resolved target is a plain agent-definition directory, such as a copied temp root derived from `tests/fixtures/plain-agent-def/`, `list|get|add|set|remove` SHALL manage named auth directories under `tools/<tool>/auth/<name>/`.
+### Requirement: Direct native credential actions manage named auth directories
+When the resolved target is a plain native-agent root, such as a copied temp root derived from `tests/fixtures/plain-agent-def/`, `list|get|add|set|remove|login` SHALL manage named auth directories under `tools/<tool>/auth/<name>/`.
 
-For the direct-dir backend:
+For the direct native backend:
 
 - the directory basename SHALL remain the stored credential identity,
 - add SHALL create a new named auth directory and fail on duplicate names,
@@ -140,25 +111,23 @@ For the direct-dir backend:
 - remove SHALL delete the named auth directory,
 - list SHALL enumerate the existing credential directory names for the selected tool lane.
 
-The direct-dir backend SHALL still enforce the adapter-defined env/file contract for the selected tool lane.
+The direct native backend SHALL still enforce the adapter-defined env/file contract for the selected tool lane.
 
-Maintained examples for this backend SHALL use generic direct-dir paths or copied temp roots rather than the removed `tests/fixtures/agents/` path.
+Credential list payloads SHALL preserve the existing credential-name list and SHALL also include timestamped credential records. For direct native credentials, each record's last update time SHALL be derived best-effort from the credential bundle's filesystem metadata.
 
-Credential list payloads SHALL preserve the existing credential-name list and SHALL also include timestamped credential records. For direct-dir credentials, each record's last update time SHALL be derived best-effort from the credential bundle's filesystem metadata.
-
-#### Scenario: Direct-dir add creates one named credential directory
-- **WHEN** an operator runs `houmao-mgr credentials codex add --agent-def-dir /tmp/agents --name sandbox --api-key sk-test --auth-json /tmp/auth.json`
-- **THEN** the command creates `/tmp/agents/tools/codex/auth/sandbox/`
+#### Scenario: Direct native add creates one named credential directory
+- **WHEN** an operator runs `houmao-mgr internals native-agent credentials codex add --native-agent-root /tmp/native --name sandbox --api-key sk-test --auth-json /tmp/auth.json`
+- **THEN** the command creates `/tmp/native/tools/codex/auth/sandbox/`
 - **AND THEN** the selected Codex env values and supported auth file are stored under that named directory
 
-#### Scenario: Direct-dir list reports directory-backed credential names
-- **WHEN** an operator runs `houmao-mgr credentials gemini list --agent-def-dir /tmp/agents`
-- **THEN** the command reports the Gemini credential names discovered under `/tmp/agents/tools/gemini/auth/`
+#### Scenario: Direct native list reports directory-backed credential names
+- **WHEN** an operator runs `houmao-mgr internals native-agent credentials gemini list --native-agent-root /tmp/native`
+- **THEN** the command reports the Gemini credential names discovered under `/tmp/native/tools/gemini/auth/`
 - **AND THEN** the command does not require a project overlay or project catalog for that inspection
 - **AND THEN** the list payload includes a credential record with the credential name and filesystem-derived last update time
 
-### Requirement: Direct agent-definition-dir rename rewrites maintained in-tree auth references
-When the resolved target is a plain agent-definition directory, `rename` SHALL:
+### Requirement: Direct native rename rewrites maintained in-tree auth references
+When the resolved target is a plain native-agent root, `rename` SHALL:
 
 1. rename `tools/<tool>/auth/<old-name>/` to `tools/<tool>/auth/<new-name>/`,
 2. rewrite maintained auth references for that tool under:
@@ -166,25 +135,25 @@ When the resolved target is a plain agent-definition directory, `rename` SHALL:
    - `launch-profiles/*.yaml`
 3. report the rewritten files in the command result.
 
-Direct-dir rename SHALL fail clearly when the selected credential does not exist or when the target name already exists for that tool lane.
+Direct native rename SHALL fail clearly when the selected credential does not exist or when the target name already exists for that tool lane.
 
-Direct-dir rename SHALL NOT claim to rewrite arbitrary prose, tests, or external scripts outside the maintained in-tree reference set.
+Direct native rename SHALL NOT claim to rewrite arbitrary prose, tests, or external scripts outside the maintained in-tree reference set.
 
-#### Scenario: Direct-dir rename rewrites preset and launch-profile auth references
-- **WHEN** `/tmp/agents/tools/codex/auth/work/` exists in a plain agent-definition directory
-- **AND WHEN** `/tmp/agents/presets/reviewer.yaml` and `/tmp/agents/launch-profiles/reviewer.yaml` both store `auth: work`
-- **AND WHEN** an operator runs `houmao-mgr credentials codex rename --agent-def-dir /tmp/agents --name work --to breakglass`
-- **THEN** the command renames the credential directory to `/tmp/agents/tools/codex/auth/breakglass/`
+#### Scenario: Direct native rename rewrites preset and launch-profile auth references
+- **WHEN** `/tmp/native/tools/codex/auth/work/` exists in a plain native-agent root
+- **AND WHEN** `/tmp/native/presets/reviewer.yaml` and `/tmp/native/launch-profiles/reviewer.yaml` both store `auth: work`
+- **AND WHEN** an operator runs `houmao-mgr internals native-agent credentials codex rename --native-agent-root /tmp/native --name work --to breakglass`
+- **THEN** the command renames the credential directory to `/tmp/native/tools/codex/auth/breakglass/`
 - **AND THEN** the maintained preset and launch-profile YAML now store `auth: breakglass`
 
-#### Scenario: Direct-dir rename rejects duplicate target names
-- **WHEN** `/tmp/agents/tools/claude/auth/work/` and `/tmp/agents/tools/claude/auth/breakglass/` both exist
-- **AND WHEN** an operator runs `houmao-mgr credentials claude rename --agent-def-dir /tmp/agents --name work --to breakglass`
+#### Scenario: Direct native rename rejects duplicate target names
+- **WHEN** `/tmp/native/tools/claude/auth/work/` and `/tmp/native/tools/claude/auth/breakglass/` both exist
+- **AND WHEN** an operator runs `houmao-mgr internals native-agent credentials claude rename --native-agent-root /tmp/native --name work --to breakglass`
 - **THEN** the command fails explicitly
 - **AND THEN** it does not rename either credential directory
 
-### Requirement: Supported credential lanes remain available through the dedicated credential interface
-The dedicated credential interface SHALL preserve the current tool-specific credential input lanes for each supported tool.
+### Requirement: Supported credential lanes remain available through maintained credential surfaces
+The maintained credential surfaces SHALL preserve the current tool-specific credential input lanes for each supported tool.
 
 At minimum:
 
@@ -195,32 +164,32 @@ At minimum:
 For Claude, `--state-template-file` SHALL remain optional runtime bootstrap state and SHALL NOT be treated as a credential-providing lane by itself.
 
 #### Scenario: Codex credential interface accepts API env and auth file inputs
-- **WHEN** an operator creates or updates a Codex credential through the dedicated interface
+- **WHEN** an operator creates or updates a Codex credential through a maintained credential surface
 - **THEN** the command accepts `--api-key`, `--base-url`, `--org-id`, and `--auth-json` as the supported Codex inputs
 - **AND THEN** the command does not require provider-neutral replacement flags outside that supported Codex contract
 
 #### Scenario: Gemini credential interface keeps API-key and OAuth lanes
-- **WHEN** an operator creates or updates a Gemini credential through the dedicated interface
+- **WHEN** an operator creates or updates a Gemini credential through a maintained credential surface
 - **THEN** the command accepts API-key-based and OAuth-based inputs for Gemini
 - **AND THEN** omitted Gemini inputs remain unchanged unless the operator uses an explicit supported clear flag
 
 #### Scenario: Claude state template remains optional bootstrap state
-- **WHEN** an operator creates or updates a Claude credential through the dedicated interface using a supported credential lane
+- **WHEN** an operator creates or updates a Claude credential through a maintained credential surface using a supported credential lane
 - **AND WHEN** no `--state-template-file` is provided
 - **THEN** the resulting Claude credential remains valid for that selected credential lane
 - **AND THEN** the command does not report the missing template as missing credentials
 
 ### Requirement: Credential login helper imports provider auth artifacts from isolated homes
-The dedicated credential interface SHALL expose a `login` verb for each maintained credential lane:
+The maintained credential surfaces SHALL expose a `login` verb for each maintained credential lane:
 
 ```text
-houmao-mgr credentials [--project|--agent-def-dir <path>] <tool> login --name <credential-name>
-houmao-mgr project credentials <tool> login --name <credential-name>
+houmao-mgr project [--project-dir <dir>] credentials <tool> login --name <credential-name>
+houmao-mgr internals native-agent credentials <tool> login --native-agent-root <path> --name <credential-name>
 ```
 
 At minimum, `<tool>` SHALL include `claude`, `codex`, and `gemini`.
 
-The `login` verb SHALL resolve the same project-backed or direct agent-definition-dir target backend as the existing credential verbs before mutating credential storage.
+The `login` verb SHALL resolve the same project-backed or direct native-agent target backend as the existing credential verbs before mutating credential storage.
 
 The `login` verb SHALL create a secure temporary provider home, run the installed provider CLI login flow with the selected provider home environment variable pointed at that temporary home, validate that the expected provider auth artifact exists, and import that artifact through the same storage path used by the selected tool lane's existing `add` behavior.
 
@@ -255,14 +224,14 @@ After a successful Houmao import, the `login` verb SHALL delete the temporary pr
 - **AND THEN** the result tells the operator to use the explicit update option when replacement is intended
 
 #### Scenario: Explicit update imports through set behavior
-- **WHEN** one direct-dir Gemini credential named `work` already exists under `/tmp/agents`
-- **AND WHEN** an operator runs `houmao-mgr credentials gemini login --agent-def-dir /tmp/agents --name work --update`
+- **WHEN** one direct native Gemini credential named `work` already exists under `/tmp/native`
+- **AND WHEN** an operator runs `houmao-mgr internals native-agent credentials gemini login --native-agent-root /tmp/native --name work --update`
 - **AND WHEN** the Gemini OAuth artifact is produced in the isolated `GEMINI_CLI_HOME`
-- **THEN** the command updates the existing Gemini credential through the direct-dir `set` behavior
-- **AND THEN** omitted credential fields follow the same preservation semantics as `credentials gemini set`
+- **THEN** the command updates the existing Gemini credential through the direct native `set` behavior
+- **AND THEN** omitted credential fields follow the same preservation semantics as `internals native-agent credentials gemini set`
 
 #### Scenario: Failed provider login preserves the temp home
-- **WHEN** an operator runs `houmao-mgr credentials codex login --project --name work`
+- **WHEN** an operator runs `houmao-mgr project credentials codex login --name work`
 - **AND WHEN** the Codex login command fails or no `auth.json` is created
 - **THEN** the command fails without creating or updating the Houmao credential
 - **AND THEN** it preserves the temporary Codex home and reports its path
@@ -296,9 +265,9 @@ When credential commands consume caller-provided source files, those files SHALL
 - **AND THEN** the caller-provided source file remains intact
 
 ### Requirement: Credential CLI surfaces provide command-template entries
-The CLI-owned command-template registry SHALL provide template entries for project-scoped and plain agent-definition credential command surfaces for Claude, Codex, and Gemini.
+The CLI-owned command-template registry SHALL provide template entries for project-scoped and internal native-agent credential command surfaces for Claude, Codex, and Gemini.
 
-Template entries SHALL cover credential command verbs `add`, `set`, `login`, `list`, `get`, `rename`, and `remove` where those verbs exist in the maintained `houmao-mgr credentials` or `houmao-mgr project credentials` command surfaces.
+Template entries SHALL cover credential command verbs `add`, `set`, `login`, `list`, `get`, `rename`, and `remove` where those verbs exist in the maintained `houmao-mgr project credentials` or `houmao-mgr internals native-agent credentials` command surfaces.
 
 Each credential template SHALL map structured fields to CLI options, SHALL describe required target fields, SHALL describe tool-specific credential material fields, and SHALL report conflicts between mutually exclusive credential sources.
 
@@ -307,13 +276,12 @@ Each credential template SHALL map structured fields to CLI options, SHALL descr
 - **THEN** the template reports Gemini credential source fields such as API key, Vertex AI key posture, OAuth credentials, and base URL
 - **AND THEN** it does not report Claude-only or Codex-only credential fields
 
-#### Scenario: Plain credential list carries agent-definition target
-- **WHEN** an agent renders a plain-lane credential list template
-- **THEN** the rendered argv includes the explicit plain agent-definition directory target
+#### Scenario: Native credential list carries native-agent target
+- **WHEN** an agent renders an internal native credential list template
+- **THEN** the rendered argv includes the explicit native-agent root target
 - **AND THEN** it does not render the project-scoped command path
 
 #### Scenario: Credential source conflicts block rendering
 - **WHEN** an agent renders a credential add template with two mutually exclusive credential sources for the same tool
 - **THEN** the renderer reports a blocker
 - **AND THEN** it does not return executable argv
-

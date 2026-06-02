@@ -23,7 +23,7 @@ The maintained tracked plain-direct-dir fixture tree now lives under `tests/fixt
 
 1. Put behavior in `plain-agent-def/roles/<role>/system-prompt.md`.
 2. Define reusable launch variants in `plain-agent-def/presets/<role>-<tool>-<setup>.yaml`.
-3. Build with `houmao-mgr brains build --preset ...` or explicit `--tool --setup --auth --skill`.
+3. Build with `houmao-mgr internals native-agent brain build --native-agent-root tests/fixtures/plain-agent-def --preset ...` or explicit `--tool --setup --auth --skill`.
 4. Launch with `houmao-mgr agents launch --agents <role> --provider <provider>`.
 
 ## Auth Notes

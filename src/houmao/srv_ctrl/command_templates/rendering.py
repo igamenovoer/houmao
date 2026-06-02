@@ -56,7 +56,9 @@ def render_command_template(template_id: str, intent: Mapping[str, object]) -> d
             "blockers": blockers,
         }
 
-    argv: list[str] = list(template.target_argv)
+    target_argv: list[str] = list(template.target_argv)
+    trailing_argv: list[str] = []
+    inserted_argv: dict[int, list[str]] = {}
     applied_fields: list[dict[str, object]] = []
     for field in template.fields:
         if field.name not in fields:
@@ -64,8 +66,17 @@ def render_command_template(template_id: str, intent: Mapping[str, object]) -> d
         rendered = _render_field(field, fields[field.name])
         if not rendered:
             continue
-        argv.extend(rendered)
+        if field.argv_insert_index is None:
+            trailing_argv.extend(rendered)
+        else:
+            inserted_argv.setdefault(field.argv_insert_index, []).extend(rendered)
         applied_fields.append({"name": field.name, "argv": rendered})
+
+    argv = _assemble_argv(
+        target_argv=target_argv,
+        inserted_argv=inserted_argv,
+        trailing_argv=trailing_argv,
+    )
 
     return {
         "template_id": template.template_id,
@@ -77,6 +88,25 @@ def render_command_template(template_id: str, intent: Mapping[str, object]) -> d
         "warnings": _render_warnings(template=template, fields=fields),
         "blockers": [],
     }
+
+
+def _assemble_argv(
+    *,
+    target_argv: Sequence[str],
+    inserted_argv: Mapping[int, Sequence[str]],
+    trailing_argv: Sequence[str],
+) -> list[str]:
+    """Return target argv with option fragments inserted before selected indexes."""
+
+    argv: list[str] = []
+    remaining_insertions = {index: list(fragments) for index, fragments in inserted_argv.items()}
+    for index, token in enumerate(target_argv):
+        argv.extend(remaining_insertions.pop(index, []))
+        argv.append(token)
+    for index in sorted(remaining_insertions):
+        argv.extend(remaining_insertions[index])
+    argv.extend(trailing_argv)
+    return argv
 
 
 def _intent_fields(intent: Mapping[str, object]) -> dict[str, object]:

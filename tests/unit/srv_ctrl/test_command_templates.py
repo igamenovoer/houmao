@@ -79,7 +79,10 @@ def test_command_template_list_covers_command_surfaces_and_excludes_skill_scaffo
 
     assert "project.profile.create" in ids
     assert "internals.native-agent.recipes.add" in ids
+    assert "internals.native-agent.brain.build" in ids
+    assert "internals.native-agent.credentials.codex.add" in ids
     assert "project.credentials.codex.add" in ids
+    assert "credentials.codex.add" not in ids
     assert "agents.gateway.reminders.create" in ids
     assert "project.mailbox.messages.get" in ids
     assert "agents.mail.send" in ids
@@ -91,6 +94,8 @@ def test_command_template_list_covers_command_surfaces_and_excludes_skill_scaffo
         "project.agents",
         "internals.native-agent.recipes",
         "internals.native-agent.launch-dossiers",
+        "internals.native-agent.brain",
+        "internals.native-agent.credentials",
         "project.credentials",
         "agents.lifecycle",
         "agents.gateway",
@@ -228,6 +233,7 @@ def test_credential_template_is_tool_specific() -> None:
     names = {str(item["name"]) for item in fields if isinstance(item, dict)}
 
     assert {"api_key", "base_url", "org_id", "auth_json"}.issubset(names)
+    assert "project_dir" in names
     assert "claude_auth_token" not in names
     assert "google_api_key" not in names
 
@@ -243,6 +249,58 @@ def test_credential_source_conflict_blocks_rendering() -> None:
     assert isinstance(blockers, list)
     assert blockers
     assert blockers[0]["kind"] == "conflicting_fields"
+
+
+def test_project_dir_template_field_renders_after_project_group() -> None:
+    payload = _render(
+        "project.credentials.codex.list",
+        {"project_dir": "/repo"},
+    )
+
+    assert _argv(payload) == [
+        "houmao-mgr",
+        "project",
+        "--project-dir",
+        "/repo",
+        "credentials",
+        "codex",
+        "list",
+    ]
+
+
+def test_internal_native_credential_and_brain_templates_render_new_target_flags() -> None:
+    credential_payload = _render(
+        "internals.native-agent.credentials.codex.get",
+        {"native_agent_root": "/native", "name": "work"},
+    )
+    brain_payload = _render(
+        "internals.native-agent.brain.build",
+        {"native_agent_root": "/native", "preset": "reviewer"},
+    )
+
+    assert _argv(credential_payload) == [
+        "houmao-mgr",
+        "internals",
+        "native-agent",
+        "credentials",
+        "codex",
+        "get",
+        "--native-agent-root",
+        "/native",
+        "--name",
+        "work",
+    ]
+    assert _argv(brain_payload) == [
+        "houmao-mgr",
+        "internals",
+        "native-agent",
+        "brain",
+        "build",
+        "--native-agent-root",
+        "/native",
+        "--preset",
+        "reviewer",
+    ]
 
 
 def test_gateway_reminder_conflict_blocks_rendering() -> None:
@@ -374,6 +432,8 @@ def test_packaged_skill_guidance_uses_cli_owned_templates() -> None:
     assert "internals command-templates" in agent_definition
     assert "default to unattended" not in fast_forward
     assert "project.credentials.<tool>.<verb>" in credential
+    assert "internals.native-agent.credentials.<tool>.<verb>" in credential
+    assert "internals.native-agent.brain.build" in agent_definition
     assert "agents.launch-profile.launch" in instance
     assert "agents.gateway.reminders.list|get|create|set|remove" in gateway
     assert "mailbox.<verb>" in mailbox
@@ -398,7 +458,7 @@ def test_packaged_skill_guidance_avoids_covered_default_bearing_skeletons() -> N
 def test_family_modules_contribute_expected_template_inventory() -> None:
     family_ids = {
         project_easy: "project.agents.launch",
-        project_agents: "internals.native-agent.launch-dossiers.set",
+        project_agents: "internals.native-agent.brain.build",
         credentials: "project.credentials.codex.add",
         agents_lifecycle: "agents.launch-profile.launch",
         agents_gateway: "agents.gateway.reminders.create",

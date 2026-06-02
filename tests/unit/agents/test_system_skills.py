@@ -1072,7 +1072,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "jobs/" in project_layout_reference
     assert "mailbox/" in project_layout_reference
     assert "easy/" in project_layout_reference
-    assert "brains build" in project_effects_reference
+    assert "internals native-agent brain build" not in project_effects_reference
+    assert "build brain homes internally" in project_effects_reference
     assert "agents launch" in project_effects_reference
     assert "server start" not in project_effects_reference
     assert "admin cleanup runtime" in project_effects_reference
@@ -1128,8 +1129,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "Inventory registered credentials across supported tool lanes" in (
         definition_credential_routing
     )
-    assert "project credentials <tool> list" in definition_credential_routing
-    assert "credentials <tool> list --agent-def-dir <path>" in definition_credential_routing
+    assert "project [--project-dir <dir>] credentials <tool> list" in (
+        definition_credential_routing
+    )
+    assert "internals native-agent credentials <tool> list --native-agent-root <path>" in (
+        definition_credential_routing
+    )
     assert "credential_records[].updated_at_utc" in definition_credential_routing
     assert "choose the credential with the latest listed update time" in (
         definition_credential_routing
@@ -1172,7 +1177,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
     assert "project.credentials.<tool>.<verb>" in manage_credentials_skill
-    assert "credentials.<tool>.<verb>" in manage_credentials_skill
+    assert "internals.native-agent.credentials.<tool>.<verb>" in manage_credentials_skill
     assert "project profile ..." in manage_credentials_skill
     assert "internals native-agent launch-dossiers ..." in manage_credentials_skill
     assert (
@@ -1191,7 +1196,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "<chosen houmao-mgr launcher>" in credentials_get_action
     assert "project.credentials.<tool>.get" in credentials_get_action
-    assert "credentials.<tool>.get" in credentials_get_action
+    assert "internals.native-agent.credentials.<tool>.get" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
     assert "stored project-profile or launch-dossier `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action

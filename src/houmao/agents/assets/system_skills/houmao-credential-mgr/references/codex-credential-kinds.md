@@ -1,6 +1,6 @@
 # Codex Credential Kinds
 
-Use this reference when `--tool codex` and the agent needs to present credential-kind options to the user during `project credentials codex add` or `credentials codex add --agent-def-dir <path>`.
+Use this reference when `--tool codex` and the agent needs to present credential-kind options to the user during `project credentials codex add` or `internals native-agent credentials codex add --native-agent-root <path>`.
 
 ## Kinds
 
@@ -30,4 +30,4 @@ Optional modifiers when using this kind:
 
 ## Discovery Note
 
-The `project credentials codex add` and `credentials codex add --agent-def-dir <path>` commands do not run discovery-mode credential creation (auto credentials, env lookup, or directory scan). If you want discovery-mode credential import during creation, use `project specialist create` through `houmao-agent-definition` instead.
+The `project credentials codex add` and `internals native-agent credentials codex add --native-agent-root <path>` commands do not run discovery-mode credential creation (auto credentials, env lookup, or directory scan). If you want discovery-mode credential import during creation, use `project specialist create` through `houmao-agent-definition` instead.

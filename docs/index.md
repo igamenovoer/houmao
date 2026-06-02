@@ -23,9 +23,8 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 ### CLI Surfaces
 
-- [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, brains, projects, credentials, mailbox, and local workflow control.
+- [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, projects, mailbox, system skills, internals, and local workflow control.
 - [houmao-passive-server](reference/cli/houmao-passive-server.md): Maintained registry-driven API server for discovery, observation, request submission, gateway proxying, mail proxying, and managed-headless agents.
-- [houmao-mgr credentials](reference/cli/houmao-mgr.md#credentials-dedicated-credential-management): Dedicated top-level credential-management command family for Claude, Codex, and Gemini, with a matching `project credentials` wrapper.
 - [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
 - [agents gateway](reference/cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
 - [agents external](reference/cli/agents-external.md): Local imports for remotely owned communication-only managed agents.
@@ -33,7 +32,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
 - [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [admin cleanup](reference/cli/admin-cleanup.md): Registry and runtime maintenance commands.
-- [internals graph](reference/cli/internals.md): NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
+- [internals](reference/cli/internals.md): Native-agent internals plus NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
 - [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.
 
 ### Build Phase

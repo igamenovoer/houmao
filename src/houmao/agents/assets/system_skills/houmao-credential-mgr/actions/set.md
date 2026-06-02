@@ -8,7 +8,7 @@ Use this action only when the user wants to update one existing credential.
 2. Recover the tool family, credential name, target, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, target, or supported change is still missing, ask the user before proceeding.
 4. If the requested "credential change" is actually a stored project-profile or launch-dossier `--auth` override change, stop and route it as profile authoring instead of running `set`.
-5. Render the selected command template: `project.credentials.<tool>.set` for the project lane or `credentials.<tool>.set` for the plain agent-definition lane.
+5. Render the selected command template: `project.credentials.<tool>.set` for the project lane or `internals.native-agent.credentials.<tool>.set` for the direct native-agent lane.
 6. Run the rendered `argv` only if there are no blockers.
 7. Report the resulting written env vars, cleared env vars, written files, and cleared files returned by the command.
 
@@ -27,7 +27,7 @@ Use the matching CLI-owned template, then run its rendered `argv`:
 
 ```text
 <chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.set --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id credentials.<tool>.set --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.credentials.<tool>.set --intent '<json>'
 ```
 
 Use `show --id <template-id>` for the authoritative tool-specific update fields, clear flags, and conflicts.

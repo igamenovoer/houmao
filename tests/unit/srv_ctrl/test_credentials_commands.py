@@ -10,7 +10,7 @@ from click.testing import CliRunner
 import pytest
 import yaml
 
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
+from houmao.terminology import NATIVE_AGENT_ROOT_ENV_VAR
 from houmao.srv_ctrl.commands.main import cli
 
 
@@ -71,16 +71,21 @@ def _extract_preserved_temp_home(output: str, *, tool: str) -> Path:
     return Path(output.split(marker, 1)[1].strip()).resolve()
 
 
-def test_top_level_credentials_help_mentions_supported_tools() -> None:
+def test_top_level_credentials_is_hidden_and_native_help_mentions_supported_tools() -> None:
     result = CliRunner().invoke(cli, ["credentials", "--help"])
 
-    assert result.exit_code == 0
-    assert "claude" in result.output
-    assert "codex" in result.output
-    assert "gemini" in result.output
-    assert "credential-management" in result.output or "credential" in result.output.lower()
+    assert result.exit_code != 0
+    assert "No such command" in result.output
 
-    tool_result = CliRunner().invoke(cli, ["credentials", "codex", "--help"])
+    group_result = CliRunner().invoke(cli, ["internals", "native-agent", "credentials", "--help"])
+    assert group_result.exit_code == 0
+    assert "claude" in group_result.output
+    assert "codex" in group_result.output
+    assert "gemini" in group_result.output
+
+    tool_result = CliRunner().invoke(
+        cli, ["internals", "native-agent", "credentials", "codex", "--help"]
+    )
     assert tool_result.exit_code == 0
     assert "login" in tool_result.output
 
@@ -111,10 +116,12 @@ printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
     result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -174,10 +181,12 @@ printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
     result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "browser-login",
@@ -302,10 +311,12 @@ printf '{"refresh_token": "gemini-token"}\\n' > "$GEMINI_CLI_HOME/.gemini/oauth_
     add_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "gemini",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "personal",
@@ -319,10 +330,12 @@ printf '{"refresh_token": "gemini-token"}\\n' > "$GEMINI_CLI_HOME/.gemini/oauth_
     duplicate_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "gemini",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "personal",
@@ -335,10 +348,12 @@ printf '{"refresh_token": "gemini-token"}\\n' > "$GEMINI_CLI_HOME/.gemini/oauth_
     update_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "gemini",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "personal",
@@ -377,10 +392,12 @@ exit 9
     failed_provider = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "provider-fail",
@@ -400,10 +417,12 @@ printf ok > "$RECORD_DIR/missing_artifact_ran"
     missing_artifact = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "missing-artifact",
@@ -424,10 +443,12 @@ printf '{"logged_in": true}\\n' > "$CODEX_HOME/auth.json"
     import_failure = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "login",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "import-fail",
@@ -447,11 +468,11 @@ def test_credentials_fail_clearly_without_resolvable_target(
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
 
-    result = runner.invoke(cli, ["credentials", "gemini", "list"])
+    result = runner.invoke(cli, ["internals", "native-agent", "credentials", "gemini", "list"])
 
     assert result.exit_code != 0
-    assert "--project" in result.output
-    assert "--agent-def-dir" in result.output
+    assert NATIVE_AGENT_ROOT_ENV_VAR in result.output
+    assert "--native-agent-root" in result.output
 
 
 def test_credentials_direct_dir_crud_and_env_target_resolution(
@@ -467,10 +488,12 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
     add_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "add",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -487,7 +510,7 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
 
     list_result = runner.invoke(
         cli,
-        ["credentials", "codex", "list", "--agent-def-dir", str(agent_def_dir)],
+        ["internals", "native-agent", "credentials", "codex", "list", "--native-agent-root", str(agent_def_dir)],
     )
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
@@ -508,15 +531,15 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
 
     env_list_result = runner.invoke(
         cli,
-        ["credentials", "codex", "list"],
-        env={AGENT_DEF_DIR_ENV_VAR: str(agent_def_dir)},
+        ["internals", "native-agent", "credentials", "codex", "list"],
+        env={NATIVE_AGENT_ROOT_ENV_VAR: str(agent_def_dir)},
     )
     assert env_list_result.exit_code == 0, env_list_result.output
     assert "sandbox" in json.loads(env_list_result.output)["credentials"]
 
     get_result = runner.invoke(
         cli,
-        ["credentials", "codex", "get", "--agent-def-dir", str(agent_def_dir), "--name", "sandbox"],
+        ["internals", "native-agent", "credentials", "codex", "get", "--native-agent-root", str(agent_def_dir), "--name", "sandbox"],
     )
     assert get_result.exit_code == 0, get_result.output
     get_payload = json.loads(get_result.output)
@@ -526,10 +549,12 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
     set_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "set",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -548,10 +573,12 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
     remove_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "remove",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -581,10 +608,12 @@ def test_credentials_direct_dir_remove_unlinks_symlinked_bundle_without_touching
     remove_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "remove",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -611,10 +640,12 @@ def test_credentials_direct_dir_set_replaces_symlinked_auth_file_without_touchin
     add_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "add",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -637,10 +668,12 @@ def test_credentials_direct_dir_set_replaces_symlinked_auth_file_without_touchin
     set_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "set",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "sandbox",
@@ -695,10 +728,12 @@ def test_credentials_direct_dir_rename_rewrites_managed_yaml_references(
         runner.invoke(
             cli,
             [
-                "credentials",
-                "codex",
+                "internals",
+            "native-agent",
+            "credentials",
+            "codex",
                 "add",
-                "--agent-def-dir",
+                "--native-agent-root",
                 str(agent_def_dir),
                 "--name",
                 "work",
@@ -714,10 +749,12 @@ def test_credentials_direct_dir_rename_rewrites_managed_yaml_references(
     rename_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "rename",
-            "--agent-def-dir",
+            "--native-agent-root",
             str(agent_def_dir),
             "--name",
             "work",
@@ -745,7 +782,7 @@ def test_credentials_direct_dir_rename_rewrites_managed_yaml_references(
     )
 
 
-def test_credentials_explicit_agent_def_dir_promotes_overlay_managed_projection_to_project_backend(
+def test_native_agent_credentials_do_not_promote_overlay_projection_to_project_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -773,28 +810,32 @@ def test_credentials_explicit_agent_def_dir_promotes_overlay_managed_projection_
         ],
     )
     assert add_result.exit_code == 0, add_result.output
+    project_payload = json.loads(add_result.output)
+    native_bundle_ref = project_payload["bundle_ref"]
 
     list_result = runner.invoke(
         cli,
         [
+            "internals",
+            "native-agent",
             "credentials",
             "codex",
             "list",
-            "--agent-def-dir",
+            "--native-agent-root",
             str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
-    assert list_payload["target_kind"] == "project"
-    assert list_payload["project_root"] == str(repo_root)
-    assert list_payload["credentials"] == ["work"]
+    assert list_payload["target_kind"] == "agent_def_dir"
+    assert "project_root" not in list_payload
+    assert list_payload["credentials"] == [native_bundle_ref]
     assert list_payload["credential_records"] == [
         {
             "tool": "codex",
-            "name": "work",
+            "name": native_bundle_ref,
             "updated_at_utc": list_payload["credential_records"][0]["updated_at_utc"],
-            "updated_at_source": "project_catalog",
+            "updated_at_source": "filesystem_metadata",
         }
     ]
     datetime.fromisoformat(list_payload["credential_records"][0]["updated_at_utc"])

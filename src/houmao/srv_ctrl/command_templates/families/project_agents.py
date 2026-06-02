@@ -133,7 +133,28 @@ def templates() -> list[CommandTemplate]:
         _clear("clear_prompt_overlay", "--clear-prompt-overlay", "prompt_overlay"),
         _clear("clear_memo_seed", "--clear-memo-seed", "memo_seed"),
     )
+    brain_build_fields = (
+        native_root_field,
+        _f("preset", "--preset", "Preset path or bare native-agent preset name."),
+        _choice("tool", "--tool", "Tool lane.", _TOOL_CHOICES),
+        _many("skill", "--skill", "Skill path or name."),
+        _f("setup", "--setup", "Setup bundle name."),
+        _f("auth", "--auth", "Credential bundle name."),
+        _f("runtime_root", "--runtime-root", "Runtime root."),
+        _f("home_id", "--home-id", "Stable brain home id."),
+        _flag("reuse_home", "--reuse-home", "Reuse an existing compatible home."),
+        _path("launch_overrides", "--launch-overrides", "Launch overrides file."),
+        _f("agent_name", "--agent-name", "Manifest agent name."),
+        _f("agent_id", "--agent-id", "Manifest agent id."),
+    )
     return [
+        _template(
+            "internals.native-agent.brain.build",
+            ("internals", "native-agent", "brain", "build"),
+            "Build one brain home from direct native-agent material.",
+            brain_build_fields,
+            family="internals.native-agent.brain",
+        ),
         _template(
             "internals.native-agent.roles.init",
             ("internals", "native-agent", "roles", "init"),

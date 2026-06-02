@@ -16,6 +16,7 @@ from ..builders import (
 )
 from ..models import (
     CommandTemplate,
+    TemplateField,
     _PROMPT_MODE_CHOICES,
     _RELAUNCH_CHAT_SESSION_MODES,
 )
@@ -24,6 +25,7 @@ from ..models import (
 def templates() -> list[CommandTemplate]:
     """Return first-class project command templates."""
 
+    project_dir_field = _project_dir_field()
     prompt_mode = _choice(
         "prompt_mode",
         "--prompt-mode",
@@ -183,6 +185,7 @@ def templates() -> list[CommandTemplate]:
         _clear("clear_memo_seed", "--clear-memo-seed", "memo_seed"),
     )
     specialist_create_fields = (
+        project_dir_field,
         _req("name", "--name", "Specialist name."),
         _req("tool", "--tool", "Tool lane."),
         _f("system_prompt", "--system-prompt", "Inline system prompt."),
@@ -222,6 +225,7 @@ def templates() -> list[CommandTemplate]:
         _flag("yes", "--yes", "Confirm replacement."),
     )
     specialist_set_fields = (
+        project_dir_field,
         _req("name", "--name", "Specialist name."),
         _f("system_prompt", "--system-prompt", "Replacement system prompt."),
         _path("system_prompt_file", "--system-prompt-file", "Replacement system prompt file."),
@@ -305,6 +309,7 @@ def templates() -> list[CommandTemplate]:
             ("project", "profile", "create"),
             "Create one specialist-backed project profile.",
             (
+                project_dir_field,
                 _req("name", "--name", "Project profile name."),
                 _req("specialist", "--specialist", "Source specialist."),
                 *common_profile_fields,
@@ -318,6 +323,7 @@ def templates() -> list[CommandTemplate]:
             ("project", "profile", "set"),
             "Patch one specialist-backed project profile.",
             (
+                project_dir_field,
                 _req("name", "--name", "Project profile name."),
                 *common_profile_fields,
                 *profile_clear_fields,
@@ -330,6 +336,7 @@ def templates() -> list[CommandTemplate]:
             ("project", "agents", "launch"),
             "Launch one project managed agent from a specialist or profile.",
             (
+                project_dir_field,
                 _f("specialist", "--specialist", "Source specialist."),
                 _f("profile", "--profile", "Source project profile."),
                 _f("name", "--name", "Managed-agent instance name."),
@@ -393,3 +400,15 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
     ]
+
+
+def _project_dir_field() -> TemplateField:
+    """Return the optional project group selector field."""
+
+    return _f(
+        "project_dir",
+        "--project-dir",
+        "Human-facing project directory.",
+        value_type="path",
+        argv_insert_index=2,
+    )

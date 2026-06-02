@@ -3,13 +3,24 @@
 ## Purpose
 Define the documentation requirements for Houmao CLI reference content.
 ## Requirements
+### Requirement: CLI reference documents consolidated project targeting
+The CLI reference SHALL document `houmao-mgr project --project-dir <dir> ...` as the maintained explicit project selection surface.
+
+The reference SHALL explain that `--project-dir` selects the human-facing project directory and resolves the overlay at `<dir>/.houmao`.
+
+The reference SHALL update examples for project credentials, specialists, profiles, managed-agent launch, skills, mailbox, and status so they use either omitted auto-discovery or the group-level `--project-dir` option.
+
+#### Scenario: Reader finds explicit project selection
+- **WHEN** a reader opens the `houmao-mgr project` CLI reference
+- **THEN** the page documents `--project-dir <dir>` as a group-level option
+- **AND THEN** the examples show `houmao-mgr project --project-dir /repo credentials codex list`
+
 ### Requirement: houmao-mgr reference documents all command groups
+The CLI reference SHALL include a page for `houmao-mgr` documenting its active public command groups (`admin`, `agents`, `internals`, `mailbox`, `project`, and `system-skills`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
 
-The CLI reference SHALL include a page for `houmao-mgr` documenting its active command groups (`admin`, `agents`, `brains`, `credentials`, `internals`, `mailbox`, and `project`) with subcommand summaries derived from `srv_ctrl/commands/` module docstrings, Click decorators, and live help output.
+The CLI reference SHALL NOT document top-level `houmao-mgr credentials`, top-level `houmao-mgr brains`, or top-level `houmao-mgr server` command groups as maintained public manager surfaces.
 
-The CLI reference SHALL NOT document a top-level `houmao-mgr server` command group as part of the maintained manager surface.
-
-The CLI reference SHALL make the major nested managed-agent and project command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
+The CLI reference SHALL make the major nested managed-agent, project, and internal command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
 - `agents launch`, `join`, `list`, `state`, `prompt`, `stop`, `interrupt`, and `relaunch`,
 - `agents turn`,
@@ -17,12 +28,15 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `agents mail`,
 - `agents mailbox`,
 - `agents cleanup`,
+- `project --project-dir`,
 - `project agents`,
 - `project credentials`,
 - `project`,
 - `project mailbox`,
 - `admin cleanup`,
-- `internals graph` (via a dedicated linked page `docs/reference/cli/internals.md`).
+- `internals graph` (via a dedicated linked page `docs/reference/cli/internals.md`),
+- `internals native-agent credentials`,
+- `internals native-agent brain build`.
 
 When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, and it SHALL explain:
 
@@ -33,20 +47,20 @@ When the CLI reference documents `agents mail`, that coverage SHALL include the 
 
 When the CLI reference documents `agents gateway`, that coverage SHALL include the `tui` subgroup (`state`, `history`, `watch`, `note-prompt`) and the `mail-notifier` subgroup (`status`, `enable`, `disable`) with full option tables and descriptions.
 
-The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
+The internal native-agent brain-build options table in the CLI reference SHALL reflect the current live CLI flag names retained by the internal build surface, including `--preset`, `--setup`, and `--auth` when those inputs remain supported. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
-When the `houmao-mgr` reference describes Claude credential lanes for `project specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed dedicated credential-management flag names used by `project credentials claude` and `credentials claude --agent-def-dir <path>` (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
+When the `houmao-mgr` reference describes Claude credential lanes for `project specialist create --tool claude`, it SHALL distinguish the prefixed specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed dedicated credential-management flag names used by `project credentials claude` and `internals native-agent credentials claude` (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
 
-#### Scenario: Reader finds current agent lifecycle and project command groups
+#### Scenario: Reader finds current public command groups
 - **WHEN** a reader looks up `houmao-mgr`
-- **THEN** they find documented subcommands for `agents`, `brains`, `credentials`, `internals`, `mailbox`, `project`, and `admin`
-- **AND THEN** they do not find `server` documented as a maintained top-level manager command group
-- **AND THEN** the CLI reference does not present removed or outdated project group names such as `agent-tools` as the supported public project surface
+- **THEN** they find documented public subcommands for `agents`, `internals`, `mailbox`, `project`, `system-skills`, and `admin`
+- **AND THEN** they do not find top-level `credentials`, top-level `brains`, or `server` documented as maintained public manager command groups
+- **AND THEN** the CLI reference does not present removed or outdated project group names as the supported public project surface
 
-#### Scenario: Reader can discover the internals graph command family
+#### Scenario: Reader can discover internal brain and credential command families
 - **WHEN** a reader looks up `houmao-mgr` command groups in the CLI reference
 - **THEN** they find an `internals` section that points to `docs/reference/cli/internals.md`
-- **AND THEN** they do not need to discover the internals group by running `houmao-mgr --help` or reading source code
+- **AND THEN** that internals reference documents direct native-agent credentials and brain build commands
 
 #### Scenario: Reader can discover nested managed-agent and project command families
 - **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project`, `project mailbox`, or `admin cleanup`
@@ -64,18 +78,18 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project s
 - **THEN** the CLI reference explains when the command returns verified authoritative results versus non-authoritative submission-only fallback
 - **AND THEN** the page points the reader to the supported verification paths for non-authoritative outcomes
 
-#### Scenario: Reader finds brain management commands
-- **WHEN** a reader looks up `houmao-mgr brains`
-- **THEN** they find documented subcommands for load, list, and build operations
+#### Scenario: Reader finds internal brain management commands
+- **WHEN** a reader looks up direct brain-build plumbing
+- **THEN** they find `houmao-mgr internals native-agent brain build`
 
-#### Scenario: Reader finds correct brains build flag names
-- **WHEN** a reader looks up `houmao-mgr brains build` options in the CLI reference
-- **THEN** the options table lists `--preset`, `--setup`, and `--auth`
+#### Scenario: Reader finds correct brain build flag names
+- **WHEN** a reader looks up internal native-agent brain-build options in the CLI reference
+- **THEN** the options table lists `--preset`, `--setup`, and `--auth` when those inputs remain part of the internal build contract
 - **AND THEN** the table does NOT list `--recipe`, `--config-profile`, or `--cred-profile`
 
 #### Scenario: Example commands in paired reference docs use current flag names
-- **WHEN** a reader copies a `houmao-mgr brains build` example command from any docs page
-- **THEN** the command uses `--setup` and `--auth` instead of `--config-profile` and `--cred-profile`
+- **WHEN** a reader copies a direct brain-build example command from any docs page
+- **THEN** the command uses the internal native-agent path and current flag names
 - **AND THEN** the command does not fail with an unrecognized option error
 
 #### Scenario: Reader finds gateway tui and mail-notifier subgroups documented
@@ -85,65 +99,9 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project s
 
 #### Scenario: Reader sees correct Claude auth flag-name distinction
 - **WHEN** a reader looks up Claude credential lanes in the `houmao-mgr` reference
-- **THEN** the page shows that `project credentials claude` and `credentials claude --agent-def-dir <path>` use `--auth-token`, `--oauth-token`, `--config-dir`
+- **THEN** the page shows that `project credentials claude` and `internals native-agent credentials claude` use `--auth-token`, `--oauth-token`, `--config-dir`
 - **AND THEN** the page shows that `project specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
 - **AND THEN** the page states that both surfaces accept the same credential semantics
-
-### Requirement: CLI reference documents the dedicated credential-management families
-The CLI reference SHALL document the dedicated credential-management families for `houmao-mgr`.
-
-At minimum, that coverage SHALL include:
-
-- the top-level `credentials` command family,
-- the project-scoped `project credentials` wrapper,
-- the supported tool lanes `claude`, `codex`, and `gemini`,
-- the supported verbs `list`, `get`, `add`, `set`, `rename`, and `remove`,
-- the target-selection model for project-backed versus `--agent-def-dir` usage,
-- the removal of credential CRUD from `internals native-agent tools <tool>`.
-
-The `houmao-mgr` reference SHALL position `credentials` as the first-class credential-management surface and SHALL position `project credentials` as the explicit project-scoped wrapper.
-
-#### Scenario: Reader can find the dedicated top-level credential family
-- **WHEN** a reader looks up `houmao-mgr`
-- **THEN** the CLI reference documents `credentials` as a supported top-level command family
-- **AND THEN** the page explains when to use `credentials ...` versus `project credentials ...`
-
-#### Scenario: Reader sees that credential CRUD moved out of internals native-agent tools
-- **WHEN** a reader checks the CLI reference for project-local tool management
-- **THEN** the reference explains that `internals native-agent tools <tool>` remains for tool inspection and setup bundles
-- **AND THEN** the reference directs credential CRUD to `credentials ...` or `project credentials ...`
-
-### Requirement: CLI reference documents the credential login helper
-The CLI reference SHALL document the credential `login` helper for the dedicated credential-management families.
-
-At minimum, that coverage SHALL include:
-
-- the top-level form `houmao-mgr credentials [--project|--agent-def-dir <path>] <tool> login --name <credential-name>`,
-- the project-scoped wrapper form `houmao-mgr project credentials <tool> login --name <credential-name>`,
-- the supported tool lanes `claude`, `codex`, and `gemini`,
-- the default create-only behavior and the explicit update option for replacing an existing credential,
-- provider home isolation through `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `GEMINI_CLI_HOME`,
-- provider artifact imports from Codex `auth.json`, Claude `.credentials.json` plus supported companion state, and Gemini `.gemini/oauth_creds.json`,
-- successful cleanup of the temporary provider home by default,
-- preservation of the temporary provider home on failure or when an explicit keep-temp option is used,
-- provider-specific login expectations, including Codex device-auth default, Claude `auth login`, and Gemini's interactive OAuth flow.
-
-The CLI reference SHALL explain that the helper invokes installed provider CLIs and that the operator may need to complete browser, device-code, console, or paste-back authentication steps before Houmao imports the resulting file.
-
-#### Scenario: Reader can find the top-level credential login form
-- **WHEN** a reader looks up `houmao-mgr credentials`
-- **THEN** the CLI reference lists `login` as a supported credential action for `claude`, `codex`, and `gemini`
-- **AND THEN** it explains how to select a project target or a direct agent-definition-dir target
-
-#### Scenario: Reader understands successful cleanup and failure preservation
-- **WHEN** a reader looks up the credential login workflow
-- **THEN** the CLI reference states that the temporary provider home is deleted after a successful import by default
-- **AND THEN** it states that the temporary provider home is preserved and reported when provider login, artifact validation, or Houmao import fails
-
-#### Scenario: Reader sees provider-specific login behavior
-- **WHEN** a reader compares Codex, Claude, and Gemini credential login behavior
-- **THEN** the CLI reference identifies the provider home env var and expected auth artifact for each tool
-- **AND THEN** it explains that Gemini may require an interactive OAuth session rather than a fully headless login command
 
 ### Requirement: CLI reference lists only retained server binaries
 The CLI reference SHALL present `houmao-passive-server` as the retained server binary.
@@ -298,9 +256,9 @@ The page SHALL NOT instruct users to choose standalone `houmao-server` as a main
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
 
 ### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
-The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both the dedicated credential-management surface and the easy-specialist surface:
+The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both maintained credential-management surfaces and the easy-specialist surface:
 
-- `project credentials claude ...` or `credentials claude ... --agent-def-dir <path>`
+- `project credentials claude ...` or `internals native-agent credentials claude ... --native-agent-root <path>`
 - `project specialist create --tool claude`
 
 When the reference documents Claude-specific flags, it SHALL make clear that `claude_state.template.json` or `--claude-state-template-file` is optional runtime bootstrap state and not itself a credential-providing method.
@@ -902,44 +860,6 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the n
 - **THEN** the introduction or top section of the page contains a link to `docs/getting-started/system-skills-overview.md`
 - **AND THEN** the link is presented as a "see also" or "narrative overview" pointer rather than buried in the bottom of the page
 
-### Requirement: houmao-mgr reference dedicates a section to the credentials command group
-
-`docs/reference/cli/houmao-mgr.md` SHALL include a dedicated `credentials` command-group section inside its "Command Groups" heading, parallel to the existing `admin`, `agents`, `brains`, `mailbox`, `project`, `server`, and `system-skills` sections.
-
-That section SHALL:
-
-- present `houmao-mgr credentials` as the first-class top-level credential-management surface,
-- document the `claude`, `codex`, and `gemini` tool subcommands and the supported CRUD verbs (`list`, `get`, `add`, `set`, `remove`, `rename`) derived from live Click help output,
-- explain how `credentials ...` relates to `project credentials ...` — the top-level family is agent-definition-directory-capable through `--agent-def-dir <path>` and the project-scoped wrapper targets the active project overlay,
-- describe when to reach for which surface (plain agent-definition directories vs active project overlays),
-- cross-link the packaged `houmao-credential-mgr` system-skill guidance and the existing credential-lane notes in the `project` and `internals native-agent tools <tool> auth` sections.
-
-#### Scenario: Reader finds the credentials command group in the reference
-- **WHEN** a reader opens `docs/reference/cli/houmao-mgr.md`
-- **THEN** the "Command Groups" outline contains an explicit `### credentials — <section title>` heading alongside the other top-level command groups
-- **AND THEN** the section is discoverable from the page table of contents without reading unrelated command-group prose first
-
-#### Scenario: Reader understands when to use credentials vs project credentials
-- **WHEN** a reader opens the `credentials` section
-- **THEN** the page explains that `houmao-mgr credentials <tool> ...` is the dedicated credential-management surface and that `--agent-def-dir <path>` targets plain agent-definition directories outside of any project overlay
-- **AND THEN** the page explains that `houmao-mgr project credentials <tool> ...` is the project-scoped wrapper that targets the active Houmao project overlay
-- **AND THEN** the page states that the two surfaces share semantics and that the project-scoped wrapper is the preferred entry point when an active overlay is present
-
-#### Scenario: Reader finds supported credentials subcommands per tool
-- **WHEN** a reader opens the `credentials` section
-- **THEN** the page documents `claude`, `codex`, and `gemini` as the three supported tool subcommands
-- **AND THEN** it lists `list`, `get`, `add`, `set`, `remove`, and `rename` as the supported CRUD verbs
-- **AND THEN** the supported credential input flags on each tool subcommand (for example `--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`, `--oauth-creds`) match the current Click decorators at `src/houmao/srv_ctrl/commands/credentials.py`
-
-### Requirement: docs/index.md surfaces the credentials command family
-
-`docs/index.md` SHALL list the `houmao-mgr credentials` command family (or its `houmao-mgr.md` in-page anchor) alongside the other CLI Surfaces entries, so the credentials surface is discoverable from the documentation site landing page.
-
-#### Scenario: Reader finds credentials from the docs landing page
-- **WHEN** a reader opens `docs/index.md`
-- **THEN** the "CLI Surfaces" section either links directly to the `credentials` heading inside `docs/reference/cli/houmao-mgr.md` or lists the `credentials` command family as a top-level entry point
-- **AND THEN** a reader arriving via `docs/index.md` never has to guess that `houmao-mgr credentials` exists
-
 ### Requirement: CLI reference documents headless execution overrides on all supported prompt surfaces
 
 `docs/reference/cli/houmao-mgr.md` (and its child reference pages for `agents turn` and `agents gateway`) SHALL document the request-scoped headless execution overrides on every supported prompt submission CLI surface.
@@ -1410,4 +1330,3 @@ The CLI reference SHALL include security guidance stating that remote passive-se
 - **WHEN** a reader copies an example using `--api-base-url`
 - **THEN** the surrounding documentation warns against exposing an unauthenticated passive-server on a public network
 - **AND THEN** it recommends trusted-channel deployment options for remote access
-

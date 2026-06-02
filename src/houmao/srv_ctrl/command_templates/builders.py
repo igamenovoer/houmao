@@ -18,6 +18,7 @@ def _f(
     choices: tuple[str, ...] = (),
     negative_option: str | None = None,
     clears_field: str | None = None,
+    argv_insert_index: int | None = None,
     omit_semantics: str | None = None,
 ) -> TemplateField:
     """Build one option-backed template field."""
@@ -32,6 +33,7 @@ def _f(
         choices=choices,
         negative_option=negative_option,
         clears_field=clears_field,
+        argv_insert_index=argv_insert_index,
         omit_semantics=omit_semantics
         or "Omit this field to leave the target command default in control.",
     )

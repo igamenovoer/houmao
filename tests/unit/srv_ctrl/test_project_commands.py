@@ -751,6 +751,126 @@ def test_project_init_uses_overlay_env_override(
     assert (overlay_root / "content" / "prompts").is_dir()
 
 
+def test_project_dir_selector_threads_through_project_subgroups(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    selected_project = (tmp_path / "selected-project").resolve()
+    selected_project.mkdir(parents=True, exist_ok=True)
+    ambient_cwd = (tmp_path / "ambient").resolve()
+    ambient_cwd.mkdir(parents=True, exist_ok=True)
+    auth_json_path = (tmp_path / "auth.json").resolve()
+    auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
+    notes_skill_dir = _make_skill_dir(tmp_path, "notes")
+    monkeypatch.chdir(ambient_cwd)
+
+    init_result = runner.invoke(
+        cli,
+        ["project", "--project-dir", str(selected_project), "init"],
+    )
+    assert init_result.exit_code == 0, init_result.output
+    assert (selected_project / ".houmao" / "houmao-config.toml").is_file()
+    assert not (ambient_cwd / ".houmao").exists()
+
+    status_result = runner.invoke(
+        cli,
+        ["project", "--project-dir", str(selected_project), "status"],
+    )
+    assert status_result.exit_code == 0, status_result.output
+    status_payload = json.loads(status_result.output)
+    assert status_payload["project_root"] == str(selected_project)
+    assert status_payload["overlay_root"] == str((selected_project / ".houmao").resolve())
+    assert status_payload["overlay_root_source"] == "project_dir"
+
+    credentials_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "--project-dir",
+            str(selected_project),
+            "credentials",
+            "codex",
+            "add",
+            "--name",
+            "work",
+            "--api-key",
+            "sk-openai",
+            "--auth-json",
+            str(auth_json_path),
+        ],
+    )
+    assert credentials_result.exit_code == 0, credentials_result.output
+    assert json.loads(credentials_result.output)["project_root"] == str(selected_project)
+
+    skills_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "--project-dir",
+            str(selected_project),
+            "skills",
+            "add",
+            "--name",
+            "notes",
+            "--source",
+            str(notes_skill_dir),
+        ],
+    )
+    assert skills_result.exit_code == 0, skills_result.output
+    assert json.loads(skills_result.output)["canonical_path"].startswith(
+        str((selected_project / ".houmao").resolve())
+    )
+
+    specialist_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "--project-dir",
+            str(selected_project),
+            "specialist",
+            "create",
+            "--name",
+            "researcher",
+            "--tool",
+            "codex",
+            "--credential",
+            "work",
+            "--system-prompt",
+            "You are a focused researcher.",
+        ],
+    )
+    assert specialist_result.exit_code == 0, specialist_result.output
+
+    profile_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "--project-dir",
+            str(selected_project),
+            "profile",
+            "create",
+            "--name",
+            "nightly",
+            "--specialist",
+            "researcher",
+        ],
+    )
+    assert profile_result.exit_code == 0, profile_result.output
+
+    agents_result = runner.invoke(
+        cli,
+        ["project", "--project-dir", str(selected_project), "agents", "list"],
+    )
+    assert agents_result.exit_code == 0, agents_result.output
+
+    mailbox_result = runner.invoke(
+        cli,
+        ["project", "--project-dir", str(selected_project), "mailbox", "status"],
+    )
+    assert mailbox_result.exit_code == 0, mailbox_result.output
+
+
 def test_project_init_rejects_relative_overlay_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

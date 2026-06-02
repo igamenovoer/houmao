@@ -39,7 +39,7 @@ Scripts and CI pipelines that parse `houmao-mgr` output as JSON must add `--prin
 
 Runtime launch is exposed through `houmao-mgr` command families. Historical `houmao-cli start-session`, `cao_rest`, and `houmao_server_rest` workflows are retired and are not packaged as supported commands.
 
-Useful `build-brain` or `houmao-mgr brains build` override:
+Useful direct native-agent brain-build override:
 
 - `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain
 - `--operator-prompt-mode as_is` to keep the provider startup posture unchanged; omitted mode now defaults to `unattended`
@@ -51,10 +51,9 @@ For pair-managed agents, the supported operator surface is the managed-agent com
 Within that pair, `houmao-mgr` is split deliberately:
 
 - `agents` is the managed-agent lifecycle family
-- `brains` is the local brain-construction family
-- `credentials` is the first-class credential-management family for the active project overlay or an explicit plain agent-definition directory
 - `system-skills` installs, removes, and inspects Houmao-owned skills for resolved Claude, Codex, Copilot, or Gemini homes outside managed launch or join
-- `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `easy`, and `mailbox` views
+- `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `specialist`, `profile`, and `mailbox` views
+- `internals native-agent` is the direct provider-aligned native-agent material family, including internal credential and brain-build plumbing
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
 - `admin` is the local maintenance family
 
@@ -65,7 +64,7 @@ The repo-local `project` tree is intentionally split by user view:
     - `internals native-agent recipes ...` (canonical) and `project agents presets ...` (compatibility alias) for named recipe administration under `.houmao/agents/presets/<name>.yaml`,
     - `internals native-agent launch-dossiers ...` for explicit recipe-backed reusable birth-time launch profiles under `.houmao/agents/launch-profiles/<name>.yaml`,
     - `internals native-agent tools <tool> ...` for adapter and setup administration under `.houmao/agents/tools/<tool>/`,
-- `credentials ...` is the supported credential-management family. Use `project credentials <tool> ...` for the active overlay or `credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory.
+- `project [--project-dir <dir>] credentials ...` is the supported project credential-management family. Use `internals native-agent credentials <tool> ... --native-agent-root <path>` for direct native-agent material.
 - `project ...` is the higher-level specialist, project-profile, and instance surface. It includes `project specialist ...`, `project profile ...` (specialist-backed reusable birth-time profiles), and `project agents ...` (the runtime lifecycle surface that accepts `--specialist` or `--profile` on `instance launch`).
 - `project mailbox ...` is the project-scoped wrapper over the generic mailbox-root commands.
 
@@ -127,7 +126,7 @@ By default, `houmao-mgr agents gateway attach` uses same-session foreground exec
 
 For ordinary pair-native prompt submission, prefer `houmao-mgr agents prompt --agent-name <friendly-name> --prompt "..."`. That command stays on the preferred managed-agent seam and lets the server choose direct fallback or live gateway control safely. On headless targets, `agents prompt`, `agents gateway prompt`, and `agents turn submit` also accept request-scoped `--model` plus optional `--reasoning-level`; those overrides apply only to the current turn, use the resolved tool/model preset ladder rather than a portable `1..10` scale, and TUI-backed targets reject them explicitly. Use `houmao-mgr agents gateway prompt --agent-name <friendly-name> --prompt "..."` only when you explicitly want to require live-gateway admission and queue semantics. Use `houmao-mgr agents gateway send-keys ...` only when you need exact raw control-input delivery without creating prompt history, use `houmao-mgr agents gateway tui state|watch ...` when you need the exact raw gateway-owned parser and tracker surface, use `houmao-mgr agents gateway tui history ...` when you need bounded in-memory snapshot history rather than coarse managed-agent `/history`, and use `houmao-mgr agents gateway tui note-prompt ...` when you need explicit prompt provenance without queue submission. `houmao-mgr agents gateway mail-notifier ...` remains the notifier lifecycle surface, including runtime appendix updates through `mail-notifier enable --appendix-text`, opt-in degraded-context clearing through `--context-error-policy clear_context`, and opt-in pre-notification compaction through `--pre-notification-context-action compact`. When a friendly name is ambiguous, retry with `--agent-id <authoritative-id>`.
 
-For pair-owned mailbox follow-up, use `houmao-mgr agents mail resolve-live|status|list|peek|read|send|post|reply|mark|move|archive ...`. For local artifact or maintenance work that should not hit a server API authority, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project ...`, `houmao-mgr project mailbox ...`, `houmao-mgr brains build ...`, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
+For pair-owned mailbox follow-up, use `houmao-mgr agents mail resolve-live|status|list|peek|read|send|post|reply|mark|move|archive ...`. For local artifact or maintenance work that should not hit a server API authority, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project ...`, `houmao-mgr project mailbox ...`, `houmao-mgr internals native-agent brain build ...` for direct internal native-agent builds, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
 For installation or removal of the packaged Houmao-owned skill surface outside managed launch or join, use `houmao-mgr system-skills list|status|install|uninstall ...`. `--home` is optional for single-tool install, uninstall, and status commands: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home. `install` can select sets or explicit skills, while `uninstall` removes all current catalog-known Houmao skill paths for the resolved home. That surface is documented in [system-skills](cli/system-skills.md).
 

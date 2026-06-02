@@ -27,6 +27,7 @@ from houmao.owned_mutation import (
     replace_file,
     replace_path_with_text,
 )
+from houmao.terminology import NATIVE_AGENT_ROOT_ENV_VAR, resolve_native_agent_root
 from houmao.project.catalog import AuthProfileCatalogEntry, ProjectCatalog
 from houmao.project.overlay import (
     HoumaoProjectOverlay,
@@ -37,6 +38,7 @@ from houmao.project.overlay import (
 )
 
 from .output import emit
+from .project_context import active_project_dir
 
 CredentialTargetKind = Literal["project", "agent_def_dir"]
 CredentialWriteOperation = Literal["add", "set"]
@@ -135,6 +137,11 @@ def credentials_group() -> None:
 @click.group(name="credentials")
 def project_credentials_group() -> None:
     """Manage project-scoped credentials in the active project overlay."""
+
+
+@click.group(name="credentials")
+def native_agent_credentials_group() -> None:
+    """Manage direct native-agent credentials under the selected native-agent root."""
 
 
 def ensure_specialist_credential_bundle(
@@ -243,12 +250,30 @@ def ensure_specialist_credential_bundle(
 
 def _target_options(
     project_only: bool,
+    *,
+    native_only: bool = False,
 ) -> Callable[[Callable[..., None]], Callable[..., None]]:
     """Return the shared target-selector decorator for one command family."""
 
     if project_only:
         return lambda function: function
+    if native_only:
+        return _native_credential_target_options
     return _credential_target_options
+
+
+def _native_credential_target_options(function: Callable[..., None]) -> Callable[..., None]:
+    """Attach the internal native-agent root selector to one credential command."""
+
+    return click.option(
+        "--native-agent-root",
+        type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
+        default=None,
+        help=(
+            "Native-agent root to inspect or mutate. "
+            f"Defaults to `{NATIVE_AGENT_ROOT_ENV_VAR}`."
+        ),
+    )(function)
 
 
 def _credential_target_options(function: Callable[..., None]) -> Callable[..., None]:
@@ -272,8 +297,10 @@ def _credential_target_options(function: Callable[..., None]) -> Callable[..., N
 def _resolve_command_target(
     *,
     project_only: bool,
+    native_only: bool = False,
     use_project: bool,
     agent_def_dir: Path | None,
+    native_agent_root: Path | None = None,
     allow_project_bootstrap: bool,
 ) -> CredentialTarget:
     """Resolve the storage target for one credential command."""
@@ -281,6 +308,15 @@ def _resolve_command_target(
     cwd = Path.cwd().resolve()
     if project_only:
         return _resolve_project_target(cwd=cwd, allow_bootstrap=allow_project_bootstrap)
+    if native_only:
+        try:
+            resolution = resolve_native_agent_root(
+                cli_value=native_agent_root,
+                base=cwd,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        return CredentialTarget.agent_def_dir_target(resolution.root)
 
     if use_project and agent_def_dir is not None:
         raise click.ClickException("Provide at most one of `--project` or `--agent-def-dir`.")
@@ -307,9 +343,9 @@ def _resolve_project_target(*, cwd: Path, allow_bootstrap: bool) -> CredentialTa
 
     try:
         if allow_bootstrap:
-            roots = ensure_project_aware_local_roots(cwd=cwd)
+            roots = ensure_project_aware_local_roots(cwd=cwd, project_dir=active_project_dir())
         else:
-            roots = resolve_project_aware_local_roots(cwd=cwd)
+            roots = resolve_project_aware_local_roots(cwd=cwd, project_dir=active_project_dir())
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
@@ -361,142 +397,227 @@ def _missing_credential_target_message() -> str:
     )
 
 
-def _build_tool_group(*, tool: str, project_only: bool) -> click.Group:
+def _credential_command_doc(
+    *,
+    plain: str,
+    project: str,
+    native: str,
+    project_only: bool,
+    native_only: bool,
+) -> str:
+    """Return the command docstring for one routed credential command."""
+
+    if project_only:
+        return project
+    if native_only:
+        return native
+    return plain
+
+
+def _build_tool_group(*, tool: str, project_only: bool, native_only: bool = False) -> click.Group:
     """Build one tool-specific credential group."""
 
     display_name = _TOOL_DISPLAY_NAMES[tool]
-    help_text = (
-        f"Manage project-scoped {display_name} credentials in the active overlay."
-        if project_only
-        else (
+    if project_only:
+        help_text = f"Manage project-scoped {display_name} credentials in the active overlay."
+    elif native_only:
+        help_text = f"Manage direct native-agent {display_name} credentials."
+    else:
+        help_text = (
             f"Manage {display_name} credentials through either the active project overlay or "
             "a selected plain agent-definition directory."
         )
-    )
 
     @click.group(name=tool, help=help_text)
     def tool_group() -> None:
         """Tool-specific credential command group."""
 
-    tool_group.add_command(_build_list_command(tool=tool, project_only=project_only))
-    tool_group.add_command(_build_get_command(tool=tool, project_only=project_only))
-    tool_group.add_command(_build_remove_command(tool=tool, project_only=project_only))
-    tool_group.add_command(_build_rename_command(tool=tool, project_only=project_only))
+    tool_group.add_command(
+        _build_list_command(tool=tool, project_only=project_only, native_only=native_only)
+    )
+    tool_group.add_command(
+        _build_get_command(tool=tool, project_only=project_only, native_only=native_only)
+    )
+    tool_group.add_command(
+        _build_remove_command(tool=tool, project_only=project_only, native_only=native_only)
+    )
+    tool_group.add_command(
+        _build_rename_command(tool=tool, project_only=project_only, native_only=native_only)
+    )
     if tool == "claude":
-        tool_group.add_command(_build_claude_add_command(project_only=project_only))
-        tool_group.add_command(_build_claude_set_command(project_only=project_only))
-        tool_group.add_command(_build_claude_login_command(project_only=project_only))
+        tool_group.add_command(
+            _build_claude_add_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_claude_set_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_claude_login_command(project_only=project_only, native_only=native_only)
+        )
     elif tool == "codex":
-        tool_group.add_command(_build_codex_add_command(project_only=project_only))
-        tool_group.add_command(_build_codex_set_command(project_only=project_only))
-        tool_group.add_command(_build_codex_login_command(project_only=project_only))
+        tool_group.add_command(
+            _build_codex_add_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_codex_set_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_codex_login_command(project_only=project_only, native_only=native_only)
+        )
     elif tool == "gemini":
-        tool_group.add_command(_build_gemini_add_command(project_only=project_only))
-        tool_group.add_command(_build_gemini_set_command(project_only=project_only))
-        tool_group.add_command(_build_gemini_login_command(project_only=project_only))
+        tool_group.add_command(
+            _build_gemini_add_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_gemini_set_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_gemini_login_command(project_only=project_only, native_only=native_only)
+        )
     else:
         raise click.ClickException(f"Unsupported credential tool `{tool}`.")
     return tool_group
 
 
-def _build_list_command(*, tool: str, project_only: bool) -> click.Command:
+def _build_list_command(
+    *,
+    tool: str,
+    project_only: bool,
+    native_only: bool = False,
+) -> click.Command:
     """Build one `list` command for a supported tool."""
 
     display_name = _TOOL_DISPLAY_NAMES[tool]
 
     @click.command(name="list")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     def list_command(
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """List credential names for one supported tool."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=False,
         )
         emit(_list_credentials_payload(target=target, tool=tool))
 
     list_command.__doc__ = (
-        f"List {display_name} credential names."
-        if not project_only
-        else f"List project-scoped {display_name} credential names."
+        _credential_command_doc(
+            plain=f"List {display_name} credential names.",
+            project=f"List project-scoped {display_name} credential names.",
+            native=f"List direct native-agent {display_name} credential names.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return list_command
 
 
-def _build_get_command(*, tool: str, project_only: bool) -> click.Command:
+def _build_get_command(
+    *,
+    tool: str,
+    project_only: bool,
+    native_only: bool = False,
+) -> click.Command:
     """Build one `get` command for a supported tool."""
 
     display_name = _TOOL_DISPLAY_NAMES[tool]
 
     @click.command(name="get")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     def get_command(
         name: str,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Inspect one credential safely as structured data."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=False,
         )
         emit(_describe_credential_bundle(target=target, tool=tool, name=name))
 
     get_command.__doc__ = (
-        f"Inspect one {display_name} credential safely."
-        if not project_only
-        else f"Inspect one project-scoped {display_name} credential safely."
+        _credential_command_doc(
+            plain=f"Inspect one {display_name} credential safely.",
+            project=f"Inspect one project-scoped {display_name} credential safely.",
+            native=f"Inspect one direct native-agent {display_name} credential safely.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return get_command
 
 
-def _build_remove_command(*, tool: str, project_only: bool) -> click.Command:
+def _build_remove_command(
+    *,
+    tool: str,
+    project_only: bool,
+    native_only: bool = False,
+) -> click.Command:
     """Build one `remove` command for a supported tool."""
 
     display_name = _TOOL_DISPLAY_NAMES[tool]
 
     @click.command(name="remove")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name to remove.")
     def remove_command(
         name: str,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Remove one credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=False,
         )
         emit(_remove_credential_bundle(target=target, tool=tool, name=name))
 
     remove_command.__doc__ = (
-        f"Remove one {display_name} credential."
-        if not project_only
-        else f"Remove one project-scoped {display_name} credential."
+        _credential_command_doc(
+            plain=f"Remove one {display_name} credential.",
+            project=f"Remove one project-scoped {display_name} credential.",
+            native=f"Remove one direct native-agent {display_name} credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return remove_command
 
 
-def _build_rename_command(*, tool: str, project_only: bool) -> click.Command:
+def _build_rename_command(
+    *,
+    tool: str,
+    project_only: bool,
+    native_only: bool = False,
+) -> click.Command:
     """Build one `rename` command for a supported tool."""
 
     display_name = _TOOL_DISPLAY_NAMES[tool]
 
     @click.command(name="rename")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Existing credential name.")
     @click.option("--to", "new_name", required=True, help="New credential name.")
     def rename_command(
@@ -504,30 +625,37 @@ def _build_rename_command(*, tool: str, project_only: bool) -> click.Command:
         new_name: str,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Rename one credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=False,
         )
         emit(_rename_credential_bundle(target=target, tool=tool, name=name, new_name=new_name))
 
     rename_command.__doc__ = (
-        f"Rename one {display_name} credential."
-        if not project_only
-        else f"Rename one project-scoped {display_name} credential."
+        _credential_command_doc(
+            plain=f"Rename one {display_name} credential.",
+            project=f"Rename one project-scoped {display_name} credential.",
+            native=f"Rename one direct native-agent {display_name} credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return rename_command
 
 
-def _build_claude_add_command(*, project_only: bool) -> click.Command:
+def _build_claude_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Claude `add` command."""
 
     @click.command(name="add")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option("--api-key", default=None, help="Value for `ANTHROPIC_API_KEY`.")
     @click.option("--auth-token", default=None, help="Value for `ANTHROPIC_AUTH_TOKEN`.")
@@ -580,13 +708,16 @@ def _build_claude_add_command(*, project_only: bool) -> click.Command:
         config_dir: Path | None,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Create one Claude credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -620,18 +751,22 @@ def _build_claude_add_command(*, project_only: bool) -> click.Command:
         )
 
     add_command.__doc__ = (
-        "Create one Claude credential."
-        if not project_only
-        else "Create one project-scoped Claude credential."
+        _credential_command_doc(
+            plain="Create one Claude credential.",
+            project="Create one project-scoped Claude credential.",
+            native="Create one direct native-agent Claude credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return add_command
 
 
-def _build_claude_set_command(*, project_only: bool) -> click.Command:
+def _build_claude_set_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Claude `set` command."""
 
     @click.command(name="set")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option("--api-key", default=None, help="Value for `ANTHROPIC_API_KEY`.")
     @click.option("--auth-token", default=None, help="Value for `ANTHROPIC_AUTH_TOKEN`.")
@@ -754,13 +889,16 @@ def _build_claude_set_command(*, project_only: bool) -> click.Command:
         clear_config_dir: bool,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Update one Claude credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         clear_file_sources = _flagged_items(
@@ -816,18 +954,22 @@ def _build_claude_set_command(*, project_only: bool) -> click.Command:
         )
 
     set_command.__doc__ = (
-        "Update one Claude credential."
-        if not project_only
-        else "Update one project-scoped Claude credential."
+        _credential_command_doc(
+            plain="Update one Claude credential.",
+            project="Update one project-scoped Claude credential.",
+            native="Update one direct native-agent Claude credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return set_command
 
 
-def _build_codex_add_command(*, project_only: bool) -> click.Command:
+def _build_codex_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Codex `add` command."""
 
     @click.command(name="add")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option("--api-key", default=None, help="Value for `OPENAI_API_KEY`.")
     @click.option("--base-url", default=None, help="Value for `OPENAI_BASE_URL`.")
@@ -846,13 +988,16 @@ def _build_codex_add_command(*, project_only: bool) -> click.Command:
         auth_json: Path | None,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Create one Codex credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -876,18 +1021,22 @@ def _build_codex_add_command(*, project_only: bool) -> click.Command:
         )
 
     add_command.__doc__ = (
-        "Create one Codex credential."
-        if not project_only
-        else "Create one project-scoped Codex credential."
+        _credential_command_doc(
+            plain="Create one Codex credential.",
+            project="Create one project-scoped Codex credential.",
+            native="Create one direct native-agent Codex credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return add_command
 
 
-def _build_codex_set_command(*, project_only: bool) -> click.Command:
+def _build_codex_set_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Codex `set` command."""
 
     @click.command(name="set")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option("--api-key", default=None, help="Value for `OPENAI_API_KEY`.")
     @click.option("--base-url", default=None, help="Value for `OPENAI_BASE_URL`.")
@@ -926,13 +1075,16 @@ def _build_codex_set_command(*, project_only: bool) -> click.Command:
         clear_auth_json: bool,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Update one Codex credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -962,18 +1114,22 @@ def _build_codex_set_command(*, project_only: bool) -> click.Command:
         )
 
     set_command.__doc__ = (
-        "Update one Codex credential."
-        if not project_only
-        else "Update one project-scoped Codex credential."
+        _credential_command_doc(
+            plain="Update one Codex credential.",
+            project="Update one project-scoped Codex credential.",
+            native="Update one direct native-agent Codex credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return set_command
 
 
-def _build_gemini_add_command(*, project_only: bool) -> click.Command:
+def _build_gemini_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Gemini `add` command."""
 
     @click.command(name="add")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
     @click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
@@ -998,13 +1154,16 @@ def _build_gemini_add_command(*, project_only: bool) -> click.Command:
         oauth_creds: Path | None,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Create one Gemini credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -1029,18 +1188,22 @@ def _build_gemini_add_command(*, project_only: bool) -> click.Command:
         )
 
     add_command.__doc__ = (
-        "Create one Gemini credential."
-        if not project_only
-        else "Create one project-scoped Gemini credential."
+        _credential_command_doc(
+            plain="Create one Gemini credential.",
+            project="Create one project-scoped Gemini credential.",
+            native="Create one direct native-agent Gemini credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return add_command
 
 
-def _build_gemini_set_command(*, project_only: bool) -> click.Command:
+def _build_gemini_set_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Gemini `set` command."""
 
     @click.command(name="set")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
     @click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
@@ -1087,13 +1250,16 @@ def _build_gemini_set_command(*, project_only: bool) -> click.Command:
         clear_use_vertex_ai: bool,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Update one Gemini credential."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -1125,18 +1291,22 @@ def _build_gemini_set_command(*, project_only: bool) -> click.Command:
         )
 
     set_command.__doc__ = (
-        "Update one Gemini credential."
-        if not project_only
-        else "Update one project-scoped Gemini credential."
+        _credential_command_doc(
+            plain="Update one Gemini credential.",
+            project="Update one project-scoped Gemini credential.",
+            native="Update one direct native-agent Gemini credential.",
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return set_command
 
 
-def _build_codex_login_command(*, project_only: bool) -> click.Command:
+def _build_codex_login_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Codex `login` command."""
 
     @click.command(name="login")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option(
         "--update",
@@ -1167,13 +1337,16 @@ def _build_codex_login_command(*, project_only: bool) -> click.Command:
         use_browser_login: bool,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Run Codex login in an isolated temp home and import `auth.json`."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -1192,18 +1365,28 @@ def _build_codex_login_command(*, project_only: bool) -> click.Command:
         )
 
     login_command.__doc__ = (
-        "Log in to Codex in an isolated temp home and import `auth.json`."
-        if not project_only
-        else "Log in to Codex in an isolated temp home and import project-scoped `auth.json`."
+        _credential_command_doc(
+            plain="Log in to Codex in an isolated temp home and import `auth.json`.",
+            project=(
+                "Log in to Codex in an isolated temp home and import project-scoped "
+                "`auth.json`."
+            ),
+            native=(
+                "Log in to Codex in an isolated temp home and import direct native-agent "
+                "`auth.json`."
+            ),
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return login_command
 
 
-def _build_claude_login_command(*, project_only: bool) -> click.Command:
+def _build_claude_login_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Claude `login` command."""
 
     @click.command(name="login")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option(
         "--update",
@@ -1240,13 +1423,16 @@ def _build_claude_login_command(*, project_only: bool) -> click.Command:
         sso: bool,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Run Claude login in an isolated config home and import vendor state."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -1268,18 +1454,28 @@ def _build_claude_login_command(*, project_only: bool) -> click.Command:
         )
 
     login_command.__doc__ = (
-        "Log in to Claude in an isolated config home and import vendor state."
-        if not project_only
-        else "Log in to Claude in an isolated config home and import project-scoped vendor state."
+        _credential_command_doc(
+            plain="Log in to Claude in an isolated config home and import vendor state.",
+            project=(
+                "Log in to Claude in an isolated config home and import project-scoped "
+                "vendor state."
+            ),
+            native=(
+                "Log in to Claude in an isolated config home and import direct native-agent "
+                "vendor state."
+            ),
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return login_command
 
 
-def _build_gemini_login_command(*, project_only: bool) -> click.Command:
+def _build_gemini_login_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Gemini `login` command."""
 
     @click.command(name="login")
-    @_target_options(project_only)
+    @_target_options(project_only, native_only=native_only)
     @click.option("--name", required=True, help="Credential name.")
     @click.option(
         "--update",
@@ -1309,13 +1505,16 @@ def _build_gemini_login_command(*, project_only: bool) -> click.Command:
         no_browser: bool,
         use_project: bool = False,
         agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
     ) -> None:
         """Run Gemini OAuth in an isolated CLI home and import `oauth_creds.json`."""
 
         target = _resolve_command_target(
             project_only=project_only,
+            native_only=native_only,
             use_project=use_project,
             agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
             allow_project_bootstrap=True,
         )
         emit(
@@ -1334,9 +1533,19 @@ def _build_gemini_login_command(*, project_only: bool) -> click.Command:
         )
 
     login_command.__doc__ = (
-        "Log in to Gemini in an isolated CLI home and import `oauth_creds.json`."
-        if not project_only
-        else "Log in to Gemini in an isolated CLI home and import project-scoped `oauth_creds.json`."
+        _credential_command_doc(
+            plain="Log in to Gemini in an isolated CLI home and import `oauth_creds.json`.",
+            project=(
+                "Log in to Gemini in an isolated CLI home and import project-scoped "
+                "`oauth_creds.json`."
+            ),
+            native=(
+                "Log in to Gemini in an isolated CLI home and import direct native-agent "
+                "`oauth_creds.json`."
+            ),
+            project_only=project_only,
+            native_only=native_only,
+        )
     )
     return login_command
 
@@ -2401,3 +2610,6 @@ def _require_non_empty_name(value: str, *, field_name: str) -> str:
 for _tool_name in _SUPPORTED_CREDENTIAL_TOOLS:
     credentials_group.add_command(_build_tool_group(tool=_tool_name, project_only=False))
     project_credentials_group.add_command(_build_tool_group(tool=_tool_name, project_only=True))
+    native_agent_credentials_group.add_command(
+        _build_tool_group(tool=_tool_name, project_only=False, native_only=True)
+    )

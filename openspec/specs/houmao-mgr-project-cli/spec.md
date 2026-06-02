@@ -26,6 +26,32 @@ The `project` family SHALL be presented as the ordinary local Houmao workflow. I
 - **AND THEN** the help output does not list `easy` as a public command group
 - **AND THEN** the help output presents `project` as the ordinary local Houmao workflow
 
+### Requirement: Project command group accepts explicit project directory selection
+`houmao-mgr project` SHALL accept a group-level `--project-dir <dir>` option that applies to every nested project subcommand.
+
+The supplied directory SHALL be interpreted as the human-facing project directory. The selected overlay root SHALL be `<project-dir>/.houmao`.
+
+When `--project-dir` is supplied, project subcommands SHALL use that selected project directory instead of discovering a project from the process current working directory.
+
+Stateful project subcommands SHALL fail clearly when the selected project directory does not contain an initialized Houmao overlay, except for `project init`, which SHALL create or validate the selected overlay.
+
+#### Scenario: Explicit project directory selects credentials target
+- **WHEN** `/repo-a/.houmao/houmao-config.toml` exists
+- **AND WHEN** the operator runs `houmao-mgr project --project-dir /repo-a credentials codex list` from `/repo-b`
+- **THEN** the command resolves `/repo-a/.houmao` as the active project overlay
+- **AND THEN** it does not discover or use `/repo-b/.houmao`
+
+#### Scenario: Omitted project directory still discovers by current working directory
+- **WHEN** `/repo/.houmao/houmao-config.toml` exists
+- **AND WHEN** the operator runs `houmao-mgr project status` from `/repo/subdir`
+- **THEN** the command discovers `/repo/.houmao` as the active project overlay
+
+#### Scenario: Missing selected project fails for stateful command
+- **WHEN** `/repo-a/.houmao/houmao-config.toml` does not exist
+- **AND WHEN** the operator runs `houmao-mgr project --project-dir /repo-a specialist list`
+- **THEN** the command fails clearly
+- **AND THEN** the diagnostic tells the operator to run `houmao-mgr project --project-dir /repo-a init`
+
 ### Requirement: Project commands use specialist/profile/managed-agent language
 Ordinary `houmao-mgr project` commands SHALL use project-layer terms:
 
@@ -61,14 +87,15 @@ Ordinary stateful project-backed commands SHALL require an active project overla
 - `set`
 - `rename`
 - `remove`
+- `login`
 
-`project credentials` SHALL always resolve the active project overlay and SHALL use the project-backed credential behavior defined for project-local catalog-backed auth profiles.
+`project credentials` SHALL use the selected project overlay supplied by the `project` command group and SHALL use the project-backed credential behavior defined for project-local catalog-backed auth profiles.
 
-`project credentials` SHALL NOT require `--agent-def-dir` because its target is the active project overlay by definition.
+`project credentials` SHALL NOT expose `--project`, `--agent-def-dir`, or direct native-agent root selectors because its target is the selected project overlay by definition.
 
 #### Scenario: Operator sees the project-scoped credential verbs for one tool
 - **WHEN** an operator runs `houmao-mgr project credentials claude --help`
-- **THEN** the help output presents `list`, `get`, `add`, `set`, `rename`, and `remove`
+- **THEN** the help output presents `list`, `get`, `add`, `set`, `rename`, `remove`, and `login`
 - **AND THEN** those commands are described as project-scoped credential management for the active overlay
 
 #### Scenario: Project credential add uses the active overlay
@@ -79,11 +106,13 @@ Ordinary stateful project-backed commands SHALL require an active project overla
 ### Requirement: `houmao-mgr project init` bootstraps one repo-local `.houmao` overlay
 `houmao-mgr project init` SHALL resolve the target overlay root in this order:
 
-1. `HOUMAO_PROJECT_OVERLAY_DIR` when set,
-2. default `<cwd>/.houmao`.
+1. group-level `--project-dir <dir>` when supplied, resolving to `<dir>/.houmao`,
+2. retained project-overlay environment selection when set for automation or internal workflows,
+3. default `<cwd>/.houmao`.
 
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set, it SHALL be an absolute path.
-When `HOUMAO_PROJECT_OVERLAY_DIR` is set, `project init` SHALL bootstrap the overlay directly under that selected directory rather than under the caller's current working directory.
+When `--project-dir` is supplied, `project init` SHALL bootstrap the overlay under that project directory rather than under the caller's current working directory.
+When retained environment selection is used, it SHALL be an absolute overlay path.
+When retained environment selection is used, `project init` SHALL bootstrap the overlay directly under that selected directory rather than under the caller's current working directory.
 
 A successful init SHALL create:
 
@@ -105,7 +134,16 @@ When `houmao-config.toml` already exists and remains compatible, `project init` 
 
 #### Scenario: Operator initializes the default local Houmao overlay
 - **WHEN** an operator runs `houmao-mgr project init` inside `/repo/app`
-- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+- **AND WHEN** no explicit project directory or retained env selection is supplied
+- **AND WHEN** `/repo/app/.houmao/houmao-config.toml` does not already exist
+- **THEN** the command creates `/repo/app/.houmao/houmao-config.toml`
+- **AND THEN** the written config sets `paths.agent_def_dir = "agents"`
+- **AND THEN** it creates `/repo/app/.houmao/.gitignore` without editing `/repo/app/.gitignore`
+- **AND THEN** it creates `/repo/app/.houmao/catalog.sqlite`
+- **AND THEN** it creates the managed project-local content roots required by the catalog-backed overlay contract
+
+#### Scenario: Operator initializes an explicitly selected project directory
+- **WHEN** an operator runs `houmao-mgr project --project-dir /repo/app init` from `/tmp`
 - **AND WHEN** `/repo/app/.houmao/houmao-config.toml` does not already exist
 - **THEN** the command creates `/repo/app/.houmao/houmao-config.toml`
 - **AND THEN** the written config sets `paths.agent_def_dir = "agents"`
@@ -114,23 +152,22 @@ When `houmao-config.toml` already exists and remains compatible, `project init` 
 - **AND THEN** it creates the managed project-local content roots required by the catalog-backed overlay contract
 
 #### Scenario: Env override redirects init to the selected overlay directory
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=/tmp/ci-overlay`
+- **WHEN** retained project-overlay env selection points to `/tmp/ci-overlay`
 - **AND WHEN** an operator runs `houmao-mgr project init` from `/repo/app`
 - **THEN** the command creates `/tmp/ci-overlay/houmao-config.toml`
 - **AND THEN** it creates `/tmp/ci-overlay/catalog.sqlite`
 - **AND THEN** it does not instead bootstrap `/repo/app/.houmao/`
 
 #### Scenario: Relative env override fails clearly
-- **WHEN** `HOUMAO_PROJECT_OVERLAY_DIR=relative/overlay`
+- **WHEN** retained project-overlay env selection is `relative/overlay`
 - **AND WHEN** an operator runs `houmao-mgr project init`
 - **THEN** the command fails explicitly
-- **AND THEN** the error explains that `HOUMAO_PROJECT_OVERLAY_DIR` must be an absolute path
+- **AND THEN** the error explains that the retained overlay env selector must be an absolute path
 
 #### Scenario: Re-running init preserves compatible local auth state
 - **WHEN** an operator already has a compatible local overlay and `/repo/app/.houmao/custom-agents/tools/claude/auth/personal/`
 - **AND WHEN** `/repo/app/.houmao/houmao-config.toml` resolves `paths.agent_def_dir = "custom-agents"`
-- **AND WHEN** they run `houmao-mgr project init` again inside `/repo/app`
-- **AND WHEN** `HOUMAO_PROJECT_OVERLAY_DIR` is unset
+- **AND WHEN** they run `houmao-mgr project --project-dir /repo/app init`
 - **THEN** the command validates the existing project overlay
 - **AND THEN** it does not delete or overwrite that existing local auth bundle only because init was re-run
 

@@ -30,13 +30,13 @@ Use this only for specialist creation when the user omitted tool or credential i
    - otherwise use `HOUMAO_NATIVE_AGENT_ROOT` when it points at a plain agent-definition directory;
    - stop if neither target is available.
 2. Inventory registered credentials across supported tool lanes by running the selected `houmao-mgr` launcher for each supported tool:
-   - project target: `<chosen houmao-mgr launcher> project credentials <tool> list`;
-   - plain agent-definition target: `<chosen houmao-mgr launcher> credentials <tool> list --agent-def-dir <path>`.
+   - project target: `<chosen houmao-mgr launcher> project [--project-dir <dir>] credentials <tool> list`;
+   - native-agent target: `<chosen houmao-mgr launcher> internals native-agent credentials <tool> list --native-agent-root <path>`.
 3. Stop if no credentials are registered.
 4. If the prompt or nearby explicit context names a registered tool or credential, use the matching registered credential.
 5. Otherwise choose the credential with the latest listed update time across all registered tools and use its tool lane plus credential name.
 
-Use the `credential_records[].updated_at_utc` field from `houmao-mgr ... credentials <tool> list`. For project credentials this is the project catalog timestamp; for plain agent-definition credentials this is best-effort filesystem metadata.
+Use the `credential_records[].updated_at_utc` field from `houmao-mgr ... credentials <tool> list`. For project credentials this is the project catalog timestamp; for native-agent credentials this is best-effort filesystem metadata.
 
 Failure reports must include a direct suggestion:
 

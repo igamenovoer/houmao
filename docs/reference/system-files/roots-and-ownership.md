@@ -36,7 +36,7 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 | Project memory root | `<active-overlay>/memory` for maintained project-aware command surfaces | selected project overlay only | Managed-agent memory | Stable root family |
 | Mailbox root | `<active-overlay>/mailbox` for maintained project-aware command surfaces | `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
 
-The active overlay root itself is selected from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`. `ancestor` remains the default nearest-ancestor lookup mode, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`.
+For project commands, `houmao-mgr project --project-dir <dir> ...` selects the human-facing project directory and resolves the overlay as `<dir>/.houmao`. Otherwise the active overlay root is selected from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`. `ancestor` remains the default nearest-ancestor lookup mode, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`.
 
 ## Root-Resolution Notes
 
@@ -48,7 +48,7 @@ The shared `<platformdirs user config>` anchor is derived from a platformdirs-aw
 
 The runtime root is where Houmao stores generated homes, generated manifests, runtime session roots, and Houmao server roots. In maintained project-aware command flows, the default runtime root is `<active-overlay>/runtime`. If no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao/runtime`. Different entrypoints expose the explicit override differently:
 
-- `houmao-mgr brains build` exposes `--runtime-root`,
+- `houmao-mgr internals native-agent brain build` exposes `--runtime-root`,
 - programmatic calls expose `runtime_root=...`,
 - otherwise maintained project-aware surfaces fall back to the active overlay runtime root, while explicit `HOUMAO_GLOBAL_RUNTIME_DIR` or `--runtime-root <platformdirs user config>/runtime` still lets operators target the shared config root directly.
 

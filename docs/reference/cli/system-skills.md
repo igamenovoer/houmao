@@ -16,7 +16,7 @@ Installed Houmao system skills can answer prompt-level read-only help such as `$
 
 This is the same packaged skill system used internally by:
 
-- `houmao-mgr brains build` when it creates a managed home and resolves any stored source/profile managed system-skill policy,
+- managed launch or internal native-agent brain build when Houmao creates a managed home and resolves any stored source/profile managed system-skill policy,
 - `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
 The `system-skills` command group is still the explicit tool-home installer. Managed-launch policy is configured on specialists, recipes, and launch profiles with `system_skills` fields or `--system-skill*` profile options; it is not a one-shot `system-skills install` invocation.
@@ -34,7 +34,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, and project-scoped easy-instance inspection or stop routing
 - `houmao-agent-definition` for subcommands `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`; `launch-dossiers` maps to the underlying `internals native-agent launch-dossiers ...` CLI, while ordinary profile wording defaults to easy `profiles`
 - `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile/ready-profile prompts to `houmao-agent-definition`
-- `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
+- `houmao-credential-mgr` for project-local credential management plus direct internal native-agent credential management
 - `houmao-agent-instance` for live managed-agent instance lifecycle
 - `houmao-agent-inspect` for generic read-only managed-agent inspection across liveness, screen posture, mailbox posture, logs, runtime artifacts, and bounded local tmux peeking
 - `houmao-operator-messaging` for manual operator intent clarification and dispatch to one or more managed agents by prompt by default, or by mailbox when requested
@@ -327,7 +327,7 @@ Removal boundary:
 
 Managed homes and joined homes use the same installer and catalog:
 
-- `brains build` installs the skill list resolved from `auto_install.managed_launch_sets`
+- managed launch and internal native-agent brain build install the skill list resolved from `auto_install.managed_launch_sets`
 - `agents join` installs the skill list resolved from `auto_install.managed_join_sets`
 - `agents join --no-install-houmao-skills` skips that default installer step
 

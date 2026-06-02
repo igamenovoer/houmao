@@ -22,6 +22,7 @@ Available functionality:
 - `specialists` and `profiles` for project authoring.
 - `create-agent-fast-forward` for one-pass specialist plus project profile preparation.
 - `launch-agent` and `stop-agent` for specialist-scoped project managed-agent entry points.
+- Explicit direct brain-build plumbing routes through `houmao-mgr internals native-agent brain build`.
 
 Common starting prompts:
 
@@ -101,6 +102,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `project.agents.launch`
    - `internals.native-agent.roles.init|set`
    - `internals.native-agent.recipes.add|set`
+   - `internals.native-agent.brain.build` when the user explicitly asks for direct native-agent brain-build plumbing
    - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
 11. If draft generation or command rendering reports blockers, stop and recover the missing or conflicting input before running the target command.
 12. Run maintained project commands only after all required inputs are explicit.
@@ -124,4 +126,5 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled project launch; profile defaults or launch-time project bootstrap can own that common case.
 - Do not use retired `houmao-mgr internals native-agent roles scaffold`.
 - Do not use retired `houmao-mgr internals native-agent roles presets ...`.
+- Do not use the retired top-level brain-build command; direct build plumbing is `houmao-mgr internals native-agent brain build`.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows.

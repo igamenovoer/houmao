@@ -19,6 +19,8 @@ from houmao.terminology import (
     resolve_native_agent_root,
 )
 
+from .brains import native_agent_brain_group
+from .credentials import native_agent_credentials_group
 from .common import overwrite_confirm_option
 from .output import emit
 
@@ -57,6 +59,10 @@ def native_agent_launch_dossiers_group() -> None:
 @native_agent_group.group(name="tools")
 def native_agent_tools_group() -> None:
     """Inspect native-agent provider tool/setup trees."""
+
+
+native_agent_group.add_command(native_agent_credentials_group)
+native_agent_group.add_command(native_agent_brain_group)
 
 
 def native_agent_root_option(function: Any) -> Any:

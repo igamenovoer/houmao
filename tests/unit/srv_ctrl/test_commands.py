@@ -136,8 +136,6 @@ def test_top_level_command_inventory_exposes_new_native_surface() -> None:
     assert set(cli.commands.keys()) == {
         "admin",
         "agents",
-        "brains",
-        "credentials",
         "internals",
         "mailbox",
         "project",
@@ -2081,13 +2079,14 @@ def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
     assert chat_session.session_id is None
 
 
-def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
+def test_native_agent_brain_build_reports_direct_root_and_runtime_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     working_directory = (tmp_path / "repo").resolve()
     working_directory.mkdir(parents=True, exist_ok=True)
-    bootstrap_project_overlay(working_directory)
+    native_agent_root = (working_directory / "native-agents").resolve()
+    native_agent_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(working_directory)
 
     build_result = SimpleNamespace(
@@ -2105,8 +2104,12 @@ def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
         cli,
         [
             "--print-json",
-            "brains",
+            "internals",
+            "native-agent",
+            "brain",
             "build",
+            "--native-agent-root",
+            str(native_agent_root),
             "--tool",
             "codex",
             "--skill",
@@ -2115,27 +2118,22 @@ def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
             "default",
             "--auth",
             "work",
+            "--runtime-root",
+            "runtime",
         ],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    expected_overlay_root = (working_directory / ".houmao").resolve()
-    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    expected_runtime_root = (working_directory / "runtime").resolve()
+    assert payload["native_agent_root"] == str(native_agent_root)
+    assert payload["native_agent_root_source"] == "cli"
+    assert payload["runtime_root"] == str(expected_runtime_root)
     assert (
         payload["runtime_root_detail"]
-        == "Selected the active project runtime root from the current project overlay."
+        == "Selected runtime root from the explicit `--runtime-root` override."
     )
-    assert payload["project_overlay_bootstrapped"] is False
-    assert payload["overlay_root"] == str(expected_overlay_root)
-    assert (
-        payload["overlay_root_detail"]
-        == "Selected overlay root from nearest-ancestor project discovery."
-    )
-    assert (
-        payload["overlay_bootstrap_detail"]
-        == "Reused the selected project overlay without implicit bootstrap."
-    )
+    assert "overlay_root" not in payload
 
 
 def test_agents_launch_reports_project_aware_root_details_in_json(

@@ -1,6 +1,6 @@
 ---
 name: houmao-credential-mgr
-description: Use Houmao's supported credential workflow to list, inspect, add, update, log in, rename, or remove credentials for the active project overlay or an explicit plain agent-definition directory.
+description: Use Houmao's supported credential workflow to list, inspect, add, update, log in, rename, or remove credentials for a Houmao project or an internal native-agent root.
 license: MIT
 ---
 
@@ -8,8 +8,8 @@ license: MIT
 
 Use this Houmao skill when you need to manage credentials through the supported CLI surfaces:
 
-- `houmao-mgr project credentials <tool> ...` for the active project overlay
-- `houmao-mgr credentials <tool> ... --agent-def-dir <path>` for an explicit plain agent-definition directory
+- `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials
+- `houmao-mgr internals native-agent credentials <tool> ... --native-agent-root <path>` for direct native-agent credentials
 
 Do not hand-edit `.houmao/content/auth/`, `.houmao/agents/tools/<tool>/auth/`, or `tools/<tool>/auth/<name>/` directly when these command families already own the workflow.
 
@@ -23,7 +23,7 @@ The trigger word `houmao` is intentional. Use the `houmao-credential-mgr` skill 
 
 When the user asks `$houmao-credential-mgr help`, `help for houmao-credential-mgr`, `usage for houmao-credential-mgr`, `available functionality for houmao-credential-mgr`, or what this skill can do, answer from this section before choosing a credential action, command, reference page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me add a Codex credential", route to the matching workflow instead of stopping at generic help.
 
-Purpose: manage supported Houmao credential bundles for project overlays or explicit plain agent-definition directories.
+Purpose: manage supported Houmao credential bundles for project overlays or internal native-agent roots.
 
 Available functionality:
 
@@ -31,7 +31,7 @@ Available functionality:
 - `add` and `set` credential bundle contents for supported tool families.
 - `login` through maintained provider login/import workflows.
 - `rename` or `remove` one existing credential.
-- Choose project-backed versus explicit plain agent-definition directory targets.
+- Choose project-backed versus direct native-agent targets.
 
 Common starting prompts:
 
@@ -91,13 +91,13 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Recover the target:
-   - use `project credentials <tool> ...` when the request is clearly project-local or the active project overlay is the intended target
-   - use `credentials <tool> ... --agent-def-dir <path>` when the user explicitly targets a plain agent-definition directory
+   - use `project [--project-dir <dir>] credentials <tool> ...` when the request is project-local or names a project directory
+   - use `internals native-agent credentials <tool> ... --native-agent-root <path>` when the user explicitly targets a native-agent root
    - ask before proceeding when the target is still ambiguous
 6. Reuse that same chosen launcher for the selected credential-management action.
 7. For supported credential command authoring, inspect and render the matching CLI-owned template id before executing:
    - project lane: `project.credentials.<tool>.<verb>`
-   - plain agent-definition lane: `credentials.<tool>.<verb>`
+   - direct native-agent lane: `internals.native-agent.credentials.<tool>.<verb>`
    - supported tools: `claude`, `codex`, `gemini`
    - supported verbs: `add`, `set`, `login`, `list`, `get`, `rename`, `remove`
 8. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
@@ -144,7 +144,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not guess required action inputs that remain missing after checking the prompt and recent chat context.
 - Do not scan env vars, tool homes, home directories, or unrelated filesystem locations to infer missing credential inputs unless the user explicitly asks for that narrower inspection.
 - Do not print raw secret values or raw auth-file contents when `get` already provides safe redacted inspection.
-- Do not hand-roll provider-login temp directories, manual provider command invocation, auth-file copying, or temp cleanup when `houmao-mgr credentials <tool> login` owns that ordinary workflow.
+- Do not hand-roll provider-login temp directories, manual provider command invocation, auth-file copying, or temp cleanup when maintained project or internal native-agent credential login commands own that workflow.
 - Do not treat changing a project profile or native launch dossier `--auth` override as credential CRUD.
 - Do not imply that project-backed rename changes underlying bundle identity; it is metadata-only rename.
 - Do not imply that direct-dir rename is a no-op for maintained references; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.

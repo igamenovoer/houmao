@@ -1,7 +1,7 @@
 # houmao-manage-credentials-skill Specification
 
 ## Purpose
-Define the packaged Houmao-owned `houmao-credential-mgr` skill for credential-management guidance across project overlays and plain agent-definition directories.
+Define the packaged Houmao-owned `houmao-credential-mgr` skill for credential-management guidance across project overlays and retained internal native-agent credential roots.
 ## Requirements
 ### Requirement: Houmao provides a packaged `houmao-credential-mgr` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-credential-mgr` under the maintained system-skill asset root.
@@ -14,12 +14,14 @@ That skill SHALL instruct agents to manage credentials through these supported c
 - `houmao-mgr project credentials <tool> set`
 - `houmao-mgr project credentials <tool> rename`
 - `houmao-mgr project credentials <tool> remove`
-- `houmao-mgr credentials <tool> list --agent-def-dir <path>`
-- `houmao-mgr credentials <tool> get --agent-def-dir <path> --name <name>`
-- `houmao-mgr credentials <tool> add --agent-def-dir <path> --name <name>`
-- `houmao-mgr credentials <tool> set --agent-def-dir <path> --name <name>`
-- `houmao-mgr credentials <tool> rename --agent-def-dir <path> --name <name> --to <new-name>`
-- `houmao-mgr credentials <tool> remove --agent-def-dir <path> --name <name>`
+- `houmao-mgr project credentials <tool> login`
+- `houmao-mgr internals native-agent credentials <tool> list --native-agent-root <path>`
+- `houmao-mgr internals native-agent credentials <tool> get --native-agent-root <path> --name <name>`
+- `houmao-mgr internals native-agent credentials <tool> add --native-agent-root <path> --name <name>`
+- `houmao-mgr internals native-agent credentials <tool> set --native-agent-root <path> --name <name>`
+- `houmao-mgr internals native-agent credentials <tool> rename --native-agent-root <path> --name <name> --to <new-name>`
+- `houmao-mgr internals native-agent credentials <tool> remove --native-agent-root <path> --name <name>`
+- `houmao-mgr internals native-agent credentials <tool> login --native-agent-root <path> --name <name>`
 
 The packaged skill SHALL scope that guidance to the supported tool families:
 
@@ -35,6 +37,7 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `set`
 - `rename`
 - `remove`
+- `login`
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
@@ -44,11 +47,11 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - `internals native-agent tools <tool> setups ...`
 - `internals native-agent roles ...`
 - `project mailbox ...`, `agents cleanup mailbox`, and `admin cleanup runtime ...`
-- direct hand-editing of credential files under `.houmao/agents/tools/` or plain agent-definition directories
+- direct hand-editing of credential files under `.houmao/agents/tools/` or retained native-agent credential roots
 
 #### Scenario: Installed skill points the agent at the supported credential commands
 - **WHEN** an agent opens the installed `houmao-credential-mgr` skill
-- **THEN** the skill directs the agent to use the supported `project credentials ...` or `credentials ... --agent-def-dir <path>` command surfaces for credential work
+- **THEN** the skill directs the agent to use the supported `project [--project-dir <dir>] credentials ...` or `internals native-agent credentials ... --native-agent-root <path>` command surfaces for credential work
 - **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
 
 #### Scenario: Installed skill routes to action-specific local guidance including rename
@@ -100,6 +103,38 @@ The resolved launcher SHALL be reused for any routed credential action selected 
 - **THEN** the skill tells the agent to honor that requested launcher
 - **AND THEN** it does not replace the user-requested launcher with the default PATH-first or uv-fallback choice
 
+### Requirement: Credential-management skill uses consolidated project targeting
+The packaged credential-management skill SHALL route ordinary project credential requests to:
+
+```text
+houmao-mgr project [--project-dir <dir>] credentials <tool> <verb>
+```
+
+When the user names a project directory explicitly, the skill SHALL use the group-level `--project-dir` option instead of selecting a top-level credential target.
+
+The skill SHALL NOT present `houmao-mgr credentials --project ...` as the maintained project credential workflow.
+
+#### Scenario: Skill routes explicit project credential request
+- **WHEN** a user asks the agent to list Codex credentials for project `/repo`
+- **THEN** the skill guidance routes to `houmao-mgr project --project-dir /repo credentials codex list`
+- **AND THEN** it does not route to `houmao-mgr credentials --project codex list`
+
+### Requirement: Credential-management skill routes direct native credentials to internals
+The packaged credential-management skill SHALL treat direct native-agent credential roots as internal provider-aligned material.
+
+When the user explicitly asks for direct native-agent credential CRUD outside a Houmao project, the skill SHALL route to:
+
+```text
+houmao-mgr internals native-agent credentials <tool> <verb> --native-agent-root <dir>
+```
+
+The skill SHALL ask for a native-agent root when the user requests direct native credential work but no root can be inferred.
+
+#### Scenario: Skill routes direct native credential request
+- **WHEN** a user asks the agent to update a Codex credential under native-agent root `/tmp/native`
+- **THEN** the skill guidance routes to `houmao-mgr internals native-agent credentials codex set --native-agent-root /tmp/native`
+- **AND THEN** it does not route to a top-level `credentials --agent-def-dir` command
+
 ### Requirement: `houmao-credential-mgr` selects the correct credential action and target before acting
 The packaged `houmao-credential-mgr` skill SHALL tell the agent to recover omitted credential inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
@@ -107,8 +142,8 @@ The skill SHALL NOT guess missing required inputs that are not explicit in curre
 
 The skill SHALL resolve both action and target:
 
-- use `project credentials <tool> list|get|add|set|rename|remove` when the request is clearly project-local or the active project overlay is the intended target,
-- use `credentials <tool> list|get|add|set|rename|remove --agent-def-dir <path>` when the user explicitly targets a plain agent-definition directory,
+- use `project [--project-dir <dir>] credentials <tool> list|get|add|set|rename|remove|login` when the request is clearly project-local, names a project directory, or the active project overlay is the intended target,
+- use `internals native-agent credentials <tool> list|get|add|set|rename|remove|login --native-agent-root <path>` when the user explicitly targets a direct native-agent credential root,
 - ask the user before proceeding when the action or target remains ambiguous.
 
 The skill SHALL select commands by requested action:
@@ -137,13 +172,18 @@ Unless the user explicitly asks for a narrower path-based inspection as part of 
 
 #### Scenario: Project-local credential work uses the project wrapper
 - **WHEN** the current prompt asks the agent to manage one credential in the current project workspace
-- **AND WHEN** no explicit plain agent-definition directory target is provided
+- **AND WHEN** no explicit direct native-agent root target is provided
 - **THEN** the skill routes that work through `houmao-mgr project credentials <tool> ...`
 - **AND THEN** it does not route the request through the removed `internals native-agent tools <tool> auth ...` surface
 
-#### Scenario: Explicit agent-definition-directory work uses the dedicated direct-dir form
+#### Scenario: Explicit project credential work uses the project directory selector
+- **WHEN** the current prompt asks the agent to list Codex credentials for project `/repo`
+- **THEN** the skill routes that work through `houmao-mgr project --project-dir /repo credentials codex list`
+- **AND THEN** it does not route the request through a top-level credential target selector
+
+#### Scenario: Explicit native-agent credential work uses internals
 - **WHEN** the current prompt asks the agent to manage credentials under `tests/fixtures/plain-agent-def`
-- **THEN** the skill routes that work through `houmao-mgr credentials <tool> ... --agent-def-dir tests/fixtures/plain-agent-def`
+- **THEN** the skill routes that work through `houmao-mgr internals native-agent credentials <tool> ... --native-agent-root tests/fixtures/plain-agent-def`
 - **AND THEN** it does not reinterpret that request as project-local credential management
 
 #### Scenario: Rename requires both the current and target names
@@ -164,13 +204,13 @@ The top-level `SKILL.md` for that packaged skill SHALL include `login` in its ac
 
 The skill SHALL instruct agents to use:
 
-- `houmao-mgr project credentials <tool> login --name <name>` when the active project overlay is the intended target,
-- `houmao-mgr credentials <tool> login --agent-def-dir <path> --name <name>` when the user explicitly targets a plain agent-definition directory,
+- `houmao-mgr project [--project-dir <dir>] credentials <tool> login --name <name>` when the selected project overlay is the intended target,
+- `houmao-mgr internals native-agent credentials <tool> login --native-agent-root <path> --name <name>` when the user explicitly targets a direct native-agent credential root,
 - the explicit update option only when the user intends to replace an existing credential.
 
 The skill SHALL explain that the command creates an isolated temporary provider home, invokes the installed provider CLI with inherited stdio, imports the expected auth artifact into Houmao storage, and deletes the temporary provider home after a successful import by default.
 
-The skill SHALL tell agents not to hand-roll this workflow by manually creating provider home directories, running provider login commands, copying auth files into credential storage, or deleting temp directories outside the supported `houmao-mgr credentials ... login` surface unless the user explicitly asks for a lower-level recovery workflow after a failed login attempt.
+The skill SHALL tell agents not to hand-roll this workflow by manually creating provider home directories, running provider login commands, copying auth files into credential storage, or deleting temp directories outside the supported project or internal native-agent credential login surfaces unless the user explicitly asks for a lower-level recovery workflow after a failed login attempt.
 
 #### Scenario: Login request routes to the project credential helper
 - **WHEN** the current prompt asks the agent to log in to Codex with another account and import it into the current project as `work`
@@ -178,9 +218,9 @@ The skill SHALL tell agents not to hand-roll this workflow by manually creating 
 - **THEN** the skill routes the work through `houmao-mgr project credentials codex login --name work`
 - **AND THEN** it does not tell the agent to manually copy `auth.json` into Houmao storage
 
-#### Scenario: Explicit direct-dir login request includes the target directory
-- **WHEN** the current prompt asks the agent to obtain a new Gemini OAuth credential under `tests/fixtures/plain-agent-def` as `personal`
-- **THEN** the skill routes the work through `houmao-mgr credentials gemini login --agent-def-dir tests/fixtures/plain-agent-def --name personal`
+#### Scenario: Explicit native-agent login request includes the target root
+- **WHEN** the current prompt asks the agent to obtain a new Gemini OAuth credential under native-agent root `tests/fixtures/plain-agent-def` as `personal`
+- **THEN** the skill routes the work through `houmao-mgr internals native-agent credentials gemini login --native-agent-root tests/fixtures/plain-agent-def --name personal`
 - **AND THEN** it does not reinterpret that request as project-local credential management
 
 #### Scenario: Existing credential replacement requires user intent
@@ -191,7 +231,7 @@ The skill SHALL tell agents not to hand-roll this workflow by manually creating 
 
 #### Scenario: Skill explains temp cleanup ownership
 - **WHEN** an agent reads the login workflow guidance
-- **THEN** the skill states that `houmao-mgr credentials ... login` owns the temporary provider home lifecycle
+- **THEN** the skill states that the supported credential login command owns the temporary provider home lifecycle
 - **AND THEN** it states that successful imports delete the temp home by default while failed attempts preserve and report it for recovery
 
 ### Requirement: `houmao-credential-mgr` ships per-tool credential kinds references and cites them when asking the user for missing auth inputs
@@ -202,7 +242,7 @@ The packaged `houmao-credential-mgr` skill SHALL ship a `references/` directory 
 - `codex-credential-kinds.md`
 - `gemini-credential-kinds.md`
 
-Each kinds reference page SHALL enumerate the user-facing credential kinds the selected tool accepts through `houmao-mgr project credentials <tool> add` and `houmao-mgr credentials <tool> add --agent-def-dir <path>`, including at minimum the following kinds per tool:
+Each kinds reference page SHALL enumerate the user-facing credential kinds the selected tool accepts through `houmao-mgr project credentials <tool> add` and `houmao-mgr internals native-agent credentials <tool> add --native-agent-root <path>`, including at minimum the following kinds per tool:
 
 - Claude: API key, auth token, OAuth token, and a vendor-login config-directory kind that carries `.credentials.json` plus companion `.claude.json` when present.
 - Codex: API key, and a cached login state kind that carries an `auth.json` file.
@@ -275,4 +315,3 @@ The skill SHALL NOT maintain independent default-bearing command skeletons or to
 - **WHEN** a user targets a plain agent-definition directory instead of the active project
 - **THEN** the skill guidance renders a plain-lane credential template with the explicit `agent_def_dir`
 - **AND THEN** it does not silently switch to `project credentials`
-

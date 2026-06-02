@@ -106,6 +106,7 @@ from .mailbox_support import (
     unregister_mailbox_at_root,
 )
 from .managed_agents import list_managed_agents, resolve_managed_agent_target, stop_managed_agent
+from .project_context import active_project_dir
 from .project_aware_wording import (
     describe_overlay_bootstrap,
     describe_overlay_discovery_mode,
@@ -121,7 +122,10 @@ def _ensure_project_roots() -> ProjectAwareLocalRoots:
     """Return ensured project-aware roots or raise one operator-facing error."""
 
     try:
-        roots = ensure_project_aware_local_roots(cwd=Path.cwd().resolve())
+        roots = ensure_project_aware_local_roots(
+            cwd=Path.cwd().resolve(),
+            project_dir=active_project_dir(),
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
@@ -144,7 +148,10 @@ def _resolve_existing_project_roots(
     """Return the selected roots for one non-creating project flow."""
 
     try:
-        roots = resolve_project_aware_local_roots(cwd=Path.cwd().resolve())
+        roots = resolve_project_aware_local_roots(
+            cwd=Path.cwd().resolve(),
+            project_dir=active_project_dir(),
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
@@ -200,11 +207,20 @@ def _missing_selected_overlay_message(
     message = (
         "No Houmao project overlay is available at the selected overlay root "
         f"`{roots.overlay_root}`. This command uses non-creating resolution and did not "
-        "bootstrap it. Run `houmao-mgr project init` or select an existing project overlay."
+        f"bootstrap it. Run `{_project_init_command_for_roots(roots)}` or select an existing "
+        "project overlay."
     )
     if fallback_label is not None:
         return f"{message} It did not fall back to the {fallback_label}."
     return message
+
+
+def _project_init_command_for_roots(roots: ProjectAwareLocalRoots) -> str:
+    """Return the matching project init command for a selected overlay root."""
+
+    if roots.overlay_root_source == "project_dir":
+        return f"houmao-mgr project --project-dir {roots.overlay_root.parent} init"
+    return "houmao-mgr project init"
 
 
 def _list_tool_setup_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[str]:

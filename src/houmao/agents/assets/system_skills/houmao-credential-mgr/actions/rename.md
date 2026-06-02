@@ -7,7 +7,7 @@ Use this action only when the user wants to rename one existing credential.
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, current credential name, new credential name, and target from the current prompt first and recent chat context second when they were stated explicitly.
 3. If any of those inputs are still missing, ask the user before proceeding.
-4. Render the selected command template: `project.credentials.<tool>.rename` or `credentials.<tool>.rename`.
+4. Render the selected command template: `project.credentials.<tool>.rename` or `internals.native-agent.credentials.<tool>.rename`.
 5. Run the rendered `argv`.
 6. Report the renamed credential name, previous name, and any diagnostic metadata returned by the command.
 
@@ -17,7 +17,7 @@ Use the matching CLI-owned template, then run its rendered `argv`:
 
 ```text
 <chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.rename --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id credentials.<tool>.rename --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.credentials.<tool>.rename --intent '<json>'
 ```
 
 ## Guardrails

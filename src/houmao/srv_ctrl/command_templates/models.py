@@ -26,6 +26,7 @@ class TemplateField:
     choices: tuple[str, ...] = ()
     negative_option: str | None = None
     clears_field: str | None = None
+    argv_insert_index: int | None = None
     omit_semantics: str = "Omit this field to leave the target command default in control."
 
     def to_payload(self) -> dict[str, object]:
@@ -47,6 +48,8 @@ class TemplateField:
             payload["choices"] = list(self.choices)
         if self.clears_field is not None:
             payload["clears_field"] = self.clears_field
+        if self.argv_insert_index is not None:
+            payload["argv_insert_index"] = self.argv_insert_index
         return payload
 
 

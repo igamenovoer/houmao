@@ -7,7 +7,7 @@ This guide shows the two supported local entry points:
 1. adopt an already-running provider session with `houmao-mgr agents join`
 2. build and launch from a repo-local `.houmao/` overlay created by `houmao-mgr project init`
 
-For maintained local-state command families such as `brains build`, `agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao now resolves runtime, managed-agent memory, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
+For maintained local-state command families such as `agents launch`, `project agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao resolves runtime, managed-agent memory, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
 
 Ambient overlay selection defaults to nearest-ancestor `.houmao/houmao-config.toml` discovery within the current Git boundary. Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want commands run from a subdirectory to ignore a parent overlay and consider only `<cwd>/.houmao`. `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` remains the stronger explicit overlay-root override.
 
@@ -124,7 +124,7 @@ This higher-level flow persists semantic state in the catalog and keeps canonica
 
 Treat `.houmao/content/skills/notes/` as the canonical project skill entry. `.houmao/agents/skills/notes/` is derived projection only and may be rebuilt whenever Houmao rematerializes the compatibility tree.
 
-Low-level maintenance still lives under `project agents ...`, but that surface now operates on the compatibility projection tree rather than the canonical semantic store. Credential management now has its own concern-oriented entry points: use `houmao-mgr project credentials <tool> ...` for the active overlay or `houmao-mgr credentials <tool> ... --agent-def-dir <path>` for a plain agent-definition directory. Use `houmao-mgr internals native-agent roles ...` for prompt-only roles, `houmao-mgr internals native-agent recipes ...` for named recipes, or `houmao-mgr internals native-agent launch-dossiers ...` for native launch dossiers.
+Project work stays under `project ...`; when you need to target a project from outside its directory, use `houmao-mgr project --project-dir <dir> ...`. Credential management uses `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials, or `houmao-mgr internals native-agent credentials <tool> ... --native-agent-root <path>` for direct native-agent material. Use `houmao-mgr internals native-agent roles ...` for prompt-only roles, `houmao-mgr internals native-agent recipes ...` for named recipes, or `houmao-mgr internals native-agent launch-dossiers ...` for native launch dossiers.
 
 Gemini note:
 
@@ -153,8 +153,9 @@ The specialist payload reports durable launch config, including any persisted `l
 Using a recipe (the `--preset` flag still names the resolution input — `presets/` remains the on-disk projection path for recipes):
 
 ```bash
-pixi run houmao-mgr brains build \
-  --preset presets/researcher-claude-default.yaml
+pixi run houmao-mgr internals native-agent brain build \
+  --native-agent-root .houmao/agents \
+  --preset researcher-claude-default
 ```
 
 Key options:
@@ -170,13 +171,13 @@ Key options:
 | `--home-id` | Optional fixed runtime-home id |
 | `--reuse-home` | Allow reuse of an existing home id |
 
-Because the local project overlay was initialized first, `brains build` discovers `.houmao/houmao-config.toml`, resolves the project-local catalog, and materializes `.houmao/agents/` automatically when the compatibility projection is needed.
+This direct build command is internal native-agent plumbing: it uses the selected `--native-agent-root` directly. Ordinary project launches do not require this manual step; `project agents launch` and `agents launch` build managed homes internally.
 
 Without `--runtime-root`, maintained build and launch flows now place generated homes and manifests under `.houmao/runtime`, and managed-agent memory roots under `.houmao/memory/agents/<agent-id>/`, for the same active overlay.
 
 If the selected recipe omits `launch.prompt_mode`, current builders resolve that omission to the unattended default. Set `launch.prompt_mode: as_is` explicitly when you want provider startup posture left unchanged.
 
-If the selected recipe includes `launch.env_records`, `brains build` treats those values as durable non-credential launch env. They are projected from the specialist config and persist across later relaunches, unlike one-off `project agents launch --env-set` input.
+If the selected recipe includes `launch.env_records`, the managed build pipeline treats those values as durable non-credential launch env. They are projected from the specialist config and persist across later relaunches, unlike one-off `project agents launch --env-set` input.
 
 ### Step 5: Launch A Managed Agent
 
@@ -195,7 +196,7 @@ The bare selector plus provider resolves:
 - `researcher` + `claude_code`
 - to `.houmao/agents/presets/researcher-claude-default.yaml`
 
-You can still override discovery with `--agent-def-dir`, or override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, managed-agent memory, mailbox, and bare-selector recipe resolution.
+Use `houmao-mgr project --project-dir <dir> ...` when you want to select a project explicitly instead of relying on cwd discovery. You can still override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, managed-agent memory, mailbox, and bare-selector recipe resolution.
 
 If you have already authored a reusable explicit launch profile through `houmao-mgr internals native-agent launch-dossiers add ...`, the alternative launch form is:
 

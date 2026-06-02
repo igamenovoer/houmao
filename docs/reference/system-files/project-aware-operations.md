@@ -10,9 +10,10 @@ The project overlay directory is resolved in this order:
 
 | Priority | Source | Description |
 |---|---|---|
-| 1 | `HOUMAO_PROJECT_OVERLAY_DIR` | Environment variable. Must be an absolute path pointing directly at the overlay directory. |
-| 2 | Ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` | Defaults to `ancestor`, which searches the nearest ancestor `.houmao/houmao-config.toml` from cwd and stops at the Git repository boundary. Set `cwd_only` to inspect only `<cwd>/.houmao/houmao-config.toml`. |
-| 3 | `<cwd>/.houmao/` | Default fallback candidate when no overlay config is discovered. May not exist on disk. |
+| 1 | `houmao-mgr project --project-dir <dir>` | Group-level project selector for project commands. Resolves the overlay as `<dir>/.houmao`. |
+| 2 | `HOUMAO_PROJECT_OVERLAY_DIR` | Environment variable. Must be an absolute path pointing directly at the overlay directory. |
+| 3 | Ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` | Defaults to `ancestor`, which searches the nearest ancestor `.houmao/houmao-config.toml` from cwd and stops at the Git repository boundary. Set `cwd_only` to inspect only `<cwd>/.houmao/houmao-config.toml`. |
+| 4 | `<cwd>/.houmao/` | Default fallback candidate when no overlay config is discovered. May not exist on disk. |
 
 `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` affects ambient discovery only. It does not override `HOUMAO_PROJECT_OVERLAY_DIR`.
 
@@ -22,9 +23,8 @@ Within the resolved project overlay, the native-agent compatibility projection d
 
 | Priority | Source | Description |
 |---|---|---|
-| 1 | `--agent-def-dir` CLI flag | Explicit CLI argument, when available. |
-| 2 | `houmao-config.toml` `[paths] agent_def_dir` | Setting from the project overlay configuration. |
-| 3 | `<overlay_root>/agents` | Fallback when an overlay root was selected but config was not loaded. |
+| 1 | `houmao-config.toml` `[paths] agent_def_dir` | Setting from the project overlay configuration. |
+| 2 | `<overlay_root>/agents` | Fallback when an overlay root was selected but config was not loaded. |
 
 Direct provider-aligned native-agent commands do not use project discovery. Use `houmao-mgr internals native-agent ... --native-agent-root <path>` or `HOUMAO_NATIVE_AGENT_ROOT` for that lower-level surface.
 
@@ -67,7 +67,7 @@ The catalog is initialized during `project init` and is the authoritative source
 | Command Family | Project Context Used |
 |---|---|
 | `agents launch` / `agents join` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
-| `brains build` | Agent definitions (with optional `--agent-def-dir` override) |
+| `project agents launch` / `agents launch` | Agent definitions are built into managed brain homes internally |
 | `agents list` / `agents state` | Runtime root for shared registry discovery |
 | `agents mailbox register` | Mailbox root defaults to project overlay |
 | `project *` | Full overlay resolution and catalog access |
@@ -80,6 +80,7 @@ The catalog is initialized during `project init` and is the authoritative source
 In CI or controlled automation where no `.houmao/` directory exists on disk:
 
 - Set `HOUMAO_PROJECT_OVERLAY_DIR` to point at a pre-built overlay directory.
+- For project commands, prefer `houmao-mgr project --project-dir <dir> ...` when you want an explicit human project directory selector.
 - Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want subdirectory-local commands to ignore a parent overlay and consider only `<cwd>/.houmao`.
 - For direct provider-aligned native-agent material, use `internals native-agent ... --native-agent-root <path>` or set `HOUMAO_NATIVE_AGENT_ROOT`.
 - Set `HOUMAO_GLOBAL_RUNTIME_DIR` to use a shared runtime root instead of the project-local one.

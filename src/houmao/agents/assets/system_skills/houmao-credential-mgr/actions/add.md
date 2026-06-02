@@ -10,7 +10,7 @@ Use this action only when the user wants to create one new credential.
    - Claude: `references/claude-credential-kinds.md`
    - Codex: `references/codex-credential-kinds.md`
    - Gemini: `references/gemini-credential-kinds.md`
-4. Render the selected command template: `project.credentials.<tool>.add` for the project lane or `credentials.<tool>.add` for the plain agent-definition lane.
+4. Render the selected command template: `project.credentials.<tool>.add` for the project lane or `internals.native-agent.credentials.<tool>.add` for the direct native-agent lane.
 5. Run the rendered `argv` only if there are no blockers.
 6. Report the created credential name, written env vars, and written auth-file paths returned by the command.
 
@@ -27,7 +27,7 @@ Use the matching CLI-owned template, then run its rendered `argv`:
 
 ```text
 <chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.add --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id credentials.<tool>.add --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.credentials.<tool>.add --intent '<json>'
 ```
 
 Use `show --id <template-id>` for the authoritative tool-specific fields, clear rules, and conflicts.

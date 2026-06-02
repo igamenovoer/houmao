@@ -59,7 +59,11 @@ def templates() -> list[CommandTemplate]:
     def _root_fields(family: str) -> tuple[TemplateField, ...]:
         """Return root-selector fields for one mailbox family."""
 
-        return (mailbox_root_field,) if family == "mailbox" else ()
+        if family == "mailbox":
+            return (mailbox_root_field,)
+        if family == "project.mailbox":
+            return (_project_dir_field(),)
+        return ()
 
     def _root_command_fields(*, family: str, verb: str) -> tuple[TemplateField, ...]:
         """Return fields for one root-level mailbox command."""
@@ -221,3 +225,15 @@ def templates() -> list[CommandTemplate]:
             )
         )
     return templates
+
+
+def _project_dir_field() -> TemplateField:
+    """Return the optional project group selector field."""
+
+    return _f(
+        "project_dir",
+        "--project-dir",
+        "Human-facing project directory.",
+        value_type="path",
+        argv_insert_index=2,
+    )

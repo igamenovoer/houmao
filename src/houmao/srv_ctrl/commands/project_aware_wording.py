@@ -88,6 +88,8 @@ def describe_overlay_root_selection_source(
 ) -> str:
     """Describe how one invocation selected its overlay root."""
 
+    if overlay_root_source == "project_dir":
+        return "Selected overlay root from the group-level `--project-dir` project directory."
     if overlay_root_source == "env":
         return "Selected overlay root from `HOUMAO_PROJECT_OVERLAY_DIR`."
     if overlay_root_source == "discovered":
