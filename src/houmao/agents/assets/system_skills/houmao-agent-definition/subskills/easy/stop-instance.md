@@ -26,5 +26,5 @@ Use this subskill only when the user wants to stop one project managed agent thr
 
 - Do not guess which project managed agent the user meant.
 - Do not stop from partial name inference.
-- Do not route project stop through `agents stop`.
+- Do not route project stop through generic selected-agent lifecycle unless the user asks for broader live-agent control; use `agents single --agent-name <name> stop` only for the canonical shared-registry lifecycle surface.
 - Do not combine stop with cleanup unless the user explicitly asks for cleanup after stop.

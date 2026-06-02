@@ -20,14 +20,31 @@ The CLI reference SHALL include a page for `houmao-mgr` documenting its active p
 
 The CLI reference SHALL NOT document top-level `houmao-mgr credentials`, top-level `houmao-mgr brains`, or top-level `houmao-mgr server` command groups as maintained public manager surfaces.
 
+The CLI reference SHALL document `houmao-mgr agents` as a namespace with explicit `global`, `single`, `self`, and `external` scopes. It SHALL NOT document direct root-level `houmao-mgr agents launch`, `houmao-mgr agents mail`, `houmao-mgr agents gateway`, or similar direct agent action paths as maintained public command paths.
+
 The CLI reference SHALL make the major nested managed-agent, project, and internal command families discoverable either inline or through dedicated linked pages. At minimum, that coverage SHALL include:
 
-- `agents launch`, `join`, `list`, `state`, `prompt`, `stop`, `interrupt`, and `relaunch`,
-- `agents turn`,
-- `agents gateway` (including `tui` and `mail-notifier` subgroups),
-- `agents mail`,
-- `agents mailbox`,
-- `agents cleanup`,
+- `agents global list`,
+- `agents single --agent-id <id>` and `agents single --agent-name <name>` group-level selectors,
+- `agents single state`, `prompt`, `stop`, `interrupt`, and `relaunch`,
+- `agents single turn`,
+- `agents single gateway` including `tui`, `mail-notifier`, and `reminders` subgroups,
+- `agents single mail`,
+- `agents single mailbox`,
+- `agents single memory`,
+- `agents single cleanup`,
+- `agents self join`,
+- `agents self identity`,
+- `agents self state`,
+- `agents self prompt`,
+- `agents self interrupt`,
+- `agents self relaunch`,
+- `agents self turn`,
+- `agents self gateway`,
+- `agents self mail`,
+- `agents self mailbox`,
+- `agents self memory`,
+- `agents external register`, `list`, `get`, `verify`, and `remove`,
 - `project --project-dir`,
 - `project agents`,
 - `project credentials`,
@@ -38,14 +55,30 @@ The CLI reference SHALL make the major nested managed-agent, project, and intern
 - `internals native-agent credentials`,
 - `internals native-agent brain build`.
 
-When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, and it SHALL explain:
+When the CLI reference documents `agents global`, it SHALL explain that global commands operate on no individual agent or on multiple local managed agents as a registry/fleet. It SHALL explain that `agents global` does not target exactly one selected agent and does not use `--agent-id` or `--agent-name`.
 
-- the selector rules for explicit targeting versus current-session targeting inside the owning managed tmux session,
+When the CLI reference documents `agents single`, it SHALL explain that one-agent operations use a group-level `--agent-id <id>` or `--agent-name <name>` selector and SHALL NOT use current-session fallback.
+
+When the CLI reference documents `agents single`, it SHALL explain that selected-agent lifecycle controls such as direct `prompt`, `interrupt`, `stop`, `relaunch`, and `cleanup` belong to `single`. It SHALL explain that `single relaunch` has broad selected-agent lifecycle authority, including stopped relaunchable-record revival and degraded/stale active-record recovery where supported.
+
+When the CLI reference documents `agents self`, it SHALL explain that `self join` adopts the caller's current tmux session into Houmao management as one local managed-agent identity, and that other self commands resolve the target from the caller's current managed tmux session without `--agent-id`, `--agent-name`, or `--current-session`.
+
+When the CLI reference documents `agents self`, it SHALL explain that `self` is not a selector-mode alias for `agents single`. It SHALL document `agents self prompt`, `agents self interrupt`, and `agents self relaunch` as current-session commands.
+
+When the CLI reference documents `agents self relaunch`, it SHALL explain that the command refreshes only the active tmux-backed surface for the caller's current managed session. It SHALL state that selected-agent stopped-record revival and degraded/stale active-record recovery remain under `agents single --agent-id <id> relaunch` or `agents single --agent-name <name> relaunch`.
+
+When the CLI reference documents `agents self`, it SHALL explain that `agents self stop` and `agents self cleanup` are not maintained public paths.
+
+When the CLI reference documents `agents external`, it SHALL explain that external commands bring external agents into Houmao's shared registry as remotely owned or communication-only references, and that lifecycle management for those external agents is not controlled by this user's `houmao-mgr`.
+
+When the CLI reference documents `agents single mail` and `agents self mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, and it SHALL explain:
+
+- the selector rules for explicit single-agent targeting versus current-session self targeting,
 - the structured `resolve-live` result contract for current mailbox discovery, including the returned mailbox binding and optional `gateway.base_url`,
 - that mailbox-specific shell export is not part of the supported `resolve-live` contract,
 - the authority-aware result semantics that distinguish verified execution from non-authoritative TUI submission fallback.
 
-When the CLI reference documents `agents gateway`, that coverage SHALL include the `tui` subgroup (`state`, `history`, `watch`, `note-prompt`) and the `mail-notifier` subgroup (`status`, `enable`, `disable`) with full option tables and descriptions.
+When the CLI reference documents gateway commands, that coverage SHALL include the `tui` subgroup (`state`, `history`, `watch`, `note-prompt`), the `mail-notifier` subgroup (`status`, `enable`, `disable`), and the `reminders` subgroup (`list`, `get`, `create`, `set`, `remove`) with full option tables and descriptions for the maintained single and self paths.
 
 The internal native-agent brain-build options table in the CLI reference SHALL reflect the current live CLI flag names retained by the internal build surface, including `--preset`, `--setup`, and `--auth` when those inputs remain supported. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
@@ -57,24 +90,40 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project s
 - **AND THEN** they do not find top-level `credentials`, top-level `brains`, or `server` documented as maintained public manager command groups
 - **AND THEN** the CLI reference does not present removed or outdated project group names as the supported public project surface
 
+#### Scenario: Reader sees explicit agents scopes
+- **WHEN** a reader opens the `houmao-mgr agents` reference
+- **THEN** the page presents `agents global`, `agents single`, `agents self`, and `agents external` as the maintained agent scopes
+- **AND THEN** it does not present direct root-level `agents launch`, `agents gateway`, `agents mail`, or `agents turn` as maintained public paths
+
+#### Scenario: Reader sees agents scope cardinality rules
+- **WHEN** a reader opens the `houmao-mgr agents` reference
+- **THEN** the page explains that `agents global` is for zero-or-many local managed-agent operations, `agents single` is for exactly one explicitly selected local managed agent, and `agents self` is for the one local managed agent held by the caller's current tmux session
+- **AND THEN** the page explains that `agents external` manages external-agent registry/reference onboarding without local lifecycle authority
+
 #### Scenario: Reader can discover internal brain and credential command families
 - **WHEN** a reader looks up `houmao-mgr` command groups in the CLI reference
 - **THEN** they find an `internals` section that points to `docs/reference/cli/internals.md`
 - **AND THEN** that internals reference documents direct native-agent credentials and brain build commands
 
 #### Scenario: Reader can discover nested managed-agent and project command families
-- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project`, `project mailbox`, or `admin cleanup`
+- **WHEN** a reader needs details for `agents global list`, `agents single gateway`, `agents single turn`, `agents single mail`, `agents self join`, `agents self relaunch`, `agents self gateway`, `agents self mail`, `agents self turn`, `agents external register`, `project agents`, `project credentials`, `project`, `project mailbox`, or `admin cleanup`
 - **THEN** the CLI reference provides a direct path to formal reference coverage for those nested families
 - **AND THEN** the reader does not need to reconstruct those command surfaces only from source code or scattered prose pages
 
-#### Scenario: Reader can find `agents mail resolve-live` and targeting rules
-- **WHEN** a reader looks up `houmao-mgr agents mail`
-- **THEN** the CLI reference documents `resolve-live`, `list`, `read`, `archive`, and the other mailbox follow-up commands in that family
-- **AND THEN** the reader can see when omitted selectors resolve the current managed tmux session and when explicit `--agent-id` or `--agent-name` is required
+#### Scenario: Reader sees single versus self authority boundary
+- **WHEN** a reader looks up selected-agent lifecycle commands such as `stop` or `relaunch`
+- **THEN** the CLI reference shows them under `houmao-mgr agents single --agent-id <id> ...` and `houmao-mgr agents single --agent-name <name> ...`
+- **AND THEN** it explains that `houmao-mgr agents self relaunch` is current-session active refresh only, not selected-agent stopped/degraded recovery
+- **AND THEN** it does not present `houmao-mgr agents self stop` or `houmao-mgr agents self cleanup` as maintained public paths
+
+#### Scenario: Reader can find explicit single and self mail targeting rules
+- **WHEN** a reader looks up managed-agent mail commands
+- **THEN** the CLI reference documents `resolve-live`, `list`, `read`, `archive`, and the other mailbox follow-up commands in the single and self mail families
+- **AND THEN** the reader can see that `agents single mail` uses a group-level explicit selector while `agents self mail` resolves the current managed tmux session
 - **AND THEN** the page explains that `resolve-live` returns structured mailbox data rather than mailbox-specific shell export
 
-#### Scenario: Reader can find `agents mail` result-strength guidance
-- **WHEN** a reader looks up `houmao-mgr agents mail` result behavior
+#### Scenario: Reader can find managed-agent mail result-strength guidance
+- **WHEN** a reader looks up managed-agent mail result behavior
 - **THEN** the CLI reference explains when the command returns verified authoritative results versus non-authoritative submission-only fallback
 - **AND THEN** the page points the reader to the supported verification paths for non-authoritative outcomes
 
@@ -93,7 +142,7 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project s
 - **AND THEN** the command does not fail with an unrecognized option error
 
 #### Scenario: Reader finds gateway tui and mail-notifier subgroups documented
-- **WHEN** a reader looks up `houmao-mgr agents gateway`
+- **WHEN** a reader looks up managed-agent gateway commands
 - **THEN** the CLI reference includes `tui state`, `tui history`, `tui watch`, `tui note-prompt` with option tables
 - **AND THEN** the CLI reference includes `mail-notifier status`, `mail-notifier enable`, `mail-notifier disable` with option tables
 
@@ -200,8 +249,8 @@ Each completed page SHALL follow the style of `docs/reference/cli/admin-cleanup.
 - **THEN** they find complete documentation for `submit`, `status`, `events`, `stdout`, and `stderr` with option tables
 - **AND THEN** the page is not truncated mid-content
 
-### Requirement: CLI reference documents the `agents gateway reminders` subgroup
-The CLI reference SHALL document `houmao-mgr agents gateway reminders` as a first-class subgroup of `agents gateway`.
+### Requirement: CLI reference documents the scoped `agents ... gateway reminders` subgroup
+The CLI reference SHALL document `houmao-mgr agents single ... gateway reminders` and `houmao-mgr agents self gateway reminders` as first-class subgroups of the scoped gateway command family.
 
 At minimum, that coverage SHALL include:
 
@@ -215,20 +264,20 @@ The `agents-gateway` reference page SHALL provide full option tables and brief u
 
 That reminder coverage SHALL explain:
 
-- the same managed-agent selector rules used by the rest of `agents gateway`,
+- the same scoped selected-agent or current-session targeting rules used by the rest of the gateway family,
 - that reminder commands work through pair-managed authority when `--pair-port` is used,
 - that ranking remains numeric,
 - that `--before-all` places a reminder ahead of the current minimum ranking,
 - that `--after-all` places a reminder after the current maximum ranking,
 - that direct `/v1/reminders` remains the lower-level gateway contract underneath the CLI.
 
-#### Scenario: Reader finds all reminder subcommands from the `agents gateway` CLI reference
+#### Scenario: Reader finds all reminder subcommands from the scoped gateway CLI reference
 - **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
 - **THEN** the page documents `reminders list`, `reminders get`, `reminders create`, `reminders set`, and `reminders remove`
-- **AND THEN** the reminder subgroup appears alongside the other current `agents gateway` operator surfaces rather than as an undocumented exception
+- **AND THEN** the reminder subgroup appears alongside the other current scoped gateway operator surfaces rather than as an undocumented exception
 
 #### Scenario: Reader can understand ranking placement flags from the CLI reference
-- **WHEN** a reader looks up `houmao-mgr agents gateway reminders create` or `set`
+- **WHEN** a reader looks up scoped `houmao-mgr agents single ... gateway reminders create|set` or `houmao-mgr agents self gateway reminders create|set`
 - **THEN** the option tables and prose explain `--ranking`, `--before-all`, and `--after-all`
 - **AND THEN** the page makes clear that ranking is numeric and that the convenience flags resolve to concrete numeric positions relative to the live reminder set
 
@@ -359,7 +408,7 @@ That page SHALL describe the packaged skill as the Houmao-owned entry point for 
 
 - `houmao-mgr mailbox ...`
 - `houmao-mgr project mailbox ...`
-- `houmao-mgr agents mailbox ...`
+- `houmao-mgr agents single --agent-id <id> mailbox ...` or `houmao-mgr agents single --agent-name <name> mailbox ...`
 
 That page SHALL explain that `houmao-mailbox-mgr` covers filesystem mailbox root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding for existing local managed agents.
 
@@ -383,12 +432,11 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `hou
 
 That page SHALL describe the packaged skill as the Houmao-owned entry point for managed-agent instance lifecycle guidance across:
 
-- `agents launch`
 - `project agents launch`
-- `agents join`
-- `agents list`
-- `agents stop`
-- `agents cleanup session|logs`
+- `agents self join`
+- `agents global list`
+- `agents single ... stop`
+- `agents single ... cleanup session|logs`
 
 That page SHALL explain that `houmao-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, `houmao-agent-gateway` becomes the canonical gateway-specific skill, and `houmao-project-mgr` owns project-scoped `project agents list|get|stop` plus project launch-profile authoring guidance.
 
@@ -418,16 +466,16 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `hou
 
 That page SHALL describe the packaged skill as the Houmao-owned entry point for communicating with already-running managed agents across:
 
-- `agents prompt`
-- `agents interrupt`
-- `agents gateway prompt|interrupt`
-- `agents gateway send-keys`
-- `agents gateway tui state|history|note-prompt`
-- `agents mail resolve-live`
+- `agents single ... prompt` and `agents self prompt`
+- `agents single ... interrupt` and `agents self interrupt`
+- `agents single ... gateway prompt|interrupt` and `agents self gateway prompt|interrupt`
+- `agents single ... gateway send-keys` and `agents self gateway send-keys`
+- `agents single ... gateway tui state|history|note-prompt` and `agents self gateway tui state|history|note-prompt`
+- `agents single ... mail resolve-live` and `agents self mail resolve-live`
 
 That page SHALL explain that the packaged skill routes by communication intent and not by one hardcoded transport path.
 
-That page SHALL explain that ordinary prompting should prefer the managed-agent seam, that mailbox discovery and mailbox routing begin from `agents mail resolve-live`, and that ordinary mailbox operations belong to `houmao-agent-email-comms` while notifier-round mailbox workflow belongs to `houmao-process-emails-via-gateway`.
+That page SHALL explain that ordinary prompting should prefer the managed-agent seam, that mailbox discovery and mailbox routing begin from scoped `agents single ... mail resolve-live` or `agents self mail resolve-live`, and that ordinary mailbox operations belong to `houmao-agent-email-comms` while notifier-round mailbox workflow belongs to `houmao-process-emails-via-gateway`.
 
 That page SHALL explain that gateway lifecycle, current-session discovery, notifier control, and reminder guidance belong to `houmao-agent-gateway`.
 
@@ -444,25 +492,23 @@ That page SHALL explain that transport-specific mailbox behavior remains in the 
 - **AND THEN** it does not imply that those paths are interchangeable shortcuts
 
 ### Requirement: Managed-launch CLI reference documents `--workdir` and source-project pinning
-The CLI reference pages that document `houmao-mgr agents launch`, `houmao-mgr agents join`, and `houmao-mgr project agents launch` SHALL describe `--workdir` as the current public runtime-cwd flag.
+The CLI reference pages that document `houmao-mgr agents self join` and `houmao-mgr project agents launch` SHALL describe `--workdir` as the current public runtime-cwd flag when that surface accepts it.
 
 That coverage SHALL describe the default behavior as using the invocation cwd for launch-time runtime workdir and tmux-pane current path for join-time adopted workdir when `--workdir` is omitted.
 
 That coverage SHALL explain that `--workdir` sets the launched or adopted agent cwd and does not retarget launch source project resolution.
 
-For `agents launch`, that coverage SHALL explain that when launch originates from a Houmao project, source overlay selection and overlay-local runtime/jobs roots remain pinned to that source project rather than following `--workdir`.
-
 For `project agents launch`, that coverage SHALL explain that the selected easy-project overlay and specialist source remain authoritative even when `--workdir` points somewhere else.
 
-That coverage SHALL NOT present `--working-directory` as part of the current public CLI for `agents join`.
+That coverage SHALL NOT present `--working-directory` as part of the current public CLI for `agents self join`.
 
 #### Scenario: Reader sees `--workdir` on the managed launch surfaces
-- **WHEN** a reader opens the CLI reference for `houmao-mgr agents launch`, `houmao-mgr agents join`, or `houmao-mgr project agents launch`
+- **WHEN** a reader opens the CLI reference for `houmao-mgr agents self join` or `houmao-mgr project agents launch`
 - **THEN** the documented runtime-cwd flag is `--workdir`
 - **AND THEN** the reference does not describe `--working-directory` as the current join flag
 
 #### Scenario: Reader understands source-project pinning for managed launch
-- **WHEN** a reader looks up `houmao-mgr agents launch --workdir`
+- **WHEN** a reader looks up `houmao-mgr project agents launch --workdir`
 - **THEN** the reference explains that `--workdir` changes the launched agent cwd
 - **AND THEN** it explains that source overlay/runtime/jobs resolution remains pinned to the launch source project when one exists
 
@@ -578,24 +624,22 @@ That coverage SHALL explain that single-tool JSON output keeps the scalar instal
 - **THEN** the current command shape does not present `--set` or `--default` as a supported `system-skills install` option
 - **AND THEN** the reference explains that omitting both `--skill-set` and `--skill` is the supported way to request CLI-default selection
 
-### Requirement: CLI reference documents tmux-session targeting for `agents gateway`
-The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document `--target-tmux-session <tmux-session-name>` as an explicit selector for single-target `houmao-mgr agents gateway ...` commands.
+### Requirement: CLI reference documents scoped gateway targeting
+The CLI reference pages `docs/reference/cli/agents-gateway.md` and `docs/reference/cli.md` SHALL document explicit selected-agent gateway commands as `houmao-mgr agents single --agent-id <id> gateway ...` or `houmao-mgr agents single --agent-name <name> gateway ...`.
 
-That documentation SHALL describe the selector as mutually exclusive with `--agent-id`, `--agent-name`, and `--current-session`. It SHALL also document `--pair-port` as the pair-authority override name for explicit `--agent-id` and `--agent-name` targeting.
+That documentation SHALL describe `--pair-port` as the pair-authority override for the `agents single` gateway surface. It SHALL also explain that `--pair-port` is not the same thing as a gateway listener port override such as lower-level `--gateway-port`.
 
-The docs SHALL state that `--pair-port` is unsupported with tmux-session targeting because the command follows the addressed session's manifest-declared authority after local resolution. They SHALL also explain that `--pair-port` is not the same thing as a gateway listener port override such as lower-level `--gateway-port`.
-
-The `agents-gateway` reference SHALL distinguish outside-tmux `--target-tmux-session` targeting from inside-tmux current-session targeting and SHALL explain when each mode is appropriate.
+The `agents-gateway` reference SHALL distinguish outside-tmux selected-agent targeting through `agents single` from inside-tmux current-session targeting through `agents self`.
 
 #### Scenario: CLI reference page lists the tmux-session selector and targeting boundary
 - **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
-- **THEN** the option tables include `--target-tmux-session`
-- **AND THEN** the page explains that `--target-tmux-session` is for explicit outside-tmux targeting while `--current-session` is for the owning tmux session
+- **THEN** the option tables and synopsis show `agents single --agent-id <id> gateway ...`, `agents single --agent-name <name> gateway ...`, and `agents self gateway ...`
+- **AND THEN** the page explains that `agents single` is for explicit outside-tmux targeting while `agents self` is for the owning tmux session
 
 #### Scenario: Top-level CLI guidance explains the port rule for tmux-session targeting
 - **WHEN** a reader checks `docs/reference/cli.md` for gateway targeting rules
 - **THEN** the page explains that `--pair-port` remains supported with `--agent-id` or `--agent-name`
-- **AND THEN** the page explains that `--pair-port` is rejected with `--target-tmux-session` because tmux-session targeting follows manifest-declared authority
+- **AND THEN** the page explains that `--pair-port` belongs to `agents single` and is not exposed by `agents self`
 
 #### Scenario: Gateway CLI reference distinguishes pair-authority port from gateway listener port
 - **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
@@ -620,11 +664,11 @@ The CLI reference SHALL extend the `houmao-mgr project` command-shape tree so th
 
 The CLI reference SHALL document `houmao-mgr project profile create|list|get|remove` as the easy-lane reusable specialist-backed birth-time launch-profile administration surface, and SHALL document `houmao-mgr project agents launch --profile <name>` as the project-profile-backed instance launch path with the `--profile`/`--specialist` mutual exclusion rule.
 
-The CLI reference SHALL document `houmao-mgr agents launch --launch-profile <name>` as the explicit-launch-profile-backed managed launch path, and SHALL document the `--launch-profile`/`--agents` mutual exclusion rule. The reference SHALL state that the effective provider defaults from the resolved profile source when that source already determines one tool family, and that supplying `--provider` together with `--launch-profile` is accepted only when it matches the resolved source.
+The CLI reference SHALL document `houmao-mgr project agents launch --profile <name>` as the project-profile-backed managed launch path, and SHALL document the `--profile`/`--specialist` mutual exclusion rule.
 
 The CLI reference SHALL describe the launch-time effective-input precedence as: source recipe defaults → launch-profile defaults → direct CLI overrides, and SHALL state that direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` do not rewrite the stored launch profile.
 
-The CLI reference SHALL state that the launch-profile-backed launch resolution applies through the same shared model whether the operator started from an project profile through `project agents launch --profile` or from an explicit launch profile through `agents launch --launch-profile`.
+The CLI reference SHALL state that launch-profile-backed birth is project-scoped through `project agents launch --profile`, while low-level explicit launch-dossier authoring remains under `internals native-agent launch-dossiers`.
 
 The CLI reference SHALL link to `docs/getting-started/launch-profiles.md` for the shared conceptual model rather than restating that model on the CLI reference page itself.
 
@@ -648,11 +692,11 @@ The CLI reference SHALL link to `docs/getting-started/launch-profiles.md` for th
 - **AND THEN** the page documents `project agents launch --profile <name>`
 - **AND THEN** the page documents the `--profile`/`--specialist` mutual exclusion rule on `instance launch`
 
-#### Scenario: Reader sees `agents launch --launch-profile` documented with its precedence rules
+#### Scenario: Reader sees project profile launch documented with its precedence rules
 
-- **WHEN** a reader looks up `houmao-mgr agents launch` in the CLI reference
-- **THEN** the page documents `--launch-profile <name>` as the explicit-launch-profile-backed launch input
-- **AND THEN** the page documents the `--launch-profile`/`--agents` mutual exclusion rule
+- **WHEN** a reader looks up `houmao-mgr project agents launch` in the CLI reference
+- **THEN** the page documents `--profile <name>` as the project-profile-backed launch input
+- **AND THEN** the page documents the `--profile`/`--specialist` mutual exclusion rule
 - **AND THEN** the page documents the precedence order as recipe defaults, then launch-profile defaults, then direct CLI overrides
 - **AND THEN** the page states that direct CLI overrides such as `--agent-name`, `--auth`, and `--workdir` do not rewrite the stored launch profile
 
@@ -677,16 +721,16 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `hou
 
 That page SHALL describe the packaged skill as the Houmao-owned entry point for gateway-focused work across:
 
-- `agents gateway attach|detach|status`
-- `agents gateway reminders list|get|create|set|remove`
-- `agents gateway mail-notifier status|enable|disable`
+- `agents single ... gateway attach|detach|status` and `agents self gateway attach|detach|status`
+- `agents single ... gateway reminders list|get|create|set|remove` and `agents self gateway reminders list|get|create|set|remove`
+- `agents single ... gateway mail-notifier status|enable|disable` and `agents self gateway mail-notifier status|enable|disable`
 - current-session versus explicit managed-agent gateway targeting
 - managed-agent gateway reminder proxy routes such as `/houmao/agents/{agent_ref}/gateway/reminders...` when the task is already operating through pair-managed HTTP
 - direct live gateway route families such as `/v1/status`, `/v1/reminders`, and `/v1/mail-notifier` when the exact live `gateway.base_url` is already known from supported discovery
 
-That page SHALL explain that the packaged gateway skill prefers `houmao-mgr agents gateway ...` and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
+That page SHALL explain that the packaged gateway skill prefers scoped `houmao-mgr agents single ... gateway ...`, `houmao-mgr agents self gateway ...`, and managed-agent `/houmao/agents/{agent_ref}/gateway...` routes when those higher-level surfaces exist.
 
-That page SHALL explain that reminder work uses `agents gateway reminders ...` or managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when those higher-level surfaces already satisfy the task, that direct `/v1/reminders` remains the lower-level live contract, that reminder state remains in-memory and non-durable across gateway restart, and that effective reminder selection still follows smallest ranking value rather than independent wakeup-job ownership.
+That page SHALL explain that reminder work uses scoped `agents single ... gateway reminders ...`, `agents self gateway reminders ...`, or managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when those higher-level surfaces already satisfy the task, that direct `/v1/reminders` remains the lower-level live contract, that reminder state remains in-memory and non-durable across gateway restart, and that effective reminder selection still follows smallest ranking value rather than independent wakeup-job ownership.
 
 That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-agent-messaging` and the mailbox skill family rather than in `houmao-agent-gateway`.
 
@@ -697,14 +741,14 @@ That page SHALL explain that ordinary prompt/mail follow-up remains in `houmao-a
 
 #### Scenario: Reader sees the reminder boundary clearly
 - **WHEN** a reader opens the packaged gateway-skill section of `docs/reference/cli/system-skills.md`
-- **THEN** the page explains that current reminder control prefers `houmao-mgr agents gateway reminders ...` or the matching managed-agent reminder proxy when available and keeps direct live `/v1/reminders` as the lower-level contract
+- **THEN** the page explains that current reminder control prefers scoped `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, or the matching managed-agent reminder proxy when available and keeps direct live `/v1/reminders` as the lower-level contract
 - **AND THEN** it does not imply that reminders are durable across gateway restart
 
 ### Requirement: CLI reference documents managed-header controls on launch and launch-profile surfaces
 The `houmao-mgr` CLI reference SHALL document the managed-header flags on the relevant launch and launch-profile commands.
 
 At minimum, that coverage SHALL include:
-- `houmao-mgr agents launch --managed-header|--no-managed-header`
+- `houmao-mgr project agents launch --managed-header|--no-managed-header`
 - `houmao-mgr internals native-agent launch-dossiers add --managed-header|--no-managed-header`
 - `houmao-mgr internals native-agent launch-dossiers set --managed-header|--no-managed-header|--clear-managed-header`
 - `houmao-mgr project profile create --managed-header|--no-managed-header`
@@ -717,7 +761,7 @@ The CLI reference SHALL explain that:
 - omitted launch-time and launch-profile policy falls back to the default enabled managed-header behavior.
 
 #### Scenario: Reader can find the managed-header flags in the CLI reference
-- **WHEN** a reader looks up `houmao-mgr agents launch`, `internals native-agent launch-dossiers`, or the relevant `project` commands
+- **WHEN** a reader looks up `houmao-mgr project agents launch`, `internals native-agent launch-dossiers`, or the relevant `project` commands
 - **THEN** the CLI reference documents the managed-header flags and their meaning
 - **AND THEN** the page does not require the reader to infer the new behavior from source code or changelog text
 
@@ -728,7 +772,7 @@ The CLI reference SHALL explain that:
 
 ### Requirement: CLI reference removes retired `--yolo` launch option from all pages
 
-The CLI reference SHALL NOT present `--yolo` as a supported option on `houmao-mgr agents launch`, `houmao-mgr project agents launch`, or any other live launch surface. Any remaining `--yolo` references in `docs/reference/cli/houmao-mgr.md`, `docs/reference/cli/agents-gateway.md`, `docs/reference/cli/system-skills.md`, or other CLI reference pages SHALL be removed during this resync pass.
+The CLI reference SHALL NOT present `--yolo` as a supported option on `houmao-mgr project agents launch` or any other live launch surface. Any remaining `--yolo` references in `docs/reference/cli/houmao-mgr.md`, `docs/reference/cli/agents-gateway.md`, `docs/reference/cli/system-skills.md`, or other CLI reference pages SHALL be removed during this resync pass.
 
 The CLI reference SHALL state that prompt-mode posture is now controlled exclusively through `launch.prompt_mode` in stored profiles (`unattended` or `as_is`) and the corresponding launch-profile flags, not through a separate `--yolo` toggle.
 
@@ -748,7 +792,7 @@ The CLI reference SHALL state that prompt-mode posture is now controlled exclusi
 
 The `houmao-mgr` CLI reference SHALL document `--model` as a unified model-selection flag on the relevant managed launch and launch-profile commands.
 
-At minimum, that coverage SHALL include the launch surfaces that accept model selection directly (`houmao-mgr agents launch`, `houmao-mgr project specialist create`, `houmao-mgr project agents launch`, and the corresponding `internals native-agent launch-dossiers` administration commands when those commands accept stored model defaults).
+At minimum, that coverage SHALL include the launch surfaces that accept model selection directly (`houmao-mgr project specialist create`, `houmao-mgr project agents launch`, and the corresponding `internals native-agent launch-dossiers` administration commands when those commands accept stored model defaults).
 
 That coverage SHALL describe `--model` as a tool-agnostic selector that resolves to the appropriate per-tool model identifier through the supported provider mapping, and SHALL state that `--model` does not bypass tool authentication or provider configuration.
 
@@ -756,7 +800,7 @@ That coverage SHALL link to the underlying tool-specific model identifiers docum
 
 #### Scenario: Reader finds the unified `--model` flag on the launch surfaces
 
-- **WHEN** a reader looks up `houmao-mgr agents launch` or `project agents launch`
+- **WHEN** a reader looks up `project agents launch`
 - **THEN** the CLI reference documents `--model` as a current option
 - **AND THEN** the page explains that `--model` is a tool-agnostic selector resolved through the provider mapping
 
@@ -765,9 +809,9 @@ That coverage SHALL link to the underlying tool-specific model identifiers docum
 - **WHEN** a reader looks up the `--model` flag
 - **THEN** the CLI reference states that `--model` does not bypass tool authentication or provider configuration
 
-### Requirement: CLI reference for `agents mail` reflects the unified email-comms skill boundary
+### Requirement: CLI reference for scoped `agents ... mail` reflects the unified email-comms skill boundary
 
-The CLI reference page `docs/reference/cli/agents-mail.md` SHALL describe the current `agents mail` command surface as the operator-facing mailbox follow-up family that pairs with the unified `houmao-agent-email-comms` packaged system skill.
+The CLI reference page `docs/reference/cli/agents-mail.md` SHALL describe the current `agents single ... mail` and `agents self mail` command surfaces as the operator-facing mailbox follow-up families that pair with the unified `houmao-agent-email-comms` packaged system skill.
 
 That page SHALL state that ordinary shared-mailbox operations and no-gateway fallback guidance live in `houmao-agent-email-comms`, while notifier-driven unread-mail rounds live in `houmao-process-emails-via-gateway`. It SHALL NOT continue to describe the pre-unification split-mailbox skill names as current packaged skills.
 
@@ -785,7 +829,7 @@ That page SHALL explain that:
 #### Scenario: agents-mail page references the unified email-comms skill
 
 - **WHEN** a reader opens `docs/reference/cli/agents-mail.md`
-- **THEN** the page describes `houmao-agent-email-comms` as the unified ordinary mailbox-operations skill paired with the `agents mail` family
+- **THEN** the page describes `houmao-agent-email-comms` as the unified ordinary mailbox-operations skill paired with the scoped `agents single ... mail` and `agents self mail` families
 - **AND THEN** the page does not list the pre-unification split skill names as current
 
 #### Scenario: agents-mail subcommand list still matches the live CLI
@@ -846,7 +890,7 @@ The link SHALL be a direct cross-reference, not a tooltip or footnote, so a read
 
 #### Scenario: Reader can navigate from `--managed-header` flag coverage to the conceptual page
 
-- **WHEN** a reader looks up `--managed-header` or `--no-managed-header` on `agents launch` in the CLI reference
+- **WHEN** a reader looks up `--managed-header` or `--no-managed-header` on `project agents launch` in the CLI reference
 - **THEN** the page contains a direct link to `docs/reference/run-phase/managed-prompt-header.md`
 - **AND THEN** the link is presented inline with the flag coverage rather than only at the bottom of the page
 
@@ -862,13 +906,13 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL link to the n
 
 ### Requirement: CLI reference documents headless execution overrides on all supported prompt surfaces
 
-`docs/reference/cli/houmao-mgr.md` (and its child reference pages for `agents turn` and `agents gateway`) SHALL document the request-scoped headless execution overrides on every supported prompt submission CLI surface.
+`docs/reference/cli/houmao-mgr.md` (and its child reference pages for scoped `agents single/self turn` and `agents single/self gateway`) SHALL document the request-scoped headless execution overrides on every supported prompt submission CLI surface.
 
 At minimum the coverage SHALL include:
 
-- `houmao-mgr agents prompt`
-- `houmao-mgr agents turn submit`
-- `houmao-mgr agents gateway prompt`
+- `houmao-mgr agents single ... prompt` and `houmao-mgr agents self prompt`
+- `houmao-mgr agents single ... turn submit` and `houmao-mgr agents self turn submit`
+- `houmao-mgr agents single ... gateway prompt` and `houmao-mgr agents self gateway prompt`
 
 For each of those three surfaces the reference SHALL document:
 
@@ -881,18 +925,18 @@ For each of those three surfaces the reference SHALL document:
 - that Gemini reasoning levels are Houmao-documented presets which may map to multiple native Gemini settings together,
 - that operators who need finer native control should omit Houmao `--reasoning-level` and manage native tool config or env directly.
 
-#### Scenario: Reader finds headless overrides on agents prompt
-- **WHEN** a reader opens the `agents prompt` coverage inside `docs/reference/cli/houmao-mgr.md`
+#### Scenario: Reader finds headless overrides on scoped agents prompt
+- **WHEN** a reader opens the scoped `agents single ... prompt` or `agents self prompt` coverage inside `docs/reference/cli/houmao-mgr.md`
 - **THEN** the page documents `--model` and `--reasoning-level` as supported options
 - **AND THEN** the page states that those overrides apply to exactly the submitted prompt and never rewrite persistent launch-resolved state
 
-#### Scenario: Reader finds headless overrides on agents turn submit
-- **WHEN** a reader opens the `agents turn submit` coverage
+#### Scenario: Reader finds headless overrides on scoped agents turn submit
+- **WHEN** a reader opens the scoped `agents single ... turn submit` or `agents self turn submit` coverage
 - **THEN** the page documents `--model` and `--reasoning-level` as request-scoped overrides
 - **AND THEN** the page explains that those overrides apply only to the submitted turn
 
-#### Scenario: Reader finds headless overrides on agents gateway prompt
-- **WHEN** a reader opens the `agents gateway prompt` coverage
+#### Scenario: Reader finds headless overrides on scoped agents gateway prompt
+- **WHEN** a reader opens the scoped `agents single ... gateway prompt` or `agents self gateway prompt` coverage
 - **THEN** the page documents `--model` and `--reasoning-level` as request-scoped overrides
 - **AND THEN** the page explains that the overrides apply to exactly the addressed gateway prompt submission, including when that submission is queued through `submit_prompt`
 
@@ -972,7 +1016,7 @@ The `houmao-mgr` CLI reference SHALL document managed-header section flags on ev
 
 At minimum, the CLI reference SHALL document:
 
-- `--managed-header-section SECTION=STATE` on `houmao-mgr agents launch`,
+- `--managed-header-section SECTION=STATE` on `houmao-mgr project agents launch`,
 - `--managed-header-section SECTION=STATE` on `houmao-mgr internals native-agent launch-dossiers add`,
 - `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr internals native-agent launch-dossiers set`,
 - `--managed-header-section SECTION=STATE` on `houmao-mgr project profile create`,
@@ -982,7 +1026,7 @@ At minimum, the CLI reference SHALL document:
 The CLI reference SHALL list supported section names and states, and SHALL state each section's default, including that `task-reminder` and `mail-ack` default to disabled unless explicitly enabled.
 
 #### Scenario: Reader finds one-shot launch section flags
-- **WHEN** a reader opens the CLI reference for `houmao-mgr agents launch`
+- **WHEN** a reader opens the CLI reference for `houmao-mgr project agents launch`
 - **THEN** the reference documents `--managed-header-section SECTION=STATE`
 - **AND THEN** the reference describes it as a one-shot launch override that does not rewrite stored launch-profile state
 
@@ -997,8 +1041,8 @@ The CLI reference SHALL list supported section names and states, and SHALL state
 - **AND THEN** the reference lists `enabled` and `disabled` as supported states
 - **AND THEN** the reference states that `task-reminder` and `mail-ack` default to disabled
 
-### Requirement: CLI reference documents revised `agents mail` lifecycle commands
-When the CLI reference documents `agents mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
+### Requirement: CLI reference documents revised scoped `agents ... mail` lifecycle commands
+When the CLI reference documents scoped `agents single ... mail` and `agents self mail`, that coverage SHALL include the current subcommands `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
 That coverage SHALL explain:
 
@@ -1013,7 +1057,7 @@ That coverage SHALL explain:
 The CLI reference SHALL NOT present `check` or `mark-read` as the current mailbox lifecycle workflow for processed mail after this change.
 
 #### Scenario: Reader can find archive and move commands
-- **WHEN** a reader looks up `houmao-mgr agents mail`
+- **WHEN** a reader looks up `houmao-mgr agents single ... mail` or `houmao-mgr agents self mail`
 - **THEN** the CLI reference documents `archive` and `move` as supported mailbox lifecycle commands
 - **AND THEN** the reader can tell that archive is the common processed-mail completion command
 
@@ -1023,12 +1067,12 @@ The CLI reference SHALL NOT present `check` or `mark-read` as the current mailbo
 - **AND THEN** it explains that `read` returns the message and marks it read
 
 ### Requirement: CLI reference documents gateway mail-notifier mode
-The CLI reference page for `houmao-mgr agents gateway` SHALL document the mail-notifier notification mode option on `mail-notifier enable`.
+The CLI reference page for scoped `houmao-mgr agents single ... gateway` and `houmao-mgr agents self gateway` SHALL document the mail-notifier notification mode option on `mail-notifier enable`.
 
 That documentation SHALL list supported mode values `any_inbox` and `unread_only`, SHALL state that omitted mode defaults to `any_inbox`, and SHALL explain that `unread_only` only wakes for unread unarchived inbox mail.
 
 #### Scenario: Reader finds mail-notifier mode option
-- **WHEN** a reader opens the `agents gateway mail-notifier enable` CLI reference
+- **WHEN** a reader opens the scoped `agents single ... gateway mail-notifier enable` or `agents self gateway mail-notifier enable` CLI reference
 - **THEN** the option table documents the notifier mode option and its allowed values
 - **AND THEN** the prose states that `any_inbox` is the default
 
@@ -1177,20 +1221,20 @@ The `system-skills` reference SHALL explain that Gemini's effective home may be 
 - **AND THEN** the page describes the projection location information reported by plain install/status/uninstall output
 
 ### Requirement: CLI reference documents relaunch chat-session selection
-The CLI reference SHALL document the `houmao-mgr agents relaunch` relaunch chat-session selector.
+The CLI reference SHALL document the `houmao-mgr agents single --agent-id <id> relaunch` and `houmao-mgr agents single --agent-name <name> relaunch` chat-session selectors.
 
 That documentation SHALL include:
 
 - supported modes `new`, `tool_last_or_new`, and `exact`,
 - the provider-native id requirement for `exact`,
 - default fresh-chat behavior when the selector is omitted,
-- examples for current-session relaunch and explicit `--agent-id` or `--agent-name` relaunch,
+- examples for current-session active refresh through `agents self relaunch` and selected-agent relaunch through explicit `--agent-id` or `--agent-name`,
 - a note that native headless relaunch applies the selector on the next managed prompt.
 
-The CLI reference SHALL NOT present relaunch continuation as a build-time `agents launch` option.
+The CLI reference SHALL NOT present relaunch continuation as a build-time launch option.
 
 #### Scenario: Reader finds latest-chat relaunch example
-- **WHEN** a reader looks up `houmao-mgr agents relaunch`
+- **WHEN** a reader looks up `houmao-mgr agents single ... relaunch`
 - **THEN** the CLI reference includes an example that relaunches a managed agent with relaunch chat-session mode `tool_last_or_new`
 - **AND THEN** the example uses the supported Houmao relaunch command rather than a raw provider CLI command
 
@@ -1206,20 +1250,20 @@ The CLI reference SHALL NOT present relaunch continuation as a build-time `agent
 
 ### Requirement: CLI reference documents degraded and stale recovery paths
 
-The CLI reference SHALL document degraded and stale recovery behavior in the `agents stop` and `agents relaunch` command descriptions. The descriptions SHALL state that these commands probe the target tmux session before acting and route through recovery helpers when the session is degraded or stale. The descriptions SHALL link to the dedicated degraded-stale recovery reference page.
+The CLI reference SHALL document degraded and stale recovery behavior in the `agents single ... stop` and `agents single ... relaunch` command descriptions. The descriptions SHALL state that these commands probe the target tmux session before acting and route through recovery helpers when the session is degraded or stale. The descriptions SHALL link to the dedicated degraded-stale recovery reference page.
 
 #### Scenario: Reader discovers recovery from CLI reference
 
-- **WHEN** a reader reads the `agents stop` or `agents relaunch` CLI description
+- **WHEN** a reader reads the `agents single ... stop` or `agents single ... relaunch` CLI description
 - **THEN** they see mention of the degraded/stale recovery path and a link to the dedicated recovery page
 
 ### Requirement: CLI reference documents cleanup purge-registry flag
 
-The CLI reference SHALL document the `agents cleanup session --purge-registry` flag in the cleanup command family. The description SHALL explain that this flag deletes the lifecycle record entirely (rather than retiring it) and is intended for confirmed broken active local authority after tmux inspection.
+The CLI reference SHALL document the `agents single ... cleanup session --purge-registry` flag in the cleanup command family. The description SHALL explain that this flag deletes the lifecycle record entirely (rather than retiring it) and is intended for confirmed broken active local authority after tmux inspection.
 
 #### Scenario: Reader understands purge-registry from CLI reference
 
-- **WHEN** a reader reads the `agents cleanup session` CLI description
+- **WHEN** a reader reads the `agents single ... cleanup session` CLI description
 - **THEN** they see `--purge-registry` documented with its destructive semantics and the condition that it requires confirmed broken authority
 
 ### Requirement: CLI reference describes unified agent-definition skill
@@ -1330,3 +1374,26 @@ The CLI reference SHALL include security guidance stating that remote passive-se
 - **WHEN** a reader copies an example using `--api-base-url`
 - **THEN** the surrounding documentation warns against exposing an unauthenticated passive-server on a public network
 - **AND THEN** it recommends trusted-channel deployment options for remote access
+
+### Requirement: CLI reference documents agents scoped migration examples
+The CLI reference SHALL include migration examples that map removed ambiguous `houmao-mgr agents ...` command paths to the maintained scoped paths.
+
+At minimum, the migration examples SHALL cover:
+
+- `houmao-mgr agents list` to `houmao-mgr agents global list`,
+- `houmao-mgr agents stop --agent-id <id>` to `houmao-mgr agents single --agent-id <id> stop`,
+- `houmao-mgr agents prompt --agent-name <name>` to `houmao-mgr agents single --agent-name <name> prompt`,
+- `houmao-mgr agents join --agent-name <name>` to `houmao-mgr agents self join --agent-name <name>`,
+- `houmao-mgr agents external register ...` to `houmao-mgr agents external register ...` as the direct external-reference family,
+- implicit current-session `houmao-mgr agents prompt --prompt <text>` to `houmao-mgr agents self prompt --prompt <text>`,
+- implicit current-session `houmao-mgr agents interrupt` to `houmao-mgr agents self interrupt`,
+- implicit current-session `houmao-mgr agents relaunch` to `houmao-mgr agents self relaunch`,
+- implicit current-session `houmao-mgr agents gateway prompt` to `houmao-mgr agents self gateway prompt`,
+- explicit one-agent `houmao-mgr agents gateway prompt --agent-id <id>` to `houmao-mgr agents single --agent-id <id> gateway prompt`,
+- implicit current-session `houmao-mgr agents mail read --message-ref <ref>` to `houmao-mgr agents self mail read --message-ref <ref>`,
+- project-profile launch through `houmao-mgr project [--project-dir <dir>] agents launch --profile <name>`.
+
+#### Scenario: Reader sees migration table for scoped agents commands
+- **WHEN** a reader opens the managed-agent CLI reference after the scoped split
+- **THEN** the page includes examples mapping old ambiguous command paths to `agents global`, `agents single`, `agents self`, `agents external`, or `project agents`
+- **AND THEN** current-session examples use `agents self` rather than `--current-session`

@@ -164,8 +164,7 @@ There are two authoring paths.
 Body fence path:
 
 ```bash
-pixi run houmao-mgr agents mail send \
-  --agent-name sender \
+pixi run houmao-mgr agents single --agent-name sender mail send \
   --to receiver@houmao.localhost \
   --subject "Loop handoff" \
   --body-content $'Loop handoff details are in this message.\n\n```houmao-notify\nAfter reading this handoff, run receiver-on-handoff-received, then run receiver-on-schedule-tick once.\n```'
@@ -174,8 +173,7 @@ pixi run houmao-mgr agents mail send \
 Explicit field path:
 
 ```bash
-pixi run houmao-mgr agents mail post \
-  --agent-name receiver \
+pixi run houmao-mgr agents single --agent-name receiver mail post \
   --subject "Continue loop" \
   --body-content "Operator note for the current loop." \
   --notify-block "Process loop mail, run the lead tick once, then stop." \

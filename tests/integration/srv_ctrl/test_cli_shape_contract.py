@@ -413,7 +413,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`agents launch` should publish registry state and later resolve local control from it."""
+    """Project launch should publish registry state and later resolve scoped local control."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -480,7 +480,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Default `agents launch` should publish and resolve local interactive TUI control."""
+    """Default project launch should publish and resolve local interactive TUI control."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -541,7 +541,7 @@ def test_houmao_mgr_agents_launch_supports_explicit_launch_profiles(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`agents launch --launch-profile` should resolve the stored profile and publish registry state."""
+    """Project profile launch should resolve the stored profile and publish registry state."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -636,7 +636,7 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`agents relaunch` should reuse registry-first local headless authority."""
+    """`agents single ... relaunch` should reuse registry-first local headless authority."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"

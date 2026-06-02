@@ -150,9 +150,9 @@ def relaunch(
 ) -> SessionControlResult
 ```
 
-Relaunches a tmux-backed managed session without rebuilding the brain home. Relaunch reuses the runtime-owned session root, existing built home, persisted launch authority, and tmux window `0`. It is the runtime primitive behind `houmao-mgr agents relaunch` and gateway-managed relaunch recovery.
+Relaunches a tmux-backed managed session without rebuilding the brain home. Relaunch reuses the runtime-owned session root, existing built home, persisted launch authority, and tmux window `0`. It is the runtime primitive behind `houmao-mgr agents single ... relaunch`, the narrower `houmao-mgr agents self relaunch`, and gateway-managed relaunch recovery.
 
-Fresh launch can also intentionally target a preserved home through `houmao-mgr agents launch --reuse-home` or `houmao-mgr project agents launch --reuse-home`, but that is a different lifecycle shape. Reuse-home launch rebuilds current Houmao-managed launch inputs onto one compatible preserved home, creates a new live session root and new registry authority, and does not automatically consume relaunch-only chat-session policy. Relaunch remains the supported path when the operator wants to restart the same built session/home posture rather than request a fresh launch over preserved provider-local state.
+Fresh project launch can also intentionally target a preserved home through `houmao-mgr project agents launch --reuse-home`, but that is a different lifecycle shape. Reuse-home launch rebuilds current Houmao-managed launch inputs onto one compatible preserved home, creates a new live session root and new registry authority, and does not automatically consume relaunch-only chat-session policy. Relaunch remains the supported path when the operator wants to restart the same built session/home posture rather than request a fresh launch over preserved provider-local state.
 
 The optional relaunch chat-session selector controls provider-native startup behavior:
 
@@ -168,9 +168,9 @@ When a local interactive relaunch resumes an existing provider chat, the runtime
 
 ## Degraded and stale recovery
 
-When a managed agent's registry record claims `active` but the underlying tmux session is broken, `agents stop` and `agents relaunch` route through dedicated recovery helpers instead of failing with a generic unusable-target error. The runtime probes tmux authority first, classifies the session as `healthy`, `degraded_missing_primary`, or `stale_missing_session`, and then dispatches to the appropriate recovery path.
+When a managed agent's registry record claims `active` but the underlying tmux session is broken, selected-agent `agents single ... stop` and `agents single ... relaunch` route through dedicated recovery helpers instead of failing with a generic unusable-target error. The runtime probes tmux authority first, classifies the session as `healthy`, `degraded_missing_primary`, or `stale_missing_session`, and then dispatches to the appropriate recovery path.
 
-For degraded sessions, the gateway remnant is cleaned up and the primary surface is rebuilt. For stale sessions with unreadable manifest authority, the record is retired and the operator is directed to a fresh `agents launch`. See [Degraded and Stale Active Recovery](degraded-stale-recovery.md) for the full probe model, recovery paths, and cleanup integration.
+For degraded sessions, the gateway remnant is cleaned up and the primary surface is rebuilt. For stale sessions with unreadable manifest authority, the record is retired and the operator is directed to a fresh `project agents launch`. See [Degraded and Stale Active Recovery](degraded-stale-recovery.md) for the full probe model, recovery paths, and cleanup integration.
 
 ## Lifecycle flow
 
@@ -258,7 +258,7 @@ sequenceDiagram
     participant BE as Backend
     participant TM as tmux
 
-    Op->>CLI: agents relaunch<br/>(optional chat-session selector)
+    Op->>CLI: agents single ... relaunch<br/>(optional chat-session selector)
     CLI->>RT: RuntimeSessionController.relaunch()
     RT->>MF: read persisted relaunch authority
     RT->>BE: relaunch(chat_session)

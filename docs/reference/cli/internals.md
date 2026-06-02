@@ -36,7 +36,7 @@ Build one brain home directly from native-agent material.
 houmao-mgr internals native-agent brain build --native-agent-root <dir> --preset <name>
 ```
 
-The internal build command accepts the retained direct build inputs: `--preset`, `--tool`, repeatable `--skill`, `--setup`, `--auth`, `--runtime-root`, `--home-id`, `--reuse-home`, `--launch-overrides`, `--agent-name`, and `--agent-id`. The maintained flag names are `--preset`, `--setup`, and `--auth`; retired top-level brain-build examples using `--recipe`, `--config-profile`, `--cred-profile`, or `--agent-def-dir` are not current. Ordinary project launches build brain homes internally through `houmao-mgr project agents launch` or `houmao-mgr agents launch`.
+The internal build command accepts the retained direct build inputs: `--preset`, `--tool`, repeatable `--skill`, `--setup`, `--auth`, `--runtime-root`, `--home-id`, `--reuse-home`, `--launch-overrides`, `--agent-name`, and `--agent-id`. The maintained flag names are `--preset`, `--setup`, and `--auth`; retired top-level brain-build examples using `--recipe`, `--config-profile`, `--cred-profile`, or `--agent-def-dir` are not current. Ordinary project launches build brain homes internally through `houmao-mgr project agents launch`.
 
 ---
 

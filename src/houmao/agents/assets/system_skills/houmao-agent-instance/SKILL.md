@@ -6,7 +6,7 @@ license: MIT
 
 # Houmao Agent Instance
 
-Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. This is the canonical Houmao-owned skill for general live-agent lifecycle work after any specialist-scoped launch or stop entry.
+Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. Managed-agent birth is project-scoped through `project agents launch`; follow-up lifecycle is split across `agents global`, `agents single`, and `agents self`.
 
 The trigger word `houmao` is intentional. Use the `houmao-agent-instance` skill name directly when you intend to activate this Houmao-owned skill.
 
@@ -61,13 +61,13 @@ This packaged skill does not cover:
 - `houmao-mgr project agents get`
 - `houmao-mgr project agents stop`
 - generic managed-agent inspection of current state, logs, runtime artifacts, mailbox posture, or tmux backing
-- `houmao-mgr agents prompt`
-- `houmao-mgr agents interrupt`
-- `houmao-mgr agents turn ...`
-- `houmao-mgr agents gateway ...`
-- `houmao-mgr agents mailbox ...`
-- `houmao-mgr agents mail ...`
-- `houmao-mgr agents cleanup mailbox`
+- `houmao-mgr agents single ... prompt` and `houmao-mgr agents self prompt`
+- `houmao-mgr agents single ... interrupt` and `houmao-mgr agents self interrupt`
+- `houmao-mgr agents single ... turn ...` and `houmao-mgr agents self turn ...`
+- `houmao-mgr agents single ... gateway ...` and `houmao-mgr agents self gateway ...`
+- `houmao-mgr agents single ... mailbox ...` and `houmao-mgr agents self mailbox ...`
+- `houmao-mgr agents single ... mail ...` and `houmao-mgr agents self mail ...`
+- destructive selected-agent cleanup under `houmao-mgr agents single ... cleanup ...`
 - `houmao-mgr project mailbox ...`
 - `houmao-mgr admin cleanup runtime ...`
 
@@ -77,9 +77,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 1. Identify which managed-agent lifecycle action the user wants: `launch`, `join`, `list`, `stop`, `relaunch`, or `cleanup`.
 2. If the requested action is `launch`, determine whether the source is:
-   - a predefined role or preset for `houmao-mgr agents launch --agents`, or
-   - a launch dossier for `houmao-mgr agents launch --launch-profile`, or
-   - a predefined specialist for `houmao-mgr project agents launch`
+   - a project profile for `houmao-mgr project agents launch --profile`, or
+   - a predefined specialist for `houmao-mgr project agents launch --specialist`
 3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 4. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
@@ -88,12 +87,13 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Reuse that same chosen launcher for the selected instance-lifecycle action.
 6. For supported lifecycle command authoring, inspect and render the matching CLI-owned template before executing:
-   - `agents.launch` or `agents.launch-profile.launch`
-   - `project.agents.launch` for specialist-backed project launch
-   - `agents.join`
-   - `agents.relaunch`
-   - `agents.cleanup.session`
-   - `agents.cleanup.logs`
+   - `project.agents.launch` for project-scoped birth from a specialist or project profile
+   - `agents.self.join`
+   - `agents.global.list`
+   - `agents.single.stop`
+   - `agents.single.relaunch`
+   - `agents.single.cleanup.session`
+   - `agents.single.cleanup.logs`
 7. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
    - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
    - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
@@ -139,7 +139,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not route manual mailbox-enabled launch flags, mailbox cleanup, or mailbox registration tasks through this skill.
 - Do not reject launch-dossier-backed launch just because the stored profile already carries gateway or mailbox defaults.
 - Do not route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.
-- Do not silently replace `agents relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
+- Do not silently replace `agents single ... relaunch` or `agents self relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for managed-agent lifecycle work.

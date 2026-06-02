@@ -23,7 +23,7 @@ flowchart TD
     S["specialist<br/>(stored in catalog)<br/>role, tool, creds, skills,<br/>durable launch config"]
     P["project profile<br/>(stored in catalog)<br/>--agent-name, --workdir,<br/>--auth, mailbox, prompt overlay"]
     I["instance<br/>(runtime)<br/>tmux session, brain home,<br/>registry entry"]
-    M["managed agent<br/>controllable via<br/>agents prompt/stop/<br/>gateway/mail/..."]
+    M["managed agent<br/>controllable via<br/>agents single/self<br/>prompt/stop/gateway/mail/..."]
 
     S -->|"instance launch --specialist"| I
     S -->|"profile create --specialist"| P
@@ -34,7 +34,7 @@ flowchart TD
 - A **specialist** is a stored source definition. It lives in the project catalog at `.houmao/catalog.sqlite` with content under `.houmao/content/`. The compatibility projection lands under `.houmao/agents/roles/<name>/` and `.houmao/agents/presets/<name>-<tool>-default.yaml`.
 - An **project profile** is an optional reusable birth-time launch configuration that targets exactly one specialist. It lives in the same shared launch-profile catalog family that backs native launch dossiers, with `profile_lane=easy_profile`. The compatibility projection lands under `.houmao/agents/launch-profiles/<name>.yaml`.
 - An **instance** is a running managed agent launched from either a specialist directly or from an project profile. It gets its own tmux session, brain home, and registry entry.
-- An instance IS a managed agent — it appears in `agents list`, can be targeted by `agents prompt`, `agents gateway`, `agents mail`, and all other managed-agent commands.
+- An instance IS a managed agent - it appears in `agents global list`, can be targeted by `agents single ... prompt`, `agents single ... gateway`, `agents single ... mail`, and the matching `agents self ...` commands when called from its own tmux session.
 
 ## Register Project Skills First
 
@@ -82,7 +82,7 @@ Key options:
 | `--model` | None | Optional launch-owned default model name. |
 | `--reasoning-level` | None | Optional launch-owned tool/model-specific reasoning preset index. |
 
-Those two flags set the **launch-owned default** model selection that is written into the specialist-backed launch profile. After the agent is already running, headless prompt routes also support one-turn overrides through `houmao-mgr agents prompt`, `houmao-mgr agents gateway prompt`, and `houmao-mgr agents turn submit` with the same `--model` plus optional `--reasoning-level` shape. Those runtime overrides apply only to the submitted headless turn and never rewrite the specialist, launch profile, or persisted manifest defaults.
+Those two flags set the **launch-owned default** model selection that is written into the specialist-backed launch profile. After the agent is already running, headless prompt routes also support one-turn overrides through `houmao-mgr agents single --agent-name <name> prompt`, `houmao-mgr agents single --agent-name <name> gateway prompt`, and `houmao-mgr agents single --agent-name <name> turn submit` with the same `--model` plus optional `--reasoning-level` shape. Those runtime overrides apply only to the submitted headless turn and never rewrite the specialist, launch profile, or persisted manifest defaults.
 
 Claude-specific auth inputs now support four maintained credential lanes plus separate optional bootstrap state:
 
@@ -236,7 +236,7 @@ Project profiles are stored as the same kind of catalog object that backs native
 
 Project profile creation may also store managed prompt-header policy. `--managed-header` stores whole-header `enabled`, `--no-managed-header` stores whole-header `disabled`, and omitting both stores `inherit`, which falls back to Houmao's default enabled managed-header behavior later at launch time. Repeatable `--managed-header-section SECTION=enabled|disabled` stores sparse section policy; omitted sections use their section defaults.
 
-Project profiles may also store gateway mail-notifier appendix text through `--gateway-mail-notifier-appendix-text`. `profile set` preserves the stored appendix when the flag is omitted and removes it with `--clear-gateway-mail-notifier-appendix`. The stored appendix seeds runtime gateway notifier state on launches from the profile, but later live notifier edits such as `houmao-mgr agents gateway mail-notifier enable --appendix-text ...` remain runtime-owned and do not rewrite the project profile.
+Project profiles may also store gateway mail-notifier appendix text through `--gateway-mail-notifier-appendix-text`. `profile set` preserves the stored appendix when the flag is omitted and removes it with `--clear-gateway-mail-notifier-appendix`. The stored appendix seeds runtime gateway notifier state on launches from the profile, but later live notifier edits such as `houmao-mgr agents single --agent-name <name> gateway mail-notifier enable --appendix-text ...` or `houmao-mgr agents self gateway mail-notifier enable --appendix-text ...` remain runtime-owned and do not rewrite the project profile.
 
 Project profiles may also override or extend the source specialist's managed system-skill policy. The common additive case is:
 

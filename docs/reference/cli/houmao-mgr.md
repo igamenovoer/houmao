@@ -53,140 +53,101 @@ For dedicated coverage, see [admin cleanup](admin-cleanup.md).
 
 The canonical cleanup tree is `houmao-mgr admin cleanup registry` plus `houmao-mgr admin cleanup runtime {sessions,builds,logs,mailbox-credentials}`. Registry cleanup probes tmux-backed records locally by default and accepts `--no-tmux-check` for lease-only cleanup. Human-oriented cleanup output prints each populated action bucket line by line; use `--print-json` when you need the structured payload.
 
-### `agents` — Agent lifecycle
+### `agents` — Scoped managed-agent operations
 
 ```
 houmao-mgr agents [OPTIONS] COMMAND [ARGS]...
 ```
 
-Agent lifecycle: launch, stop, observe, send-prompt, mail, join, gateway operations.
+`agents` is a namespace with four explicit scopes. The root no longer exposes direct action commands such as `launch`, `list`, `join`, `prompt`, `gateway`, `mail`, `mailbox`, `turn`, `cleanup`, `stop`, or `relaunch`.
 
 For dedicated coverage of complex nested command families, see:
 
-- [agents gateway](agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
-- [agents external](agents-external.md) — local imports for remotely owned communication-only managed agents
-- [agents turn](agents-turn.md) — managed headless turn submission and inspection
-- [agents mail](agents-mail.md) — managed-agent mailbox follow-up
-- [agents mailbox](agents-mailbox.md) — late filesystem mailbox registration for local managed agents
+- [agents gateway](agents-gateway.md) - `agents single ... gateway` and `agents self gateway`
+- [agents external](agents-external.md) - external-agent registry/reference onboarding
+- [agents turn](agents-turn.md) - `agents single ... turn` and `agents self turn`
+- [agents mail](agents-mail.md) - `agents single ... mail` and `agents self mail`
+- [agents mailbox](agents-mailbox.md) - `agents single ... mailbox` and `agents self mailbox`
 
 #### Subcommands
 
 | Subcommand | Description |
 |---|---|
-| `launch` | Start a managed agent. Provisions a runtime home, builds the brain, and launches a live session. Accepts either `--agents <selector>` for a direct recipe selector or `--launch-profile <name>` to resolve a stored explicit launch profile (mutually exclusive). |
-| `join` | Adopt an existing tmux-backed TUI or native headless logical session into Houmao managed-agent control. |
-| `list`, `state` | Inspect locally discovered or pair-backed managed agents. |
-| `prompt` | Send a prompt to a running agent session. |
-| `stop`, `interrupt`, `relaunch` | Control the current managed-agent runtime posture. `stop` and `relaunch` probe tmux authority first and route through recovery helpers when the session is degraded or stale. |
-| `mail` | Resolve live mailbox bindings, inspect status, check, send, reply, or mark messages read. |
-| `external` | Register, list, verify, inspect, or remove local imports for remotely owned communication-only managed agents. |
-| `mailbox` | Register, unregister, or inspect late filesystem mailbox bindings on an existing local managed agent. |
-| `cleanup session|logs|mailbox` | Clean one stopped managed-session envelope, session-local log artifacts, or session-local mailbox secret material locally. |
-| `gateway attach` | Attach a gateway to an agent session. |
-| `gateway status` | Show gateway status for a session. |
-| `gateway prompt` | Send a prompt through the gateway. |
-| `gateway interrupt` | Interrupt the current gateway operation. |
-| `gateway send-keys` | Send raw control input through the live gateway. |
-| `gateway tui state|history|watch|note-prompt` | Inspect or annotate the raw gateway-owned TUI tracking surface. |
-| `gateway mail-notifier status|enable|disable` | Inspect or control live gateway mail-notifier behavior, including runtime appendix text and opt-in context policies. |
+| `global` | Zero-or-many local managed-agent registry/fleet operations. Maintained command: `list`. |
+| `single --agent-id <id>` | Exactly one explicitly selected local managed-agent identity by authoritative id. |
+| `single --agent-name <name>` | Exactly one explicitly selected local managed-agent identity by friendly name. |
+| `self` | Exactly one current managed agent: the caller's registered tmux session. Includes current-session adoption through `join`. |
+| `external` | External-agent registry/reference onboarding: `register`, `list`, `get`, `verify`, and `remove`. External lifecycle stays with the remote owner. |
 
-Gateway targeting rules:
+#### Target Cardinality And Authority
 
-- Outside tmux, gateway commands require an explicit `--agent-id` or `--agent-name`.
-- Inside a managed tmux session, omitting the selector resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus shared registry when needed.
-- `--current-session` forces same-session resolution and cannot be combined with `--agent-id`, `--agent-name`, or `--port`.
-- `--port` is only supported with an explicit selector, because current-session mode uses the manifest-declared pair authority instead of retargeting another server.
+- `agents global` does not target exactly one agent and does not accept `--agent-id` or `--agent-name`. `agents global list` reads the shared local registry and may include local managed agents from multiple project overlays.
+- `agents single` requires exactly one group-level selector, either `--agent-id <id>` or `--agent-name <name>`. Nested commands consume that group selector; leaf commands do not repeat it.
+- `agents single` does not fall back to the current tmux session. Use `agents self ...` for the current managed session.
+- `agents single` owns selected-agent lifecycle controls: `state`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, and `cleanup`.
+- `agents single relaunch` has selected-agent recovery authority. It may refresh an active tmux-backed surface, revive stopped relaunchable records, and recover degraded or stale active records where the runtime supports those paths.
+- `agents self join` adopts the current tmux session as one managed-agent identity. `join` may accept identity creation fields such as `--agent-name`; those fields do not select another existing agent.
+- `agents self` follow-up commands resolve the target from the caller's current managed tmux session and do not accept `--agent-id`, `--agent-name`, or `--current-session`.
+- `agents self` exposes `identity`, `state`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop` or `cleanup`.
+- `agents self relaunch` is active-current-session refresh only. Selected-agent stopped-record revival and degraded/stale recovery remain under `agents single --agent-id <id> relaunch` or `agents single --agent-name <name> relaunch`.
+- `agents external` manages remotely owned or communication-only references. It does not expose local lifecycle commands such as `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `turn`, or `cleanup` under the `external` group.
 
-Gateway TUI notes:
+Managed-agent birth is source-scoped. Public project-backed launch is `houmao-mgr project [--project-dir <dir>] agents launch --specialist <name>` or `houmao-mgr project [--project-dir <dir>] agents launch --profile <name>`. Root/global/single `agents launch` paths are not maintained public commands.
 
-- `gateway tui state` and `gateway tui watch` read the exact raw gateway-owned tracked state rather than the transport-neutral `agents state` payload.
-- `gateway tui history` returns bounded in-memory snapshot history from the live gateway tracker, not coarse managed-agent `/history`.
-- `gateway tui note-prompt` records explicit prompt provenance on the live gateway tracker without enqueueing a gateway prompt request.
+#### Common Scoped Paths
 
-Mail targeting rules:
+| Intent | Maintained path |
+|---|---|
+| List local managed agents across project overlays | `houmao-mgr agents global list` |
+| Inspect one selected agent | `houmao-mgr agents single --agent-id <id> state` |
+| Prompt one selected agent | `houmao-mgr agents single --agent-name <name> prompt --prompt <text>` |
+| Prompt the current managed session | `houmao-mgr agents self prompt --prompt <text>` |
+| Stop one selected agent | `houmao-mgr agents single --agent-id <id> stop` |
+| Relaunch one selected stopped/degraded agent | `houmao-mgr agents single --agent-id <id> relaunch` |
+| Refresh the current managed session | `houmao-mgr agents self relaunch` |
+| Adopt the current tmux session | `houmao-mgr agents self join --agent-name <name>` |
+| Selected-agent gateway operation | `houmao-mgr agents single --agent-id <id> gateway status` |
+| Current-session gateway operation | `houmao-mgr agents self gateway status` |
+| Selected-agent mail operation | `houmao-mgr agents single --agent-name <name> mail read --message-ref <ref>` |
+| Current-session mail operation | `houmao-mgr agents self mail read --message-ref <ref>` |
+| Selected-agent mailbox binding | `houmao-mgr agents single --agent-name <name> mailbox register` |
+| Current-session mailbox binding | `houmao-mgr agents self mailbox status` |
+| Selected-agent headless turn | `houmao-mgr agents single --agent-id <id> turn submit --prompt <text>` |
+| Current-session headless turn inspection | `houmao-mgr agents self turn status <turn-id>` |
+| Selected-agent cleanup | `houmao-mgr agents single --agent-id <id> cleanup session --dry-run` |
+| Register an external reference | `houmao-mgr agents external register --name <local-name> --api-base-url <url> --agent-ref <remote-ref>` |
+| Project-backed launch | `houmao-mgr project agents launch --profile <name>` |
 
-- Outside tmux, `agents mail` requires an explicit `--agent-id` or `--agent-name`.
-- Inside a managed tmux session, omitting those selectors resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus shared-registry metadata second.
-- `--port` on `agents mail` is only supported with an explicit selector.
+#### Migration Examples
 
-The preferred local serverless mailbox workflow is:
+| Old ambiguous path | New maintained path |
+|---|---|
+| `houmao-mgr agents list` | `houmao-mgr agents global list` |
+| `houmao-mgr agents stop --agent-id <id>` | `houmao-mgr agents single --agent-id <id> stop` |
+| `houmao-mgr agents prompt --agent-name <name> --prompt <text>` | `houmao-mgr agents single --agent-name <name> prompt --prompt <text>` |
+| `houmao-mgr agents join --agent-name <name>` | `houmao-mgr agents self join --agent-name <name>` |
+| `houmao-mgr agents prompt --prompt <text>` from inside the managed session | `houmao-mgr agents self prompt --prompt <text>` |
+| `houmao-mgr agents interrupt` from inside the managed session | `houmao-mgr agents self interrupt` |
+| `houmao-mgr agents relaunch` from inside the managed session | `houmao-mgr agents self relaunch` |
+| `houmao-mgr agents gateway prompt --agent-id <id> --prompt <text>` | `houmao-mgr agents single --agent-id <id> gateway prompt --prompt <text>` |
+| `houmao-mgr agents gateway prompt --prompt <text>` from inside the managed session | `houmao-mgr agents self gateway prompt --prompt <text>` |
+| `houmao-mgr agents mail read --message-ref <ref>` from inside the managed session | `houmao-mgr agents self mail read --message-ref <ref>` |
+| `houmao-mgr agents launch --launch-profile <name>` | `houmao-mgr project [--project-dir <dir>] agents launch --profile <name>` |
+| `houmao-mgr agents external register ...` | unchanged: `houmao-mgr agents external register ...` |
 
-1. `houmao-mgr mailbox init --mailbox-root <path>`
-2. `houmao-mgr agents launch ...` or `houmao-mgr agents join ...`
-3. `houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
-4. `houmao-mgr agents mail ...`
+#### Gateway, Mail, Mailbox, Memory, And Turn
 
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` update the durable manifest-backed mailbox binding without requiring relaunch solely for mailbox attachment. That remains true even when a joined session is controllable but non-relaunchable because no launch options were recorded, as long as Houmao can still update the session manifest and validate the resulting mailbox binding. When a direct mailbox workflow needs the current binding set explicitly, resolve it through `pixi run houmao-mgr agents mail resolve-live`. Inside the owning tmux session, selectors may be omitted. Outside tmux, or when targeting a different agent, use an explicit `--agent-id` or `--agent-name`. The resolver returns structured mailbox fields plus optional live `gateway.base_url` data for attached `/v1/mail/*` work.
+Gateway commands live under both selected-agent and current-session surfaces: `agents single --agent-id <id> gateway ...`, `agents single --agent-name <name> gateway ...`, and `agents self gateway ...`. The gateway family includes `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, `tui state|history|watch|note-prompt`, `mail-notifier status|enable|disable`, and `reminders list|get|create|set|remove`. The single surface is explicit selected-agent authority; the self surface is current-session authority and does not expose explicit selectors.
 
-If `agents mailbox register` would replace existing shared mailbox state, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
+Mail commands also live under both selected-agent and current-session surfaces. The maintained subcommands are `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`. `resolve-live` returns structured mailbox binding data plus optional `gateway.base_url`; mailbox-specific shell export is not part of the supported contract. Verified pair-owned and manager-owned execution returns authoritative results, while local live-TUI fallback is non-authoritative submission-only. Use `status`, `list`, gateway `/v1/mail/*`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative outcomes.
 
-Managed-agent lifecycle listing rules:
+Mailbox commands (`register`, `unregister`, and `status`) update or inspect late filesystem mailbox bindings for an existing managed agent. Selected-agent binding uses `agents single --agent-name <name> mailbox ...`; current-session binding uses `agents self mailbox ...`.
 
-- `agents list` shows active lifecycle records by default.
-- Use `agents list --state stopped`, `--state retired`, or `--state all` when you intentionally want lifecycle-inclusive discovery instead of the normal live-control view.
-- Live control surfaces such as prompt, interrupt, gateway, mail, and stop still require active records. Stopped and retired records are for relaunch, cleanup, inspection, and explicit lifecycle-aware listings.
-- External communication-only records live in a separate `external_agents/` registry collection. Local lifecycle records always take precedence, then external records resolve by local external id or alias, and only then does resolution fall back to the default pair authority.
-- External targets support communication-safe operations such as `agents state`, `agents prompt`, `agents interrupt`, `agents gateway status|prompt|interrupt`, and pair-backed `agents mail ...`. Lifecycle and local tmux operations such as `stop`, `relaunch`, `cleanup`, `gateway attach`, `gateway detach`, and `gateway send-keys` are rejected because lifecycle ownership stays remote.
+Memory commands live under `agents single ... memory ...` and `agents self memory ...`. The memo is a free-form `houmao-memo.md` file; page writes under `pages/` do not edit it. Use the scoped `memory resolve --path <page>` command to return page-relative, memo-relative, absolute, existence, and kind data when an operator or agent wants to author a link manually.
 
-Cleanup targeting rules:
+Headless turn commands live under `agents single ... turn ...` and `agents self turn ...`. The submit path accepts request-scoped `--model` and `--reasoning-level` overrides for that turn only; they do not rewrite stored manifests, profiles, specialists, or future turns.
 
-- `agents cleanup session|logs|mailbox` accept exactly one of `--agent-id`, `--agent-name`, `--manifest-path`, or `--session-root`.
-- Inside the target tmux session, omitting those options resolves the current session from `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` plus cleanup-capable lifecycle registry metadata second.
-- Successful managed-agent stop responses include `manifest_path` and `session_root` when the resolved target exposes local manifest authority, and tmux-backed relaunchable local stops preserve a stopped lifecycle record with the same locators plus last-known tmux authority. Prefer those durable locators for explicit post-stop cleanup.
-- When `--agent-id` or `--agent-name` cleanup finds a matching cleanup-capable lifecycle record, cleanup uses that record as the authoritative locator source and does not let a runtime-root scan replace it.
-- When `--agent-id` or `--agent-name` cleanup finds no matching lifecycle record, it scans the effective local runtime root for exactly one stopped session manifest with the matching identity and fails explicitly on ambiguity or no match. This bounded scan is the migration fallback for pre-change stopped sessions that predate lifecycle-aware registry persistence.
-- `agents cleanup session` retires stopped lifecycle records by default after successful session-root removal or validated absence. Use `--purge-registry` only when you explicitly want to delete the lifecycle record entirely; this flag is intended for confirmed broken active local authority after tmux inspection reveals a degraded or stale session. See [Degraded and Stale Active Recovery](../run-phase/degraded-stale-recovery.md).
-- `agents cleanup logs` and `agents cleanup mailbox` never retire or purge the lifecycle record because they preserve the durable session identity and runtime authority.
-- `agents cleanup session` does not retire or purge active lifecycle records; stop the agent first.
-- Every cleanup command supports `--dry-run` and reports `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions` in one normalized payload. Plain and fancy modes print populated action buckets line by line, while `--print-json` preserves the machine-readable JSON shape.
-
-`agents launch` source-selector and launch-profile rules:
-
-- `agents launch` accepts exactly one of `--agents <selector>` and `--launch-profile <name>`. The two are mutually exclusive and one is required.
-- `--agents` is the direct recipe selector form. The effective provider defaults to `claude_code` when `--provider` is omitted.
-- `--launch-profile` resolves the named launch profile from the active project overlay and rejects easy `project profile ...` selections; only native launch dossiers (`profile_lane=launch_profile`) are accepted.
-- A launch-profile-backed launch derives the source recipe from the stored profile, then composes effective inputs in the precedence order: source recipe defaults → launch-profile defaults → direct CLI overrides.
-- Direct overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch and never rewrite the stored launch profile.
-- `--reuse-home` is a launch-owned preserved-home flag. When supplied, Houmao resolves one compatible preserved home for the selected managed identity, rebuilds current Houmao-managed launch inputs onto that home, and still creates a fresh live session root for the new launch. The flag never rewrites the stored launch profile.
-- `--reuse-home` requires the preserved home to belong to the same managed identity, local runtime root, and tool family, and the preserved home path must still exist on disk. When no compatible preserved home exists, `agents launch` fails clearly instead of silently falling back to a new home.
-- `--reuse-home` alone does not replace a fresh live owner of the same managed identity. Use `--force` (or explicit `--force keep-stale`) when a live predecessor must stand down first.
-- `--force [keep-stale|clean]` is a launch-owned takeover flag for replacing an existing live local owner of the resolved managed identity. Omitting `--force` keeps the current owner in place and fails the new launch on that conflict.
-- Bare `--force` means `keep-stale`. Houmao stops the predecessor first, reuses the predecessor managed home in place, and leaves untouched stale artifacts alone. If leftover stale files break the replacement launch, Houmao does not scrub or repair them automatically.
-- `--force clean` is the explicit destructive mode. Houmao stops the predecessor, removes predecessor-owned replaceable launch artifacts such as the managed home, session root, job dir, and safe private mailbox paths, and then rebuilds from a clean managed-home state.
-- `--reuse-home --force clean` is rejected before cleanup begins because `clean` would destroy the preserved home the operator asked to keep.
-- Force takeover remains identity-scoped rather than tmux-name-scoped and never rewrites the stored launch profile.
-- `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides for the Houmao-managed prompt header. For what the header contains and the full prompt composition order, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
-- When neither managed-header flag is supplied, `agents launch` inherits managed-header policy from the selected launch profile when one is present; otherwise it falls back to the default enabled behavior.
-- Direct managed-header override wins over stored launch-profile policy for the current launch only and does not rewrite the stored profile.
-- `agents launch` also accepts repeatable `--managed-header-section SECTION=enabled|disabled` one-shot section overrides. These win over stored profile section policy for the named section and do not rewrite the stored profile. The supported section names are `identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`.
-- `--append-system-prompt-text` and `--append-system-prompt-file` are mutually exclusive one-shot prompt appendix inputs. They append after launch-profile overlay resolution for the current launch only and never rewrite the source role prompt or the stored launch profile.
-- `agents launch` accepts `--workdir` to override the launched agent runtime cwd; when omitted, the runtime cwd defaults to the invocation cwd. When the launch source resolves from a Houmao project, that source project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
-- `agents launch` accepts `--model` and `--reasoning-level` as launch-owned model-selection flags. `--model` is a tool-agnostic name that resolves through the provider mapping. `--reasoning-level` is a tool/model-specific preset index rather than a portable `1..10` knob. Both apply to the current launch only and do not rewrite the stored launch profile.
-- `--provider` defaults from the resolved launch-profile recipe when one tool family is determined by that source. Supplying `--provider` together with `--launch-profile` is accepted only when it matches the resolved source; otherwise the command fails clearly before build.
-- Launch-profile-stored fields that flow through the manifest into runtime launch resolution include managed-agent identity defaults, working directory, auth override selected by display name, prompt-mode override, durable env records, declarative mailbox config, headless and gateway posture, the managed-header whole-header policy, managed-header section policy, the prompt overlay, any gateway mail-notifier appendix default, any stored memo seed, and secret-free relaunch chat-session policy. Stored notifier appendix defaults seed runtime gateway notifier state without enabling polling. Stored memo seeds apply before prompt composition and provider startup; direct `agents launch --agents ...` launches do not apply one because no reusable launch profile was selected. Stored relaunch chat-session policy does not affect first launch; it is used by later `agents relaunch` unless that relaunch supplies a direct chat-session override. The stored auth relationship is catalog-backed, so later auth rename stays valid. Prompt composition order is source role prompt → prompt overlay resolution → launch appendix append when present → structured render into `<houmao_system_prompt>` → backend-specific role injection.
-- For the conceptual model that ties `agents launch --launch-profile` to easy `project profile` and to the broader launch-profile object family, see [Launch Profiles](../../getting-started/launch-profiles.md).
-
-`agents relaunch` chat-session selection:
-
-- `agents relaunch` accepts active records, stopped relaunchable records, and degraded or stale active records. When the selected record is stopped, relaunch revives the same managed-agent identity, runtime home, and session root on a fresh tmux container instead of treating the request as a fresh launch. When the selected active record has a broken tmux session, relaunch routes through the degraded/stale recovery path: degraded sessions have the gateway remnant killed and the primary surface rebuilt; stale sessions with unreadable manifest authority fail with an explicit error directing the operator to `agents stop` followed by fresh `agents launch`. See [Degraded and Stale Active Recovery](../run-phase/degraded-stale-recovery.md).
-- `agents relaunch` accepts optional `--chat-session-mode {new|tool_last_or_new|exact}` and `--chat-session-id <provider-session-id>`.
-- When omitted, relaunch uses the stored launch-profile relaunch policy when the running agent was launched from one; otherwise it starts a fresh provider chat.
-- `--chat-session-mode new` forces a fresh provider chat for this relaunch only.
-- `--chat-session-mode tool_last_or_new` translates to provider-native latest-chat continuation for supported TUI and headless surfaces: Codex uses `resume --last`, Claude uses `--continue`, and Gemini uses `--resume latest`.
-- `--chat-session-mode exact --chat-session-id <id>` resumes a provider session id exactly for this relaunch only. `--chat-session-id` is rejected unless the mode is `exact`.
-- For TUI relaunch, Houmao starts the provider TUI with native continuation flags and suppresses replay of bootstrap-message role injection when the selected mode resumes an existing provider chat. For headless relaunch, Houmao records the selector for the next submitted prompt rather than starting a provider turn during relaunch.
-- Retired records and stopped non-relaunchable records fail explicitly and are not silently replaced with a fresh launch flow.
-
-`agents prompt` request-scoped headless execution overrides:
-
-- `agents prompt` accepts optional `--model TEXT` and `--reasoning-level INTEGER` request-scoped headless execution overrides. `--model` is a tool-agnostic name that resolves through the provider mapping used by launch-owned model selection. `--reasoning-level` is a tool/model-specific preset index rather than a portable `1..10` knob.
-- The override flags apply to exactly the submitted prompt. They do not mutate launch profiles, recipes, specialists, manifests, stored project profiles, or any other live session defaults, and they do not persist beyond the submission.
-- When the resolved target is a TUI-backed session, the command rejects `--model` and `--reasoning-level` clearly rather than silently dropping them. Only request-scoped headless prompt routes accept the overrides.
-- Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden. Supplying neither leaves the launch-resolved defaults in effect.
-- Higher unused reasoning numbers saturate to the highest maintained Houmao preset for the resolved tool/model ladder. `0` means explicit off only for ladders that support it, such as non-Gemini-3 Gemini budget presets and any Codex model ladder that explicitly exposes off.
-- Current maintained ladders are: Claude `1=low`, `2=medium`, `3=high`, optional `4=max`; current Codex coding models such as `gpt-5.4`, `gpt-5.3-codex`, and `gpt-5.2-codex` use `1=low`, `2=medium`, `3=high`, `4=xhigh`; Gemini uses documented Houmao preset tables per model family and may map one level to multiple native Gemini thinking settings together. Codex `minimal` is projected only when the resolved Codex model ladder explicitly includes it.
-- If you need finer native control than those Houmao presets provide, omit `--reasoning-level` and manage native tool config or environment directly.
-- The same override contract applies to `agents turn submit` and `agents gateway prompt`; for the dedicated per-command option tables, see [agents turn](agents-turn.md#submit) and [agents gateway](agents-gateway.md#prompt). The managed-agent HTTP payload shape is described in [Managed Agent API](../managed_agent_api.md).
+Cleanup is selected-agent lifecycle authority and is maintained under `agents single ... cleanup session|logs|mailbox`. `agents self cleanup` is not a maintained public path.
 
 ### `mailbox` — Local filesystem mailbox administration
 
@@ -213,7 +174,7 @@ Local operator commands for filesystem mailbox roots and address lifecycle. This
 
 `mailbox register` keeps the existing `safe`, `force`, and `stash` mode vocabulary. When a requested registration would replace existing durable mailbox state or an occupying mailbox entry artifact, the command prompts before destructive replacement on interactive terminals and accepts `--yes` for non-interactive overwrite confirmation.
 
-`mailbox messages list|get` is structural inspection over canonical message metadata plus address-scoped projection metadata. Participant-local mutable state such as `read`, `starred`, `archived`, and `deleted` belongs on actor-scoped `houmao-mgr agents mail ...` workflows rather than this operator/admin surface.
+`mailbox messages list|get` is structural inspection over canonical message metadata plus address-scoped projection metadata. Participant-local mutable state such as `read`, `starred`, `archived`, and `deleted` belongs on actor-scoped `houmao-mgr agents single ... mail ...` or `houmao-mgr agents self mail ...` workflows rather than this operator/admin surface.
 
 `mailbox clear-messages` is the destructive whole-root message reset. It clears delivered filesystem mail, message projections, mailbox-local message/thread state, and mailbox-owned managed-copy attachments while preserving mailbox registrations and account directories. Use `--dry-run` to preview and `--yes` for non-interactive confirmation; external `path_ref` attachment targets are not deleted.
 
@@ -226,7 +187,7 @@ houmao-mgr internals native-agent brain build --native-agent-root <path> ...
 houmao-mgr internals native-agent credentials <tool> <verb> --native-agent-root <path> ...
 ```
 
-Ordinary project users manage credentials through `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` and launch through `houmao-mgr project agents launch` or `houmao-mgr agents launch`.
+Ordinary project users manage credentials through `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` and launch through `houmao-mgr project agents launch`.
 
 ### `system-skills` — Packaged Houmao-owned skill management for resolved tool homes
 
@@ -261,7 +222,7 @@ Operational notes:
 - the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
 - uninstall removes exact current Houmao skill paths and preserves unrelated user skills, parent roots, legacy paths, and obsolete install-state files
 - `status` discovers current packaged skill paths in the resolved home; `install` replaces selected current Houmao-owned skill destinations directly without install-state ownership checks
-- managed brain build and `agents join` use the same packaged catalog internally; `agents join` keeps the fixed managed-join selection, while managed brain build may use stored source/profile managed system-skill policy instead of the plain managed-launch default
+- managed brain build and `agents self join` use the same packaged catalog internally; `agents self join` keeps the fixed managed-join selection, while managed brain build may use stored source/profile managed system-skill policy instead of the plain managed-launch default
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
 
@@ -403,8 +364,8 @@ Low-level boundary notes:
 - `launch-profiles add` also accepts `--managed-header` or `--no-managed-header` to store explicit managed-header whole-header policy, plus repeatable `--managed-header-section SECTION=enabled|disabled` to store section policy. Omitting whole-header flags stores `inherit`; omitting section flags stores no section entries. For the conceptual model behind these flags, see [Managed Launch Prompt Header](../run-phase/managed-prompt-header.md).
 - `launch-profiles set` patches without dropping unspecified advanced blocks and exposes matching `--clear-*` flags for nullable fields (`--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-headless`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, `--clear-memo-seed`).
 - Managed system-skill selectors without `--system-skills-mode` infer `extend`. Profile mode `inherit` uses the source recipe's effective selection, `extend` adds selectors to that source selection, `replace` uses exactly the selected system-skill sets/skills, and `none` installs no current Houmao-owned system skills for future launches.
-- Supplying `--gateway-mail-notifier-appendix-text` on `launch-profiles add|set` stores a default appended to future runtime notifier prompts. Launching from the profile seeds that text into gateway notifier state without enabling notifier polling. Later live `agents gateway mail-notifier enable --appendix-text ...` edits runtime state only and do not rewrite the stored profile.
-- Stored relaunch chat-session policy is applied only by future `agents relaunch` operations. `--relaunch-chat-session-mode exact` requires `--relaunch-chat-session-id`; ids are omitted for `new` and `tool_last_or_new`.
+- Supplying `--gateway-mail-notifier-appendix-text` on `launch-profiles add|set` stores a default appended to future runtime notifier prompts. Launching from the profile seeds that text into gateway notifier state without enabling notifier polling. Later live `agents single ... gateway mail-notifier enable --appendix-text ...` or `agents self gateway mail-notifier enable --appendix-text ...` edits runtime state only and do not rewrite the stored profile.
+- Stored relaunch chat-session policy is applied only by future selected-agent `agents single ... relaunch` operations. `--relaunch-chat-session-mode exact` requires `--relaunch-chat-session-id`; ids are omitted for `new` and `tool_last_or_new`.
 - Supplying a new `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir` source on `launch-profiles set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new memo seed source.
 - Memo seeds always replace only the managed-memory components represented by the seed source. `--memo-seed-text` and `--memo-seed-file` touch only `houmao-memo.md`; `--memo-seed-dir` touches `houmao-memo.md` only when that file is present and touches pages only when `pages/` is present. `--memo-seed-text ''` stores an intentional empty memo seed without clearing pages. `--clear-memo-seed` removes stored seed configuration instead of writing an empty memo.
 - `launch-profiles set` also accepts `--managed-header` or `--no-managed-header` and repeatable `--managed-header-section SECTION=enabled|disabled`. Whole-header flags are mutually exclusive, `--clear-managed-header` returns the stored whole-header field to `inherit`, `--clear-managed-header-section SECTION` removes one stored section entry, and `--clear-managed-header-sections` removes all stored section entries.
@@ -492,9 +453,9 @@ Low-level boundary notes:
 - `--profile` selects a stored project profile. The command derives the source specialist from that profile, applies project-profile-stored defaults (managed-agent identity, workdir, auth override, prompt mode, durable env records, declarative mailbox config, headless/gateway posture, prompt overlay, any gateway mail-notifier appendix default, and any stored memo seed), and uses the active project overlay as the authoritative source context. Auth is still rendered by display name even though the stored relationship is auth-profile-backed. `--name` may be omitted when the selected profile stores a default managed-agent name; otherwise it remains required.
 - Stored project-profile memo seeds apply their represented memo/pages components before prompt composition and provider startup. Direct `project agents launch --specialist ...` launches do not apply one because no reusable project profile was selected, and there is no one-shot memo-seed override flag on the launch surface.
 - Direct launch-time overrides such as `--auth`, `--workdir`, `--name`, `--mail-transport`, `--mail-root`, and `--mail-account-dir` win over project-profile defaults but never rewrite the stored project profile. The next launch from the same profile will see the original stored defaults again.
-- `--reuse-home` is also available here and behaves like `agents launch --reuse-home`: it reuses one compatible preserved home for the resolved managed identity, rebuilds current Houmao-managed launch inputs onto that home, and still creates fresh live session authority for the new launch. The flag never becomes part of specialist metadata or project-profile storage.
+- `--reuse-home` reuses one compatible preserved home for the resolved managed identity, rebuilds current Houmao-managed launch inputs onto that home, and still creates fresh live session authority for the new project-backed launch. The flag never becomes part of specialist metadata or project-profile storage.
 - `--reuse-home` alone does not replace a fresh live owner, and `--reuse-home --force clean` is rejected before cleanup begins because destructive clean mode would discard the preserved home contents.
-- `--force [keep-stale|clean]` is also available here and behaves the same as on `agents launch`, but only for the current easy-instance launch. Bare `--force` means `keep-stale`, which stops the predecessor and reuses the predecessor managed home while leaving untouched stale artifacts alone.
+- `--force [keep-stale|clean]` applies only to the current easy-instance launch. Bare `--force` means `keep-stale`, which stops the predecessor and reuses the predecessor managed home while leaving untouched stale artifacts alone.
 - `--force clean` stops the predecessor and removes predecessor-owned replaceable launch artifacts before rebuilding. Shared mailbox message history and unrelated operator-owned paths are preserved.
 - Force mode never becomes part of specialist metadata or project-profile storage.
 - `--managed-header` and `--no-managed-header` are mutually exclusive one-shot overrides. They win over the stored project-profile managed-header policy for the current launch only and never rewrite the stored project profile.
@@ -517,8 +478,8 @@ Low-level boundary notes:
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
 - `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.
 - when the managed session starts but launch-time gateway attach fails afterward, the command still reports the live session identity and manifest path, includes `gateway_auto_attach_error`, and exits with degraded-success status code `2`.
-- `agents launch` likewise accepts `--workdir`; when the launch source resolves from a Houmao project, that source project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
-- `agents join` now uses `--workdir` instead of `--working-directory`; when omitted, the adopted cwd comes from tmux window `0`, pane `0`.
+- Project-backed launch also accepts `--workdir`; the selected project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
+- `agents self join` uses `--workdir` instead of `--working-directory`; when omitted, the adopted cwd comes from tmux window `0`, pane `0`.
 
 #### `project mailbox`
 
@@ -536,7 +497,7 @@ Low-level boundary notes:
 
 `project mailbox export --output-dir <dir> (--all-accounts | --address <full-address>...) [--symlink-mode materialize|preserve]` mirrors the generic export behavior, but targets `mailbox/` under the selected project overlay and includes the selected overlay details in the structured result.
 
-`project mailbox messages list|get` follows the same structural-only contract as `houmao-mgr mailbox messages list|get`; use `houmao-mgr agents mail ...` when the workflow needs actor-scoped unread/read follow-up state.
+`project mailbox messages list|get` follows the same structural-only contract as `houmao-mgr mailbox messages list|get`; use `houmao-mgr agents single ... mail ...` or `houmao-mgr agents self mail ...` when the workflow needs actor-scoped unread/read follow-up state.
 
 ### `internals` — Internal utility commands
 

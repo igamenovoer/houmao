@@ -510,7 +510,15 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
 
     list_result = runner.invoke(
         cli,
-        ["internals", "native-agent", "credentials", "codex", "list", "--native-agent-root", str(agent_def_dir)],
+        [
+            "internals",
+            "native-agent",
+            "credentials",
+            "codex",
+            "list",
+            "--native-agent-root",
+            str(agent_def_dir),
+        ],
     )
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
@@ -539,7 +547,17 @@ def test_credentials_direct_dir_crud_and_env_target_resolution(
 
     get_result = runner.invoke(
         cli,
-        ["internals", "native-agent", "credentials", "codex", "get", "--native-agent-root", str(agent_def_dir), "--name", "sandbox"],
+        [
+            "internals",
+            "native-agent",
+            "credentials",
+            "codex",
+            "get",
+            "--native-agent-root",
+            str(agent_def_dir),
+            "--name",
+            "sandbox",
+        ],
     )
     assert get_result.exit_code == 0, get_result.output
     get_payload = json.loads(get_result.output)
@@ -729,9 +747,9 @@ def test_credentials_direct_dir_rename_rewrites_managed_yaml_references(
             cli,
             [
                 "internals",
-            "native-agent",
-            "credentials",
-            "codex",
+                "native-agent",
+                "credentials",
+                "codex",
                 "add",
                 "--native-agent-root",
                 str(agent_def_dir),

@@ -13,7 +13,7 @@ Those commands inspect canonical mailbox metadata plus address-scoped structural
 
 ## Actor-Scoped Mailbox Participation
 
-Use `houmao-agent-email-comms` and the maintained `houmao-mgr agents mail ...` surface when the task is about:
+Use `houmao-agent-email-comms` and the maintained `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` surfaces when the task is about:
 
 - unread, read, answered, archived, and box state
 - replying, sending, or checking mail as one managed agent

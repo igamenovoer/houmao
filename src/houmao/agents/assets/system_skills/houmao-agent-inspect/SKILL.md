@@ -50,21 +50,22 @@ This packaged skill covers exactly these read-only inspection actions:
 
 Supported surfaces for this skill include:
 
-- `houmao-mgr agents list`
-- `houmao-mgr agents state`
-- `houmao-mgr agents gateway status`
-- `houmao-mgr agents gateway tui state|history|watch`
-- `houmao-mgr agents mail resolve-live|status|list`
-- `houmao-mgr agents mailbox status`
-- `houmao-mgr agents turn status|events|stdout|stderr`
+- `houmao-mgr agents global list`
+- `houmao-mgr agents single --agent-id <id> state` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> gateway status` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> gateway tui state|history|watch` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> mail resolve-live|status|list` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> mailbox status` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> turn status|events|stdout|stderr` or `--agent-name <name>`
+- `houmao-mgr agents self ...` for current-session inspection
 - managed-agent HTTP routes under `/houmao/agents/*`, including `/state`, `/state/detail`, `/history`, `/gateway`, `/gateway/tui/*`, `/mail/*`, and `/turns/*`
 - runtime-owned artifacts such as `manifest.json`, `gateway/state.json`, `gateway/events.jsonl`, `gateway/logs/gateway.log`, and headless turn artifacts under the session root
 - direct local tmux pane capture once managed-agent surfaces have identified the exact tmux session or pane target
 
 This packaged skill does not cover:
 
-- `houmao-mgr agents prompt|interrupt`
-- `houmao-mgr agents gateway attach|detach|prompt|interrupt|send-keys`
+- scoped `houmao-mgr agents ... prompt|interrupt`
+- scoped `houmao-mgr agents ... gateway attach|detach|prompt|interrupt|send-keys`
 - mailbox send, reply, post, or archive work
 - mailbox registration, unregister, cleanup, or mailbox-root administration
 - agent stop, relaunch, cleanup, or other lifecycle mutation
@@ -84,8 +85,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Reuse that same chosen launcher for the selected inspection action.
 6. Follow the identify-first evidence ladder:
-   - identify the target through `agents list` or an explicit selector
-   - read summary state through `agents state` or `GET /houmao/agents/{agent_ref}/state`
+   - identify the target through `agents global list` or an explicit selector
+   - read summary state through `agents single ... state`, `agents self state`, or `GET /houmao/agents/{agent_ref}/state`
    - use transport-specific detail through `GET /houmao/agents/{agent_ref}/state/detail`, live gateway status, or live gateway TUI state when needed to recover the exact tmux session name or pane target
    - once the exact tmux session or pane target is identified for a TUI-backed agent, inspect the live pane with local tmux capture before using gateway TUI tracker state or history
    - inspect mailbox posture, logs, or runtime artifacts through the owned read-only surfaces for that domain

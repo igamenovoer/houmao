@@ -2,15 +2,15 @@
 
 Module: `src/houmao/agents/realm_controller/backends/tmux_runtime.py` — Tmux-backed authority health probing.
 
-When a managed agent's registry record claims `active` but the underlying tmux session is broken, Houmao routes `agents stop`, `agents relaunch`, and `agents cleanup` through dedicated recovery helpers rather than failing with a generic unusable-target error. This page documents the probe-first dispatch model and the recovery paths for each classification.
+When a managed agent's registry record claims `active` but the underlying tmux session is broken, Houmao routes selected-agent `agents single ... stop`, `agents single ... relaunch`, and `agents single ... cleanup` through dedicated recovery helpers rather than failing with a generic unusable-target error. This page documents the probe-first dispatch model and the recovery paths for each classification.
 
 ## When recovery triggers
 
 Recovery runs automatically when a CLI command targets a local tmux-backed managed agent whose registry record is `active` but tmux inspection reveals a broken session. The affected commands are:
 
-- `houmao-mgr agents stop`
-- `houmao-mgr agents relaunch`
-- `houmao-mgr agents cleanup session --purge-registry`
+- `houmao-mgr agents single --agent-id <id> stop`
+- `houmao-mgr agents single --agent-id <id> relaunch`
+- `houmao-mgr agents single --agent-id <id> cleanup session --purge-registry`
 
 The runtime probes the tmux session before acting. No new persisted lifecycle states are added; the probe result is host-local runtime state derived from tmux inspection and is never written to the shared registry.
 
@@ -48,37 +48,37 @@ flowchart TD
 
 The tmux session exists but the primary pane is missing. A gateway remnant may still be alive.
 
-**`agents stop`:**
+**`agents single ... stop`:**
 1. Kills the surviving gateway remnant by cleaning up the tmux session.
 2. If the preserved manifest authority is readable, resumes the stopped controller from the record and retires the registry record.
 3. If the manifest authority is unreadable, retires the record without continuity.
 
-**`agents relaunch`:**
+**`agents single ... relaunch`:**
 1. Kills the gateway remnant by cleaning up the tmux session.
 2. Resumes the stopped controller from the preserved manifest.
 3. Revives the stopped session through the normal startup path, rebuilding the primary surface and reprovisioning the gateway.
-4. If the manifest authority is unreadable, fails with an explicit error directing the operator to `agents stop` followed by fresh `agents launch`.
+4. If the manifest authority is unreadable, fails with an explicit error directing the operator to `agents single ... stop` followed by fresh `project agents launch`.
 
 ### Stale (`stale_missing_session`)
 
 The tmux session is entirely missing.
 
-**`agents stop`:**
+**`agents single ... stop`:**
 1. If the preserved manifest authority is readable, resumes the stopped controller from the record and retires the registry record.
 2. If the manifest authority is unreadable, retires the record without continuity.
 
-**`agents relaunch`:**
+**`agents single ... relaunch`:**
 1. If the preserved manifest authority is readable, resumes the stopped controller and revives the session.
-2. If the manifest authority is unreadable, fails with an explicit error directing the operator to `agents stop` followed by fresh `agents launch`.
+2. If the manifest authority is unreadable, fails with an explicit error directing the operator to `agents single ... stop` followed by fresh `project agents launch`.
 
 ## Cleanup integration
 
-`agents cleanup session --purge-registry` is the destructive lifecycle step for confirmed broken active local authority. When `--purge-registry` is used:
+`agents single ... cleanup session --purge-registry` is the destructive lifecycle step for confirmed broken active local authority. When `--purge-registry` is used:
 
 - The command probes tmux to confirm the session is degraded or stale.
 - After successful session-root removal (or validated absence), it deletes the lifecycle record entirely rather than retiring it.
 
-This flag is intended for operators who have confirmed through tmux inspection that the session is unrecoverable and want to remove all traces of the record. The default `agents cleanup session` behavior (without `--purge-registry`) retires stopped records after removal, preserving relaunchability when possible.
+This flag is intended for operators who have confirmed through tmux inspection that the session is unrecoverable and want to remove all traces of the record. The default selected-agent cleanup-session behavior (without `--purge-registry`) retires stopped records after removal, preserving relaunchability when possible.
 
 ## See also
 

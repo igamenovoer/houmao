@@ -8,9 +8,9 @@ Use this action when you need to identify the correct managed agent first or dis
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target selector is still missing, ask the user in Markdown before proceeding.
 4. If the request is generic read-only inspection rather than messaging preparation, hand it off to `houmao-agent-inspect`.
-5. Run `agents state` first to confirm the managed-agent identity and current operational summary.
-6. If the current task may need ordinary prompting, live gateway control, or any other gateway-preferred prompt routing decision, run `agents gateway status` next.
-7. If the current task may need mailbox work or an exact live gateway base URL, run `agents mail resolve-live` next.
+5. Run `agents single --agent-name <name> state` first to confirm the managed-agent identity and current operational summary.
+6. If the current task may need ordinary prompting, live gateway control, or any other gateway-preferred prompt routing decision, run `agents single --agent-name <name> gateway status` next.
+7. If the current task may need mailbox work or an exact live gateway base URL, run `agents single --agent-name <name> mail resolve-live` next.
 8. When the caller is already operating through the pair-managed HTTP API instead of the CLI, use the managed-agent routes summarized in `references/managed-agent-http.md`.
 9. Report the target identity plus only the capability facts that matter for the next action: gateway availability, mailbox availability, exact `gateway.base_url` when present, and whether prompt or outgoing mailbox work should prefer a gateway-backed surface.
 
@@ -19,16 +19,17 @@ Use this action when you need to identify the correct managed agent first or dis
 Use:
 
 ```text
-<chosen houmao-mgr launcher> agents state --agent-name <name>
-<chosen houmao-mgr launcher> agents gateway status --agent-name <name>
-<chosen houmao-mgr launcher> agents mail resolve-live --agent-name <name>
+<chosen houmao-mgr launcher> agents single --agent-name <name> state
+<chosen houmao-mgr launcher> agents single --agent-name <name> gateway status
+<chosen houmao-mgr launcher> agents single --agent-name <name> mail resolve-live
 ```
 
 Authoritative selector alternatives:
 
 - `--agent-id <id>`
-- `--port <pair-port>` for `agents state` and `agents mail resolve-live`
-- `--pair-port <pair-port>` for `agents gateway status`
+- `--agent-id <id>` at the `agents single` group level
+- `--port <pair-port>` for `agents single ... state` and `agents single ... mail resolve-live`
+- `--pair-port <pair-port>` for `agents single ... gateway status`
 
 Managed-agent HTTP discovery surfaces:
 

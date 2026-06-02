@@ -102,7 +102,7 @@ Current warning-style cases include:
 
 - manifest persistence after a successful prompt or control action,
 - mailbox binding refresh after the mailbox work already succeeded,
-- stopped-record publication after a successful `agents stop` teardown,
+- stopped-record publication after a successful `agents single ... stop` teardown,
 - pre-stop gateway-detach paths when registry-side refresh work fails during cleanup handling.
 
 Managed-agent stop responses carry `manifest_path` and `session_root` when those locators are known before teardown. Those fields remain the supported explicit bridge from live discovery to later stopped-session relaunch or cleanup, even though lifecycle-aware stop now preserves the same locators in the stopped registry record.
@@ -115,7 +115,7 @@ sequenceDiagram
     participant RT as Runtime
     participant MF as manifest.json
     participant RG as shared registry
-    Op->>RT: agents prompt
+    Op->>RT: agents single ... prompt
     RT-->>Op: prompt work succeeds
     RT->>MF: persist updated manifest
     alt registry refresh succeeds
@@ -137,7 +137,7 @@ On authoritative stop for a tmux-backed session:
 
 If stopped-record publication fails after the session was already stopped, the runtime keeps the successful stop result and falls back to clearing the record rather than turning the stop into a failure.
 
-`agents cleanup session` is now the destructive lifecycle step for stopped local sessions: after successful session-root removal, cleanup retires the stopped record by default or deletes it entirely when `--purge-registry` is requested.
+`agents single ... cleanup session` is now the destructive lifecycle step for stopped local sessions: after successful session-root removal, cleanup retires the stopped record by default or deletes it entirely when `--purge-registry` is requested.
 
 ## Current Implementation Notes
 

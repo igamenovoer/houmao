@@ -18,7 +18,7 @@ Houmao has two reusable birth-time profile lanes. They share some storage and pr
 - Command family: `houmao-mgr internals native-agent launch-dossiers ...`
 - Source kind: one low-level recipe.
 - Typical use: precise recipe-backed build and launch defaults.
-- Launch path: `houmao-mgr agents launch --launch-profile <profile>`.
+- Launch path: project-backed birth uses `houmao-mgr project agents launch --profile <profile>`; launch dossiers are low-level authoring inputs and do not have a maintained public root-level managed-agent launch path.
 - Owner in this skill: [subskills/low-level/launch-dossiers.md](../low-level/launch-dossiers.md).
 - Routing: use this lane only when the user explicitly says `launch-dossiers`, launch dossier, or exact `internals native-agent launch-dossiers`.
 

@@ -370,12 +370,12 @@ def test_materialize_joined_launch_installs_houmao_skills_by_default_and_preserv
     processing_skill = processing_skill_path.read_text(encoding="utf-8")
     gateway_skill = gateway_skill_path.read_text(encoding="utf-8")
     assert "shared gateway mailbox API" in processing_skill
-    assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
+    assert "Do not switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
-    assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
     installed_records = discover_installed_system_skills(tool="codex", home_path=codex_home)
     installed_names = {record.name for record in installed_records}
     assert {

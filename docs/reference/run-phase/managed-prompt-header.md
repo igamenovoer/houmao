@@ -66,7 +66,7 @@ flowchart LR
 
 1. **Source role prompt.** The role's `system-prompt.md` content is loaded as the base prompt.
 2. **Prompt-overlay resolution.** When the resolved launch profile carries a prompt overlay, it is composed onto the base prompt with mode `append` or `replace`. Append concatenates with a blank-line separator; replace substitutes the overlay text.
-3. **Launch appendix append.** When `houmao-mgr agents launch` or `houmao-mgr project agents launch` receives `--append-system-prompt-text` or `--append-system-prompt-file`, that one-shot appendix is appended after overlay resolution for the current launch only. It never rewrites the source role prompt or a stored profile.
+3. **Launch appendix append.** When `houmao-mgr project agents launch` receives `--append-system-prompt-text` or `--append-system-prompt-file`, that one-shot appendix is appended after overlay resolution for the current launch only. It never rewrites the source role prompt or a stored profile.
 4. **Structured render.** Houmao renders the effective prompt into `<houmao_system_prompt>`. When the whole header is enabled and at least one section is enabled, `<managed_header>` appears before `<prompt_body>` and contains enabled child sections in this fixed order: `<identity>`, `<memo_cue>`, `<houmao_runtime_guidance>`, `<automation_notice>`, `<task_reminder>`, `<mail_ack>`. Inside `<prompt_body>`, section order is `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` when those sections participate. If overlay mode is `replace`, `<role_prompt>` is omitted.
 5. **Backend role injection.** The per-backend role-injection plan delivers that final composed prompt to the underlying CLI tool. See [Role Injection](role-injection.md) for the per-backend mechanism (`native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, etc.).
 
@@ -96,12 +96,11 @@ The launch-time flags are exposed on every supported managed launch surface:
 
 | Command | Per-launch flags | Notes |
 |---|---|---|
-| `houmao-mgr agents launch` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Whole-header flags are mutually exclusive and win over the resolved launch profile when one is selected. Section overrides are one-shot and win over stored section policy for the named section only. |
 | `houmao-mgr project agents launch` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Whole-header flags are mutually exclusive and win over the stored project-profile policy when launching from `--profile`. Section overrides are one-shot and win over stored section policy for the named section only. |
 
 Those same launch surfaces also accept one-shot prompt appendix input through `--append-system-prompt-text` and `--append-system-prompt-file`. Those options are mutually exclusive, append after overlay resolution inside `<prompt_body>`, and do not rewrite stored launch profiles or project profiles.
 
-For full flag-level coverage, see the [`houmao-mgr` CLI reference](../cli/houmao-mgr.md) section on `agents launch` source-selector and launch-profile rules.
+For full flag-level coverage, see the [`houmao-mgr` CLI reference](../cli/houmao-mgr.md) section on `project agents launch` source-selector and launch-profile rules.
 
 ## Persistence in Stored Launch Profiles
 
@@ -152,7 +151,7 @@ When `task-reminder` is enabled, it does not authorize generic "check back later
 
 ## Verifying the Header for One Launch
 
-Each managed launch records the resolved managed-header decision in its session manifest. New launches also persist `inputs.houmao_system_prompt_layout`, which records the structured prompt root and section order without storing secrets. To inspect a live or stopped session's manifest-persisted decision, use `houmao-mgr agents state --agent-name <name>` or read the manifest under the runtime home directly. The resolved decision includes whether the whole header was enabled, the resolution source, the stored policy at resolution time, the resolved managed agent name and id used to render the header text, and a `sections` mapping with each section's tag, enabled/rendered state, resolution source, stored policy, and default state.
+Each managed launch records the resolved managed-header decision in its session manifest. New launches also persist `inputs.houmao_system_prompt_layout`, which records the structured prompt root and section order without storing secrets. To inspect a live or stopped session's manifest-persisted decision, use `houmao-mgr agents single --agent-name <name> state` or read the manifest under the runtime home directly. The resolved decision includes whether the whole header was enabled, the resolution source, the stored policy at resolution time, the resolved managed agent name and id used to render the header text, and a `sections` mapping with each section's tag, enabled/rendered state, resolution source, stored policy, and default state.
 
 When troubleshooting whether an agent is acting as if it has the header context, the canonical checks are the manifest-persisted managed-header metadata and, for new launches, the persisted `houmao_system_prompt_layout` section list rather than the live TUI.
 

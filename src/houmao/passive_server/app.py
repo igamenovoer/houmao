@@ -325,7 +325,7 @@ def create_app(
             content=PassiveNotImplementedResponse(
                 detail=(
                     "Gateway attach is not supported by houmao-passive-server. "
-                    f"Use: houmao-mgr agents gateway attach {agent_ref}"
+                    f"Use: houmao-mgr agents single --agent-id {agent_ref} gateway attach"
                 ),
             ).model_dump(mode="json"),
         )
@@ -337,7 +337,7 @@ def create_app(
             content=PassiveNotImplementedResponse(
                 detail=(
                     "Gateway detach is not supported by houmao-passive-server. "
-                    f"Use: houmao-mgr agents gateway detach {agent_ref}"
+                    f"Use: houmao-mgr agents single --agent-id {agent_ref} gateway detach"
                 ),
             ).model_dump(mode="json"),
         )

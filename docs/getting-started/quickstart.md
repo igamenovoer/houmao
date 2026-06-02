@@ -4,10 +4,10 @@
 
 This guide shows the two supported local entry points:
 
-1. adopt an already-running provider session with `houmao-mgr agents join`
+1. adopt an already-running provider session with `houmao-mgr agents self join`
 2. build and launch from a repo-local `.houmao/` overlay created by `houmao-mgr project init`
 
-For maintained local-state command families such as `agents launch`, `project agents launch`, `mailbox`, `admin cleanup runtime`, and `server start`, Houmao resolves runtime, managed-agent memory, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
+For maintained local-state command families such as `project agents launch`, `agents self join`, `mailbox`, and `admin cleanup runtime`, Houmao resolves runtime, managed-agent memory, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
 
 Ambient overlay selection defaults to nearest-ancestor `.houmao/houmao-config.toml` discovery within the current Git boundary. Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when you want commands run from a subdirectory to ignore a parent overlay and consider only `<cwd>/.houmao`. `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` remains the stronger explicit overlay-root override.
 
@@ -34,17 +34,17 @@ claude
 From the same tmux session:
 
 ```bash
-pixi run houmao-mgr agents join --agent-name research
-pixi run houmao-mgr agents state --agent-name research
-pixi run houmao-mgr agents prompt --agent-name research --prompt "Summarize the current state."
-pixi run houmao-mgr agents stop --agent-name research
+pixi run houmao-mgr agents self join --agent-name research
+pixi run houmao-mgr agents self state
+pixi run houmao-mgr agents self prompt --prompt "Summarize the current state."
+pixi run houmao-mgr agents single --agent-name research stop
 ```
 
 ```mermaid
 sequenceDiagram
     participant Op as Operator
     participant Tmux as tmux session
-    participant CLI as houmao-mgr agents join
+    participant CLI as houmao-mgr agents self join
     participant RT as Houmao runtime
     participant Reg as Shared registry
     Op->>Tmux: start provider TUI
@@ -55,7 +55,7 @@ sequenceDiagram
     RT-->>Op: managed-agent control is ready
 ```
 
-Use `agents join` when the provider session already exists and you want Houmao to wrap it without rebuilding a home.
+Use `agents self join` when the provider session already exists and you want Houmao to wrap it without rebuilding a home.
 
 If the adopted session should record a different cwd than tmux window `0`, pane `0`, add `--workdir /path/to/worktree`.
 
@@ -171,7 +171,7 @@ Key options:
 | `--home-id` | Optional fixed runtime-home id |
 | `--reuse-home` | Allow reuse of an existing home id |
 
-This direct build command is internal native-agent plumbing: it uses the selected `--native-agent-root` directly. Ordinary project launches do not require this manual step; `project agents launch` and `agents launch` build managed homes internally.
+This direct build command is internal native-agent plumbing: it uses the selected `--native-agent-root` directly. Ordinary project launches do not require this manual step; `project agents launch` builds managed homes internally.
 
 Without `--runtime-root`, maintained build and launch flows now place generated homes and manifests under `.houmao/runtime`, and managed-agent memory roots under `.houmao/memory/agents/<agent-id>/`, for the same active overlay.
 
@@ -181,13 +181,12 @@ If the selected recipe includes `launch.env_records`, the managed build pipeline
 
 ### Step 5: Launch A Managed Agent
 
-Launch from the compiled bare role selector:
+Launch from the compiled specialist:
 
 ```bash
-pixi run houmao-mgr agents launch \
-  --agents researcher \
-  --provider claude_code \
-  --agent-name research \
+pixi run houmao-mgr project agents launch \
+  --specialist researcher \
+  --name research \
   --workdir /tmp/research-target
 ```
 
@@ -196,16 +195,16 @@ The bare selector plus provider resolves:
 - `researcher` + `claude_code`
 - to `.houmao/agents/presets/researcher-claude-default.yaml`
 
-Use `houmao-mgr project --project-dir <dir> ...` when you want to select a project explicitly instead of relying on cwd discovery. You can still override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, managed-agent memory, mailbox, and bare-selector recipe resolution.
+Use `houmao-mgr project --project-dir <dir> ...` when you want to select a project explicitly instead of relying on cwd discovery. You can still override auth at launch time with `--auth`. `--workdir` only changes the launched agent cwd; the current project remains the launch source for overlay, runtime, managed-agent memory, mailbox, and specialist/profile resolution.
 
 If you have already authored a reusable explicit launch profile through `houmao-mgr internals native-agent launch-dossiers add ...`, the alternative launch form is:
 
 ```bash
-pixi run houmao-mgr agents launch \
-  --launch-profile researcher-default
+pixi run houmao-mgr project agents launch \
+  --profile researcher-default
 ```
 
-`--launch-profile` and `--agents` are mutually exclusive on `agents launch`. The launch profile contributes its own birth-time defaults — managed-agent identity, working directory, auth override, prompt-mode, durable env records, mailbox config, headless and gateway posture, managed-header whole-header and section policy, any prompt overlay, any gateway mail-notifier appendix default, and any stored memo seed — and direct CLI overrides such as `--agent-name`, `--auth`, `--workdir`, `--managed-header`, `--no-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--append-system-prompt-text`, or `--append-system-prompt-file` win over those defaults without rewriting the stored profile. Stored memo seeds apply before prompt composition and provider startup; direct `--agents` launches do not apply one because no reusable launch profile was selected. A stored mail-notifier appendix seeds runtime gateway notifier state for later `agents gateway mail-notifier enable` use, but does not enable notifier polling by itself. Prompt composition order is source role prompt, prompt-overlay resolution, launch appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. For the shared conceptual model, see [Launch Profiles](launch-profiles.md).
+`--profile` and `--specialist` are mutually exclusive on `project agents launch`. The project profile contributes its own birth-time defaults - managed-agent identity, working directory, auth override, prompt-mode, durable env records, mailbox config, headless and gateway posture, managed-header whole-header and section policy, any prompt overlay, any gateway mail-notifier appendix default, and any stored memo seed - and direct CLI overrides such as `--name`, `--auth`, `--workdir`, `--managed-header`, `--no-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--append-system-prompt-text`, or `--append-system-prompt-file` win over those defaults without rewriting the stored profile. Stored memo seeds apply before prompt composition and provider startup. A stored mail-notifier appendix seeds runtime gateway notifier state for later `agents single ... gateway mail-notifier enable` or `agents self gateway mail-notifier enable` use, but does not enable notifier polling by itself. Prompt composition order is source role prompt, prompt-overlay resolution, launch appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. For the shared conceptual model, see [Launch Profiles](launch-profiles.md).
 
 If you want the higher-level launch path, use:
 
@@ -224,7 +223,7 @@ For easy launch, `--workdir` only changes the launched agent cwd. The selected p
 
 `project agents launch` does not inject prompt-mode policy on its own. It honors the stored specialist launch posture, so a specialist created with the easy default launches unattended and a specialist created with `--no-unattended` launches `as_is`.
 
-The previous `--yolo` flag was removed from `agents launch` and `project agents launch` in 0.3.x. Prompt-mode posture is now controlled exclusively through stored `launch.prompt_mode`: store `unattended` for maintained no-prompt provider startup, or `as_is` to leave provider startup behavior untouched.
+The previous `--yolo` flag was removed from project launch in 0.3.x. Prompt-mode posture is now controlled exclusively through stored `launch.prompt_mode`: store `unattended` for maintained no-prompt provider startup, or `as_is` to leave provider startup behavior untouched.
 
 Gemini specialists remain headless-only on this surface. Use `--headless` when launching a Gemini specialist.
 
@@ -233,8 +232,7 @@ Use repeatable `--env-set` on `project agents launch` for one-off env on the cur
 ### Step 6: Prompt And Stop
 
 ```bash
-pixi run houmao-mgr agents prompt \
-  --agent-name research \
+pixi run houmao-mgr agents single --agent-name research prompt \
   --prompt "Explain the architecture of this project."
 
 pixi run houmao-mgr project agents stop --name research

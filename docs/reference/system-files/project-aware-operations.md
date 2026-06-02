@@ -66,10 +66,10 @@ The catalog is initialized during `project init` and is the authoritative source
 
 | Command Family | Project Context Used |
 |---|---|
-| `agents launch` / `agents join` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
-| `project agents launch` / `agents launch` | Agent definitions are built into managed brain homes internally |
-| `agents list` / `agents state` | Runtime root for shared registry discovery |
-| `agents mailbox register` | Mailbox root defaults to project overlay |
+| `project agents launch` / `agents self join` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
+| `project agents launch` | Agent definitions are built into managed brain homes internally |
+| `agents global list` / `agents single ... state` / `agents self state` | Runtime root for shared registry discovery |
+| `agents single ... mailbox register` / `agents self mailbox register` | Mailbox root defaults to project overlay |
 | `project *` | Full overlay resolution and catalog access |
 | `mailbox *` | Mailbox root from project overlay |
 | `server start` | Runtime root for server state |

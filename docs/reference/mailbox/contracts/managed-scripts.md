@@ -2,7 +2,7 @@
 
 This page documents the optional compatibility helper surface under `rules/scripts/` when a filesystem mailbox publishes it.
 
-Ordinary mailbox work should use `pixi run houmao-mgr agents mail resolve-live`, gateway `/v1/mail/*` when available, and `pixi run houmao-mgr agents mail ...` when it is not. The scripts documented here matter for repair, debugging, and intentionally direct filesystem workflows, not for the default attached-session path.
+Ordinary mailbox work should use `pixi run houmao-mgr agents self mail resolve-live` inside the owning managed session or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live` for a selected agent, gateway `/v1/mail/*` when available, and the matching scoped `agents ... mail ...` commands when it is not. The scripts documented here matter for repair, debugging, and intentionally direct filesystem workflows, not for the default attached-session path.
 
 ## Mental Model
 

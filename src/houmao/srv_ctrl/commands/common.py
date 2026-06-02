@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import os
 import shutil
 import subprocess
-from typing import Any, ParamSpec, Sequence, TypeVar, cast
+from typing import Any, Literal, ParamSpec, Sequence, TypeVar, cast
 
 import click
 
@@ -31,6 +32,16 @@ _COMPAT_CREATE_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS"
 _FC = TypeVar("_FC", bound=Callable[..., Any])
 _ParamT = ParamSpec("_ParamT")
 _ReturnT = TypeVar("_ReturnT")
+_MANAGED_AGENT_SCOPE_CONTEXT_KEY = "houmao_managed_agent_scope_context"
+
+
+@dataclass(frozen=True)
+class ManagedAgentScopeContext:
+    """Targeting context inherited by scoped `agents` command groups."""
+
+    scope: Literal["single", "self"]
+    agent_id: str | None = None
+    agent_name: str | None = None
 
 
 class OptionalValueOption(click.Option):
@@ -221,6 +232,28 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         help="Authoritative managed-agent id.",
     )(function)
     return function
+
+
+def set_managed_agent_scope_context(
+    *,
+    ctx: click.Context,
+    scope_context: ManagedAgentScopeContext,
+) -> None:
+    """Store one scoped managed-agent targeting context on Click metadata."""
+
+    ctx.meta[_MANAGED_AGENT_SCOPE_CONTEXT_KEY] = scope_context
+
+
+def get_managed_agent_scope_context() -> ManagedAgentScopeContext | None:
+    """Return the active scoped managed-agent targeting context, if any."""
+
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return None
+    value = ctx.meta.get(_MANAGED_AGENT_SCOPE_CONTEXT_KEY)
+    if isinstance(value, ManagedAgentScopeContext):
+        return value
+    return None
 
 
 def overwrite_confirm_option(function: _FC) -> _FC:

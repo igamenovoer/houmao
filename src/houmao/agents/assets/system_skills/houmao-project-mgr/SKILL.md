@@ -56,7 +56,7 @@ This packaged skill does not cover:
 - `houmao-mgr internals native-agent recipes ...`
 - `houmao-mgr internals native-agent launch-dossiers ...`
 - `houmao-mgr project mailbox ...`
-- `houmao-mgr agents launch|join|list|state|stop|relaunch|cleanup`
+- `houmao-mgr agents global|single|self|external ...`
 - direct hand-editing inside `.houmao/`
 
 ## Workflow

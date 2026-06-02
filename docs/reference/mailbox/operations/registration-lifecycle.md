@@ -129,7 +129,7 @@ Scope boundary:
 
 - `houmao-mgr mailbox cleanup` does not delete canonical messages.
 - It does not remove runtime-owned Stalwart credential files under `<runtime-root>/mailbox-credentials/`; use `houmao-mgr admin cleanup runtime mailbox-credentials` for those.
-- It does not remove one session's local Stalwart secret copy under `<session-root>/mailbox-secrets/`; use `houmao-mgr agents cleanup mailbox` for that scope.
+- It does not remove one session's local Stalwart secret copy under `<session-root>/mailbox-secrets/`; use `houmao-mgr agents single --agent-id <id> cleanup mailbox` for that scope.
 
 ## Clearing Delivered Messages While Keeping Accounts
 

@@ -7185,7 +7185,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
-        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
+        assert "pixi run houmao-mgr agents self mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert (
             "Mailbox API: `GET /v1/mail/status`; "
@@ -7301,7 +7301,7 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         prompt = fake_client.submitted_prompts[0][1]
         assert "Houmao mailbox skills are not installed." in prompt
         assert "Use the mailbox API below directly for this round." in prompt
-        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
+        assert "pixi run houmao-mgr agents self mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert (
             "Mailbox API: `GET /v1/mail/status`; "

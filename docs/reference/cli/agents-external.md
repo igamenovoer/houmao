@@ -66,16 +66,16 @@ After registration, the same selector can be used with these communication-safe 
 
 | Supported command | Routing |
 | --- | --- |
-| `agents list` | Uses cached local external records. |
-| `agents state` | Calls the stored remote pair API and annotates the response as external. |
-| `agents prompt` | Calls the stored remote pair API with the stored remote agent ref. |
-| `agents interrupt` | Calls the stored remote pair API with the stored remote agent ref. |
-| `agents gateway status` | Calls the stored remote pair API. |
-| `agents gateway prompt` | Calls the stored remote pair API. |
-| `agents gateway interrupt` | Calls the stored remote pair API. |
-| `agents mail ...` | Calls the stored remote pair API for supported mail operations. |
+| `agents global list` | Uses cached local external records alongside local active records. |
+| `agents single --agent-name <local-name> state` | Calls the stored remote pair API and annotates the response as external. |
+| `agents single --agent-name <local-name> prompt` | Calls the stored remote pair API with the stored remote agent ref. |
+| `agents single --agent-name <local-name> interrupt` | Calls the stored remote pair API with the stored remote agent ref. |
+| `agents single --agent-name <local-name> gateway status` | Calls the stored remote pair API. |
+| `agents single --agent-name <local-name> gateway prompt` | Calls the stored remote pair API. |
+| `agents single --agent-name <local-name> gateway interrupt` | Calls the stored remote pair API. |
+| `agents single --agent-name <local-name> mail ...` | Calls the stored remote pair API for supported mail operations. |
 
-Unsupported local-owner operations fail clearly and leave the external record untouched: `agents stop`, `agents relaunch`, `agents cleanup ...`, `agents gateway attach`, `agents gateway detach`, `agents gateway send-keys`, gateway TUI/reminder/mail-notifier mutation, and selector flows based on the current local tmux session.
+Unsupported local-owner operations fail clearly and leave the external record untouched: `agents single --agent-name <local-name> stop`, `agents single --agent-name <local-name> relaunch`, `agents single --agent-name <local-name> cleanup ...`, `agents single --agent-name <local-name> gateway attach`, `agents single --agent-name <local-name> gateway detach`, `agents single --agent-name <local-name> gateway send-keys`, gateway TUI/reminder/mail-notifier mutation, and `agents self ...` flows based on the current local tmux session.
 
 ## Secure Exposure
 

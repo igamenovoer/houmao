@@ -42,8 +42,8 @@ The previous workspace, scratch, persist, job, and generic memory variables are 
 Use the normal launch and join commands. There are no managed-memory persist flags:
 
 ```bash
-houmao-mgr agents launch --agents researcher
-houmao-mgr agents join --agent-name researcher
+houmao-mgr project agents launch --specialist researcher --name researcher
+houmao-mgr agents self join --agent-name researcher
 ```
 
 Work artifacts belong in the launched workdir, an operator-designated project path, or an external directory named in the task instructions.

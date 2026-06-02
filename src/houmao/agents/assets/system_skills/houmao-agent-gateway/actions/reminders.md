@@ -23,7 +23,8 @@ Use this action when the attached agent needs one or more ranked live reminders 
    - `deliver_at_utc`
 10. Recover whether each reminder is `one_off` or `repeat`.
 11. Prefer the managed-agent reminder seam first:
-   - render `agents.gateway.reminders.list|get|create|set|remove` for CLI work
+   - render `agents.single.gateway.reminders.list|get|create|set|remove` for selected-agent CLI work
+   - render `agents.self.gateway.reminders.list|get|create|set|remove` for current-session CLI work
    - use `/houmao/agents/{agent_ref}/gateway/reminders...` only when the current task is already operating through pair-managed HTTP
 12. Keep ranking numeric:
    - use `--ranking <int>` for exact placement
@@ -37,9 +38,10 @@ Use this action when the attached agent needs one or more ranked live reminders 
 Use CLI-owned reminder templates, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.gateway.reminders.create --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.gateway.reminders.set --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.gateway.reminders.remove --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.reminders.create --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.self.gateway.reminders.create --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.reminders.set --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.reminders.remove --intent '<json>'
 ```
 
 ## Direct Gateway Routes
@@ -93,7 +95,7 @@ Representative send-keys reminder payload:
 ## Guardrails
 
 - Do not claim that reminders survive gateway stop or restart; they are process-local in-memory state.
-- Do not skip the supported `houmao-mgr agents gateway reminders ...` or `/houmao/agents/{agent_ref}/gateway/reminders...` surfaces when they already satisfy the task.
+- Do not skip the supported `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, or `/houmao/agents/{agent_ref}/gateway/reminders...` surfaces when they already satisfy the task.
 - Do not create a repeating reminder without `interval_seconds`.
 - Do not set both `start_after_seconds` and `deliver_at_utc` in the same request.
 - Do not set both `prompt` and `send_keys` in the same reminder, and do not omit both.

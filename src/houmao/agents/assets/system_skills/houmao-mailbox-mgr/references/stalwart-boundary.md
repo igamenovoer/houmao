@@ -6,7 +6,7 @@ The maintained mailbox-admin CLI in v1 is filesystem-oriented for:
 
 - `houmao-mgr mailbox ...`
 - `houmao-mgr project mailbox ...`
-- `houmao-mgr agents mailbox ...`
+- `houmao-mgr agents single ... mailbox ...`
 
 What this means:
 

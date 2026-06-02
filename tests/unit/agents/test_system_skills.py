@@ -1073,8 +1073,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "mailbox/" in project_layout_reference
     assert "easy/" in project_layout_reference
     assert "internals native-agent brain build" not in project_effects_reference
-    assert "build brain homes internally" in project_effects_reference
-    assert "agents launch" in project_effects_reference
+    assert "builds brain homes internally" in project_effects_reference
+    assert "project agents launch" in project_effects_reference
     assert "server start" not in project_effects_reference
     assert "admin cleanup runtime" in project_effects_reference
     assert "houmao-specialist-mgr" not in project_routing_reference

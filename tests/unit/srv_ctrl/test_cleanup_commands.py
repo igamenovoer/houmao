@@ -304,7 +304,10 @@ def test_admin_cleanup_registry_plain_output_lists_action_lines(
 
 
 def test_agents_cleanup_help_mentions_session_logs_and_mailbox() -> None:
-    result = CliRunner().invoke(cli, ["agents", "cleanup", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-joined", "cleanup", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "session" in result.output
@@ -1237,10 +1240,11 @@ def test_agents_cleanup_session_command_forwards_purge_registry(
         [
             "--print-json",
             "agents",
-            "cleanup",
-            "session",
+            "single",
             "--agent-id",
             "agent-joined",
+            "cleanup",
+            "session",
             "--dry-run",
             "--purge-registry",
         ],

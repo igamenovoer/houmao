@@ -1,6 +1,6 @@
 # Raw Control Input (`send-keys`)
 
-The current operator surface for raw control input is `houmao-mgr agents gateway send-keys`. It delivers exact key sequences through a live attached gateway to the managed agent's terminal without treating the input as a prompt turn.
+The current operator surface for raw control input is `houmao-mgr agents single --agent-name <name> gateway send-keys` for selected agents or `houmao-mgr agents self gateway send-keys` for the current managed session. It delivers exact key sequences through a live attached gateway to the managed agent's terminal without treating the input as a prompt turn.
 
 Use this path for interactive TUI situations where prompt submission is the wrong abstraction: slash-command menus, partial typing, arrow-key navigation, `Escape`, or `Ctrl-*` input that must not automatically submit a turn.
 
@@ -8,7 +8,7 @@ The runtime routes this path through the `send_input_ex()` method on `RuntimeSes
 
 ## When To Use `send-keys`
 
-Use `houmao-mgr agents gateway send-keys` when you need to shape the live terminal state without asking the runtime to treat the input as a prompt turn.
+Use scoped gateway `send-keys` when you need to shape the live terminal state without asking the runtime to treat the input as a prompt turn.
 
 Typical cases:
 
@@ -18,7 +18,7 @@ Typical cases:
 - send arrow keys to move through a menu
 - send `C-c`, `C-d`, or `C-z` to the live tool session
 
-Use `houmao-mgr agents prompt` instead when you want normal prompt-turn behavior:
+Use `houmao-mgr agents single --agent-name <name> prompt` or `houmao-mgr agents self prompt` instead when you want normal prompt-turn behavior:
 
 - wait for readiness before submission
 - wait for completion after submission
@@ -27,8 +27,8 @@ Use `houmao-mgr agents prompt` instead when you want normal prompt-turn behavior
 
 For `local_interactive` and other maintained tmux-backed managed sessions, the distinction is explicit:
 
-- `agents prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
-- `agents gateway send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
+- scoped `prompt` pastes the full prompt literally and submits it once at the end as one semantic provider turn
+- scoped gateway `send-keys` keeps exact raw key semantics, does not reinterpret literal text as prompt work, and never appends an implicit trailing `Enter`
 
 ## Scope And Output
 
@@ -50,17 +50,16 @@ Example result:
 ## CLI Contract
 
 ```bash
-pixi run houmao-mgr agents gateway send-keys \
-  --agent-name gpu \
+pixi run houmao-mgr agents single --agent-name gpu gateway send-keys \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
 
 Arguments:
 
-- `--agent-name` or `--agent-id` identifies the target managed agent.
+- `agents single --agent-name <name>` or `agents single --agent-id <id>` identifies the selected target managed agent.
 - `--sequence` is required and carries the mixed literal/control-key input string.
 - `--escape-special-keys` is optional and disables special-key parsing for the full sequence.
-- `--current-session` forces same-session resolution from inside the target tmux session.
+- `agents self gateway send-keys` performs same-session resolution from inside the target managed tmux session.
 
 ## Sequence Grammar
 
@@ -85,8 +84,7 @@ hello<[Left]><[Left]>!
 Literal examples:
 
 ```bash
-pixi run houmao-mgr agents gateway send-keys \
-  --agent-name gpu \
+pixi run houmao-mgr agents single --agent-name gpu gateway send-keys \
   --sequence '/model<[Enter]>' \
   --escape-special-keys
 ```
@@ -167,11 +165,11 @@ Delivery rules:
 
 That means these commands stay meaningfully different:
 
-- `agents gateway send-keys --sequence '/model'`
+- `agents single ... gateway send-keys --sequence '/model'`
   This types `/model` and stops.
-- `agents gateway send-keys --sequence '/model<[Enter]>'`
+- `agents single ... gateway send-keys --sequence '/model<[Enter]>'`
   This types `/model` and then presses `Enter`.
-- `agents prompt --prompt '/model<[Enter]>'`
+- `agents single ... prompt --prompt '/model<[Enter]>'`
   This submits the literal text `/model<[Enter]>` as one semantic prompt turn.
 
 ## Tmux Target Resolution
@@ -209,9 +207,9 @@ pixi run python -m houmao.agents.realm_controller send-keys \
   --sequence '/model<[Enter]><[Down]><[Enter]>'
 ```
 
-The raw module accepts `--agent-identity` (name or manifest path) and `--agent-def-dir` for explicit override. Use `houmao-mgr agents gateway send-keys` for standard operator work.
+The raw module accepts `--agent-identity` (name or manifest path) and `--agent-def-dir` for explicit override. Use `houmao-mgr agents single ... gateway send-keys` or `houmao-mgr agents self gateway send-keys` for standard operator work.
 
 ## Related Reference
 
-- [houmao-mgr agents gateway](cli/agents-gateway.md)
+- [houmao-mgr scoped agents gateway](cli/agents-gateway.md)
 - [Realm Controller](./realm_controller.md)

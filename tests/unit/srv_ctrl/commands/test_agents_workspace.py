@@ -49,7 +49,7 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
 
     path_result = runner.invoke(
         cli,
-        ["--print-json", "agents", "memory", "path", "--agent-id", "agent-123"],
+        ["--print-json", "agents", "single", "--agent-id", "agent-123", "memory", "path"],
     )
     assert path_result.exit_code == 0
     path_payload = _json_payload(path_result.output)
@@ -61,11 +61,12 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
             "memory",
             "memo",
             "set",
-            "--agent-id",
-            "agent-123",
             "--content",
             "memo",
         ],
@@ -78,11 +79,12 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
             "memory",
             "memo",
             "append",
-            "--agent-id",
-            "agent-123",
             "--content",
             "\nmore",
         ],
@@ -95,10 +97,11 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
-            "memory",
-            "write",
+            "single",
             "--agent-id",
             "agent-123",
+            "memory",
+            "write",
             "--path",
             "notes/todo.txt",
             "--content",
@@ -116,10 +119,11 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
-            "memory",
-            "append",
+            "single",
             "--agent-id",
             "agent-123",
+            "memory",
+            "append",
             "--path",
             "notes/todo.txt",
             "--content",
@@ -133,10 +137,11 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
-            "memory",
-            "resolve",
+            "single",
             "--agent-id",
             "agent-123",
+            "memory",
+            "resolve",
             "--path",
             "notes/todo.txt",
         ],
@@ -153,10 +158,11 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
-            "memory",
-            "read",
+            "single",
             "--agent-id",
             "agent-123",
+            "memory",
+            "read",
             "--path",
             "notes/todo.txt",
         ],
@@ -168,7 +174,7 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
 
     tree_result = runner.invoke(
         cli,
-        ["--print-json", "agents", "memory", "tree", "--agent-id", "agent-123"],
+        ["--print-json", "agents", "single", "--agent-id", "agent-123", "memory", "tree"],
     )
     assert tree_result.exit_code == 0
     assert [entry["path"] for entry in _json_payload(tree_result.output)["entries"]] == [
@@ -184,10 +190,11 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
         [
             "--print-json",
             "agents",
-            "memory",
-            "delete",
+            "single",
             "--agent-id",
             "agent-123",
+            "memory",
+            "delete",
             "--path",
             "notes/todo.txt",
         ],
@@ -199,6 +206,6 @@ def test_memory_cli_memo_page_and_resolve_operations(monkeypatch, tmp_path: Path
 
     reindex_result = runner.invoke(
         cli,
-        ["--print-json", "agents", "memory", "reindex", "--agent-id", "agent-123"],
+        ["--print-json", "agents", "single", "--agent-id", "agent-123", "memory", "reindex"],
     )
     assert reindex_result.exit_code != 0

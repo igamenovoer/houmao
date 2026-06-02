@@ -1,4 +1,4 @@
-"""Command-template declarations for this command family."""
+"""Command-template declarations for managed-agent gateway commands."""
 
 from __future__ import annotations
 
@@ -15,39 +15,158 @@ from ..builders import (
 )
 from ..models import (
     CommandTemplate,
+    FieldConflict,
     TemplateField,
 )
 
 
 def templates() -> list[CommandTemplate]:
-    """Return gateway command templates."""
+    """Return scoped gateway command templates."""
 
-    selector_fields = (
-        _f("agent_name", "--agent-name", "Friendly managed-agent name."),
-        _f("agent_id", "--agent-id", "Managed-agent id."),
-        _int("pair_port", "--pair-port", "Houmao pair authority port."),
-        _f("target_tmux_session", "--target-tmux-session", "Target tmux session."),
-        _flag("current_session", "--current-session", "Resolve from the current tmux session."),
-    )
-    selector_conflicts = (
-        _conflict(
+    templates: list[CommandTemplate] = []
+    for scope in ("single", "self"):
+        target_fields = _gateway_target_fields(scope=scope)
+        target_conflicts = _gateway_target_conflicts(scope=scope)
+        target_required = (("agent_name", "agent_id"),) if scope == "single" else ()
+        family = f"agents.{scope}.gateway"
+        template_prefix = f"agents.{scope}.gateway"
+        target_prefix = ("agents", scope, "gateway")
+
+        for verb in ("status", "detach"):
+            templates.append(
+                _template(
+                    f"{template_prefix}.{verb}",
+                    (*target_prefix, verb),
+                    f"Gateway {verb}.",
+                    target_fields,
+                    family=family,
+                    conflicts=target_conflicts,
+                    required_one_of=target_required,
+                )
+            )
+        templates.append(
+            _template(
+                f"{template_prefix}.attach",
+                (*target_prefix, "attach"),
+                "Gateway attach.",
+                (
+                    *target_fields,
+                    _flag("background", "--background", "Run the gateway as a background process."),
+                    *_attach_timing_fields(),
+                ),
+                family=family,
+                conflicts=target_conflicts,
+                required_one_of=target_required,
+            )
+        )
+        templates.extend(
+            (
+                _template(
+                    f"{template_prefix}.prompt",
+                    (*target_prefix, "prompt"),
+                    "Submit a direct gateway prompt.",
+                    (
+                        *target_fields,
+                        _f("prompt", "--prompt", "Prompt text."),
+                        _flag("force", "--force", "Send even when the target is not prompt-ready."),
+                        _f("model", "--model", "Request-scoped headless model override."),
+                        _int(
+                            "reasoning_level",
+                            "--reasoning-level",
+                            "Request-scoped reasoning preset index.",
+                        ),
+                    ),
+                    family=family,
+                    conflicts=target_conflicts,
+                    required_one_of=target_required,
+                ),
+                _template(
+                    f"{template_prefix}.interrupt",
+                    (*target_prefix, "interrupt"),
+                    "Interrupt through gateway.",
+                    target_fields,
+                    family=family,
+                    conflicts=target_conflicts,
+                    required_one_of=target_required,
+                ),
+                _template(
+                    f"{template_prefix}.send-keys",
+                    (*target_prefix, "send-keys"),
+                    "Send raw keys through gateway.",
+                    (
+                        *target_fields,
+                        _req("sequence", "--sequence", "Raw key sequence."),
+                        _flag(
+                            "escape_special_keys",
+                            "--escape-special-keys",
+                            "Treat the sequence literally instead of parsing special-key tokens.",
+                        ),
+                    ),
+                    family=family,
+                    conflicts=target_conflicts,
+                    required_one_of=target_required,
+                ),
+            )
+        )
+        _append_tui_templates(
+            templates=templates,
+            template_prefix=template_prefix,
+            target_prefix=target_prefix,
+            family=family,
+            target_fields=target_fields,
+            target_conflicts=target_conflicts,
+            target_required=target_required,
+        )
+        _append_mail_notifier_templates(
+            templates=templates,
+            template_prefix=template_prefix,
+            target_prefix=target_prefix,
+            family=family,
+            target_fields=target_fields,
+            target_conflicts=target_conflicts,
+            target_required=target_required,
+        )
+        _append_reminder_templates(
+            templates=templates,
+            template_prefix=template_prefix,
+            target_prefix=target_prefix,
+            family=family,
+            target_fields=target_fields,
+            target_conflicts=target_conflicts,
+            target_required=target_required,
+        )
+    return templates
+
+
+def _gateway_target_fields(*, scope: str) -> tuple[TemplateField, ...]:
+    """Return target fields for one gateway scope."""
+
+    if scope == "self":
+        return ()
+    return (
+        _f(
             "agent_name",
-            "agent_id",
-            "target_tmux_session",
-            "current_session",
-            message=(
-                "Gateway targets accept one of agent_name, agent_id, target_tmux_session, "
-                "or current_session."
-            ),
+            "--agent-name",
+            "Friendly managed-agent name.",
+            argv_insert_index=3,
         ),
-        _conflict(
-            "pair_port",
-            "target_tmux_session",
-            "current_session",
-            message="Pair authority port is only valid with an explicit agent selector.",
-        ),
+        _f("agent_id", "--agent-id", "Managed-agent id.", argv_insert_index=3),
+        _int("pair_port", "--pair-port", "Houmao pair authority port."),
     )
-    attach_timing_fields = (
+
+
+def _gateway_target_conflicts(*, scope: str) -> tuple[FieldConflict, ...]:
+    """Return target-field conflicts for one gateway scope."""
+
+    if scope == "self":
+        return ()
+    return (_conflict("agent_name", "agent_id", message="Agent selectors are mutually exclusive."),)
+
+
+def _attach_timing_fields() -> tuple[TemplateField, ...]:
+    """Return gateway attach timing override fields."""
+
+    return (
         _number(
             "gateway_tui_watch_poll_interval_seconds",
             "--gateway-tui-watch-poll-interval-seconds",
@@ -79,134 +198,102 @@ def templates() -> list[CommandTemplate]:
             "Gateway TUI final stable-active recovery seconds.",
         ),
     )
-    templates: list[CommandTemplate] = []
-    for verb in ("status", "detach"):
-        templates.append(
-            _template(
-                f"agents.gateway.{verb}",
-                ("agents", "gateway", verb),
-                f"Gateway {verb}.",
-                selector_fields,
-                family="agents.gateway",
-                conflicts=selector_conflicts,
-            )
-        )
-    templates.append(
-        _template(
-            "agents.gateway.attach",
-            ("agents", "gateway", "attach"),
-            "Gateway attach.",
-            (
-                *selector_fields,
-                _flag("background", "--background", "Run the gateway as a background process."),
-                *attach_timing_fields,
-            ),
-            family="agents.gateway",
-            conflicts=selector_conflicts,
-        )
-    )
-    templates.extend(
-        (
-            _template(
-                "agents.gateway.prompt",
-                ("agents", "gateway", "prompt"),
-                "Submit a direct gateway prompt.",
-                (
-                    *selector_fields,
-                    _f("prompt", "--prompt", "Prompt text."),
-                    _flag("force", "--force", "Send even when the target is not prompt-ready."),
-                    _f("model", "--model", "Request-scoped headless model override."),
-                    _int(
-                        "reasoning_level",
-                        "--reasoning-level",
-                        "Request-scoped reasoning preset index.",
-                    ),
-                ),
-                family="agents.gateway",
-                conflicts=selector_conflicts,
-            ),
-            _template(
-                "agents.gateway.interrupt",
-                ("agents", "gateway", "interrupt"),
-                "Interrupt through gateway.",
-                selector_fields,
-                family="agents.gateway",
-                conflicts=selector_conflicts,
-            ),
-            _template(
-                "agents.gateway.send-keys",
-                ("agents", "gateway", "send-keys"),
-                "Send raw keys through gateway.",
-                (
-                    *selector_fields,
-                    _req("sequence", "--sequence", "Raw key sequence."),
-                    _flag(
-                        "escape_special_keys",
-                        "--escape-special-keys",
-                        "Treat the sequence literally instead of parsing special-key tokens.",
-                    ),
-                ),
-                family="agents.gateway",
-                conflicts=selector_conflicts,
-            ),
-        )
-    )
+
+
+def _append_tui_templates(
+    *,
+    templates: list[CommandTemplate],
+    template_prefix: str,
+    target_prefix: tuple[str, ...],
+    family: str,
+    target_fields: tuple[TemplateField, ...],
+    target_conflicts: tuple[FieldConflict, ...],
+    target_required: tuple[tuple[str, ...], ...],
+) -> None:
+    """Append scoped gateway TUI templates."""
+
     for verb in ("state", "history", "watch", "note-prompt"):
-        tui_fields: tuple[TemplateField, ...] = selector_fields
+        tui_fields: tuple[TemplateField, ...] = target_fields
         if verb == "watch":
             tui_fields = (
-                *selector_fields,
+                *target_fields,
                 _number("interval_seconds", "--interval-seconds", "Watch poll interval seconds."),
             )
         if verb == "note-prompt":
-            tui_fields = (*selector_fields, _req("prompt", "--prompt", "Prompt note."))
+            tui_fields = (*target_fields, _req("prompt", "--prompt", "Prompt note."))
         templates.append(
             _template(
-                f"agents.gateway.tui.{verb}",
-                ("agents", "gateway", "tui", verb),
+                f"{template_prefix}.tui.{verb}",
+                (*target_prefix, "tui", verb),
                 f"Gateway TUI {verb}.",
                 tui_fields,
-                family="agents.gateway",
-                conflicts=selector_conflicts,
+                family=family,
+                conflicts=target_conflicts,
+                required_one_of=target_required,
             )
         )
-    templates.extend(
-        [
-            _template(
-                f"agents.gateway.mail-notifier.{verb}",
-                ("agents", "gateway", "mail-notifier", verb),
-                f"Gateway mail notifier {verb}.",
-                selector_fields
-                if verb != "enable"
-                else (
-                    *selector_fields,
-                    _req_int("interval_seconds", "--interval-seconds", "Polling interval seconds."),
-                    _choice(
-                        "mode",
-                        "--mode",
-                        "Notifier mode.",
-                        ("any_inbox", "unread_only"),
-                    ),
-                    _f("appendix_text", "--appendix-text", "Notifier prompt appendix."),
-                    _choice(
-                        "context_error_policy",
-                        "--context-error-policy",
-                        "Context error policy.",
-                        ("continue_current", "clear_context"),
-                    ),
-                    _choice(
-                        "pre_notification_context_action",
-                        "--pre-notification-context-action",
-                        "Pre-notification context action.",
-                        ("none", "compact"),
-                    ),
+
+
+def _append_mail_notifier_templates(
+    *,
+    templates: list[CommandTemplate],
+    template_prefix: str,
+    target_prefix: tuple[str, ...],
+    family: str,
+    target_fields: tuple[TemplateField, ...],
+    target_conflicts: tuple[FieldConflict, ...],
+    target_required: tuple[tuple[str, ...], ...],
+) -> None:
+    """Append scoped gateway mail-notifier templates."""
+
+    for verb in ("status", "enable", "disable"):
+        fields = (
+            target_fields
+            if verb != "enable"
+            else (
+                *target_fields,
+                _req_int("interval_seconds", "--interval-seconds", "Polling interval seconds."),
+                _choice("mode", "--mode", "Notifier mode.", ("any_inbox", "unread_only")),
+                _f("appendix_text", "--appendix-text", "Notifier prompt appendix."),
+                _choice(
+                    "context_error_policy",
+                    "--context-error-policy",
+                    "Context error policy.",
+                    ("continue_current", "clear_context"),
                 ),
-                family="agents.gateway",
-                conflicts=selector_conflicts,
+                _choice(
+                    "pre_notification_context_action",
+                    "--pre-notification-context-action",
+                    "Pre-notification context action.",
+                    ("none", "compact"),
+                ),
             )
-            for verb in ("status", "enable", "disable")
-        ]
-    )
+        )
+        templates.append(
+            _template(
+                f"{template_prefix}.mail-notifier.{verb}",
+                (*target_prefix, "mail-notifier", verb),
+                f"Gateway mail notifier {verb}.",
+                fields,
+                family=family,
+                conflicts=target_conflicts,
+                required_one_of=target_required,
+            )
+        )
+
+
+def _append_reminder_templates(
+    *,
+    templates: list[CommandTemplate],
+    template_prefix: str,
+    target_prefix: tuple[str, ...],
+    family: str,
+    target_fields: tuple[TemplateField, ...],
+    target_conflicts: tuple[FieldConflict, ...],
+    target_required: tuple[tuple[str, ...], ...],
+) -> None:
+    """Append scoped gateway reminder templates."""
+
     reminder_payload_fields = (
         _f("title", "--title", "Reminder title."),
         _choice("mode", "--mode", "Reminder mode.", ("one_off", "repeat")),
@@ -227,12 +314,8 @@ def templates() -> list[CommandTemplate]:
         _number("interval_seconds", "--interval-seconds", "Repeat interval seconds."),
     )
     reminder_conflicts = (
-        *selector_conflicts,
-        _conflict(
-            "prompt",
-            "sequence",
-            message="Reminder prompt and send-keys sequence conflict.",
-        ),
+        *target_conflicts,
+        _conflict("prompt", "sequence", message="Reminder prompt and send-keys sequence conflict."),
         _conflict(
             "start_after_seconds",
             "deliver_at_utc",
@@ -246,10 +329,10 @@ def templates() -> list[CommandTemplate]:
         ),
     )
     reminder_fields_by_verb: dict[str, tuple[TemplateField, ...]] = {
-        "list": selector_fields,
-        "get": (*selector_fields, _req("reminder_id", "--reminder-id", "Reminder id.")),
+        "list": target_fields,
+        "get": (*target_fields, _req("reminder_id", "--reminder-id", "Reminder id.")),
         "create": (
-            *selector_fields,
+            *target_fields,
             _req("title", "--title", "Reminder title."),
             _choice(
                 "mode",
@@ -261,26 +344,28 @@ def templates() -> list[CommandTemplate]:
             *reminder_payload_fields[2:],
         ),
         "set": (
-            *selector_fields,
+            *target_fields,
             _req("reminder_id", "--reminder-id", "Reminder id."),
             *reminder_payload_fields,
         ),
-        "remove": (*selector_fields, _req("reminder_id", "--reminder-id", "Reminder id.")),
+        "remove": (*target_fields, _req("reminder_id", "--reminder-id", "Reminder id.")),
     }
     for verb, reminder_fields in reminder_fields_by_verb.items():
         templates.append(
             _template(
-                f"agents.gateway.reminders.{verb}",
-                ("agents", "gateway", "reminders", verb),
+                f"{template_prefix}.reminders.{verb}",
+                (*target_prefix, "reminders", verb),
                 f"Gateway reminders {verb}.",
                 reminder_fields,
-                family="agents.gateway",
+                family=family,
                 conflicts=reminder_conflicts,
                 required_one_of=(
-                    (("prompt", "sequence"), ("ranking", "before_all", "after_all"))
-                    if verb == "create"
-                    else ()
+                    *target_required,
+                    *(
+                        (("prompt", "sequence"), ("ranking", "before_all", "after_all"))
+                        if verb == "create"
+                        else ()
+                    ),
                 ),
             )
         )
-    return templates

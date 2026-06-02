@@ -157,7 +157,7 @@ Generated runtime homes, manifests, mailbox state, and managed-agent memory are 
 
 1. Houmao persists project-local semantic objects in `.houmao/catalog.sqlite` and stores prompt/auth/skill/setup payloads under `.houmao/content/`.
 2. When current builders or launchers need a file tree, Houmao materializes the `.houmao/agents/` compatibility projection from the catalog plus managed content refs.
-3. `houmao-mgr agents launch --agents <role> --provider <provider>` resolves that role to the unique named preset whose YAML declares the matching `role`, provider-derived `tool`, and `setup: default`.
+3. `houmao-mgr project agents launch --specialist <name>` resolves the compiled specialist to the projected recipe whose YAML declares the matching `role`, provider-derived `tool`, and `setup: default`.
 4. The resolved preset selects project skills, setup, default auth, and optional launch/mailbox settings, including durable `launch.env_records` and managed `launch.system_skills` policy when present. If `launch.prompt_mode` is omitted, current build and launch flows resolve that omission to the unattended default; use `as_is` explicitly for pass-through startup posture.
 5. `BrainBuilder` combines the recipe with `tools/<tool>/adapter.yaml`, the selected setup bundle, the effective auth bundle, launch-profile-owned prompt or mailbox defaults when present, any durable `launch.env_records`, and the resolved managed system-skill policy to materialize a runtime home. On reused homes, unselected current Houmao-owned system-skill paths are removed while unrelated user skills remain.
 6. The runtime pairs the built manifest with `roles/<role>/system-prompt.md` and launches the session on the requested backend.

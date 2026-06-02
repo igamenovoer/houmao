@@ -5,7 +5,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 | Who you are | Where to start |
 |---|---|
 | **Installed user** (`uv tool install houmao`) | Install system skills with `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet are available; use [`houmao-mgr system-skills install`](reference/cli/system-skills.md) for offline/package-local or customized installs. Then start your agent and invoke `houmao-touring` or ask `$houmao-touring help`. |
-| **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) — covers `agents join` and project-overlay build/launch with `pixi run` |
+| **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) - covers `agents self join` and project-overlay build/launch with `pixi run` |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
 ## Getting Started
@@ -26,11 +26,11 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, projects, mailbox, system skills, internals, and local workflow control.
 - [houmao-passive-server](reference/cli/houmao-passive-server.md): Maintained registry-driven API server for discovery, observation, request submission, gateway proxying, mail proxying, and managed-headless agents.
 - [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
-- [agents gateway](reference/cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [agents gateway](reference/cli/agents-gateway.md): Scoped `agents single ... gateway` and `agents self gateway` lifecycle and request commands.
 - [agents external](reference/cli/agents-external.md): Local imports for remotely owned communication-only managed agents.
-- [agents turn](reference/cli/agents-turn.md): Managed headless turn submission and inspection.
-- [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
-- [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [agents turn](reference/cli/agents-turn.md): Scoped managed headless turn submission and inspection.
+- [agents mail](reference/cli/agents-mail.md): Scoped managed-agent mailbox follow-up commands.
+- [agents mailbox](reference/cli/agents-mailbox.md): Scoped late filesystem mailbox registration for local managed agents.
 - [admin cleanup](reference/cli/admin-cleanup.md): Registry and runtime maintenance commands.
 - [internals](reference/cli/internals.md): Native-agent internals plus NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
 - [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.

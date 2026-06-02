@@ -257,7 +257,7 @@ def test_external_target_rejects_local_lifecycle_operations(
     assert "external communication-only" in detail
     assert "http://127.0.0.1:9899" in detail
     assert "remote-ref" in detail
-    assert "agents prompt" in detail
+    assert "agents single ... prompt" in detail
 
 
 def test_external_cleanup_selector_is_rejected_before_local_scan(

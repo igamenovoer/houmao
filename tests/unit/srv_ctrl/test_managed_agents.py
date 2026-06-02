@@ -394,7 +394,7 @@ def test_resolve_managed_agent_target_reports_local_name_miss_before_default_pai
         "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused"
     ) in message
     assert (
-        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "Retry with `houmao-mgr agents global list`, the correct friendly managed-agent name, "
         "or `--agent-id <id>`."
     ) in message
 
@@ -483,7 +483,7 @@ def test_resolve_managed_agent_target_reports_exact_tmux_alias_hint_on_local_nam
     ) in message
     assert (
         "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
-        "or inspect `houmao-mgr agents list`."
+        "or inspect `houmao-mgr agents global list`."
     ) in message
 
 
@@ -525,7 +525,7 @@ def test_resolve_managed_agent_target_omits_alias_hint_when_alias_match_is_not_u
     assert "No local managed agent matched friendly name `agent-test`." in message
     assert "tmux/session alias" not in message
     assert (
-        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "Retry with `houmao-mgr agents global list`, the correct friendly managed-agent name, "
         "or `--agent-id <id>`."
     ) in message
 
@@ -616,8 +616,8 @@ def test_resolve_managed_agent_target_rejects_stopped_local_record(
     assert "lifecycle_state=stopped" in message
     assert "manifest_path=/tmp/stopped/manifest.json" in message
     assert "session_root=/tmp/stopped" in message
-    assert "agents relaunch --agent-id agent-stopped" in message
-    assert "agents cleanup session --agent-id agent-stopped" in message
+    assert "agents single --agent-id agent-stopped relaunch" in message
+    assert "agents single --agent-id agent-stopped cleanup session" in message
 
 
 def test_resolve_relaunch_managed_agent_target_accepts_stopped_local_record(
@@ -1244,8 +1244,8 @@ def test_stop_managed_agent_registry_transition_failure_includes_guidance(
     assert "Recovery guidance:" in response.detail
     assert "failed_phase: shared-registry lifecycle transition" in response.detail
     assert (
-        "houmao-mgr agents cleanup session --manifest-path "
-        f"{record.runtime.manifest_path} --purge-registry --dry-run"
+        "houmao-mgr agents single --agent-id agent-degraded-1 cleanup session "
+        "--purge-registry --dry-run"
     ) in response.detail
     assert "Traceback" not in response.detail
 
@@ -1409,7 +1409,7 @@ def test_relaunch_managed_agent_fails_cleanly_for_stale_active_without_manifest(
 
     message = str(exc_info.value)
     assert "cannot be relaunched" in message
-    assert "houmao-mgr agents launch" in message
+    assert "houmao-mgr project agents launch" in message
 
 
 def test_relaunch_managed_agent_failed_revival_leaves_stopped_record(

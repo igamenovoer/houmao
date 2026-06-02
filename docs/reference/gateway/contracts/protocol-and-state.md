@@ -112,7 +112,7 @@ Important rules:
 - The runtime validates these bindings structurally before trusting them.
 - `GET /health` is the authoritative liveness check for the live gateway.
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
-- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents mail resolve-live`.
+- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents self mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live`.
 
 ## Gateway Client Proxy Policy
 
@@ -332,7 +332,7 @@ Reminders are process-local in-memory state:
 - due-but-not-yet-delivered reminders are also lost on restart
 - reminders do not create rows in `queue.sqlite` until or unless some other gateway feature persists its own internal work
 - `GET /v1/reminders` reports only the current live gateway process state
-- this is the direct live gateway HTTP surface only; there is no supported `houmao-mgr agents gateway reminders ...` CLI family or `/houmao/agents/{agent_ref}/gateway/reminders` projection
+- this is the direct live gateway HTTP surface underneath the supported scoped `houmao-mgr agents single/self ... gateway reminders ...` CLI family and `/houmao/agents/{agent_ref}/gateway/reminders` projection
 
 Representative create request:
 

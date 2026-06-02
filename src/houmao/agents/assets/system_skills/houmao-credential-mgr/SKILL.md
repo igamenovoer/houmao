@@ -65,12 +65,12 @@ This packaged skill does not cover:
 - `houmao-mgr project specialist ...`
 - `houmao-mgr project profile ...`
 - `houmao-mgr project agents ...`
-- `houmao-mgr agents launch|join|list|stop|cleanup`
+- `houmao-mgr agents global|single|self|external ...`
 - `houmao-mgr internals native-agent launch-dossiers ...`
 - `houmao-mgr internals native-agent tools <tool> setups ...`
 - `houmao-mgr internals native-agent roles ...`
 - `houmao-mgr project mailbox ...`
-- `houmao-mgr agents cleanup mailbox`
+- managed-agent cleanup or mailbox participation surfaces
 - `houmao-mgr admin cleanup runtime ...`
 - direct filesystem editing under `.houmao/content/auth/`
 - direct filesystem editing under `.houmao/agents/tools/`

@@ -94,7 +94,10 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
         "Do not inspect the current project, repository, or runtime home to rediscover skill "
         "files or infer install locations."
     ) in prompt_request.prompt
-    assert "pixi run houmao-mgr agents mail resolve-live" in prompt_request.prompt
+    assert "pixi run houmao-mgr agents self mail resolve-live" in prompt_request.prompt
+    assert "pixi run houmao-mgr agents single --agent-name <name> mail resolve-live" in (
+        prompt_request.prompt
+    )
     assert "gateway.base_url" in prompt_request.prompt
     assert "attached gateway env vars" not in prompt_request.prompt
     assert "HOUMAO_MAIL_RESULT_BEGIN" in prompt_request.prompt

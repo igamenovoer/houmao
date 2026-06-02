@@ -16,13 +16,13 @@ Use this filesystem page for:
 ## Filesystem Workflow
 
 - When the current prompt or mailbox context already provides the exact `gateway.base_url`, use that value directly for shared gateway mailbox work and do not rerun manager discovery first.
-- Otherwise resolve current mailbox bindings through `houmao-mgr agents mail resolve-live` before mailbox work.
+- Otherwise resolve current mailbox bindings through `houmao-mgr agents self mail resolve-live` before mailbox work.
 - Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
 - When the resolver returns a `gateway` object, use this skill's action pages and shared `/v1/mail/*` references for the ordinary mailbox operation you need.
-- When the resolver returns `gateway: null`, render the matching `agents.mail.status|list|peek|read|send|post|reply|mark|move|archive` template as the supported fallback surface.
+- When the resolver returns `gateway: null`, render the matching `agents.self.mail.status|list|peek|read|send|post|reply|mark|move|archive` template as the supported fallback surface.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
-- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the rendered `agents.mail.archive` fallback command when it is not.
-- If a fallback `houmao-mgr agents mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents mail list`, `houmao-mgr agents mail status`, or transport-owned mailbox state before assuming the mutation completed.
+- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the rendered `agents.self.mail.archive` fallback command when it is not.
+- If a fallback `houmao-mgr agents self mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents self mail list`, `houmao-mgr agents self mail status`, or transport-owned mailbox state before assuming the mutation completed.
 
 ## Filesystem-Specific Guidance
 

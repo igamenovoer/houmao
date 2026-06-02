@@ -12,7 +12,7 @@ houmao-passive-server [OPTIONS] COMMAND [ARGS]...
 
 ## When to Use It
 
-Use `houmao-passive-server` when you need an HTTP authority for collecting, observing, or managing running Houmao agents from the shared registry. Typical operators still launch or join local agents through `houmao-mgr agents launch` and `houmao-mgr agents join`; passive-server then provides API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless turn handling.
+Use `houmao-passive-server` when you need an HTTP authority for collecting, observing, or managing running Houmao agents from the shared registry. Typical operators still launch local agents through `houmao-mgr project agents launch` or adopt the current tmux session through `houmao-mgr agents self join`; passive-server then provides API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless turn handling.
 
 The packaged server/API command is `houmao-passive-server`. Historical standalone `houmao-server`, `houmao-cli`, and `/cao/*` workflows are removed from the maintained CLI/API surface.
 
@@ -91,7 +91,7 @@ Gateway routes proxy to the agent-owned gateway when one is attached. Gateway at
 | `GET` | `/houmao/agents/{agent_ref}/gateway/tui/state` | Gateway-owned TUI state. |
 | `GET` | `/houmao/agents/{agent_ref}/gateway/tui/history` | Gateway-owned TUI state history. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/tui/note-prompt` | Record explicit prompt provenance on the gateway tracker. |
-| `POST` | `/houmao/agents/{agent_ref}/gateway/attach` | Returns not implemented; run local `houmao-mgr agents gateway attach` on the host that owns the agent. |
+| `POST` | `/houmao/agents/{agent_ref}/gateway/attach` | Returns not implemented; run local `houmao-mgr agents single --agent-id <id> gateway attach` or `houmao-mgr agents self gateway attach` on the host that owns the agent. |
 | `POST` | `/houmao/agents/{agent_ref}/gateway/detach` | Returns not implemented; run local gateway detach on the host that owns the agent. |
 
 ### Gateway Memory Proxy
@@ -166,15 +166,15 @@ Passive-server can own native headless agents and recover their authority record
 Common examples:
 
 ```bash
-houmao-mgr agents list --port 9891
-houmao-mgr agents state --port 9891 --agent-name <name>
-houmao-mgr agents prompt --port 9891 --agent-name <name> --prompt "Summarize your status."
-houmao-mgr agents gateway status --port 9891 --agent-name <name>
-houmao-mgr agents mail list --port 9891 --agent-name <name> --read-state unread
-houmao-mgr agents turn submit --port 9891 --agent-name <name> --prompt "Run the next step."
+houmao-mgr agents global list --port 9891
+houmao-mgr agents single --agent-name <name> state --port 9891
+houmao-mgr agents single --agent-name <name> prompt --port 9891 --prompt "Summarize your status."
+houmao-mgr agents single --agent-name <name> gateway status --port 9891
+houmao-mgr agents single --agent-name <name> mail list --port 9891 --read-state unread
+houmao-mgr agents single --agent-name <name> turn submit --port 9891 --prompt "Run the next step."
 ```
 
-Use local `houmao-mgr agents gateway attach` or `detach` on the host that owns the tmux session; passive-server does not remotely spawn or tear down gateway processes.
+Use local `houmao-mgr agents single --agent-id <id> gateway attach|detach` or `houmao-mgr agents self gateway attach|detach` on the host that owns the tmux session; passive-server does not remotely spawn or tear down gateway processes.
 
 ## Runtime Layout
 

@@ -8,9 +8,9 @@ Use this action when the user wants logs, turn traces, or append-only runtime ev
 2. Recover the target selector and, for headless turns, the specific `turn_id` from the current prompt first and recent chat context second when they were stated explicitly.
 3. If a required target or `turn_id` is still missing, ask the user in Markdown before proceeding.
 4. For headless agents, prefer the managed turn surfaces first:
-   - `agents turn status` for one persisted turn status payload
-   - `agents turn events` for canonical semantic event replay
-   - `agents turn stdout` and `agents turn stderr` for raw durable artifacts
+   - `agents single ... turn status` for one persisted turn status payload
+   - `agents single ... turn events` for canonical semantic event replay
+   - `agents single ... turn stdout` and `agents single ... turn stderr` for raw durable artifacts
 5. For gateway-capable sessions, inspect `gateway/logs/gateway.log` when the task is about gateway lifecycle, queue execution, or notifier polling logs.
 6. Inspect `gateway/events.jsonl` only as append-only event evidence, not as the source of truth for durable queue or manifest state.
 7. When the user wants the overall current posture rather than one specific turn, return to `actions/discover.md` and `actions/screen.md` first before diving into raw logs.
@@ -20,10 +20,10 @@ Use this action when the user wants logs, turn traces, or append-only runtime ev
 Headless turn inspection:
 
 ```text
-<chosen houmao-mgr launcher> agents turn status --agent-name <name> <turn-id>
-<chosen houmao-mgr launcher> agents turn events --agent-name <name> <turn-id>
-<chosen houmao-mgr launcher> agents turn stdout --agent-name <name> <turn-id>
-<chosen houmao-mgr launcher> agents turn stderr --agent-name <name> <turn-id>
+<chosen houmao-mgr launcher> agents single --agent-name <name> turn status <turn-id>
+<chosen houmao-mgr launcher> agents single --agent-name <name> turn events <turn-id>
+<chosen houmao-mgr launcher> agents single --agent-name <name> turn stdout <turn-id>
+<chosen houmao-mgr launcher> agents single --agent-name <name> turn stderr <turn-id>
 ```
 
 Managed-agent HTTP headless routes:

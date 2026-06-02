@@ -122,15 +122,19 @@ from .gateway import (
 )
 from .mail import mail_group
 from .mailbox import mailbox_group
+from .scopes import clone_scoped_command_tree
 from .turn import turn_group
 from .workspace import memory_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
+    ManagedAgentScopeContext,
+    get_managed_agent_scope_context,
     managed_agent_selector_options,
     managed_launch_force_option,
     pair_port_option,
     resolve_prompt_text,
     resolve_managed_agent_selector,
+    set_managed_agent_scope_context,
 )
 from ..output import emit
 from ..project_aware_wording import (
@@ -151,9 +155,11 @@ from ..managed_agents import (
     ManagedAgentTarget,
     interrupt_managed_agent,
     list_managed_agents,
+    managed_agent_identity_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
     relaunch_managed_agent,
+    resolve_current_session_managed_agent_target,
     resolve_relaunch_managed_agent_target,
     resolve_managed_agent_target,
     stop_managed_agent,
@@ -1094,7 +1100,168 @@ def emit_local_launch_completion(
 
 @click.group(name="agents")
 def agents_group() -> None:
-    """Managed-agent operations across local runtime and `houmao-server` backends."""
+    """Managed-agent operations split by global, single, self, and external scope."""
+
+
+@click.group(name="global")
+def agents_global_group() -> None:
+    """Zero-or-many local managed-agent registry and fleet operations."""
+
+
+@click.group(name="single")
+@click.option("--agent-id", default=None, help="Authoritative managed-agent id.")
+@click.option(
+    "--agent-name",
+    default=None,
+    help="Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix.",
+)
+@click.pass_context
+def agents_single_group(
+    ctx: click.Context,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Operations for exactly one explicitly selected local managed agent."""
+
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    set_managed_agent_scope_context(
+        ctx=ctx,
+        scope_context=ManagedAgentScopeContext(
+            scope="single",
+            agent_id=selected_agent_id,
+            agent_name=selected_agent_name,
+        ),
+    )
+
+
+@click.group(name="self")
+@click.pass_context
+def agents_self_group(ctx: click.Context) -> None:
+    """Operations for the managed agent held by the caller's current tmux session."""
+
+    set_managed_agent_scope_context(
+        ctx=ctx,
+        scope_context=ManagedAgentScopeContext(scope="self"),
+    )
+
+
+@agents_self_group.command(name="identity")
+def self_identity_agent_command() -> None:
+    """Show the current managed tmux-session identity."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(managed_agent_identity_payload(target))
+
+
+@agents_self_group.command(name="state")
+def self_state_agent_command() -> None:
+    """Show the operational summary for the current managed tmux session."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(
+        managed_agent_state_payload(target),
+        plain_renderer=render_agent_state_plain,
+        fancy_renderer=render_agent_state_fancy,
+    )
+
+
+@agents_self_group.command(name="prompt")
+@click.option(
+    "--prompt",
+    default=None,
+    help="Prompt text to submit. If omitted, piped stdin is used.",
+)
+@click.option(
+    "--model",
+    default=None,
+    help="Request-scoped headless execution model override.",
+)
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
+)
+def self_prompt_agent_command(
+    prompt: str | None,
+    model: str | None,
+    reasoning_level: int | None,
+) -> None:
+    """Submit the default prompt path to the current managed tmux session."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(
+        prompt_managed_agent(
+            target,
+            prompt=resolve_prompt_text(prompt=prompt),
+            model=model,
+            reasoning_level=reasoning_level,
+        )
+    )
+
+
+@agents_self_group.command(name="interrupt")
+def self_interrupt_agent_command() -> None:
+    """Interrupt the current managed tmux session."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(interrupt_managed_agent(target))
+
+
+@agents_self_group.command(name="relaunch")
+@click.option(
+    "--chat-session-mode",
+    type=click.Choice(_RELAUNCH_CHAT_SESSION_MODES),
+    default=None,
+    help=(
+        "Provider chat-session policy for this relaunch: new, tool_last_or_new, or exact. "
+        "Omitting the flag uses the launch-profile relaunch policy when present, otherwise new."
+    ),
+)
+@click.option(
+    "--chat-session-id",
+    default=None,
+    help="Provider chat-session id to resume when --chat-session-mode exact is selected.",
+)
+def self_relaunch_agent_command(
+    chat_session_mode: str | None,
+    chat_session_id: str | None,
+) -> None:
+    """Refresh the active tmux-backed surface for the current managed session."""
+
+    relaunch_chat_session = _resolve_relaunch_chat_session_selection_or_click(
+        mode=chat_session_mode,
+        session_id=chat_session_id,
+    )
+    session_name = _require_current_tmux_session_name()
+    resolution = _resolve_current_session_manifest(session_name=session_name)
+    agent_def_dir = _resolve_current_session_agent_def_dir(
+        session_name=session_name,
+        registry_record=resolution.registry_record,
+    )
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=resolution.manifest_path,
+    )
+    result = (
+        controller.relaunch(chat_session=relaunch_chat_session)
+        if relaunch_chat_session is not None
+        else controller.relaunch()
+    )
+    emit(
+        {
+            "success": result.status == "ok",
+            "tracked_agent_id": (
+                controller.agent_id
+                or controller.agent_identity
+                or controller.manifest_path.parent.name
+            ),
+            "detail": result.detail,
+        }
+    )
 
 
 @agents_group.command(name="launch")
@@ -1243,7 +1410,7 @@ def launch_agents_command(
         overlay = project_roots.project_overlay
         if overlay is None:
             raise click.ClickException(
-                "No project overlay is available for `agents launch --launch-profile`; "
+                "No project overlay is available for `project agents launch --profile`; "
                 "select an existing project overlay first."
             )
         try:
@@ -1714,6 +1881,136 @@ def relaunch_agent_command(
     emit(response)
 
 
+def _require_single_scope_context() -> ManagedAgentScopeContext:
+    """Return the inherited `agents single` target context."""
+
+    scope_context = get_managed_agent_scope_context()
+    if scope_context is None or scope_context.scope != "single":
+        raise click.ClickException(
+            "`agents single` commands require exactly one group-level `--agent-id` or "
+            "`--agent-name` selector."
+        )
+    return scope_context
+
+
+def _single_selector_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one selected-agent command."""
+
+    scope_context = _require_single_scope_context()
+    return {
+        "agent_id": scope_context.agent_id,
+        "agent_name": scope_context.agent_name,
+    }
+
+
+def _single_gateway_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one selected-agent gateway command."""
+
+    return {
+        **_single_selector_injections(),
+        "current_session": False,
+        "target_tmux_session": None,
+    }
+
+
+def _self_selectorless_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one current-session command."""
+
+    return {
+        "agent_id": None,
+        "agent_name": None,
+        "port": None,
+    }
+
+
+def _self_gateway_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one current-session gateway command."""
+
+    return {
+        "agent_id": None,
+        "agent_name": None,
+        "current_session": True,
+        "target_tmux_session": None,
+        "pair_port": None,
+    }
+
+
+def _install_scoped_agents_commands() -> None:
+    """Replace legacy root `agents` actions with explicit scoped command groups."""
+
+    legacy_commands = dict(agents_group.commands)
+
+    agents_global_group.add_command(legacy_commands["list"])
+
+    selector_params = frozenset({"agent_id", "agent_name"})
+    gateway_single_params = selector_params | frozenset({"current_session", "target_tmux_session"})
+    selector_port_params = selector_params | frozenset({"port"})
+    gateway_self_params = gateway_single_params | frozenset({"pair_port"})
+
+    for command_name in ("state", "prompt", "interrupt", "stop", "relaunch"):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_params,
+                inject_params=_single_selector_injections,
+            )
+        )
+    for command_name in ("gateway",):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=gateway_single_params,
+                inject_params=_single_gateway_injections,
+            )
+        )
+    for command_name in ("mail", "turn", "memory"):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_params,
+                inject_params=_single_selector_injections,
+            )
+        )
+    for command_name in ("mailbox", "cleanup"):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_params,
+                inject_params=_single_selector_injections,
+            )
+        )
+
+    agents_self_group.add_command(legacy_commands["join"])
+    agents_self_group.add_command(
+        clone_scoped_command_tree(
+            legacy_commands["gateway"],
+            remove_params=gateway_self_params,
+            inject_params=_self_gateway_injections,
+        )
+    )
+    for command_name in ("mail", "turn", "memory"):
+        agents_self_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_port_params,
+                inject_params=_self_selectorless_injections,
+            )
+        )
+    agents_self_group.add_command(
+        clone_scoped_command_tree(
+            legacy_commands["mailbox"],
+            remove_params=selector_params,
+            inject_params=_self_selectorless_injections,
+        )
+    )
+
+    agents_group.commands.clear()
+    agents_group.add_command(agents_global_group)
+    agents_group.add_command(agents_single_group)
+    agents_group.add_command(agents_self_group)
+    agents_group.add_command(legacy_commands["external"])
+
+
 agents_group.add_command(gateway_group)
 agents_group.add_command(cleanup_group)
 agents_group.add_command(external_group)
@@ -1721,6 +2018,7 @@ agents_group.add_command(mail_group)
 agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)
 agents_group.add_command(memory_group)
+_install_scoped_agents_commands()
 
 
 def _parse_join_launch_env(values: tuple[str, ...]) -> tuple[JoinedLaunchEnvBinding, ...]:

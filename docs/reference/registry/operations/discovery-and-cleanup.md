@@ -12,7 +12,7 @@ For live gateway recovery, the registry remains only a locator layer: it helps t
 
 ## Name-Based Discovery Order
 
-For name-addressed tmux-backed live control such as `houmao-mgr agents prompt`, `houmao-mgr agents gateway send-keys`, `houmao-mgr agents mail`, and `houmao-mgr agents stop`, the current order is:
+For name-addressed tmux-backed live control such as `houmao-mgr agents single --agent-name <name> prompt`, scoped gateway `send-keys`, scoped mail, and selected-agent `stop`, the current order is:
 
 1. normalize the input to canonical `HOUMAO-...` form,
 2. try tmux-local discovery first,
@@ -25,9 +25,9 @@ Path-like manifest identities do not use the shared registry. They go straight t
 
 For current releases, the expected stopped-session path is lifecycle-aware:
 
-1. `agents stop` on a relaunchable tmux-backed local session publishes a stopped registry record instead of deleting the registry entry.
-2. `agents relaunch` can target that stopped record directly and revive the same managed-agent identity.
-3. `agents cleanup session` can target that stopped record directly and retire it by default or purge it explicitly.
+1. `agents single ... stop` on a relaunchable tmux-backed local session publishes a stopped registry record instead of deleting the registry entry.
+2. `agents single ... relaunch` can target that stopped record directly and revive the same managed-agent identity.
+3. `agents single ... cleanup session` can target that stopped record directly and retire it by default or purge it explicitly.
 
 The runtime-root stopped-manifest scan is still maintained for older stopped sessions that predate lifecycle-aware registry persistence. It is intentionally bounded: exactly one stopped manifest must match the requested identity or the command fails explicitly.
 
@@ -58,7 +58,7 @@ sequenceDiagram
     participant TM as tmux<br/>discovery
     participant RG as Shared<br/>registry
     participant MF as manifest.json
-    Op->>CLI: houmao-mgr agents<br/>prompt --agent-name gpu
+    Op->>CLI: houmao-mgr agents single<br/>--agent-name gpu prompt
     CLI->>TM: resolve manifest +<br/>agent_def_dir
     alt tmux pointers valid
         TM-->>CLI: resolved pointers
@@ -81,20 +81,17 @@ The key idea is that registry fallback still ends with manifest validation. The 
 Use canonical or unprefixed names interchangeably:
 
 ```bash
-pixi run houmao-mgr agents prompt \
-  --agent-name gpu \
+pixi run houmao-mgr agents single --agent-name gpu prompt \
   --prompt "Summarize the current plan"
 
-pixi run houmao-mgr agents stop \
-  --agent-name gpu
+pixi run houmao-mgr agents single --agent-name gpu stop
 ```
 
 Use an explicit registry root for isolated environments:
 
 ```bash
 HOUMAO_GLOBAL_REGISTRY_DIR=/abs/path/tmp/registry \
-pixi run houmao-mgr agents prompt \
-  --agent-name gpu \
+pixi run houmao-mgr agents single --agent-name gpu prompt \
   --prompt "hello"
 ```
 
@@ -115,10 +112,10 @@ pixi run python -m houmao.agents.realm_controller stop-session \
 
 For managed-agent cleanup commands:
 
-- `agents cleanup session` prefers lifecycle registry records over runtime-root scans,
-- `agents cleanup session` retires stopped records by default after successful session-root removal or validated absence,
-- `agents cleanup session --purge-registry` deletes the lifecycle record entirely. This flag is intended for confirmed broken active local authority after tmux inspection reveals a degraded or stale session. See [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md).
-- `agents cleanup logs` and `agents cleanup mailbox` preserve the lifecycle record,
+- `agents single ... cleanup session` prefers lifecycle registry records over runtime-root scans,
+- `agents single ... cleanup session` retires stopped records by default after successful session-root removal or validated absence,
+- `agents single ... cleanup session --purge-registry` deletes the lifecycle record entirely. This flag is intended for confirmed broken active local authority after tmux inspection reveals a degraded or stale session. See [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md).
+- `agents single ... cleanup logs` and `agents single ... cleanup mailbox` preserve the lifecycle record,
 - active lifecycle records are not retired or purged through cleanup; stop the agent first.
 
 `houmao-mgr admin cleanup registry` is the operator-facing janitor for stale `live_agents/` directories.

@@ -1,4 +1,4 @@
-"""Tests for the `--notify-block` flag on `houmao-mgr agents mail send|post`."""
+"""Tests for the `--notify-block` flag on scoped `houmao-mgr agents ... mail send|post`."""
 
 from __future__ import annotations
 

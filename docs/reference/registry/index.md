@@ -68,7 +68,7 @@ The current implementation documents what exists today:
 ## Migration Notes
 
 - Legacy `live_agent_registry_record.v2` payloads are upgraded in memory to `lifecycle.state=active`, with the old `published_at` and `lease_expires_at` fields becoming active-only `liveness` metadata and the old tmux `session_name` becoming both `terminal.current_session_name` and `terminal.last_session_name`.
-- Pre-change stopped sessions that never published a lifecycle-aware record remain recoverable only through bounded runtime-root scans used by `agents relaunch` and `agents cleanup`. Once such a session is revived or cleaned, the lifecycle registry becomes authoritative again.
+- Pre-change stopped sessions that never published a lifecycle-aware record remain recoverable only through bounded runtime-root scans used by `agents single ... relaunch` and `agents single ... cleanup`. Once such a session is revived or cleaned, the lifecycle registry becomes authoritative again.
 
 ## Related References
 

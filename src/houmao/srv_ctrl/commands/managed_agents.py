@@ -176,6 +176,8 @@ from houmao.server.models import (
 from houmao.server.pair_client import PairAuthorityClientProtocol
 
 from .common import (
+    ManagedAgentScopeContext,
+    get_managed_agent_scope_context,
     pair_request,
     require_managed_agent_ref,
     require_supported_houmao_pair,
@@ -279,9 +281,10 @@ def _external_unsupported_message(
     )
     remote_ref = record.remote_agent_ref if record is not None else target.identity.remote_agent_ref
     supported = (
-        "agents list, agents state, agents prompt, agents interrupt, "
-        "agents gateway status, agents gateway prompt, agents gateway interrupt, "
-        "and supported agents mail commands"
+        "agents global list, agents single ... state, agents single ... prompt, "
+        "agents single ... interrupt, agents single ... gateway status, "
+        "agents single ... gateway prompt, agents single ... gateway interrupt, "
+        "and supported agents single ... mail commands"
     )
     detail = (
         f"`{operation}` is unsupported for external communication-only managed agent "
@@ -734,6 +737,18 @@ def resolve_managed_agent_target(
 ) -> ManagedAgentTarget:
     """Resolve one managed-agent target through registry-first discovery."""
 
+    scoped_target = _resolve_target_from_scope_context(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        operation_family="agents single/self",
+    )
+    if isinstance(scoped_target, ManagedAgentTarget):
+        return scoped_target
+    if scoped_target is not None:
+        agent_id = scoped_target.agent_id
+        agent_name = scoped_target.agent_name
+
     normalized_agent_id, normalized_agent_name = resolve_managed_agent_selector(
         agent_id=agent_id,
         agent_name=agent_name,
@@ -817,6 +832,22 @@ def resolve_relaunch_managed_agent_target(
     port: int | None,
 ) -> ManagedAgentTarget:
     """Resolve one managed-agent relaunch target, including stopped relaunchable records."""
+
+    scoped_target = _resolve_target_from_scope_context(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        operation_family="agents single relaunch",
+    )
+    if isinstance(scoped_target, ManagedAgentTarget):
+        raise click.ClickException(
+            "`agents self relaunch` uses current-session manifest authority only. "
+            "Use `houmao-mgr agents self relaunch` for active current-session refresh or "
+            "`houmao-mgr agents single --agent-id <id> relaunch` for selected-agent recovery."
+        )
+    if scoped_target is not None:
+        agent_id = scoped_target.agent_id
+        agent_name = scoped_target.agent_name
 
     normalized_agent_id, normalized_agent_name = resolve_managed_agent_selector(
         agent_id=agent_id,
@@ -913,7 +944,19 @@ def resolve_managed_agent_mail_target(
     agent_name: str | None,
     port: int | None,
 ) -> ManagedAgentTarget:
-    """Resolve one `agents mail` target using explicit or current-session selectors."""
+    """Resolve one scoped managed-agent mail target."""
+
+    scoped_target = _resolve_target_from_scope_context(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        port=port,
+        operation_family="scoped agents mail",
+    )
+    if isinstance(scoped_target, ManagedAgentTarget):
+        return scoped_target
+    if scoped_target is not None:
+        agent_id = scoped_target.agent_id
+        agent_name = scoped_target.agent_name
 
     selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
         agent_id=agent_id,
@@ -930,7 +973,7 @@ def resolve_managed_agent_mail_target(
     if port is not None:
         raise click.ClickException(
             "`--port` is only supported with an explicit `--agent-id` or `--agent-name` "
-            "`agents mail` target."
+            "`agents single ... mail` target."
         )
 
     gateway_commands = _gateway_command_helpers()
@@ -948,6 +991,53 @@ def resolve_managed_agent_mail_target(
             "Current tmux session is not registered as a managed agent in the gateway runtime."
         )
     return cast(ManagedAgentTarget, resolved_target)
+
+
+def resolve_current_session_managed_agent_target() -> ManagedAgentTarget:
+    """Resolve the current tmux session into one local managed-agent target."""
+
+    gateway_commands = _gateway_command_helpers()
+    session_name = gateway_commands._try_current_tmux_session_name()
+    if session_name is None:
+        raise click.ClickException(
+            "`agents self` requires a current managed-agent tmux session. "
+            "Run from inside a registered managed tmux session or use "
+            "`houmao-mgr agents single --agent-id <id> ...`."
+        )
+    return cast(
+        ManagedAgentTarget,
+        gateway_commands._resolve_gateway_current_session_target(session_name=session_name),
+    )
+
+
+def _resolve_target_from_scope_context(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+    port: int | None,
+    operation_family: str,
+) -> ManagedAgentTarget | ManagedAgentScopeContext | None:
+    """Apply inherited `agents single` or `agents self` target scope."""
+
+    scope_context = get_managed_agent_scope_context()
+    if scope_context is None:
+        return None
+    if scope_context.scope == "single":
+        if agent_id is not None or agent_name is not None:
+            return None
+        return scope_context
+
+    if agent_id is not None or agent_name is not None:
+        raise click.ClickException(
+            f"`{operation_family}` is running under `agents self`; explicit `--agent-id` and "
+            "`--agent-name` selectors are not supported."
+        )
+    if port is not None:
+        raise click.ClickException(
+            f"`{operation_family}` is running under `agents self`; pair-authority port "
+            "overrides are not supported because the target is the current managed tmux session."
+        )
+    return resolve_current_session_managed_agent_target()
 
 
 def _resolve_local_managed_agent_record(
@@ -1248,11 +1338,11 @@ def _format_local_managed_agent_selector_failure(
         retry_guidance = (
             f"Retry with `--agent-name {miss_context.alias_match.agent_name}`, "
             f"`--agent-id {miss_context.alias_match.agent_id}`, "
-            "or inspect `houmao-mgr agents list`."
+            "or inspect `houmao-mgr agents global list`."
         )
     else:
         retry_guidance = (
-            "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+            "Retry with `houmao-mgr agents global list`, the correct friendly managed-agent name, "
             "or `--agent-id <id>`."
         )
     lines.append(f"Fallback lookup through the default pair authority also failed: {remote_detail}")
@@ -1322,8 +1412,8 @@ def _format_inactive_local_registry_match(
     lifecycle_state = _record_lifecycle_state(record)
     if lifecycle_state == "stopped":
         lines.append(
-            f"Use `houmao-mgr agents relaunch --agent-id {record.agent_id}` to revive it or "
-            f"`houmao-mgr agents cleanup session --agent-id {record.agent_id}` to remove its stopped artifacts."
+            f"Use `houmao-mgr agents single --agent-id {record.agent_id} relaunch` to revive it or "
+            f"`houmao-mgr agents single --agent-id {record.agent_id} cleanup session` to remove its stopped artifacts."
         )
     elif lifecycle_state == "retired":
         lines.append(
@@ -1363,7 +1453,7 @@ def _format_unavailable_local_relaunch_record(
             "authority for stopped-session revival."
         )
         lines.append(
-            f"Use `houmao-mgr agents cleanup session --agent-id {record.agent_id}` to remove "
+            f"Use `houmao-mgr agents single --agent-id {record.agent_id} cleanup session` to remove "
             "the stopped runtime artifacts, or relaunch from an explicit manifest/session-root "
             "recovery path once the missing authority is repaired."
         )
@@ -1479,7 +1569,7 @@ def _format_stop_failure_guidance(
     lines.extend(
         [
             "  retry:",
-            f"    houmao-mgr agents stop --agent-id {shlex.quote(target.identity.tracked_agent_id)}",
+            f"    houmao-mgr agents single --agent-id {shlex.quote(target.identity.tracked_agent_id)} stop",
         ]
     )
     return "\n".join(lines)
@@ -1530,7 +1620,7 @@ def _stop_cleanup_followup_command(
     if selector is None:
         return None
     suffix = " --dry-run" if dry_run else ""
-    return f"houmao-mgr agents cleanup session {selector} --purge-registry{suffix}"
+    return f"houmao-mgr agents single {selector} cleanup session --purge-registry{suffix}"
 
 
 def _stop_cleanup_selector(
@@ -1541,10 +1631,6 @@ def _stop_cleanup_selector(
 ) -> str | None:
     """Return a cleanup selector for one failed stop operation."""
 
-    if manifest_path is not None and manifest_path.strip():
-        return f"--manifest-path {shlex.quote(manifest_path)}"
-    if session_root is not None and session_root.strip():
-        return f"--session-root {shlex.quote(session_root)}"
     record = target.record
     agent_id = getattr(record, "agent_id", None) or target.identity.agent_id
     if isinstance(agent_id, str) and agent_id.strip():
@@ -1552,6 +1638,10 @@ def _stop_cleanup_selector(
     agent_name = getattr(record, "agent_name", None) or target.identity.agent_name
     if isinstance(agent_name, str) and agent_name.strip():
         return f"--agent-name {shlex.quote(agent_name)}"
+    if manifest_path is not None and manifest_path.strip():
+        return f"--agent-id {shlex.quote(target.identity.tracked_agent_id)}"
+    if session_root is not None and session_root.strip():
+        return f"--agent-id {shlex.quote(target.identity.tracked_agent_id)}"
     return None
 
 
@@ -1730,7 +1820,7 @@ def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
 def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionResponse:
     """Stop one managed agent through the resolved control path."""
 
-    _raise_external_unsupported(target, operation="agents stop")
+    _raise_external_unsupported(target, operation="agents single ... stop")
 
     if target.mode == "server":
         assert target.client is not None
@@ -1848,12 +1938,12 @@ def _recover_broken_active_local_record(
             detail=(
                 "Retired broken active managed-agent registry record without preserved "
                 f"relaunch authority for `{current.agent_name or current.agent_id}`; "
-                "use `houmao-mgr agents launch` for a fresh launch."
+                "use `houmao-mgr project agents launch ...` for a project-backed fresh launch."
                 if retired
                 else (
                     "Broken active managed-agent registry record for "
                     f"`{current.agent_name or current.agent_id}` was already gone; "
-                    "use `houmao-mgr agents launch` for a fresh launch."
+                    "use `houmao-mgr project agents launch ...` for a project-backed fresh launch."
                 )
             ),
             retired=True,
@@ -1868,7 +1958,7 @@ def _recover_broken_active_local_record(
         detail=(
             "Recovered stale or degraded active managed agent "
             f"`{published.agent_name or published.agent_id}` into stopped lifecycle "
-            "continuity; use `houmao-mgr agents relaunch` to revive."
+            "continuity; use `houmao-mgr agents single --agent-id <id> relaunch` to revive."
         ),
     )
 
@@ -1952,7 +2042,7 @@ def relaunch_managed_agent(
 ) -> HoumaoManagedAgentActionResponse:
     """Relaunch one tmux-backed managed agent through the resolved runtime authority."""
 
-    _raise_external_unsupported(target, operation="agents relaunch")
+    _raise_external_unsupported(target, operation="agents single ... relaunch")
 
     if target.mode in {"local_degraded", "local_stale"}:
         assert target.record is not None
@@ -2018,7 +2108,7 @@ def _relaunch_degraded_or_stale_local_managed_agent(
         raise click.ClickException(
             f"Managed agent `{record.agent_name or record.agent_id}` cannot be relaunched: "
             f"failed to reconcile broken active local authority first ({exc}). "
-            "Run `houmao-mgr agents stop` to recover or retire the active record before "
+            "Run `houmao-mgr agents single --agent-id <id> stop` to recover or retire the active record before "
             "retrying relaunch."
         ) from exc
     if recovery.record is None:
@@ -2032,8 +2122,8 @@ def _relaunch_degraded_or_stale_local_managed_agent(
         raise click.ClickException(
             f"Managed agent `{record.agent_name or record.agent_id}` cannot be relaunched: "
             f"preserved relaunch authority could not be reconstructed ({exc.message}). "
-            "Use `houmao-mgr agents stop` to retire the registry record, then "
-            "`houmao-mgr agents launch` for a fresh launch."
+            "Use `houmao-mgr agents single --agent-id <id> stop` to retire the registry record, then "
+            "`houmao-mgr project agents launch ...` for a project-backed fresh launch."
         ) from exc
 
     result = controller.revive_stopped_session(chat_session=relaunch_chat_session)
@@ -2063,7 +2153,7 @@ def attach_gateway(
 ) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway attach")
+    _raise_external_unsupported(target, operation="agents single ... gateway attach")
 
     target = _local_gateway_target_for_passive_pair(target, operation="attach")
     execution_mode_override: GatewayCurrentExecutionMode = (
@@ -2093,7 +2183,7 @@ def attach_gateway(
 def detach_gateway(target: ManagedAgentTarget) -> GatewayStatusV1:
     """Detach one live gateway for the resolved managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway detach")
+    _raise_external_unsupported(target, operation="agents single ... gateway detach")
 
     target = _local_gateway_target_for_passive_pair(target, operation="detach")
     if target.mode == "server":
@@ -2269,7 +2359,7 @@ def gateway_send_keys(
 ) -> GatewayControlInputResultV1:
     """Submit raw gateway control input for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway send-keys")
+    _raise_external_unsupported(target, operation="agents single ... gateway send-keys")
 
     request_model = GatewayControlInputRequestV1(
         sequence=sequence,
@@ -2294,7 +2384,7 @@ def gateway_send_keys(
 def gateway_tui_state(target: ManagedAgentTarget) -> HoumaoTerminalStateResponse:
     """Return raw gateway-owned TUI state for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway tui state")
+    _raise_external_unsupported(target, operation="agents single ... gateway tui state")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2311,7 +2401,7 @@ def gateway_tui_state(target: ManagedAgentTarget) -> HoumaoTerminalStateResponse
 def gateway_tui_history(target: ManagedAgentTarget) -> HoumaoTerminalSnapshotHistoryResponse:
     """Return raw gateway-owned TUI snapshot history for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway tui history")
+    _raise_external_unsupported(target, operation="agents single ... gateway tui history")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2332,7 +2422,7 @@ def gateway_tui_note_prompt(
 ) -> HoumaoTerminalStateResponse:
     """Record prompt-note provenance through the live gateway tracker."""
 
-    _raise_external_unsupported(target, operation="agents gateway tui note-prompt")
+    _raise_external_unsupported(target, operation="agents single ... gateway tui note-prompt")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2353,7 +2443,7 @@ def gateway_tui_note_prompt(
 def gateway_list_reminders(target: ManagedAgentTarget) -> GatewayReminderListV1:
     """Return the live gateway reminder set for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway reminders list")
+    _raise_external_unsupported(target, operation="agents single ... gateway reminders list")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2374,7 +2464,7 @@ def gateway_get_reminder(
 ) -> GatewayReminderV1:
     """Return one live gateway reminder for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway reminders get")
+    _raise_external_unsupported(target, operation="agents single ... gateway reminders get")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2399,7 +2489,7 @@ def gateway_create_reminders(
 ) -> GatewayReminderCreateResultV1:
     """Create one or more live gateway reminders for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway reminders create")
+    _raise_external_unsupported(target, operation="agents single ... gateway reminders create")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2425,7 +2515,7 @@ def gateway_put_reminder(
 ) -> GatewayReminderV1:
     """Replace one live gateway reminder for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway reminders put")
+    _raise_external_unsupported(target, operation="agents single ... gateway reminders put")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2451,7 +2541,7 @@ def gateway_delete_reminder(
 ) -> GatewayReminderDeleteResultV1:
     """Delete one live gateway reminder for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway reminders delete")
+    _raise_external_unsupported(target, operation="agents single ... gateway reminders delete")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2472,7 +2562,7 @@ def gateway_delete_reminder(
 def gateway_mail_notifier_status(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
     """Return gateway mail-notifier status for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway mail-notifier status")
+    _raise_external_unsupported(target, operation="agents single ... gateway mail-notifier status")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2497,7 +2587,7 @@ def gateway_mail_notifier_enable(
 ) -> GatewayMailNotifierStatusV1:
     """Enable or update gateway mail-notifier state for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway mail-notifier enable")
+    _raise_external_unsupported(target, operation="agents single ... gateway mail-notifier enable")
 
     request_model = (
         GatewayMailNotifierPutV1(
@@ -2534,7 +2624,7 @@ def gateway_mail_notifier_enable(
 def gateway_mail_notifier_disable(target: ManagedAgentTarget) -> GatewayMailNotifierStatusV1:
     """Disable gateway mail-notifier state for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents gateway mail-notifier disable")
+    _raise_external_unsupported(target, operation="agents single ... gateway mail-notifier disable")
 
     if _target_uses_pair_api(target):
         assert target.client is not None
@@ -2558,7 +2648,8 @@ def mailbox_status(target: ManagedAgentTarget) -> dict[str, object]:
     mailbox = controller.launch_plan.mailbox
     if mailbox is not None and not isinstance(mailbox, FilesystemMailboxResolvedConfig):
         raise click.ClickException(
-            "`houmao-mgr agents mailbox ...` only supports filesystem mailbox bindings in v1."
+            "`houmao-mgr agents single ... mailbox ...` and `houmao-mgr agents self mailbox ...` "
+            "only support filesystem mailbox bindings in v1."
         )
 
     activation_state = controller.mailbox_activation_state()
@@ -2646,7 +2737,8 @@ def unregister_mailbox_binding(
         raise click.ClickException("Target session is not mailbox-enabled.")
     if not isinstance(previous_mailbox, FilesystemMailboxResolvedConfig):
         raise click.ClickException(
-            "`houmao-mgr agents mailbox ...` only supports filesystem mailbox bindings in v1."
+            "`houmao-mgr agents single ... mailbox ...` and `houmao-mgr agents self mailbox ...` "
+            "only support filesystem mailbox bindings in v1."
         )
 
     try:
@@ -3750,7 +3842,7 @@ def submit_headless_turn(
 ) -> HoumaoHeadlessTurnAcceptedResponse:
     """Submit one headless turn for a managed agent."""
 
-    _raise_external_unsupported(target, operation="agents turn submit")
+    _raise_external_unsupported(target, operation="agents single ... turn submit")
 
     execution_model = _resolve_execution_model_override(
         model=model,
@@ -3797,7 +3889,7 @@ def headless_turn_status(
 ) -> HoumaoHeadlessTurnStatusResponse:
     """Return headless turn status for one managed agent."""
 
-    _raise_external_unsupported(target, operation="agents turn status")
+    _raise_external_unsupported(target, operation="agents single ... turn status")
 
     if target.mode == "server":
         assert target.client is not None
@@ -3829,7 +3921,7 @@ def headless_turn_events(
 ) -> HoumaoHeadlessTurnEventsResponse:
     """Return structured events for one headless turn."""
 
-    _raise_external_unsupported(target, operation="agents turn events")
+    _raise_external_unsupported(target, operation="agents single ... turn events")
 
     if target.mode == "server":
         assert target.client is not None
@@ -3859,7 +3951,7 @@ def headless_turn_artifact_text(
 ) -> str:
     """Return one raw headless artifact text payload."""
 
-    _raise_external_unsupported(target, operation="agents turn artifact")
+    _raise_external_unsupported(target, operation="agents single ... turn artifact")
 
     if target.mode == "server":
         assert target.client is not None
@@ -4265,7 +4357,8 @@ def _require_live_gateway_client_for_controller(
     if client is None:
         raise click.ClickException(
             "No live gateway is attached to the managed agent. "
-            "Run `houmao-mgr agents gateway attach` and retry."
+            "Run `houmao-mgr agents single --agent-id <id> gateway attach` or "
+            "`houmao-mgr agents self gateway attach` and retry."
         )
     return client
 

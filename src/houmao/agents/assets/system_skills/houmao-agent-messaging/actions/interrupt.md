@@ -7,7 +7,7 @@ Use this action only when the user wants the transport-neutral interrupt path fo
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
 3. If the target selector is still missing, ask the user in Markdown before proceeding.
-4. Use `agents interrupt` for the default CLI path.
+4. Use `agents single --agent-id <id> interrupt`, `agents single --agent-name <name> interrupt`, or `agents self interrupt` for the default CLI path.
 5. If the caller is already using the pair-managed HTTP API, use the managed-agent interrupt request surface under `POST /houmao/agents/{agent_ref}/requests`.
 6. For TUI-backed managed agents, explain that ordinary interrupt means one best-effort `Escape` delivery through the resolved managed-agent control path.
 7. Try the ordinary interrupt path even when currently reported TUI state looks idle because tracked TUI state can lag the live visible surface.
@@ -19,7 +19,7 @@ Use this action only when the user wants the transport-neutral interrupt path fo
 Use:
 
 ```text
-<chosen houmao-mgr launcher> agents interrupt --agent-name <name>
+<chosen houmao-mgr launcher> agents single --agent-name <name> interrupt
 ```
 
 Authoritative selector alternatives:
@@ -29,8 +29,8 @@ Authoritative selector alternatives:
 
 ## Guardrails
 
-- Do not redirect ordinary interrupt work to `agents gateway interrupt` unless the user explicitly wants gateway queue semantics.
-- Do not redirect ordinary TUI interrupt work to `agents gateway send-keys` merely to deliver `Escape`.
+- Do not redirect ordinary interrupt work to `agents single ... gateway interrupt` or `agents self gateway interrupt` unless the user explicitly wants gateway queue semantics.
+- Do not redirect ordinary TUI interrupt work to `agents single ... gateway send-keys` or `agents self gateway send-keys` merely to deliver `Escape`.
 - Do not guess the target managed agent.
 - Do not describe interrupt as a mailbox or lifecycle action.
 - Do not claim that interrupt guarantees immediate provider termination; it is the supported managed-agent interrupt request path.

@@ -23,4 +23,4 @@ project.mailbox.messages.list
 
 - Do not treat this action as unread-state inspection.
 - Do not mark messages read, archived, or deleted from this action.
-- Do not switch to `houmao-mgr agents mail ...` unless the user actually needs actor-scoped mailbox participation state.
+- Do not switch to `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` unless the user actually needs actor-scoped mailbox participation state.

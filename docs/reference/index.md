@@ -9,10 +9,10 @@
 
 ### Managed-Agent Command Families
 
-- [agents gateway](cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
-- [agents turn](cli/agents-turn.md): Managed headless turn submission and inspection.
-- [agents mail](cli/agents-mail.md): Managed-agent mailbox follow-up commands.
-- [agents mailbox](cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [scoped agents gateway](cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [scoped agents turn](cli/agents-turn.md): Managed headless turn submission and inspection.
+- [scoped agents mail](cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [scoped agents mailbox](cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [admin cleanup](cli/admin-cleanup.md): Registry and runtime maintenance commands.
 
 ## Build Phase

@@ -3,7 +3,7 @@
 Use these routes against the exact gateway base URL already present in the current prompt or recent mailbox context. When current context does not provide that URL, resolve it through:
 
 ```bash
-houmao-mgr agents mail resolve-live
+houmao-mgr agents self mail resolve-live
 ```
 
 ## Routes

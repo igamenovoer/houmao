@@ -17,7 +17,7 @@ Installed Houmao system skills can answer prompt-level read-only help such as `$
 This is the same packaged skill system used internally by:
 
 - managed launch or internal native-agent brain build when Houmao creates a managed home and resolves any stored source/profile managed system-skill policy,
-- `houmao-mgr agents join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
+- `houmao-mgr agents self join` when it adopts an existing session and auto-installs Houmao-owned skills into the adopted tool home.
 
 The `system-skills` command group is still the explicit tool-home installer. Managed-launch policy is configured on specialists, recipes, and launch profiles with `system_skills` fields or `--system-skill*` profile options; it is not a one-shot `system-skills install` invocation.
 
@@ -328,8 +328,8 @@ Removal boundary:
 Managed homes and joined homes use the same installer and catalog:
 
 - managed launch and internal native-agent brain build install the skill list resolved from `auto_install.managed_launch_sets`
-- `agents join` installs the skill list resolved from `auto_install.managed_join_sets`
-- `agents join --no-install-houmao-skills` skips that default installer step
+- `agents self join` installs the skill list resolved from `auto_install.managed_join_sets`
+- `agents self join --no-install-houmao-skills` skips that default installer step
 
 Those managed flows continue to use copied projection in this change even though explicit `system-skills install` now supports `--symlink`.
 
@@ -355,7 +355,7 @@ Do not use it for:
 
 - project-local user skills under `.houmao/agents/`
 - specialists or recipe-selected project skills
-- mailbox registration itself; that still uses `houmao-mgr mailbox ...` and `houmao-mgr agents mailbox ...`
+- mailbox registration itself; that still uses `houmao-mgr mailbox ...`, `houmao-mgr agents single ... mailbox ...`, or `houmao-mgr agents self mailbox ...`
 
 ## Related References
 

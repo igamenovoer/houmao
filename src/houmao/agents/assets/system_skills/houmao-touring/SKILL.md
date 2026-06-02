@@ -153,9 +153,9 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - inspect project posture through `houmao-mgr project status`
    - inspect reusable specialists through `houmao-mgr project specialist list` or `houmao-mgr project specialist get --name <name>` when the branch needs them
    - inspect reusable profiles through `houmao-mgr project profile list` or `houmao-mgr project profile get --name <name>` when the branch needs them
-   - inspect running managed agents through `houmao-mgr agents list`
-   - inspect one live managed agent through `houmao-mgr agents state`, `houmao-mgr agents gateway status`, or `houmao-mgr agents mail resolve-live` when the branch needs live capability
-   - inspect managed-agent memory posture through `houmao-mgr agents memory status` only when the selected branch needs memo or pages context
+   - inspect running managed agents through `houmao-mgr agents global list`
+   - inspect one live managed agent through `houmao-mgr agents single --agent-name <name> state`, `houmao-mgr agents single --agent-name <name> gateway status`, or `houmao-mgr agents single --agent-name <name> mail resolve-live` when the branch needs live capability
+   - inspect managed-agent memory posture through `houmao-mgr agents single --agent-name <name> memory status` only when the selected branch needs memo or pages context
 5. Explain the current posture in plain language and offer stage-aware next actions.
 6. Load exactly one branch page for the next selected tour branch:
    - `branches/orient.md`

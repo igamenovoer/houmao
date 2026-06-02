@@ -9,13 +9,13 @@ Use this branch first when the user explicitly wants the `houmao-touring` experi
    - `houmao-mgr project status`
    - `houmao-mgr project specialist list` or `houmao-mgr project specialist get --name <name>` when the user already named a specialist or the next action depends on one
    - `houmao-mgr project profile list` or `houmao-mgr project profile get --name <name>` when the user already named a reusable profile or the next action depends on one
-   - `houmao-mgr agents list`
+   - `houmao-mgr agents global list`
 3. If the user already mentioned a reusable specialist, project profile, live managed agent, mailbox account, memo, loop, or workspace goal, preserve that context.
 4. When the next action depends on live capabilities, inspect them only as needed:
-   - `houmao-mgr agents state --agent-name <name>`
-   - `houmao-mgr agents gateway status --agent-name <name>`
-   - `houmao-mgr agents mail resolve-live --agent-name <name>`
-   - `houmao-mgr agents memory status --agent-name <name>` when memo or pages context is relevant
+   - `houmao-mgr agents single --agent-name <name> state`
+   - `houmao-mgr agents single --agent-name <name> gateway status`
+   - `houmao-mgr agents single --agent-name <name> mail resolve-live`
+   - `houmao-mgr agents single --agent-name <name> memory status` when memo or pages context is relevant
 5. Classify the inspected workspace posture using the posture-to-action routing table below. That table is the source of truth for deciding which stage-aware next actions to offer.
 6. Explain the current posture in plain language and offer the actions named for that posture. The offered actions are offers, not mandates; the user can always choose a different supported branch.
 

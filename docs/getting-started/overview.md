@@ -54,7 +54,7 @@ flowchart TD
 
 `src/houmao/agents/realm_controller/` reads the built manifest, pairs it with a role package, and resolves a backend-specific `LaunchPlan`.
 
-When a managed agent's registry record claims `active` but the underlying tmux session is broken, `agents stop` and `agents relaunch` route through dedicated recovery helpers rather than failing with a generic error. The runtime probes tmux authority, classifies the session as healthy, degraded, or stale, and dispatches to the appropriate recovery path. See [Degraded and Stale Active Recovery](../reference/run-phase/degraded-stale-recovery.md).
+When a managed agent's registry record claims `active` but the underlying tmux session is broken, selected-agent `agents single ... stop` and `agents single ... relaunch` route through dedicated recovery helpers rather than failing with a generic error. The runtime probes tmux authority, classifies the session as healthy, degraded, or stale, and dispatches to the appropriate recovery path. See [Degraded and Stale Active Recovery](../reference/run-phase/degraded-stale-recovery.md).
 
 ### Key Types
 
@@ -90,7 +90,7 @@ When a managed agent's registry record claims `active` but the underlying tmux s
 | `src/houmao/agents/brain_builder.py` | Build phase: resolved inputs -> runtime home + manifest |
 | `src/houmao/agents/realm_controller/launch_plan.py` | Manifest + role -> backend launch plan |
 | `src/houmao/agents/realm_controller/backends/` | Backend implementations |
-| `src/houmao/srv_ctrl/commands/agents/core.py` | `houmao-mgr agents launch` preset-backed flow |
+| `src/houmao/srv_ctrl/commands/agents/core.py` | Scoped `houmao-mgr agents global|single|self|external` command registration |
 
 ## Project CLI Views
 

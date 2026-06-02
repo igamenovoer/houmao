@@ -15,7 +15,7 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 - In the filesystem transport, operator-origin mail defaults to `reply_policy=operator_mailbox`; replies route back to the reserved system mailbox `HOUMAO-operator@houmao.localhost`, while `reply_policy=none` remains the explicit one-way opt-out.
 - The `stalwart` transport delegates delivery, unread state, reply ancestry, and mailbox access to Stalwart instead of recreating those invariants in Houmao-owned files.
 - For filesystem-backed sessions, sensitive filesystem mutations are still funneled through managed scripts published into the mailbox-local `rules/` tree.
-- `houmao-mgr mailbox cleanup` only removes inactive or stashed filesystem registrations and intentionally preserves canonical `messages/` history. Use `houmao-mgr mailbox clear-messages` or `houmao-mgr project mailbox clear-messages` when you need to clear delivered filesystem mail while keeping accounts registered. Runtime-owned Stalwart credential cleanup lives under `houmao-mgr admin cleanup runtime mailbox-credentials`, and per-session Stalwart secret cleanup lives under `houmao-mgr agents cleanup mailbox`.
+- `houmao-mgr mailbox cleanup` only removes inactive or stashed filesystem registrations and intentionally preserves canonical `messages/` history. Use `houmao-mgr mailbox clear-messages` or `houmao-mgr project mailbox clear-messages` when you need to clear delivered filesystem mail while keeping accounts registered. Runtime-owned Stalwart credential cleanup lives under `houmao-mgr admin cleanup runtime mailbox-credentials`, and per-session Stalwart secret cleanup lives under `houmao-mgr agents single --agent-id <id> cleanup mailbox`.
 - Use `houmao-mgr mailbox export` or `houmao-mgr project mailbox export` when you need a filesystem mailbox archive. The maintained export path materializes symlinks by default so the archive can move to filesystems that do not support symlink artifacts.
 
 ## Key Terms
@@ -56,8 +56,8 @@ The mailbox system is an async message transport owned by the runtime, not a loo
 
 ## Related References
 
-- [houmao-mgr agents mail CLI](../cli/agents-mail.md): Managed-agent mailbox follow-up commands.
-- [houmao-mgr agents mailbox CLI](../cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [Scoped managed-agent mail CLI](../cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [Scoped managed-agent mailbox CLI](../cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [Gateway Mailbox Facade](../gateway/operations/mailbox-facade.md): Shared `/v1/mail/*` routes, adapter selection, loopback-only availability, and notifier behavior through the gateway.
 - [Agents And Runtime](../system-files/agents-and-runtime.md): Runtime-owned filesystem placement for manifests, gateway state, and Stalwart credential material.
 

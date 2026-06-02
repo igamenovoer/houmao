@@ -10,10 +10,10 @@ Use this action only when the user wants to clean stopped-session managed-agent 
    - `logs` for session-local log artifacts
 3. Recover one supported cleanup selector from the current prompt first and recent chat context second when it was stated explicitly:
    - Prefer `--manifest-path` or `--session-root` from recent stop output when present.
-   - Use `--agent-id` or `--agent-name` when no durable path locator is available but the target identity was stated explicitly. These selectors prefer cleanup-capable lifecycle registry records, including stopped records preserved by `agents stop`, and fall back to bounded runtime-root fallback scanning only when no matching lifecycle record exists.
+   - Use `--agent-id` or `--agent-name` when no durable path locator is available but the target identity was stated explicitly. These selectors prefer cleanup-capable lifecycle registry records, including stopped records preserved by `agents single ... stop`, and fall back to bounded runtime-root fallback scanning only when no matching lifecycle record exists.
 4. If the cleanup kind or selector is still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the cleanup kind choices and the selectors still needed.
 5. Include `--dry-run` only when the user explicitly asks to preview cleanup.
-6. Render `agents.cleanup.session` or `agents.cleanup.logs`.
+6. Render `agents.single.cleanup.session` or `agents.single.cleanup.logs`.
 7. Run the rendered `argv`. Session cleanup removes the stopped session envelope, retires the stopped lifecycle record by default, and does not remove the managed-agent memory root. Add `purge_registry=true` only when the user explicitly wants to delete the lifecycle record entirely.
 8. Report the resulting `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`.
 
@@ -22,13 +22,13 @@ Use this action only when the user wants to clean stopped-session managed-agent 
 Use the CLI-owned cleanup templates, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.cleanup.session --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.cleanup.logs --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.cleanup.session --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.cleanup.logs --intent '<json>'
 ```
 
 ## Guardrails
 
-- Do not route cleanup work to `agents cleanup mailbox`; mailbox secret cleanup is out of scope.
+- Do not route cleanup work to an `agents self cleanup` path; destructive cleanup belongs under `agents single ... cleanup`.
 - Do not route instance cleanup to `admin cleanup runtime ...`; that broader maintenance surface is out of scope.
 - Do not guess the cleanup kind or cleanup selector.
 - Do not widen a vague cleanup request into session or logs cleanup without user confirmation.

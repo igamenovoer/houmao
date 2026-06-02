@@ -5,7 +5,7 @@ This workflow documents how to run a no-`houmao-server` experiment for one local
 The goal is to compare two observation paths without relying on retired local history surfaces:
 
 1. the gateway-owned tracked current state, plus explicit prompt-note provenance, for the attached session
-2. the serverless `houmao-mgr agents state` CLI path
+2. the serverless `houmao-mgr agents single ... state` CLI path
 
 For runtime-owned `local_interactive` sessions, repo-owned local/serverless guidance now treats `GET /v1/control/tui/state` plus explicit prompt-note evidence as the supported gateway tracking surface. `GET /v1/control/tui/history` may still exist for compatibility callers, but this workflow does not rely on it.
 
@@ -13,10 +13,10 @@ For runtime-owned `local_interactive` sessions, repo-owned local/serverless guid
 
 This workflow is specifically for:
 
-- `houmao-mgr agents launch ...` without `houmao-server`
+- `houmao-mgr project agents launch ...` without `houmao-server`
 - backend `local_interactive`
 - one tmux-backed Codex TUI session
-- explicit gateway attach through `houmao-mgr agents gateway attach`
+- explicit gateway attach through `houmao-mgr agents single ... gateway attach`
 - gateway-owned current state via `GET /v1/control/tui/state`
 - explicit prompt-note evidence via `POST /v1/control/tui/note-prompt` or automatic prompt-note capture during `submit_prompt`
 
@@ -36,22 +36,22 @@ Useful checks:
 ```bash
 command -v tmux
 command -v codex
-pixi run houmao-mgr agents launch --help
+pixi run houmao-mgr project agents launch --help
 ```
 
 ## Important Identity Note
 
-For serverless local sessions, `houmao-mgr agents state/gateway ...` resolves local records by:
+For serverless local sessions, `houmao-mgr agents single ... state/gateway ...` resolves local records by:
 
 - shared-registry `agent_id`, or
 - raw creation-time `agent_name`
 
 It does not reliably resolve by tmux session name alone in this workflow.
 
-After launch, prefer the raw creation-time agent name from `agents list`. Example:
+After launch, prefer the raw creation-time agent name from `agents global list`. Example:
 
 ```bash
-pixi run houmao-mgr agents list
+pixi run houmao-mgr agents global list
 ```
 
 In the example run below, the agent name was `projection-demo-codex`, while the tmux session name was `hm-gw-track-codex`. If `--session-name` were omitted, the default tmux handle would be `AGENTSYS-projection-demo-codex-<epoch-ms>`.
@@ -67,10 +67,9 @@ export AGENTSYS_AGENT_DEF_DIR="$PWD/tests/fixtures/plain-agent-def"
 Launch one serverless local interactive Codex session:
 
 ```bash
-pixi run houmao-mgr agents launch \
-  --agents projection-demo \
-  --provider codex \
-  --agent-name projection-demo-codex \
+pixi run houmao-mgr project agents launch \
+  --specialist projection-demo \
+  --name projection-demo-codex \
   --session-name hm-gw-track-codex
 ```
 
@@ -85,16 +84,16 @@ Useful checks:
 
 ```bash
 tmux list-windows -t hm-gw-track-codex
-pixi run houmao-mgr agents list
+pixi run houmao-mgr agents global list
 ```
 
 ## Observe Baseline State Before Gateway Attach
 
-Use the raw agent name from `agents list`. Example:
+Use the raw agent name from `agents global list`. Example:
 
 ```bash
-pixi run houmao-mgr agents state --agent-name projection-demo-codex
-pixi run houmao-mgr agents gateway status --agent-name projection-demo-codex
+pixi run houmao-mgr agents single --agent-name projection-demo-codex state
+pixi run houmao-mgr agents single --agent-name projection-demo-codex gateway status
 ```
 
 Expected baseline observations:
@@ -121,7 +120,7 @@ In the documented run, the serverless CLI path showed:
 Attach a live gateway to the local interactive session:
 
 ```bash
-pixi run houmao-mgr agents gateway attach --agent-name projection-demo-codex
+pixi run houmao-mgr agents single --agent-name projection-demo-codex gateway attach
 ```
 
 Expected result:
@@ -137,7 +136,7 @@ Expected result:
 Confirm status again:
 
 ```bash
-pixi run houmao-mgr agents gateway status --agent-name projection-demo-codex
+pixi run houmao-mgr agents single --agent-name projection-demo-codex gateway status
 ```
 
 The runtime-owned gateway artifacts should now exist under the session root:
@@ -159,8 +158,7 @@ The runtime-owned gateway artifacts should now exist under the session root:
 Send a simple prompt through the explicit gateway path:
 
 ```bash
-pixi run houmao-mgr agents gateway prompt \
-  --agent-name projection-demo-codex \
+pixi run houmao-mgr agents single --agent-name projection-demo-codex gateway prompt \
   --prompt 'Reply with exactly TRACKING_OK and nothing else.'
 ```
 
@@ -256,15 +254,15 @@ This is the supported repo-owned local/serverless inspection path for attached `
 After the same prompt submission, query the serverless CLI path again:
 
 ```bash
-pixi run houmao-mgr agents state --agent-name projection-demo-codex
+pixi run houmao-mgr agents single --agent-name projection-demo-codex state
 ```
 
-In the documented run, the serverless `agents state` call showed the current posture correctly but did not preserve the same gateway-owned prompt-transition evidence across independent invocations.
+In the documented run, the serverless `agents single ... state` call showed the current posture correctly but did not preserve the same gateway-owned prompt-transition evidence across independent invocations.
 
 That difference matters:
 
 - the attached gateway owns the continuous tracked state for the lifetime of the live gateway
-- the current serverless `houmao-mgr agents state` path refreshes local tracking per invocation
+- the current serverless `houmao-mgr agents single ... state` path refreshes local tracking per invocation
 
 So this workflow should treat gateway-owned tracked state as the authoritative local/serverless observer for attached-session prompt lifecycle evidence.
 
@@ -279,14 +277,14 @@ When this workflow succeeds, record the following separately:
 3. Gateway-owned tracked-state evidence: whether `recent_transitions` records `ready -> active -> ready`
 4. Explicit prompt provenance: whether tracked state reflects the prompt submission through `last_turn` fields or note-prompt evidence
 5. Live pane behavior: whether the prompt is only staged in the input surface or whether a real assistant turn visibly runs
-6. Serverless CLI behavior: whether `agents state` reflects the current posture without preserving the same gateway-owned transition record
+6. Serverless CLI behavior: whether `agents single ... state` reflects the current posture without preserving the same gateway-owned transition record
 
 ## Cleanup
 
 Stop the session when done:
 
 ```bash
-pixi run houmao-mgr agents stop --agent-name projection-demo-codex
+pixi run houmao-mgr agents single --agent-name projection-demo-codex stop
 ```
 
 Expected cleanup result:
@@ -299,7 +297,7 @@ Useful checks:
 
 ```bash
 tmux has-session -t hm-gw-track-codex; echo rc:$?
-pixi run houmao-mgr agents list | rg 'projection-demo-codex|hm-gw-track-codex' || true
+pixi run houmao-mgr agents global list | rg 'projection-demo-codex|hm-gw-track-codex' || true
 ```
 
 ## Interpretation
@@ -307,6 +305,6 @@ pixi run houmao-mgr agents list | rg 'projection-demo-codex|hm-gw-track-codex' |
 This workflow demonstrates two distinct facts:
 
 1. serverless gateway attach and gateway-owned tracked current state do work for `local_interactive` sessions
-2. the serverless `houmao-mgr agents state` path is not an equivalent observer for the same attached-session transition evidence
+2. the serverless `houmao-mgr agents single ... state` path is not an equivalent observer for the same attached-session transition evidence
 
 If this workflow is used during debugging, treat gateway-owned tracked state plus explicit prompt-note evidence as the authoritative local/serverless surface for attached-session prompt lifecycle inspection.

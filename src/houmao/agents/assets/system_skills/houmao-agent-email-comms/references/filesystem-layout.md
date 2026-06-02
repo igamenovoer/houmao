@@ -53,7 +53,7 @@ Mailbox initialization is a runtime-owned bootstrap step. That bootstrap path cr
 - `rules/`
   Shared mailbox-local rules area for protocol notes, policy guidance, optional compatibility helpers, and helper skills.
 - `rules/scripts/`
-  Optional compatibility or diagnostic helper scripts. Ordinary mailbox work should use gateway `/v1/mail/*` or `houmao-mgr agents mail ...` rather than treating these files as the first-choice public contract.
+  Optional compatibility or diagnostic helper scripts. Ordinary mailbox work should use gateway `/v1/mail/*`, `houmao-mgr agents self mail ...`, or `houmao-mgr agents single ... mail ...` rather than treating these files as the first-choice public contract.
 - `mailboxes/<address>/inbox`
   Recipient-facing mailbox projection for delivered messages.
 - `mailboxes/<address>/mailbox.sqlite`

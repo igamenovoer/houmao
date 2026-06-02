@@ -83,9 +83,13 @@ def test_command_template_list_covers_command_surfaces_and_excludes_skill_scaffo
     assert "internals.native-agent.credentials.codex.add" in ids
     assert "project.credentials.codex.add" in ids
     assert "credentials.codex.add" not in ids
-    assert "agents.gateway.reminders.create" in ids
+    assert "agents.single.gateway.reminders.create" in ids
+    assert "agents.self.gateway.reminders.create" in ids
     assert "project.mailbox.messages.get" in ids
-    assert "agents.mail.send" in ids
+    assert "agents.single.mail.send" in ids
+    assert "agents.self.mail.send" in ids
+    assert "agents.global.list" in ids
+    assert "agents.external.register" in ids
     assert "loop-scaffold.pro.execplan-shell" not in ids
     assert "workspace-layout.in-repo" not in ids
     assert {
@@ -98,11 +102,15 @@ def test_command_template_list_covers_command_surfaces_and_excludes_skill_scaffo
         "internals.native-agent.credentials",
         "project.credentials",
         "agents.lifecycle",
-        "agents.gateway",
+        "agents.external",
+        "agents.single.gateway",
+        "agents.self.gateway",
         "mailbox",
         "project.mailbox",
-        "agents.mailbox",
-        "agents.mail",
+        "agents.single.mailbox",
+        "agents.self.mailbox",
+        "agents.single.mail",
+        "agents.self.mail",
     }.issubset(families)
     assert all(
         isinstance(item, dict) and item["target_argv"][0] == "houmao-mgr" for item in templates
@@ -305,7 +313,7 @@ def test_internal_native_credential_and_brain_templates_render_new_target_flags(
 
 def test_gateway_reminder_conflict_blocks_rendering() -> None:
     payload = _render(
-        "agents.gateway.reminders.create",
+        "agents.single.gateway.reminders.create",
         {
             "agent_name": "gpu",
             "title": "Check inbox",
@@ -371,18 +379,17 @@ def test_mailbox_export_template_uses_output_dir_and_blocks_scope_conflict() -> 
 
 
 def test_agent_launch_template_keeps_posture_absent_when_unspecified() -> None:
-    payload = _render(
-        "agents.launch-profile.launch", {"launch_profile": "nightly", "agent_name": "alice"}
-    )
+    payload = _render("project.agents.launch", {"profile": "nightly", "name": "alice"})
     argv = _argv(payload)
 
     assert argv == [
         "houmao-mgr",
+        "project",
         "agents",
         "launch",
-        "--launch-profile",
+        "--profile",
         "nightly",
-        "--agent-name",
+        "--name",
         "alice",
     ]
     assert "--headless" not in argv
@@ -390,7 +397,7 @@ def test_agent_launch_template_keeps_posture_absent_when_unspecified() -> None:
 
 def test_managed_agent_mail_fallback_renders_command_shape_only() -> None:
     payload = _render(
-        "agents.mail.send",
+        "agents.self.mail.send",
         {"to": ["bob@houmao.localhost"], "subject": "Hello", "body_content": "Hi"},
     )
     argv = _argv(payload)
@@ -398,6 +405,7 @@ def test_managed_agent_mail_fallback_renders_command_shape_only() -> None:
     assert argv == [
         "houmao-mgr",
         "agents",
+        "self",
         "mail",
         "send",
         "--to",
@@ -434,10 +442,10 @@ def test_packaged_skill_guidance_uses_cli_owned_templates() -> None:
     assert "project.credentials.<tool>.<verb>" in credential
     assert "internals.native-agent.credentials.<tool>.<verb>" in credential
     assert "internals.native-agent.brain.build" in agent_definition
-    assert "agents.launch-profile.launch" in instance
-    assert "agents.gateway.reminders.list|get|create|set|remove" in gateway
+    assert "project.agents.launch" in instance
+    assert "agents.single.gateway.reminders.list|get|create|set|remove" in gateway
     assert "mailbox.<verb>" in mailbox
-    assert "agents.mail.<verb>" in email
+    assert "agents.self.mail.<verb>" in email
     assert "project.profile.create" in memory
     assert "CLI template rendering" in specialist
 
@@ -460,10 +468,10 @@ def test_family_modules_contribute_expected_template_inventory() -> None:
         project_easy: "project.agents.launch",
         project_agents: "internals.native-agent.brain.build",
         credentials: "project.credentials.codex.add",
-        agents_lifecycle: "agents.launch-profile.launch",
-        agents_gateway: "agents.gateway.reminders.create",
+        agents_lifecycle: "agents.self.join",
+        agents_gateway: "agents.single.gateway.reminders.create",
         mailbox: "project.mailbox.messages.get",
-        managed_agent_mail: "agents.mail.send",
+        managed_agent_mail: "agents.self.mail.send",
     }
 
     for family_module, expected_id in family_ids.items():
@@ -503,7 +511,8 @@ def test_all_template_yaml_export_is_sorted_and_complete() -> None:
     assert ids == sorted(ids)
     assert len(ids) == list_payload["count"]
     assert "project.agents.launch" in ids
-    assert "agents.mail.send" in ids
+    assert "agents.self.mail.send" in ids
+    assert "agents.single.mail.send" in ids
 
 
 def test_cli_export_single_template_to_stdout_and_file(tmp_path: Path) -> None:
@@ -576,7 +585,7 @@ def test_cli_export_rejects_ambiguous_selection_and_output_modes() -> None:
     assert "Select exactly one command template" in missing.output
 
     both = runner.invoke(
-        cli, ["internals", "command-templates", "export", "--id", "agents.mail.send", "--all"]
+        cli, ["internals", "command-templates", "export", "--id", "agents.self.mail.send", "--all"]
     )
     assert both.exit_code != 0
     assert "Select exactly one command template" in both.output
@@ -588,7 +597,7 @@ def test_cli_export_rejects_ambiguous_selection_and_output_modes() -> None:
             "command-templates",
             "export",
             "--id",
-            "agents.mail.send",
+            "agents.self.mail.send",
             "--output-dir",
             "/tmp/templates",
         ],

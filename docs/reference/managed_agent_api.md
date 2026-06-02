@@ -185,14 +185,14 @@ Managed-agent gateway routes project the same gateway status, raw TUI tracking s
 
 `GET /houmao/agents/{agent_ref}/gateway` returns the same `GatewayStatusV1` shape used by the direct gateway status surface. It can therefore report a seeded offline `not_attached` status even when no live sidecar exists yet.
 
-`POST /houmao/agents/{agent_ref}/gateway/attach` is present on passive-server for route-shape compatibility but returns not implemented. Gateway attach and detach are same-host operations; use `houmao-mgr agents gateway attach` or `houmao-mgr agents gateway detach` on the host that owns the tmux session.
+`POST /houmao/agents/{agent_ref}/gateway/attach` is present on passive-server for route-shape compatibility but returns not implemented. Gateway attach and detach are same-host operations; use `houmao-mgr agents single --agent-id <id> gateway attach|detach` or `houmao-mgr agents self gateway attach|detach` on the host that owns the tmux session.
 
 Important attach behavior:
 
 - local attach is idempotent when a healthy live gateway is already attached for the same managed agent
 - local attach accepts optional `tui_tracking_timings` with positive-second overrides for `watch_poll_interval_seconds`, `stability_threshold_seconds`, `completion_stability_seconds`, `unknown_to_stalled_timeout_seconds`, `stale_active_recovery_seconds`, and `final_stable_active_recovery_seconds`. `stale_active_recovery_seconds` governs how long the gateway waits before treating a stuck active turn as stale; this is related to but distinct from the managed-agent recovery system that handles broken tmux sessions. See [Degraded and Stale Active Recovery](run-phase/degraded-stale-recovery.md).
 - same-session attach resolves the current tmux session from `HOUMAO_MANIFEST_PATH` first and from `HOUMAO_AGENT_ID` plus shared registry as a fallback
-- explicit attach resolves either `--agent-name <friendly-name>`, `--agent-id <authoritative-id>`, or `--target-tmux-session <tmux-session-name>` through maintained manager targeting rules
+- explicit attach resolves the group-level `agents single --agent-name <friendly-name>` or `agents single --agent-id <authoritative-id>` selector through maintained manager targeting rules
 
 `POST /houmao/agents/{agent_ref}/gateway/detach` is likewise not a remote passive-server action. Use local manager detach on the owning host.
 
@@ -210,7 +210,7 @@ Important attach behavior:
 
 `GET|PUT|DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier` proxy the live gateway notifier control surface for that managed agent. These routes require a live attached gateway; they return HTTP `503` when no live gateway is currently attached or when the live gateway health check fails. The proxy preserves notifier `appendix_text` unchanged: status returns the live gateway's effective appendix, omitted fields stay omitted on `PUT`, non-empty strings replace the runtime appendix, and `appendix_text=""` clears it. Status also returns the effective `context_error_policy` and `pre_notification_context_action`. `PUT` accepts those fields to select degraded-context handling and optional pre-notification compaction through the live gateway contract.
 
-The default documented prompt path remains `houmao-mgr agents prompt --agent-name <friendly-name> ...` over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-mgr agents gateway prompt --agent-name <friendly-name> ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path. `houmao-mgr agents gateway send-keys ...`, `houmao-mgr agents gateway tui ...`, and `houmao-mgr agents gateway mail-notifier ...` follow the same managed-agent selector rules outside tmux, the same explicit `--target-tmux-session` local-resolution rules from an ordinary shell, and the same manifest-first current-session resolution rules inside tmux. When a friendly name is ambiguous, operators should retry with `--agent-id <authoritative-id>`.
+The default documented prompt path is `houmao-mgr agents single --agent-name <friendly-name> prompt ...` for selected agents or `houmao-mgr agents self prompt ...` for the current managed session over `POST /houmao/agents/{agent_ref}/requests`. That surface keeps working across direct and gateway-backed control modes. `houmao-mgr agents single --agent-name <friendly-name> gateway prompt ...` is the explicit gateway-mediated alternative when live-gateway admission and queue semantics matter and the caller wants to require a live gateway instead of letting the server choose the safe backing path. Scoped gateway `send-keys`, `tui`, and `mail-notifier` commands use `agents single ... gateway ...` for selected-agent targeting and `agents self gateway ...` for current-session targeting. When a friendly name is ambiguous, operators should retry with `--agent-id <authoritative-id>`.
 
 ## Pair-Owned Mail Follow-Up
 
@@ -252,7 +252,7 @@ Optional launch fields:
 
 `headless_display_style` defaults to `plain` and `headless_display_detail` defaults to `concise` for managed headless sessions. These controls affect live bridge rendering and later CLI replay semantics; they do not change the raw provider artifacts.
 
-Launch-time gateway flags are intentionally not part of this contract. Gateway attach and detach remain same-host `houmao-mgr agents gateway ...` actions.
+Launch-time gateway flags are intentionally not part of this contract. Gateway attach and detach remain same-host scoped `houmao-mgr agents single/self ... gateway ...` actions.
 
 For managed headless agents, durable post-turn inspection stays on the `/turns/*` family:
 
@@ -268,11 +268,11 @@ For managed headless agents, durable post-turn inspection stays on the `/turns/*
 
 The managed-agent API routes are also reachable through the `houmao-mgr` CLI:
 
-- [houmao-mgr agents gateway](cli/agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
-- [houmao-mgr agents turn](cli/agents-turn.md) — managed headless turn submission and inspection
-- [houmao-mgr agents mail](cli/agents-mail.md) — managed-agent mailbox follow-up commands
+- [scoped agents gateway](cli/agents-gateway.md) — gateway lifecycle and explicit live-gateway request commands
+- [scoped agents turn](cli/agents-turn.md) — managed headless turn submission and inspection
+- [scoped agents mail](cli/agents-mail.md) — managed-agent mailbox follow-up commands
 
-`houmao-mgr agents prompt` shares the transport-neutral `/requests` surface and accepts the same headless-only request-scoped `--model` plus optional `--reasoning-level` overrides.
+Scoped `houmao-mgr agents single/self ... prompt` shares the transport-neutral `/requests` surface and accepts the same headless-only request-scoped `--model` plus optional `--reasoning-level` overrides.
 
 ## Source References
 

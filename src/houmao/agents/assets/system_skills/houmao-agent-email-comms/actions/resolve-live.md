@@ -2,10 +2,10 @@
 
 If the current prompt or recent mailbox context already provides the exact gateway base URL or current mailbox binding set for this turn, use that value directly and do not rerun discovery first.
 
-Otherwise render `agents.mail.resolve-live`, then run the rendered `argv`:
+Otherwise render `agents.self.mail.resolve-live` for the current managed session, then run the rendered `argv`:
 
 ```text
-agents.mail.resolve-live
+agents.self.mail.resolve-live
 ```
 
 Use the structured JSON output from that command as the supported mailbox-discovery contract for this turn.
@@ -19,6 +19,6 @@ When the output includes a `gateway` object:
 When `gateway` is `null`:
 
 - use the `mailbox.transport` value to choose the matching transport page inside this skill,
-- render the matching `agents.mail.<verb>` fallback template for that turn instead of guessing a direct shared-gateway endpoint.
+- render the matching `agents.self.mail.<verb>` fallback template for that turn instead of guessing a direct shared-gateway endpoint.
 
 When the command yields no usable current live binding for the current session at all, treat that as a signal that the caller is not currently operating as one live Houmao-managed agent. For operator-origin delivery into a managed agent mailbox, switch to `actions/post.md` instead of guessing a gateway route.

@@ -52,31 +52,23 @@ Before discovery completes, the seeded offline gateway artifacts may already exi
 
 ## Managed-Agent Attach
 
-For managed terminal sessions, the supported public CLI family is `houmao-mgr agents gateway ...`.
+For managed terminal sessions, the supported public CLI families are `houmao-mgr agents single ... gateway ...` and `houmao-mgr agents self gateway ...`.
 
 Explicit target mode:
 
 ```bash
-houmao-mgr agents gateway attach --agent-name writer --pair-port 9891
-houmao-mgr agents gateway send-keys --agent-name writer --pair-port 9891 --sequence "<[Escape]>"
-houmao-mgr agents gateway mail-notifier enable --agent-name writer --pair-port 9891 --interval-seconds 60
+houmao-mgr agents single --agent-name writer gateway attach --pair-port 9891
+houmao-mgr agents single --agent-name writer gateway send-keys --pair-port 9891 --sequence "<[Escape]>"
+houmao-mgr agents single --agent-name writer gateway mail-notifier enable --pair-port 9891 --interval-seconds 60
 ```
 
 Current-session mode:
 
 ```bash
-houmao-mgr agents gateway attach
-houmao-mgr agents gateway status
-houmao-mgr agents gateway send-keys --sequence "<[Escape]>"
-houmao-mgr agents gateway mail-notifier status
-```
-
-Outside-tmux tmux-session mode:
-
-```bash
-houmao-mgr agents gateway attach --target-tmux-session HOUMAO-cao-gpu-1775467167530
-houmao-mgr agents gateway status --target-tmux-session HOUMAO-cao-gpu-1775467167530
-houmao-mgr agents gateway send-keys --target-tmux-session HOUMAO-cao-gpu-1775467167530 --sequence "<[Escape]>"
+houmao-mgr agents self gateway attach
+houmao-mgr agents self gateway status
+houmao-mgr agents self gateway send-keys --sequence "<[Escape]>"
+houmao-mgr agents self gateway mail-notifier status
 ```
 
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent route:
@@ -87,30 +79,28 @@ Current-session mode must run inside the target tmux session and validates all o
 - manifest-declared attach authority and shared-registry identity become the authoritative managed-agent attach target
 - any existing `gateway_manifest.json` is treated as derived publication rather than current-session attach authority
 
-`--target-tmux-session` is the outside-tmux version of that workflow. It first checks that the addressed tmux session exists locally, then resolves `HOUMAO_MANIFEST_PATH` from that session, and finally falls back to an exact fresh shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
-
 Important boundary:
 
-- `--pair-port` is only valid with explicit `--agent-name` or `--agent-id` attach
+- `--pair-port` is only valid on selected-agent `agents single ... gateway` commands
 - `--pair-port` selects the Houmao pair authority, not the live gateway listener port; lower-level listener binding uses runtime-facing flags such as `--gateway-port`
-- `--target-tmux-session` and `--current-session` do not accept `--pair-port`; both follow the addressed session's manifest-declared pair authority after local resolution
+- `agents self gateway` does not accept `--pair-port`; it follows the current session's manifest-declared pair authority after local resolution
 - current-session attach does not guess or re-resolve a different server target
 - stale pointers fail closed instead of falling back to terminal id, active pane, or another alias
 
 ## Runtime-Owned Managed Attach Defaults To Foreground
 
-For runtime-owned tmux-backed managed sessions, `houmao-mgr agents gateway attach` now uses the same-session auxiliary-window execution path by default. Use `--background` when you explicitly want the detached-process path instead.
+For runtime-owned tmux-backed managed sessions, scoped gateway `attach` now uses the same-session auxiliary-window execution path by default. Use `--background` when you explicitly want the detached-process path instead.
 
 Gateway-owned TUI tracking timings can be tuned at attach time with the positive-second `--gateway-tui-watch-poll-interval-seconds`, `--gateway-tui-stability-threshold-seconds`, `--gateway-tui-completion-stability-seconds`, `--gateway-tui-unknown-to-stalled-timeout-seconds`, `--gateway-tui-stale-active-recovery-seconds`, and `--gateway-tui-final-stable-active-recovery-seconds` flags. Explicit attach or launch-time overrides win over the gateway root's persisted desired timing config, and persisted desired timing config wins over the built-in defaults. Successful attach persists the resolved timing block next to desired host, port, and execution mode for later attach attempts.
 
 Example:
 
 ```bash
-houmao-mgr agents gateway attach --agent-name local
-houmao-mgr agents gateway status --agent-name local
-houmao-mgr agents gateway attach --background --agent-name local
-houmao-mgr agents gateway attach --agent-name local --gateway-tui-stale-active-recovery-seconds 10
-houmao-mgr agents gateway attach --agent-name local --gateway-tui-final-stable-active-recovery-seconds 30
+houmao-mgr agents single --agent-name local gateway attach
+houmao-mgr agents single --agent-name local gateway status
+houmao-mgr agents single --agent-name local gateway attach --background
+houmao-mgr agents single --agent-name local gateway attach --gateway-tui-stale-active-recovery-seconds 10
+houmao-mgr agents single --agent-name local gateway attach --gateway-tui-final-stable-active-recovery-seconds 30
 ```
 
 Foreground attach rules:
@@ -132,7 +122,7 @@ sequenceDiagram
     participant RT as Runtime
     participant FS as Session root
     participant GW as Gateway
-    Op->>CLI: agents launch +<br/>agents gateway attach
+    Op->>CLI: project agents launch +<br/>scoped agents gateway attach
     CLI->>RT: start backend session
     RT->>FS: write manifest +<br/>seed gateway capability
     RT->>GW: start sidecar process
@@ -222,7 +212,7 @@ Effects:
 - `state.json` returns to the offline `not_attached` shape,
 - persisted manifest-backed attach authority stays in place for later re-attach.
 
-`houmao-mgr agents stop` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
+`houmao-mgr agents single ... stop` reuses this behavior for tmux-backed sessions when possible before terminating the backend session.
 
 ## Same-Session Gateway Windows
 

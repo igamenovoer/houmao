@@ -667,16 +667,16 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "It is acceptable to defer unrelated open emails" in processing_skill
     assert "Archive only the successfully processed selected emails" in processing_skill
     assert "wait for the next notification" in processing_skill
-    assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
+    assert "Do not switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
     assert "houmao-agent-email-comms" in gateway_skill
     assert "houmao-process-emails-via-gateway" in gateway_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
-    assert "houmao-mgr agents mail resolve-live" in gateway_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
+    assert "houmao-mgr agents self mail resolve-live" in gateway_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
     assert "self-notification.md" in advanced_skill
     assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
@@ -685,7 +685,8 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
+    assert "houmao-mgr agents single --agent-id <id> mailbox ..." in mailbox_mgr_skill
+    assert "`--agent-name <name>`" in mailbox_mgr_skill
     assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
     assert "houmao-mgr agents memory" in memory_mgr_skill
 
@@ -750,20 +751,20 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     assert "For notifier-driven shared mailbox gateway work" in filesystem_skill
     assert "use `houmao-process-emails-via-gateway`" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
-    assert "houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
-    assert "pixi run houmao-mgr agents mail resolve-live" not in curl_reference
+    assert "houmao-mgr agents self mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in curl_reference
     assert '"schema_version":1,"message_refs":["<opaque message_ref>"]' in curl_reference
 
     assert "houmao-process-emails-via-gateway" in filesystem_skill
     assert "houmao-agent-email-comms" not in filesystem_skill
     assert "gateway: null" in filesystem_skill
     assert "filesystem" in filesystem_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in filesystem_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in filesystem_skill
     assert "houmao-process-emails-via-gateway" in stalwart_skill
     assert "houmao-agent-email-comms" not in stalwart_skill
     assert "gateway: null" in stalwart_skill
     assert "stalwart" in stalwart_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in stalwart_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in stalwart_skill
 
 
 def test_load_brain_recipe_rejects_legacy_recipe_shape(tmp_path: Path) -> None:

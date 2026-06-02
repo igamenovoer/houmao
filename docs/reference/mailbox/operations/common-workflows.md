@@ -8,9 +8,9 @@ The safest workflow is simple:
 
 1. Let the runtime create or validate the mailbox root.
 2. Treat `rules/` as the mailbox-local operating manual, not as an ordinary execution protocol.
-3. Resolve the current live mailbox binding through `houmao-mgr agents mail resolve-live`.
+3. Resolve the current live mailbox binding through `houmao-mgr agents self mail resolve-live` or `houmao-mgr agents single --agent-name <name> mail resolve-live`.
 4. Prefer the live gateway `/v1/mail/*` facade when it is attached.
-5. Otherwise use `houmao-mgr agents mail list|peek|read|send|post|reply|mark|move|archive`.
+5. Otherwise use scoped `houmao-mgr agents self mail ...` or `houmao-mgr agents single --agent-name <name> mail ...`.
 6. Touch `rules/scripts/` only for compatibility, debugging, or repair workflows that intentionally bypass the ordinary managed path.
 
 ## Bootstrap And First Inspection
@@ -18,8 +18,8 @@ The safest workflow is simple:
 For the preferred local serverless workflow:
 
 1. `pixi run houmao-mgr mailbox init --mailbox-root <path>`
-2. `pixi run houmao-mgr agents launch ...` or `pixi run houmao-mgr agents join ...`
-3. `pixi run houmao-mgr agents mailbox register --agent-name <name> --mailbox-root <path>`
+2. `pixi run houmao-mgr project agents launch ...` or `pixi run houmao-mgr agents self join ...`
+3. `pixi run houmao-mgr agents single --agent-name <name> mailbox register --mailbox-root <path>`
 
 After bootstrap, inspect these first when you are new to a mailbox root or are recovering an environment:
 
@@ -36,11 +36,11 @@ sequenceDiagram
     participant FS as Mailbox<br/>root
     Op->>CLI: mailbox init
     CLI->>FS: bootstrap root
-    Op->>CLI: agents launch or join
+    Op->>CLI: project agents launch or agents self join
     CLI->>RT: create or adopt session
-    Op->>CLI: agents mailbox register
+    Op->>CLI: scoped agents mailbox register
     RT->>FS: register address and persist binding
-    Op->>CLI: agents mail resolve-live
+    Op->>CLI: scoped agents mail resolve-live
     CLI-->>Op: normalized binding and optional gateway
 ```
 
@@ -49,22 +49,21 @@ sequenceDiagram
 Use `resolve-live` whenever you need the exact current binding set or the exact live shared-mailbox gateway endpoint.
 
 ```bash
-pixi run houmao-mgr agents mail resolve-live --agent-name research
+pixi run houmao-mgr agents single --agent-name research mail resolve-live
 ```
 
 Important details:
 
-- Inside the owning managed tmux session, selectors may be omitted.
-- Outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
+- Inside the owning managed tmux session, use `agents self mail resolve-live`.
+- Outside tmux, or when targeting a different agent, use `agents single --agent-id <id> mail resolve-live` or `agents single --agent-name <name> mail resolve-live`.
 - When the returned payload includes `gateway.base_url`, that is the supported discovery path for attached `/v1/mail/*` work instead of ad hoc host or port guessing.
 
 ## Read Mail Safely
 
-Use `agents mail list` when you want manager-owned or gateway-backed mailbox reads.
+Use scoped mail `list` when you want manager-owned or gateway-backed mailbox reads.
 
 ```bash
-pixi run houmao-mgr agents mail list \
-  --agent-name research \
+pixi run houmao-mgr agents single --agent-name research mail list \
   --read-state unread \
   --limit 10
 ```
@@ -74,17 +73,16 @@ Operational guidance:
 - Re-resolve current bindings when you switch shells, sessions, or long-running automation contexts.
 - Treat `mailbox.filesystem.local_sqlite_path` as the source of truth for unread versus read state and mailbox-local thread summaries.
 - Treat `mailbox.filesystem.sqlite_path` as the shared structural catalog, not as the mailbox-view read or unread authority.
-- Use `agents mail peek` when you need the body without changing read state; use `agents mail read` when you intentionally want to inspect the body and mark it read.
+- Use scoped mail `peek` when you need the body without changing read state; use scoped mail `read` when you intentionally want to inspect the body and mark it read.
 - Archive a message only after the mailbox action or processing step has completed successfully.
-- If a manager fallback result is `authoritative: false`, verify with `agents mail list`, filesystem inspection, or transport-native mailbox state.
+- If a manager fallback result is `authoritative: false`, verify with scoped mail `list`, filesystem inspection, or transport-native mailbox state.
 
 ## Send New Mail
 
-Use `agents mail send` for manager-owned composition.
+Use scoped mail `send` for manager-owned composition.
 
 ```bash
-pixi run houmao-mgr agents mail send \
-  --agent-name research \
+pixi run houmao-mgr agents single --agent-name research mail send \
   --to orchestrator@houmao.localhost \
   --subject "Investigate parser drift" \
   --body-file body.md \
@@ -102,11 +100,10 @@ Stepwise expectations:
 
 ## Post Operator-Origin Mail
 
-Use `agents mail post` when the operator wants to deliver an operator-origin note into the managed agent mailbox without sending as the managed mailbox principal.
+Use scoped mail `post` when the operator wants to deliver an operator-origin note into the managed agent mailbox without sending as the managed mailbox principal.
 
 ```bash
-pixi run houmao-mgr agents mail post \
-  --agent-name research \
+pixi run houmao-mgr agents single --agent-name research mail post \
   --subject "Resume after sync" \
   --body-content "Continue from the latest mailbox checkpoint."
 ```
@@ -123,11 +120,10 @@ Operator-origin guidance:
 
 ## Reply And Archive
 
-Use `agents mail reply` when you already know the parent shared `message_ref`.
+Use scoped mail `reply` when you already know the parent shared `message_ref`.
 
 ```bash
-pixi run houmao-mgr agents mail reply \
-  --agent-name research \
+pixi run houmao-mgr agents single --agent-name research mail reply \
   --message-ref filesystem:msg-20260312T050000Z-parent \
   --body-content "Reply with next steps"
 ```
@@ -135,8 +131,7 @@ pixi run houmao-mgr agents mail reply \
 After you successfully process one nominated message, archive that same `message_ref`:
 
 ```bash
-pixi run houmao-mgr agents mail archive \
-  --agent-name research \
+pixi run houmao-mgr agents single --agent-name research mail archive \
   --message-ref filesystem:msg-20260312T050000Z-parent
 ```
 
@@ -144,9 +139,9 @@ Reply and archive guidance:
 
 - Treat `message_ref` as opaque even when it contains a transport-prefixed value such as `filesystem:...` or `stalwart:...`.
 - When a live gateway facade is attached, use the shared gateway routines for `list`, `peek`, `read`, `reply`, `mark`, `move`, and `archive`.
-- When the manager-owned fallback path is in use, `houmao-mgr agents mail read` is the supported explicit read acknowledgement command and `houmao-mgr agents mail archive` is the supported processed-work closeout command.
+- When the manager-owned fallback path is in use, scoped mail `read` is the supported explicit read acknowledgement command and scoped mail `archive` is the supported processed-work closeout command.
 - Replies to operator-origin parent messages succeed when the parent was posted with `reply_policy=operator_mailbox`, which is the default for new operator-origin posts.
-- If `archive` returns `authoritative: false`, verify through `agents mail list`, filesystem inspection, or transport-native mailbox state before assuming the message was archived.
+- If `archive` returns `authoritative: false`, verify through scoped mail `list`, filesystem inspection, or transport-native mailbox state before assuming the message was archived.
 
 ## Answered Archive Lifecycle
 

@@ -235,7 +235,7 @@ That boundary is the main reason the registry can stay small and safe to inspect
 ## Migration Notes
 
 - Legacy `live_agent_registry_record.v2` payloads are still accepted on load. They are upgraded to `ManagedAgentRegistryRecordV3` with `lifecycle.state=active`, `terminal.current_session_name == terminal.last_session_name == <legacy session_name>`, and legacy freshness fields mapped into active-only `liveness`.
-- Pre-change stopped sessions that never published a lifecycle-aware record are still reachable only through bounded runtime-root scans used by `agents relaunch` and `agents cleanup`. Once such a session is revived or cleaned, the lifecycle registry becomes authoritative again.
+- Pre-change stopped sessions that never published a lifecycle-aware record are still reachable only through bounded runtime-root scans used by `agents single ... relaunch` and `agents single ... cleanup`. Once such a session is revived or cleaned, the lifecycle registry becomes authoritative again.
 
 ## Current Implementation Notes
 

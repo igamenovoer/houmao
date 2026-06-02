@@ -189,41 +189,46 @@ def templates() -> list[CommandTemplate]:
                         family=family,
                     )
                 )
-    for verb in ("status", "register", "unregister"):
-        fields_by_verb = {
-            "status": (
-                _f("agent_name", "--agent-name", "Friendly managed-agent name."),
-                _f("agent_id", "--agent-id", "Managed-agent id."),
-            ),
-            "register": (
-                _f("agent_name", "--agent-name", "Friendly managed-agent name."),
-                _f("agent_id", "--agent-id", "Managed-agent id."),
-                _f("principal_id", "--principal-id", "Mailbox principal id."),
-                _f("address", "--address", "Mailbox address."),
-                _f("mailbox_root", "--mailbox-root", "Mailbox root."),
-                _choice("mode", "--mode", "Registration mode.", ("safe", "force", "stash")),
-                _flag("yes", "--yes", "Confirm mutation."),
-            ),
-            "unregister": (
-                _f("agent_name", "--agent-name", "Friendly managed-agent name."),
-                _f("agent_id", "--agent-id", "Managed-agent id."),
-                _choice("mode", "--mode", "Deregistration mode.", ("deactivate", "purge")),
-            ),
-        }
-        templates.append(
-            _template(
-                f"agents.mailbox.{verb}",
-                ("agents", "mailbox", verb),
-                f"Managed-agent mailbox {verb}.",
-                fields_by_verb[verb],
-                family="agents.mailbox",
-                conflicts=(
-                    _conflict(
-                        "agent_name", "agent_id", message="Agent selectors are mutually exclusive."
+    single_selector_fields = (
+        _f(
+            "agent_name",
+            "--agent-name",
+            "Friendly managed-agent name.",
+            argv_insert_index=3,
+        ),
+        _f("agent_id", "--agent-id", "Managed-agent id.", argv_insert_index=3),
+    )
+    mailbox_fields_by_verb = {
+        "status": (),
+        "register": (
+            _f("principal_id", "--principal-id", "Mailbox principal id."),
+            _f("address", "--address", "Mailbox address."),
+            _f("mailbox_root", "--mailbox-root", "Mailbox root."),
+            _choice("mode", "--mode", "Registration mode.", ("safe", "force", "stash")),
+            _flag("yes", "--yes", "Confirm mutation."),
+        ),
+        "unregister": (_choice("mode", "--mode", "Deregistration mode.", ("deactivate", "purge")),),
+    }
+    for scope in ("single", "self"):
+        selector_fields = single_selector_fields if scope == "single" else ()
+        for verb, verb_fields in mailbox_fields_by_verb.items():
+            templates.append(
+                _template(
+                    f"agents.{scope}.mailbox.{verb}",
+                    ("agents", scope, "mailbox", verb),
+                    f"Managed-agent {scope} mailbox {verb}.",
+                    (*selector_fields, *verb_fields),
+                    family=f"agents.{scope}.mailbox",
+                    conflicts=(
+                        _conflict(
+                            "agent_name",
+                            "agent_id",
+                            message="Agent selectors are mutually exclusive.",
+                        ),
                     ),
-                ),
+                    required_one_of=(("agent_name", "agent_id"),) if scope == "single" else (),
+                )
             )
-        )
     return templates
 
 

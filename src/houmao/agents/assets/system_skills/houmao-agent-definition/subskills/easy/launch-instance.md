@@ -6,7 +6,7 @@ Use this subskill only when the user wants to launch one project managed agent f
 
 - Read [../common/launcher.md](../common/launcher.md).
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
-- Use this subskill for `project agents launch`, not for general `agents launch`.
+- Use this subskill for `project agents launch`, not for retired root-level managed-agent launch paths.
 
 ## Workflow
 
@@ -68,8 +68,8 @@ Run the rendered `argv` if there are no blockers.
 
 - Do not guess whether the source is a specialist or profile.
 - Do not guess specialist name, profile name, or instance name.
-- Do not route specialist-backed launch through `agents launch`.
-- Do not route profile-backed launch through `agents launch`.
+- Do not route specialist-backed launch through retired root-level managed-agent launch paths.
+- Do not route profile-backed launch through retired root-level managed-agent launch paths.
 - Do not add `--headless` by default for TUI-capable tools.
 - Do not hand-author the launch command when `project.agents.launch` can render it.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.

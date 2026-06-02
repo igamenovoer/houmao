@@ -1,14 +1,13 @@
 # Launch Agent Instance
 
-Use this action only when the user wants to create one new managed-agent instance from a predefined source. This remains the canonical general lifecycle launch action even though `houmao-agent-definition` also owns specialist-scoped easy launch requests.
+Use this action only when the user wants to create one new managed-agent instance from a project-scoped source.
 
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine which launch lane the request actually needs:
-   - direct managed launch from a predefined role or preset
-   - launch-dossier-backed managed launch
-   - specialist-backed managed launch from an existing specialist
+   - project-profile-backed managed launch
+   - specialist-backed managed launch from an existing project specialist
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
@@ -24,56 +23,23 @@ Only add a one-shot `--headless` flag when the user explicitly asks for headless
 
 ## Command Selection
 
-### Direct Managed Launch From Role Or Preset
+### Project-Profile-Backed Managed Launch
 
-Use this lane when the user wants to launch from a predefined role or preset through the canonical managed-agent lifecycle surface.
+Use this lane when the user wants to launch through an existing project profile.
 
-Use template `agents.launch`, then run the rendered `argv`:
+Use template `project.agents.launch`, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.launch --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
 ```
 
 Required inputs:
 
-- `--agents`
-- `--provider`
+- `--profile`
 
 Common optional inputs:
 
-- `--agent-name`
-- `--agent-id`
-- `--auth`
-- `--session-name`
-- `--headless`
-- `--workdir`
-- `--managed-header-section SECTION=enabled|disabled`
-
-Behavior note:
-
-- `--workdir` changes only the launched agent runtime cwd.
-- When launch posture is unspecified and the selected provider supports a TUI/local-interactive backend, omit `--headless`.
-- When the selected role or preset resolves from a Houmao project source, source-project overlay resolution stays pinned to that source instead of following `--workdir`.
-- Do not treat gateway attach as part of direct role or preset launch completion. If the user later asks to attach or operate a gateway, route that follow-up through `houmao-agent-gateway`, whose lifecycle guidance is foreground-first and treats background attach as explicit user intent.
-
-### Raw-Profile-Backed Managed Launch
-
-Use this lane when the user wants to launch through an existing launch dossier. In the CLI this remains `--launch-profile`.
-
-Use template `agents.launch-profile.launch`, then run the rendered `argv`:
-
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.launch-profile.launch --intent '<json>'
-```
-
-Required inputs:
-
-- `--launch-profile`
-
-Common optional inputs:
-
-- `--agent-name`
-- `--agent-id`
+- `--name`
 - `--auth`
 - `--session-name`
 - `--headless`
@@ -83,14 +49,14 @@ Common optional inputs:
 
 Behavior note:
 
-- `--launch-profile` and `--agents` are mutually exclusive.
-- The stored launch dossier resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
-- Stored launch-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
+- `--profile` and `--specialist` are mutually exclusive.
+- The stored project profile resolves the source specialist and contributes birth-time defaults before direct CLI overrides.
+- Stored project-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
 - Preserve explicit stored launch-profile posture, but do not add a one-shot `--headless` override unless the user explicitly asks for it or the selected tool/lane requires it.
 - Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
 - Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
 - `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
-- Direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored launch profile.
+- Direct CLI overrides such as `--name`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored project profile.
 - After launch, follow-up prompting or outgoing mailbox work should go through `houmao-agent-messaging`, which will discover any live gateway and prefer it when available.
 - After launch, read-only state, screen, mailbox-posture, log, or artifact inspection should go through `houmao-agent-inspect`.
 
@@ -130,12 +96,12 @@ If the selected specialist is known to use Gemini, the launch must be headless. 
 
 ## Guardrails
 
-- Do not guess whether the source should be `agents launch --agents`, `agents launch --launch-profile`, or `project agents launch`.
+- Do not guess whether the source should be `project agents launch --specialist` or `project agents launch --profile`.
 - Do not invent role selectors, launch profile names, specialist names, provider ids, or instance names.
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
-- Do not route specialist-backed launch through `agents launch`.
-- Do not route launch-dossier-backed launch through `project agents launch`.
-- Do not route role/preset launch through `project agents launch`.
+- Do not route specialist-backed launch through retired root-level managed-agent launch paths.
+- Do not route project-profile-backed launch through retired root-level managed-agent launch paths.
+- Do not route raw role/preset launch through the public `agents` family; use project sources or internal native-agent plumbing when explicitly required.
 - Do not describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
 - Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.

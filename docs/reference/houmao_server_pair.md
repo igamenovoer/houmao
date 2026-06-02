@@ -35,11 +35,11 @@ Use these replacements for current workflows:
 | Old intent | Maintained path |
 |---|---|
 | Start the server API | `houmao-passive-server serve --port 9891` |
-| Launch a local managed agent | `houmao-mgr agents launch ...` |
-| Adopt an existing tmux agent | `houmao-mgr agents join ...` |
-| Attach or inspect a gateway on the owning host | `houmao-mgr agents gateway ...` |
-| Inspect or prompt through a server API authority | `houmao-mgr agents state|prompt|mail|turn ... --port 9891` or passive-server `/houmao/agents/*` routes |
-| Manage passive-server-owned headless turns | `houmao-mgr agents turn ... --port 9891` or `/houmao/agents/{agent_ref}/turns` |
+| Launch a local managed agent | `houmao-mgr project agents launch ...` |
+| Adopt an existing tmux agent | `houmao-mgr agents self join ...` |
+| Attach or inspect a gateway on the owning host | `houmao-mgr agents single ... gateway ...` or `houmao-mgr agents self gateway ...` |
+| Inspect or prompt through a server API authority | `houmao-mgr agents single ... state|prompt|mail|turn ... --port 9891` or passive-server `/houmao/agents/*` routes |
+| Manage passive-server-owned headless turns | `houmao-mgr agents single ... turn ... --port 9891` or `/houmao/agents/{agent_ref}/turns` |
 | Recognize old server filesystem artifacts | [Retired Houmao Server Filesystem Notes](system-files/houmao-server.md) |
 
 ## Current References
