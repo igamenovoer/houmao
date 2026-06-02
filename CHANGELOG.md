@@ -4,6 +4,24 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [0.11.0rc1] - 2026-06-02
+
+### Added
+
+- **Minimal config drafts for agent-authored project YAML**: `houmao-mgr internals config-drafts` now generates compact model-backed drafts for easy specialists, easy profiles, and raw launch profiles with fixed lane/source semantics and required credential references.
+- **Code-first command-template registry modules and YAML export**: command templates are organized by family modules and can be exported deterministically as YAML for maintainer inspection.
+
+### Changed
+
+- **Agent-definition and memory skills now route config authoring through the smaller contract**: packaged skill guidance uses config drafts for minimal profile/specialist documents and keeps full customization on maintained project subcommands.
+- **Command templates remain argv-oriented**: command-template rendering stays available for executable command construction while config drafts own supported YAML authoring shapes.
+- **Release-candidate skill sync is isolated from stable skill installs**: prerelease GitHub releases now dispatch `igamenovoer/tool-skills` syncs to its `release-candidates` branch, while stable releases continue syncing the mini project on `main`.
+
+### Notes
+
+- This is a release candidate for the next minor release.
+- The `gh release create v0.11.0rc1 --prerelease` event triggers `pypi-release.yml`, `docs.yml`, and the tool-skills sync workflow dispatch.
+
 ## [0.10.1] - 2026-05-19
 
 ### Fixed
@@ -448,6 +466,7 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.11.0rc1]: https://github.com/igamenovoer/houmao/compare/v0.10.1...v0.11.0rc1
 [0.10.1]: https://github.com/igamenovoer/houmao/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/igamenovoer/houmao/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/igamenovoer/houmao/compare/v0.9.0...v0.9.1
