@@ -39,6 +39,12 @@ def native_agent_brain_group() -> None:
     """Build brain homes from internal native-agent material."""
 
 
+def _missing_skill_input(*, explicit_skills: tuple[str, ...], preset_selected: bool) -> bool:
+    """Return whether a brain-build command is missing skill selection input."""
+
+    return not explicit_skills and not preset_selected
+
+
 @brains_group.command(name="build")
 @click.option("--agent-def-dir", default=None, help="Agent-definition root to build from.")
 @click.option("--tool", default=None, help="Tool identifier used by the selected adapter.")
@@ -129,7 +135,7 @@ def build_brain_command(
     missing: list[str] = []
     if resolved_tool is None:
         missing.append("--tool")
-    if not resolved_skills:
+    if _missing_skill_input(explicit_skills=skills, preset_selected=preset_payload is not None):
         missing.append("--skill")
     if resolved_setup is None:
         missing.append("--setup")
@@ -298,7 +304,7 @@ def build_native_agent_brain_command(
     missing: list[str] = []
     if resolved_tool is None:
         missing.append("--tool")
-    if not resolved_skills:
+    if _missing_skill_input(explicit_skills=skills, preset_selected=preset_payload is not None):
         missing.append("--skill")
     if resolved_setup is None:
         missing.append("--setup")

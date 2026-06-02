@@ -2070,6 +2070,159 @@ def test_native_agent_brain_build_reports_direct_root_and_runtime_selection(
     assert "overlay_root" not in payload
 
 
+def test_native_agent_brain_build_accepts_cwd_relative_preset_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = (tmp_path / "repo").resolve()
+    working_directory.mkdir(parents=True, exist_ok=True)
+    native_agent_root = (working_directory / "native-agents").resolve()
+    native_agent_root.mkdir(parents=True, exist_ok=True)
+    preset_path = working_directory / "tests/fixtures/plain-agent-def/presets/smoke.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: server-api-smoke",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "auth: yunwu-openai",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(working_directory)
+
+    captured: dict[str, object] = {}
+    build_result = SimpleNamespace(
+        home_id="brain-home-1",
+        home_path=(working_directory / "home").resolve(),
+        launch_helper_path=(working_directory / "launch.sh").resolve(),
+        manifest_path=(working_directory / "brain.json").resolve(),
+    )
+
+    def _build_brain_home(request):
+        captured["request"] = request
+        return build_result
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.brains.build_brain_home", _build_brain_home)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "internals",
+            "native-agent",
+            "brain",
+            "build",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--preset",
+            "tests/fixtures/plain-agent-def/presets/smoke.yaml",
+            "--runtime-root",
+            "runtime",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    request = captured["request"]
+    assert request.preset_path == preset_path.resolve()
+    assert request.tool == "codex"
+    assert request.skills == []
+    assert request.setup == "default"
+    assert request.auth == "yunwu-openai"
+
+
+def test_native_agent_brain_build_accepts_bare_preset_with_empty_skills(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    working_directory = (tmp_path / "repo").resolve()
+    native_agent_root = (working_directory / "native-agents").resolve()
+    preset_path = native_agent_root / "presets/smoke.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: server-api-smoke",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "auth: yunwu-openai",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(working_directory)
+
+    captured: dict[str, object] = {}
+    build_result = SimpleNamespace(
+        home_id="brain-home-1",
+        home_path=(working_directory / "home").resolve(),
+        launch_helper_path=(working_directory / "launch.sh").resolve(),
+        manifest_path=(working_directory / "brain.json").resolve(),
+    )
+
+    def _build_brain_home(request):
+        captured["request"] = request
+        return build_result
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.brains.build_brain_home", _build_brain_home)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "internals",
+            "native-agent",
+            "brain",
+            "build",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--preset",
+            "smoke",
+            "--runtime-root",
+            "runtime",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    request = captured["request"]
+    assert request.preset_path == preset_path.resolve()
+    assert request.skills == []
+
+
+def test_native_agent_brain_build_rejects_missing_skill_without_preset(
+    tmp_path: Path,
+) -> None:
+    native_agent_root = (tmp_path / "native-agents").resolve()
+    native_agent_root.mkdir(parents=True, exist_ok=True)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "internals",
+            "native-agent",
+            "brain",
+            "build",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--tool",
+            "codex",
+            "--setup",
+            "default",
+            "--auth",
+            "work",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Missing required build inputs: --skill" in result.output
+
+
 def test_agents_launch_paths_are_not_public() -> None:
     runner = CliRunner()
     launch_paths = (

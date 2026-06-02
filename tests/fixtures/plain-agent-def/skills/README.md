@@ -6,7 +6,7 @@ Initial seed skills were copied from existing OpenSpec automation skills.
 
 To add a skill:
 
-1. Create `agents/skills/<skill-name>/SKILL.md`.
+1. Create `skills/<skill-name>/SKILL.md`.
 2. Keep skill instructions self-contained (link only required references).
 3. Use the skill name in a named preset or direct builder inputs.
 

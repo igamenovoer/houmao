@@ -1,6 +1,6 @@
 # Plain Agent Definition Fixture Root
 
-This fixture lane is the maintained secret-free direct native-agent tree for explicit `--native-agent-root` internals workflows. It models the plain filesystem contract only; it is not a project-overlay substitute, and it does not own host-local credentials.
+This fixture lane is the maintained secret-free direct native-agent tree for explicit `--native-agent-root` internals workflows and copied temp-root tests. It models the plain filesystem contract only; it is not a project-overlay substitute, a public managed-agent launch root, or a source of host-local credentials.
 
 ```text
 tests/fixtures/plain-agent-def/
@@ -17,12 +17,13 @@ tests/fixtures/plain-agent-def/
 
 - a direct-dir test or helper needs one tracked secret-free source tree
 - a workflow wants to copy a plain agent-definition root into a temp workdir
-- a manual smoke flow needs to materialize auth into a copied direct-dir root
+- a manual smoke flow needs seed prompt, preset, skill, setup, or adapter material before creating its own temp project or direct-dir root
 
 ## Do Not Use This Lane When
 
 - you need host-local credentials directly; use `tests/fixtures/auth-bundles/`
 - you need a maintained project-aware source tree; use a fresh `.houmao/` overlay
+- you need public managed-agent birth; use `houmao-mgr project agents launch`
 - you need one maintained demo-local source tree; use that demo's tracked `inputs/agents/`
 
 ## Auth Contract
@@ -37,3 +38,5 @@ When a direct-dir workflow needs local credentials, materialize them into a copi
 2. Build explicitly from this root:
    - `pixi run houmao-mgr internals native-agent brain build --native-agent-root tests/fixtures/plain-agent-def --preset tests/fixtures/plain-agent-def/presets/gpu-kernel-coder-claude-default.yaml`
 3. If the run needs host-local auth, copy or link the chosen bundle from `tests/fixtures/auth-bundles/` into a temp direct-dir root instead of mutating the tracked tree.
+4. If the run needs public managed-agent birth, create or select a project overlay, register the desired prompt/credential/skills there, and launch with `pixi run houmao-mgr project agents launch`.
+5. After launch, use scoped follow-up commands such as `pixi run houmao-mgr agents single --agent-id <id> state`, `stop`, or `cleanup session`, or `pixi run houmao-mgr agents self ...` from inside the managed tmux session.

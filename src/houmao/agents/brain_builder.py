@@ -1312,7 +1312,7 @@ def main(argv: list[str] | None = None) -> int:
         missing.append("--setup (or preset.setup)")
     if not auth_raw:
         missing.append("--auth (or preset.auth)")
-    if not skills_raw:
+    if not namespace.skills and recipe is None:
         missing.append("at least one --skill (or preset.skills)")
     if missing:
         raise BuildError(f"Missing required inputs: {', '.join(missing)}")

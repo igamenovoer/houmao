@@ -644,16 +644,22 @@ def _resolve_path_like_preset_path(*, selector: str, agent_def_dir: Path) -> Pat
     """Resolve one explicit preset path selector."""
 
     base_path = Path(selector).expanduser()
-    if not base_path.is_absolute():
-        base_path = (agent_def_dir / base_path).resolve()
+    base_paths: tuple[Path, ...]
+    if base_path.is_absolute():
+        base_paths = (base_path.resolve(),)
     else:
-        base_path = base_path.resolve()
+        cwd_path = (Path.cwd() / base_path).resolve()
+        agent_root_path = (agent_def_dir / base_path).resolve()
+        base_paths = (cwd_path,) if cwd_path == agent_root_path else (cwd_path, agent_root_path)
 
-    candidates: tuple[Path, ...]
-    if base_path.suffix in _PRESET_FILE_SUFFIXES:
-        candidates = (base_path,)
-    else:
-        candidates = tuple(base_path.with_suffix(suffix) for suffix in _PRESET_FILE_SUFFIXES)
+    candidates: list[Path] = []
+    for candidate_base in base_paths:
+        if candidate_base.suffix in _PRESET_FILE_SUFFIXES:
+            candidates.append(candidate_base)
+        else:
+            candidates.extend(
+                candidate_base.with_suffix(suffix) for suffix in _PRESET_FILE_SUFFIXES
+            )
 
     for candidate in candidates:
         if candidate.is_file():
