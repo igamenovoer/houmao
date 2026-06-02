@@ -29,16 +29,13 @@ Raw profiles are low-level recipe-backed launch profiles. The underlying maintai
 <chosen houmao-mgr launcher> project agents launch-profiles remove --name <profile>
 ```
 
-For `add`, same-name replacement, and `set`, use the CLI-owned templates:
-
-- `project.agents.launch-profiles.add`
-- `project.agents.launch-profiles.set`
-
-Render sparse intent before running the target command:
+For `add`, same-name replacement, and raw-profile config-document preparation, use the CLI-owned config draft before running the maintained command:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch-profiles.add --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.agents.launch-profile --intent '<json>'
 ```
+
+The `project.agents.launch-profile` config draft is intentionally minimal. Its intent fields are only `name`, `recipe`, and `credential`. The draft fixes the raw launch-profile lane and recipe source kind, then records the credential as the profile auth reference. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, relaunch policy, or other stored defaults, use the maintained `project agents launch-profiles add|set` fields directly instead of adding them to the draft intent.
 
 ## Add And Set Fields
 
@@ -89,7 +86,7 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - The skill subcommand is `raw-profiles`; the CLI command family is still `project agents launch-profiles ...`.
 - `launch-profiles set` patches without dropping unspecified defaults.
 - `launch-profiles add --yes` is only for intended same-name replacement; omitted optional fields are cleared.
-- For covered add and set commands, treat `internals command-templates render` output as authoritative for required fields, option mappings, clear flags, conflicts, and omitted-field semantics.
+- For covered raw-profile config documents, treat `internals config-drafts generate` output as authoritative for the profile lane, source kind, required credential/auth reference, and YAML shape.
 - `--auth` and `--clear-auth` change the profile auth override by display name; they do not mutate credential bundle contents.
 - `--gateway-mail-notifier-appendix-text` stores a future runtime notifier prompt appendix default; launching from the profile seeds runtime notifier state but does not enable polling.
 - Memo seeds replace only represented components. Text and file seeds touch only `houmao-memo.md`; directory seeds touch `houmao-memo.md` only when present and pages only when `pages/` is present.
@@ -103,5 +100,6 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - Do not treat launch-profile `--auth` changes as credential CRUD.
 - Do not route low-level recipe editing through this subskill.
 - Do not store `--headless` by default for TUI-capable tools.
-- Do not add `--prompt-mode`, `--headless`, or clear flags unless the rendered sparse intent includes those explicit fields.
+- Do not add `--prompt-mode`, `--headless`, or clear flags unless the user explicitly supplied those fields.
 - Do not invent raw-profile names, recipe names, or field overrides.
+- Do not pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, prompt overlay, or relaunch fields to `project.agents.launch-profile` config drafts.

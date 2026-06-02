@@ -238,49 +238,50 @@ The skill SHALL identify Gemini easy launches as a known required-headless excep
 - **THEN** the skill guidance may require `--headless`
 - **AND THEN** it describes that as a selected-tool requirement rather than the default for unspecified launch posture
 
-### Requirement: `houmao-agent-definition` uses CLI-owned command templates for supported authoring flows
-The packaged `houmao-agent-definition` skill SHALL instruct agents to use `houmao-mgr internals command-templates show|render` before authoring supported default-sensitive commands for these skill subcommands:
+### Requirement: `houmao-agent-definition` uses config drafts for supported config authoring flows
+The packaged `houmao-agent-definition` skill SHALL instruct agents to use `houmao-mgr internals config-drafts generate` before authoring supported project configuration documents for these skill subcommands:
 
 - `specialists`
 - `profiles`
-- `roles`
-- `recipes`
 - `raw-profiles`
-- `create-agent-fast-forward`
-- `launch-agent`
+- profile preparation inside `create-agent-fast-forward`
 
-For those supported flows, the skill SHALL tell agents to render sparse intent from explicit user inputs and recovered explicit context only.
+For those supported config-authoring flows, the skill SHALL tell agents to generate drafts from explicit user inputs and recovered explicit context only.
 
-The skill SHALL NOT own full default-bearing command templates in Markdown for covered create, set, or launch commands.
+The skill SHALL NOT own full default-bearing YAML examples or command skeletons in Markdown for config shapes covered by `internals config-drafts`.
 
-The skill MAY summarize critical omission rules, but it SHALL direct agents to the CLI-owned template output as the authoritative source for required fields, optional fields, conflicts, clear flags, and omit-vs-set semantics.
+The skill SHALL describe config drafts as minimal opinionated drafts and SHALL direct full customization beyond the draft's required holes back to maintained project subcommands.
 
-#### Scenario: Profile authoring renders sparse intent before execution
-- **WHEN** a user asks `houmao-agent-definition profiles` to create easy profile `reviewer-fast` for specialist `reviewer`
+The skill SHALL direct agents to the CLI-owned config draft as the authoritative source for the config kind, fixed lane/source values, required credential/auth reference, and draft YAML shape.
+
+The skill MAY continue to use `houmao-mgr internals command-templates render` for command-oriented workflows such as `roles`, `recipes`, launch command printing, and remaining executable command construction.
+
+#### Scenario: Profile authoring generates a config draft
+- **WHEN** a user asks `houmao-agent-definition profiles` to create easy profile `reviewer-fast` for specialist `reviewer` and credential `reviewer-creds`
 - **AND WHEN** the user does not request prompt-mode or headless posture persistence
-- **THEN** the skill guidance directs the agent to render `project.easy.profile.create` with only the explicit profile and specialist fields
-- **AND THEN** the guidance does not tell the agent to add `--prompt-mode unattended` or `--headless`
+- **THEN** the skill guidance directs the agent to generate `project.easy.profile` with only `name`, `specialist`, and `credential`
+- **AND THEN** the generated draft records easy-profile lane and specialist source without adding prompt-mode or headless defaults
 
-#### Scenario: Raw profile authoring uses raw-profile template
-- **WHEN** a user asks `houmao-agent-definition raw-profiles` to update raw launch profile `alice` with workdir `/repos/alice-next`
-- **THEN** the skill guidance directs the agent to render `project.agents.launch-profiles.set`
-- **AND THEN** the guidance treats omitted mailbox, prompt overlay, managed-header, prompt-mode, and launch posture fields as preserved by the patch command
+#### Scenario: Raw profile authoring generates a raw launch-profile draft
+- **WHEN** a user asks `houmao-agent-definition raw-profiles` to prepare raw launch profile `alice` with recipe `reviewer-codex` and credential `reviewer-creds`
+- **THEN** the skill guidance directs the agent to generate `project.agents.launch-profile`
+- **AND THEN** the generated draft records only the fixed recipe-backed profile values and required credential/auth reference
 
-#### Scenario: Recipe authoring uses recipe template
+#### Scenario: Specialist authoring generates a specialist draft
+- **WHEN** a user asks `houmao-agent-definition specialists` to prepare a Codex specialist named `reviewer` with credential `reviewer-creds`
+- **THEN** the skill guidance directs the agent to generate `project.easy.specialist`
+- **AND THEN** the guidance does not require loading the full `project.easy.specialist.create` command-template schema to see every possible credential, skill, mailbox, and launch option
+
+#### Scenario: Recipe authoring can still use command templates
 - **WHEN** a user asks `houmao-agent-definition recipes` to create recipe `reviewer-codex` from role `reviewer` and tool `codex`
-- **AND WHEN** the user does not request prompt-mode persistence
-- **THEN** the skill guidance directs the agent to render `project.agents.recipes.add` with only the explicit recipe, role, and tool fields
-- **AND THEN** the guidance does not tell the agent to add `--prompt-mode unattended`
+- **AND WHEN** no recipe config-draft contract exists
+- **THEN** the skill guidance may direct the agent to render `project.agents.recipes.add`
+- **AND THEN** the guidance does not invent a recipe YAML draft that Houmao does not provide
 
-#### Scenario: Role authoring uses role template
-- **WHEN** a user asks `houmao-agent-definition roles` to update role `reviewer` with a new prompt file
-- **THEN** the skill guidance directs the agent to render `project.agents.roles.set`
-- **AND THEN** omitted prompt clear fields remain absent from the rendered intent
-
-#### Scenario: Fast-forward launch command uses template output
+#### Scenario: Fast-forward uses drafts for config and command templates for launch printing
 - **WHEN** `create-agent-fast-forward` prepares a launchable easy profile and prints the launch command
-- **THEN** the skill guidance directs the agent to base the printed launch command on `internals command-templates render`
-- **AND THEN** it does not synthesize a launch command from a stale Markdown skeleton
+- **THEN** the skill guidance uses config drafts for specialist/profile preparation
+- **AND THEN** it may still base the printed launch command on `internals command-templates render`
 
 ### Requirement: `houmao-agent-definition` delegates credential command shapes to credential templates
 When `houmao-agent-definition` needs to route credential discovery or credential creation while preparing specialists or recipes, it SHALL use CLI-owned credential command templates or direct read-only credential commands rather than carrying tool-specific credential option menus in agent-definition Markdown.
@@ -315,4 +316,3 @@ When TUI/headless posture is not explicit and the selected tool or launch lane d
 - **AND WHEN** the user does not request headless execution
 - **THEN** the rendered intent omits headless launch posture
 - **AND THEN** the resulting command remains TUI/local-interactive preferred where supported
-

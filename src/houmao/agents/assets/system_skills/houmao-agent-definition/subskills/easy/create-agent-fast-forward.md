@@ -26,7 +26,7 @@ This workflow creates or selects a specialist, creates or updates an easy profil
    - create when the profile does not exist or the user asks for a new profile;
    - set when updating an existing profile;
    - create `--yes` only when the user explicitly wants same-name replacement.
-4. Store all supplied launch defaults on the easy profile by rendering `project.easy.profile.create` or `project.easy.profile.set` with sparse intent.
+4. Generate `project.easy.profile` with only `name`, `specialist`, and `credential`, then store any supplied launch defaults through the maintained profile `create|set` command fields.
 5. Print the exact launch command by rendering `project.easy.instance.launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 6. Report durable identity facts and stored posture, including that unspecified launch posture is TUI/local-interactive preferred when supported.
 7. Stop. Do not run the launch command.
@@ -54,11 +54,12 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 
 ```text
 <chosen houmao-mgr launcher> project easy specialist get --name <specialist>
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.specialist.create --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.easy.specialist --intent '<json>'
 <chosen houmao-mgr launcher> project easy profile get --name <profile>
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.profile.create --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.profile.set --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.easy.profile --intent '<json>'
 ```
+
+Use `project.easy.specialist` draft intent fields `name`, `tool`, and `credential`. Use `project.easy.profile` draft intent fields `name`, `specialist`, and `credential`. Do not pass launch defaults, model, env, mailbox, prompt overlay, memo seed, gateway, or credential material fields to config drafts; apply those through maintained project commands when the user supplied them.
 
 Report this launch command without executing it:
 

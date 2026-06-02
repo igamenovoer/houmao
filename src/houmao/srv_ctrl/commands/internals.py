@@ -7,6 +7,11 @@ from pathlib import Path
 import click
 import networkx as nx  # type: ignore[import-untyped]
 
+from houmao.srv_ctrl.config_drafts import (
+    generate_config_draft,
+    list_config_drafts,
+    load_draft_intent,
+)
 from houmao.agents.loop_graph.analysis import (
     analyze_graph,
     apply_mutation_ops,
@@ -41,7 +46,7 @@ from .command_templates import (
     write_command_template_yaml,
     write_command_templates_yaml,
 )
-from .output import emit
+from .output import OutputContext, emit
 
 _GRAPH_INPUT_HELP = "NetworkX node-link JSON graph file; use `-` to read stdin."
 _GRAPH_OUTPUT_NOTE = "Input and output graphs use NetworkX node-link JSON with `nodes` and `edges`."
@@ -71,6 +76,39 @@ def internals_group() -> None:
 @internals_group.group(name="command-templates")
 def command_templates_group() -> None:
     """Render supported `houmao-mgr` command templates from sparse intent."""
+
+
+@internals_group.group(name="config-drafts")
+def config_drafts_group() -> None:
+    """Generate concise YAML config drafts from sparse intent."""
+
+
+@config_drafts_group.command(name="list")
+def config_drafts_list_command() -> None:
+    """List supported config-draft ids."""
+
+    emit(list_config_drafts())
+
+
+@config_drafts_group.command(name="generate")
+@click.option("--id", "draft_id", required=True, help="Config-draft id to generate.")
+@click.option(
+    "--intent",
+    "raw_intent",
+    required=True,
+    help="Intent JSON object, `-` for stdin, or a path to a JSON file.",
+)
+def config_drafts_generate_command(draft_id: str, raw_intent: str) -> None:
+    """Generate one config-draft YAML document without mutating project state."""
+
+    result = generate_config_draft(draft_id, load_draft_intent(raw_intent))
+    if result.has_blockers:
+        messages = "; ".join(blocker.message for blocker in result.blockers)
+        raise click.ClickException(messages)
+    if _active_print_style() == "json":
+        emit(result.to_payload())
+        return
+    click.echo(result.yaml, nl=False)
 
 
 @command_templates_group.command(name="list")
@@ -154,6 +192,17 @@ def command_templates_export_command(
         emit({"written": [str(path) for path in written_paths], "count": len(written_paths)})
         return
     click.echo(export_command_templates_yaml(), nl=False)
+
+
+def _active_print_style() -> str:
+    """Return the current root output style."""
+
+    ctx = click.get_current_context(silent=True)
+    if ctx is not None and isinstance(ctx.obj, dict):
+        output = ctx.obj.get("output")
+        if isinstance(output, OutputContext):
+            return output.style
+    return "plain"
 
 
 @internals_group.group(name="graph")

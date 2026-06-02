@@ -83,7 +83,11 @@ PROFILES = {
     "intention-init": ProfileDefinition(
         m_directories=(Path("intention"),),
         m_templates=INTENTION_TEMPLATES
-        + (TemplateTarget(Path("intention/project-context.md.tmpl"), Path("intention/project-context.md")),),
+        + (
+            TemplateTarget(
+                Path("intention/project-context.md.tmpl"), Path("intention/project-context.md")
+            ),
+        ),
     ),
     "execplan-shell": ProfileDefinition(
         m_directories=EXECPLAN_DIRECTORIES,
@@ -110,7 +114,9 @@ def render_template(template_path: Path, values: dict[str, str]) -> str:
     return template.safe_substitute(values)
 
 
-def materialize(profile: ProfileDefinition, loop_dir: Path, values: dict[str, str], force: bool) -> tuple[list[Path], list[Path]]:
+def materialize(
+    profile: ProfileDefinition, loop_dir: Path, values: dict[str, str], force: bool
+) -> tuple[list[Path], list[Path]]:
     """Create directories and files for one scaffold profile."""
 
     created: list[Path] = []

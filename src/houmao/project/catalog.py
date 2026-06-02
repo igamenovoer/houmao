@@ -30,6 +30,7 @@ from houmao.owned_mutation import (
     replace_tree as _replace_tree,
     require_owned_mutation_path as _require_owned_mutation_path,
 )
+from houmao.project.config_payloads import build_launch_profile_config_payload
 
 if TYPE_CHECKING:
     from houmao.project.overlay import HoumaoProjectOverlay
@@ -3409,15 +3410,7 @@ def _render_launch_profile_yaml(
 ) -> str:
     """Render one compatibility projection launch-profile file."""
 
-    payload: dict[str, Any] = {
-        "profile_lane": entry.profile_lane,
-        "source": {
-            "kind": entry.source_kind,
-            "name": entry.source_name,
-        },
-        "defaults": {},
-    }
-    defaults = cast(dict[str, Any], payload["defaults"])
+    defaults: dict[str, Any] = {}
     if entry.managed_agent_name is not None:
         defaults["agent_name"] = entry.managed_agent_name
     if entry.managed_agent_id is not None:
@@ -3486,10 +3479,18 @@ def _render_launch_profile_yaml(
                 "path": str(memo_seed_path),
             },
         }
+    relaunch: dict[str, Any] | None = None
     if entry.relaunch_chat_session_payload:
-        payload["relaunch"] = {
+        relaunch = {
             "chat_session": dict(entry.relaunch_chat_session_payload),
         }
+    payload = build_launch_profile_config_payload(
+        profile_lane=entry.profile_lane,
+        source_kind=entry.source_kind,
+        source_name=entry.source_name,
+        defaults=defaults,
+        relaunch=relaunch,
+    )
     try:
         import yaml
 

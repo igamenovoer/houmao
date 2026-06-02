@@ -24,7 +24,6 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates show --id project.easy.instance.launch
 <chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
 ```
 

@@ -77,11 +77,11 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - easy profile: inspect directly when needed, then create or update through `project.easy.profile.create` or `project.easy.profile.set`
    - raw profile: inspect directly when needed, then create or update through `project.agents.launch-profiles.add` or `project.agents.launch-profiles.set`
    - if the lane is ambiguous after checking prompt and context, ask whether the user means an easy profile or a raw profile before editing.
-4. For a launch-profile memo seed edit, read the profile first, then render the matching profile command template with exactly one memo seed source when setting content:
+4. For a launch-profile memo seed edit, read the profile first, then use the maintained profile `set` command with exactly one memo seed source when setting content:
    - `--memo-seed-text <text>` for short inline memo content
    - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
    - `--memo-seed-dir <path>` for a memo-shaped directory containing `houmao-memo.md` and/or `pages/`
-5. Use `<chosen houmao-mgr launcher> --print-json internals command-templates show|render --id <template-id>` for profile-owned memo seed command authoring. Live memory commands remain direct skill guidance and are not profile-template commands.
+5. Do not pass memo seed fields to `internals config-drafts generate`; config drafts are minimal profile authoring aids that accept only name/source/credential holes. Live memory commands remain direct skill guidance and are not profile config-draft commands.
 6. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
 7. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
 8. For a live managed-agent edit, read before editing. Use `agents memory memo show` for the fixed memo and `agents memory read --path <page>` for a page.
@@ -113,5 +113,5 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not write arbitrary files beside `houmao-memo.md` at the memory root.
 - Do not store live runtime bookkeeping, retry counters, mailbox receipts, gateway state, or supervision state in managed memory pages.
 - Do not hand-edit `.houmao/agents/launch-profiles/<name>.yaml` when the maintained profile `create|add|set` command exposes memo seed operations.
-- Do not hand-author profile memo-seed command skeletons; render the profile command template and leave omitted profile defaults omitted.
+- Do not hand-author profile memo-seed YAML skeletons; use maintained profile `set` memo-seed fields and leave omitted profile defaults omitted.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows.

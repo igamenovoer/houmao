@@ -27,19 +27,15 @@ Use this subskill when the user wants to create, inspect, update, list, replace,
 <chosen houmao-mgr launcher> project easy profile remove --name <profile>
 ```
 
-For `create`, same-name replacement, and `set`, use the CLI-owned templates:
-
-- `project.easy.profile.create`
-- `project.easy.profile.set`
-
-Render sparse intent with only explicit fields:
+For `create`, same-name replacement, and profile config-document preparation, use the CLI-owned config draft before running the maintained command:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates show --id project.easy.profile.create
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.profile.create --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.easy.profile --intent '<json>'
 ```
 
-Then run the rendered `argv` if there are no blockers.
+The `project.easy.profile` config draft is intentionally minimal. Its intent fields are only `name`, `specialist`, and `credential`. The draft fixes the easy-profile lane and specialist source kind, then records the credential as the profile auth reference. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, or other stored defaults, use the maintained `project easy profile create|set` fields directly instead of adding them to the draft intent.
+
+For `set`, keep the maintained patch command explicit and include only the user-requested mutation fields.
 
 ## Stored Defaults
 
@@ -89,7 +85,7 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 
 - Use `project easy profile set` for ordinary edits.
 - Use `project easy profile create --yes` only for intended same-name replacement; replacement clears omitted optional fields.
-- For covered create and set commands, treat `internals command-templates render` output as authoritative for required fields, option mappings, clear flags, conflicts, and omitted-field semantics.
+- For covered profile config documents, treat `internals config-drafts generate` output as authoritative for the profile lane, source kind, required credential/auth reference, and YAML shape.
 - `--auth` selects a stored auth display-name override; it does not create or edit credentials.
 - `--mail-transport` is required when declarative mailbox fields are present.
 - `filesystem` mailbox defaults accept `--mail-root` and reject Stalwart URL flags.
@@ -107,5 +103,6 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - Do not remove and recreate an easy profile for ordinary default edits.
 - Do not treat profile creation as launching or mutating a live easy instance.
 - Do not store `--headless` by default for TUI-capable tools.
-- Do not add `--prompt-mode`, `--headless`, or clear flags unless the rendered sparse intent includes those explicit fields.
+- Do not add `--prompt-mode`, `--headless`, or clear flags unless the user explicitly supplied those fields.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch.
+- Do not pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, or prompt overlay fields to `project.easy.profile` config drafts.

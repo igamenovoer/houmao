@@ -868,6 +868,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
     manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
     manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
+    memory_path = home_path / "skills/houmao-memory-mgr/SKILL.md"
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
@@ -903,6 +904,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert project_mgr_path.is_file()
     assert manage_specialist_path.is_file()
     assert manage_credentials_path.is_file()
+    assert memory_path.is_file()
     assert manage_agent_definition_path.is_file()
     assert loop_pro_skill_path.is_file()
     assert loop_lite_skill_path.is_file()
@@ -937,6 +939,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     project_mgr_skill = project_mgr_path.read_text(encoding="utf-8")
     manage_specialist_skill = manage_specialist_path.read_text(encoding="utf-8")
     manage_credentials_skill = manage_credentials_path.read_text(encoding="utf-8")
+    memory_skill = memory_path.read_text(encoding="utf-8")
     manage_agent_definition_skill = manage_agent_definition_path.read_text(encoding="utf-8")
     loop_pro_skill = loop_pro_skill_path.read_text(encoding="utf-8")
     loop_lite_skill = loop_lite_skill_path.read_text(encoding="utf-8")
@@ -1097,8 +1100,21 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     assert "project easy specialist create" in definition_credential_routing
     assert "Explicit Auth Mode" in easy_specialists
-    assert "project.easy.profile.create" in easy_profiles
-    assert "project.easy.specialist.set" in easy_specialists
+    assert "internals config-drafts generate" in easy_profiles
+    assert "project.easy.profile" in easy_profiles
+    assert "project.easy.specialist" in easy_specialists
+    assert "minimal opinionated drafts" in manage_agent_definition_skill
+    assert "`project.easy.specialist`: `name`, `tool`, `credential`" in (
+        manage_agent_definition_skill
+    )
+    assert "`project.easy.profile`: `name`, `specialist`, `credential`" in (
+        manage_agent_definition_skill
+    )
+    assert "`project.agents.launch-profile`: `name`, `recipe`, `credential`" in (
+        manage_agent_definition_skill
+    )
+    assert "intent fields are only `name`, `tool`, and `credential`" in easy_specialists
+    assert "intent fields are only `name`, `specialist`, and `credential`" in easy_profiles
     assert "Do not remove and recreate an easy specialist" in easy_specialists
     assert "--prompt-overlay-mode append|replace" in easy_profiles
     assert "Env Lookup Mode" in easy_specialists
@@ -1202,7 +1218,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "`profiles` as the default meaning" in manage_agent_definition_skill
     assert "project agents roles list" in definition_roles
     assert "project agents recipes list" in definition_recipes
-    assert "project.agents.launch-profiles.add" in definition_launch_profiles
+    assert "project.agents.launch-profile" in definition_launch_profiles
+    assert "intent fields are only `name`, `recipe`, and `credential`" in (
+        definition_launch_profiles
+    )
+    assert "Do not pass memo seed fields to `internals config-drafts generate`" in (memory_skill)
     assert "project agents presets ..." in definition_recipes
     assert "houmao-credential-mgr" in manage_agent_definition_skill
     assert "direct hand-editing under `.houmao/`" in manage_agent_definition_skill

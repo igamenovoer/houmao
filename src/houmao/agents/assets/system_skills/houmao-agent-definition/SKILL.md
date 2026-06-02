@@ -87,19 +87,24 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
    - only if those do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request
-7. For supported command-authoring flows, inspect and render the CLI-owned template before executing:
-   - `project.easy.specialist.create|set`
-   - `project.easy.profile.create|set`
+7. For supported config-document authoring flows, generate the CLI-owned config draft before deciding the final maintained command. Config drafts are minimal opinionated drafts: they expose only required holes and fixed draft-owned values, not the full project subcommand option surface.
+   - `project.easy.specialist`
+   - `project.easy.profile`
+   - `project.agents.launch-profile`
+8. Generate config drafts only with the required fields for the selected draft id:
+   - `project.easy.specialist`: `name`, `tool`, `credential`
+   - `project.easy.profile`: `name`, `specialist`, `credential`
+   - `project.agents.launch-profile`: `name`, `recipe`, `credential`
+   - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '<json>'`
+9. For full customization beyond those required holes, use the maintained project subcommands directly; do not pass hidden full-model fields such as model, env, mailbox, memo seed, gateway, prompt overlay, or credential material to config drafts.
+10. For command-oriented flows that are not config documents, render sparse intent with the command-template renderer:
    - `project.easy.instance.launch`
    - `project.agents.roles.init|set`
    - `project.agents.recipes.add|set`
-   - `project.agents.launch-profiles.add|set`
-8. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
    - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
-9. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
-10. Run the rendered `argv` only after all required inputs are explicit.
-11. Report command output and any durable identity facts that affect later launch.
+11. If draft generation or command rendering reports blockers, stop and recover the missing or conflicting input before running the target command.
+12. Run maintained project commands only after all required inputs are explicit.
+13. Report command output and any durable identity facts that affect later launch.
 
 ## Routing Rules
 
@@ -115,7 +120,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not guess between `profiles` and `raw-profiles` when the user gives contradictory wording.
 - Do not remove and recreate a role, recipe, specialist, or profile for ordinary patch edits when a maintained `set` command exists.
 - Do not mutate credential bundle contents through this skill; route secret and auth-file edits to `houmao-credential-mgr`.
-- Do not hand-author covered create, set, or launch commands from Markdown skeletons when `houmao-mgr internals command-templates render` supports the surface.
+- Do not hand-author covered specialist/profile/raw-profile config documents from Markdown skeletons when `houmao-mgr internals config-drafts generate` supports the surface.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch; profile defaults or launch-time easy bootstrap can own that common case.
 - Do not use retired `houmao-mgr project agents roles scaffold`.
 - Do not use retired `houmao-mgr project agents roles presets ...`.
