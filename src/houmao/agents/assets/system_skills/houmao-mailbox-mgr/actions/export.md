@@ -13,13 +13,13 @@ Use this action only when the user wants to archive or export filesystem mailbox
 5. Run the matching mailbox export command.
 6. Report the output directory, manifest path, selected scope, symlink mode, and any blocked or skipped artifacts.
 
-## Template Rendering
+## Command Shape
 
-Use the `houmao-mgr` launcher already chosen by the top-level skill. Render one of these template ids, then run the rendered `argv`:
+Use the `houmao-mgr` launcher already chosen by the top-level skill.
 
-```text
-mailbox.export
-project.mailbox.export
+```bash
+<chosen houmao-mgr launcher> mailbox export --output-dir <dir> (--all-accounts | --address <address>) [--mailbox-root <root>] [--symlink-mode materialize|preserve]
+<chosen houmao-mgr launcher> project mailbox export --output-dir <dir> (--all-accounts | --address <address>) [--symlink-mode materialize|preserve]
 ```
 
 Default export uses `--symlink-mode materialize`, which writes regular files and directories and verifies that the archive contains no symlink artifacts. This is the right default for archives that may move across filesystem formats.

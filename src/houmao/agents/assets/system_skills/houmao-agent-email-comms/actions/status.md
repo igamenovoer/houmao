@@ -8,10 +8,10 @@ When a live shared gateway mailbox facade is already available, use:
 curl -sS "$GATEWAY_BASE_URL/v1/mail/status"
 ```
 
-When no live gateway facade is available for this turn, render `agents.mail.status`, then run the rendered `argv`:
+When no live gateway facade is available for this turn, run the direct fallback command:
 
-```text
-agents.mail.status
+```bash
+<chosen houmao-mgr launcher> agents self mail status
 ```
 
 Treat the returned mailbox identity and transport fields as the current supported state for this turn.

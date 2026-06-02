@@ -36,16 +36,6 @@ from houmao.agents.loop_graph.packets import (
     validate_pairwise_v2_packets,
 )
 
-from .command_templates import (
-    export_command_template_yaml,
-    export_command_templates_yaml,
-    list_command_templates,
-    load_render_intent,
-    render_command_template,
-    show_command_template,
-    write_command_template_yaml,
-    write_command_templates_yaml,
-)
 from .native_agent import native_agent_group
 from .output import OutputContext, emit
 
@@ -72,11 +62,6 @@ def _help(summary: str, *examples: str) -> str:
 @click.group(name="internals")
 def internals_group() -> None:
     """Internal Houmao utility commands for agents and maintainers."""
-
-
-@internals_group.group(name="command-templates")
-def command_templates_group() -> None:
-    """Render supported `houmao-mgr` command templates from sparse intent."""
 
 
 @internals_group.group(name="config-drafts")
@@ -113,89 +98,6 @@ def config_drafts_generate_command(draft_id: str, raw_intent: str) -> None:
         emit(result.to_payload())
         return
     click.echo(result.yaml, nl=False)
-
-
-@command_templates_group.command(name="list")
-def command_templates_list_command() -> None:
-    """List supported command-template ids."""
-
-    emit(list_command_templates())
-
-
-@command_templates_group.command(name="show")
-@click.option("--id", "template_id", required=True, help="Command-template id to inspect.")
-def command_templates_show_command(template_id: str) -> None:
-    """Show one command template."""
-
-    emit(show_command_template(template_id))
-
-
-@command_templates_group.command(name="render")
-@click.option("--id", "template_id", required=True, help="Command-template id to render.")
-@click.option(
-    "--intent",
-    "raw_intent",
-    required=True,
-    help="Intent JSON object, `-` for stdin, or a path to a JSON file.",
-)
-def command_templates_render_command(template_id: str, raw_intent: str) -> None:
-    """Render one command template without executing the target command."""
-
-    emit(render_command_template(template_id, load_render_intent(raw_intent)))
-
-
-@command_templates_group.command(name="export")
-@click.option("--id", "template_id", default=None, help="Command-template id to export.")
-@click.option(
-    "--all",
-    "export_all",
-    is_flag=True,
-    help="Export every registered command template.",
-)
-@click.option(
-    "--output",
-    "output_path",
-    default=None,
-    type=click.Path(path_type=Path),
-    help="YAML file path for single-template export.",
-)
-@click.option(
-    "--output-dir",
-    "output_dir",
-    default=None,
-    type=click.Path(path_type=Path),
-    help="Directory for all-template file export.",
-)
-def command_templates_export_command(
-    template_id: str | None,
-    export_all: bool,
-    output_path: Path | None,
-    output_dir: Path | None,
-) -> None:
-    """Export command-template metadata as deterministic YAML."""
-
-    if (template_id is None) == (not export_all):
-        raise click.ClickException(
-            "Select exactly one command template with `--id` or all with `--all`."
-        )
-    if template_id is not None and output_dir is not None:
-        raise click.ClickException("`--output-dir` is only valid with `--all`.")
-    if export_all and output_path is not None:
-        raise click.ClickException("`--output` is only valid with `--id`.")
-
-    if template_id is not None:
-        if output_path is not None:
-            written = write_command_template_yaml(template_id, output_path)
-            emit({"written": str(written)})
-            return
-        click.echo(export_command_template_yaml(template_id), nl=False)
-        return
-
-    if output_dir is not None:
-        written_paths = write_command_templates_yaml(output_dir)
-        emit({"written": [str(path) for path in written_paths], "count": len(written_paths)})
-        return
-    click.echo(export_command_templates_yaml(), nl=False)
 
 
 def _active_print_style() -> str:

@@ -8,8 +8,8 @@ Use this action only when the user wants to run a provider login flow for a fres
 2. Recover the tool family, credential name, target, and whether this is a create or explicit update from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, or target is still missing, ask the user before proceeding.
 4. Use the default create-only login behavior unless the user explicitly said to update, replace, or refresh an existing credential.
-5. Render the selected command template: `project.credentials.<tool>.login` for the project lane or `internals.native-agent.credentials.<tool>.login` for the direct native-agent lane.
-6. Run the rendered `argv` and let the user complete any provider browser, device-code, console, or paste-back authentication steps.
+5. Build the direct command: `project credentials <tool> login` for the project lane or `internals native-agent credentials <tool> login` for the direct native-agent lane.
+6. Run the direct command and let the user complete any provider browser, device-code, console, or paste-back authentication steps.
 7. Report the credential name, provider command, and temp-home cleanup status returned by the command.
 
 ## Required Inputs
@@ -20,14 +20,14 @@ Use this action only when the user wants to run a provider login flow for a fres
 
 ## Command Shape
 
-Use the matching CLI-owned template, then run its rendered `argv`:
+Run the matching direct command:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.login --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.credentials.<tool>.login --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project credentials <tool> login --name <credential> [--update]
+<chosen houmao-mgr launcher> internals native-agent credentials <tool> login --native-agent-root <dir> --name <credential> [--update]
 ```
 
-Use `show --id <template-id>` for authoritative login options. Render `update=true` only when the user explicitly intends to replace an existing credential.
+Add `--update` only when the user explicitly intends to replace an existing credential.
 
 ## Guardrails
 

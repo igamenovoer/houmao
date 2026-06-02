@@ -1,1 +1,0 @@
-"""Command-template family declarations."""

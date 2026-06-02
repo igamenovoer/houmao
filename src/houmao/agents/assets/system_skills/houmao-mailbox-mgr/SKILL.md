@@ -83,16 +83,14 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 7. Reuse that same chosen launcher for the selected mailbox-admin action.
-8. For supported mailbox command authoring, inspect and render the matching CLI-owned template before executing:
-   - `mailbox.<verb>` for arbitrary filesystem mailbox-root commands
-   - `project.mailbox.<verb>` for active project mailbox-root commands
-   - `mailbox.accounts.<verb>` and `project.mailbox.accounts.<verb>` for account inspection
-   - `mailbox.messages.<verb>` and `project.mailbox.messages.<verb>` for structural message inspection or clearing
-   - `agents.single.mailbox.status|register|unregister` for late binding on an existing local managed agent
-9. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
-10. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+8. For supported mailbox command authoring, build the direct maintained command before executing:
+   - `mailbox <verb>` for arbitrary filesystem mailbox-root commands
+   - `project mailbox <verb>` for active project mailbox-root commands
+   - `mailbox accounts <verb>` and `project mailbox accounts <verb>` for account inspection
+   - `mailbox messages <verb>` and `project mailbox messages <verb>` for structural message inspection or clearing
+   - `agents single ... mailbox status|register|unregister` for late binding on an existing local managed agent
+9. Include only fields the user explicitly supplied or that were recovered from explicit recent context.
+10. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
 11. Load exactly one action page for the task you need to complete.
 12. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
 

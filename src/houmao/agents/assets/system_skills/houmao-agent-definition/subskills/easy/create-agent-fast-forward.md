@@ -63,14 +63,14 @@ Use `project.specialist` draft intent fields `name`, `tool`, and `credential`. U
 
 Report this launch command without executing it:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project agents launch --profile <profile>
 ```
 
-If the profile does not store an agent name, include `name` in the rendered `project.agents.launch` intent.
+If the profile does not store an agent name, include the managed-agent name explicitly.
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json-with-profile-and-name>'
+```bash
+<chosen houmao-mgr launcher> project agents launch --profile <profile> --name <agent-name>
 ```
 
 ## Output

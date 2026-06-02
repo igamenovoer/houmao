@@ -51,15 +51,13 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 1. Decide the caller posture up front.
 2. If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` action instead of the ordinary managed-agent gateway workflow. Strong signals include: no agent gateway is attached, `houmao-mgr agents self mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
 3. For Houmao-managed agent mailbox work, if the current prompt or recent mailbox context already provides the exact current gateway base URL, use that value directly for shared `/v1/mail/*` operations.
-4. Otherwise render `agents.self.mail.resolve-live` for the current managed session, or `agents.single.mail.resolve-live` when the user explicitly selected another managed agent, then run the rendered `argv`.
+4. Otherwise run `agents self mail resolve-live` for the current managed session, or `agents single ... mail resolve-live` when the user explicitly selected another managed agent.
 5. Treat the resolver output as the supported mailbox-discovery contract for this turn.
 6. When the resolver returns a `gateway` object, use the action page that matches the mailbox task you need and use that exact `gateway.base_url` for shared `/v1/mail/*` work.
-7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and render the matching `agents.self.mail.<verb>` fallback template before running current-session CLI fallback commands.
+7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and run the matching `agents self mail <verb>` fallback command for current-session CLI fallback.
 8. Treat `message_ref` and `thread_ref` as opaque shared-mailbox references.
 9. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
-10. Render sparse fallback intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id agents.self.mail.<verb>`
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.self.mail.<verb> --intent '<json>'`
+10. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
 
 ## Missing Input Questions
 

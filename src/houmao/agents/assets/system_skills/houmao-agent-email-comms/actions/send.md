@@ -14,8 +14,8 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/send" \
 
 Use the exact `gateway.base_url` resolved for this turn.
 
-When no live gateway facade is available, render `agents.self.mail.send`, then run the rendered `argv`:
+When no live gateway facade is available, run the direct fallback command:
 
-```text
-agents.self.mail.send
+```bash
+<chosen houmao-mgr launcher> agents self mail send --to <recipient> --subject <subject> --body-content <body>
 ```

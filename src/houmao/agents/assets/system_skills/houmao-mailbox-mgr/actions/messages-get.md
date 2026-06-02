@@ -10,13 +10,11 @@ Use this action only when the user wants one structurally projected message for 
 4. Run the matching mailbox messages get command.
 5. Report the structural message payload and keep actor-scoped follow-up outside this action.
 
-## Template Rendering
+## Command Shape
 
-Use one of these template ids, then run the rendered `argv`:
-
-```text
-mailbox.messages.get
-project.mailbox.messages.get
+```bash
+<chosen houmao-mgr launcher> mailbox messages get --address <address> --message-id <message-id> [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox messages get --address <address> --message-id <message-id>
 ```
 
 ## Guardrails

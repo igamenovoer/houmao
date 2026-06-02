@@ -10,10 +10,10 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/archive" \
   --data '{"schema_version":1,"message_refs":["<opaque message_ref>"]}'
 ```
 
-When no live gateway facade is available, render `agents.mail.archive`, then run the rendered `argv`:
+When no live gateway facade is available, run the direct fallback command:
 
-```text
-agents.mail.archive
+```bash
+<chosen houmao-mgr launcher> agents self mail archive --message-ref <message_ref>
 ```
 
 Do not treat detection, peeking, reading, or replying as an implicit archive operation. Reply marks the parent message answered; archive closes the processed inbox work.

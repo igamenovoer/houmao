@@ -8,8 +8,8 @@ Use this action only when the user wants to update one existing credential.
 2. Recover the tool family, credential name, target, and explicit supported changes from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, target, or supported change is still missing, ask the user before proceeding.
 4. If the requested "credential change" is actually a stored project-profile or launch-dossier `--auth` override change, stop and route it as profile authoring instead of running `set`.
-5. Render the selected command template: `project.credentials.<tool>.set` for the project lane or `internals.native-agent.credentials.<tool>.set` for the direct native-agent lane.
-6. Run the rendered `argv` only if there are no blockers.
+5. Build the direct command: `project credentials <tool> set` for the project lane or `internals native-agent credentials <tool> set` for the direct native-agent lane.
+6. Run the direct command only after required inputs are explicit and conflicts are resolved.
 7. Report the resulting written env vars, cleared env vars, written files, and cleared files returned by the command.
 
 ## Required Inputs
@@ -23,14 +23,14 @@ Use this action only when the user wants to update one existing credential.
 
 ## Command Shape
 
-Use the matching CLI-owned template, then run its rendered `argv`:
+Run the matching direct command:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.set --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.credentials.<tool>.set --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project credentials <tool> set --name <credential> [<tool-specific update or clear flags>]
+<chosen houmao-mgr launcher> internals native-agent credentials <tool> set --native-agent-root <dir> --name <credential> [<tool-specific update or clear flags>]
 ```
 
-Use `show --id <template-id>` for the authoritative tool-specific update fields, clear flags, and conflicts.
+Use the selected tool's credential-kind reference for supported update and clear flags.
 
 ## Guardrails
 
@@ -40,4 +40,4 @@ Use `show --id <template-id>` for the authoritative tool-specific update fields,
 - Do not dump raw secret values while explaining the update result.
 - Do not use `set` when the requested change is only to repoint a reusable project profile or native launch dossier at a different credential name.
 - Do not route update requests through `add` or direct file editing when `set` is the supported patch-style surface.
-- Do not duplicate Claude/Codex/Gemini option menus from skill prose; use the template metadata.
+- Do not duplicate unsupported Claude/Codex/Gemini options; use the selected tool reference before choosing update or clear flags.

@@ -86,18 +86,16 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 5. Reuse that same chosen launcher for the selected instance-lifecycle action.
-6. For supported lifecycle command authoring, inspect and render the matching CLI-owned template before executing:
-   - `project.agents.launch` for project-scoped birth from a specialist or project profile
-   - `agents.self.join`
-   - `agents.global.list`
-   - `agents.single.stop`
-   - `agents.single.relaunch`
-   - `agents.single.cleanup.session`
-   - `agents.single.cleanup.logs`
-7. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
-8. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+6. For supported lifecycle command authoring, show and run direct maintained commands with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - `project agents launch` for project-scoped birth from a specialist or project profile
+   - `agents join`
+   - `agents global list`
+   - `agents single ... stop`
+   - `agents single ... relaunch`
+   - `agents single ... cleanup session`
+   - `agents single ... cleanup logs`
+7. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
+8. Do not add optional posture, chat-session, cleanup, or gateway flags unless the user explicitly requested them or the selected tool/lane requires them.
 9. Load exactly one action page:
    - `actions/launch.md`
    - `actions/join.md`

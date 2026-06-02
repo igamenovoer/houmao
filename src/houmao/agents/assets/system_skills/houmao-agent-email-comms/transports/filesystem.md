@@ -19,9 +19,9 @@ Use this filesystem page for:
 - Otherwise resolve current mailbox bindings through `houmao-mgr agents self mail resolve-live` before mailbox work.
 - Treat the resolver output as the supported discovery contract for this turn. Do not scrape tmux state directly.
 - When the resolver returns a `gateway` object, use this skill's action pages and shared `/v1/mail/*` references for the ordinary mailbox operation you need.
-- When the resolver returns `gateway: null`, render the matching `agents.self.mail.status|list|peek|read|send|post|reply|mark|move|archive` template as the supported fallback surface.
+- When the resolver returns `gateway: null`, run the matching `agents self mail status|list|peek|read|send|post|reply|mark|move|archive` command as the supported fallback surface.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive filesystem `message_id`, thread ancestry, or path structure from the visible prefix.
-- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the rendered `agents.self.mail.archive` fallback command when it is not.
+- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the direct `agents self mail archive` fallback command when it is not.
 - If a fallback `houmao-mgr agents self mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents self mail list`, `houmao-mgr agents self mail status`, or transport-owned mailbox state before assuming the mutation completed.
 
 ## Filesystem-Specific Guidance

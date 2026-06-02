@@ -95,15 +95,12 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - use `internals native-agent credentials <tool> ... --native-agent-root <path>` when the user explicitly targets a native-agent root
    - ask before proceeding when the target is still ambiguous
 6. Reuse that same chosen launcher for the selected credential-management action.
-7. For supported credential command authoring, inspect and render the matching CLI-owned template id before executing:
-   - project lane: `project.credentials.<tool>.<verb>`
-   - direct native-agent lane: `internals.native-agent.credentials.<tool>.<verb>`
+7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
+   - project lane: `project credentials <tool> <verb>`
+   - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
    - supported tools: `claude`, `codex`, `gemini`
    - supported verbs: `add`, `set`, `login`, `list`, `get`, `rename`, `remove`
-8. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
-9. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
 10. Load exactly one action page:
    - `actions/list.md`
    - `actions/get.md`
@@ -149,7 +146,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not imply that project-backed rename changes underlying bundle identity; it is metadata-only rename.
 - Do not imply that direct-dir rename is a no-op for maintained references; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
 - Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.
-- Do not hand-author covered credential commands or tool-specific option menus from Markdown when `internals command-templates render` supports the surface.
+- Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for credential management.

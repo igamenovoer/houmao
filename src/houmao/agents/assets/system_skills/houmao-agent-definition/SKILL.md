@@ -98,13 +98,12 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `internals.native-agent.launch-dossier`: `name`, `recipe`, `credential`
    - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '<json>'`
 9. For full customization beyond those required holes, use the maintained project subcommands directly; do not pass hidden full-model fields such as model, env, mailbox, memo seed, gateway, prompt overlay, or credential material to config drafts.
-10. For command-oriented flows that are not config documents, render sparse intent with the command-template renderer:
-   - `project.agents.launch`
-   - `internals.native-agent.roles.init|set`
-   - `internals.native-agent.recipes.add|set`
-   - `internals.native-agent.brain.build` when the user explicitly asks for direct native-agent brain-build plumbing
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
-11. If draft generation or command rendering reports blockers, stop and recover the missing or conflicting input before running the target command.
+10. For command-oriented flows that are not config documents, show and run direct maintained commands in fenced `bash` blocks, using only explicit user inputs and recovered explicit context:
+   - `project agents launch`
+   - `internals native-agent roles init|set`
+   - `internals native-agent recipes add|set`
+   - `internals native-agent brain build` when the user explicitly asks for direct native-agent brain-build plumbing
+11. If draft generation reports blockers, or if a direct command would be missing required input or include conflicting explicit inputs, stop and recover the missing or conflicting input before running the target command.
 12. Run maintained project commands only after all required inputs are explicit.
 13. Report command output and any durable identity facts that affect later launch.
 

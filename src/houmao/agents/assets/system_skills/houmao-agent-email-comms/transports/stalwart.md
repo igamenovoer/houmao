@@ -12,10 +12,10 @@ For shared gateway mailbox actions in ordinary mailbox work, stay on this skill'
 - Otherwise resolve current mailbox bindings through `houmao-mgr agents self mail resolve-live` before mailbox work.
 - Treat that resolver output as the manager-owned discovery contract for this turn.
 - When the resolver returns a `gateway` object, use this skill's shared `/v1/mail/*` action pages for the ordinary mailbox operation you need.
-- When the resolver returns `gateway: null`, render the matching `agents.self.mail.list|peek|read|send|reply|mark|move|archive` template as the supported fallback surface.
+- When the resolver returns `gateway: null`, run the matching `agents self mail list|peek|read|send|reply|mark|move|archive` command as the supported fallback surface.
 - Ordinary mailbox work in this change means `status`, `list`, `peek`, `read`, `send`, `reply`, manual `mark`/`move`, and archiving processed mail. `post` is explicitly unsupported for `stalwart` in v1.
 - Treat `message_ref` and `thread_ref` as opaque shared mailbox references. Do not derive raw Stalwart object identifiers or transport-local structure from the visible prefix.
-- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the rendered `agents.self.mail.archive` fallback command when it is not.
+- After you successfully process one message, archive that same `message_ref` through `POST /v1/mail/archive` when gateway HTTP is in use or the direct `agents self mail archive` fallback command when it is not.
 - If a fallback `houmao-mgr agents self mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome through `houmao-mgr agents self mail list`, `houmao-mgr agents self mail status`, or transport-native mailbox state before assuming the mutation completed.
 
 ## Stalwart-Specific Guidance

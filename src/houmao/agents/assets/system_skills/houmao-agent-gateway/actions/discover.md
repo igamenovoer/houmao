@@ -13,8 +13,8 @@ Use this action when the caller needs to find the current managed session, confi
 4. For current-session targeting, use manifest-first discovery:
    - `HOUMAO_MANIFEST_PATH` is the preferred current-session locator
    - `HOUMAO_AGENT_ID` plus shared-registry lookup is the fallback when the manifest pointer is missing or stale
-5. Render `agents.single.gateway.status` for an explicit selected agent, render `agents.self.gateway.status` for the current managed session, or use `GET /houmao/agents/{agent_ref}/gateway` to confirm whether a live gateway is attached right now.
-6. When the task needs exact shared mailbox gateway coordinates, render `agents.self.mail.resolve-live`, render `agents.single.mail.resolve-live`, or use `GET /houmao/agents/{agent_ref}/mail/resolve-live` and read `gateway.base_url`.
+5. Run `agents single ... gateway status` for an explicit selected agent, run `agents self gateway status` for the current managed session, or use `GET /houmao/agents/{agent_ref}/gateway` to confirm whether a live gateway is attached right now.
+6. When the task needs exact shared mailbox gateway coordinates, run `agents self mail resolve-live`, run `agents single ... mail resolve-live`, or use `GET /houmao/agents/{agent_ref}/mail/resolve-live` and read `gateway.base_url`.
 7. Use live env vars `HOUMAO_AGENT_GATEWAY_HOST` and `HOUMAO_AGENT_GATEWAY_PORT` only when the task genuinely needs direct gateway `/v1/...` HTTP and the current session already publishes valid live bindings.
 8. If a prompt or notifier already provided the exact `gateway.base_url`, use that value directly instead of rediscovering it.
 9. Report only the facts the next action needs: target identity, whether the gateway is live, the exact `gateway.base_url` when it is supported and known, and whether the task should stay on the managed-agent seam or may use direct gateway HTTP.
@@ -23,10 +23,10 @@ Use this action when the caller needs to find the current managed session, confi
 
 Managed-agent discovery:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.status --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.self.gateway.status --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.self.mail.resolve-live --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway status
+<chosen houmao-mgr launcher> agents self gateway status
+<chosen houmao-mgr launcher> agents self mail resolve-live
 ```
 
 Pair-managed discovery:

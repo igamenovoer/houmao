@@ -11,12 +11,11 @@ Use this action only when the user wants to add or update one filesystem mailbox
 5. Run the late mailbox-binding registration command.
 6. Report the resulting binding payload and any replacement posture that mattered.
 
-## Template Rendering
+## Command Shape
 
-Use this template id, then run the rendered `argv`:
-
-```text
-agents.mailbox.register
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox register [--mailbox-root <root>] [--principal-id <principal-id>] [--address <address>] [--mode safe|force|stash] [--yes]
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox register [--mailbox-root <root>] [--principal-id <principal-id>] [--address <address>] [--mode safe|force|stash] [--yes]
 ```
 
 ## Guardrails

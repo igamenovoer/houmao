@@ -10,13 +10,11 @@ Use this action only when the user wants to bootstrap or validate one filesystem
 4. Run the matching mailbox-root initialization command.
 5. Report the returned root summary and root-selection detail.
 
-## Template Rendering
+## Command Shape
 
-Use one of these template ids, then run the rendered `argv`:
-
-```text
-mailbox.init
-project.mailbox.init
+```bash
+<chosen houmao-mgr launcher> mailbox init [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox init
 ```
 
 ## Guardrails

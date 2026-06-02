@@ -24,15 +24,11 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 <chosen houmao-mgr launcher> internals native-agent roles remove --name <role>
 ```
 
-For `init` and `set`, use the CLI-owned templates:
+For `init` and `set`, run the direct command with only explicit prompt fields:
 
-- `internals.native-agent.roles.init`
-- `internals.native-agent.roles.set`
-
-Render sparse intent before running the target command:
-
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.roles.init --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> internals native-agent roles init --name <role> [--system-prompt <text> | --system-prompt-file <path>]
+<chosen houmao-mgr launcher> internals native-agent roles set --name <role> [--system-prompt <text> | --system-prompt-file <path> | --clear-system-prompt]
 ```
 
 ## Guardrails
@@ -42,4 +38,4 @@ Render sparse intent before running the target command:
 - Do not guess prompt text.
 - Do not hand-edit `.houmao/agents/roles/`.
 - Do not use roles when the user asked for a specialist template with credentials, skills, setup, model, or env defaults.
-- Do not hand-author covered role init or set commands from Markdown skeletons.
+- Do not include prompt mutation flags unless the user supplied the prompt text, prompt file, or explicit clear request.

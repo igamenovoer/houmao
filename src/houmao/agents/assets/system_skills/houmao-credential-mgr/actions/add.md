@@ -10,8 +10,8 @@ Use this action only when the user wants to create one new credential.
    - Claude: `references/claude-credential-kinds.md`
    - Codex: `references/codex-credential-kinds.md`
    - Gemini: `references/gemini-credential-kinds.md`
-4. Render the selected command template: `project.credentials.<tool>.add` for the project lane or `internals.native-agent.credentials.<tool>.add` for the direct native-agent lane.
-5. Run the rendered `argv` only if there are no blockers.
+4. Build the direct command: `project credentials <tool> add` for the project lane or `internals native-agent credentials <tool> add` for the direct native-agent lane.
+5. Run the direct command only after required inputs are explicit and conflicts are resolved.
 6. Report the created credential name, written env vars, and written auth-file paths returned by the command.
 
 ## Required Inputs
@@ -23,14 +23,14 @@ Use this action only when the user wants to create one new credential.
 
 ## Command Shape
 
-Use the matching CLI-owned template, then run its rendered `argv`:
+Run the matching direct command:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.credentials.<tool>.add --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.credentials.<tool>.add --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project credentials <tool> add --name <credential> [<tool-specific credential flags>]
+<chosen houmao-mgr launcher> internals native-agent credentials <tool> add --native-agent-root <dir> --name <credential> [<tool-specific credential flags>]
 ```
 
-Use `show --id <template-id>` for the authoritative tool-specific fields, clear rules, and conflicts.
+Use the selected tool's credential-kind reference for supported credential flags.
 
 ## Guardrails
 
@@ -41,4 +41,4 @@ Use `show --id <template-id>` for the authoritative tool-specific fields, clear 
 - Do not treat optional Claude state-template input as a credential-providing method.
 - Do not claim that adding one credential also updates any project profile or native launch dossier to use it.
 - Do not reinterpret `add` as `set` when the credential already exists.
-- Do not duplicate Claude/Codex/Gemini option menus from skill prose; use the template metadata.
+- Do not duplicate unsupported Claude/Codex/Gemini options; use the selected tool reference before choosing credential flags.

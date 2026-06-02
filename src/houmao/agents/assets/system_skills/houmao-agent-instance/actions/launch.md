@@ -11,8 +11,8 @@ Use this action only when the user wants to create one new managed-agent instanc
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
-6. Render the correct launch template, omitting `headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
-7. Run the rendered `argv` only if there are no blockers.
+6. Build the correct direct launch command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+7. Run the direct command only after required inputs are explicit and conflicts are resolved.
 8. Report the managed-agent identity and launch result returned by the command.
 
 ## Default Launch Posture
@@ -27,10 +27,10 @@ Only add a one-shot `--headless` flag when the user explicitly asks for headless
 
 Use this lane when the user wants to launch through an existing project profile.
 
-Use template `project.agents.launch`, then run the rendered `argv`:
+Run the direct project-profile launch command:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project agents launch --profile <profile> [--name <agent-name>]
 ```
 
 Required inputs:
@@ -64,10 +64,10 @@ Behavior note:
 
 Use this lane when the user wants to launch from an existing specialist.
 
-Use template `project.agents.launch`, then run the rendered `argv`:
+Run the direct specialist-backed launch command:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project agents launch --specialist <specialist> --name <agent-name>
 ```
 
 Required inputs:

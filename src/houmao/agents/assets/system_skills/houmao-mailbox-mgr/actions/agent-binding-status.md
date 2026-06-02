@@ -9,12 +9,11 @@ Use this action only when the user wants late filesystem mailbox posture for one
 3. Run the managed-agent mailbox status command.
 4. Report the late mailbox binding posture for that managed agent.
 
-## Template Rendering
+## Command Shape
 
-Use this template id, then run the rendered `argv`:
-
-```text
-agents.mailbox.status
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox status
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox status
 ```
 
 ## Guardrails

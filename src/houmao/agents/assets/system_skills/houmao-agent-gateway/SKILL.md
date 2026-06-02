@@ -86,7 +86,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 6. Reuse that same chosen launcher for the selected gateway action.
-7. For supported `houmao-mgr agents single ... gateway ...` or `houmao-mgr agents self gateway ...` command authoring, inspect and render the matching CLI-owned template before executing:
+7. For supported `houmao-mgr agents single ... gateway ...` or `houmao-mgr agents self gateway ...` command authoring, build the direct command before executing:
    - `agents.single.gateway.status|attach|detach|prompt|interrupt|send-keys`
    - `agents.self.gateway.status|attach|detach|prompt|interrupt|send-keys`
    - `agents.single.gateway.tui.state|history|watch|note-prompt`
@@ -95,10 +95,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `agents.self.gateway.mail-notifier.status|enable|disable`
    - `agents.single.gateway.reminders.list|get|create|set|remove`
    - `agents.self.gateway.reminders.list|get|create|set|remove`
-8. Render sparse intent with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates show --id <template-id>`
-   - `<chosen houmao-mgr launcher> --print-json internals command-templates render --id <template-id> --intent '<json>'`
-9. If render output has blockers, stop and recover the missing or conflicting input before running the target command.
+8. Include only fields the user explicitly supplied or that were recovered from explicit recent context.
+9. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
 10. Prefer the managed-agent seam first for outside callers:
    - `houmao-mgr agents single ... gateway ...` for selected-agent CLI-driven work
    - `houmao-mgr agents self gateway ...` for current-session CLI-driven work
@@ -106,7 +104,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 11. When the caller is already the attached agent or another process inside the same managed tmux session:
    - use manifest-first current-session discovery through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` second
    - use live gateway env only after the task genuinely needs direct gateway `/v1/...` HTTP
-   - render `agents.self.mail.resolve-live` when shared mailbox work needs the exact current-session live `gateway.base_url`
+   - run `agents self mail resolve-live` when shared mailbox work needs the exact current-session live `gateway.base_url`
 12. Load exactly one action page:
    - `actions/lifecycle.md`
    - `actions/discover.md`

@@ -2,10 +2,10 @@
 
 Use this action when the caller is acting as operator and needs to deliver one operator-origin note into a managed agent mailbox.
 
-When the caller is outside the Houmao managed-agent runtime, or current discovery shows there is no usable live gateway for the current session, render `agents.mail.post`, then run the rendered `argv`:
+When the caller is outside the Houmao managed-agent runtime, or current discovery shows there is no usable live gateway for the current session, run the direct fallback command:
 
-```text
-agents.mail.post
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail post --subject <subject> --body-content <body>
 ```
 
 When the exact target managed-agent `gateway.base_url` is already known for this turn, `POST /v1/mail/post` is also supported:

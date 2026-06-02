@@ -23,8 +23,8 @@ Use this action when the attached agent needs one or more ranked live reminders 
    - `deliver_at_utc`
 10. Recover whether each reminder is `one_off` or `repeat`.
 11. Prefer the managed-agent reminder seam first:
-   - render `agents.single.gateway.reminders.list|get|create|set|remove` for selected-agent CLI work
-   - render `agents.self.gateway.reminders.list|get|create|set|remove` for current-session CLI work
+   - run `agents single ... gateway reminders list|get|create|set|remove` for selected-agent CLI work
+   - run `agents self gateway reminders list|get|create|set|remove` for current-session CLI work
    - use `/houmao/agents/{agent_ref}/gateway/reminders...` only when the current task is already operating through pair-managed HTTP
 12. Keep ranking numeric:
    - use `--ranking <int>` for exact placement
@@ -35,13 +35,13 @@ Use this action when the attached agent needs one or more ranked live reminders 
 
 ## Preferred CLI Surface
 
-Use CLI-owned reminder templates, then run the rendered `argv`:
+Run direct scoped reminder commands:
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.reminders.create --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.self.gateway.reminders.create --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.reminders.set --intent '<json>'
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id agents.single.gateway.reminders.remove --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds>
+<chosen houmao-mgr launcher> agents self gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders set --reminder-id <id> [--title <title>] [--prompt <prompt>] [--paused | --no-paused]
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders remove --reminder-id <id>
 ```
 
 ## Direct Gateway Routes

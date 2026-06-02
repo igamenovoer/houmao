@@ -270,8 +270,7 @@ def _native_credential_target_options(function: Callable[..., None]) -> Callable
         type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
         default=None,
         help=(
-            "Native-agent root to inspect or mutate. "
-            f"Defaults to `{NATIVE_AGENT_ROOT_ENV_VAR}`."
+            f"Native-agent root to inspect or mutate. Defaults to `{NATIVE_AGENT_ROOT_ENV_VAR}`."
         ),
     )(function)
 
@@ -508,14 +507,12 @@ def _build_list_command(
         )
         emit(_list_credentials_payload(target=target, tool=tool))
 
-    list_command.__doc__ = (
-        _credential_command_doc(
-            plain=f"List {display_name} credential names.",
-            project=f"List project-scoped {display_name} credential names.",
-            native=f"List direct native-agent {display_name} credential names.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    list_command.__doc__ = _credential_command_doc(
+        plain=f"List {display_name} credential names.",
+        project=f"List project-scoped {display_name} credential names.",
+        native=f"List direct native-agent {display_name} credential names.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return list_command
 
@@ -551,14 +548,12 @@ def _build_get_command(
         )
         emit(_describe_credential_bundle(target=target, tool=tool, name=name))
 
-    get_command.__doc__ = (
-        _credential_command_doc(
-            plain=f"Inspect one {display_name} credential safely.",
-            project=f"Inspect one project-scoped {display_name} credential safely.",
-            native=f"Inspect one direct native-agent {display_name} credential safely.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    get_command.__doc__ = _credential_command_doc(
+        plain=f"Inspect one {display_name} credential safely.",
+        project=f"Inspect one project-scoped {display_name} credential safely.",
+        native=f"Inspect one direct native-agent {display_name} credential safely.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return get_command
 
@@ -594,14 +589,12 @@ def _build_remove_command(
         )
         emit(_remove_credential_bundle(target=target, tool=tool, name=name))
 
-    remove_command.__doc__ = (
-        _credential_command_doc(
-            plain=f"Remove one {display_name} credential.",
-            project=f"Remove one project-scoped {display_name} credential.",
-            native=f"Remove one direct native-agent {display_name} credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    remove_command.__doc__ = _credential_command_doc(
+        plain=f"Remove one {display_name} credential.",
+        project=f"Remove one project-scoped {display_name} credential.",
+        native=f"Remove one direct native-agent {display_name} credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return remove_command
 
@@ -639,14 +632,12 @@ def _build_rename_command(
         )
         emit(_rename_credential_bundle(target=target, tool=tool, name=name, new_name=new_name))
 
-    rename_command.__doc__ = (
-        _credential_command_doc(
-            plain=f"Rename one {display_name} credential.",
-            project=f"Rename one project-scoped {display_name} credential.",
-            native=f"Rename one direct native-agent {display_name} credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    rename_command.__doc__ = _credential_command_doc(
+        plain=f"Rename one {display_name} credential.",
+        project=f"Rename one project-scoped {display_name} credential.",
+        native=f"Rename one direct native-agent {display_name} credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return rename_command
 
@@ -750,14 +741,12 @@ def _build_claude_add_command(*, project_only: bool, native_only: bool = False) 
             )
         )
 
-    add_command.__doc__ = (
-        _credential_command_doc(
-            plain="Create one Claude credential.",
-            project="Create one project-scoped Claude credential.",
-            native="Create one direct native-agent Claude credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    add_command.__doc__ = _credential_command_doc(
+        plain="Create one Claude credential.",
+        project="Create one project-scoped Claude credential.",
+        native="Create one direct native-agent Claude credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return add_command
 
@@ -953,14 +942,12 @@ def _build_claude_set_command(*, project_only: bool, native_only: bool = False) 
             )
         )
 
-    set_command.__doc__ = (
-        _credential_command_doc(
-            plain="Update one Claude credential.",
-            project="Update one project-scoped Claude credential.",
-            native="Update one direct native-agent Claude credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    set_command.__doc__ = _credential_command_doc(
+        plain="Update one Claude credential.",
+        project="Update one project-scoped Claude credential.",
+        native="Update one direct native-agent Claude credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return set_command
 
@@ -1020,14 +1007,12 @@ def _build_codex_add_command(*, project_only: bool, native_only: bool = False) -
             )
         )
 
-    add_command.__doc__ = (
-        _credential_command_doc(
-            plain="Create one Codex credential.",
-            project="Create one project-scoped Codex credential.",
-            native="Create one direct native-agent Codex credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    add_command.__doc__ = _credential_command_doc(
+        plain="Create one Codex credential.",
+        project="Create one project-scoped Codex credential.",
+        native="Create one direct native-agent Codex credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return add_command
 
@@ -1113,14 +1098,12 @@ def _build_codex_set_command(*, project_only: bool, native_only: bool = False) -
             )
         )
 
-    set_command.__doc__ = (
-        _credential_command_doc(
-            plain="Update one Codex credential.",
-            project="Update one project-scoped Codex credential.",
-            native="Update one direct native-agent Codex credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    set_command.__doc__ = _credential_command_doc(
+        plain="Update one Codex credential.",
+        project="Update one project-scoped Codex credential.",
+        native="Update one direct native-agent Codex credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return set_command
 
@@ -1187,14 +1170,12 @@ def _build_gemini_add_command(*, project_only: bool, native_only: bool = False) 
             )
         )
 
-    add_command.__doc__ = (
-        _credential_command_doc(
-            plain="Create one Gemini credential.",
-            project="Create one project-scoped Gemini credential.",
-            native="Create one direct native-agent Gemini credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    add_command.__doc__ = _credential_command_doc(
+        plain="Create one Gemini credential.",
+        project="Create one project-scoped Gemini credential.",
+        native="Create one direct native-agent Gemini credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return add_command
 
@@ -1290,14 +1271,12 @@ def _build_gemini_set_command(*, project_only: bool, native_only: bool = False) 
             )
         )
 
-    set_command.__doc__ = (
-        _credential_command_doc(
-            plain="Update one Gemini credential.",
-            project="Update one project-scoped Gemini credential.",
-            native="Update one direct native-agent Gemini credential.",
-            project_only=project_only,
-            native_only=native_only,
-        )
+    set_command.__doc__ = _credential_command_doc(
+        plain="Update one Gemini credential.",
+        project="Update one project-scoped Gemini credential.",
+        native="Update one direct native-agent Gemini credential.",
+        project_only=project_only,
+        native_only=native_only,
     )
     return set_command
 
@@ -1364,20 +1343,14 @@ def _build_codex_login_command(*, project_only: bool, native_only: bool = False)
             )
         )
 
-    login_command.__doc__ = (
-        _credential_command_doc(
-            plain="Log in to Codex in an isolated temp home and import `auth.json`.",
-            project=(
-                "Log in to Codex in an isolated temp home and import project-scoped "
-                "`auth.json`."
-            ),
-            native=(
-                "Log in to Codex in an isolated temp home and import direct native-agent "
-                "`auth.json`."
-            ),
-            project_only=project_only,
-            native_only=native_only,
-        )
+    login_command.__doc__ = _credential_command_doc(
+        plain="Log in to Codex in an isolated temp home and import `auth.json`.",
+        project=("Log in to Codex in an isolated temp home and import project-scoped `auth.json`."),
+        native=(
+            "Log in to Codex in an isolated temp home and import direct native-agent `auth.json`."
+        ),
+        project_only=project_only,
+        native_only=native_only,
     )
     return login_command
 
@@ -1453,20 +1426,17 @@ def _build_claude_login_command(*, project_only: bool, native_only: bool = False
             )
         )
 
-    login_command.__doc__ = (
-        _credential_command_doc(
-            plain="Log in to Claude in an isolated config home and import vendor state.",
-            project=(
-                "Log in to Claude in an isolated config home and import project-scoped "
-                "vendor state."
-            ),
-            native=(
-                "Log in to Claude in an isolated config home and import direct native-agent "
-                "vendor state."
-            ),
-            project_only=project_only,
-            native_only=native_only,
-        )
+    login_command.__doc__ = _credential_command_doc(
+        plain="Log in to Claude in an isolated config home and import vendor state.",
+        project=(
+            "Log in to Claude in an isolated config home and import project-scoped vendor state."
+        ),
+        native=(
+            "Log in to Claude in an isolated config home and import direct native-agent "
+            "vendor state."
+        ),
+        project_only=project_only,
+        native_only=native_only,
     )
     return login_command
 
@@ -1532,20 +1502,17 @@ def _build_gemini_login_command(*, project_only: bool, native_only: bool = False
             )
         )
 
-    login_command.__doc__ = (
-        _credential_command_doc(
-            plain="Log in to Gemini in an isolated CLI home and import `oauth_creds.json`.",
-            project=(
-                "Log in to Gemini in an isolated CLI home and import project-scoped "
-                "`oauth_creds.json`."
-            ),
-            native=(
-                "Log in to Gemini in an isolated CLI home and import direct native-agent "
-                "`oauth_creds.json`."
-            ),
-            project_only=project_only,
-            native_only=native_only,
-        )
+    login_command.__doc__ = _credential_command_doc(
+        plain="Log in to Gemini in an isolated CLI home and import `oauth_creds.json`.",
+        project=(
+            "Log in to Gemini in an isolated CLI home and import project-scoped `oauth_creds.json`."
+        ),
+        native=(
+            "Log in to Gemini in an isolated CLI home and import direct native-agent "
+            "`oauth_creds.json`."
+        ),
+        project_only=project_only,
+        native_only=native_only,
     )
     return login_command
 

@@ -15,19 +15,20 @@ Use this subskill only when the user wants to launch one project managed agent f
 3. For specialist launch, require specialist name and managed-agent name.
 4. For profile launch, require profile name.
 5. If profile launch lacks a managed-agent name, inspect the profile with `project profile get --name <profile>` to see whether it stores one.
-6. Render `project.agents.launch` with only explicit source, identity, and one-shot override fields.
-7. If render output has blockers, recover missing or conflicting inputs before launching.
-8. Run the rendered `argv`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+6. Build the direct `project agents launch` command with only explicit source, identity, and one-shot override flags.
+7. If required input is missing or explicit inputs conflict, recover that input before launching.
+8. Run the direct command, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 9. Report the launched instance identity and command output.
 10. Tell the user that broader live-agent management now belongs to `houmao-agent-instance`.
 
 ## Command Shapes
 
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> project agents launch --profile <profile> [--name <agent-name>]
+<chosen houmao-mgr launcher> project agents launch --specialist <specialist> --name <agent-name>
 ```
 
-Run the rendered `argv` if there are no blockers.
+Add optional flags only when the user supplied them explicitly or the selected tool/lane requires them.
 
 ## Common Options
 
@@ -71,7 +72,7 @@ Run the rendered `argv` if there are no blockers.
 - Do not route specialist-backed launch through retired root-level managed-agent launch paths.
 - Do not route profile-backed launch through retired root-level managed-agent launch paths.
 - Do not add `--headless` by default for TUI-capable tools.
-- Do not hand-author the launch command when `project.agents.launch` can render it.
+- Do not invent optional launch flags that the user did not request.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
 - Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled project launch.
 - Do not describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.

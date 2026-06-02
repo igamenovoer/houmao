@@ -25,15 +25,11 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 <chosen houmao-mgr launcher> internals native-agent recipes remove --name <recipe>
 ```
 
-For `add` and `set`, use the CLI-owned templates:
+For `add` and `set`, run the direct command with only explicit recipe fields:
 
-- `internals.native-agent.recipes.add`
-- `internals.native-agent.recipes.set`
-
-Render sparse intent before running the target command:
-
-```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.recipes.add --intent '<json>'
+```bash
+<chosen houmao-mgr launcher> internals native-agent recipes add --name <recipe> --role <role> --tool <tool> [--setup <setup>] [--auth <auth>] [--skill <skill>] [--prompt-mode unattended|as_is]
+<chosen houmao-mgr launcher> internals native-agent recipes set --name <recipe> [--role <role>] [--tool <tool>] [--setup <setup>] [--auth <auth> | --clear-auth] [--add-skill <skill>] [--remove-skill <skill>] [--clear-skills] [--prompt-mode unattended|as_is | --clear-prompt-mode]
 ```
 
 ## Guardrails
@@ -42,4 +38,4 @@ Render sparse intent before running the target command:
 - Do not treat auth-bundle content mutation as recipe authoring; use `houmao-credential-mgr`.
 - Do not remove and recreate a recipe for ordinary edits.
 - Do not hand-edit `.houmao/agents/presets/`.
-- Do not add `--prompt-mode` by default; render it only when prompt mode is explicit.
+- Do not add `--prompt-mode` by default; include it only when prompt mode is explicit.

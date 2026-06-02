@@ -10,10 +10,10 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/list" \
   --data '{"schema_version":1,"box":"inbox","read_state":"unread","answered_state":"any","archived":false,"limit":10}'
 ```
 
-When no live gateway facade is available, render `agents.mail.list`, then run the rendered `argv`:
+When no live gateway facade is available, run the direct fallback command:
 
-```text
-agents.mail.list
+```bash
+<chosen houmao-mgr launcher> agents self mail list --box inbox
 ```
 
 Use the response to inspect current unread headers and any returned message detail for the turn.

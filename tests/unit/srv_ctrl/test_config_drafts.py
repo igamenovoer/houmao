@@ -87,7 +87,7 @@ def test_unknown_config_draft_id_fails_clearly() -> None:
     assert "Config draft id `project.unknown` is not registered" in str(exc_info.value)
 
 
-def test_project_profile_draft_uses_fixed_lane_source_and_omits_template_metadata() -> None:
+def test_project_profile_draft_uses_fixed_lane_source_and_omits_command_metadata() -> None:
     result = generate_config_draft(
         "project.profile",
         {
@@ -293,34 +293,6 @@ def test_config_drafts_cli_list_generate_json_and_blockers() -> None:
     assert "Required field `credential` was not supplied" in blocked.output
 
 
-def test_command_template_rendering_remains_available_for_command_workflows() -> None:
-    payload = _json_result(
-        [
-            "internals",
-            "command-templates",
-            "render",
-            "--id",
-            "internals.native-agent.recipes.add",
-            "--intent",
-            '{"fields":{"name":"reviewer-codex","role":"reviewer","tool":"codex"}}',
-        ]
-    )
-
-    assert payload["argv"] == [
-        "houmao-mgr",
-        "internals",
-        "native-agent",
-        "recipes",
-        "add",
-        "--name",
-        "reviewer-codex",
-        "--role",
-        "reviewer",
-        "--tool",
-        "codex",
-    ]
-
-
 def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     agent_definition = _skill_text(
         "src/houmao/agents/assets/system_skills/houmao-agent-definition/SKILL.md"
@@ -347,9 +319,9 @@ def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     assert "intent fields are only `name`, `recipe`, and `credential`" in launch_dossiers
     assert "Do not pass memo seed fields to `internals config-drafts generate`" in memory
     assert "use maintained profile `set` memo-seed fields" in memory
-    assert "command-templates show" not in agent_definition
-    assert "command-templates show" not in specialists
-    assert "command-templates show" not in profiles
+    assert "command-templates" not in agent_definition
+    assert "command-templates" not in specialists
+    assert "command-templates" not in profiles
     assert "project.specialist.create" not in specialists
     assert "project.profile.create" not in profiles
     assert "internals native-agent launch-dossiers add --intent" not in launch_dossiers

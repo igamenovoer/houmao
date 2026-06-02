@@ -9,13 +9,11 @@ Use this action only when the user wants mailbox-root health, registration count
 3. Run the matching mailbox-root status command.
 4. Report the root status payload and keep the mailbox-root lane explicit.
 
-## Template Rendering
+## Command Shape
 
-Use one of these template ids, then run the rendered `argv`:
-
-```text
-mailbox.status
-project.mailbox.status
+```bash
+<chosen houmao-mgr launcher> mailbox status [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox status
 ```
 
 ## Guardrails

@@ -1155,7 +1155,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project profile list" in easy_profiles
     assert "project profile get --name <name>" in easy_profiles
     assert "project profile remove --name <profile>" in easy_profiles
-    assert "project.agents.launch" in easy_launch
+    assert "project agents launch" in easy_launch
     assert "project profile get --name <profile>" in easy_launch
     assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
     assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
@@ -1176,8 +1176,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/add.md" in manage_credentials_skill
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
-    assert "project.credentials.<tool>.<verb>" in manage_credentials_skill
-    assert "internals.native-agent.credentials.<tool>.<verb>" in manage_credentials_skill
+    assert "project credentials <tool> <verb>" in manage_credentials_skill
+    assert "internals native-agent credentials <tool> <verb>" in manage_credentials_skill
     assert "project profile ..." in manage_credentials_skill
     assert "internals native-agent launch-dossiers ..." in manage_credentials_skill
     assert (
@@ -1195,8 +1195,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in credentials_get_action
     )
     assert "<chosen houmao-mgr launcher>" in credentials_get_action
-    assert "project.credentials.<tool>.get" in credentials_get_action
-    assert "internals.native-agent.credentials.<tool>.get" in credentials_get_action
+    assert "project credentials <tool> get --name <credential>" in credentials_get_action
+    assert "internals native-agent credentials <tool> get" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
     assert "stored project-profile or launch-dossier `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
@@ -1254,11 +1254,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in definition_get_action
     )
     assert "<chosen houmao-mgr launcher>" in definition_get_action
-    assert "internals.native-agent.roles.init" in definition_create_action_path.read_text(
-        encoding="utf-8"
+    assert (
+        "internals native-agent roles init --name <role>"
+        in definition_create_action_path.read_text(encoding="utf-8")
     )
-    assert "internals.native-agent.recipes.add" in definition_create_action_path.read_text(
-        encoding="utf-8"
+    assert (
+        "internals native-agent recipes add --name <recipe> --role <role> --tool <tool>"
+        in definition_create_action_path.read_text(encoding="utf-8")
     )
     assert "internals native-agent roles list" in definition_list_action_path.read_text(
         encoding="utf-8"
@@ -1270,8 +1272,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         definition_get_action
     )
     assert "internals native-agent recipes get --name <recipe>" in definition_get_action
-    assert "internals.native-agent.roles.set" in definition_set_action
-    assert "internals.native-agent.recipes.set" in definition_set_action
+    assert "internals native-agent roles set --name <role>" in definition_set_action
+    assert "internals native-agent recipes set --name <recipe>" in definition_set_action
     assert "--clear-auth" in definition_set_action
     assert "houmao-credential-mgr" in definition_set_action
     assert "internals native-agent roles remove --name <role>" in (
