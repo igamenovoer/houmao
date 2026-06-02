@@ -30,7 +30,7 @@ For live gateway recovery, that means:
 
 ## Key Terms
 
-- `shared registry`: The per-user filesystem tree rooted at `~/.houmao/registry` by default, or at `HOUMAO_GLOBAL_REGISTRY_DIR` when that override is set.
+- `shared registry`: The per-user filesystem tree rooted at `<platformdirs user config>/registry` by default, or at `HOUMAO_GLOBAL_REGISTRY_DIR` when that override is set.
 - `managed-agent lifecycle record`: The strict `record.json` payload stored for one managed-agent identity, whether the lifecycle state is active, stopped, relaunching, or retired.
 - `external communication-only record`: A strict `record.json` payload for a remotely owned agent imported through `houmao-mgr agents external`; lifecycle owner is always remote.
 - `canonical agent name`: The reserved-prefix form such as `HOUMAO-gpu`; registry-facing input also accepts unprefixed names such as `gpu`.

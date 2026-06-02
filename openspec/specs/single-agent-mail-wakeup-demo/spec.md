@@ -1,7 +1,7 @@
 # single-agent-mail-wakeup-demo Specification
 
 ## Purpose
-Define the supported `scripts/demo/single-agent-mail-wakeup/` demo surface for one `project easy` TUI agent that wakes on mailbox delivery through a live gateway mail notifier while keeping the copied project and redirected overlay under a demo-owned output root.
+Define the supported `scripts/demo/single-agent-mail-wakeup/` demo surface for one `project` TUI agent that wakes on mailbox delivery through a live gateway mail notifier while keeping the copied project and redirected overlay under a demo-owned output root.
 
 ## Requirements
 ### Requirement: `scripts/demo/` SHALL publish a supported `single-agent-mail-wakeup` demo
@@ -49,7 +49,7 @@ The demo SHALL reset ephemeral run-local state on a fresh `start`, including the
 - **AND THEN** all generated demo-owned state remains under that canonical output root
 
 #### Scenario: Project-aware commands use the redirected overlay root
-- **WHEN** the demo runs `houmao-mgr project ...`, `houmao-mgr project easy ...`, or `houmao-mgr project mailbox ...` commands for one run
+- **WHEN** the demo runs `houmao-mgr project ...`, `houmao-mgr project ...`, or `houmao-mgr project mailbox ...` commands for one run
 - **THEN** those commands execute from the copied project root
 - **AND THEN** they resolve the active overlay through `HOUMAO_PROJECT_OVERLAY_DIR=<output-root>/overlay`
 - **AND THEN** they do not depend on separate agent-definition, runtime, or jobs root overrides for ordinary project-local state
@@ -58,14 +58,14 @@ The demo SHALL reset ephemeral run-local state on a fresh `start`, including the
 - **WHEN** an operator starts a new run after a prior run has already populated the demo overlay
 - **THEN** the demo preserves reusable overlay-backed specialist and auth/setup state under `outputs/overlay/`
 - **AND THEN** it resets `outputs/project/`, `outputs/registry/`, `outputs/logs/`, `outputs/deliveries/`, `outputs/evidence/`, and the overlay-local `runtime/`, `jobs/`, and `mailbox/` state under `outputs/overlay/`
-- **AND THEN** the operator does not need to recreate the project-easy specialist only because a fresh run is starting
+- **AND THEN** the operator does not need to recreate the project-specialist only because a fresh run is starting
 
 #### Scenario: Generated output root stays gitignored
 - **WHEN** a maintainer inspects the demo after generated output exists
 - **THEN** the demo-local ignore policy excludes the generated output tree from git tracking
 - **AND THEN** the copied project, overlay-local mailbox state, overlay-local runtime state, and other demo-owned artifacts remain disposable under the canonical output root
 
-### Requirement: The demo SHALL support Claude Code and Codex TUI lanes through `project easy`
+### Requirement: The demo SHALL support Claude Code and Codex TUI lanes through `project`
 
 The supported demo SHALL expose two maintained lanes:
 - Claude Code TUI
@@ -73,25 +73,25 @@ The supported demo SHALL expose two maintained lanes:
 
 For each lane, the demo SHALL:
 - import or materialize the expected project-local auth bundle,
-- create or reuse one specialist through `houmao-mgr project easy specialist create`,
-- launch one TUI instance through `houmao-mgr project easy instance launch`.
+- create or reuse one specialist through `houmao-mgr project specialist create`,
+- launch one TUI instance through `houmao-mgr project agents launch`.
 
 The demo SHALL persist the selected tool in canonical demo state rather than encoding it in a tool-specific output-root path.
 
 The demo SHALL NOT claim headless or mixed-mode support as part of this operator contract.
 
-#### Scenario: Claude TUI lane starts through project easy
+#### Scenario: Claude TUI lane starts through project
 - **WHEN** an operator runs the demo for tool `claude`
 - **THEN** the demo creates or reuses a project-local Claude auth bundle under the redirected overlay
-- **AND THEN** it creates or reuses a Claude specialist through `houmao-mgr project easy specialist create`
-- **AND THEN** it launches one Claude TUI instance through `houmao-mgr project easy instance launch`
+- **AND THEN** it creates or reuses a Claude specialist through `houmao-mgr project specialist create`
+- **AND THEN** it launches one Claude TUI instance through `houmao-mgr project agents launch`
 - **AND THEN** the selected tool is persisted in canonical demo state under the shared output root
 
-#### Scenario: Codex TUI lane starts through project easy
+#### Scenario: Codex TUI lane starts through project
 - **WHEN** an operator runs the demo for tool `codex`
 - **THEN** the demo creates or reuses a project-local Codex auth bundle under the redirected overlay
-- **AND THEN** it creates or reuses a Codex specialist through `houmao-mgr project easy specialist create`
-- **AND THEN** it launches one Codex TUI instance through `houmao-mgr project easy instance launch`
+- **AND THEN** it creates or reuses a Codex specialist through `houmao-mgr project specialist create`
+- **AND THEN** it launches one Codex TUI instance through `houmao-mgr project agents launch`
 - **AND THEN** the selected tool is persisted in canonical demo state under the shared output root
 
 ### Requirement: The stepwise demo SHALL expose interactive operator commands for attach, gateway observation, message injection, and notifier control

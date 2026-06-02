@@ -52,14 +52,14 @@ The README SHALL still explain that Houmao creates a `.houmao/` project overlay 
 
 ### Requirement: Specialist creation and launch is the primary path (step 2)
 
-The README SHALL introduce specialists, easy profiles, and managed agents through a simple agent-driven workflow rather than through a full `houmao-mgr project easy specialist create` flag tutorial.
+The README SHALL introduce specialists, project profiles, and managed agents through a simple agent-driven workflow rather than through a full `houmao-mgr project specialist create` flag tutorial.
 
 The workflow SHALL show the user asking their CLI agent to create or select a specialist, create a reusable easy launch profile when useful, launch a managed agent, and send an initial prompt through the gateway or maintained messaging surface. The README MAY include a short illustrative command or outcome list, but detailed command syntax SHALL be delegated to linked docs.
 
 #### Scenario: Reader sees the specialist workflow
 - **WHEN** a reader follows the first agent workflow example
 - **THEN** they understand that a specialist is the reusable role/tool/credential definition
-- **AND THEN** they understand that an easy profile captures reusable launch defaults
+- **AND THEN** they understand that an project profile captures reusable launch defaults
 - **AND THEN** they understand that the launched managed agent can be prompted or inspected through a gateway-backed Houmao surface
 
 ### Requirement: Agent loop section showcases pairwise coordination (step 3)
@@ -153,7 +153,7 @@ The README SHALL distinguish the reusable example from the inline quick-start na
 
 If the README mentions individual system skills, it SHALL mention only the most important entry points needed for orientation, such as `houmao-touring`, `houmao-agent-definition`, `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-loop-lite`, and `houmao-agent-loop-pro`.
 
-If the README mentions `houmao-agent-definition`, it SHALL describe it as the agent-facing surface for specialist, easy profile, raw profile, recipe, launch, and `create-agent-fast-forward` workflows. If the README mentions `houmao-specialist-mgr`, that mention SHALL identify it as compatibility or migration guidance rather than as the primary current specialist-management surface.
+If the README mentions `houmao-agent-definition`, it SHALL describe it as the agent-facing surface for specialist, project profile, launch dossier, recipe, launch, and `create-agent-fast-forward` workflows. If the README mentions `houmao-specialist-mgr`, that mention SHALL identify it as compatibility or migration guidance rather than as the primary current specialist-management surface.
 
 #### Scenario: README keeps individual skill references compact
 - **WHEN** the README mentions individual system skills
@@ -184,7 +184,7 @@ The install block SHALL state that `tmux` is required because managed agents run
 
 ### Requirement: README usage examples use AI/user chat style
 
-The README SHALL include at least one concise "You:" / "AI:" usage example after installation. The example SHALL show the user asking their CLI agent to perform Houmao work and the AI reporting concrete Houmao outcomes, such as project initialization, specialist creation, easy profile preparation, managed-agent launch, gateway attachment, prompt delivery, or loop preparation.
+The README SHALL include at least one concise "You:" / "AI:" usage example after installation. The example SHALL show the user asking their CLI agent to perform Houmao work and the AI reporting concrete Houmao outcomes, such as project initialization, specialist creation, project profile preparation, managed-agent launch, gateway attachment, prompt delivery, or loop preparation.
 
 #### Scenario: Reader sees agent-mediated usage
 - **WHEN** a reader reaches the first usage example after Quick Start
@@ -193,7 +193,7 @@ The README SHALL include at least one concise "You:" / "AI:" usage example after
 
 ### Requirement: README leaves command detail to docs
 
-The README SHALL keep command examples short and illustrative. Detailed command flags, full lifecycle command lists, complete system-skill catalogs, join diagrams, managed-header details, and recipe/raw-profile reference material SHALL be linked to existing docs or reference pages instead of expanded inline.
+The README SHALL keep command examples short and illustrative. Detailed command flags, full lifecycle command lists, complete system-skill catalogs, join diagrams, managed-header details, and recipe/launch-dossier reference material SHALL be linked to existing docs or reference pages instead of expanded inline.
 
 #### Scenario: Reader wants command details
 - **WHEN** a reader wants exact CLI syntax beyond the concise README examples
@@ -202,10 +202,10 @@ The README SHALL keep command examples short and illustrative. Detailed command 
 
 ### Requirement: README introduces core concepts before command reference
 
-After the first usage example, the README SHALL introduce the core model in compact form: user CLI agent, specialist, easy profile, managed agent, gateway, mailbox, and loop. The concepts SHALL be described from the user's mental model rather than from storage layout or CLI implementation detail.
+After the first usage example, the README SHALL introduce the core model in compact form: user CLI agent, specialist, project profile, managed agent, gateway, mailbox, and loop. The concepts SHALL be described from the user's mental model rather than from storage layout or CLI implementation detail.
 
 #### Scenario: Reader learns the mental model
 - **WHEN** a reader reaches the concept section
 - **THEN** they can distinguish the user's CLI agent from Houmao-managed agents
-- **AND THEN** they understand how specialists, easy profiles, gateways, mailboxes, and loops fit together
+- **AND THEN** they understand how specialists, project profiles, gateways, mailboxes, and loops fit together
 

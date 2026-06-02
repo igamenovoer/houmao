@@ -7,7 +7,7 @@ This page is the centralized filesystem reference for the shared managed-agent l
 Representative default layout:
 
 ```text
-~/.houmao/registry/
+<platformdirs user config>/registry/
   live_agents/
     <agent-id>/
       record.json

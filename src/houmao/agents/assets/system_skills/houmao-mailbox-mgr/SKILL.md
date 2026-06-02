@@ -70,7 +70,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - use `mailbox export` or `project mailbox export` when the operator wants to archive filesystem mailbox state; default export materializes symlinks so the archive can move to filesystems that do not support symlink artifacts
    - use `mailbox register|unregister` or `project mailbox register|unregister` for manual mailbox-account administration under that root
    - use `agents mailbox ...` when the task is adding or changing mailbox support for an already-running local managed agent
-   - when the user is preparing a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same root, explain that mailbox registration may be owned by the later `project easy instance launch` step rather than by manual preregistration here
+   - when the user is preparing a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same root, explain that mailbox registration may be owned by the later `project agents launch` step rather than by manual preregistration here
 4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 5. Keep mailbox identity guidance explicit when the user needs help choosing values:
    - ordinary principal ids use the canonical `HOUMAO-<agentname>` form
@@ -146,7 +146,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Route requests to remove delivered emails for one selected mailbox account while preserving other accounts to `actions/messages-clear.md`; do not route that request to all-account `clear-messages`, registration cleanup, or account unregister.
 - Route requests to archive or export filesystem mailbox state to `actions/export.md`; preserve selected-account scope with repeated `--address` values and expose `--symlink-mode preserve` only when the user explicitly wants symlink preservation.
 - Treat `project mailbox register` as manual mailbox-account administration, not as the default preparation step for every future mailbox-enabled easy launch.
-- When the task is preparing a new specialist-backed easy instance whose same-root ordinary mailbox address will be derived from the managed-agent instance name, explain that the later `project easy instance launch --mail-transport filesystem --mail-root ...` step may own that address instead of preregistering it here.
+- When the task is preparing a new specialist-backed easy instance whose same-root ordinary mailbox address will be derived from the managed-agent instance name, explain that the later `project agents launch --mail-transport filesystem --mail-root ...` step may own that address instead of preregistering it here.
 - When the task is attaching mailbox support to an already-running local managed agent, route to `actions/agent-binding-register.md` instead of treating it as generic account registration.
 - Treat Stalwart as a transport/bootstrap boundary, not as a peer `houmao-mgr mailbox ...` administration lane.
 

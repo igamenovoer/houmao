@@ -41,9 +41,9 @@ The demo SHALL reset ephemeral run-local state on a fresh `start`, including the
 - **WHEN** an operator starts a new run after a prior run has already populated the demo overlay
 - **THEN** the demo preserves reusable overlay-backed specialist and auth/setup state under `outputs/overlay/`
 - **AND THEN** it resets `outputs/project/`, `outputs/registry/`, `outputs/logs/`, `outputs/deliveries/`, `outputs/evidence/`, and the overlay-local `runtime/`, `jobs/`, and `mailbox/` state under `outputs/overlay/`
-- **AND THEN** the operator does not need to recreate the project-easy specialist only because a fresh run is starting
+- **AND THEN** the operator does not need to recreate the project-specialist only because a fresh run is starting
 
-### Requirement: The demo SHALL support Claude Code and Codex headless lanes through `project easy`
+### Requirement: The demo SHALL support Claude Code and Codex headless lanes through `project`
 
 The supported demo SHALL expose three maintained lanes:
 
@@ -54,8 +54,8 @@ The supported demo SHALL expose three maintained lanes:
 For each maintained lane, the demo SHALL:
 
 - import or materialize the expected project-local auth bundle,
-- create or reuse one specialist through `houmao-mgr project easy specialist create`,
-- launch one headless instance through `houmao-mgr project easy instance launch --headless`.
+- create or reuse one specialist through `houmao-mgr project specialist create`,
+- launch one headless instance through `houmao-mgr project agents launch --headless`.
 
 The Gemini lane SHALL use the maintained Gemini headless contract already supported by project-local Gemini auth and easy-specialist flows, including API-key auth with optional `GOOGLE_GEMINI_BASE_URL` and OAuth auth via `oauth_creds.json`.
 
@@ -63,25 +63,25 @@ The demo SHALL persist the selected tool in canonical demo state rather than enc
 
 The maintained demo contract SHALL follow supported unattended headless launch posture and SHALL NOT claim unsupported maintained lanes merely because a backend exists.
 
-#### Scenario: Claude headless lane starts through project easy
+#### Scenario: Claude headless lane starts through project
 - **WHEN** an operator runs the demo for tool `claude`
 - **THEN** the demo creates or reuses a project-local Claude auth bundle under the redirected overlay
-- **AND THEN** it creates or reuses a Claude specialist through `houmao-mgr project easy specialist create`
-- **AND THEN** it launches one Claude headless instance through `houmao-mgr project easy instance launch --headless`
+- **AND THEN** it creates or reuses a Claude specialist through `houmao-mgr project specialist create`
+- **AND THEN** it launches one Claude headless instance through `houmao-mgr project agents launch --headless`
 - **AND THEN** the selected tool is persisted in canonical demo state under the shared output root
 
-#### Scenario: Codex headless lane starts through project easy
+#### Scenario: Codex headless lane starts through project
 - **WHEN** an operator runs the demo for tool `codex`
 - **THEN** the demo creates or reuses a project-local Codex auth bundle under the redirected overlay
-- **AND THEN** it creates or reuses a Codex specialist through `houmao-mgr project easy specialist create`
-- **AND THEN** it launches one Codex headless instance through `houmao-mgr project easy instance launch --headless`
+- **AND THEN** it creates or reuses a Codex specialist through `houmao-mgr project specialist create`
+- **AND THEN** it launches one Codex headless instance through `houmao-mgr project agents launch --headless`
 - **AND THEN** the selected tool is persisted in canonical demo state under the shared output root
 
-#### Scenario: Gemini headless lane starts through project easy
+#### Scenario: Gemini headless lane starts through project
 - **WHEN** an operator runs the demo for tool `gemini`
 - **THEN** the demo creates or reuses a project-local Gemini auth bundle under the redirected overlay using one maintained Gemini auth family
-- **AND THEN** it creates or reuses a Gemini specialist through `houmao-mgr project easy specialist create`
-- **AND THEN** it launches one Gemini headless instance through `houmao-mgr project easy instance launch --headless`
+- **AND THEN** it creates or reuses a Gemini specialist through `houmao-mgr project specialist create`
+- **AND THEN** it launches one Gemini headless instance through `houmao-mgr project agents launch --headless`
 - **AND THEN** the selected tool is persisted in canonical demo state under the shared output root
 
 ### Requirement: The stepwise demo SHALL keep a tmux-backed headless session with separate agent and gateway windows

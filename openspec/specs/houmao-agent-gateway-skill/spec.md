@@ -32,7 +32,7 @@ That packaged skill SHALL remain the canonical Houmao-owned skill for gateway-sp
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `agents launch|join|stop|relaunch|cleanup`
-- `project easy specialist create|list|get|remove`
+- `project specialist create|list|get|remove`
 - ordinary prompt or mailbox work that is already satisfied by `houmao-agent-messaging` and the mailbox skills
 - mailbox transport-specific filesystem or Stalwart internals
 - inventing new `houmao-mgr`, managed-agent API, or direct gateway routes that the current implementation does not expose

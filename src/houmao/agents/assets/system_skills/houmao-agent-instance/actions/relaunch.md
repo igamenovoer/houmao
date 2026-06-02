@@ -31,7 +31,7 @@ Selector meanings:
 
 - Do not guess which live managed agent the user meant.
 - Do not require an explicit selector when the supported current-session relaunch form is already the intended path.
-- Do not reinterpret a relaunch request as `agents launch` or `project easy instance launch`.
+- Do not reinterpret a relaunch request as `agents launch` or `project agents launch`.
 - Do not add `--chat-session-mode tool_last_or_new` or `--chat-session-mode exact` unless the user asks for continuation, gives a provider session id, or explicitly wants to override the stored launch-profile relaunch policy.
 - Do not hand-author covered relaunch commands from Markdown skeletons.
 - Do not claim that relaunch always recreates a missing tmux session or otherwise acts as a generic fresh-launch recovery path.

@@ -99,7 +99,7 @@ When the guide explains the packaged named sets or default install selections, i
 - **AND THEN** it explains that the tour can revisit branches such as creating more specialists, launching more agents, or following up with stop, relaunch, or cleanup
 
 ### Requirement: System-skills overview guide uses the dedicated credential-management routing
-The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL describe `houmao-credential-mgr` as routing through the dedicated credential-management families rather than through `project agents tools <tool> auth ...`.
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL describe `houmao-credential-mgr` as routing through the dedicated credential-management families rather than through `internals native-agent tools <tool> auth ...`.
 
 At minimum, the guide SHALL state that `houmao-credential-mgr` routes credential work through:
 
@@ -111,7 +111,7 @@ The guide SHALL continue to describe `houmao-credential-mgr` as the credential-m
 #### Scenario: Reader sees the new credential routing in the narrative guide
 - **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
 - **THEN** the `houmao-credential-mgr` entry points to `project credentials ...` and `credentials ... --agent-def-dir <path>` as the supported command families
-- **AND THEN** the guide does not present `project agents tools <tool> auth ...` as the canonical credential-management route
+- **AND THEN** the guide does not present `internals native-agent tools <tool> auth ...` as the canonical credential-management route
 
 ### Requirement: Overview guide table enumerates every catalog entry
 `docs/getting-started/system-skills-overview.md` SHALL document every system skill listed under `[skills.*]` in `src/houmao/agents/assets/system_skills/catalog.toml` inside its "Packaged Skills" table or an equivalently titled catalog table. Each row SHALL give the skill identifier, a brief "what it enables" summary, and the canonical `houmao-mgr` command routing or utility workflow the skill points at.
@@ -179,12 +179,12 @@ The guide SHALL describe managed launch and join as resolving `core`, and omitte
 
 ### Requirement: Overview guide routes credential management through the dedicated CLI
 
-The overview guide's `houmao-credential-mgr` row SHALL reference `houmao-mgr credentials <tool> ...` and the project-scoped `houmao-mgr project credentials <tool> ...` wrappers as the canonical credential-management surfaces, and SHALL NOT direct readers to manage credentials through the retired `project agents tools <tool> auth ...` subtree.
+The overview guide's `houmao-credential-mgr` row SHALL reference `houmao-mgr credentials <tool> ...` and the project-scoped `houmao-mgr project credentials <tool> ...` wrappers as the canonical credential-management surfaces, and SHALL NOT direct readers to manage credentials through the retired `internals native-agent tools <tool> auth ...` subtree.
 
 #### Scenario: Reader is routed at the supported credential CLI
 - **WHEN** a reader opens the overview guide row for `houmao-credential-mgr`
 - **THEN** the canonical CLI column names `credentials ...` and `project credentials ...` as the supported credential-management surfaces
-- **AND THEN** it does not present `project agents tools <tool> auth ...` as a maintained credential CRUD path
+- **AND THEN** it does not present `internals native-agent tools <tool> auth ...` as a maintained credential CRUD path
 
 ### Requirement: System-skills overview guide includes the packaged memory-management skill
 The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-memory-mgr` as one of the currently shipped packaged Houmao-owned system skills.
@@ -289,21 +289,21 @@ The guide SHALL state that the workspace manager is part of the utility group, i
 ### Requirement: System-skills overview routes agent-definition concerns to unified skill
 The system-skills overview guide SHALL route persisted pre-launch agent-definition concerns to `houmao-agent-definition`.
 
-That routing SHALL include `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, and `create-agent-fast-forward`.
+That routing SHALL include `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, and `create-agent-fast-forward`.
 
-The overview SHALL explain that loosely stated profile requests default to `profiles`, while `raw-profiles` is reserved for explicit raw, recipe-backed, or exact `project agents launch-profiles` requests.
+The overview SHALL explain that loosely stated profile requests default to `profiles`, while `launch-dossiers` is reserved for explicit raw, recipe-backed, or exact `internals native-agent launch-dossiers` requests.
 
 The overview SHALL keep credential CRUD, mailbox administration, workspace creation, and broad live-agent lifecycle routed to their existing dedicated skills.
 
-#### Scenario: Overview routes easy profile authoring to unified skill
-- **WHEN** a reader asks which skill creates or updates one easy profile
+#### Scenario: Overview routes project profile authoring to unified skill
+- **WHEN** a reader asks which skill creates or updates one project profile
 - **THEN** the overview points to `houmao-agent-definition` and the `profiles` subcommand
 - **AND THEN** it does not point to `houmao-specialist-mgr` as the primary current skill
 
-#### Scenario: Overview distinguishes raw profiles
-- **WHEN** a reader asks which skill handles `project agents launch-profiles ...`
-- **THEN** the overview points to `houmao-agent-definition` and the `raw-profiles` subcommand
-- **AND THEN** it explains that ordinary profile wording defaults to easy profiles
+#### Scenario: Overview distinguishes launch dossiers
+- **WHEN** a reader asks which skill handles `internals native-agent launch-dossiers ...`
+- **THEN** the overview points to `houmao-agent-definition` and the `launch-dossiers` subcommand
+- **AND THEN** it explains that ordinary profile wording defaults to project profiles
 
 #### Scenario: Overview keeps live lifecycle separate
 - **WHEN** a reader asks which skill manages already-live agents

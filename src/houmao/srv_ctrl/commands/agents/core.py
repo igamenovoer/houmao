@@ -564,7 +564,7 @@ def _parse_stored_launch_profile_mailbox_or_click(
     try:
         return parse_declarative_mailbox_config(
             payload,
-            source=f"launch profile `{profile_name}`",
+            source=f"launch dossier `{profile_name}`",
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -788,8 +788,13 @@ def launch_managed_agent_locally(
     memo_seed_application: LaunchProfileMemoSeedApplication | None = None
     try:
         if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
-            invocation_agent_def_dir = resolve_effective_agent_def_dir(
-                working_directory=resolved_source_working_directory
+            selector_path = Path(agents).expanduser()
+            invocation_agent_def_dir = (
+                resolved_source_working_directory
+                if selector_path.is_absolute()
+                else resolve_effective_agent_def_dir(
+                    working_directory=resolved_source_working_directory
+                )
             )
             preset_path = resolve_explicit_or_named_preset_path(
                 agent_def_dir=invocation_agent_def_dir,
@@ -1250,8 +1255,8 @@ def launch_agents_command(
             raise click.ClickException(str(exc)) from exc
         if resolved_profile.entry.profile_lane != "launch_profile":
             raise click.ClickException(
-                f"Launch profile `{resolved_profile.entry.name}` is not an explicit "
-                "recipe-backed launch profile."
+                f"Selected profile `{resolved_profile.entry.name}` is not a native "
+                "recipe-backed launch dossier."
             )
         if (
             not resolved_profile.source_exists
@@ -1259,7 +1264,7 @@ def launch_agents_command(
             or resolved_profile.provider is None
         ):
             raise click.ClickException(
-                f"Launch profile `{resolved_profile.entry.name}` references unavailable recipe "
+                f"Native launch dossier `{resolved_profile.entry.name}` references unavailable recipe "
                 f"`{resolved_profile.entry.source_name}`."
             )
 
@@ -1271,7 +1276,7 @@ def launch_agents_command(
             resolved_working_directory = Path(resolved_profile.entry.workdir).expanduser().resolve()
         operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
             resolved_profile.entry.operator_prompt_mode,
-            source=f"launch profile `{resolved_profile.entry.name}`",
+            source=f"launch dossier `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
         launch_profile_model_config = normalize_model_config(
@@ -1280,7 +1285,7 @@ def launch_agents_command(
         )
         launch_profile_managed_header_policy = normalize_managed_header_policy(
             resolved_profile.entry.managed_header_policy,
-            source=f"launch profile `{resolved_profile.entry.name}`",
+            source=f"launch dossier `{resolved_profile.entry.name}`",
         )
         launch_profile_managed_header_section_policy = dict(
             getattr(resolved_profile.entry, "managed_header_section_policy", {})
@@ -1293,7 +1298,7 @@ def launch_agents_command(
         launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
         launch_profile_system_skill_policy = _resolve_launch_profile_system_skill_policy_or_click(
             getattr(resolved_profile.entry, "system_skills_payload", {}),
-            source=f"launch profile `{resolved_profile.entry.name}` system_skills",
+            source=f"launch dossier `{resolved_profile.entry.name}` system_skills",
         )
         launch_profile_provenance = {
             "name": resolved_profile.entry.name,
@@ -1353,7 +1358,7 @@ def launch_agents_command(
             resolved_provider = resolved_profile.provider
         elif resolved_provider != resolved_profile.provider:
             raise click.ClickException(
-                f"`--provider {resolved_provider}` conflicts with launch profile "
+                f"`--provider {resolved_provider}` conflicts with native launch dossier "
                 f"`{resolved_profile.entry.name}`, which resolves provider "
                 f"`{resolved_profile.provider}`."
             )

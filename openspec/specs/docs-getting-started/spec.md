@@ -54,12 +54,12 @@ That page SHALL document `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` as an ambient d
 That page SHALL distinguish:
 
 - `project agents ...` as the low-level filesystem-oriented project source surface,
-- `project easy ...` as the higher-level specialist, easy-profile, and instance UX,
+- `project ...` as the higher-level specialist, project-profile, and instance UX,
 - `project mailbox ...` as the project-scoped mailbox-root wrapper.
 
-That page SHALL explain that the canonical low-level source object is the named recipe and that recipe files projected under `.houmao/agents/presets/` carry `role`, `tool`, and `setup` in their content rather than deriving those identities from the directory path. The page SHALL state that `project agents recipes ...` is the canonical CLI surface for those resources and that `project agents presets ...` remains a compatibility alias that operates on the same files.
+That page SHALL explain that the canonical low-level source object is the named recipe and that recipe files projected under `.houmao/agents/presets/` carry `role`, `tool`, and `setup` in their content rather than deriving those identities from the directory path. The page SHALL state that `internals native-agent recipes ...` is the canonical CLI surface for those resources and that `project agents presets ...` remains a compatibility alias that operates on the same files.
 
-That page SHALL explain that reusable birth-time launch profiles project under `.houmao/agents/launch-profiles/<profile>.yaml`, that easy profiles and explicit launch profiles share the same underlying catalog model, and that the explicit lane is administered through `project agents launch-profiles ...`.
+That page SHALL explain that reusable birth-time launch profiles project under `.houmao/agents/launch-profiles/<profile>.yaml`, that project profiles and native launch dossiers share the same underlying catalog model, and that the explicit lane is administered through `internals native-agent launch-dossiers ...`.
 
 That page SHALL NOT document `.houmao/agents/compatibility-profiles/` as a user-facing project-layout directory or project-init option.
 
@@ -70,7 +70,7 @@ That page SHALL link to `docs/getting-started/launch-profiles.md` for the shared
 - **THEN** they understand that `houmao-mgr project init` creates the local `.houmao/` overlay by default
 - **AND THEN** they understand that `HOUMAO_PROJECT_OVERLAY_DIR` can redirect the overlay directory directly for CI
 - **AND THEN** they understand that `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` can keep ambient overlay discovery scoped to the current working directory
-- **AND THEN** they understand that recipe files projected under `.houmao/agents/presets/` carry `role`, `tool`, and `setup` in their content, that `project agents recipes ...` is the canonical authoring surface, and that `project agents presets ...` remains a compatibility alias
+- **AND THEN** they understand that recipe files projected under `.houmao/agents/presets/` carry `role`, `tool`, and `setup` in their content, that `internals native-agent recipes ...` is the canonical authoring surface, and that `project agents presets ...` remains a compatibility alias
 - **AND THEN** they understand that launch-profile files projected under `.houmao/agents/launch-profiles/` are reusable birth-time configuration shared between easy and explicit authoring lanes
 - **AND THEN** they understand that `.houmao/mailbox/` is a project-local mailbox root created only when mailbox workflows are enabled explicitly
 - **AND THEN** they understand which files are local-only, including the whole `.houmao/` overlay and `tools/<tool>/auth/`
@@ -84,7 +84,7 @@ That page SHALL link to `docs/getting-started/launch-profiles.md` for the shared
 Repo-owned onboarding docs that explain local build and launch workflows SHALL describe the catalog-backed `.houmao` overlay and ambient agent-definition resolution as:
 
 1. explicit CLI `--agent-def-dir`,
-2. `HOUMAO_AGENT_DEF_DIR`,
+2. `HOUMAO_NATIVE_AGENT_ROOT`,
 3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
 4. ambient project-overlay discovery controlled by `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`,
 5. default fallback `<cwd>/.houmao/agents`.
@@ -121,7 +121,7 @@ The quickstart SHALL:
 
 - present the `houmao-mgr agents join` adoption workflow as the simplest entry point before the build-and-launch workflow,
 - start the build-based workflow with `houmao-mgr project init`,
-- use `houmao-mgr project easy specialist create ...` as the primary project-local authoring path before falling back to `project agents ...` for low-level maintenance,
+- use `houmao-mgr project specialist create ...` as the primary project-local authoring path before falling back to `project agents ...` for low-level maintenance,
 - describe `--credential` as optional for the higher-level specialist workflow and explain the derived default naming behavior when the example relies on it,
 - avoid describing `--system-prompt` as required for the higher-level specialist workflow,
 - use project-local default agent-definition resolution rooted at `.houmao/houmao-config.toml` for the build-based workflow rather than instructing readers to manually copy `.agentsys/agents`,
@@ -132,7 +132,7 @@ The quickstart SHALL:
 - use `houmao-mgr agents stop` for shutdown,
 - avoid presenting `--manifest`, `--session-id`, or `agents terminate` as the primary `houmao-mgr` workflow,
 - present both workflows completely without truncation (added requirement),
-- describe the canonical low-level source object as a recipe and use `project agents recipes ...` when teaching named source authoring inspection, while preserving `project agents presets ...` as the compatibility alias when the example relies on the legacy verb explicitly.
+- describe the canonical low-level source object as a recipe and use `internals native-agent recipes ...` when teaching named source authoring inspection, while preserving `project agents presets ...` as the compatibility alias when the example relies on the legacy verb explicitly.
 
 The quickstart section covering `agents join` SHALL include a Mermaid sequence diagram illustrating the join pipeline: operator starts a provider TUI in tmux, runs `agents join`, and Houmao wraps the session with manifest, gateway, and registry artifacts.
 
@@ -146,7 +146,7 @@ The quickstart section covering `agents join` SHALL include a Mermaid sequence d
 #### Scenario: Build-based quickstart uses the higher-level project authoring path
 - **WHEN** a reader follows the build-based quickstart workflow
 - **THEN** the first setup command is `houmao-mgr project init`
-- **AND THEN** the workflow uses `houmao-mgr project easy specialist create ...` as the primary project-local authoring path
+- **AND THEN** the workflow uses `houmao-mgr project specialist create ...` as the primary project-local authoring path
 - **AND THEN** the quickstart explains the derived default credential naming when `--credential` is omitted
 - **AND THEN** the workflow does not describe `--system-prompt` as required for specialist creation
 - **AND THEN** the workflow does not tell the reader to manually copy or assemble `.agentsys/agents` before build or launch
@@ -178,7 +178,7 @@ The quickstart section covering `agents join` SHALL include a Mermaid sequence d
 #### Scenario: Quickstart uses recipes vocabulary for low-level source authoring
 
 - **WHEN** a reader reaches the inspection step in the build-based workflow
-- **THEN** the example commands use `project agents recipes get` for canonical recipe inspection
+- **THEN** the example commands use `internals native-agent recipes get` for canonical recipe inspection
 - **AND THEN** any reference to `project agents presets ...` is described as a compatibility alias rather than as the canonical authoring surface
 
 ### Requirement: README documents agents join as a first-class adoption path
@@ -205,28 +205,28 @@ The README SHALL include at minimum:
 - **AND THEN** the paragraph does not contain language like "today, the management commands assume the session was launched by `houmao-mgr`"
 
 ### Requirement: Getting-started docs use tool-oriented project auth commands
-Repo-owned getting-started guidance for the repo-local `.houmao/` project overlay SHALL describe project-local auth management through `houmao-mgr project agents tools <tool> auth ...` rather than through `project credential ...`.
+Repo-owned getting-started guidance for the repo-local `.houmao/` project overlay SHALL describe project-local auth management through `houmao-mgr internals native-agent tools <tool> auth ...` rather than through `project credential ...`.
 
-At minimum, the agent-definition layout guide SHALL explain that the CLI mirrors `.houmao/agents/tools/<tool>/auth/<name>/`, and quickstart-style examples SHALL use the supported `project agents tools` command family when showing local auth-bundle creation or inspection.
+At minimum, the agent-definition layout guide SHALL explain that the CLI mirrors `.houmao/agents/tools/<tool>/auth/<name>/`, and quickstart-style examples SHALL use the supported `internals native-agent tools` command family when showing local auth-bundle creation or inspection.
 
 #### Scenario: Reader sees matching CLI and directory-tree nouns
 - **WHEN** a reader follows the project-overlay and agent-definition getting-started docs
-- **THEN** the docs use `houmao-mgr project agents tools <tool> auth ...` when describing local auth bundles
+- **THEN** the docs use `houmao-mgr internals native-agent tools <tool> auth ...` when describing local auth bundles
 - **AND THEN** the surrounding explanation matches the documented directory tree under `.houmao/agents/tools/<tool>/auth/<name>/`
 
 ### Requirement: Getting-started docs explain the low-level and high-level project views
-Repo-owned getting-started guidance for the repo-local `.houmao/` project overlay SHALL explain when to use `project easy`, `project agents`, and `project mailbox`.
+Repo-owned getting-started guidance for the repo-local `.houmao/` project overlay SHALL explain when to use `project`, `project agents`, and `project mailbox`.
 
 At minimum:
 
-- low-level auth management examples SHALL use `houmao-mgr project agents tools <tool> auth ...`,
-- higher-level reusable agent examples SHALL use `houmao-mgr project easy specialist ...`,
+- low-level auth management examples SHALL use `houmao-mgr internals native-agent tools <tool> auth ...`,
+- higher-level reusable agent examples SHALL use `houmao-mgr project specialist ...`,
 - project-local mailbox examples SHALL use `houmao-mgr project mailbox ...` when teaching repo-scoped mailbox-root workflows.
 
 #### Scenario: Reader sees the revised project nouns in docs
 - **WHEN** a reader follows the project-overlay and quickstart getting-started docs
-- **THEN** the docs use `houmao-mgr project agents tools <tool> auth ...` for low-level project auth bundles
-- **AND THEN** the docs use `houmao-mgr project easy specialist ...` for the simpler project-local authoring path
+- **THEN** the docs use `houmao-mgr internals native-agent tools <tool> auth ...` for low-level project auth bundles
+- **AND THEN** the docs use `houmao-mgr project specialist ...` for the simpler project-local authoring path
 - **AND THEN** the docs use `houmao-mgr project mailbox ...` when describing repo-scoped mailbox-root operations
 
 ### Requirement: Getting-started docs point to the supported minimal demo
@@ -248,7 +248,7 @@ The getting-started documentation SHALL point readers to `scripts/demo/minimal-a
 The quickstart page at `docs/getting-started/quickstart.md` SHALL present both workflows completely:
 
 - **Workflow 1 (Join)**: from `agents join` through to managed agent control, with no truncation.
-- **Workflow 2 (Build from `.houmao/` overlay)**: from `project init` through `project easy specialist create`, `agents launch`, prompt/control, and `agents stop`, with no truncation.
+- **Workflow 2 (Build from `.houmao/` overlay)**: from `project init` through `project specialist create`, `agents launch`, prompt/control, and `agents stop`, with no truncation.
 
 Each workflow SHALL include all steps needed for a reader to complete the workflow without guessing or consulting other pages.
 
@@ -268,7 +268,7 @@ The getting-started section SHALL link to the new easy-specialist conceptual gui
 
 #### Scenario: Quickstart links to easy-specialist guide
 
-- **WHEN** a reader encounters `project easy specialist create` in the quickstart
+- **WHEN** a reader encounters `project specialist create` in the quickstart
 - **THEN** the page includes a link to `docs/getting-started/easy-specialists.md` for a deeper explanation of the model
 
 ### Requirement: Getting-started links to loop authoring guide

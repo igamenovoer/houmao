@@ -11,9 +11,9 @@ Use this action only when the user wants to inspect one low-level role or one na
 3. Recover the target name from the current prompt first and recent chat context second when it was stated explicitly.
 4. If the target kind or target name is still missing, ask the user in Markdown before proceeding. Follow `subskills/common/missing-inputs.md` so `Required` and `Optional` inputs are separate.
 5. For one role:
-   - run `project agents roles get --name <role>` for summary-oriented inspection
+   - run `internals native-agent roles get --name <role>` for summary-oriented inspection
    - add `--include-prompt` only when the user explicitly asked for prompt text or the full low-level role definition
-6. For one recipe, run `project agents recipes get --name <recipe>`.
+6. For one recipe, run `internals native-agent recipes get --name <recipe>`.
 7. If the user asks to inspect env vars or auth files inside one auth bundle, stop and route that request to `houmao-credential-mgr`.
 8. Report the returned role or recipe details.
 
@@ -22,9 +22,9 @@ Use this action only when the user wants to inspect one low-level role or one na
 Use one of these maintained command shapes:
 
 ```text
-<chosen houmao-mgr launcher> project agents roles get --name <role>
-<chosen houmao-mgr launcher> project agents roles get --name <role> --include-prompt
-<chosen houmao-mgr launcher> project agents recipes get --name <recipe>
+<chosen houmao-mgr launcher> internals native-agent roles get --name <role>
+<chosen houmao-mgr launcher> internals native-agent roles get --name <role> --include-prompt
+<chosen houmao-mgr launcher> internals native-agent recipes get --name <recipe>
 ```
 
 ## Guardrails

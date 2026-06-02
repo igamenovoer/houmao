@@ -315,16 +315,16 @@ The pro clarification guidance SHALL avoid low-impact wording or file-organizati
 - **AND THEN** unknown topology or context details are marked as unknown rather than invented
 
 ### Requirement: Pro prepare-agents routes persisted agent preparation through agent-definition
-The pro `prepare-agents` guidance SHALL route specialist, easy-profile, raw-profile, credential-defaulting, and pre-launch definition preparation through the canonical `houmao-agent-definition` skill.
+The pro `prepare-agents` guidance SHALL route specialist, project-profile, launch-dossier, credential-defaulting, and pre-launch definition preparation through the canonical `houmao-agent-definition` skill.
 
-The pro `prepare-agents` guidance SHALL default to `houmao-agent-definition create-agent-fast-forward` when a participant may need both specialist and easy profile preparation.
+The pro `prepare-agents` guidance SHALL default to `houmao-agent-definition create-agent-fast-forward` when a participant may need both specialist and project profile preparation.
 
-The pro `prepare-agents` guidance SHALL use `houmao-agent-definition profiles`, `specialists`, or `raw-profiles` only when that narrower route matches the generated execplan or operator intent.
+The pro `prepare-agents` guidance SHALL use `houmao-agent-definition profiles`, `specialists`, or `launch-dossiers` only when that narrower route matches the generated execplan or operator intent.
 
-The pro `prepare-agents` guidance SHALL treat `houmao-mgr project easy ...` as the underlying CLI surface owned by `houmao-agent-definition`, not as loop-local agent-preparation logic.
+The pro `prepare-agents` guidance SHALL treat `houmao-mgr project ...` as the underlying CLI surface owned by `houmao-agent-definition`, not as loop-local agent-preparation logic.
 
 #### Scenario: Participant profile creation uses agent-definition
-- **WHEN** `prepare-agents` needs to prepare one participant's specialist and easy profile
+- **WHEN** `prepare-agents` needs to prepare one participant's specialist and project profile
 - **THEN** it routes the work through `houmao-agent-definition create-agent-fast-forward`
 - **AND THEN** it records the returned specialist, profile, tool, credential, launch, and generated-skill facts for later stages
 

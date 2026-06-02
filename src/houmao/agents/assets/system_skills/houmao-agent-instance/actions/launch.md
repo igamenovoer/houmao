@@ -7,8 +7,8 @@ Use this action only when the user wants to create one new managed-agent instanc
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Determine which launch lane the request actually needs:
    - direct managed launch from a predefined role or preset
-   - raw-profile-backed managed launch
-   - specialist-backed managed launch from an existing easy specialist
+   - launch-dossier-backed managed launch
+   - specialist-backed managed launch from an existing specialist
 3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
 5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
@@ -58,7 +58,7 @@ Behavior note:
 
 ### Raw-Profile-Backed Managed Launch
 
-Use this lane when the user wants to launch through an existing raw profile. In the CLI this remains `--launch-profile`.
+Use this lane when the user wants to launch through an existing launch dossier. In the CLI this remains `--launch-profile`.
 
 Use template `agents.launch-profile.launch`, then run the rendered `argv`:
 
@@ -84,7 +84,7 @@ Common optional inputs:
 Behavior note:
 
 - `--launch-profile` and `--agents` are mutually exclusive.
-- The stored raw profile resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
+- The stored launch dossier resolves the source recipe and contributes birth-time defaults before direct CLI overrides.
 - Stored launch-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
 - Preserve explicit stored launch-profile posture, but do not add a one-shot `--headless` override unless the user explicitly asks for it or the selected tool/lane requires it.
 - Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
@@ -96,12 +96,12 @@ Behavior note:
 
 ### Specialist-Backed Managed Launch
 
-Use this lane when the user wants to launch from an existing easy specialist.
+Use this lane when the user wants to launch from an existing specialist.
 
-Use template `project.easy.instance.launch`, then run the rendered `argv`:
+Use template `project.agents.launch`, then run the rendered `argv`:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
 ```
 
 Required inputs:
@@ -130,12 +130,12 @@ If the selected specialist is known to use Gemini, the launch must be headless. 
 
 ## Guardrails
 
-- Do not guess whether the source should be `agents launch --agents`, `agents launch --launch-profile`, or `project easy instance launch`.
+- Do not guess whether the source should be `agents launch --agents`, `agents launch --launch-profile`, or `project agents launch`.
 - Do not invent role selectors, launch profile names, specialist names, provider ids, or instance names.
 - Do not proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
 - Do not route specialist-backed launch through `agents launch`.
-- Do not route raw-profile-backed launch through `project easy instance launch`.
-- Do not route role/preset launch through `project easy instance launch`.
+- Do not route launch-dossier-backed launch through `project agents launch`.
+- Do not route role/preset launch through `project agents launch`.
 - Do not describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
 - Do not include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.

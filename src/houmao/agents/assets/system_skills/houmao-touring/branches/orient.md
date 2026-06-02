@@ -7,10 +7,10 @@ Use this branch first when the user explicitly wants the `houmao-touring` experi
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Start with maintained status and list surfaces instead of assuming the user is at the beginning of setup:
    - `houmao-mgr project status`
-   - `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>` when the user already named a specialist or the next action depends on one
-   - `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>` when the user already named a reusable profile or the next action depends on one
+   - `houmao-mgr project specialist list` or `houmao-mgr project specialist get --name <name>` when the user already named a specialist or the next action depends on one
+   - `houmao-mgr project profile list` or `houmao-mgr project profile get --name <name>` when the user already named a reusable profile or the next action depends on one
    - `houmao-mgr agents list`
-3. If the user already mentioned a reusable specialist, easy profile, live managed agent, mailbox account, memo, loop, or workspace goal, preserve that context.
+3. If the user already mentioned a reusable specialist, project profile, live managed agent, mailbox account, memo, loop, or workspace goal, preserve that context.
 4. When the next action depends on live capabilities, inspect them only as needed:
    - `houmao-mgr agents state --agent-name <name>`
    - `houmao-mgr agents gateway status --agent-name <name>`
@@ -27,7 +27,7 @@ Use this table to map inspected workspace posture to the set of stage-aware next
 | --- | --- | --- |
 | no project overlay, no reusable specialists, no running managed agents | beginner | `quickstart` to create one usable agent; `setup-project-and-mailbox` for explicit project and mailbox basics |
 | project overlay exists, no reusable specialists | beginner | `author-and-launch` to create the first specialist; `setup-project-and-mailbox` for mailbox basics; `quickstart` when the user wants minimum decisions |
-| reusable specialists exist, no running managed agents | beginner | `author-and-launch` to create an optional easy profile or launch; `setup-project-and-mailbox` for mailbox follow-up |
+| reusable specialists exist, no running managed agents | beginner | `author-and-launch` to create an optional project profile or launch; `setup-project-and-mailbox` for mailbox follow-up |
 | one running managed agent | intermediate | `live-operations` to talk, inspect, use memo, send mail, enable notifier, process a notifier round, or create reminders; `author-and-launch` to launch a second agent; `lifecycle-follow-up` for stop/relaunch/cleanup |
 | running managed agent with live gateway and mailbox accounts ready | intermediate | `live-operations` with explicit mailbox, mail-notifier, notifier-round, reminder, memo, and inspection actions; `author-and-launch` to launch another agent |
 | stopped or relaunchable managed agents | intermediate | `lifecycle-follow-up` to inspect, relaunch, or clean up stopped-session artifacts; `author-and-launch` to launch replacement agents |
@@ -48,6 +48,6 @@ Use this table to map inspected workspace posture to the set of stage-aware next
 - Do not treat missing project state as a reason to hide later stages; explain that intermediate and advanced actions become useful after setup.
 - Do not assume the tour is complete after one launch or one prompt.
 - Do not inspect deeper live state than the selected next action actually needs.
-- Do not replace the maintained `project easy ...` inspection commands with guessed top-level aliases or direct `.houmao/easy/` filesystem probing.
+- Do not replace the maintained `project ...` inspection commands with guessed top-level aliases or direct `.houmao/easy/` filesystem probing.
 - Do not re-derive the offered actions in free prose when the posture-to-action routing table already covers the inspected posture.
 - Do not treat the routing table as a mandate; the offered actions remain offers, and the user may choose any supported branch from the top-level `SKILL.md` branches list.

@@ -20,7 +20,7 @@ That keeps cross-process coordination simple and avoids central hot files such a
 The runtime resolves the shared-registry root in this order:
 
 1. `HOUMAO_GLOBAL_REGISTRY_DIR` when it is set to a non-empty absolute path,
-2. otherwise `<resolved-user-home>/.houmao/registry`.
+2. otherwise `<platformdirs user config>/registry`, where the anchor is `platformdirs.user_config_path(appname="houmao", appauthor=False)`.
 
 Current implementation notes:
 
@@ -33,7 +33,7 @@ Current implementation notes:
 Representative layout:
 
 ```text
-~/.houmao/registry/
+<platformdirs user config>/registry/
   live_agents/
     <agent-id>/
       record.json

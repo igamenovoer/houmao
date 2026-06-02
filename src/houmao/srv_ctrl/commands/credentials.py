@@ -15,7 +15,12 @@ from typing import Callable, Literal
 import click
 import yaml
 
-from houmao.agents.definition_parser import AuthFileMapping, ToolAdapter, parse_tool_adapter
+from houmao.agents.definition_parser import (
+    AuthFileMapping,
+    ToolAdapter,
+    parse_agent_preset,
+    parse_tool_adapter,
+)
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.owned_mutation import (
     remove_tree_or_path,
@@ -300,10 +305,13 @@ def _resolve_command_target(
 def _resolve_project_target(*, cwd: Path, allow_bootstrap: bool) -> CredentialTarget:
     """Resolve one project-backed target."""
 
-    if allow_bootstrap:
-        roots = ensure_project_aware_local_roots(cwd=cwd)
-    else:
-        roots = resolve_project_aware_local_roots(cwd=cwd)
+    try:
+        if allow_bootstrap:
+            roots = ensure_project_aware_local_roots(cwd=cwd)
+        else:
+            roots = resolve_project_aware_local_roots(cwd=cwd)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
         raise click.ClickException(_missing_credential_target_message())
     return CredentialTarget.project(roots.project_overlay)
@@ -1782,6 +1790,16 @@ def _rename_credential_bundle(
         except (FileNotFoundError, ValueError) as exc:
             raise click.ClickException(str(exc)) from exc
         materialize_project_agent_catalog_projection(target.overlay)
+        rewrites = _collect_direct_dir_auth_reference_rewrites(
+            agent_def_dir=target.overlay.agents_root,
+            tool=tool,
+            old_name=resolved_name,
+            new_name=resolved_new_name,
+        )
+        rewritten_files: list[str] = []
+        for path, payload in rewrites:
+            _write_yaml_mapping(path, payload)
+            rewritten_files.append(str(path))
         return {
             "target_kind": "project",
             "project_root": str(target.overlay.project_root),
@@ -1790,6 +1808,7 @@ def _rename_credential_bundle(
             "previous_name": resolved_name,
             "bundle_ref": renamed.bundle_ref,
             "path": str(renamed.resolved_projection_path(target.overlay)),
+            "rewritten_files": rewritten_files,
         }
 
     assert target.agent_def_dir is not None
@@ -1814,10 +1833,10 @@ def _rename_credential_bundle(
         new_name=resolved_new_name,
     )
     source_root.rename(destination_root)
-    rewritten_files: list[str] = []
+    direct_rewritten_files: list[str] = []
     for path, payload in rewrites:
         _write_yaml_mapping(path, payload)
-        rewritten_files.append(str(path))
+        direct_rewritten_files.append(str(path))
     return {
         "target_kind": "agent_def_dir",
         "agent_def_dir": str(target.agent_def_dir),
@@ -1825,7 +1844,7 @@ def _rename_credential_bundle(
         "name": resolved_new_name,
         "previous_name": resolved_name,
         "path": str(destination_root),
-        "rewritten_files": rewritten_files,
+        "rewritten_files": direct_rewritten_files,
     }
 
 
@@ -1846,14 +1865,64 @@ def _collect_direct_dir_auth_reference_rewrites(
         for pattern in ("*.yaml", "*.yml"):
             for path in sorted(candidate_root.glob(pattern)):
                 payload = _load_yaml_mapping(path)
-                if str(payload.get("tool")) != tool:
+                updated_payload = _updated_auth_reference_payload(
+                    agent_def_dir=agent_def_dir,
+                    payload=payload,
+                    tool=tool,
+                    old_name=old_name,
+                    new_name=new_name,
+                )
+                if updated_payload is None:
                     continue
-                if str(payload.get("auth")) != old_name:
-                    continue
-                updated_payload = dict(payload)
-                updated_payload["auth"] = new_name
                 rewrites.append((path.resolve(), updated_payload))
     return rewrites
+
+
+def _updated_auth_reference_payload(
+    *,
+    agent_def_dir: Path,
+    payload: dict[str, object],
+    tool: str,
+    old_name: str,
+    new_name: str,
+) -> dict[str, object] | None:
+    """Return one YAML payload with renamed auth reference when it matches the tool."""
+
+    if str(payload.get("tool")) == tool and str(payload.get("auth")) == old_name:
+        updated_payload = dict(payload)
+        updated_payload["auth"] = new_name
+        return updated_payload
+
+    defaults = payload.get("defaults")
+    if not isinstance(defaults, dict) or str(defaults.get("auth")) != old_name:
+        return None
+    if _launch_dossier_tool(agent_def_dir=agent_def_dir, payload=payload) != tool:
+        return None
+    updated_payload = dict(payload)
+    updated_defaults = dict(defaults)
+    updated_defaults["auth"] = new_name
+    updated_payload["defaults"] = updated_defaults
+    return updated_payload
+
+
+def _launch_dossier_tool(*, agent_def_dir: Path, payload: dict[str, object]) -> str | None:
+    """Infer one launch dossier's tool from its source recipe."""
+
+    source = payload.get("source")
+    if not isinstance(source, dict):
+        return None
+    if source.get("kind") != "recipe":
+        return None
+    recipe_name = str(source.get("name") or "").strip()
+    if not recipe_name:
+        return None
+    recipe_path = (agent_def_dir / "presets" / f"{recipe_name}.yaml").resolve()
+    if not recipe_path.is_file():
+        return None
+    try:
+        return str(parse_agent_preset(recipe_path).tool)
+    except Exception:
+        return None
 
 
 def _write_credential_bundle(

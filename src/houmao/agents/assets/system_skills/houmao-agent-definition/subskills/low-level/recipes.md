@@ -1,13 +1,13 @@
 # Low-Level Recipes
 
-Use this subskill when the user wants to create, inspect, update, list, or remove one low-level recipe through `project agents recipes ...`. `project agents presets ...` remains a compatibility alias for the same recipe resources.
+Use this subskill when the user wants to create, inspect, update, list, or remove one low-level recipe through `internals native-agent recipes ...`.
 
 ## Preconditions
 
 - Read [../common/launcher.md](../common/launcher.md).
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
 - Read [../common/credential-routing.md](../common/credential-routing.md) when auth references are involved.
-- Confirm the target is a recipe, not an easy specialist or easy profile.
+- Confirm the target is a recipe, not an specialist or project profile.
 
 ## Actions
 
@@ -20,25 +20,21 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> project agents recipes list
-<chosen houmao-mgr launcher> project agents recipes get --name <recipe>
-<chosen houmao-mgr launcher> project agents recipes remove --name <recipe>
+<chosen houmao-mgr launcher> internals native-agent recipes list
+<chosen houmao-mgr launcher> internals native-agent recipes get --name <recipe>
+<chosen houmao-mgr launcher> internals native-agent recipes remove --name <recipe>
 ```
 
 For `add` and `set`, use the CLI-owned templates:
 
-- `project.agents.recipes.add`
-- `project.agents.recipes.set`
+- `internals.native-agent.recipes.add`
+- `internals.native-agent.recipes.set`
 
 Render sparse intent before running the target command:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.recipes.add --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id internals.native-agent.recipes.add --intent '<json>'
 ```
-
-## Preset Alias
-
-Use `project agents presets ...` only when the user explicitly asks for the compatibility alias or an older context names presets. Prefer `recipes ...` for new guidance.
 
 ## Guardrails
 

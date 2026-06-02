@@ -1,8 +1,8 @@
 # Create Agent Fast Forward
 
-Use this subskill when the user wants `create-agent-fast-forward`: one pass from specialist to easy profile to launch command.
+Use this subskill when the user wants `create-agent-fast-forward`: one pass from specialist to project profile to launch command.
 
-This workflow creates or selects a specialist, creates or updates an easy profile backed by that specialist, stores supplied launch defaults on the profile, and prints the launch command. It does not launch a live managed agent.
+This workflow creates or selects a specialist, creates or updates a project profile backed by that specialist, stores supplied launch defaults on the profile, and prints the launch command. It does not launch a live managed agent.
 
 ## Preconditions
 
@@ -17,24 +17,24 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 
 1. Determine the intended specialist:
    - use an existing specialist when the user named one;
-   - otherwise create one with `project easy specialist create`;
+   - otherwise create one with `project specialist create`;
    - when creating one, resolve tool and credential from the current prompt, nearby explicit context, or Specialist Create Defaulting.
-2. Determine the easy profile name:
+2. Determine the project profile name:
    - use the user-provided profile name;
    - otherwise ask for it.
 3. Determine profile operation:
    - create when the profile does not exist or the user asks for a new profile;
    - set when updating an existing profile;
    - create `--yes` only when the user explicitly wants same-name replacement.
-4. Generate `project.easy.profile` with only `name`, `specialist`, and `credential`, then store any supplied launch defaults through the maintained profile `create|set` command fields.
-5. Print the exact launch command by rendering `project.easy.instance.launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
+4. Generate `project.profile` with only `name`, `specialist`, and `credential`, then store any supplied launch defaults through the maintained profile `create|set` command fields.
+5. Print the exact launch command by rendering `project.agents.launch`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 6. Report durable identity facts and stored posture, including that unspecified launch posture is TUI/local-interactive preferred when supported.
 7. Stop. Do not run the launch command.
 
 ## Defaults To Store When Supplied
 
 - specialist name
-- easy profile name
+- project profile name
 - managed-agent identity: `--agent-name`, `--agent-id`
 - workdir: `--workdir`
 - prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution
@@ -53,24 +53,24 @@ This workflow creates or selects a specialist, creates or updates an easy profil
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> project easy specialist get --name <specialist>
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.easy.specialist --intent '<json>'
-<chosen houmao-mgr launcher> project easy profile get --name <profile>
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.easy.profile --intent '<json>'
+<chosen houmao-mgr launcher> project specialist get --name <specialist>
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '<json>'
+<chosen houmao-mgr launcher> project profile get --name <profile>
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '<json>'
 ```
 
-Use `project.easy.specialist` draft intent fields `name`, `tool`, and `credential`. Use `project.easy.profile` draft intent fields `name`, `specialist`, and `credential`. Do not pass launch defaults, model, env, mailbox, prompt overlay, memo seed, gateway, or credential material fields to config drafts; apply those through maintained project commands when the user supplied them.
+Use `project.specialist` draft intent fields `name`, `tool`, and `credential`. Use `project.profile` draft intent fields `name`, `specialist`, and `credential`. Do not pass launch defaults, model, env, mailbox, prompt overlay, memo seed, gateway, or credential material fields to config drafts; apply those through maintained project commands when the user supplied them.
 
 Report this launch command without executing it:
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
 ```
 
-If the profile does not store an agent name, include `name` in the rendered `project.easy.instance.launch` intent.
+If the profile does not store an agent name, include `name` in the rendered `project.agents.launch` intent.
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json-with-profile-and-name>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json-with-profile-and-name>'
 ```
 
 ## Output
@@ -78,7 +78,7 @@ If the profile does not store an agent name, include `name` in the rendered `pro
 Report:
 
 - specialist name
-- easy profile name
+- project profile name
 - intended managed-agent name or agent id when known
 - stored prompt mode, launch posture, workdir, auth override, mailbox posture, gateway posture, prompt overlay, notifier appendix, memo seed, model, reasoning, and env defaults when present
 - exact launch command
@@ -92,5 +92,5 @@ Report:
 - Do not treat unattended prompt mode as evidence that headless launch was requested.
 - When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
 - Do not continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.
-- Do not manually preregister a same-root ordinary per-agent mailbox address when profile defaults or easy launch can own ordinary launch-time mailbox bootstrap.
+- Do not manually preregister a same-root ordinary per-agent mailbox address when profile defaults or project launch can own ordinary launch-time mailbox bootstrap.
 - Do not treat `create-agent-fast-forward` as broad live-agent lifecycle work.

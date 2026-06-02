@@ -153,7 +153,7 @@ def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
     assert "`create-agent-fast-forward`: default" in prepare_agents
     assert "`profiles`: when the specialist already exists" in prepare_agents
     assert "`specialists`: when only specialist material changes" in prepare_agents
-    assert "`raw-profiles`: only when the execplan or operator explicitly requires" in (
+    assert "`launch-dossiers`: only when the execplan or operator explicitly requires" in (
         prepare_agents
     )
     assert "launch interface mode (`tui` or `headless`)" in prepare_agents
@@ -165,9 +165,7 @@ def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
     )
     assert "Do not reimplement specialist creation" in prepare_agents
     assert "credential-defaulting" in platform_boundaries
-    assert "Treat `houmao-mgr project easy ...` as its underlying CLI surface" in (
-        platform_boundaries
-    )
+    assert "Treat `houmao-mgr project ...` as its underlying CLI surface" in (platform_boundaries)
 
 
 def test_agent_loop_lite_packaged_asset_contract() -> None:
@@ -985,7 +983,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     definition_roles_path = manage_agent_definition_subskills / "low-level/roles.md"
     definition_recipes_path = manage_agent_definition_subskills / "low-level/recipes.md"
     definition_launch_profiles_path = (
-        manage_agent_definition_subskills / "low-level/raw-profiles.md"
+        manage_agent_definition_subskills / "low-level/launch-dossiers.md"
     )
     easy_specialists_path = manage_agent_definition_subskills / "easy/specialists.md"
     easy_profiles_path = manage_agent_definition_subskills / "easy/profiles.md"
@@ -1033,8 +1031,8 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "uv run houmao-mgr" in project_mgr_skill
     assert "project init" in project_mgr_skill
     assert "project status" in project_mgr_skill
-    assert "project agents launch-profiles ..." in project_mgr_skill
-    assert "project easy instance list|get|stop" in project_mgr_skill
+    assert "internals native-agent launch-dossiers ..." in project_mgr_skill
+    assert "project agents list|get|stop" in project_mgr_skill
     assert "houmao-agent-definition" in project_mgr_skill
     assert "houmao-agent-instance" in project_mgr_skill
     assert "actions/init.md" in project_mgr_skill
@@ -1056,16 +1054,17 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "<chosen houmao-mgr launcher>" in project_init_action
     assert "--with-compatibility-profiles" not in project_init_action
     assert "would_bootstrap_overlay" in project_status_action
-    assert "Raw Profiles Have Moved" in project_launch_profiles_action
-    assert "houmao-agent-definition/subskills/low-level/raw-profiles.md" in (
+    assert "Launch Dossiers Have Moved" in project_launch_profiles_action
+    assert "houmao-agent-definition/subskills/low-level/launch-dossiers.md" in (
         project_launch_profiles_action
     )
-    assert "project easy instance list" in project_easy_instances_action
-    assert "project easy instance get --name <name>" in project_easy_instances_action
-    assert "project easy instance stop --name <name>" in project_easy_instances_action
+    assert "project agents list" in project_easy_instances_action
+    assert "project agents get --name <name>" in project_easy_instances_action
+    assert "project agents stop --name <name>" in project_easy_instances_action
     assert "HOUMAO_PROJECT_OVERLAY_DIR" in project_overlay_reference
     assert "HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE" in project_overlay_reference
-    assert "HOUMAO_AGENT_DEF_DIR" in project_overlay_reference
+    assert "HOUMAO_NATIVE_AGENT_ROOT" in project_overlay_reference
+    assert "HOUMAO_AGENT_DEF_DIR" not in project_overlay_reference
     assert "catalog.sqlite" in project_layout_reference
     assert "content/" in project_layout_reference
     assert "agents/" in project_layout_reference
@@ -1093,29 +1092,27 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "uv run houmao-mgr" in definition_launcher
     assert "user explicitly requests one launcher" in definition_launcher
     assert "Ask the user for exactly the missing fields" in definition_missing_inputs
-    assert "Easy Profile" in definition_profile_lanes
-    assert "Raw Profile" in definition_profile_lanes
-    assert "loose `profile`, `agent profile`, `launch profile`, or `ready profile`" in (
+    assert "Project Profile" in definition_profile_lanes
+    assert "Launch Dossier" in definition_profile_lanes
+    assert "loose `profile`, `agent profile`, `project profile`, or `ready profile`" in (
         definition_profile_lanes
     )
-    assert "project easy specialist create" in definition_credential_routing
+    assert "project specialist create" in definition_credential_routing
     assert "Explicit Auth Mode" in easy_specialists
     assert "internals config-drafts generate" in easy_profiles
-    assert "project.easy.profile" in easy_profiles
-    assert "project.easy.specialist" in easy_specialists
+    assert "project.profile" in easy_profiles
+    assert "project.specialist" in easy_specialists
     assert "minimal opinionated drafts" in manage_agent_definition_skill
-    assert "`project.easy.specialist`: `name`, `tool`, `credential`" in (
+    assert "`project.specialist`: `name`, `tool`, `credential`" in (manage_agent_definition_skill)
+    assert "`project.profile`: `name`, `specialist`, `credential`" in (
         manage_agent_definition_skill
     )
-    assert "`project.easy.profile`: `name`, `specialist`, `credential`" in (
-        manage_agent_definition_skill
-    )
-    assert "`project.agents.launch-profile`: `name`, `recipe`, `credential`" in (
+    assert "`internals.native-agent.launch-dossier`: `name`, `recipe`, `credential`" in (
         manage_agent_definition_skill
     )
     assert "intent fields are only `name`, `tool`, and `credential`" in easy_specialists
     assert "intent fields are only `name`, `specialist`, and `credential`" in easy_profiles
-    assert "Do not remove and recreate an easy specialist" in easy_specialists
+    assert "Do not remove and recreate a project specialist" in easy_specialists
     assert "--prompt-overlay-mode append|replace" in easy_profiles
     assert "Env Lookup Mode" in easy_specialists
     assert "Directory Scan Mode" in easy_specialists
@@ -1150,18 +1147,18 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     )
     deprecated_fixture_root = "/".join(("tests", "fixtures", "agents"))
     assert deprecated_fixture_root not in easy_specialists
-    assert "project easy profile list" in easy_profiles
-    assert "project easy profile get --name <name>" in easy_profiles
-    assert "project easy profile remove --name <profile>" in easy_profiles
-    assert "project.easy.instance.launch" in easy_launch
-    assert "project easy profile get --name <profile>" in easy_launch
+    assert "project profile list" in easy_profiles
+    assert "project profile get --name <name>" in easy_profiles
+    assert "project profile remove --name <profile>" in easy_profiles
+    assert "project.agents.launch" in easy_launch
+    assert "project profile get --name <profile>" in easy_launch
     assert "does not accept declarative mailbox fields such as `--mail-address`" in easy_launch
     assert "`--name` seeds the managed-agent mailbox address and principal id" in easy_launch
     assert "private filesystem mailbox directory outside the shared root" in easy_launch
     assert (
         "was preregistered manually already, launch-time safe registration can fail" in easy_launch
     )
-    assert "project easy instance stop --name <name>" in easy_stop
+    assert "project agents stop --name <name>" in easy_stop
     assert "create-agent-fast-forward" in ready_profile
     assert "Do not launch the managed agent." in ready_profile
     assert "command -v houmao-mgr" in manage_credentials_skill
@@ -1176,10 +1173,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/remove.md" in manage_credentials_skill
     assert "project.credentials.<tool>.<verb>" in manage_credentials_skill
     assert "credentials.<tool>.<verb>" in manage_credentials_skill
-    assert "project easy profile ..." in manage_credentials_skill
-    assert "project agents launch-profiles ..." in manage_credentials_skill
+    assert "project profile ..." in manage_credentials_skill
+    assert "internals native-agent launch-dossiers ..." in manage_credentials_skill
     assert (
-        "Do not treat changing an easy profile or explicit launch profile `--auth` override"
+        "Do not treat changing a project profile or native launch dossier `--auth` override"
         in manage_credentials_skill
     )
     assert "Do not print raw secret values" in manage_credentials_skill
@@ -1196,9 +1193,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project.credentials.<tool>.get" in credentials_get_action
     assert "credentials.<tool>.get" in credentials_get_action
     assert "Do not bypass `get`" in credentials_get_action
-    assert "stored easy-profile or raw-profile `--auth` override" in credentials_get_action
+    assert "stored project-profile or launch-dossier `--auth` override" in credentials_get_action
     assert "Do not invent unsupported clear flags" in credentials_set_action
-    assert "stored easy-profile or raw-profile `--auth` override change" in credentials_set_action
+    assert (
+        "stored project-profile or launch-dossier `--auth` override change"
+        in credentials_set_action
+    )
     assert (
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action
@@ -1210,20 +1210,20 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "uv run houmao-mgr" in manage_agent_definition_skill
     assert "subskills/low-level/roles.md" in manage_agent_definition_skill
     assert "subskills/low-level/recipes.md" in manage_agent_definition_skill
-    assert "subskills/low-level/raw-profiles.md" in manage_agent_definition_skill
+    assert "subskills/low-level/launch-dossiers.md" in manage_agent_definition_skill
     assert "subskills/easy/specialists.md" in manage_agent_definition_skill
     assert "subskills/easy/profiles.md" in manage_agent_definition_skill
     assert "subskills/easy/create-agent-fast-forward.md" in manage_agent_definition_skill
-    assert "`raw-profiles`" in manage_agent_definition_skill
+    assert "`launch-dossiers`" in manage_agent_definition_skill
     assert "`profiles` as the default meaning" in manage_agent_definition_skill
-    assert "project agents roles list" in definition_roles
-    assert "project agents recipes list" in definition_recipes
-    assert "project.agents.launch-profile" in definition_launch_profiles
+    assert "internals native-agent roles list" in definition_roles
+    assert "internals native-agent recipes list" in definition_recipes
+    assert "internals.native-agent.launch-dossier" in definition_launch_profiles
     assert "intent fields are only `name`, `recipe`, and `credential`" in (
         definition_launch_profiles
     )
     assert "Do not pass memo seed fields to `internals config-drafts generate`" in (memory_skill)
-    assert "project agents presets ..." in definition_recipes
+    assert "internals native-agent recipes ..." in definition_recipes
     assert "houmao-credential-mgr" in manage_agent_definition_skill
     assert "direct hand-editing under `.houmao/`" in manage_agent_definition_skill
     assert (manage_agent_definition_agents / "openai.yaml").is_file()
@@ -1249,21 +1249,31 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         in definition_get_action
     )
     assert "<chosen houmao-mgr launcher>" in definition_get_action
-    assert "project.agents.roles.init" in definition_create_action_path.read_text(encoding="utf-8")
-    assert "project.agents.recipes.add" in definition_create_action_path.read_text(encoding="utf-8")
-    assert "project agents roles list" in definition_list_action_path.read_text(encoding="utf-8")
-    assert "project agents recipes list" in definition_list_action_path.read_text(encoding="utf-8")
-    assert "project agents roles get --name <role> --include-prompt" in definition_get_action
-    assert "project agents recipes get --name <recipe>" in definition_get_action
-    assert "project.agents.roles.set" in definition_set_action
-    assert "project.agents.recipes.set" in definition_set_action
-    assert "--clear-auth" in definition_set_action
-    assert "houmao-credential-mgr" in definition_set_action
-    assert "project agents roles remove --name <role>" in definition_remove_action_path.read_text(
+    assert "internals.native-agent.roles.init" in definition_create_action_path.read_text(
         encoding="utf-8"
     )
+    assert "internals.native-agent.recipes.add" in definition_create_action_path.read_text(
+        encoding="utf-8"
+    )
+    assert "internals native-agent roles list" in definition_list_action_path.read_text(
+        encoding="utf-8"
+    )
+    assert "internals native-agent recipes list" in definition_list_action_path.read_text(
+        encoding="utf-8"
+    )
+    assert "internals native-agent roles get --name <role> --include-prompt" in (
+        definition_get_action
+    )
+    assert "internals native-agent recipes get --name <recipe>" in definition_get_action
+    assert "internals.native-agent.roles.set" in definition_set_action
+    assert "internals.native-agent.recipes.set" in definition_set_action
+    assert "--clear-auth" in definition_set_action
+    assert "houmao-credential-mgr" in definition_set_action
+    assert "internals native-agent roles remove --name <role>" in (
+        definition_remove_action_path.read_text(encoding="utf-8")
+    )
     assert (
-        "project agents recipes remove --name <recipe>"
+        "internals native-agent recipes remove --name <recipe>"
         in definition_remove_action_path.read_text(encoding="utf-8")
     )
     assert "Use this Houmao skill only after the user explicitly selects it" in loop_pro_skill

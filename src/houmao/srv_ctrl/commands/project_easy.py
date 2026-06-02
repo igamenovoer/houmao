@@ -13,11 +13,11 @@ def easy_project_group() -> None:
 
 @easy_project_group.group(name="profile")
 def easy_profile_group() -> None:
-    """Manage high-level specialist-backed reusable launch profiles."""
+    """Manage specialist-backed project profiles."""
 
 
 @easy_profile_group.command(name="create")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 @click.option("--specialist", required=True, help="Source specialist name.")
 @click.option("--agent-name", default=None, help="Optional default managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
@@ -46,13 +46,13 @@ def easy_profile_group() -> None:
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Add one packaged Houmao system-skill set to launches from this easy profile.",
+    help="Add one packaged Houmao system-skill set to launches from this project profile.",
 )
 @click.option(
     "--system-skill",
     "system_skills",
     multiple=True,
-    help="Add one packaged Houmao system skill to launches from this easy profile.",
+    help="Add one packaged Houmao system skill to launches from this project profile.",
 )
 @click.option(
     "--system-skills-mode",
@@ -63,45 +63,45 @@ def easy_profile_group() -> None:
 @click.option(
     "--no-system-skills",
     is_flag=True,
-    help="Disable managed system-skill installation for launches from this easy profile.",
+    help="Disable managed system-skill installation for launches from this project profile.",
 )
 @click.option(
     "--clear-system-skills",
     is_flag=True,
-    help="Clear stored managed system-skill policy on an existing easy profile.",
+    help="Clear stored managed system-skill policy on an existing project profile.",
 )
 @click.option(
     "--add-registered-skill",
     "add_registered_skill",
     multiple=True,
-    help="Add an existing project skill to launches from this easy profile.",
+    help="Add an existing project skill to launches from this project profile.",
 )
 @click.option(
     "--remove-registered-skill",
     "remove_registered_skill",
     multiple=True,
-    help="Remove a registered project skill override from this easy profile.",
+    help="Remove a registered project skill override from this project profile.",
 )
 @click.option(
     "--add-private-skill",
     "add_private_skill",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Copy a profile-private skill directory into launches from this easy profile.",
+    help="Copy a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--add-private-skill-symlink",
     "add_private_skill_symlink",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Symlink a profile-private skill directory into launches from this easy profile.",
+    help="Symlink a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--remove-private-skill",
     "remove_private_skill",
     multiple=True,
     type=click.Path(path_type=Path),
-    help="Remove a profile-private skill source path from this easy profile.",
+    help="Remove a profile-private skill source path from this project profile.",
 )
 @click.option(
     "--mail-transport",
@@ -127,7 +127,7 @@ def easy_profile_group() -> None:
     "--managed-header/--no-managed-header",
     "managed_header",
     default=None,
-    help="Persist managed prompt header policy for launches from this easy profile.",
+    help="Persist managed prompt header policy for launches from this project profile.",
 )
 @click.option(
     "--managed-header-section",
@@ -171,7 +171,7 @@ def easy_profile_group() -> None:
     default=None,
     help="Default runtime guidance appended to mail-notifier prompts for launches from this profile.",
 )
-@click.option("--memo-seed-text", default=None, help="Inline easy-profile memo seed text.")
+@click.option("--memo-seed-text", default=None, help="Inline profile memo seed text.")
 @click.option(
     "--memo-seed-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
@@ -229,7 +229,7 @@ def create_easy_profile_command(
     memo_seed_dir: Path | None,
     yes: bool,
 ) -> None:
-    """Create one specialist-backed easy profile."""
+    """Create one specialist-backed project profile."""
 
     overlay = _ensure_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
@@ -306,7 +306,7 @@ def create_easy_profile_command(
 
 
 @easy_profile_group.command(name="set")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 @click.option("--agent-name", default=None, help="Optional default managed-agent name override.")
 @click.option(
     "--clear-agent-name", is_flag=True, help="Clear the stored default managed-agent name."
@@ -348,13 +348,13 @@ def create_easy_profile_command(
     "--system-skill-set",
     "system_skill_sets",
     multiple=True,
-    help="Set one packaged Houmao system-skill set in this easy profile policy.",
+    help="Set one packaged Houmao system-skill set in this project profile policy.",
 )
 @click.option(
     "--system-skill",
     "system_skills",
     multiple=True,
-    help="Set one packaged Houmao system skill in this easy profile policy.",
+    help="Set one packaged Houmao system skill in this project profile policy.",
 )
 @click.option(
     "--system-skills-mode",
@@ -365,7 +365,7 @@ def create_easy_profile_command(
 @click.option(
     "--no-system-skills",
     is_flag=True,
-    help="Disable managed system-skill installation for launches from this easy profile.",
+    help="Disable managed system-skill installation for launches from this project profile.",
 )
 @click.option(
     "--clear-system-skills",
@@ -376,34 +376,34 @@ def create_easy_profile_command(
     "--add-registered-skill",
     "add_registered_skill",
     multiple=True,
-    help="Add an existing project skill to launches from this easy profile.",
+    help="Add an existing project skill to launches from this project profile.",
 )
 @click.option(
     "--remove-registered-skill",
     "remove_registered_skill",
     multiple=True,
-    help="Remove a registered project skill override from this easy profile.",
+    help="Remove a registered project skill override from this project profile.",
 )
 @click.option(
     "--add-private-skill",
     "add_private_skill",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Copy a profile-private skill directory into launches from this easy profile.",
+    help="Copy a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--add-private-skill-symlink",
     "add_private_skill_symlink",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Symlink a profile-private skill directory into launches from this easy profile.",
+    help="Symlink a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--remove-private-skill",
     "remove_private_skill",
     multiple=True,
     type=click.Path(path_type=Path),
-    help="Remove a profile-private skill source path from this easy profile.",
+    help="Remove a profile-private skill source path from this project profile.",
 )
 @click.option(
     "--mail-transport",
@@ -505,7 +505,7 @@ def create_easy_profile_command(
     is_flag=True,
     help="Clear the stored mail-notifier appendix default.",
 )
-@click.option("--memo-seed-text", default=None, help="Inline easy-profile memo seed text.")
+@click.option("--memo-seed-text", default=None, help="Inline profile memo seed text.")
 @click.option(
     "--memo-seed-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
@@ -578,7 +578,7 @@ def set_easy_profile_command(
     memo_seed_dir: Path | None,
     clear_memo_seed: bool,
 ) -> None:
-    """Update one specialist-backed easy profile."""
+    """Update one specialist-backed project profile."""
 
     overlay = _ensure_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
@@ -656,7 +656,7 @@ def set_easy_profile_command(
 
 @easy_profile_group.command(name="list")
 def list_easy_profiles_command() -> None:
-    """List persisted project-local easy profiles."""
+    """List persisted project-local project profiles."""
 
     overlay = _resolve_existing_project_overlay()
     resolved_profiles = list_resolved_launch_profiles(overlay=overlay)
@@ -673,17 +673,17 @@ def list_easy_profiles_command() -> None:
         if explicit_profile_count > 0:
             profile_label = "profile" if explicit_profile_count == 1 else "profiles"
             payload["note"] = (
-                "No easy profiles found. "
-                f"Found {explicit_profile_count} explicit launch-{profile_label} in this overlay; "
-                "use `houmao-mgr project agents launch-profiles list`."
+                "No project profiles found. "
+                f"Found {explicit_profile_count} native launch {profile_label} in this overlay; "
+                "use `houmao-mgr internals native-agent launch-dossiers list`."
             )
     emit(payload)
 
 
 @easy_profile_group.command(name="get")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 def get_easy_profile_command(name: str) -> None:
-    """Inspect one persisted easy profile definition."""
+    """Inspect one persisted project profile definition."""
 
     overlay = _resolve_existing_project_overlay()
     emit(
@@ -697,9 +697,9 @@ def get_easy_profile_command(name: str) -> None:
 
 
 @easy_profile_group.command(name="remove")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 def remove_easy_profile_command(name: str) -> None:
-    """Remove one persisted easy profile definition."""
+    """Remove one persisted project profile definition."""
 
     overlay = _resolve_existing_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
@@ -953,7 +953,7 @@ def create_easy_specialist_command(
             allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
             default_mode="default",
             clear_allowed=False,
-            source_label="project easy specialist create --system-skills",
+            source_label="project specialist create --system-skills",
         )
     )
     if model is not None and claude_model is not None:
@@ -1328,7 +1328,7 @@ def _resolve_specialist_set_launch_mapping(
             allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
             default_mode="default",
             clear_allowed=True,
-            source_label="project easy specialist set --system-skills",
+            source_label="project specialist set --system-skills",
         )
     )
 
@@ -1366,7 +1366,7 @@ def _resolve_specialist_set_launch_mapping(
         launch_mapping["env_records"] = _parse_launch_profile_env_records_or_click(
             adapter=adapter,
             env_set=env_set,
-            source_label="project easy specialist set --env-set",
+            source_label="project specialist set --env-set",
         )
     return launch_mapping
 
@@ -1713,7 +1713,7 @@ def easy_instance_group() -> None:
 
 @easy_instance_group.command(name="launch")
 @click.option("--specialist", default=None, help="Specialist name.")
-@click.option("--profile", default=None, help="Easy profile name.")
+@click.option("--profile", default=None, help="Project profile name.")
 @click.option("--name", default=None, help="Managed-agent instance name.")
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
@@ -1906,17 +1906,17 @@ def launch_easy_instance_command(
         )
         if resolved_profile.specialist is None or not resolved_profile.source_exists:
             raise click.ClickException(
-                f"Easy profile `{resolved_profile.entry.name}` references unavailable specialist "
+                f"Project profile `{resolved_profile.entry.name}` references unavailable specialist "
                 f"`{resolved_profile.entry.source_name}`."
             )
         specialist_metadata = resolved_profile.specialist
         declared_mailbox = _stored_mailbox_or_click(
             resolved_profile.entry.mailbox_payload,
-            source=f"easy profile `{resolved_profile.entry.name}`",
+            source=f"project profile `{resolved_profile.entry.name}`",
         )
         operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
             resolved_profile.entry.operator_prompt_mode,
-            source=f"easy profile `{resolved_profile.entry.name}`",
+            source=f"project profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
         launch_profile_model_config = _build_model_config_or_click(
@@ -1935,7 +1935,7 @@ def launch_easy_instance_command(
         launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
         launch_profile_system_skill_policy = _resolve_launch_profile_system_skill_policy_or_click(
             getattr(resolved_profile.entry, "system_skills_payload", {}),
-            source=f"easy profile `{resolved_profile.entry.name}` system_skills",
+            source=f"project profile `{resolved_profile.entry.name}` system_skills",
         )
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
         launch_profile_memo_seed = resolved_profile.memo_seed
@@ -1957,7 +1957,7 @@ def launch_easy_instance_command(
         resolved_name = _optional_non_empty_value(name) or resolved_profile.entry.managed_agent_name
         if resolved_name is None:
             raise click.ClickException(
-                "`project easy instance launch --profile` requires `--name` unless the selected "
+                "`project agents launch --profile` requires `--name` unless the selected "
                 "profile stores a default managed-agent name."
             )
         resolved_auth = _optional_non_empty_value(auth) or resolved_profile.entry.auth_name
@@ -1975,9 +1975,7 @@ def launch_easy_instance_command(
         resolved_headless = bool(headless)
         resolved_name = _optional_non_empty_value(name)
         if resolved_name is None:
-            raise click.ClickException(
-                "`project easy instance launch --specialist` requires `--name`."
-            )
+            raise click.ClickException("`project agents launch --specialist` requires `--name`.")
         resolved_auth = _optional_non_empty_value(auth)
         working_directory = (workdir or Path.cwd()).resolve()
 
@@ -2003,7 +2001,7 @@ def launch_easy_instance_command(
         )
     if mail_transport == "email":
         raise click.ClickException(
-            "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
+            "Mailbox transport `email` is not implemented yet for `project agents launch`."
         )
     if mail_transport is None and (mail_root is not None or mail_account_dir is not None):
         raise click.ClickException(
@@ -2011,7 +2009,7 @@ def launch_easy_instance_command(
         )
     if mail_transport == "filesystem" and mail_root is None:
         raise click.ClickException(
-            "`project easy instance launch --mail-transport filesystem` requires `--mail-root`."
+            "`project agents launch --mail-transport filesystem` requires `--mail-root`."
         )
     if mail_transport != "filesystem" and mail_account_dir is not None:
         raise click.ClickException(

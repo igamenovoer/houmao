@@ -26,5 +26,5 @@ Use the matching CLI-owned template, then run its rendered `argv`:
 
 - Do not ask for a credential name when the task is only to list credentials.
 - Do not guess the tool family or target when the prompt and recent chat context do not identify them explicitly.
-- Do not route listing through `project easy specialist` or managed-agent lifecycle commands.
-- Do not reinterpret the credential list as the set of easy profiles or raw profiles that reference those credentials.
+- Do not route listing through `project specialist` or managed-agent lifecycle commands.
+- Do not reinterpret the credential list as the set of project profiles or launch dossiers that reference those credentials.

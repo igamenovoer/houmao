@@ -39,6 +39,6 @@ Use `show --id <template-id>` for the authoritative tool-specific fields, clear 
 - Do not scan env vars, tool homes, or home directories to synthesize credential input unless the user explicitly asked for that narrower inspection.
 - Do not invent unsupported file flags for Claude vendor login files; the maintained lane is `--config-dir`.
 - Do not treat optional Claude state-template input as a credential-providing method.
-- Do not claim that adding one credential also updates any easy profile or explicit launch profile to use it.
+- Do not claim that adding one credential also updates any project profile or native launch dossier to use it.
 - Do not reinterpret `add` as `set` when the credential already exists.
 - Do not duplicate Claude/Codex/Gemini option menus from skill prose; use the template metadata.

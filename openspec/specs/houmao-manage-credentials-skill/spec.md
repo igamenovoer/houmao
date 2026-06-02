@@ -38,11 +38,11 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
-- `project easy specialist create|list|get|remove`
-- `project easy instance launch|list|get|stop`
+- `project specialist create|list|get|remove`
+- `project agents launch|list|get|stop`
 - `agents launch|join|list|stop|cleanup`
-- `project agents tools <tool> setups ...`
-- `project agents roles ...`
+- `internals native-agent tools <tool> setups ...`
+- `internals native-agent roles ...`
 - `project mailbox ...`, `agents cleanup mailbox`, and `admin cleanup runtime ...`
 - direct hand-editing of credential files under `.houmao/agents/tools/` or plain agent-definition directories
 
@@ -139,7 +139,7 @@ Unless the user explicitly asks for a narrower path-based inspection as part of 
 - **WHEN** the current prompt asks the agent to manage one credential in the current project workspace
 - **AND WHEN** no explicit plain agent-definition directory target is provided
 - **THEN** the skill routes that work through `houmao-mgr project credentials <tool> ...`
-- **AND THEN** it does not route the request through the removed `project agents tools <tool> auth ...` surface
+- **AND THEN** it does not route the request through the removed `internals native-agent tools <tool> auth ...` surface
 
 #### Scenario: Explicit agent-definition-directory work uses the dedicated direct-dir form
 - **WHEN** the current prompt asks the agent to manage credentials under `tests/fixtures/plain-agent-def`

@@ -31,11 +31,8 @@ from houmao.server.models import (
 )
 from houmao.srv_ctrl.commands import main as command_main
 from houmao.srv_ctrl.commands import project as project_commands
-from houmao.srv_ctrl.commands import project_definitions
 from houmao.srv_ctrl.commands import project_easy
-from houmao.srv_ctrl.commands import project_launch_profiles
 from houmao.srv_ctrl.commands import project_mailbox
-from houmao.srv_ctrl.commands import project_tools
 from houmao.srv_ctrl.commands.agents.core import emit_local_launch_completion
 from houmao.srv_ctrl.commands.main import cli
 
@@ -147,6 +144,18 @@ def _project_auth_root(repo_root: Path, *, tool: str, name: str) -> Path:
     return profile.resolved_projection_path(overlay)
 
 
+def _native_agent_args(repo_root: Path, *args: str) -> list[str]:
+    """Build one explicit native-agent internals argv for the project projection root."""
+
+    return [
+        "internals",
+        "native-agent",
+        *args,
+        "--native-agent-root",
+        str((repo_root / ".houmao" / "agents").resolve()),
+    ]
+
+
 def _create_codex_specialist(
     runner: CliRunner,
     *,
@@ -160,7 +169,6 @@ def _create_codex_specialist(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -221,7 +229,7 @@ def _assert_memo_seed_payload(
     assert Path(str(content_ref["path"])).as_posix().endswith(relative_path)
 
 
-def test_project_help_mentions_agents_credentials_easy_skills_migrate_and_mailbox() -> None:
+def test_project_help_mentions_first_class_project_groups_without_easy() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
@@ -231,7 +239,9 @@ def test_project_help_mentions_agents_credentials_easy_skills_migrate_and_mailbo
     assert "skills" in result.output
     assert "migrate" in result.output
     assert "credentials" in result.output
-    assert "easy" in result.output
+    assert "specialist" in result.output
+    assert "profile" in result.output
+    assert "easy" not in result.output
     assert "mailbox" in result.output
     assert "agent-tools" not in result.output
     assert "project-overlay" in result.output.lower()
@@ -245,32 +255,22 @@ def test_project_module_remains_public_entrypoint() -> None:
     assert project_commands.project_group.get_command(None, "credentials") is not None
     assert project_commands.project_group.get_command(None, "skills") is not None
     assert project_commands.project_group.get_command(None, "migrate") is not None
+    assert project_commands.project_group.get_command(None, "easy") is None
     assert (
-        project_commands.project_group.get_command(None, "easy") is project_easy.easy_project_group
+        project_commands.project_group.get_command(None, "specialist")
+        is project_easy.easy_specialist_group
+    )
+    assert (
+        project_commands.project_group.get_command(None, "profile")
+        is project_easy.easy_profile_group
+    )
+    assert (
+        project_commands.project_group.get_command(None, "agents")
+        is project_easy.easy_instance_group
     )
     assert (
         project_commands.project_group.get_command(None, "mailbox")
         is project_mailbox.project_mailbox_group
-    )
-    assert (
-        project_commands.agents_project_group.get_command(None, "tools")
-        is project_tools.project_tools_group
-    )
-    assert (
-        project_commands.agents_project_group.get_command(None, "roles")
-        is project_definitions.project_roles_group
-    )
-    assert (
-        project_commands.agents_project_group.get_command(None, "presets")
-        is project_definitions.project_presets_group
-    )
-    assert (
-        project_commands.agents_project_group.get_command(None, "recipes")
-        is project_definitions.project_recipes_group
-    )
-    assert (
-        project_commands.agents_project_group.get_command(None, "launch-profiles")
-        is project_launch_profiles.project_launch_profiles_group
     )
     assert "from .project import project_group" in Path(command_main.__file__).read_text(
         encoding="utf-8"
@@ -285,12 +285,10 @@ def test_project_module_remains_public_entrypoint() -> None:
 
 def test_project_extracted_subgroup_help_surfaces() -> None:
     cases = [
-        (
-            ["project", "agents", "--help"],
-            ("tools", "roles", "presets", "recipes", "launch-profiles"),
-        ),
+        (["project", "agents", "--help"], ("launch", "list", "get", "stop")),
+        (["project", "specialist", "--help"], ("create", "set", "list", "get", "remove")),
+        (["project", "profile", "--help"], ("create", "set", "list", "get", "remove")),
         (["project", "skills", "--help"], ("add", "set", "list", "get", "remove")),
-        (["project", "easy", "--help"], ("profile", "specialist", "instance")),
         (
             ["project", "mailbox", "--help"],
             ("init", "status", "register", "unregister", "accounts", "messages"),
@@ -305,8 +303,8 @@ def test_project_extracted_subgroup_help_surfaces() -> None:
             assert expected in result.output
 
 
-def test_project_agents_tools_help_mentions_supported_tools() -> None:
-    result = CliRunner().invoke(cli, ["project", "agents", "tools", "--help"])
+def test_native_agent_tools_help_mentions_supported_tools() -> None:
+    result = CliRunner().invoke(cli, ["internals", "native-agent", "tools", "--help"])
 
     assert result.exit_code == 0
     assert "claude" in result.output
@@ -333,8 +331,11 @@ def test_project_credentials_help_mentions_supported_tools_and_verbs() -> None:
     assert "remove" in tool_result.output
 
 
-def test_project_agents_tool_help_no_longer_mentions_auth() -> None:
-    result = CliRunner().invoke(cli, ["project", "agents", "tools", "claude", "--help"])
+def test_native_agent_tool_help_no_longer_mentions_auth() -> None:
+    result = CliRunner().invoke(
+        cli,
+        ["internals", "native-agent", "tools", "claude", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "get" in result.output
@@ -495,7 +496,6 @@ def test_project_skills_remove_rejects_referenced_skill_and_specialist_get_repor
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -514,7 +514,7 @@ def test_project_skills_remove_rejects_referenced_skill_and_specialist_get_repor
 
     get_result = runner.invoke(
         cli,
-        ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ["project", "specialist", "get", "--name", "researcher"],
     )
     assert get_result.exit_code == 0, get_result.output
     specialist_payload = json.loads(get_result.output)
@@ -568,7 +568,7 @@ def test_project_migrate_plans_and_applies_supported_legacy_overlay(
 
     get_result = runner.invoke(
         cli,
-        ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ["project", "specialist", "get", "--name", "researcher"],
     )
     assert get_result.exit_code == 0, get_result.output
     assert json.loads(get_result.output)["skills"] == ["notes"]
@@ -651,8 +651,8 @@ def test_project_migrate_reports_unsupported_legacy_overlay(
     assert "Automatic project migration is not supported" in apply_result.output
 
 
-def test_project_agents_roles_help_mentions_verbs() -> None:
-    result = CliRunner().invoke(cli, ["project", "agents", "roles", "--help"])
+def test_native_agent_roles_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["internals", "native-agent", "roles", "--help"])
 
     assert result.exit_code == 0
     assert "list" in result.output
@@ -664,8 +664,15 @@ def test_project_agents_roles_help_mentions_verbs() -> None:
     assert "presets" not in result.output
 
 
-def test_project_agents_presets_help_mentions_verbs() -> None:
-    result = CliRunner().invoke(cli, ["project", "agents", "presets", "--help"])
+def test_native_agent_has_no_public_presets_group() -> None:
+    result = CliRunner().invoke(cli, ["internals", "native-agent", "presets", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command" in result.output
+
+
+def test_native_agent_recipes_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["internals", "native-agent", "recipes", "--help"])
 
     assert result.exit_code == 0
     assert "list" in result.output
@@ -675,8 +682,8 @@ def test_project_agents_presets_help_mentions_verbs() -> None:
     assert "remove" in result.output
 
 
-def test_project_agents_recipes_help_mentions_verbs() -> None:
-    result = CliRunner().invoke(cli, ["project", "agents", "recipes", "--help"])
+def test_native_agent_launch_dossiers_help_mentions_verbs() -> None:
+    result = CliRunner().invoke(cli, ["internals", "native-agent", "launch-dossiers", "--help"])
 
     assert result.exit_code == 0
     assert "list" in result.output
@@ -684,19 +691,7 @@ def test_project_agents_recipes_help_mentions_verbs() -> None:
     assert "add" in result.output
     assert "set" in result.output
     assert "remove" in result.output
-    assert "named recipes" in result.output
-
-
-def test_project_agents_launch_profiles_help_mentions_verbs() -> None:
-    result = CliRunner().invoke(cli, ["project", "agents", "launch-profiles", "--help"])
-
-    assert result.exit_code == 0
-    assert "list" in result.output
-    assert "get" in result.output
-    assert "add" in result.output
-    assert "set" in result.output
-    assert "remove" in result.output
-    assert ".houmao/agents/launch-profiles/" in result.output
+    assert "launch dossiers" in result.output
 
 
 def test_project_init_bootstraps_local_overlay_without_optional_mailbox_or_easy(
@@ -825,12 +820,17 @@ def test_project_status_reports_discovered_overlay_from_nested_directory(
         == "Ambient overlay discovery uses nearest-ancestor lookup within the Git boundary."
     )
     assert payload["config_path"] == str((repo_root / ".houmao" / "houmao-config.toml").resolve())
-    assert payload["effective_agent_def_dir"] == str((repo_root / ".houmao" / "agents").resolve())
-    assert payload["effective_agent_def_dir_source"] == "project_config"
+    assert payload["native_agent_projection_root"] == str(
+        (repo_root / ".houmao" / "agents").resolve()
+    )
+    assert payload["native_agent_projection_source"] == "project_config"
     assert payload["project_mailbox_root"] == str((repo_root / ".houmao" / "mailbox").resolve())
     assert payload["project_runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
     assert payload["project_memory_root"] == str((repo_root / ".houmao" / "memory").resolve())
-    assert payload["project_easy_root"] == str((repo_root / ".houmao" / "easy").resolve())
+    assert payload["project_specialists_root"] == str(
+        (repo_root / ".houmao" / "easy" / "specialists").resolve()
+    )
+    assert payload["requires_project_init"] is False
     assert payload["would_bootstrap_overlay"] is False
     assert (
         payload["selected_overlay_detail"]
@@ -867,8 +867,8 @@ def test_project_status_reports_env_selected_overlay(
     assert payload["overlay_root_source"] == "env"
     assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["config_path"] == str((overlay_root / "houmao-config.toml").resolve())
-    assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
-    assert payload["effective_agent_def_dir_source"] == "project_config"
+    assert payload["native_agent_projection_root"] == str((overlay_root / "agents").resolve())
+    assert payload["native_agent_projection_source"] == "project_config"
     assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
 
 
@@ -927,24 +927,27 @@ def test_project_status_reports_missing_env_selected_overlay_clearly(
     assert payload["overlay_root_source"] == "env"
     assert payload["overlay_discovery_mode"] == "ancestor"
     assert payload["config_path"] is None
-    assert payload["effective_agent_def_dir"] == str((overlay_root / "agents").resolve())
-    assert payload["effective_agent_def_dir_source"] == "project_overlay_env"
+    assert payload["native_agent_projection_root"] == str((overlay_root / "agents").resolve())
+    assert payload["native_agent_projection_source"] == "project_overlay_env"
     assert payload["project_runtime_root"] == str((overlay_root / "runtime").resolve())
     assert payload["project_memory_root"] == str((overlay_root / "memory").resolve())
     assert payload["project_mailbox_root"] == str((overlay_root / "mailbox").resolve())
-    assert payload["project_easy_root"] == str((overlay_root / "easy").resolve())
-    assert payload["would_bootstrap_overlay"] is True
+    assert payload["project_specialists_root"] == str(
+        (overlay_root / "easy" / "specialists").resolve()
+    )
+    assert payload["requires_project_init"] is True
+    assert payload["would_bootstrap_overlay"] is False
     assert (
         payload["selected_overlay_detail"]
         == f"Selected overlay root from `HOUMAO_PROJECT_OVERLAY_DIR`. No project overlay exists yet at `{overlay_root}` for this invocation."
     )
     assert (
         payload["overlay_bootstrap_detail"]
-        == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
+        == "Project status used read-only resolution. Stateful project commands require `houmao-mgr project init` or an explicitly selected existing project overlay."
     )
 
 
-def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
+def test_project_status_reports_missing_root_without_creating_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -965,15 +968,18 @@ def test_project_status_reports_would_bootstrap_root_without_creating_overlay(
     assert payload["project_runtime_root"] == str((expected_overlay_root / "runtime").resolve())
     assert payload["project_memory_root"] == str((expected_overlay_root / "memory").resolve())
     assert payload["project_mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
-    assert payload["project_easy_root"] == str((expected_overlay_root / "easy").resolve())
-    assert payload["would_bootstrap_overlay"] is True
+    assert payload["project_specialists_root"] == str(
+        (expected_overlay_root / "easy" / "specialists").resolve()
+    )
+    assert payload["requires_project_init"] is True
+    assert payload["would_bootstrap_overlay"] is False
     assert (
         payload["selected_overlay_detail"]
         == f"Selected overlay root from the default project-aware `<cwd>/.houmao` candidate. No project overlay exists yet at `{expected_overlay_root}` for this invocation."
     )
     assert (
         payload["overlay_bootstrap_detail"]
-        == "Project status used non-creating resolution and would bootstrap the selected overlay during a stateful project command."
+        == "Project status used read-only resolution. Stateful project commands require `houmao-mgr project init` or an explicitly selected existing project overlay."
     )
     assert not expected_overlay_root.exists()
 
@@ -1012,7 +1018,7 @@ def test_project_status_reports_cwd_only_mode_against_cwd_overlay_candidate(
     )
 
 
-def test_project_credentials_add_bootstraps_missing_overlay(
+def test_project_credentials_add_requires_initialized_project(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1035,31 +1041,12 @@ def test_project_credentials_add_bootstraps_missing_overlay(
         ],
     )
 
-    assert result.exit_code == 0, result.output
-    assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
-    assert (
-        _project_auth_root(repo_root, tool="codex", name="personal") / "env" / "vars.env"
-    ).is_file()
-
-
-def test_project_agents_tool_get_fails_without_bootstrapping_missing_overlay(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(repo_root)
-
-    result = runner.invoke(cli, ["project", "agents", "tools", "codex", "get"])
-
     assert result.exit_code != 0
-    assert str((repo_root / ".houmao").resolve()) in result.output
-    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert "houmao-mgr project init" in result.output
     assert not (repo_root / ".houmao").exists()
 
 
-def test_project_agents_role_init_bootstraps_missing_overlay(
+def test_native_agent_tool_get_requires_native_agent_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1068,29 +1055,56 @@ def test_project_agents_role_init_bootstraps_missing_overlay(
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
 
-    result = runner.invoke(cli, ["project", "agents", "roles", "init", "--name", "researcher"])
-
-    assert result.exit_code == 0, result.output
-    assert (repo_root / ".houmao" / "houmao-config.toml").is_file()
-    assert (
-        repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
-    ).is_file()
-
-
-def test_project_agents_role_list_fails_without_bootstrapping_missing_overlay(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(repo_root)
-
-    result = runner.invoke(cli, ["project", "agents", "roles", "list"])
+    result = runner.invoke(cli, ["internals", "native-agent", "tools", "codex", "get"])
 
     assert result.exit_code != 0
-    assert str((repo_root / ".houmao").resolve()) in result.output
-    assert "uses non-creating resolution and did not bootstrap it" in result.output
+    assert "Pass `--native-agent-root`" in result.output
+    assert not (repo_root / ".houmao").exists()
+
+
+def test_native_agent_role_init_uses_explicit_native_agent_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    native_agent_root = (repo_root / ".houmao" / "agents").resolve()
+
+    result = runner.invoke(
+        cli,
+        [
+            "internals",
+            "native-agent",
+            "roles",
+            "init",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--name",
+            "researcher",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (repo_root / ".houmao" / "houmao-config.toml").exists()
+    assert (native_agent_root / "roles" / "researcher" / "system-prompt.md").is_file()
+
+
+def test_native_agent_role_list_requires_native_agent_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    result = runner.invoke(cli, ["internals", "native-agent", "roles", "list"])
+
+    assert result.exit_code != 0
+    assert "Pass `--native-agent-root`" in result.output
     assert not (repo_root / ".houmao").exists()
 
 
@@ -1166,16 +1180,25 @@ def test_project_credentials_get_and_project_tool_setups_flow(
         == 0
     )
 
-    claude_get_result = runner.invoke(cli, ["project", "agents", "tools", "claude", "get"])
+    claude_get_result = runner.invoke(cli, _native_agent_args(repo_root, "tools", "claude", "get"))
     assert claude_get_result.exit_code == 0
     claude_get_payload = json.loads(claude_get_result.output)
     assert claude_get_payload["tool"] == "claude"
     assert "default" in claude_get_payload["setups"]
-    assert claude_get_payload["auth_bundles"] == ["work"]
+    assert len(claude_get_payload["auth_bundles"]) == 1
+    assert claude_get_payload["auth_bundles"][0] != "work"
 
     add_setup_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "claude", "setups", "add", "--name", "research"],
+        _native_agent_args(
+            repo_root,
+            "tools",
+            "claude",
+            "setups",
+            "add",
+            "--name",
+            "research",
+        ),
     )
     assert add_setup_result.exit_code == 0
     assert (
@@ -1191,7 +1214,15 @@ def test_project_credentials_get_and_project_tool_setups_flow(
 
     get_setup_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "claude", "setups", "get", "--name", "research"],
+        _native_agent_args(
+            repo_root,
+            "tools",
+            "claude",
+            "setups",
+            "get",
+            "--name",
+            "research",
+        ),
     )
     assert get_setup_result.exit_code == 0
     assert "settings.json" in json.loads(get_setup_result.output)["files"]
@@ -1223,7 +1254,15 @@ def test_project_credentials_get_and_project_tool_setups_flow(
 
     remove_setup_result = runner.invoke(
         cli,
-        ["project", "agents", "tools", "claude", "setups", "remove", "--name", "research"],
+        _native_agent_args(
+            repo_root,
+            "tools",
+            "claude",
+            "setups",
+            "remove",
+            "--name",
+            "research",
+        ),
     )
     assert remove_setup_result.exit_code == 0
     assert not (
@@ -1231,7 +1270,7 @@ def test_project_credentials_get_and_project_tool_setups_flow(
     ).exists()
 
 
-def test_project_agents_roles_init_list_get_and_presets_flow(
+def test_native_agent_roles_init_list_get_and_recipes_flow(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1242,13 +1281,15 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
 
     assert runner.invoke(cli, ["project", "init"]).exit_code == 0
 
-    init_result = runner.invoke(cli, ["project", "agents", "roles", "init", "--name", "researcher"])
+    init_result = runner.invoke(
+        cli, _native_agent_args(repo_root, "roles", "init", "--name", "researcher")
+    )
     assert init_result.exit_code == 0
     assert (
         repo_root / ".houmao" / "agents" / "roles" / "researcher" / "system-prompt.md"
     ).is_file()
 
-    list_result = runner.invoke(cli, ["project", "agents", "roles", "list"])
+    list_result = runner.invoke(cli, _native_agent_args(repo_root, "roles", "list"))
     assert list_result.exit_code == 0
     listed_roles = {item["name"] for item in json.loads(list_result.output)["roles"]}
     assert "researcher" in listed_roles
@@ -1256,9 +1297,9 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     preset_add_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
-            "presets",
+            "internals",
+            "native-agent",
+            "recipes",
             "add",
             "--name",
             "researcher-claude-default",
@@ -1272,6 +1313,8 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
             "notes",
             "--prompt-mode",
             "unattended",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert preset_add_result.exit_code == 0
@@ -1279,12 +1322,14 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     preset_get_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
-            "presets",
+            "internals",
+            "native-agent",
+            "recipes",
             "get",
             "--name",
             "researcher-claude-default",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert preset_get_result.exit_code == 0
@@ -1295,7 +1340,7 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
     assert preset_payload["launch"] == {"prompt_mode": "unattended"}
 
     role_get_result = runner.invoke(
-        cli, ["project", "agents", "roles", "get", "--name", "researcher"]
+        cli, _native_agent_args(repo_root, "roles", "get", "--name", "researcher")
     )
     assert role_get_result.exit_code == 0
     role_payload = json.loads(role_get_result.output)
@@ -1305,25 +1350,31 @@ def test_project_agents_roles_init_list_get_and_presets_flow(
 
     role_remove_result = runner.invoke(
         cli,
-        ["project", "agents", "roles", "remove", "--name", "researcher"],
+        _native_agent_args(repo_root, "roles", "remove", "--name", "researcher"),
     )
     assert role_remove_result.exit_code != 0
     assert "still reference" in role_remove_result.output
 
     preset_remove_result = runner.invoke(
         cli,
-        ["project", "agents", "presets", "remove", "--name", "researcher-claude-default"],
+        _native_agent_args(
+            repo_root,
+            "recipes",
+            "remove",
+            "--name",
+            "researcher-claude-default",
+        ),
     )
     assert preset_remove_result.exit_code == 0
 
     role_remove_result = runner.invoke(
-        cli, ["project", "agents", "roles", "remove", "--name", "researcher"]
+        cli, _native_agent_args(repo_root, "roles", "remove", "--name", "researcher")
     )
     assert role_remove_result.exit_code == 0
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
 
 
-def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_prompt(
+def test_native_agent_roles_get_include_prompt_reports_prompt_text_and_empty_prompt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1336,21 +1387,23 @@ def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_p
     init_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "roles",
             "init",
             "--name",
             "researcher",
             "--system-prompt",
             "Investigate failures carefully.",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert init_result.exit_code == 0, init_result.output
 
     default_get_result = runner.invoke(
         cli,
-        ["project", "agents", "roles", "get", "--name", "researcher"],
+        _native_agent_args(repo_root, "roles", "get", "--name", "researcher"),
     )
     assert default_get_result.exit_code == 0, default_get_result.output
     default_payload = json.loads(default_get_result.output)
@@ -1358,7 +1411,7 @@ def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_p
 
     include_prompt_result = runner.invoke(
         cli,
-        ["project", "agents", "roles", "get", "--name", "researcher", "--include-prompt"],
+        _native_agent_args(repo_root, "roles", "get", "--name", "researcher", "--include-prompt"),
     )
     assert include_prompt_result.exit_code == 0, include_prompt_result.output
     include_prompt_payload = json.loads(include_prompt_result.output)
@@ -1368,20 +1421,22 @@ def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_p
     clear_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "roles",
             "set",
             "--name",
             "researcher",
             "--clear-system-prompt",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert clear_result.exit_code == 0, clear_result.output
 
     promptless_get_result = runner.invoke(
         cli,
-        ["project", "agents", "roles", "get", "--name", "researcher", "--include-prompt"],
+        _native_agent_args(repo_root, "roles", "get", "--name", "researcher", "--include-prompt"),
     )
     assert promptless_get_result.exit_code == 0, promptless_get_result.output
     promptless_payload = json.loads(promptless_get_result.output)
@@ -1389,7 +1444,7 @@ def test_project_agents_roles_get_include_prompt_reports_prompt_text_and_empty_p
     assert promptless_payload["system_prompt_text"] == ""
 
 
-def test_main_renders_project_agents_recipes_list_malformed_preset_without_traceback(
+def test_main_renders_native_agent_recipes_list_malformed_recipe_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1417,7 +1472,7 @@ def test_main_renders_project_agents_recipes_list_malformed_preset_without_trace
         encoding="utf-8",
     )
 
-    exit_code = command_main.main(["project", "agents", "recipes", "list"])
+    exit_code = command_main.main(_native_agent_args(repo_root, "recipes", "list"))
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1426,7 +1481,7 @@ def test_main_renders_project_agents_recipes_list_malformed_preset_without_trace
     assert "Traceback" not in captured.err
 
 
-def test_main_renders_project_agents_presets_get_malformed_preset_without_traceback(
+def test_main_renders_native_agent_recipes_get_malformed_recipe_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1454,7 +1509,9 @@ def test_main_renders_project_agents_presets_get_malformed_preset_without_traceb
         encoding="utf-8",
     )
 
-    exit_code = command_main.main(["project", "agents", "presets", "get", "--name", "broken"])
+    exit_code = command_main.main(
+        _native_agent_args(repo_root, "recipes", "get", "--name", "broken")
+    )
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1463,7 +1520,7 @@ def test_main_renders_project_agents_presets_get_malformed_preset_without_traceb
     assert "Traceback" not in captured.err
 
 
-def test_main_renders_project_agents_roles_get_malformed_preset_without_traceback(
+def test_main_renders_native_agent_roles_get_malformed_recipe_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1477,7 +1534,7 @@ def test_main_renders_project_agents_roles_get_malformed_preset_without_tracebac
     assert (
         runner.invoke(
             cli,
-            ["project", "agents", "roles", "init", "--name", "researcher"],
+            _native_agent_args(repo_root, "roles", "init", "--name", "researcher"),
         ).exit_code
         == 0
     )
@@ -1498,7 +1555,9 @@ def test_main_renders_project_agents_roles_get_malformed_preset_without_tracebac
         encoding="utf-8",
     )
 
-    exit_code = command_main.main(["project", "agents", "roles", "get", "--name", "researcher"])
+    exit_code = command_main.main(
+        _native_agent_args(repo_root, "roles", "get", "--name", "researcher")
+    )
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1507,7 +1566,7 @@ def test_main_renders_project_agents_roles_get_malformed_preset_without_tracebac
     assert "Traceback" not in captured.err
 
 
-def test_project_agents_presets_set_preserves_advanced_blocks(
+def test_native_agent_recipes_set_preserves_advanced_blocks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1521,12 +1580,14 @@ def test_project_agents_presets_set_preserves_advanced_blocks(
     result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "roles",
             "init",
             "--name",
             "researcher",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -1561,9 +1622,9 @@ def test_project_agents_presets_set_preserves_advanced_blocks(
     result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
-            "presets",
+            "internals",
+            "native-agent",
+            "recipes",
             "set",
             "--name",
             "researcher-codex-default",
@@ -1571,6 +1632,8 @@ def test_project_agents_presets_set_preserves_advanced_blocks(
             "reviewer-creds",
             "--add-skill",
             "extra-notes",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
 
@@ -1586,7 +1649,7 @@ def test_project_agents_presets_set_preserves_advanced_blocks(
     assert payload["extra"] == {"gateway": {"host": "127.0.0.1", "port": 43123}}
 
 
-def test_project_agents_recipes_add_and_set_support_unified_model_config(
+def test_native_agent_recipes_add_and_set_support_unified_model_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1599,7 +1662,7 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     assert (
         runner.invoke(
             cli,
-            ["project", "agents", "roles", "init", "--name", "researcher"],
+            _native_agent_args(repo_root, "roles", "init", "--name", "researcher"),
         ).exit_code
         == 0
     )
@@ -1607,8 +1670,8 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     add_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "recipes",
             "add",
             "--name",
@@ -1621,6 +1684,8 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
             "gpt-5.4",
             "--reasoning-level",
             "6",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
 
@@ -1628,7 +1693,13 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     get_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "agents", "recipes", "get", "--name", "researcher-codex-default"],
+            _native_agent_args(
+                repo_root,
+                "recipes",
+                "get",
+                "--name",
+                "researcher-codex-default",
+            ),
         ).output
     )
     assert get_payload["launch"] == {
@@ -1639,8 +1710,8 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     set_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "recipes",
             "set",
             "--name",
@@ -1648,6 +1719,8 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
             "--clear-model",
             "--reasoning-level",
             "4",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
 
@@ -1661,13 +1734,15 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     clear_reasoning_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "recipes",
             "set",
             "--name",
             "researcher-codex-default",
             "--clear-reasoning-level",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
 
@@ -1676,7 +1751,7 @@ def test_project_agents_recipes_add_and_set_support_unified_model_config(
     assert clear_payload["launch"] == {"prompt_mode": "unattended"}
 
 
-def test_project_agents_recipes_add_rejects_negative_reasoning_level(
+def test_native_agent_recipes_add_rejects_negative_reasoning_level(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1690,14 +1765,16 @@ def test_project_agents_recipes_add_rejects_negative_reasoning_level(
         runner.invoke(
             cli,
             [
-                "project",
-                "agents",
+                "internals",
+                "native-agent",
                 "roles",
                 "init",
                 "--name",
                 "researcher",
                 "--system-prompt",
                 "Research carefully.",
+                "--native-agent-root",
+                str((repo_root / ".houmao" / "agents").resolve()),
             ],
         ).exit_code
         == 0
@@ -1706,8 +1783,8 @@ def test_project_agents_recipes_add_rejects_negative_reasoning_level(
     result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
+            "internals",
+            "native-agent",
             "recipes",
             "add",
             "--name",
@@ -1718,6 +1795,8 @@ def test_project_agents_recipes_add_rejects_negative_reasoning_level(
             "codex",
             "--reasoning-level",
             "-1",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
 
@@ -1743,7 +1822,6 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -1773,15 +1851,13 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     ).is_file()
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
-    list_result = runner.invoke(cli, ["project", "easy", "specialist", "list"])
+    list_result = runner.invoke(cli, ["project", "specialist", "list"])
     assert list_result.exit_code == 0
     assert [item["name"] for item in json.loads(list_result.output)["specialists"]] == [
         "researcher"
     ]
 
-    get_result = runner.invoke(
-        cli, ["project", "easy", "specialist", "get", "--name", "researcher"]
-    )
+    get_result = runner.invoke(cli, ["project", "specialist", "get", "--name", "researcher"])
     assert get_result.exit_code == 0
     get_payload = json.loads(get_result.output)
     assert get_payload["preset_name"] == "researcher-codex-default"
@@ -1790,9 +1866,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert get_payload["skills"] == ["notes"]
     assert get_payload["launch"] == {"prompt_mode": "unattended"}
 
-    remove_result = runner.invoke(
-        cli, ["project", "easy", "specialist", "remove", "--name", "researcher"]
-    )
+    remove_result = runner.invoke(cli, ["project", "specialist", "remove", "--name", "researcher"])
     assert remove_result.exit_code == 0
     assert metadata_path.is_file()
     assert not (repo_root / ".houmao" / "agents" / "roles" / "researcher").exists()
@@ -1800,7 +1874,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert (
         _project_auth_root(repo_root, tool="codex", name="researcher-creds") / "files" / "auth.json"
     ).is_file()
-    list_after_remove = runner.invoke(cli, ["project", "easy", "specialist", "list"])
+    list_after_remove = runner.invoke(cli, ["project", "specialist", "list"])
     assert list_after_remove.exit_code == 0
     assert json.loads(list_after_remove.output)["specialists"] == []
 
@@ -1822,7 +1896,6 @@ def test_project_easy_specialist_create_allows_promptless_specialist(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -1861,7 +1934,6 @@ def test_project_easy_specialist_stores_and_clears_system_skill_policy(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -1892,7 +1964,7 @@ def test_project_easy_specialist_stores_and_clears_system_skill_policy(
 
     get_result = runner.invoke(
         cli,
-        ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ["project", "specialist", "get", "--name", "researcher"],
     )
     assert get_result.exit_code == 0, get_result.output
     assert json.loads(get_result.output)["system_skills"] == {
@@ -1904,7 +1976,6 @@ def test_project_easy_specialist_stores_and_clears_system_skill_policy(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -1928,7 +1999,7 @@ def test_project_easy_specialist_list_fails_without_bootstrapping_missing_overla
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
 
-    result = runner.invoke(cli, ["project", "easy", "specialist", "list"])
+    result = runner.invoke(cli, ["project", "specialist", "list"])
 
     assert result.exit_code != 0
     assert str((repo_root / ".houmao").resolve()) in result.output
@@ -1953,7 +2024,6 @@ def test_project_easy_specialist_create_can_persist_as_is_opt_out(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -1974,7 +2044,7 @@ def test_project_easy_specialist_create_can_persist_as_is_opt_out(
     preset_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "reviewer"],
+            ["project", "specialist", "get", "--name", "reviewer"],
         ).output
     )
 
@@ -2261,7 +2331,7 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
     assert (
         runner.invoke(
             cli,
-            ["project", "agents", "roles", "init", "--name", "reviewer"],
+            _native_agent_args(repo_root, "roles", "init", "--name", "reviewer"),
         ).exit_code
         == 0
     )
@@ -2269,8 +2339,8 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
         runner.invoke(
             cli,
             [
-                "project",
-                "agents",
+                "internals",
+                "native-agent",
                 "recipes",
                 "add",
                 "--name",
@@ -2279,6 +2349,8 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
                 "reviewer",
                 "--tool",
                 "codex",
+                "--native-agent-root",
+                str((repo_root / ".houmao" / "agents").resolve()),
             ],
         ).exit_code
         == 0
@@ -2312,9 +2384,9 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
     add_profile_result = runner.invoke(
         cli,
         [
-            "project",
-            "agents",
-            "launch-profiles",
+            "internals",
+            "native-agent",
+            "launch-dossiers",
             "add",
             "--name",
             "reviewer-default",
@@ -2322,6 +2394,8 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
             "reviewer-codex-default",
             "--auth",
             "work",
+            "--native-agent-root",
+            str((repo_root / ".houmao" / "agents").resolve()),
         ],
     )
     assert add_profile_result.exit_code == 0, add_profile_result.output
@@ -2364,7 +2438,13 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
 
     launch_profile_result = runner.invoke(
         cli,
-        ["project", "agents", "launch-profiles", "get", "--name", "reviewer-default"],
+        _native_agent_args(
+            repo_root,
+            "launch-dossiers",
+            "get",
+            "--name",
+            "reviewer-default",
+        ),
     )
     assert launch_profile_result.exit_code == 0, launch_profile_result.output
     launch_profile_payload = json.loads(launch_profile_result.output)
@@ -2387,7 +2467,6 @@ def test_project_easy_specialist_get_derives_current_auth_display_name_after_cre
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2432,7 +2511,7 @@ def test_project_easy_specialist_get_derives_current_auth_display_name_after_cre
 
     specialist_result = runner.invoke(
         cli,
-        ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ["project", "specialist", "get", "--name", "researcher"],
     )
     assert specialist_result.exit_code == 0, specialist_result.output
     specialist_payload = json.loads(specialist_result.output)
@@ -2440,7 +2519,7 @@ def test_project_easy_specialist_get_derives_current_auth_display_name_after_cre
 
     recipe_result = runner.invoke(
         cli,
-        ["project", "agents", "recipes", "get", "--name", "researcher-codex-default"],
+        _native_agent_args(repo_root, "recipes", "get", "--name", "researcher-codex-default"),
     )
     assert recipe_result.exit_code == 0, recipe_result.output
     recipe_payload = json.loads(recipe_result.output)
@@ -2462,7 +2541,6 @@ def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2488,7 +2566,7 @@ def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "claude-reviewer"],
+            ["project", "specialist", "get", "--name", "claude-reviewer"],
         ).output
     )
     assert specialist_payload["tool"] == "claude"
@@ -2511,7 +2589,6 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2542,7 +2619,7 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "claude-imported"],
+            ["project", "specialist", "get", "--name", "claude-imported"],
         ).output
     )
     assert specialist_payload["tool"] == "claude"
@@ -2570,7 +2647,6 @@ def test_project_easy_specialist_create_persists_unified_model_config(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2599,7 +2675,7 @@ def test_project_easy_specialist_create_persists_unified_model_config(
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "reviewer"],
+            ["project", "specialist", "get", "--name", "reviewer"],
         ).output
     )
     assert specialist_payload["launch"] == {
@@ -2625,7 +2701,6 @@ def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2661,7 +2736,7 @@ def test_project_easy_specialist_create_supports_gemini_base_url_and_oauth(
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "gemini-reviewer"],
+            ["project", "specialist", "get", "--name", "gemini-reviewer"],
         ).output
     )
     assert specialist_payload["tool"] == "gemini"
@@ -2683,7 +2758,6 @@ def test_project_easy_specialist_create_gemini_no_unattended_persists_as_is(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2702,7 +2776,7 @@ def test_project_easy_specialist_create_gemini_no_unattended_persists_as_is(
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "gemini-reviewer"],
+            ["project", "specialist", "get", "--name", "gemini-reviewer"],
         ).output
     )
     assert specialist_payload["launch"] == {"prompt_mode": "as_is"}
@@ -2726,7 +2800,6 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -2755,7 +2828,6 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2798,7 +2870,6 @@ def test_project_easy_specialist_create_noninteractive_conflict_requires_yes(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -2824,7 +2895,6 @@ def test_project_easy_specialist_create_noninteractive_conflict_requires_yes(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2860,7 +2930,6 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -2889,7 +2958,6 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2948,7 +3016,6 @@ def test_project_easy_specialist_create_with_skill_preserves_registered_symlink_
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -2970,7 +3037,7 @@ def test_project_easy_specialist_create_with_skill_preserves_registered_symlink_
     assert (notes_skill_dir / "SKILL.md").is_file()
     get_result = runner.invoke(
         cli,
-        ["project", "easy", "specialist", "get", "--name", "researcher"],
+        ["project", "specialist", "get", "--name", "researcher"],
     )
     assert get_result.exit_code == 0, get_result.output
     assert json.loads(get_result.output)["skills"] == ["notes"]
@@ -2993,7 +3060,6 @@ def test_project_easy_specialist_create_persists_env_records(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3018,7 +3084,7 @@ def test_project_easy_specialist_create_persists_env_records(
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "researcher"],
+            ["project", "specialist", "get", "--name", "researcher"],
         ).output
     )
 
@@ -3050,7 +3116,6 @@ def test_project_easy_specialist_set_patches_prompt_skills_and_launch_payload(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3093,7 +3158,6 @@ def test_project_easy_specialist_set_patches_prompt_skills_and_launch_payload(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3171,7 +3235,6 @@ def test_project_easy_specialist_set_with_skill_preserves_registered_symlink_sou
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3192,7 +3255,6 @@ def test_project_easy_specialist_set_with_skill_preserves_registered_symlink_sou
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3224,7 +3286,6 @@ def test_project_easy_specialist_set_changes_setup_and_removes_old_projection_pr
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3248,7 +3309,6 @@ def test_project_easy_specialist_set_changes_setup_and_removes_old_projection_pr
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3280,7 +3340,7 @@ def test_project_easy_specialist_set_rejects_empty_and_credential_owned_env_upda
 
     empty_result = runner.invoke(
         cli,
-        ["project", "easy", "specialist", "set", "--name", "researcher"],
+        ["project", "specialist", "set", "--name", "researcher"],
     )
     assert empty_result.exit_code != 0
     assert "No specialist updates requested" in empty_result.output
@@ -3290,7 +3350,6 @@ def test_project_easy_specialist_set_rejects_empty_and_credential_owned_env_upda
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3309,7 +3368,6 @@ def test_project_easy_specialist_set_rejects_empty_and_credential_owned_env_upda
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3340,7 +3398,6 @@ def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_sta
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3368,7 +3425,6 @@ def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_sta
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3387,7 +3443,6 @@ def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_sta
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3404,7 +3459,6 @@ def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_sta
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3448,7 +3502,6 @@ def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3467,7 +3520,6 @@ def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3483,7 +3535,6 @@ def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3499,7 +3550,6 @@ def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "set",
             "--name",
@@ -3528,7 +3578,6 @@ def test_project_easy_specialist_create_persists_non_default_setup(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3547,7 +3596,7 @@ def test_project_easy_specialist_create_persists_non_default_setup(
     specialist_payload = json.loads(
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "researcher"],
+            ["project", "specialist", "get", "--name", "researcher"],
         ).output
     )
 
@@ -3574,7 +3623,6 @@ def test_project_easy_specialist_create_persists_default_setup_for_supported_too
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3608,7 +3656,6 @@ def test_project_easy_instance_launch_rejects_gemini_without_headless(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -3628,8 +3675,7 @@ def test_project_easy_instance_launch_rejects_gemini_without_headless(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "gemini-reviewer",
@@ -3649,8 +3695,7 @@ def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) 
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -3680,7 +3725,6 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -3730,8 +3774,7 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -3790,7 +3833,6 @@ def test_project_easy_instance_launch_uses_registered_project_skill_projection(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3848,8 +3890,7 @@ def test_project_easy_instance_launch_uses_registered_project_skill_projection(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -3896,7 +3937,6 @@ def test_project_easy_instance_launch_reloads_symlink_project_skill_after_source
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -3938,8 +3978,7 @@ def test_project_easy_instance_launch_reloads_symlink_project_skill_after_source
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -3956,8 +3995,7 @@ def test_project_easy_instance_launch_reloads_symlink_project_skill_after_source
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -3990,7 +4028,6 @@ def test_project_easy_specialist_create_rejects_credential_owned_env_names(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -4025,7 +4062,6 @@ def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -4041,7 +4077,7 @@ def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(
     assert "researcher-creds" in result.output
 
 
-def test_project_agents_launch_profiles_crud_round_trip(
+def test_native_agent_launch_dossiers_crud_round_trip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4058,7 +4094,6 @@ def test_project_agents_launch_profiles_crud_round_trip(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -4098,10 +4133,9 @@ def test_project_agents_launch_profiles_crud_round_trip(
 
     add_result = runner.invoke(
         cli,
-        [
-            "project",
-            "agents",
-            "launch-profiles",
+        _native_agent_args(
+            repo_root,
+            "launch-dossiers",
             "add",
             "--name",
             "alice",
@@ -4123,130 +4157,64 @@ def test_project_agents_launch_profiles_crud_round_trip(
             "unattended",
             "--env-set",
             "PROJECT_CONTEXT=alice",
-            "--mail-transport",
-            "filesystem",
-            "--mail-principal-id",
-            "alice",
-            "--mail-address",
-            "alice@agents.localhost",
-            "--mail-root",
-            "/mail-root",
             "--gateway-port",
             "9011",
-            "--relaunch-chat-session-mode",
-            "tool_last_or_new",
-            "--prompt-overlay-mode",
-            "append",
-            "--prompt-overlay-text",
-            "Prefer Alice repository conventions.",
-            "--gateway-mail-notifier-appendix-text",
-            "Prefer urgent legal mail before routine updates.",
-            "--memo-seed-text",
-            "Read the Alice memo before you start.",
-        ],
+        ),
     )
 
     assert add_result.exit_code == 0, add_result.output
     add_payload = json.loads(add_result.output)
-    assert add_payload["profile_lane"] == "launch-profile"
+    assert add_payload["resource_kind"] == "launch dossier"
     assert add_payload["recipe"] == "researcher-codex-default"
-    assert {key: value for key, value in add_payload["defaults"].items() if key != "memo_seed"} == {
+    assert add_payload["defaults"] == {
         "agent_name": "alice",
         "agent_id": "agent-alice",
         "workdir": "/repos/alice",
         "auth": "alice-creds",
         "model": {"name": "gpt-5.4-mini", "reasoning": {"level": 4}},
         "prompt_mode": "unattended",
-        "env": {"PROJECT_CONTEXT": "alice"},
-        "mailbox": {
-            "transport": "filesystem",
-            "principal_id": "alice",
-            "address": "alice@agents.localhost",
-            "filesystem_root": "/mail-root",
-        },
+        "env_records": {"PROJECT_CONTEXT": "alice"},
         "posture": {
             "gateway_auto_attach": True,
             "gateway_host": "127.0.0.1",
             "gateway_port": 9011,
         },
-        "managed_header": "inherit",
-        "prompt_overlay": {
-            "mode": "append",
-            "present": True,
-        },
-        "gateway_mail_notifier_appendix": {
-            "present": True,
-            "text": "Prefer urgent legal mail before routine updates.",
-        },
     }
-    _assert_memo_seed_payload(
-        add_payload["defaults"]["memo_seed"],
-        source_kind="memo",
-        relative_path="memo-seeds/launch-profiles/alice/seed",
-    )
-    assert add_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
     assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
     projection_payload = yaml.safe_load(
         (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").read_text(
             encoding="utf-8"
         )
     )
-    assert projection_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
-    assert projection_payload["defaults"]["gateway_mail_notifier_appendix"] == {
-        "text": "Prefer urgent legal mail before routine updates."
-    }
+    assert projection_payload["source"] == {"kind": "recipe", "name": "researcher-codex-default"}
 
     get_result = runner.invoke(
-        cli, ["project", "agents", "launch-profiles", "get", "--name", "alice"]
+        cli,
+        _native_agent_args(repo_root, "launch-dossiers", "get", "--name", "alice"),
     )
     assert get_result.exit_code == 0, get_result.output
     get_payload = json.loads(get_result.output)
     assert get_payload["source"] == {
         "kind": "recipe",
         "name": "researcher-codex-default",
-        "exists": True,
-        "path": str(
-            (
-                repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
-            ).resolve()
-        ),
-        "recipe": "researcher-codex-default",
-        "recipe_path": str(
-            (
-                repo_root / ".houmao" / "agents" / "presets" / "researcher-codex-default.yaml"
-            ).resolve()
-        ),
-        "tool": "codex",
-        "provider": "codex",
-        "role_name": "researcher",
     }
-    _assert_memo_seed_payload(
-        get_payload["defaults"]["memo_seed"],
-        source_kind="memo",
-        relative_path="memo-seeds/launch-profiles/alice/seed",
-    )
-    assert get_payload["defaults"]["gateway_mail_notifier_appendix"] == {
-        "present": True,
-        "text": "Prefer urgent legal mail before routine updates.",
-    }
-    assert get_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
+    assert get_payload["defaults"]["auth"] == "alice-creds"
 
     list_result = runner.invoke(
         cli,
-        [
-            "project",
-            "agents",
-            "launch-profiles",
+        _native_agent_args(
+            repo_root,
+            "launch-dossiers",
             "list",
             "--recipe",
             "researcher-codex-default",
             "--tool",
             "codex",
-        ],
+        ),
     )
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
-    assert [item["name"] for item in list_payload["launch_profiles"]] == ["alice"]
+    assert [item["name"] for item in list_payload["launch_dossiers"]] == ["alice"]
 
     assert (
         runner.invoke(
@@ -4269,73 +4237,25 @@ def test_project_agents_launch_profiles_crud_round_trip(
 
     set_result = runner.invoke(
         cli,
-        [
-            "project",
-            "agents",
-            "launch-profiles",
+        _native_agent_args(
+            repo_root,
+            "launch-dossiers",
             "set",
             "--name",
             "alice",
             "--auth",
             "reviewer-creds",
             "--clear-model",
-        ],
+        ),
     )
     assert set_result.exit_code == 0, set_result.output
     set_payload = json.loads(set_result.output)
     assert set_payload["defaults"]["auth"] == "reviewer-creds"
     assert set_payload["defaults"]["model"] == {"reasoning": {"level": 4}}
-    assert set_payload["defaults"]["mailbox"]["transport"] == "filesystem"
-    assert set_payload["defaults"]["prompt_overlay"]["present"] is True
-    assert set_payload["defaults"]["gateway_mail_notifier_appendix"] == {
-        "present": True,
-        "text": "Prefer urgent legal mail before routine updates.",
-    }
-    _assert_memo_seed_payload(
-        set_payload["defaults"]["memo_seed"],
-        source_kind="memo",
-        relative_path="memo-seeds/launch-profiles/alice/seed",
-    )
-    assert set_payload["relaunch"] == {"chat_session": {"mode": "tool_last_or_new"}}
-
-    appendix_update_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agents",
-            "launch-profiles",
-            "set",
-            "--name",
-            "alice",
-            "--gateway-mail-notifier-appendix-text",
-            "Route billing notes to the backlog.",
-        ],
-    )
-    assert appendix_update_result.exit_code == 0, appendix_update_result.output
-    appendix_update_payload = json.loads(appendix_update_result.output)
-    assert appendix_update_payload["defaults"]["gateway_mail_notifier_appendix"] == {
-        "present": True,
-        "text": "Route billing notes to the backlog.",
-    }
-
-    appendix_clear_result = runner.invoke(
-        cli,
-        [
-            "project",
-            "agents",
-            "launch-profiles",
-            "set",
-            "--name",
-            "alice",
-            "--clear-gateway-mail-notifier-appendix",
-        ],
-    )
-    assert appendix_clear_result.exit_code == 0, appendix_clear_result.output
-    appendix_clear_payload = json.loads(appendix_clear_result.output)
-    assert "gateway_mail_notifier_appendix" not in appendix_clear_payload["defaults"]
 
     remove_result = runner.invoke(
-        cli, ["project", "agents", "launch-profiles", "remove", "--name", "alice"]
+        cli,
+        _native_agent_args(repo_root, "launch-dossiers", "remove", "--name", "alice"),
     )
     assert remove_result.exit_code == 0, remove_result.output
     remove_payload = json.loads(remove_result.output)
@@ -4346,6 +4266,9 @@ def test_project_agents_launch_profiles_crud_round_trip(
     ).is_file()
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profiles own memo seeds."
+)
 def test_project_agents_launch_profiles_set_updates_and_clears_memo_seed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4421,6 +4344,9 @@ def test_project_agents_launch_profiles_set_updates_and_clears_memo_seed(
     assert "memo_seed" not in clear_payload["defaults"]
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profiles own memo seeds."
+)
 def test_project_agents_launch_profiles_reject_conflicting_memo_seed_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -4474,7 +4400,6 @@ def test_project_easy_profile_crud_round_trip(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -4515,7 +4440,6 @@ def test_project_easy_profile_crud_round_trip(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -4545,7 +4469,7 @@ def test_project_easy_profile_crud_round_trip(
 
     assert create_result.exit_code == 0, create_result.output
     create_payload = json.loads(create_result.output)
-    assert create_payload["profile_lane"] == "easy-profile"
+    assert create_payload["profile_lane"] == "profile"
     assert create_payload["specialist"] == "researcher"
     assert create_payload["defaults"]["agent_name"] == "alice"
     assert create_payload["defaults"]["model"] == {
@@ -4567,15 +4491,15 @@ def test_project_easy_profile_crud_round_trip(
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
-    list_result = runner.invoke(cli, ["project", "easy", "profile", "list"])
+    list_result = runner.invoke(cli, ["project", "profile", "list"])
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
     assert [item["name"] for item in list_payload["profiles"]] == ["alice"]
 
-    get_result = runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"])
+    get_result = runner.invoke(cli, ["project", "profile", "get", "--name", "alice"])
     assert get_result.exit_code == 0, get_result.output
     get_payload = json.loads(get_result.output)
-    assert get_payload["profile_lane"] == "easy-profile"
+    assert get_payload["profile_lane"] == "profile"
     assert get_payload["specialist"] == "researcher"
     assert get_payload["defaults"]["auth"] == "alice-creds"
     assert get_payload["defaults"]["gateway_mail_notifier_appendix"] == {
@@ -4588,14 +4512,14 @@ def test_project_easy_profile_crud_round_trip(
         relative_path="memo-seeds/launch-profiles/alice/seed",
     )
 
-    remove_result = runner.invoke(cli, ["project", "easy", "profile", "remove", "--name", "alice"])
+    remove_result = runner.invoke(cli, ["project", "profile", "remove", "--name", "alice"])
     assert remove_result.exit_code == 0, remove_result.output
     remove_payload = json.loads(remove_result.output)
     assert remove_payload["removed"] is True
     assert (
         runner.invoke(
             cli,
-            ["project", "easy", "specialist", "get", "--name", "researcher"],
+            ["project", "specialist", "get", "--name", "researcher"],
         ).exit_code
         == 0
     )
@@ -4614,7 +4538,6 @@ def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -4638,7 +4561,6 @@ def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4659,7 +4581,6 @@ def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4674,7 +4595,6 @@ def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4719,7 +4639,6 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -4754,7 +4673,6 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4805,7 +4723,6 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4827,13 +4744,12 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
         tmp_path,
     )
     memo_seed_path = (tmp_path / "easy-seed.md").resolve()
-    memo_seed_path.write_text("Read the easy profile memo first.\n", encoding="utf-8")
+    memo_seed_path.write_text("Read the project profile memo first.\n", encoding="utf-8")
 
     create_result = runner.invoke(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -4850,13 +4766,12 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
             "alice",
             "--memo-seed-text",
-            "Updated easy profile memo.\n",
+            "Updated project profile memo.\n",
         ],
     )
     assert set_result.exit_code == 0, set_result.output
@@ -4874,13 +4789,12 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
     )
     assert "policy" not in projection["defaults"]["memo_seed"]
     seed_path = Path(projection["defaults"]["memo_seed"]["content_ref"]["path"])
-    assert seed_path.read_text(encoding="utf-8") == "Updated easy profile memo.\n"
+    assert seed_path.read_text(encoding="utf-8") == "Updated project profile memo.\n"
 
     clear_result = runner.invoke(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4905,7 +4819,6 @@ def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -4920,7 +4833,6 @@ def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4940,7 +4852,6 @@ def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -4972,7 +4883,6 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -5009,7 +4919,6 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -5046,6 +4955,9 @@ def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
     assert "relaunch" not in projection
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profiles cover skill policy."
+)
 def test_project_launch_profiles_store_set_and_clear_system_skill_policy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5119,6 +5031,9 @@ def test_project_launch_profiles_store_set_and_clear_system_skill_policy(
     assert "system_skills" not in json.loads(clear_result.output)["defaults"]
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; launch dossiers are covered separately."
+)
 def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5211,6 +5126,9 @@ def test_project_launch_profile_add_yes_replaces_and_clears_omitted_defaults(
     assert "relaunch" not in projection
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; launch dossiers are covered separately."
+)
 def test_project_launch_profile_replacement_requires_yes_noninteractive(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5224,7 +5142,6 @@ def test_project_launch_profile_replacement_requires_yes_noninteractive(
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -5264,7 +5181,6 @@ def test_project_launch_profile_replacement_requires_yes_noninteractive(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -5296,7 +5212,7 @@ def test_project_launch_profile_replacement_requires_yes_noninteractive(
     assert explicit_result.exit_code != 0
     assert "Rerun with `--yes`" in explicit_result.output
     easy_payload = json.loads(
-        runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
+        runner.invoke(cli, ["project", "profile", "get", "--name", "alice"]).output
     )
     explicit_payload = json.loads(
         runner.invoke(
@@ -5309,6 +5225,9 @@ def test_project_launch_profile_replacement_requires_yes_noninteractive(
     assert (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").is_file()
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; cross-lane project checks no longer apply."
+)
 def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5322,7 +5241,6 @@ def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -5368,7 +5286,6 @@ def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -5384,9 +5301,9 @@ def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
     assert easy_over_explicit_result.exit_code != 0
     assert "not an available `easy-profile` definition" in easy_over_explicit_result.output
     assert (
-        json.loads(
-            runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
-        )["profile_lane"]
+        json.loads(runner.invoke(cli, ["project", "profile", "get", "--name", "alice"]).output)[
+            "profile_lane"
+        ]
         == "easy-profile"
     )
     assert (
@@ -5400,6 +5317,9 @@ def test_project_launch_profile_replacement_rejects_cross_lane_conflicts(
     )
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; cross-lane project checks no longer apply."
+)
 def test_project_launch_profiles_wrong_lane_operations_redirect_to_easy_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5413,7 +5333,6 @@ def test_project_launch_profiles_wrong_lane_operations_redirect_to_easy_profile(
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -5450,23 +5369,26 @@ def test_project_launch_profiles_wrong_lane_operations_redirect_to_easy_profile(
     )
 
     assert get_result.exit_code != 0
-    assert "belongs to the easy profile lane" in get_result.output
-    assert "project easy profile get --name alice" in get_result.output
+    assert "belongs to the project profile lane" in get_result.output
+    assert "project profile get --name alice" in get_result.output
 
     assert set_result.exit_code != 0
-    assert "belongs to the easy profile lane" in set_result.output
-    assert "project easy profile set --name alice" in set_result.output
+    assert "belongs to the project profile lane" in set_result.output
+    assert "project profile set --name alice" in set_result.output
 
     assert remove_result.exit_code != 0
-    assert "belongs to the easy profile lane" in remove_result.output
-    assert "project easy profile remove --name alice" in remove_result.output
+    assert "belongs to the project profile lane" in remove_result.output
+    assert "project profile remove --name alice" in remove_result.output
 
     payload = json.loads(
-        runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"]).output
+        runner.invoke(cli, ["project", "profile", "get", "--name", "alice"]).output
     )
     assert payload["defaults"]["workdir"] == "/repos/alice"
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; cross-lane project checks no longer apply."
+)
 def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5496,13 +5418,12 @@ def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile
 
     get_result = runner.invoke(
         cli,
-        ["project", "easy", "profile", "get", "--name", "nightly"],
+        ["project", "profile", "get", "--name", "nightly"],
     )
     set_result = runner.invoke(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -5513,20 +5434,20 @@ def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile
     )
     remove_result = runner.invoke(
         cli,
-        ["project", "easy", "profile", "remove", "--name", "nightly"],
+        ["project", "profile", "remove", "--name", "nightly"],
     )
 
     assert get_result.exit_code != 0
     assert "belongs to the explicit launch-profile lane" in get_result.output
-    assert "project agents launch-profiles get --name nightly" in get_result.output
+    assert "internals native-agent launch-dossiers get --name nightly" in get_result.output
 
     assert set_result.exit_code != 0
     assert "belongs to the explicit launch-profile lane" in set_result.output
-    assert "project agents launch-profiles set --name nightly" in set_result.output
+    assert "internals native-agent launch-dossiers set --name nightly" in set_result.output
 
     assert remove_result.exit_code != 0
     assert "belongs to the explicit launch-profile lane" in remove_result.output
-    assert "project agents launch-profiles remove --name nightly" in remove_result.output
+    assert "internals native-agent launch-dossiers remove --name nightly" in remove_result.output
 
     payload = json.loads(
         runner.invoke(
@@ -5537,6 +5458,9 @@ def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile
     assert payload["defaults"]["workdir"] == "/repos/nightly"
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profile list notes changed."
+)
 def test_project_launch_profiles_list_adds_note_when_only_easy_profiles_exist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5550,7 +5474,6 @@ def test_project_launch_profiles_list_adds_note_when_only_easy_profiles_exist(
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -5568,9 +5491,12 @@ def test_project_launch_profiles_list_adds_note_when_only_easy_profiles_exist(
     payload = json.loads(result.output)
     assert payload["launch_profiles"] == []
     assert "note" in payload
-    assert "project easy profile list" in payload["note"]
+    assert "project profile list" in payload["note"]
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profile list notes changed."
+)
 def test_project_easy_profile_list_adds_note_when_only_explicit_profiles_exist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5596,13 +5522,13 @@ def test_project_easy_profile_list_adds_note_when_only_explicit_profiles_exist(
         == 0
     )
 
-    result = runner.invoke(cli, ["project", "easy", "profile", "list"])
+    result = runner.invoke(cli, ["project", "profile", "list"])
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["profiles"] == []
     assert "note" in payload
-    assert "project agents launch-profiles list" in payload["note"]
+    assert "internals native-agent launch-dossiers list" in payload["note"]
 
 
 def test_project_easy_profile_set_without_updates_fails_without_mutation(
@@ -5617,7 +5543,6 @@ def test_project_easy_profile_set_without_updates_fails_without_mutation(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -5633,11 +5558,11 @@ def test_project_easy_profile_set_without_updates_fails_without_mutation(
         ],
     )
     assert create_result.exit_code == 0, create_result.output
-    before_result = runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"])
+    before_result = runner.invoke(cli, ["project", "profile", "get", "--name", "alice"])
     assert before_result.exit_code == 0, before_result.output
 
-    set_result = runner.invoke(cli, ["project", "easy", "profile", "set", "--name", "alice"])
-    after_result = runner.invoke(cli, ["project", "easy", "profile", "get", "--name", "alice"])
+    set_result = runner.invoke(cli, ["project", "profile", "set", "--name", "alice"])
+    after_result = runner.invoke(cli, ["project", "profile", "get", "--name", "alice"])
 
     assert set_result.exit_code != 0
     assert "No launch-profile updates were requested" in set_result.output
@@ -5645,6 +5570,9 @@ def test_project_easy_profile_set_without_updates_fails_without_mutation(
     assert json.loads(after_result.output) == json.loads(before_result.output)
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profiles cover private skills."
+)
 def test_project_launch_profile_skill_overlays_do_not_register_private_skills(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5765,7 +5693,6 @@ def test_project_easy_profile_private_skill_symlink_can_be_added_and_removed(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -5793,7 +5720,6 @@ def test_project_easy_profile_private_skill_symlink_can_be_added_and_removed(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -5806,6 +5732,9 @@ def test_project_easy_profile_private_skill_symlink_can_be_added_and_removed(
     assert "skills" not in json.loads(remove_result.output)["defaults"]
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profiles cover removed flags."
+)
 def test_project_launch_profile_rejects_removed_persist_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5823,7 +5752,6 @@ def test_project_launch_profile_rejects_removed_persist_options(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -5931,7 +5859,6 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -5973,7 +5900,6 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -6033,8 +5959,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--profile",
             "alice",
@@ -6091,6 +6016,9 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
     assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
 
 
+@pytest.mark.skip(
+    reason="Raw project launch-profile path retired; project profiles cover managed headers."
+)
 def test_project_launch_profile_set_can_clear_managed_header_policy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -6108,7 +6036,6 @@ def test_project_launch_profile_set_can_clear_managed_header_policy(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6238,7 +6165,6 @@ def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6262,7 +6188,6 @@ def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "create",
             "--name",
@@ -6285,7 +6210,6 @@ def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -6303,7 +6227,6 @@ def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
         cli,
         [
             "project",
-            "easy",
             "profile",
             "set",
             "--name",
@@ -6332,7 +6255,6 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6356,7 +6278,6 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -6393,8 +6314,7 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--profile",
             "alice",
@@ -6428,7 +6348,6 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6482,8 +6401,7 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -6536,7 +6454,6 @@ def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6578,8 +6495,7 @@ def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -6601,7 +6517,7 @@ def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points
 
 
 def test_project_easy_instance_launch_help_exposes_workdir() -> None:
-    result = CliRunner().invoke(cli, ["project", "easy", "instance", "launch", "--help"])
+    result = CliRunner().invoke(cli, ["project", "agents", "launch", "--help"])
 
     assert result.exit_code == 0, result.output
     assert "--workdir DIRECTORY" in result.output
@@ -6630,7 +6546,6 @@ def test_project_easy_instance_launch_no_gateway_opt_out(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6672,8 +6587,7 @@ def test_project_easy_instance_launch_no_gateway_opt_out(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -6708,7 +6622,6 @@ def test_project_easy_instance_launch_gateway_port_override(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6750,8 +6663,7 @@ def test_project_easy_instance_launch_gateway_port_override(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -6787,7 +6699,6 @@ def test_project_easy_instance_launch_gateway_background_override(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6829,8 +6740,7 @@ def test_project_easy_instance_launch_gateway_background_override(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -6865,7 +6775,6 @@ def test_project_easy_instance_launch_gateway_background_override_forces_attach_
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -6885,7 +6794,6 @@ def test_project_easy_instance_launch_gateway_background_override_forces_attach_
             cli,
             [
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -6924,8 +6832,7 @@ def test_project_easy_instance_launch_gateway_background_override_forces_attach_
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--profile",
             "alice",
@@ -6960,7 +6867,6 @@ def test_project_easy_instance_launch_gateway_tui_timing_overrides(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7002,8 +6908,7 @@ def test_project_easy_instance_launch_gateway_tui_timing_overrides(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7049,7 +6954,6 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_tui_timing_overrid
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7075,8 +6979,7 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_tui_timing_overrid
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7114,7 +7017,6 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7156,8 +7058,7 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7195,7 +7096,6 @@ def test_project_easy_instance_launch_rejects_conflicting_gateway_flags(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7227,8 +7127,7 @@ def test_project_easy_instance_launch_rejects_conflicting_gateway_flags(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7263,7 +7162,6 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_gateway_background
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7296,8 +7194,7 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_gateway_background
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7570,9 +7467,11 @@ def test_project_easy_instance_launch_requires_specialist_and_name(
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
     monkeypatch.chdir(repo_root)
 
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+
     missing_specialist = runner.invoke(
         cli,
-        ["project", "easy", "instance", "launch", "--name", "repo-research-1"],
+        ["project", "agents", "launch", "--name", "repo-research-1"],
     )
     assert missing_specialist.exit_code != 0
     assert "Provide exactly one of `--specialist` or `--profile`." in missing_specialist.output
@@ -7583,7 +7482,6 @@ def test_project_easy_instance_launch_requires_specialist_and_name(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7605,10 +7503,10 @@ def test_project_easy_instance_launch_requires_specialist_and_name(
 
     missing_name = runner.invoke(
         cli,
-        ["project", "easy", "instance", "launch", "--specialist", "researcher"],
+        ["project", "agents", "launch", "--specialist", "researcher"],
     )
     assert missing_name.exit_code != 0
-    assert "`project easy instance launch --specialist` requires `--name`." in missing_name.output
+    assert "`project agents launch --specialist` requires `--name`." in missing_name.output
 
 
 def test_project_easy_instance_launch_rejects_email_transport(
@@ -7628,7 +7526,6 @@ def test_project_easy_instance_launch_rejects_email_transport(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7652,8 +7549,7 @@ def test_project_easy_instance_launch_rejects_email_transport(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7685,7 +7581,6 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -7709,8 +7604,7 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7746,8 +7640,7 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7817,8 +7710,7 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7883,8 +7775,7 @@ def test_project_easy_instance_launch_forwards_reuse_home(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -7942,8 +7833,7 @@ def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_c
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -8035,8 +7925,7 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--profile",
             "alice",
@@ -8130,8 +8019,7 @@ def test_project_easy_instance_launch_profile_forwards_reuse_home_with_current_p
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--profile",
             "alice",
@@ -8190,8 +8078,7 @@ def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_dele
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -8262,9 +8149,7 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
         ),
     )
 
-    result = runner.invoke(
-        cli, ["project", "easy", "instance", "stop", "--name", "repo-research-1"]
-    )
+    result = runner.invoke(cli, ["project", "agents", "stop", "--name", "repo-research-1"])
 
     assert result.exit_code == 0, result.output
     assert stop_calls == [target]
@@ -8290,9 +8175,7 @@ def test_project_easy_instance_stop_fails_without_bootstrapping_missing_overlay(
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
 
-    result = runner.invoke(
-        cli, ["project", "easy", "instance", "stop", "--name", "repo-research-1"]
-    )
+    result = runner.invoke(cli, ["project", "agents", "stop", "--name", "repo-research-1"])
 
     assert result.exit_code != 0
     assert str((repo_root / ".houmao").resolve()) in result.output
@@ -8340,9 +8223,7 @@ def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
         },
     )
 
-    result = runner.invoke(
-        cli, ["project", "easy", "instance", "stop", "--name", "repo-research-1"]
-    )
+    result = runner.invoke(cli, ["project", "agents", "stop", "--name", "repo-research-1"])
 
     assert result.exit_code != 0
     assert "does not belong to the selected project overlay" in result.output
@@ -8366,7 +8247,6 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
             cli,
             [
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -8464,7 +8344,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
         lambda path: manifest_payload,
     )
 
-    list_result = runner.invoke(cli, ["project", "easy", "instance", "list"])
+    list_result = runner.invoke(cli, ["project", "agents", "list"])
     assert list_result.exit_code == 0
     list_payload = json.loads(list_result.output)
     assert len(list_payload["instances"]) == 1
@@ -8490,9 +8370,7 @@ def test_project_easy_instance_list_and_get_use_runtime_state(
         "bindings_version": "2026-03-29T12:00:00Z",
     }
 
-    get_result = runner.invoke(
-        cli, ["project", "easy", "instance", "get", "--name", "repo-research-1"]
-    )
+    get_result = runner.invoke(cli, ["project", "agents", "get", "--name", "repo-research-1"])
     assert get_result.exit_code == 0
     get_payload = json.loads(get_result.output)
     assert get_payload["specialist"] == "researcher"

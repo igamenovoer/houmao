@@ -42,7 +42,7 @@ Common starting prompts:
 
 Related skills and boundaries:
 
-- Use `houmao-agent-definition` to change stored `--auth` overrides on easy or raw launch profiles.
+- Use `houmao-agent-definition` to change stored `--auth` overrides on project profiles or native launch dossiers.
 - Use `houmao-project-mgr` for project overlay lifecycle and status.
 - Use `houmao-agent-instance` for launch, join, list, stop, or cleanup.
 - Do not use this skill for direct filesystem editing under credential storage directories.
@@ -62,13 +62,13 @@ This packaged skill covers exactly these credential actions:
 
 This packaged skill does not cover:
 
-- `houmao-mgr project easy specialist ...`
-- `houmao-mgr project easy profile ...`
-- `houmao-mgr project easy instance ...`
+- `houmao-mgr project specialist ...`
+- `houmao-mgr project profile ...`
+- `houmao-mgr project agents ...`
 - `houmao-mgr agents launch|join|list|stop|cleanup`
-- `houmao-mgr project agents launch-profiles ...`
-- `houmao-mgr project agents tools <tool> setups ...`
-- `houmao-mgr project agents roles ...`
+- `houmao-mgr internals native-agent launch-dossiers ...`
+- `houmao-mgr internals native-agent tools <tool> setups ...`
+- `houmao-mgr internals native-agent roles ...`
 - `houmao-mgr project mailbox ...`
 - `houmao-mgr agents cleanup mailbox`
 - `houmao-mgr admin cleanup runtime ...`
@@ -82,8 +82,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
 2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
-   - easy-profile auth override work belongs to `houmao-agent-definition`
-   - raw-profile auth override work belongs to `houmao-agent-definition` subcommand `raw-profiles`, not to credential CRUD
+   - project-profile auth override work belongs to `houmao-agent-definition`
+   - launch-dossier auth override work belongs to `houmao-agent-definition` subcommand `launch-dossiers`, not to credential CRUD
 3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
 4. Choose one `houmao-mgr` launcher for the current turn:
    - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
@@ -136,7 +136,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Use `actions/login.md` only when the user wants to run a provider login flow for a fresh Claude, Codex, or Gemini account and import the resulting auth files into Houmao storage.
 - Use `actions/rename.md` only when the user wants to rename one existing credential.
 - Use `actions/remove.md` only when the user wants to remove one existing credential.
-- When the user wants to change the stored `--auth` override on an easy profile or explicit launch profile, do not use this skill's action pages; that is profile authoring rather than credential mutation.
+- When the user wants to change the stored `--auth` override on a project profile or native launch dossier, do not use this skill's action pages; that is profile or launch-dossier authoring rather than credential mutation.
 
 ## Guardrails
 
@@ -145,7 +145,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not scan env vars, tool homes, home directories, or unrelated filesystem locations to infer missing credential inputs unless the user explicitly asks for that narrower inspection.
 - Do not print raw secret values or raw auth-file contents when `get` already provides safe redacted inspection.
 - Do not hand-roll provider-login temp directories, manual provider command invocation, auth-file copying, or temp cleanup when `houmao-mgr credentials <tool> login` owns that ordinary workflow.
-- Do not treat changing an easy profile or explicit launch profile `--auth` override as credential CRUD.
+- Do not treat changing a project profile or native launch dossier `--auth` override as credential CRUD.
 - Do not imply that project-backed rename changes underlying bundle identity; it is metadata-only rename.
 - Do not imply that direct-dir rename is a no-op for maintained references; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
 - Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from datetime import timedelta
@@ -21,7 +22,7 @@ from houmao.project.overlay import (
     resolve_materialized_project_aware_agent_def_dir,
 )
 
-from .agent_identity import is_path_like_agent_identity
+from .agent_identity import AGENT_DEF_DIR_ENV_VAR, is_path_like_agent_identity
 from .errors import BrainLaunchRuntimeError
 from .loaders import load_blueprint, load_brain_recipe_from_path
 from .mail_commands import (
@@ -972,6 +973,15 @@ def _resolve_agent_def_dir(cli_value: str | None, *, cwd: Path) -> Path:
     """Resolve the ambient agent-definition root for deprecated runtime entrypoints."""
 
     try:
+        if cli_value is None:
+            env_value = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
+            if env_value is not None and env_value.strip():
+                env_path = Path(env_value).expanduser()
+                if not env_path.is_absolute():
+                    raise BrainLaunchRuntimeError(
+                        f"`{AGENT_DEF_DIR_ENV_VAR}` must be an absolute path."
+                    )
+                return env_path.resolve()
         return resolve_materialized_project_aware_agent_def_dir(cwd=cwd, cli_value=cli_value)
     except ValueError as exc:
         raise BrainLaunchRuntimeError(str(exc)) from exc

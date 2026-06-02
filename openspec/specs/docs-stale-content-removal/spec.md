@@ -144,7 +144,7 @@ All files under `docs/` SHALL be swept for occurrences of the bare skill identif
 
 The sweep SHALL distinguish:
 
-- legitimate prose use of the noun "specialist" (in phrases like "easy specialist", "specialist creation", "specialist-backed launch") — left unchanged,
+- legitimate prose use of the noun "specialist" (in phrases like "specialist", "specialist creation", "specialist-backed launch") — left unchanged,
 - the legacy skill identifier `specialist` or `houmao-create-specialist` used as a current packaged skill — replaced with `houmao-specialist-mgr`.
 
 Each replacement SHALL be reviewed in context for accuracy.
@@ -157,7 +157,7 @@ Each replacement SHALL be reviewed in context for accuracy.
 
 #### Scenario: Prose use of "specialist" is preserved
 
-- **WHEN** a doc page uses "specialist" as a noun (e.g., "easy specialist", "specialist creation flow")
+- **WHEN** a doc page uses "specialist" as a noun (e.g., "specialist", "specialist creation flow")
 - **THEN** the sweep does not rewrite that prose use into `houmao-specialist-mgr`
 - **AND THEN** only the literal skill identifier is rewritten
 

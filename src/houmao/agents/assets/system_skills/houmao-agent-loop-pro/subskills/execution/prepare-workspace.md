@@ -38,7 +38,7 @@ Use when present:
    - operation: `plan`, `create`, `validate`, or `summarize`;
    - workspace flavor, defaulting to `in-repo` when unspecified and supported;
    - task name, repo root, and workspace root policy;
-   - concrete agent ids, workspace agent names, and easy profile or explicit raw launch profile names prepared by `prepare-agents`;
+   - concrete agent ids, workspace agent names, and project profile or explicit raw launch profile names prepared by `prepare-agents`;
    - launch cwd policy;
    - per-agent work roots, `shared-kb`, `owner-states`, per-agent `states`, shared resources, and read/write rules;
    - project-scope validation commands or documented safe project commands;

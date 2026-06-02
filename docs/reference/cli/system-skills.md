@@ -32,7 +32,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files across relaunch, reset, and `recover_and_continue` flows
 - `houmao-project-mgr` for project overlay lifecycle, `.houmao/` layout explanation, project-aware command effects, and project-scoped easy-instance inspection or stop routing
-- `houmao-agent-definition` for subcommands `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`; `raw-profiles` maps to the underlying `project agents launch-profiles ...` CLI, while ordinary profile wording defaults to easy `profiles`
+- `houmao-agent-definition` for subcommands `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`; `launch-dossiers` maps to the underlying `internals native-agent launch-dossiers ...` CLI, while ordinary profile wording defaults to easy `profiles`
 - `houmao-specialist-mgr` as a compatibility wrapper that redirects older specialist/profile/ready-profile prompts to `houmao-agent-definition`
 - `houmao-credential-mgr` for project-local and plain-agent-definition-directory credential management
 - `houmao-agent-instance` for live managed-agent instance lifecycle
@@ -109,7 +109,7 @@ Current fixed auto-install selections:
 - managed join: `core`
 - CLI default: `all`
 
-Managed launch can override the managed-launch default per source/profile. Source recipes and easy specialists support `default`, `extend`, `replace`, and `none`; launch profiles support `inherit`, `extend`, `replace`, and `none`. The shared managed-home sync removes unselected current Houmao-owned skill paths from reused managed homes and leaves unrelated user skills alone.
+Managed launch can override the managed-launch default per source/profile. Source recipes and specialists support `default`, `extend`, `replace`, and `none`; launch profiles support `inherit`, `extend`, `replace`, and `none`. The shared managed-home sync removes unselected current Houmao-owned skill paths from reused managed homes and leaves unrelated user skills alone.
 
 ## Current Skill Inventory
 
@@ -354,7 +354,7 @@ Use `system-skills` when:
 Do not use it for:
 
 - project-local user skills under `.houmao/agents/`
-- easy specialists or recipe-selected project skills
+- specialists or recipe-selected project skills
 - mailbox registration itself; that still uses `houmao-mgr mailbox ...` and `houmao-mgr agents mailbox ...`
 
 ## Related References

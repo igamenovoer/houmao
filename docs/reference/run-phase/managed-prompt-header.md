@@ -66,7 +66,7 @@ flowchart LR
 
 1. **Source role prompt.** The role's `system-prompt.md` content is loaded as the base prompt.
 2. **Prompt-overlay resolution.** When the resolved launch profile carries a prompt overlay, it is composed onto the base prompt with mode `append` or `replace`. Append concatenates with a blank-line separator; replace substitutes the overlay text.
-3. **Launch appendix append.** When `houmao-mgr agents launch` or `houmao-mgr project easy instance launch` receives `--append-system-prompt-text` or `--append-system-prompt-file`, that one-shot appendix is appended after overlay resolution for the current launch only. It never rewrites the source role prompt or a stored profile.
+3. **Launch appendix append.** When `houmao-mgr agents launch` or `houmao-mgr project agents launch` receives `--append-system-prompt-text` or `--append-system-prompt-file`, that one-shot appendix is appended after overlay resolution for the current launch only. It never rewrites the source role prompt or a stored profile.
 4. **Structured render.** Houmao renders the effective prompt into `<houmao_system_prompt>`. When the whole header is enabled and at least one section is enabled, `<managed_header>` appears before `<prompt_body>` and contains enabled child sections in this fixed order: `<identity>`, `<memo_cue>`, `<houmao_runtime_guidance>`, `<automation_notice>`, `<task_reminder>`, `<mail_ack>`. Inside `<prompt_body>`, section order is `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` when those sections participate. If overlay mode is `replace`, `<role_prompt>` is omitted.
 5. **Backend role injection.** The per-backend role-injection plan delivers that final composed prompt to the underlying CLI tool. See [Role Injection](role-injection.md) for the per-backend mechanism (`native_developer_instructions`, `native_append_system_prompt`, `bootstrap_message`, etc.).
 
@@ -97,9 +97,9 @@ The launch-time flags are exposed on every supported managed launch surface:
 | Command | Per-launch flags | Notes |
 |---|---|---|
 | `houmao-mgr agents launch` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Whole-header flags are mutually exclusive and win over the resolved launch profile when one is selected. Section overrides are one-shot and win over stored section policy for the named section only. |
-| `houmao-mgr project easy instance launch` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Whole-header flags are mutually exclusive and win over the stored easy-profile policy when launching from `--profile`. Section overrides are one-shot and win over stored section policy for the named section only. |
+| `houmao-mgr project agents launch` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Whole-header flags are mutually exclusive and win over the stored project-profile policy when launching from `--profile`. Section overrides are one-shot and win over stored section policy for the named section only. |
 
-Those same launch surfaces also accept one-shot prompt appendix input through `--append-system-prompt-text` and `--append-system-prompt-file`. Those options are mutually exclusive, append after overlay resolution inside `<prompt_body>`, and do not rewrite stored launch profiles or easy profiles.
+Those same launch surfaces also accept one-shot prompt appendix input through `--append-system-prompt-text` and `--append-system-prompt-file`. Those options are mutually exclusive, append after overlay resolution inside `<prompt_body>`, and do not rewrite stored launch profiles or project profiles.
 
 For full flag-level coverage, see the [`houmao-mgr` CLI reference](../cli/houmao-mgr.md) section on `agents launch` source-selector and launch-profile rules.
 
@@ -111,16 +111,16 @@ The stored field interacts with the launch-time flags on three surfaces:
 
 | Stored-policy command | Stored field | Behavior |
 |---|---|---|
-| `houmao-mgr project agents launch-profiles add` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Sets stored whole-header and section policy on a new explicit launch profile. Omitting whole-header flags stores `inherit`; omitting section flags stores no section policy entries. |
-| `houmao-mgr project agents launch-profiles set` | `--managed-header` / `--no-managed-header` / `--clear-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--clear-managed-header-section SECTION`, `--clear-managed-header-sections` | Patches stored whole-header and section policy on an existing launch profile. `--clear-managed-header` resets the whole-header field to `inherit`; section clear flags remove one or all stored section policy entries. |
-| `houmao-mgr project easy profile create` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Sets stored whole-header and section policy on a new easy profile. Omitting whole-header flags stores `inherit`; omitting section flags stores no section policy entries. |
-| `houmao-mgr project easy profile set` | `--managed-header` / `--no-managed-header` / `--clear-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--clear-managed-header-section SECTION`, `--clear-managed-header-sections` | Patches stored whole-header and section policy on an existing easy profile. |
+| `houmao-mgr internals native-agent launch-dossiers add` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Sets stored whole-header and section policy on a new explicit launch profile. Omitting whole-header flags stores `inherit`; omitting section flags stores no section policy entries. |
+| `houmao-mgr internals native-agent launch-dossiers set` | `--managed-header` / `--no-managed-header` / `--clear-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--clear-managed-header-section SECTION`, `--clear-managed-header-sections` | Patches stored whole-header and section policy on an existing launch profile. `--clear-managed-header` resets the whole-header field to `inherit`; section clear flags remove one or all stored section policy entries. |
+| `houmao-mgr project profile create` | `--managed-header` / `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled` | Sets stored whole-header and section policy on a new project profile. Omitting whole-header flags stores `inherit`; omitting section flags stores no section policy entries. |
+| `houmao-mgr project profile set` | `--managed-header` / `--no-managed-header` / `--clear-managed-header`, `--managed-header-section SECTION=enabled|disabled`, `--clear-managed-header-section SECTION`, `--clear-managed-header-sections` | Patches stored whole-header and section policy on an existing project profile. |
 
 `--clear-managed-header` is the only way to return a stored field to `inherit` after it has been set explicitly. It does not change the launch-time default-on fallback — it just stops the stored profile from forcing a value.
 
 Section clear flags affect only `managed_header_section_policy`. They do not change the whole-header policy, and clearing a section entry means future launches return to that section's default unless a launch-time override supplies a value.
 
-For the shared profile model that ties easy profiles to explicit launch profiles, see [Launch Profiles](../../getting-started/launch-profiles.md).
+For the shared profile model that ties project profiles to native launch dossiers, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
 ## Resolution Examples
 
@@ -158,6 +158,6 @@ When troubleshooting whether an agent is acting as if it has the header context,
 
 ## See Also
 
-- [Launch Profiles](../../getting-started/launch-profiles.md) — shared launch-profile model and how easy profiles and explicit launch profiles persist managed-header whole-header and section policy.
+- [Launch Profiles](../../getting-started/launch-profiles.md) — shared launch-profile model and how project profiles and native launch dossiers persist managed-header whole-header and section policy.
 - [Role Injection](role-injection.md) — per-backend mechanism that delivers the final composed prompt to the underlying CLI.
 - [`houmao-mgr` CLI reference](../cli/houmao-mgr.md) — flag-level coverage of `--managed-header`, `--no-managed-header`, `--managed-header-section`, and the stored-profile clear flags on the launch and launch-profile commands.

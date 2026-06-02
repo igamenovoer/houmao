@@ -37,7 +37,7 @@ That flow SHALL:
 - use a launch workdir under `tmp/<subdir>`
 - materialize a fresh temporary plain agent-definition root derived from `tests/fixtures/plain-agent-def/`
 - materialize `tools/claude/auth/official-login/` in that temporary direct-dir root from `tests/fixtures/auth-bundles/claude/official-login/`
-- set `HOUMAO_AGENT_DEF_DIR` to that temporary direct-dir root
+- set `HOUMAO_NATIVE_AGENT_ROOT` to that temporary direct-dir root
 - launch the existing `server-api-smoke` Claude preset through maintained `houmao-mgr agents launch`
 - run with `--provider claude_code`
 - override auth selection to `--auth official-login`
@@ -50,7 +50,7 @@ The expected outcome SHALL be a successful Claude launch that uses the fresh tem
 - **THEN** the command executes from a workdir under `tmp/`
 - **AND THEN** it creates one temporary direct-dir agent-definition root derived from `tests/fixtures/plain-agent-def/`
 - **AND THEN** it materializes `official-login` into that temporary root from `tests/fixtures/auth-bundles/claude/official-login/`
-- **AND THEN** it sets `HOUMAO_AGENT_DEF_DIR` to that temporary root
+- **AND THEN** it sets `HOUMAO_NATIVE_AGENT_ROOT` to that temporary root
 - **AND THEN** it launches `server-api-smoke` with `--provider claude_code --auth official-login --headless`
 
 #### Scenario: Smoke flow proves projected vendor login-state works without a state template

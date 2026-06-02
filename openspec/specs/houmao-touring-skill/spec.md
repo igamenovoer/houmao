@@ -51,7 +51,7 @@ The touring skill SHALL present these stages as learning progression and navigat
 ### Requirement: `houmao-touring` uses stage-aware next touring actions
 After orientation and after each completed branch, the packaged `houmao-touring` skill SHALL offer next touring actions that match the user's current stage and inspected state.
 
-Beginner next actions SHALL prefer the next useful onboarding step, such as choosing a tool, preparing credentials, creating a specialist, creating an optional easy profile, initializing mailbox basics, launching an agent, or sending the first prompt.
+Beginner next actions SHALL prefer the next useful onboarding step, such as choosing a tool, preparing credentials, creating a specialist, creating an optional project profile, initializing mailbox basics, launching an agent, or sending the first prompt.
 
 Intermediate next actions SHALL prefer live operation and manual coordination, such as sending another prompt, inspecting live or mailbox state, adding or reading memo context, sending mailbox work, enabling or checking mail-notifier posture, processing a notifier-reported mail round, launching a second agent, or coordinating agents manually.
 
@@ -86,7 +86,7 @@ At minimum, the beginner-stage touring branches SHALL cover:
 - tool selection,
 - credential readiness,
 - specialist creation,
-- optional reusable easy profile creation,
+- optional reusable project profile creation,
 - managed-agent launch,
 - first direct prompt or conversation with the launched agent.
 
@@ -118,7 +118,7 @@ After completing any branch, the touring skill SHALL allow the user to return to
 
 #### Scenario: Existing project with specialists can branch to authoring or launch work
 - **WHEN** the guided tour finds an existing project overlay and one or more reusable specialists
-- **THEN** it explains that the user can either create another specialist, create an optional easy profile, or launch an agent from the current beginner-stage foundation
+- **THEN** it explains that the user can either create another specialist, create an optional project profile, or launch an agent from the current beginner-stage foundation
 - **AND THEN** it does not restart the tour from project initialization as though prior state were absent
 
 #### Scenario: Post-launch touring can move to intermediate operation
@@ -134,7 +134,7 @@ At minimum, the touring skill SHALL route:
 - project overlay work to `houmao-project-mgr`,
 - mailbox administration work to `houmao-mailbox-mgr`,
 - credential readiness and credential content work to `houmao-credential-mgr` when credential mutation or inspection is needed,
-- specialist, easy profile, raw profile, create-agent-fast-forward, and specialist-backed easy-instance launch work to `houmao-agent-definition`,
+- specialist, project profile, launch dossier, create-agent-fast-forward, and specialist-backed easy-instance launch work to `houmao-agent-definition`,
 - generic managed-agent inspection, live screen watching, mailbox-posture inspection, logs, turn-state evidence, and runtime artifact inspection to `houmao-agent-inspect`,
 - managed-agent prompt, interrupt, raw input, or mailbox-routing entry to `houmao-agent-messaging`,
 - gateway lifecycle, gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`,
@@ -214,7 +214,7 @@ For lifecycle follow-up, the touring skill SHALL explain ambiguous terms before 
 ### Requirement: `houmao-touring` distinguishes mailbox-root setup from mailbox-account ownership choices
 When the packaged `houmao-touring` skill offers project-local mailbox setup, it SHALL describe mailbox-root bootstrap as distinct from mailbox-account creation.
 
-When the user's intended next step is to launch one or more specialist-backed easy instances with ordinary filesystem mailbox identities derived from managed-agent names, the touring skill SHALL explain that per-agent mailbox registration may be owned by the later `project easy instance launch` step rather than by an immediate `project mailbox register` step.
+When the user's intended next step is to launch one or more specialist-backed easy instances with ordinary filesystem mailbox identities derived from managed-agent names, the touring skill SHALL explain that per-agent mailbox registration may be owned by the later `project agents launch` step rather than by an immediate `project mailbox register` step.
 
 When the user instead wants a standalone shared, team, operator-facing, or otherwise manually named mailbox account that is not being created by an immediate easy-instance launch, the touring skill SHALL describe that as manual mailbox-account administration and SHALL route that work through `houmao-mailbox-mgr`.
 
@@ -390,7 +390,7 @@ The advanced guidance SHALL NOT restate generated loop templates, topology contr
 
 The packaged `houmao-touring` skill SHALL ship a concepts reference file at `references/concepts.md` inside its packaged asset directory.
 
-That concepts reference SHALL be a compact self-contained glossary of the vocabulary the tour uses, including at minimum `specialist`, `easy profile`, `launch profile`, `managed agent`, `recipe`, `tool adapter`, `project overlay`, `gateway`, `gateway sidecar`, `mailbox root`, `mailbox account`, `principal id`, `user agent`, `master`, `loop plan`, `relaunch`, and `cleanup`.
+That concepts reference SHALL be a compact self-contained glossary of the vocabulary the tour uses, including at minimum `specialist`, `project profile`, `launch profile`, `managed agent`, `recipe`, `tool adapter`, `project overlay`, `gateway`, `gateway sidecar`, `mailbox root`, `mailbox account`, `principal id`, `user agent`, `master`, `loop plan`, `relaunch`, and `cleanup`.
 
 Each glossary entry SHALL be short (roughly one to three sentences) and SHALL cross-reference the owning Houmao-owned skill when such a skill exists, so that deeper detail remains on the owning skill rather than duplicated in the glossary.
 
@@ -407,7 +407,7 @@ The touring `SKILL.md` and touring branch pages SHALL be allowed to cite `refere
 #### Scenario: Concepts reference covers the minimum vocabulary
 
 - **WHEN** the tour cites the concepts reference during an explanation
-- **THEN** the reference defines `specialist`, `easy profile`, `launch profile`, `managed agent`, `recipe`, `tool adapter`, `project overlay`, `gateway`, `gateway sidecar`, `mailbox root`, `mailbox account`, `principal id`, `user agent`, `master`, `loop plan`, `relaunch`, and `cleanup`
+- **THEN** the reference defines `specialist`, `project profile`, `launch profile`, `managed agent`, `recipe`, `tool adapter`, `project overlay`, `gateway`, `gateway sidecar`, `mailbox root`, `mailbox account`, `principal id`, `user agent`, `master`, `loop plan`, `relaunch`, and `cleanup`
 - **AND THEN** each entry stays compact and cross-references the owning skill when applicable
 
 ### Requirement: `houmao-touring` content is self-contained inside its packaged asset directory

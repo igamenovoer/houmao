@@ -299,7 +299,7 @@ The README "CLI Entry Points" subsection SHALL either list `houmao-mgr credentia
 #### Scenario: Operator discovers credentials from the README entry point view
 - **WHEN** an operator reads the README "CLI Entry Points" table
 - **THEN** the page either shows `houmao-mgr credentials` in the table or surfaces it in a neighboring paragraph with a cross-link to the CLI reference section
-- **AND THEN** the reader is not forced to read the narrower `project easy` examples to discover that a first-class credential-management surface exists
+- **AND THEN** the reader is not forced to read the narrower `project` examples to discover that a first-class credential-management surface exists
 
 ### Requirement: README surfaces internals graph as a discoverable command group
 
@@ -378,19 +378,19 @@ The README SHALL distinguish `houmao-utils-workspace-mgr` from lifecycle skills 
 - **AND THEN** the entry describes workspace preparation rather than live managed-agent lifecycle operation
 
 ### Requirement: README system-skill prose describes unified agent definition
-README system-skill prose SHALL describe `houmao-agent-definition` as the canonical skill for low-level roles and recipes, `raw-profiles`, specialists, easy `profiles`, and `create-agent-fast-forward`.
+README system-skill prose SHALL describe `houmao-agent-definition` as the canonical skill for low-level roles and recipes, `launch-dossiers`, specialists, easy `profiles`, and `create-agent-fast-forward`.
 
 README prose SHALL NOT present `houmao-specialist-mgr` as the current independent canonical specialist-management skill after the unification.
 
 #### Scenario: README user-control inventory is not split by specialist manager
 - **WHEN** a reader checks the README system-skill inventory
 - **THEN** the reader sees `houmao-agent-definition` covering both low-level and easy agent-definition workflows
-- **AND THEN** the README does not require the reader to choose `houmao-specialist-mgr` for ordinary specialist or easy-profile authoring
+- **AND THEN** the README does not require the reader to choose `houmao-specialist-mgr` for ordinary specialist or project-profile authoring
 
 #### Scenario: README names default profile terminology
 - **WHEN** a reader checks the README system-skill inventory for profile authoring
-- **THEN** easy-profile authoring is named as `profiles`
-- **AND THEN** low-level recipe-backed profiles are named as `raw-profiles`
+- **THEN** project-profile authoring is named as `profiles`
+- **AND THEN** low-level recipe-backed profiles are named as `launch-dossiers`
 
 ### Requirement: README system-skills narrative lists pro as the loop skill
 The README system-skills sections SHALL list `houmao-agent-loop-pro` as the current packaged loop skill.

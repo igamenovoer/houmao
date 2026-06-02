@@ -1,12 +1,12 @@
-# Launch Easy Instance
+# Launch Project Managed Agent
 
-Use this subskill only when the user wants to launch one project-easy managed agent from an existing specialist or easy profile.
+Use this subskill only when the user wants to launch one project managed agent from an existing specialist or project profile.
 
 ## Preconditions
 
 - Read [../common/launcher.md](../common/launcher.md).
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
-- Use this subskill for `project easy instance launch`, not for general `agents launch`.
+- Use this subskill for `project agents launch`, not for general `agents launch`.
 
 ## Workflow
 
@@ -14,8 +14,8 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 2. Recover explicit launch inputs from the prompt and recent stated context.
 3. For specialist launch, require specialist name and managed-agent name.
 4. For profile launch, require profile name.
-5. If profile launch lacks a managed-agent name, inspect the profile with `project easy profile get --name <profile>` to see whether it stores one.
-6. Render `project.easy.instance.launch` with only explicit source, identity, and one-shot override fields.
+5. If profile launch lacks a managed-agent name, inspect the profile with `project profile get --name <profile>` to see whether it stores one.
+6. Render `project.agents.launch` with only explicit source, identity, and one-shot override fields.
 7. If render output has blockers, recover missing or conflicting inputs before launching.
 8. Run the rendered `argv`, omitting `--headless` when launch posture is unspecified and TUI/local-interactive launch is supported.
 9. Report the launched instance identity and command output.
@@ -24,7 +24,7 @@ Use this subskill only when the user wants to launch one project-easy managed ag
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.easy.instance.launch --intent '<json>'
+<chosen houmao-mgr launcher> --print-json internals command-templates render --id project.agents.launch --intent '<json>'
 ```
 
 Run the rendered `argv` if there are no blockers.
@@ -58,7 +58,7 @@ Run the rendered `argv` if there are no blockers.
 - Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
 - Default launch-time gateway auto-attach uses foreground same-session auxiliary-window execution when supported.
 - A headless managed-agent launch, including a required Gemini headless launch, does not by itself justify `--gateway-background`.
-- Unlike `project easy profile create`, launch does not accept declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
+- Unlike `project profile create`, launch does not accept declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
 - For launch-time filesystem mailbox support, use `--mail-transport filesystem`, `--mail-root <shared-root>`, and optional `--mail-account-dir <private-path>`.
 - When launch derives the ordinary filesystem mailbox identity, `--name` seeds the managed-agent mailbox address and principal id.
 - `--mail-account-dir` is a private filesystem mailbox directory outside the shared root that launch symlinks into the shared root.
@@ -71,7 +71,7 @@ Run the rendered `argv` if there are no blockers.
 - Do not route specialist-backed launch through `agents launch`.
 - Do not route profile-backed launch through `agents launch`.
 - Do not add `--headless` by default for TUI-capable tools.
-- Do not hand-author the launch command when `project.easy.instance.launch` can render it.
+- Do not hand-author the launch command when `project.agents.launch` can render it.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
-- Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled easy launch.
+- Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled project launch.
 - Do not describe `--workdir` as changing the source project, specialist source, selected overlay, runtime root, jobs root, or mailbox root.

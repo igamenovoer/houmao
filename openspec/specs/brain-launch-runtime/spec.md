@@ -64,12 +64,12 @@ The runtime SHALL provide an explicit force-cleanup path that terminates the tmu
 ### Requirement: Deprecated standalone build and start entrypoints use config-first `.houmao` agent-definition resolution
 Deprecated standalone build/start entrypoints SHALL resolve agent-definition roots with this precedence:
 1. explicit CLI `--agent-def-dir`
-2. `HOUMAO_AGENT_DEF_DIR`
+2. `HOUMAO_NATIVE_AGENT_ROOT`
 3. nearest ancestor `.houmao/houmao-config.toml`
 4. default `<cwd>/.houmao/agents`
 
 #### Scenario: Env-var override wins for deprecated standalone build/start entrypoints
-- **WHEN** `HOUMAO_AGENT_DEF_DIR=/tmp/agents`
+- **WHEN** `HOUMAO_NATIVE_AGENT_ROOT=/tmp/agents`
 - **AND WHEN** no explicit CLI `--agent-def-dir` is supplied
 - **THEN** the effective agent-definition root is `/tmp/agents`
 ### Requirement: `codex_app_server` remains explicit opt-in during one deprecation window
@@ -202,7 +202,7 @@ At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
 - gateway mail-notifier appendix default
 - launch provenance
 
-The resulting build manifest or runtime launch metadata SHALL preserve profile provenance in a secret-free form sufficient for inspection and replay, including whether the birth-time config came from an easy profile or an explicit launch profile.
+The resulting build manifest or runtime launch metadata SHALL preserve profile provenance in a secret-free form sufficient for inspection and replay, including whether the birth-time config came from an project profile or an explicit launch profile.
 
 When a launch-profile-derived gateway mail-notifier appendix default is present, the launch/runtime pipeline SHALL materialize that value into the runtime-owned gateway notifier state for the new session even if notifier polling starts disabled.
 
@@ -1202,11 +1202,11 @@ Changing runtime parsing mode SHALL NOT redefine the active Houmao identity or a
 - **THEN** both sessions persist canonical `HOUMAO-...` identity metadata
 - **AND THEN** both sessions publish `HOUMAO_MANIFEST_PATH` and related `HOUMAO_*` discovery variables rather than reverting to `AGENTSYS_*`
 ### Requirement: Name-addressed tmux-backed session control SHALL recover `agent_def_dir` from session environment
-Name-addressed tmux-backed control SHALL prefer the tmux-published `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR` values when they are present and valid.
+Name-addressed tmux-backed control SHALL prefer the tmux-published `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT` values when they are present and valid.
 
 #### Scenario: Name-addressed control recovers the agent-definition root from HOUMAO tmux env
 - **WHEN** tmux session `HOUMAO-chris` exists
-- **AND WHEN** that tmux session publishes valid `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR` values
+- **AND WHEN** that tmux session publishes valid `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT` values
 - **THEN** name-addressed tmux-backed session control resolves the manifest and effective agent-definition root from those `HOUMAO_*` values
 ### Requirement: Runtime-launched agent subprocess env injects loopback `NO_PROXY` by default
 For supported loopback compatibility base URLs, the runtime SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
@@ -1669,7 +1669,7 @@ When the runtime starts or resumes control of a tmux-backed session whose regist
 
 The runtime SHALL determine whether it is the launch authority for shared-registry creation from explicit runtime-readable launch metadata associated with that live session or authority record, rather than inferring launch authority from the current registry contents alone.
 
-By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
+By default, the effective shared-registry root SHALL be `<platformdirs user config>/registry`.
 
 When `HOUMAO_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
 
@@ -1679,7 +1679,7 @@ When runtime publication code receives an agent name in namespace-free form, it 
 
 For a given live tmux-backed session whose launch authority is the runtime, the runtime SHALL persist and reuse the same shared-registry `generation_id` across later refreshes and resume-driven republishes of that same session.
 
-That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
+That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `HOUMAO_MANIFEST_PATH`, `HOUMAO_NATIVE_AGENT_ROOT`, or the stable gateway attach pointers already published by the runtime.
 
 The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, authoritative `agent_id`, actual tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
 
@@ -1688,7 +1688,7 @@ For sessions created by another launcher such as `houmao-server`, the runtime SH
 #### Scenario: Direct runtime-owned session start publishes a shared-registry record alongside tmux pointers
 - **WHEN** the runtime starts a direct runtime-owned tmux-backed session with canonical identity `AGENTSYS-gpu`
 - **THEN** the runtime publishes the normal tmux session environment discovery pointers for that session
-- **AND THEN** the runtime also publishes a shared-registry record under `~/.houmao/registry/live_agents/<agent-id>/record.json` for that direct runtime-owned session
+- **AND THEN** the runtime also publishes a shared-registry record under `<platformdirs user config>/registry/live_agents/<agent-id>/record.json` for that direct runtime-owned session
 
 #### Scenario: Runtime publication canonicalizes namespace-free agent input
 - **WHEN** runtime publication logic receives agent input `gpu` for a tmux-backed session whose launch authority is the runtime
@@ -1805,7 +1805,7 @@ For Houmao-started tmux-backed sessions, relaunch SHALL rebuild provider-start s
 
 When the built brain manifest contains persistent specialist-owned launch env records, relaunch SHALL reapply those env records as part of the rebuilt launch plan.
 
-When the original live session also received one-off extra env through `project easy instance launch --env-set`, that one-off extra env SHALL apply only to the current live session and SHALL NOT be persisted in relaunch authority.
+When the original live session also received one-off extra env through `project agents launch --env-set`, that one-off extra env SHALL apply only to the current live session and SHALL NOT be persisted in relaunch authority.
 
 The runtime SHALL NOT store one-off instance-launch extra env in:
 
@@ -1820,14 +1820,14 @@ The runtime SHALL NOT store one-off instance-launch extra env in:
 - **AND THEN** the runtime obtains that value from durable specialist launch input rather than from the old live session's one-off launch state
 
 #### Scenario: Relaunch drops one-off instance-launch env
-- **WHEN** a tmux-backed session originally started with one-off `project easy instance launch --env-set FEATURE_FLAG_X=2`
+- **WHEN** a tmux-backed session originally started with one-off `project agents launch --env-set FEATURE_FLAG_X=2`
 - **AND WHEN** the underlying specialist does not declare persistent env record `FEATURE_FLAG_X`
 - **AND WHEN** that session is later relaunched
 - **THEN** the relaunched session does not keep `FEATURE_FLAG_X=2`
 - **AND THEN** relaunch uses only durable launch input that was persisted before runtime rebuild
 
 #### Scenario: Live-session headless turns can still use one-off instance-launch env before relaunch
-- **WHEN** a headless tmux-backed session starts with one-off `project easy instance launch --env-set FEATURE_FLAG_X=2`
+- **WHEN** a headless tmux-backed session starts with one-off `project agents launch --env-set FEATURE_FLAG_X=2`
 - **AND WHEN** the session remains live without relaunch
 - **THEN** later runtime-controlled work in that same live session still uses `FEATURE_FLAG_X=2`
 - **AND THEN** that behavior does not imply that `FEATURE_FLAG_X=2` is durable relaunch posture
@@ -2282,7 +2282,7 @@ If a placeholder `brain_manifest.json` is written for a joined session, it SHALL
 
 The join materialization path SHALL create the managed memory root, memo file, and pages directory before publishing managed memory environment variables.
 
-The join materialization path SHALL publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into the adopted tmux session environment.
+The join materialization path SHALL publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into the adopted tmux session environment.
 
 For joined TUI adoption, the persisted manifest and later manifest rewrites SHALL preserve the adopted tmux window identity needed to find the live provider surface. Resume-time capability publication and other post-join local control paths SHALL NOT overwrite that adopted window metadata with `null` or a default launch-time window name.
 
@@ -2297,7 +2297,7 @@ The resulting manifest and tmux session environment SHALL remain the authoritati
 #### Scenario: TUI join materializes a normal `local_interactive` runtime envelope
 - **WHEN** the local join path adopts a live Codex TUI from tmux window `0`, pane `0`
 - **THEN** it writes a normal session root containing placeholder `agent_def/`, placeholder `brain_manifest.json`, a persisted session manifest, and session-local `gateway/` artifacts
-- **AND THEN** it publishes `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into that tmux session environment
+- **AND THEN** it publishes `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into that tmux session environment
 - **AND THEN** it publishes a shared-registry record for the adopted managed agent without requiring a separate join-only discovery store
 
 #### Scenario: Headless join materializes a native headless runtime envelope between turns

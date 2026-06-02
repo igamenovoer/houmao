@@ -119,7 +119,7 @@ The `mkdocs.yml` navigation SHALL list `docs/getting-started/launch-profiles.md`
 
 All cross-references between new pages and existing pages SHALL resolve correctly. Specifically:
 
-- The easy-specialist guide SHALL link to the CLI reference for `project easy` commands and to the launch-profiles guide for the shared conceptual model.
+- The easy-specialist guide SHALL link to the CLI reference for `project` commands and to the launch-profiles guide for the shared conceptual model.
 - The launch-profiles guide SHALL link to the easy-specialists guide, the agent-definitions guide, the `houmao-mgr` CLI reference, and the build-phase launch-overrides reference.
 - The agent-definitions guide SHALL link to the launch-profiles guide for the shared conceptual model.
 - The quickstart SHALL link to the launch-profiles guide where it mentions `agents launch --launch-profile`.

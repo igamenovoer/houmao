@@ -28,7 +28,7 @@ This discovery-mode env only affects ambient lookup. It does not override `HOUMA
 Commands that need an agent-definition root resolve it with this precedence:
 
 1. explicit CLI `--agent-def-dir`
-2. `HOUMAO_AGENT_DEF_DIR`
+2. `HOUMAO_NATIVE_AGENT_ROOT`
 3. `HOUMAO_PROJECT_OVERLAY_DIR`
 4. ambient project-overlay discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`
 5. default `<pwd>/.houmao/agents`
@@ -73,7 +73,7 @@ Maintained project-aware local-state commands reuse that same active overlay for
 The repo-local project surface is intentionally split into three views:
 
 - `houmao-mgr project agents ...` for low-level filesystem-oriented source management
-- `houmao-mgr project easy ...` for higher-level specialist and instance authoring
+- `houmao-mgr project ...` for higher-level specialist and instance authoring
 - `houmao-mgr project mailbox ...` for project-scoped mailbox-root operations against `.houmao/mailbox`
 
 ## Directory Reference
@@ -111,10 +111,10 @@ The compatibility-projected declarative recipe file. The filename supplies the r
 
 ### `launch-profiles/<profile>.yaml`
 
-The compatibility-projected reusable birth-time launch profile. Easy profiles and explicit launch profiles share the same underlying catalog model but remain distinct by source lane:
+The compatibility-projected reusable birth-time launch profile. Project profiles and native launch dossiers share the same underlying catalog model but remain distinct by source lane:
 
-- easy profiles are specialist-backed and managed through `project easy profile ...`
-- explicit launch profiles are recipe-backed and managed through `project agents launch-profiles ...`
+- project profiles are specialist-backed and managed through `project profile ...`
+- native launch dossiers are recipe-backed and managed through `internals native-agent launch-dossiers ...`
 
 Both lanes still project into the same `launch-profiles/<name>.yaml` compatibility area, but management remains lane-bounded; use the command family that matches the stored lane rather than treating the shared projection path as one unified CRUD surface.
 
@@ -166,13 +166,13 @@ Generated runtime homes, manifests, mailbox state, and managed-agent memory are 
 
 The compatibility `.houmao/agents/` tree can still be inspected directly, but project-local truth now lives in the catalog and managed content store. The main UX layers are:
 
-- `project easy specialist create ...` is the primary project-local authoring path when you want one reusable specialist persisted into the catalog and projected into the compatibility tree.
-- `project easy profile ...` is the higher-level authoring path when you want reusable specialist-backed birth-time defaults without duplicating the specialist itself.
-- `project agents recipes ...` is the canonical low-level authoring path for named recipes; `project agents presets ...` remains the compatibility alias for the same resources.
-- `project agents launch-profiles ...` is the low-level authoring path for reusable recipe-backed birth-time launch profiles.
-- for maintained easy launch paths, `project easy specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
-- persistent non-credential launch env belongs to specialist config via repeatable `project easy specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
-- specialist-owned managed system-skill policy belongs to the recipe launch payload via repeatable `project easy specialist create|set --system-skill ...` / `--system-skill-set ...`, which projects into `launch.system_skills`.
-- `project easy instance launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
-- one-off runtime env belongs to `project easy instance launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
+- `project specialist create ...` is the primary project-local authoring path when you want one reusable specialist persisted into the catalog and projected into the compatibility tree.
+- `project profile ...` is the higher-level authoring path when you want reusable specialist-backed birth-time defaults without duplicating the specialist itself.
+- `internals native-agent recipes ...` is the canonical low-level authoring path for named recipes; `project agents presets ...` remains the compatibility alias for the same resources.
+- `internals native-agent launch-dossiers ...` is the low-level authoring path for reusable recipe-backed birth-time launch profiles.
+- for maintained easy launch paths, `project specialist create ...` persists unattended launch posture by default; pass `--no-unattended` to persist `launch.prompt_mode: as_is` instead.
+- persistent non-credential launch env belongs to specialist config via repeatable `project specialist create --env-set NAME=value`, which projects into `launch.env_records` and survives relaunch.
+- specialist-owned managed system-skill policy belongs to the recipe launch payload via repeatable `project specialist create|set --system-skill ...` / `--system-skill-set ...`, which projects into `launch.system_skills`.
+- `project agents launch|stop ...` is the higher-level runtime lifecycle path when you want to materialize or stop managed-agent instances from those compiled specialists.
+- one-off runtime env belongs to `project agents launch --env-set NAME=value|NAME`; it applies to the current live session only and is dropped by relaunch.
 - `project agents ...` is the low-level maintenance surface when you want to inspect or mutate the compatibility projection directly.

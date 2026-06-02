@@ -19,7 +19,7 @@ The CLI reference SHALL make the major nested managed-agent and project command 
 - `agents cleanup`,
 - `project agents`,
 - `project credentials`,
-- `project easy`,
+- `project`,
 - `project mailbox`,
 - `admin cleanup`,
 - `internals graph` (via a dedicated linked page `docs/reference/cli/internals.md`).
@@ -35,7 +35,7 @@ When the CLI reference documents `agents gateway`, that coverage SHALL include t
 
 The `brains build` options table in the CLI reference SHALL reflect the current live CLI flag names: `--preset`, `--setup`, and `--auth`. The table SHALL NOT list retired flag names `--recipe`, `--config-profile`, or `--cred-profile`.
 
-When the `houmao-mgr` reference describes Claude credential lanes for `project easy specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed dedicated credential-management flag names used by `project credentials claude` and `credentials claude --agent-def-dir <path>` (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
+When the `houmao-mgr` reference describes Claude credential lanes for `project specialist create --tool claude`, it SHALL distinguish the prefixed easy-specialist flag names (`--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`) from the unprefixed dedicated credential-management flag names used by `project credentials claude` and `credentials claude --agent-def-dir <path>` (`--auth-token`, `--oauth-token`, `--config-dir`). It SHALL state that both surfaces accept the same credential semantics but use different flag-name conventions.
 
 #### Scenario: Reader finds current agent lifecycle and project command groups
 - **WHEN** a reader looks up `houmao-mgr`
@@ -49,7 +49,7 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 - **AND THEN** they do not need to discover the internals group by running `houmao-mgr --help` or reading source code
 
 #### Scenario: Reader can discover nested managed-agent and project command families
-- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project easy`, `project mailbox`, or `admin cleanup`
+- **WHEN** a reader needs details for `agents gateway`, `agents turn`, `agents mail`, `agents mailbox`, `project agents`, `project credentials`, `project`, `project mailbox`, or `admin cleanup`
 - **THEN** the CLI reference provides a direct path to formal reference coverage for those nested families
 - **AND THEN** the reader does not need to reconstruct those command surfaces only from source code or scattered prose pages
 
@@ -86,7 +86,7 @@ When the `houmao-mgr` reference describes Claude credential lanes for `project e
 #### Scenario: Reader sees correct Claude auth flag-name distinction
 - **WHEN** a reader looks up Claude credential lanes in the `houmao-mgr` reference
 - **THEN** the page shows that `project credentials claude` and `credentials claude --agent-def-dir <path>` use `--auth-token`, `--oauth-token`, `--config-dir`
-- **AND THEN** the page shows that `project easy specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
+- **AND THEN** the page shows that `project specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
 - **AND THEN** the page states that both surfaces accept the same credential semantics
 
 ### Requirement: CLI reference documents the dedicated credential-management families
@@ -99,7 +99,7 @@ At minimum, that coverage SHALL include:
 - the supported tool lanes `claude`, `codex`, and `gemini`,
 - the supported verbs `list`, `get`, `add`, `set`, `rename`, and `remove`,
 - the target-selection model for project-backed versus `--agent-def-dir` usage,
-- the removal of credential CRUD from `project agents tools <tool>`.
+- the removal of credential CRUD from `internals native-agent tools <tool>`.
 
 The `houmao-mgr` reference SHALL position `credentials` as the first-class credential-management surface and SHALL position `project credentials` as the explicit project-scoped wrapper.
 
@@ -108,9 +108,9 @@ The `houmao-mgr` reference SHALL position `credentials` as the first-class crede
 - **THEN** the CLI reference documents `credentials` as a supported top-level command family
 - **AND THEN** the page explains when to use `credentials ...` versus `project credentials ...`
 
-#### Scenario: Reader sees that credential CRUD moved out of project agents tools
+#### Scenario: Reader sees that credential CRUD moved out of internals native-agent tools
 - **WHEN** a reader checks the CLI reference for project-local tool management
-- **THEN** the reference explains that `project agents tools <tool>` remains for tool inspection and setup bundles
+- **THEN** the reference explains that `internals native-agent tools <tool>` remains for tool inspection and setup bundles
 - **AND THEN** the reference directs credential CRUD to `credentials ...` or `project credentials ...`
 
 ### Requirement: CLI reference documents the credential login helper
@@ -177,7 +177,7 @@ The comparison table, if present, SHALL list `houmao-passive-server` default por
 Repo-owned CLI reference docs that describe agent-definition-directory resolution for active commands, or that mention deprecated or removed compatibility entrypoints, SHALL describe ambient agent-definition resolution as:
 
 1. explicit CLI `--agent-def-dir`,
-2. `HOUMAO_AGENT_DEF_DIR`,
+2. `HOUMAO_NATIVE_AGENT_ROOT`,
 3. the overlay directory selected by `HOUMAO_PROJECT_OVERLAY_DIR`,
 4. ambient project-overlay discovery controlled by `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`,
 5. default fallback `<cwd>/.houmao/agents`.
@@ -301,7 +301,7 @@ The page SHALL NOT instruct users to choose standalone `houmao-server` as a main
 The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both the dedicated credential-management surface and the easy-specialist surface:
 
 - `project credentials claude ...` or `credentials claude ... --agent-def-dir <path>`
-- `project easy specialist create --tool claude`
+- `project specialist create --tool claude`
 
 When the reference documents Claude-specific flags, it SHALL make clear that `claude_state.template.json` or `--claude-state-template-file` is optional runtime bootstrap state and not itself a credential-providing method.
 
@@ -311,16 +311,16 @@ When the reference documents Claude-specific flags, it SHALL make clear that `cl
 - **AND THEN** it does not present the state-template input as one of the ways to authenticate Claude
 
 ### Requirement: CLI reference documents specialist editing controls
-The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable easy specialists.
+The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable specialists.
 
-For `project easy specialist`, the reference SHALL list `create`, `list`, `get`, `set`, and `remove`, and SHALL document `set` as the patch command that preserves unspecified stored specialist fields.
+For `project specialist`, the reference SHALL list `create`, `list`, `get`, `set`, and `remove`, and SHALL document `set` as the patch command that preserves unspecified stored specialist fields.
 
-For `project easy specialist create`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-name specialist, and SHALL state that replacement uses create semantics where omitted optional fields may be cleared.
+For `project specialist create`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-name specialist, and SHALL state that replacement uses create semantics where omitted optional fields may be cleared.
 
 The reference SHALL state that `specialist set` updates the reusable specialist source for future launches and does not mutate running managed agents in place.
 
 #### Scenario: Reader finds specialist set in CLI reference
-- **WHEN** a reader looks up `houmao-mgr project easy specialist`
+- **WHEN** a reader looks up `houmao-mgr project specialist`
 - **THEN** the CLI reference lists `set` alongside `create`, `list`, `get`, and `remove`
 - **AND THEN** the reference explains that `set` mutates stored future source defaults rather than one running instance
 
@@ -349,7 +349,7 @@ That page SHALL explain that `houmao-mgr --version` prints the packaged Houmao v
 ### Requirement: System-skills reference documents the renamed specialist-management skill
 The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe the current project-easy packaged skill as `houmao-specialist-mgr`.
 
-That page SHALL describe the packaged skill as the Houmao-owned specialist-management entry point for `project easy specialist create|list|get|remove` plus specialist-scoped `project easy instance launch|stop`.
+That page SHALL describe the packaged skill as the Houmao-owned specialist-management entry point for `project specialist create|list|get|remove` plus specialist-scoped `project agents launch|stop`.
 
 The page SHALL describe the top-level packaged skill page as an index/router and SHALL state that further agent management after those specialist-scoped runtime actions goes to `houmao-agent-instance`.
 
@@ -371,14 +371,14 @@ That page SHALL describe the packaged skill as the Houmao-owned project-manageme
 
 - `houmao-mgr project init`
 - `houmao-mgr project status`
-- `houmao-mgr project agents launch-profiles ...`
-- `houmao-mgr project easy instance list|get|stop`
+- `houmao-mgr internals native-agent launch-dossiers ...`
+- `houmao-mgr project agents list|get|stop`
 
 That page SHALL explain that `houmao-project-mgr` covers project overlay discovery and bootstrap guidance, `.houmao/` layout and compatibility-projection explanations, and the project-aware side effects that appear on other command families when a project overlay exists.
 
 That page SHALL explain that neighboring renamed packaged skills keep their current ownership boundaries:
 
-- `houmao-specialist-mgr` owns easy specialist and easy profile authoring plus easy `launch|stop`
+- `houmao-specialist-mgr` owns specialist and project profile authoring plus easy `launch|stop`
 - `houmao-credential-mgr` owns dedicated credential-management routing and CRUD
 - `houmao-agent-definition` owns low-level roles and recipes
 - `houmao-agent-instance` owns generic managed-agent lifecycle after project-scoped routing
@@ -426,15 +426,15 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `hou
 That page SHALL describe the packaged skill as the Houmao-owned entry point for managed-agent instance lifecycle guidance across:
 
 - `agents launch`
-- `project easy instance launch`
+- `project agents launch`
 - `agents join`
 - `agents list`
 - `agents stop`
 - `agents cleanup session|logs`
 
-That page SHALL explain that `houmao-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, `houmao-agent-gateway` becomes the canonical gateway-specific skill, and `houmao-project-mgr` owns project-scoped `project easy instance list|get|stop` plus project launch-profile authoring guidance.
+That page SHALL explain that `houmao-agent-instance` remains the canonical lifecycle skill while `houmao-agent-messaging` becomes the canonical ordinary communication/control and mailbox-routing skill for already-running managed agents, `houmao-agent-email-comms` remains the ordinary mailbox operations skill, `houmao-agent-gateway` becomes the canonical gateway-specific skill, and `houmao-project-mgr` owns project-scoped `project agents list|get|stop` plus project launch-profile authoring guidance.
 
-That page SHALL explain that mailbox surfaces, prompting, mailbox routing, ordinary mailbox operations, gateway-only services, reset-context guidance, specialist CRUD, and project-aware `project easy instance list|get|stop` remain outside the packaged `houmao-agent-instance` skill scope.
+That page SHALL explain that mailbox surfaces, prompting, mailbox routing, ordinary mailbox operations, gateway-only services, reset-context guidance, specialist CRUD, and project-aware `project agents list|get|stop` remain outside the packaged `houmao-agent-instance` skill scope.
 
 That page SHALL describe the CLI-default system-skill install selection as including the packaged project-management, specialist-management, credential-management, agent-definition, agent-instance, agent-messaging, and agent-gateway skills.
 
@@ -448,7 +448,7 @@ That page SHALL explain that managed launch and managed join auto-install the pr
 #### Scenario: Reader sees the boundary between project, lifecycle, messaging, and gateway skills
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page distinguishes `houmao-agent-instance` from `houmao-project-mgr`, `houmao-agent-messaging`, and `houmao-agent-gateway`
-- **AND THEN** it explains that prompting and mailbox routing belong to messaging, ordinary mailbox operations belong to the mailbox skill family, project-aware `project easy instance list|get|stop` belongs to `houmao-project-mgr`, and gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
+- **AND THEN** it explains that prompting and mailbox routing belong to messaging, ordinary mailbox operations belong to the mailbox skill family, project-aware `project agents list|get|stop` belongs to `houmao-project-mgr`, and gateway lifecycle, discovery, and gateway-only services belong to the gateway skill
 
 #### Scenario: Reader sees the updated default install behavior
 - **WHEN** a reader checks the install-selection behavior in `docs/reference/cli/system-skills.md`
@@ -486,7 +486,7 @@ That page SHALL explain that transport-specific mailbox behavior remains in the 
 - **AND THEN** it does not imply that those paths are interchangeable shortcuts
 
 ### Requirement: Managed-launch CLI reference documents `--workdir` and source-project pinning
-The CLI reference pages that document `houmao-mgr agents launch`, `houmao-mgr agents join`, and `houmao-mgr project easy instance launch` SHALL describe `--workdir` as the current public runtime-cwd flag.
+The CLI reference pages that document `houmao-mgr agents launch`, `houmao-mgr agents join`, and `houmao-mgr project agents launch` SHALL describe `--workdir` as the current public runtime-cwd flag.
 
 That coverage SHALL describe the default behavior as using the invocation cwd for launch-time runtime workdir and tmux-pane current path for join-time adopted workdir when `--workdir` is omitted.
 
@@ -494,12 +494,12 @@ That coverage SHALL explain that `--workdir` sets the launched or adopted agent 
 
 For `agents launch`, that coverage SHALL explain that when launch originates from a Houmao project, source overlay selection and overlay-local runtime/jobs roots remain pinned to that source project rather than following `--workdir`.
 
-For `project easy instance launch`, that coverage SHALL explain that the selected easy-project overlay and specialist source remain authoritative even when `--workdir` points somewhere else.
+For `project agents launch`, that coverage SHALL explain that the selected easy-project overlay and specialist source remain authoritative even when `--workdir` points somewhere else.
 
 That coverage SHALL NOT present `--working-directory` as part of the current public CLI for `agents join`.
 
 #### Scenario: Reader sees `--workdir` on the managed launch surfaces
-- **WHEN** a reader opens the CLI reference for `houmao-mgr agents launch`, `houmao-mgr agents join`, or `houmao-mgr project easy instance launch`
+- **WHEN** a reader opens the CLI reference for `houmao-mgr agents launch`, `houmao-mgr agents join`, or `houmao-mgr project agents launch`
 - **THEN** the documented runtime-cwd flag is `--workdir`
 - **AND THEN** the reference does not describe `--working-directory` as the current join flag
 
@@ -509,7 +509,7 @@ That coverage SHALL NOT present `--working-directory` as part of the current pub
 - **AND THEN** it explains that source overlay/runtime/jobs resolution remains pinned to the launch source project when one exists
 
 #### Scenario: Reader understands easy launch keeps the selected overlay even with external workdir
-- **WHEN** a reader looks up `houmao-mgr project easy instance launch --workdir`
+- **WHEN** a reader looks up `houmao-mgr project agents launch --workdir`
 - **THEN** the reference explains that the selected project overlay and specialist source remain authoritative
 - **AND THEN** it explains that `--workdir` only changes the launched agent cwd
 
@@ -650,44 +650,44 @@ The `houmao-mgr` CLI reference SHALL document the canonical low-level recipe sur
 
 At minimum, that coverage SHALL:
 
-- list `project agents recipes list|get|add|set|remove` as the canonical low-level source-recipe administration surface,
+- list `internals native-agent recipes list|get|add|set|remove` as the canonical low-level source-recipe administration surface,
 - list `project agents presets list|get|add|set|remove` as the compatibility alias for the same named recipe resources,
 - describe recipe files as living under `agents/presets/<name>.yaml`,
-- list `project agents launch-profiles list|get|add|set|remove` as the canonical low-level explicit-launch-profile administration surface,
+- list `internals native-agent launch-dossiers list|get|add|set|remove` as the canonical low-level explicit-launch-profile administration surface,
 - describe explicit launch-profile files as living under `agents/launch-profiles/<name>.yaml`,
-- explain that `project agents roles` is prompt-only role management,
-- state that `project agents roles scaffold` is not part of the supported low-level CLI.
+- explain that `internals native-agent roles` is prompt-only role management,
+- state that `internals native-agent roles scaffold` is not part of the supported low-level CLI.
 
-The CLI reference SHALL extend the `houmao-mgr project` command-shape tree so that `project agents` lists `roles`, `recipes`, `presets`, `launch-profiles`, and `tools <tool>`, and so that `project easy` lists `specialist`, `profile`, and `instance`.
+The CLI reference SHALL extend the `houmao-mgr project` command-shape tree so that `project agents` lists `roles`, `recipes`, `presets`, `launch-profiles`, and `tools <tool>`, and so that `project` lists `specialist`, `profile`, and `instance`.
 
-The CLI reference SHALL document `houmao-mgr project easy profile create|list|get|remove` as the easy-lane reusable specialist-backed birth-time launch-profile administration surface, and SHALL document `houmao-mgr project easy instance launch --profile <name>` as the easy-profile-backed instance launch path with the `--profile`/`--specialist` mutual exclusion rule.
+The CLI reference SHALL document `houmao-mgr project profile create|list|get|remove` as the easy-lane reusable specialist-backed birth-time launch-profile administration surface, and SHALL document `houmao-mgr project agents launch --profile <name>` as the project-profile-backed instance launch path with the `--profile`/`--specialist` mutual exclusion rule.
 
 The CLI reference SHALL document `houmao-mgr agents launch --launch-profile <name>` as the explicit-launch-profile-backed managed launch path, and SHALL document the `--launch-profile`/`--agents` mutual exclusion rule. The reference SHALL state that the effective provider defaults from the resolved profile source when that source already determines one tool family, and that supplying `--provider` together with `--launch-profile` is accepted only when it matches the resolved source.
 
 The CLI reference SHALL describe the launch-time effective-input precedence as: source recipe defaults → launch-profile defaults → direct CLI overrides, and SHALL state that direct CLI overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` do not rewrite the stored launch profile.
 
-The CLI reference SHALL state that the launch-profile-backed launch resolution applies through the same shared model whether the operator started from an easy profile through `project easy instance launch --profile` or from an explicit launch profile through `agents launch --launch-profile`.
+The CLI reference SHALL state that the launch-profile-backed launch resolution applies through the same shared model whether the operator started from an project profile through `project agents launch --profile` or from an explicit launch profile through `agents launch --launch-profile`.
 
 The CLI reference SHALL link to `docs/getting-started/launch-profiles.md` for the shared conceptual model rather than restating that model on the CLI reference page itself.
 
 #### Scenario: Reader sees canonical recipes and the compatibility preset alias in the project agents reference
 
 - **WHEN** a reader looks up `houmao-mgr project agents` in the CLI reference
-- **THEN** the page documents `project agents recipes list|get|add|set|remove`
+- **THEN** the page documents `internals native-agent recipes list|get|add|set|remove`
 - **AND THEN** the page documents `project agents presets list|get|add|set|remove` as the compatibility alias for the same files under `agents/presets/<name>.yaml`
 - **AND THEN** it does not present `roles presets ...` or `roles scaffold` as the supported surface
 
 #### Scenario: Reader sees the explicit launch-profile surface in the project agents reference
 
 - **WHEN** a reader looks up `houmao-mgr project agents` in the CLI reference
-- **THEN** the page documents `project agents launch-profiles list|get|add|set|remove` as the canonical low-level explicit-launch-profile surface
+- **THEN** the page documents `internals native-agent launch-dossiers list|get|add|set|remove` as the canonical low-level explicit-launch-profile surface
 - **AND THEN** the page describes those files as living under `agents/launch-profiles/<name>.yaml`
 
-#### Scenario: Reader sees the easy profile surface in the project easy reference
+#### Scenario: Reader sees the project profile surface in the project reference
 
-- **WHEN** a reader looks up `houmao-mgr project easy` in the CLI reference
-- **THEN** the page documents `project easy profile create|list|get|remove`
-- **AND THEN** the page documents `project easy instance launch --profile <name>`
+- **WHEN** a reader looks up `houmao-mgr project` in the CLI reference
+- **THEN** the page documents `project profile create|list|get|remove`
+- **AND THEN** the page documents `project agents launch --profile <name>`
 - **AND THEN** the page documents the `--profile`/`--specialist` mutual exclusion rule on `instance launch`
 
 #### Scenario: Reader sees `agents launch --launch-profile` documented with its precedence rules
@@ -702,15 +702,15 @@ The CLI reference SHALL link to `docs/getting-started/launch-profiles.md` for th
 
 - **WHEN** a reader checks the `Command shape` overview in the CLI reference
 - **THEN** `project agents` lists `roles`, `recipes`, `presets`, `launch-profiles`, and `tools <tool>`
-- **AND THEN** `project easy` lists `specialist`, `profile`, and `instance`
+- **AND THEN** `project` lists `specialist`, `profile`, and `instance`
 
 ### Requirement: Easy-specialist launch options table includes mail-account-dir
 
-The `docs/getting-started/easy-specialists.md` options table for `project easy instance launch` SHALL include the `--mail-account-dir` option with its default (None) and its description as an optional private filesystem mailbox directory to symlink into the shared root.
+The `docs/getting-started/easy-specialists.md` options table for `project agents launch` SHALL include the `--mail-account-dir` option with its default (None) and its description as an optional private filesystem mailbox directory to symlink into the shared root.
 
 #### Scenario: Reader finds mail-account-dir in the instance launch table
 
-- **WHEN** a reader checks the options table for `project easy instance launch` in `easy-specialists.md`
+- **WHEN** a reader checks the options table for `project agents launch` in `easy-specialists.md`
 - **THEN** the table includes a row for `--mail-account-dir` with default `None`
 - **AND THEN** the description explains it is an optional private filesystem mailbox directory to symlink into the shared root
 
@@ -747,10 +747,10 @@ The `houmao-mgr` CLI reference SHALL document the managed-header flags on the re
 
 At minimum, that coverage SHALL include:
 - `houmao-mgr agents launch --managed-header|--no-managed-header`
-- `houmao-mgr project agents launch-profiles add --managed-header|--no-managed-header`
-- `houmao-mgr project agents launch-profiles set --managed-header|--no-managed-header|--clear-managed-header`
-- `houmao-mgr project easy profile create --managed-header|--no-managed-header`
-- `houmao-mgr project easy instance launch --managed-header|--no-managed-header`
+- `houmao-mgr internals native-agent launch-dossiers add --managed-header|--no-managed-header`
+- `houmao-mgr internals native-agent launch-dossiers set --managed-header|--no-managed-header|--clear-managed-header`
+- `houmao-mgr project profile create --managed-header|--no-managed-header`
+- `houmao-mgr project agents launch --managed-header|--no-managed-header`
 
 The CLI reference SHALL explain that:
 - launch-time managed-header flags are mutually exclusive,
@@ -759,7 +759,7 @@ The CLI reference SHALL explain that:
 - omitted launch-time and launch-profile policy falls back to the default enabled managed-header behavior.
 
 #### Scenario: Reader can find the managed-header flags in the CLI reference
-- **WHEN** a reader looks up `houmao-mgr agents launch`, `project agents launch-profiles`, or the relevant `project easy` commands
+- **WHEN** a reader looks up `houmao-mgr agents launch`, `internals native-agent launch-dossiers`, or the relevant `project` commands
 - **THEN** the CLI reference documents the managed-header flags and their meaning
 - **AND THEN** the page does not require the reader to infer the new behavior from source code or changelog text
 
@@ -770,7 +770,7 @@ The CLI reference SHALL explain that:
 
 ### Requirement: CLI reference removes retired `--yolo` launch option from all pages
 
-The CLI reference SHALL NOT present `--yolo` as a supported option on `houmao-mgr agents launch`, `houmao-mgr project easy instance launch`, or any other live launch surface. Any remaining `--yolo` references in `docs/reference/cli/houmao-mgr.md`, `docs/reference/cli/agents-gateway.md`, `docs/reference/cli/system-skills.md`, or other CLI reference pages SHALL be removed during this resync pass.
+The CLI reference SHALL NOT present `--yolo` as a supported option on `houmao-mgr agents launch`, `houmao-mgr project agents launch`, or any other live launch surface. Any remaining `--yolo` references in `docs/reference/cli/houmao-mgr.md`, `docs/reference/cli/agents-gateway.md`, `docs/reference/cli/system-skills.md`, or other CLI reference pages SHALL be removed during this resync pass.
 
 The CLI reference SHALL state that prompt-mode posture is now controlled exclusively through `launch.prompt_mode` in stored profiles (`unattended` or `as_is`) and the corresponding launch-profile flags, not through a separate `--yolo` toggle.
 
@@ -790,7 +790,7 @@ The CLI reference SHALL state that prompt-mode posture is now controlled exclusi
 
 The `houmao-mgr` CLI reference SHALL document `--model` as a unified model-selection flag on the relevant managed launch and launch-profile commands.
 
-At minimum, that coverage SHALL include the launch surfaces that accept model selection directly (`houmao-mgr agents launch`, `houmao-mgr project easy specialist create`, `houmao-mgr project easy instance launch`, and the corresponding `project agents launch-profiles` administration commands when those commands accept stored model defaults).
+At minimum, that coverage SHALL include the launch surfaces that accept model selection directly (`houmao-mgr agents launch`, `houmao-mgr project specialist create`, `houmao-mgr project agents launch`, and the corresponding `internals native-agent launch-dossiers` administration commands when those commands accept stored model defaults).
 
 That coverage SHALL describe `--model` as a tool-agnostic selector that resolves to the appropriate per-tool model identifier through the supported provider mapping, and SHALL state that `--model` does not bypass tool authentication or provider configuration.
 
@@ -798,7 +798,7 @@ That coverage SHALL link to the underlying tool-specific model identifiers docum
 
 #### Scenario: Reader finds the unified `--model` flag on the launch surfaces
 
-- **WHEN** a reader looks up `houmao-mgr agents launch` or `project easy instance launch`
+- **WHEN** a reader looks up `houmao-mgr agents launch` or `project agents launch`
 - **THEN** the CLI reference documents `--model` as a current option
 - **AND THEN** the page explains that `--model` is a tool-agnostic selector resolved through the provider mapping
 
@@ -912,7 +912,7 @@ That section SHALL:
 - document the `claude`, `codex`, and `gemini` tool subcommands and the supported CRUD verbs (`list`, `get`, `add`, `set`, `remove`, `rename`) derived from live Click help output,
 - explain how `credentials ...` relates to `project credentials ...` — the top-level family is agent-definition-directory-capable through `--agent-def-dir <path>` and the project-scoped wrapper targets the active project overlay,
 - describe when to reach for which surface (plain agent-definition directories vs active project overlays),
-- cross-link the packaged `houmao-credential-mgr` system-skill guidance and the existing credential-lane notes in the `project easy` and `project agents tools <tool> auth` sections.
+- cross-link the packaged `houmao-credential-mgr` system-skill guidance and the existing credential-lane notes in the `project` and `internals native-agent tools <tool> auth` sections.
 
 #### Scenario: Reader finds the credentials command group in the reference
 - **WHEN** a reader opens `docs/reference/cli/houmao-mgr.md`
@@ -955,7 +955,7 @@ For each of those three surfaces the reference SHALL document:
 - `--model TEXT` as a request-scoped headless execution model override,
 - `--reasoning-level INTEGER` as a tool/model-specific reasoning preset index rather than as a normalized portable `1..10` knob,
 - that the interpretation of `--reasoning-level` depends on the resolved tool/model ladder and that positive overflow saturates to the highest maintained Houmao preset for that ladder,
-- that the overrides apply to exactly the submitted prompt, turn, or gateway request and do not mutate launch profiles, recipes, specialists, manifests, stored easy profiles, or any other live session defaults,
+- that the overrides apply to exactly the submitted prompt, turn, or gateway request and do not mutate launch profiles, recipes, specialists, manifests, stored project profiles, or any other live session defaults,
 - that the overrides are rejected clearly when the resolved target is a TUI-backed prompt route rather than silently dropped,
 - that partial overrides (for example supplying `--reasoning-level` without `--model`) merge with launch-resolved model defaults through the shared headless resolution helper rather than resetting fields that were not explicitly overridden,
 - that Gemini reasoning levels are Houmao-documented presets which may map to multiple native Gemini settings together,
@@ -1029,16 +1029,16 @@ When the page describes current install selections that expand `user-control`, i
 ### Requirement: CLI reference documents launch-profile editing controls
 The `houmao-mgr` CLI reference SHALL document patch and replacement controls for reusable launch profiles.
 
-For `project easy profile`, the reference SHALL list `create`, `list`, `get`, `set`, and `remove`, and SHALL document `set` as the patch command that preserves unspecified stored fields.
+For `project profile`, the reference SHALL list `create`, `list`, `get`, `set`, and `remove`, and SHALL document `set` as the patch command that preserves unspecified stored fields.
 
-For `project easy profile create`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-lane easy profile, and SHALL state that replacement clears omitted optional fields.
+For `project profile create`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-lane project profile, and SHALL state that replacement clears omitted optional fields.
 
-For `project agents launch-profiles add`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-lane explicit launch profile, and SHALL state that `launch-profiles set` remains the patch command.
+For `internals native-agent launch-dossiers add`, the reference SHALL document `--yes` as the non-interactive confirmation for replacing an existing same-lane explicit launch profile, and SHALL state that `launch-profiles set` remains the patch command.
 
-The reference SHALL state that replacement does not cross easy-profile and explicit-launch-profile lanes.
+The reference SHALL state that replacement does not cross project-profile and explicit-launch-profile lanes.
 
-#### Scenario: Reader finds easy-profile set in CLI reference
-- **WHEN** a reader looks up `houmao-mgr project easy profile`
+#### Scenario: Reader finds project-profile set in CLI reference
+- **WHEN** a reader looks up `houmao-mgr project profile`
 - **THEN** the CLI reference lists `set` alongside `create`, `list`, `get`, and `remove`
 - **AND THEN** the reference explains that `set` mutates stored future launch defaults rather than one running instance
 
@@ -1053,11 +1053,11 @@ The `houmao-mgr` CLI reference SHALL document managed-header section flags on ev
 At minimum, the CLI reference SHALL document:
 
 - `--managed-header-section SECTION=STATE` on `houmao-mgr agents launch`,
-- `--managed-header-section SECTION=STATE` on `houmao-mgr project agents launch-profiles add`,
-- `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr project agents launch-profiles set`,
-- `--managed-header-section SECTION=STATE` on `houmao-mgr project easy profile create`,
-- `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr project easy profile set`,
-- `--managed-header-section SECTION=STATE` on `houmao-mgr project easy instance launch`.
+- `--managed-header-section SECTION=STATE` on `houmao-mgr internals native-agent launch-dossiers add`,
+- `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr internals native-agent launch-dossiers set`,
+- `--managed-header-section SECTION=STATE` on `houmao-mgr project profile create`,
+- `--managed-header-section SECTION=STATE`, `--clear-managed-header-section SECTION`, and `--clear-managed-header-sections` on `houmao-mgr project profile set`,
+- `--managed-header-section SECTION=STATE` on `houmao-mgr project agents launch`.
 
 The CLI reference SHALL list supported section names and states, and SHALL state each section's default, including that `task-reminder` and `mail-ack` default to disabled unless explicitly enabled.
 
@@ -1067,7 +1067,7 @@ The CLI reference SHALL list supported section names and states, and SHALL state
 - **AND THEN** the reference describes it as a one-shot launch override that does not rewrite stored launch-profile state
 
 #### Scenario: Reader finds stored launch-profile section flags
-- **WHEN** a reader opens the CLI reference for project launch-profile or easy-profile create/set commands
+- **WHEN** a reader opens the CLI reference for project launch-profile or project-profile create/set commands
 - **THEN** the reference documents `--managed-header-section SECTION=STATE`
 - **AND THEN** the reference documents the clear flags available on set commands
 
@@ -1166,7 +1166,7 @@ When the reference documents `--memo-seed-dir`, it SHALL state that a directory 
 When the reference documents `--clear-memo-seed`, it SHALL distinguish removing stored seed configuration from storing an empty memo seed.
 
 #### Scenario: Reader distinguishes empty memo seed from clearing seed config
-- **WHEN** a reader looks up memo seed flags for launch profiles or easy profiles
+- **WHEN** a reader looks up memo seed flags for launch profiles or project profiles
 - **THEN** the CLI reference states that `--clear-memo-seed` removes stored seed configuration
 - **AND THEN** the CLI reference states that `--memo-seed-text ''` stores an intentional empty memo seed
 - **AND THEN** the CLI reference does not document `--memo-seed-policy`
@@ -1303,21 +1303,21 @@ The CLI reference SHALL document the `agents cleanup session --purge-registry` f
 - **THEN** they see `--purge-registry` documented with its destructive semantics and the condition that it requires confirmed broken authority
 
 ### Requirement: CLI reference describes unified agent-definition skill
-The CLI reference SHALL describe `houmao-agent-definition` as the packaged skill for low-level definitions, `raw-profiles`, project-easy specialists, easy `profiles`, and `create-agent-fast-forward`.
+The CLI reference SHALL describe `houmao-agent-definition` as the packaged skill for low-level definitions, `launch-dossiers`, project-specialists, easy `profiles`, and `create-agent-fast-forward`.
 
-The CLI reference SHALL route raw recipe-backed profile authoring away from `houmao-project-mgr` and toward the `houmao-agent-definition` `raw-profiles` subcommand.
+The CLI reference SHALL route raw recipe-backed profile authoring away from `houmao-project-mgr` and toward the `houmao-agent-definition` `launch-dossiers` subcommand.
 
 If `houmao-specialist-mgr` remains documented, the reference SHALL identify it as compatibility guidance or a migration alias.
 
-#### Scenario: CLI reference routes raw profiles to agent-definition
-- **WHEN** a reader checks the system-skills CLI reference for `project agents launch-profiles ...`
-- **THEN** the reference points the agent-facing guidance to `houmao-agent-definition` and the `raw-profiles` subcommand
+#### Scenario: CLI reference routes launch dossiers to agent-definition
+- **WHEN** a reader checks the system-skills CLI reference for `internals native-agent launch-dossiers ...`
+- **THEN** the reference points the agent-facing guidance to `houmao-agent-definition` and the `launch-dossiers` subcommand
 - **AND THEN** it does not describe `houmao-project-mgr` as the owner of raw recipe-backed profile authoring
 
 #### Scenario: CLI reference includes fast-forward profile preparation
 - **WHEN** a reader checks which skill supports one-click agent profile preparation
 - **THEN** the CLI reference identifies `houmao-agent-definition` and `create-agent-fast-forward`
-- **AND THEN** it describes that path as creating or updating a launchable easy profile without launching the agent
+- **AND THEN** it describes that path as creating or updating a launchable project profile without launching the agent
 
 ### Requirement: CLI reference documents pro as current loop skill
 The CLI reference page for system skills SHALL describe `houmao-agent-loop-pro` as the current packaged loop skill.

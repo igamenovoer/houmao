@@ -10,11 +10,11 @@ The top-level `houmao-project-mgr` skill SHALL act as an index/router for these 
 
 - `houmao-mgr project init`
 - `houmao-mgr project status`
-- `houmao-mgr project easy instance list|get|stop`
+- `houmao-mgr project agents list|get|stop`
 
-The packaged skill SHALL treat explicit recipe-backed launch-profile authoring as an agent-definition/profile workflow and SHALL route `project agents launch-profiles list|get|add|set|remove` guidance to `houmao-agent-definition`.
+The packaged skill SHALL treat explicit recipe-backed launch-profile authoring as an agent-definition/profile workflow and SHALL route `internals native-agent launch-dossiers list|get|add|set|remove` guidance to `houmao-agent-definition`.
 
-The packaged skill SHALL treat `project easy instance list|get|stop` as the selected-project overlay inspection and stop surface for already-launched easy instances.
+The packaged skill SHALL treat `project agents list|get|stop` as the selected-project overlay inspection and stop surface for already-launched easy instances.
 
 #### Scenario: Agent needs project overlay lifecycle guidance
 - **WHEN** an agent is asked to create or inspect the active Houmao project overlay
@@ -28,7 +28,7 @@ The packaged skill SHALL treat `project easy instance list|get|stop` as the sele
 
 #### Scenario: Agent needs easy-instance inspection guidance
 - **WHEN** an agent is asked to inspect or stop one easy instance through the selected project overlay
-- **THEN** `houmao-project-mgr` routes that task through `project easy instance list|get|stop`
+- **THEN** `houmao-project-mgr` routes that task through `project agents list|get|stop`
 - **AND THEN** the skill does not redirect that selected-overlay inspection task to unrelated generic lifecycle or mailbox command families
 
 ### Requirement: Packaged `houmao-project-mgr` skill explains overlay resolution, `.houmao` layout, and bootstrap semantics
@@ -36,7 +36,7 @@ The `houmao-project-mgr` skill SHALL document the current project-overlay resolu
 
 - `HOUMAO_PROJECT_OVERLAY_DIR`
 - `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`
-- `HOUMAO_AGENT_DEF_DIR`
+- `HOUMAO_NATIVE_AGENT_ROOT`
 - ambient `ancestor` versus `cwd_only` discovery behavior
 
 The skill SHALL explain the managed `.houmao/` layout and SHALL distinguish the canonical semantic store from the compatibility projection. At minimum, that layout guidance SHALL cover:
@@ -54,20 +54,20 @@ The skill SHALL explain the current bootstrap distinction between creating and n
 
 - `project status` uses non-creating resolution and reports `would_bootstrap_overlay` when the selected overlay does not exist yet
 - stateful project-aware flows that ensure local roots may bootstrap the selected overlay
-- `project easy instance list|get|stop` use non-creating selected-overlay resolution and SHALL be described as requiring an already-existing overlay
+- `project agents list|get|stop` use non-creating selected-overlay resolution and SHALL be described as requiring an already-existing overlay
 
 The skill SHALL NOT instruct agents to ask whether users want compatibility profiles pre-created, SHALL NOT mention `--with-compatibility-profiles`, and SHALL NOT present `.houmao/agents/compatibility-profiles/` as part of the maintained user-facing layout.
 
 #### Scenario: Reader checks how overlay selection works
 - **WHEN** a reader opens the overlay-resolution material referenced by `houmao-project-mgr`
-- **THEN** they see the precedence and semantics for `HOUMAO_PROJECT_OVERLAY_DIR`, `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, and `HOUMAO_AGENT_DEF_DIR`
+- **THEN** they see the precedence and semantics for `HOUMAO_PROJECT_OVERLAY_DIR`, `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`, and `HOUMAO_NATIVE_AGENT_ROOT`
 - **AND THEN** they see the distinction between `ancestor` and `cwd_only` ambient discovery
 
 #### Scenario: Reader checks project layout and bootstrap behavior
 - **WHEN** a reader opens the layout or lifecycle material referenced by `houmao-project-mgr`
 - **THEN** they see `.houmao/catalog.sqlite` and `.houmao/content/` described as the canonical semantic store and managed payload roots
 - **AND THEN** they see `.houmao/agents/` described as the compatibility projection rather than the sole canonical source
-- **AND THEN** they see that `project status` reports bootstrap intent while `project easy instance list|get|stop` require an existing selected overlay
+- **AND THEN** they see that `project status` reports bootstrap intent while `project agents list|get|stop` require an existing selected overlay
 - **AND THEN** they do not see compatibility-profile bootstrap guidance in the project-overlay lifecycle workflow
 
 ### Requirement: Packaged `houmao-project-mgr` skill explains project-aware side effects and renamed-skill routing boundaries
@@ -86,7 +86,7 @@ That guidance SHALL explain that those command families resolve project-local de
 
 The skill SHALL use the current renamed packaged skill names when routing neighboring concerns. At minimum, it SHALL hand off:
 
-- easy specialist and easy profile authoring plus easy `launch|stop` to `houmao-specialist-mgr`
+- specialist and project profile authoring plus easy `launch|stop` to `houmao-specialist-mgr`
 - project-local auth bundle CRUD to `houmao-credential-mgr`
 - low-level roles and recipes to `houmao-agent-definition`
 - generic managed-agent lifecycle after project-scoped routing to `houmao-agent-instance`
@@ -105,19 +105,19 @@ The skill SHALL use the current renamed packaged skill names when routing neighb
 ### Requirement: `houmao-project-mgr` documents explicit launch-profile replacement
 The packaged `houmao-project-mgr` skill SHALL document the supported explicit launch-profile management surface as including `list`, `get`, `add`, `set`, and `remove`.
 
-When a user asks to update one existing explicit launch profile's stored launch defaults, the skill SHALL route to `houmao-mgr project agents launch-profiles set --name <profile> ...`.
+When a user asks to update one existing explicit launch profile's stored launch defaults, the skill SHALL route to `houmao-mgr internals native-agent launch-dossiers set --name <profile> ...`.
 
-When a user asks to replace one existing explicit launch profile definition, the skill SHALL route to `houmao-mgr project agents launch-profiles add --name <profile> --recipe <recipe> ... --yes` after identifying the replacement intent.
+When a user asks to replace one existing explicit launch profile definition, the skill SHALL route to `houmao-mgr internals native-agent launch-dossiers add --name <profile> --recipe <recipe> ... --yes` after identifying the replacement intent.
 
 The skill SHALL NOT route ordinary explicit launch-profile stored-default edits through manual remove/recreate.
 
 #### Scenario: Skill routes explicit launch-profile patch request to set
 - **WHEN** a user asks an agent using `houmao-project-mgr` to change the auth override on explicit launch profile `alice`
-- **THEN** the skill guidance routes that request through `project agents launch-profiles set --name alice --auth <name>`
+- **THEN** the skill guidance routes that request through `internals native-agent launch-dossiers set --name alice --auth <name>`
 - **AND THEN** it does not instruct the agent to remove and recreate `alice`
 
 #### Scenario: Skill routes explicit launch-profile replacement request to add yes
 - **WHEN** a user asks an agent using `houmao-project-mgr` to recreate explicit launch profile `alice` over a different recipe
 - **THEN** the skill guidance treats that as replacement
-- **AND THEN** it routes through `project agents launch-profiles add --name alice --recipe <recipe> --yes`
+- **AND THEN** it routes through `internals native-agent launch-dossiers add --name alice --recipe <recipe> --yes`
 

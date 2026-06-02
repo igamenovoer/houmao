@@ -76,7 +76,6 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",

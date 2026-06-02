@@ -18,7 +18,7 @@ The page SHALL state that the brain manifest carries launch-profile-derived inpu
 - managed-agent identity defaults,
 - prompt-overlay-composed effective role prompt.
 
-The page SHALL state that the build manifest and runtime launch metadata preserve secret-free launch-profile provenance sufficient for inspection and replay, including whether the birth-time config came from an easy profile or an explicit launch profile, and the originating profile name when available.
+The page SHALL state that the build manifest and runtime launch metadata preserve secret-free launch-profile provenance sufficient for inspection and replay, including whether the birth-time config came from an project profile or an explicit launch profile, and the originating profile name when available.
 
 The page SHALL state that runtime `LaunchPlan` is derived and ephemeral and SHALL NOT be presented as a user-authored object.
 

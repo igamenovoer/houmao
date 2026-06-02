@@ -15,7 +15,7 @@ That page SHALL explain:
 - the prompt composition order: source role prompt → prompt-overlay resolution (when present) → managed header prepend (when enabled) → backend-specific role injection,
 - the default-on policy and the `--managed-header` / `--no-managed-header` opt-out flags on the relevant launch and launch-profile commands,
 - where the header policy is persisted in stored launch profiles and how `--clear-managed-header` returns that field to inherit behavior,
-- which launch surfaces honor the policy: `houmao-mgr agents launch`, `houmao-mgr project easy instance launch`, and any launch-profile-backed flow built on top of those.
+- which launch surfaces honor the policy: `houmao-mgr agents launch`, `houmao-mgr project agents launch`, and any launch-profile-backed flow built on top of those.
 
 That page SHALL link to:
 

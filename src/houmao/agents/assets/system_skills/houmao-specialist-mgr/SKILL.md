@@ -59,6 +59,6 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 ## Guardrails
 
-- Do not present this skill as the independent owner for specialist or easy-profile workflows.
+- Do not present this skill as the independent owner for specialist or project-profile workflows.
 - Do not duplicate command details from `houmao-agent-definition`.
 - Do not route broad live-agent lifecycle work here; use `houmao-agent-instance` after any easy launch or stop.

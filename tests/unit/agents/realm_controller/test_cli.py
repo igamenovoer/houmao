@@ -401,7 +401,7 @@ def test_start_session_uses_env_agent_def_dir_when_cli_flag_missing(
     assert captured_kwargs["agent_def_dir"] == env_agent_def_dir.resolve()
 
 
-def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
+def test_start_session_requires_project_when_cli_and_env_missing(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -438,8 +438,9 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
         ]
     )
 
-    assert exit_code == 0
-    assert captured_kwargs["agent_def_dir"] == (tmp_path / ".houmao" / "agents").resolve()
+    assert exit_code == 2
+    assert captured_kwargs == {}
+    assert not (tmp_path / ".houmao").exists()
 
 
 def test_start_session_uses_discovered_project_overlay_when_present(

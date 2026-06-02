@@ -160,19 +160,18 @@ class _SchemaInvalidDumpRecord(LiveAgentRegistryRecordV2):
         return payload
 
 
-def test_default_registry_root_uses_platformdirs_home_anchor(
+def test_default_registry_root_uses_platformdirs_config_anchor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    fake_home = tmp_path / "home-anchor"
-    fake_user_data_path = fake_home / ".local" / "share" / "houmao"
+    fake_user_config_path = tmp_path / "config" / "houmao"
     monkeypatch.delenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
-        "houmao.owned_paths.platformdirs.user_data_path",
-        lambda **kwargs: fake_user_data_path,
+        "houmao.owned_paths.platformdirs.user_config_path",
+        lambda **kwargs: fake_user_config_path,
     )
 
-    assert resolve_global_registry_root() == (fake_home / ".houmao" / "registry").resolve()
+    assert resolve_global_registry_root() == (fake_user_config_path / "registry").resolve()
 
 
 def test_registry_root_honors_absolute_env_override(

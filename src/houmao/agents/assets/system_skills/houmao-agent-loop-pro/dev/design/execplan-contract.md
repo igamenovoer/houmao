@@ -114,7 +114,7 @@ Generated plans should separate three identities:
 
 - participant role templates or role descriptions;
 - stable participant instances used by loop contracts and message routes;
-- concrete Houmao agent bindings used for easy profiles, prompts, installed generated skills, workspace policy, and Houmao system-skill preinstall posture.
+- concrete Houmao agent bindings used for project profiles, prompts, installed generated skills, workspace policy, and Houmao system-skill preinstall posture.
 
 This separation lets one loop use a planner/worker pattern, another use peer reviewers, and another use a custom graph without changing the packaged skill. The topology is generated from intention source and clarification decisions, not from a built-in role set.
 
@@ -132,7 +132,7 @@ launch-agents
 start
 ```
 
-`prepare-agents` owns profile and agent preparation first. It materializes launchable easy profiles, generated skill bindings, prompt sources, notifier prompt material, memo posture, pending cwd posture, launch facts, and any profile mutation intent that workspace setup will later consume. It relies on Houmao managed-agent creation to preinstall system skills. It does not launch live agents as normal behavior.
+`prepare-agents` owns profile and agent preparation first. It materializes launchable project profiles, generated skill bindings, prompt sources, notifier prompt material, memo posture, pending cwd posture, launch facts, and any profile mutation intent that workspace setup will later consume. It relies on Houmao managed-agent creation to preinstall system skills. It does not launch live agents as normal behavior.
 
 `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` inputs. It owns plan/create/validate/summarize routing, workspace-manager interaction, and readiness reporting for workspace docs, worktrees, task `shared-kb/`, task `owner-states/<subdir>/...`, per-agent `states/`, shared resources, validation commands, launch cwd posture, memo seeds, and mutable-path uniqueness.
 

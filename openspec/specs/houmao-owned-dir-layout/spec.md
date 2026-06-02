@@ -31,16 +31,23 @@ This requirement applies to active maintained workflows and helper code. Histori
 ### Requirement: Houmao-owned directories are split into fixed responsibility zones
 The system SHALL separate Houmao-owned directories into distinct filesystem zones with different responsibilities while making the active project overlay the default local root for non-registry state.
 
-The default per-user shared Houmao root that remains global SHALL be:
-- registry root: `~/.houmao/registry`
+The default per-user shared Houmao root that remains global SHALL be the platformdirs user config path for app name `houmao` and no app author. On Linux this is expected to be `~/.config/houmao`.
+
+The default per-user shared registry root SHALL be:
+
+- registry root: `<platformdirs-user-config>/registry`
 
 For maintained local project-aware command flows, the default overlay-owned roots SHALL be:
+
 - runtime root: `<active-overlay>/runtime`
 - mailbox root: `<active-overlay>/mailbox`
+- jobs root: `<active-overlay>/jobs`
 - agent memory root family: `<active-overlay>/memory/agents/<agent-id>/`
-- easy root: `<active-overlay>/easy`
+- project catalog/content roots under `<active-overlay>/`
+- native-agent compatibility projection root: `<active-overlay>/agents` unless project config selects a different projection path
 
 For each tmux-backed managed agent, the default managed memory paths SHALL be derived as:
+
 - memo file: `<active-overlay>/memory/agents/<agent-id>/houmao-memo.md`
 - pages directory: `<active-overlay>/memory/agents/<agent-id>/pages/`
 
@@ -60,17 +67,35 @@ When neither explicit override nor env-var override is supplied for a maintained
 - **AND THEN** the effective memo file is `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
 - **AND THEN** the effective pages directory is `/repo/.houmao/memory/agents/researcher-id/pages`
 
-#### Scenario: Shared registry remains under the user home by default
+#### Scenario: Shared registry uses the platformdirs config root by default
 - **WHEN** an operator runs maintained local Houmao commands in project context without a registry override
-- **THEN** the effective shared registry root remains under `~/.houmao/registry`
-- **AND THEN** the command does not relocate the registry under the active project overlay by default
+- **THEN** the effective shared registry root is the `registry` child of the platformdirs user config path for `houmao`
+- **AND THEN** on ordinary Linux systems that path is `~/.config/houmao/registry`
+- **AND THEN** the command does not use `~/.houmao/registry` as the default shared registry
 
-#### Scenario: Custom project agent-definition path does not change the fixed overlay-owned runtime family
+#### Scenario: Home `.houmao` is not an ambient project candidate for nested repositories
+- **WHEN** the operator's home directory contains legacy `~/.houmao`
+- **AND WHEN** the operator runs a project-aware command from `~/work/repo`
+- **THEN** the legacy home-level `.houmao` directory is not treated as the shared registry root
+- **AND THEN** it is not selected as a project overlay unless it contains an explicitly selected project config through supported project overlay selection
+
+#### Scenario: Custom project native projection path does not change fixed overlay-owned runtime family
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** `/repo/.houmao/houmao-config.toml` sets `paths.agent_def_dir = "custom-agents"`
+- **AND WHEN** `/repo/.houmao/houmao-config.toml` selects native projection path `custom-agents`
 - **AND WHEN** a maintained local Houmao launch flow starts managed agent id `researcher-id` without stronger root overrides
 - **THEN** the effective runtime root remains `/repo/.houmao/runtime`
-- **AND THEN** the effective mailbox root, memory root family, and easy root remain `/repo/.houmao/mailbox`, `/repo/.houmao/memory/agents/researcher-id`, and `/repo/.houmao/easy`
+- **AND THEN** the effective mailbox root and memory root family remain `/repo/.houmao/mailbox` and `/repo/.houmao/memory/agents/researcher-id`
+
+### Requirement: Legacy shared-home paths are not silently migrated by default
+The system SHALL NOT silently move, delete, or mutate legacy `~/.houmao` shared-registry data when adopting the platformdirs user config default.
+
+If migration tooling is provided, it SHALL be explicit and SHALL report source and destination paths before mutating either tree.
+
+#### Scenario: Default root change does not mutate legacy home data
+- **WHEN** legacy shared registry data exists under `~/.houmao/registry`
+- **AND WHEN** the operator runs a Houmao command without a registry override
+- **THEN** the command uses the platformdirs config registry root
+- **AND THEN** it does not move or delete the legacy `~/.houmao/registry` tree as a side effect
 
 ### Requirement: Houmao-owned directory layout does not require family-based agent bucketing
 The system SHALL NOT require Houmao-owned directory hierarchy to encode agent grouping through tool names, family names, or other taxonomy buckets in order to associate runtime-owned state with one agent.
@@ -153,4 +178,3 @@ The default external-agent registry collection SHALL remain under the shared reg
 - **AND WHEN** an external communication-only agent is registered
 - **THEN** the external record is stored beneath the effective shared registry root
 - **AND THEN** the record is not stored beneath the active project overlay's runtime, mailbox, memory, easy, or workspace-local directories
-

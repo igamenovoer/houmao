@@ -13,7 +13,7 @@ from houmao.mailbox import (
 )
 from houmao.mailbox.managed import DeliveryRequest, ManagedPrincipal, deliver_message
 from houmao.owned_paths import HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR
-from houmao.project.overlay import PROJECT_OVERLAY_DIR_ENV_VAR
+from houmao.project.overlay import PROJECT_OVERLAY_DIR_ENV_VAR, bootstrap_project_overlay
 from houmao.srv_ctrl.commands.main import cli, main
 
 
@@ -73,13 +73,14 @@ def _deliver_cli_test_message(
     return message_id
 
 
-def test_generic_mailbox_init_bootstraps_project_overlay_root_by_default(
+def test_generic_mailbox_init_uses_initialized_project_overlay_root_by_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(repo_root)
     monkeypatch.chdir(repo_root)
 
     result = runner.invoke(cli, ["--print-json", "mailbox", "init"])

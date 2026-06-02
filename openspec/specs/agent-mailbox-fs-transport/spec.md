@@ -4,7 +4,7 @@ Define the filesystem-backed mailbox transport layout, bootstrap rules, delivery
 ### Requirement: Filesystem mailbox transport uses a configurable mailbox content root with deterministic internal layout
 The filesystem mailbox transport SHALL persist mailbox artifacts under a mailbox content root that is configurable through runtime mailbox binding inputs rather than through mailbox-specific session env publication.
 
-When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to the Houmao mailbox root `~/.houmao/mailbox` rather than deriving it from the runtime root.
+When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to the Houmao mailbox root `<platformdirs user config>/mailbox` rather than deriving it from the runtime root.
 
 When no explicit mailbox content root is configured and `HOUMAO_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the effective Houmao mailbox root SHALL be derived from that env-var override before runtime persists or resolves filesystem mailbox state for the session.
 

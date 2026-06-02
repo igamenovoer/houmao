@@ -22,8 +22,13 @@ from ..models import (
 
 
 def templates() -> list[CommandTemplate]:
-    """Return low-level project agent-definition command templates."""
+    """Return native-agent internals command templates."""
 
+    native_root_field = _f(
+        "native_agent_root",
+        "--native-agent-root",
+        "Native-agent root for direct internal material.",
+    )
     prompt_mode = _choice(
         "prompt_mode",
         "--prompt-mode",
@@ -32,6 +37,7 @@ def templates() -> list[CommandTemplate]:
         default_action="omit-to-inherit",
     )
     recipe_fields = (
+        native_root_field,
         _req("name", "--name", "Recipe name."),
         _f("role", "--role", "Role name."),
         _choice("tool", "--tool", "Tool lane.", _TOOL_CHOICES),
@@ -42,8 +48,9 @@ def templates() -> list[CommandTemplate]:
         _f("model", "--model", "Launch-owned model."),
         _int("reasoning_level", "--reasoning-level", "Launch-owned reasoning preset index."),
     )
-    launch_profile_fields = (
-        _req("name", "--name", "Launch profile name."),
+    launch_dossier_fields = (
+        native_root_field,
+        _req("name", "--name", "Launch dossier name."),
         _f("recipe", "--recipe", "Source recipe name."),
         _f("agent_name", "--agent-name", "Default managed-agent name."),
         _f("agent_id", "--agent-id", "Default managed-agent id."),
@@ -101,7 +108,7 @@ def templates() -> list[CommandTemplate]:
         _path("memo_seed_dir", "--memo-seed-dir", "Memo seed directory."),
         _flag("yes", "--yes", "Confirm replacement."),
     )
-    launch_profile_clear_fields = (
+    launch_dossier_clear_fields = (
         _clear("clear_agent_name", "--clear-agent-name", "agent_name"),
         _clear("clear_agent_id", "--clear-agent-id", "agent_id"),
         _clear("clear_workdir", "--clear-workdir", "workdir"),
@@ -128,15 +135,16 @@ def templates() -> list[CommandTemplate]:
     )
     return [
         _template(
-            "project.agents.roles.init",
-            ("project", "agents", "roles", "init"),
-            "Create one project role prompt root.",
+            "internals.native-agent.roles.init",
+            ("internals", "native-agent", "roles", "init"),
+            "Create one native-agent role prompt root.",
             (
+                native_root_field,
                 _req("name", "--name", "Role name."),
                 _f("system_prompt", "--system-prompt", "Inline system prompt."),
                 _path("system_prompt_file", "--system-prompt-file", "System prompt file."),
             ),
-            family="project.agents.roles",
+            family="internals.native-agent.roles",
             conflicts=(
                 _conflict(
                     "system_prompt",
@@ -146,16 +154,17 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
         _template(
-            "project.agents.roles.set",
-            ("project", "agents", "roles", "set"),
-            "Patch one project role prompt.",
+            "internals.native-agent.roles.set",
+            ("internals", "native-agent", "roles", "set"),
+            "Patch one native-agent role prompt.",
             (
+                native_root_field,
                 _req("name", "--name", "Role name."),
                 _f("system_prompt", "--system-prompt", "Inline system prompt."),
                 _path("system_prompt_file", "--system-prompt-file", "System prompt file."),
                 _clear("clear_system_prompt", "--clear-system-prompt", "system_prompt"),
             ),
-            family="project.agents.roles",
+            family="internals.native-agent.roles",
             conflicts=(
                 _conflict(
                     "system_prompt",
@@ -166,17 +175,17 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
         _template(
-            "project.agents.recipes.add",
-            ("project", "agents", "recipes", "add"),
-            "Create one low-level project recipe.",
+            "internals.native-agent.recipes.add",
+            ("internals", "native-agent", "recipes", "add"),
+            "Create one native-agent recipe.",
             recipe_fields,
-            family="project.agents.recipes",
+            family="internals.native-agent.recipes",
             required_one_of=(("role",), ("tool",)),
         ),
         _template(
-            "project.agents.recipes.set",
-            ("project", "agents", "recipes", "set"),
-            "Patch one low-level project recipe.",
+            "internals.native-agent.recipes.set",
+            ("internals", "native-agent", "recipes", "set"),
+            "Patch one native-agent recipe.",
             (
                 *recipe_fields,
                 _clear("clear_auth", "--clear-auth", "auth"),
@@ -187,7 +196,7 @@ def templates() -> list[CommandTemplate]:
                 _clear("clear_model", "--clear-model", "model"),
                 _clear("clear_reasoning_level", "--clear-reasoning-level", "reasoning_level"),
             ),
-            family="project.agents.recipes",
+            family="internals.native-agent.recipes",
             conflicts=(
                 _conflict("auth", "clear_auth", message="Auth cannot be set and cleared."),
                 _conflict(
@@ -207,11 +216,11 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
         _template(
-            "project.agents.launch-profiles.add",
-            ("project", "agents", "launch-profiles", "add"),
-            "Create one recipe-backed launch profile.",
-            launch_profile_fields,
-            family="project.agents.launch-profiles",
+            "internals.native-agent.launch-dossiers.add",
+            ("internals", "native-agent", "launch-dossiers", "add"),
+            "Create one recipe-backed native launch dossier.",
+            launch_dossier_fields,
+            family="internals.native-agent.launch-dossiers",
             conflicts=(
                 _conflict(
                     "prompt_overlay_text",
@@ -227,11 +236,11 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
         _template(
-            "project.agents.launch-profiles.set",
-            ("project", "agents", "launch-profiles", "set"),
-            "Patch one recipe-backed launch profile.",
-            (*launch_profile_fields, *launch_profile_clear_fields),
-            family="project.agents.launch-profiles",
+            "internals.native-agent.launch-dossiers.set",
+            ("internals", "native-agent", "launch-dossiers", "set"),
+            "Patch one recipe-backed native launch dossier.",
+            (*launch_dossier_fields, *launch_dossier_clear_fields),
+            family="internals.native-agent.launch-dossiers",
             conflicts=(
                 _conflict(
                     "prompt_mode",

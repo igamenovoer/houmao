@@ -40,8 +40,8 @@ Current fallback-eligible cases include:
 - the tmux session does not exist,
 - `HOUMAO_MANIFEST_PATH` is missing or blank,
 - `HOUMAO_MANIFEST_PATH` points to a missing manifest,
-- `HOUMAO_AGENT_DEF_DIR` is missing or blank,
-- `HOUMAO_AGENT_DEF_DIR` points to a missing directory.
+- `HOUMAO_NATIVE_AGENT_ROOT` is missing or blank,
+- `HOUMAO_NATIVE_AGENT_ROOT` points to a missing directory.
 
 Hard mismatches still fail fast instead of silently falling back:
 

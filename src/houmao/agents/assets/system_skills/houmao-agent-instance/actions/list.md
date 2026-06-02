@@ -19,5 +19,5 @@ Use:
 ## Guardrails
 
 - Do not ask for an agent name when the task is only to list managed agents.
-- Do not route this action through `project easy instance list`.
+- Do not route this action through `project agents list`.
 - Do not filter or reinterpret the list unless the user explicitly asks for additional selection after listing.

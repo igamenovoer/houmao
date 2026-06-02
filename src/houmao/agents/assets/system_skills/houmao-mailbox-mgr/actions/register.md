@@ -28,6 +28,6 @@ project.mailbox.register
 
 - Do not guess the mailbox address or principal id.
 - Do not recommend `HOUMAO-<agentname>@houmao.localhost` as the ordinary mailbox-address pattern.
-- Do not present this action as the default way to prepare per-agent mailbox addresses that a same-root `project easy instance launch --mail-transport filesystem --mail-root ...` step can own later.
+- Do not present this action as the default way to prepare per-agent mailbox addresses that a same-root `project agents launch --mail-transport filesystem --mail-root ...` step can own later.
 - Do not skip the overwrite-confirmation contract when the task is destructive and non-interactive.
 - Do not treat registration as a direct agent-binding task; use the late-binding action pages for existing managed agents.

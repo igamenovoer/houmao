@@ -18,7 +18,7 @@ Require:
 - `<loop-dir>`
 - `<loop-dir>/execplan/manifest.toml`
 - generated execplan validation evidence or a current `validate-execplan` pass
-- prepared agent/easy-profile facts from `prepare-agents`
+- prepared agent/project-profile facts from `prepare-agents`
 - prepared workspace facts from `prepare-workspace`, including current workspace-manager validation evidence or summary when managed workspaces are required, or explicit equivalent manual workspace evidence
 
 Use when present:
@@ -31,7 +31,7 @@ Use when present:
 ## Checks
 
 1. Confirm the generated execplan is validated enough for execution.
-2. Confirm concrete agent/profile identities and easy profile or explicit raw launch profile facts exist for every required participant.
+2. Confirm concrete agent/profile identities and project profile or explicit raw launch profile facts exist for every required participant.
 3. Confirm generated and private skills are installed or project-scoped as required by agent bindings.
 4. Confirm Houmao system skills will be preinstalled by managed-agent creation for each required participant.
 5. When managed workspaces are required, confirm workspace facts from `prepare-workspace` or explicit manual evidence match prepared agent/profile names, generated workspace contracts, and generated agent bindings.

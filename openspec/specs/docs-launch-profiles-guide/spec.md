@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the documentation requirements for the shared launch-profiles conceptual guide in the getting-started section. The guide explains the operator-owned launch-profile semantic model, the two authoring lanes (easy specialist-backed and explicit recipe-backed), the shared catalog-backed object family, the five-layer effective-launch precedence chain, prompt overlay composition, and launch-profile provenance reporting.
+Define the documentation requirements for the shared launch-profiles conceptual guide in the getting-started section. The guide explains the operator-owned launch-profile semantic model, the two authoring lanes (specialist-backed and explicit recipe-backed), the shared catalog-backed object family, the five-layer effective-launch precedence chain, prompt overlay composition, and launch-profile provenance reporting.
 ## Requirements
 ### Requirement: Launch-profiles conceptual guide exists
 
@@ -16,7 +16,7 @@ The page SHALL explain:
 - the five-layer effective-launch precedence order,
 - prompt overlay modes (`append` and `replace`) and where overlay composition happens relative to backend-specific role injection,
 - that launch profiles may store a gateway mail-notifier appendix default as birth-time launch configuration,
-- that explicit `project agents launch-profiles ...` and easy `project easy profile ...` authoring lanes both support that stored notifier appendix default,
+- that explicit `internals native-agent launch-dossiers ...` and easy `project profile ...` authoring lanes both support that stored notifier appendix default,
 - that launch-time materialization seeds that stored appendix into runtime gateway notifier state for the launched session,
 - how launch-profile provenance flows into runtime metadata and is reported by inspection commands,
 - when to use which lane.
@@ -42,8 +42,8 @@ The page SHALL NOT introduce CLI shapes, env vars, or precedence behavior that a
 #### Scenario: Reader understands the easy-versus-explicit lane split
 
 - **WHEN** a reader scans the launch-profiles guide for the two user-facing surfaces
-- **THEN** they find that the easy lane uses `project easy profile ...` and is specialist-backed
-- **AND THEN** they find that the explicit lane uses `project agents launch-profiles ...` and is recipe-backed
+- **THEN** they find that the easy lane uses `project profile ...` and is specialist-backed
+- **AND THEN** they find that the explicit lane uses `internals native-agent launch-dossiers ...` and is recipe-backed
 - **AND THEN** they find that both lanes write into one shared catalog-backed launch-profile object family
 
 #### Scenario: Reader understands notifier appendix defaults as launch-owned config
@@ -105,15 +105,15 @@ The guide SHALL state that prompt overlay payloads are stored as managed file-ba
 The launch-profiles guide SHALL state that the build manifest and runtime launch metadata preserve, in secret-free form:
 
 - whether the launch originated from a specialist source or a recipe source,
-- whether the birth-time reusable config came from an easy profile or an explicit launch profile,
+- whether the birth-time reusable config came from an project profile or an explicit launch profile,
 - the originating profile name when available.
 
-The guide SHALL state that easy `instance list` and `instance get` report the originating easy-profile identity when runtime-backed state makes it resolvable, and that the same lane and profile information appears on inspection commands for explicit launch-profile-backed managed agents.
+The guide SHALL state that easy `instance list` and `instance get` report the originating project-profile identity when runtime-backed state makes it resolvable, and that the same lane and profile information appears on inspection commands for explicit launch-profile-backed managed agents.
 
 #### Scenario: Reader understands how profile provenance shows up on inspection
 
 - **WHEN** a reader opens the provenance section of the launch-profiles guide
-- **THEN** the page explains that managed-agent inspection reports both the source lane (specialist or recipe) and the birth-time lane (easy profile or explicit launch profile)
+- **THEN** the page explains that managed-agent inspection reports both the source lane (specialist or recipe) and the birth-time lane (project profile or explicit launch profile)
 - **AND THEN** the page explains that the inspection output does not expose secret credential values inline
 
 ### Requirement: Launch-profiles guide compares the source and birth-time object families
@@ -122,8 +122,8 @@ The launch-profiles guide SHALL include a comparison that distinguishes:
 
 - specialists (easy lane source definitions),
 - recipes (explicit lane source definitions),
-- easy profiles (specialist-backed reusable birth-time configuration),
-- explicit launch profiles (recipe-backed reusable birth-time configuration),
+- project profiles (specialist-backed reusable birth-time configuration),
+- native launch dossiers (recipe-backed reusable birth-time configuration),
 - runtime `LaunchPlan` (derived, ephemeral, runtime-owned),
 - live managed-agent instances (running runtime objects).
 
@@ -133,7 +133,7 @@ The comparison SHALL state which of those objects are user-authored, which are s
 
 - **WHEN** a reader checks the comparison section of the launch-profiles guide
 - **THEN** they find that specialists and recipes are user-authored source definitions
-- **AND THEN** they find that easy profiles and explicit launch profiles are user-authored birth-time configuration that share one underlying catalog model
+- **AND THEN** they find that project profiles and native launch dossiers are user-authored birth-time configuration that share one underlying catalog model
 - **AND THEN** they find that the runtime `LaunchPlan` is derived and ephemeral and is not user-authored
 
 ### Requirement: Launch-profiles guide documents the managed prompt header
@@ -239,19 +239,19 @@ The guide SHALL explain:
 - **AND THEN** the guide states that the launch does not clear existing pages
 
 ### Requirement: Launch-profiles guide explains lane-bounded management over shared storage
-The launch-profiles guide SHALL explain that easy profiles and explicit launch profiles share one catalog-backed launch-profile family and project into the same compatibility path family under `.houmao/agents/launch-profiles/<name>.yaml`.
+The launch-profiles guide SHALL explain that project profiles and native launch dossiers share one catalog-backed launch-profile family and project into the same compatibility path family under `.houmao/agents/launch-profiles/<name>.yaml`.
 
 The guide SHALL also state that this shared storage and shared projection path do not make the two command families interchangeable.
 
 At minimum, the guide SHALL explain:
 
-- easy profiles are managed through `houmao-mgr project easy profile ...`,
-- explicit launch profiles are managed through `houmao-mgr project agents launch-profiles ...`,
+- project profiles are managed through `houmao-mgr project profile ...`,
+- native launch dossiers are managed through `houmao-mgr internals native-agent launch-dossiers ...`,
 - wrong-lane management attempts fail with guidance to the correct command family instead of reading, mutating, or deleting the other lane's profile.
 
 #### Scenario: Reader understands shared projection path does not collapse lane ownership
 - **WHEN** a reader studies the launch-profiles guide to understand why both profile kinds appear under `.houmao/agents/launch-profiles/`
 - **THEN** the guide explains that both lanes share the same stored launch-profile family and compatibility projection path
 - **AND THEN** the guide explains that easy and explicit profile management remains lane-bounded
-- **AND THEN** the guide directs the reader to `project easy profile ...` for easy profiles and `project agents launch-profiles ...` for explicit launch profiles
+- **AND THEN** the guide directs the reader to `project profile ...` for project profiles and `internals native-agent launch-dossiers ...` for native launch dossiers
 

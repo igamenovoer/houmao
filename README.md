@@ -84,13 +84,13 @@ You: Create a Codex backend reviewer specialist for this repo, make a reusable e
 AI: Done.
     - initialized or inspected the Houmao project overlay
     - created or selected specialist `backend-reviewer`
-    - prepared easy profile `backend-reviewer-default`
+    - prepared project profile `backend-reviewer-default`
     - launched managed agent `reviewer-1`
     - attached or discovered its gateway
     - sent the review prompt through the maintained messaging surface
 ```
 
-Behind that exchange, the agent may use commands such as `houmao-mgr project init`, `houmao-mgr project easy specialist ...`, `houmao-mgr project easy profile ...`, and `houmao-mgr agents prompt ...`. You do not need those command shapes for the first experience. They are documented in the [Easy Specialists guide](docs/getting-started/easy-specialists.md), [Launch Profiles guide](docs/getting-started/launch-profiles.md), and [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md).
+Behind that exchange, the agent may use commands such as `houmao-mgr project init`, `houmao-mgr project specialist ...`, `houmao-mgr project profile ...`, and `houmao-mgr agents prompt ...`. You do not need those command shapes for the first experience. They are documented in the [Easy Specialists guide](docs/getting-started/easy-specialists.md), [Launch Profiles guide](docs/getting-started/launch-profiles.md), and [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md).
 
 ### Gateway Interaction
 
@@ -109,7 +109,7 @@ Gateway-backed interaction gives your user agent a stable way to prompt, interru
 |---|---|
 | User CLI agent | The agent you are talking to now. It has Houmao skills installed and can operate Houmao for you. |
 | Specialist | A reusable role/tool/credential definition: "backend reviewer", "story writer", "researcher", "release engineer". |
-| Easy profile | Reusable launch defaults over one specialist: managed-agent name, working directory, credential lane, mailbox posture, prompt mode, and optional skill policy. |
+| Project profile | Reusable launch defaults over one specialist: managed-agent name, working directory, credential lane, mailbox posture, prompt mode, and optional skill policy. |
 | Managed agent | A live agent launched or adopted by Houmao, backed by tmux/headless runtime state and visible through `agents list`, gateway, mail, memory, and inspection surfaces. |
 | Gateway | A per-agent sidecar for prompt delivery, interrupts, request queues, TUI/headless state, reminders, and mailbox facades. |
 | Mailbox | A shared async communication layer so agents can send structured work, replies, and wakeup messages without a central orchestrator. |
@@ -155,7 +155,7 @@ The orientation-level entry points are:
 | Skill | What to ask it for |
 |---|---|
 | `houmao-touring` | A staged first-run or re-orientation tour. |
-| `houmao-agent-definition` | Roles, recipes, `raw-profiles`, specialists, easy `profiles`, `create-agent-fast-forward`, launch, and stop workflows. |
+| `houmao-agent-definition` | Roles, recipes, `launch-dossiers`, specialists, easy `profiles`, `create-agent-fast-forward`, launch, and stop workflows. |
 | `houmao-agent-messaging` | Prompt, interrupt, queue, raw input, mailbox-routing entry, and one-turn headless override work against running agents. |
 | `houmao-agent-gateway` | Gateway attach/detach/status/watch, reminders, and mail-notifier posture. |
 | `houmao-agent-loop-lite` | Lightweight Markdown/direct-SQL generated loop authoring and operation. |
@@ -176,7 +176,7 @@ The orientation-level entry points are:
 
 - [`examples/writer-team/`](examples/writer-team/) - Complete tree-loop template for the three-agent story-writing team shown above.
 - [`scripts/demo/minimal-agent-launch/`](scripts/demo/minimal-agent-launch/) - Recipe-backed headless launch with Claude or Codex.
-- [`scripts/demo/single-agent-mail-wakeup/`](scripts/demo/single-agent-mail-wakeup/) - Easy specialist plus gateway and mailbox-notifier wakeup.
+- [`scripts/demo/single-agent-mail-wakeup/`](scripts/demo/single-agent-mail-wakeup/) - Specialist plus gateway and mailbox-notifier wakeup.
 - [`scripts/demo/single-agent-gateway-wakeup-headless/`](scripts/demo/single-agent-gateway-wakeup-headless/) - Headless specialist with gateway wakeup and turn evidence.
 - [`scripts/demo/shared-tui-tracking-demo-pack/`](scripts/demo/shared-tui-tracking-demo-pack/) - Standalone tracked-TUI capture, watch, and replay validation.
 

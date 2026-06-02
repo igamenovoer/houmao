@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from importlib import resources
 from importlib.resources.abc import Traversable
 import os
@@ -10,7 +10,6 @@ from pathlib import Path
 import tomllib
 from typing import Literal, Mapping, cast
 
-from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.owned_paths import (
     resolve_local_jobs_root,
     resolve_mailbox_root,
@@ -33,7 +32,7 @@ DEFAULT_AGENT_DEF_DIR = Path(".houmao") / "agents"
 _STARTER_ASSET_PACKAGE = "houmao.project.assets"
 _STARTER_ASSET_ROOT = "starter_agents"
 
-AgentDefDirSource = Literal["cli", "env", "project_config", "project_overlay_env", "default"]
+AgentDefDirSource = Literal["cli", "project_config", "project_overlay_env", "missing"]
 ProjectOverlaySource = Literal["env", "discovered", "default"]
 ProjectOverlayDiscoveryMode = Literal["ancestor", "cwd_only"]
 
@@ -209,11 +208,12 @@ def require_project_overlay(
         if resolution.source == "env":
             raise ValueError(
                 "No local Houmao project overlay was discovered at "
-                f"`{resolution.overlay_root}`. Run `houmao-mgr project init` first."
+                f"`{resolution.overlay_root}`. Run `houmao-mgr project init` or select an "
+                "existing project overlay."
             )
         raise ValueError(
             "No local Houmao project overlay was discovered from the current directory. "
-            "Run `houmao-mgr project init` first."
+            "Run `houmao-mgr project init` or select an existing project overlay."
         )
     return project_overlay
 
@@ -309,13 +309,6 @@ def resolve_project_aware_agent_def_dir(
         )
 
     env_mapping = dict(os.environ) if env is None else dict(env)
-    env_value = env_mapping.get(AGENT_DEF_DIR_ENV_VAR)
-    if env_value is not None and env_value.strip():
-        return AgentDefDirResolution(
-            agent_def_dir=_resolve_path(env_value.strip(), base=resolved_cwd),
-            source="env",
-        )
-
     overlay_resolution = resolve_project_overlay(cwd=resolved_cwd, env=env_mapping)
     project_overlay = overlay_resolution.project_overlay
     if project_overlay is not None:
@@ -331,8 +324,8 @@ def resolve_project_aware_agent_def_dir(
         )
 
     return AgentDefDirResolution(
-        agent_def_dir=(resolved_cwd / DEFAULT_AGENT_DEF_DIR).resolve(),
-        source="default",
+        agent_def_dir=(overlay_resolution.overlay_root / "agents").resolve(),
+        source="missing",
     )
 
 
@@ -349,9 +342,14 @@ def resolve_materialized_project_aware_agent_def_dir(
         cli_value=cli_value,
         env=env,
     )
+    if resolution.source == "cli":
+        return resolution.agent_def_dir.resolve()
     if resolution.project_overlay is not None:
         return materialize_project_agent_catalog_projection(resolution.project_overlay)
-    return resolution.agent_def_dir
+    raise ValueError(
+        "No local Houmao project overlay was discovered from the current directory. "
+        "Run `houmao-mgr project init` or select an existing project overlay."
+    )
 
 
 def resolve_project_aware_local_roots(
@@ -414,7 +412,7 @@ def ensure_project_aware_local_roots(
     env: Mapping[str, str] | None = None,
     include_compatibility_profiles: bool = False,
 ) -> ProjectAwareLocalRoots:
-    """Resolve project-aware local roots, bootstrapping the selected overlay when needed."""
+    """Resolve project-aware local roots, requiring an active selected overlay."""
 
     resolved_cwd = cwd.resolve()
     env_mapping = dict(os.environ) if env is None else dict(env)
@@ -425,21 +423,23 @@ def ensure_project_aware_local_roots(
     )
     if roots.project_overlay is not None:
         return roots
+    _ = include_compatibility_profiles
+    raise ValueError(_missing_project_overlay_message(roots))
 
-    bootstrap_result = bootstrap_project_overlay_at_root(
-        roots.overlay_root,
-        include_compatibility_profiles=include_compatibility_profiles,
-    )
-    ensured_roots = resolve_project_aware_local_roots(
-        cwd=resolved_cwd,
-        cli_agent_def_dir=cli_agent_def_dir,
-        env=env_mapping,
-    )
-    return replace(
-        ensured_roots,
-        overlay_root_source=roots.overlay_root_source,
-        overlay_discovery_mode=roots.overlay_discovery_mode,
-        bootstrap_result=bootstrap_result,
+
+def _missing_project_overlay_message(roots: ProjectAwareLocalRoots) -> str:
+    """Return actionable guidance for stateful commands with no active project."""
+
+    if roots.overlay_root_source == "env":
+        return (
+            "No local Houmao project overlay was discovered at the selected overlay root "
+            f"`{roots.overlay_root}`. Run `houmao-mgr project init` there or select an existing "
+            f"project overlay with `{PROJECT_OVERLAY_DIR_ENV_VAR}`."
+        )
+    return (
+        "No local Houmao project overlay was discovered from the current directory. "
+        "Run `houmao-mgr project init` or select an existing project overlay before running "
+        "stateful project commands."
     )
 
 

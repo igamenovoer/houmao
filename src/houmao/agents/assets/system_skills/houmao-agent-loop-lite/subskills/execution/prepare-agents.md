@@ -37,5 +37,5 @@ Use `blocked` in a cell when a required fact is missing or inconsistent, then li
 
 ## Constraints
 
-- Do not reimplement specialist creation, easy-profile mutation, raw-profile mutation, credential defaulting, or launcher selection.
+- Do not reimplement specialist creation, project-profile mutation, launch-dossier mutation, credential defaulting, or launcher selection.
 - Do not prepare workspaces, mailboxes, gateways, memories, run artifacts, or live sessions here.

@@ -341,7 +341,7 @@ At minimum, this SHALL apply to:
 - `mail-notifier enable`
 - `mail-notifier disable`
 
-When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through manifest-first current-session discovery using `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`, and local resumed-control paths SHALL additionally recover `agent_def_dir` through `HOUMAO_AGENT_DEF_DIR` or shared-registry runtime metadata.
+When an operator omits explicit selectors and runs one of those commands inside the owning tmux session, `houmao-mgr` SHALL resolve the target through manifest-first current-session discovery using `HOUMAO_MANIFEST_PATH` or `HOUMAO_AGENT_ID`, and local resumed-control paths SHALL additionally recover `agent_def_dir` through `HOUMAO_NATIVE_AGENT_ROOT` or shared-registry runtime metadata.
 
 When a command supports current-session targeting, `houmao-mgr` MAY also expose an explicit `--current-session` switch, but it SHALL treat omitted selectors inside tmux as the same current-session targeting mode.
 
@@ -1440,7 +1440,7 @@ When a maintained command still leaks a non-click exception to the root wrapper,
 
 #### Scenario: Project recipe failure that reaches the root wrapper still renders without traceback
 
-- **WHEN** an operator runs `houmao-mgr project agents recipes list`
+- **WHEN** an operator runs `houmao-mgr internals native-agent recipes list`
 - **AND WHEN** that maintained command leaks a malformed-preset parsing exception to the top-level wrapper
 - **THEN** `houmao-mgr` exits non-zero
 - **AND THEN** the operator sees CLI error text instead of a Python traceback

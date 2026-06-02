@@ -34,8 +34,8 @@ That packaged skill SHALL remain the canonical Houmao-owned skill for communicat
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `agents launch|join|stop|relaunch|cleanup`
-- `project easy specialist create|list|get|remove`
-- `project easy instance launch|list|get|stop`
+- `project specialist create|list|get|remove`
+- `project agents launch|list|get|stop`
 - ordinary mailbox `status|list|peek|read|send|post|reply|mark|move|archive` operations
 - mailbox transport-specific filesystem or Stalwart internals
 - gateway attach and detach lifecycle work

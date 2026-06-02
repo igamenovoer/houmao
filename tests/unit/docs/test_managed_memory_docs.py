@@ -77,9 +77,9 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     )
     quickstart = (REPO_ROOT / "docs/getting-started/quickstart.md").read_text(encoding="utf-8")
     cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(encoding="utf-8")
-    project_launch_profiles_skill = (
+    native_launch_dossiers_skill = (
         REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/raw-profiles.md"
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/launch-dossiers.md"
     ).read_text(encoding="utf-8")
     easy_profile_create_skill = (
         REPO_ROOT
@@ -102,8 +102,8 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     assert "--memo-seed-text" in quickstart
     assert "--memo-seed-policy" not in cli_reference
     assert "--clear-memo-seed" in cli_reference
-    assert "--memo-seed-dir" in project_launch_profiles_skill
-    assert "--memo-seed-policy" not in project_launch_profiles_skill
+    assert "--memo-seed-dir" in easy_profile_create_skill
+    assert "--memo-seed-policy" not in native_launch_dossiers_skill
     assert "--memo-seed-policy" not in easy_profile_create_skill
     assert "stored memo seed" in easy_launch_skill
 
@@ -112,7 +112,7 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
         easy_specialists,
         quickstart,
         cli_reference,
-        project_launch_profiles_skill,
+        native_launch_dossiers_skill,
         easy_profile_create_skill,
         easy_launch_skill,
     ):

@@ -24,5 +24,5 @@ Use the matching CLI-owned template, then run its rendered `argv`:
 
 - Do not guess which tool, target, or credential the user meant.
 - Do not remove multiple credentials unless the user explicitly asks for that broader operation.
-- Do not present removal as changing specialists, easy profiles, raw profiles, live instances, or mailbox credentials automatically.
+- Do not present removal as changing specialists, project profiles, launch dossiers, live instances, or mailbox credentials automatically.
 - Do not route removal through direct filesystem deletion when the CLI surface already owns the operation.

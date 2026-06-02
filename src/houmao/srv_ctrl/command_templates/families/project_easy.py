@@ -22,7 +22,7 @@ from ..models import (
 
 
 def templates() -> list[CommandTemplate]:
-    """Return project-easy command templates."""
+    """Return first-class project command templates."""
 
     prompt_mode = _choice(
         "prompt_mode",
@@ -253,11 +253,11 @@ def templates() -> list[CommandTemplate]:
     )
     return [
         _template(
-            "project.easy.specialist.create",
-            ("project", "easy", "specialist", "create"),
+            "project.specialist.create",
+            ("project", "specialist", "create"),
             "Create one project-local specialist.",
             specialist_create_fields,
-            family="project.easy",
+            family="project.specialist",
             conflicts=(
                 _conflict(
                     "system_prompt",
@@ -270,11 +270,11 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
         _template(
-            "project.easy.specialist.set",
-            ("project", "easy", "specialist", "set"),
+            "project.specialist.set",
+            ("project", "specialist", "set"),
             "Patch one project-local specialist.",
             specialist_set_fields,
-            family="project.easy",
+            family="project.specialist",
             conflicts=(
                 _conflict(
                     "system_prompt",
@@ -301,37 +301,37 @@ def templates() -> list[CommandTemplate]:
             ),
         ),
         _template(
-            "project.easy.profile.create",
-            ("project", "easy", "profile", "create"),
-            "Create one specialist-backed easy profile.",
+            "project.profile.create",
+            ("project", "profile", "create"),
+            "Create one specialist-backed project profile.",
             (
-                _req("name", "--name", "Easy profile name."),
+                _req("name", "--name", "Project profile name."),
                 _req("specialist", "--specialist", "Source specialist."),
                 *common_profile_fields,
                 _flag("yes", "--yes", "Confirm replacement."),
             ),
-            family="project.easy",
+            family="project.profile",
             conflicts=profile_conflicts,
         ),
         _template(
-            "project.easy.profile.set",
-            ("project", "easy", "profile", "set"),
-            "Patch one specialist-backed easy profile.",
+            "project.profile.set",
+            ("project", "profile", "set"),
+            "Patch one specialist-backed project profile.",
             (
-                _req("name", "--name", "Easy profile name."),
+                _req("name", "--name", "Project profile name."),
                 *common_profile_fields,
                 *profile_clear_fields,
             ),
-            family="project.easy",
+            family="project.profile",
             conflicts=profile_conflicts,
         ),
         _template(
-            "project.easy.instance.launch",
-            ("project", "easy", "instance", "launch"),
-            "Launch one managed-agent instance from a specialist or easy profile.",
+            "project.agents.launch",
+            ("project", "agents", "launch"),
+            "Launch one project managed agent from a specialist or profile.",
             (
                 _f("specialist", "--specialist", "Source specialist."),
-                _f("profile", "--profile", "Source easy profile."),
+                _f("profile", "--profile", "Source project profile."),
                 _f("name", "--name", "Managed-agent instance name."),
                 _f("auth", "--auth", "One-shot auth override."),
                 _f("model", "--model", "One-shot model override."),
@@ -372,7 +372,7 @@ def templates() -> list[CommandTemplate]:
                 _flag("reuse_home", "--reuse-home", "Reuse compatible stopped home."),
                 _choice("force", "--force", "Managed launch force mode.", ("reuse", "clean")),
             ),
-            family="project.easy",
+            family="project.agents",
             required_one_of=(("specialist", "profile"),),
             conflicts=(
                 _conflict(

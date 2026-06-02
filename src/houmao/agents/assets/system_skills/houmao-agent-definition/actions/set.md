@@ -10,11 +10,11 @@ Use this action only when the user wants to update one existing low-level role o
 2. Determine whether the target is a role or a recipe.
 3. Recover the target name and explicit mutations from the current prompt first and recent chat context second when they were stated explicitly.
 4. If the target kind, target name, or required explicit mutation is still missing, ask the user in Markdown before proceeding. Follow `subskills/common/missing-inputs.md` so `Required` and `Optional` inputs are separate.
-5. For one role, require at least one explicit prompt mutation and render `project.agents.roles.set` with exactly one of:
+5. For one role, require at least one explicit prompt mutation and render `internals.native-agent.roles.set` with exactly one of:
    - `--system-prompt <text>`
    - `--system-prompt-file <path>`
    - `--clear-system-prompt`
-6. For one recipe, require at least one explicit recipe mutation and render `project.agents.recipes.set` with only the requested supported fields:
+6. For one recipe, require at least one explicit recipe mutation and render `internals.native-agent.recipes.set` with only the requested supported fields:
    - `--role <role>`
    - `--tool <tool>`
    - `--setup <setup>`
@@ -23,7 +23,7 @@ Use this action only when the user wants to update one existing low-level role o
    - `--remove-skill <skill>`
    - `--clear-skills`
    - `--prompt-mode unattended|as_is` or `--clear-prompt-mode`
-7. Treat changing which credential bundle one recipe references as a recipe-structure update through `project agents recipes set --auth ...` or `--clear-auth`.
+7. Treat changing which credential bundle one recipe references as a recipe-structure update through `internals native-agent recipes set --auth ...` or `--clear-auth`.
 8. If the user asks to mutate env vars or auth files inside the bundle itself, stop and route that request to `houmao-credential-mgr`.
 9. Report the updated role or recipe details returned by the command.
 
@@ -32,8 +32,8 @@ Use this action only when the user wants to update one existing low-level role o
 Use one of these template ids, then run the rendered `argv`:
 
 ```text
-project.agents.roles.set
-project.agents.recipes.set
+internals.native-agent.roles.set
+internals.native-agent.recipes.set
 ```
 
 ## Guardrails
@@ -41,4 +41,4 @@ project.agents.recipes.set
 - Do not continue when the user has not provided any explicit supported role or recipe change.
 - Do not treat auth-bundle content mutation as a recipe-definition change; use `houmao-credential-mgr`.
 - Do not invent unsupported recipe mutation flags.
-- Do not use `project agents roles presets ...`.
+- Do not use `internals native-agent roles presets ...`.

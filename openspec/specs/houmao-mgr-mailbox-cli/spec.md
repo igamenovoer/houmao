@@ -92,7 +92,7 @@ A successful bootstrap SHALL create or validate the v1 filesystem mailbox layout
 - **AND WHEN** an operator runs `houmao-mgr mailbox init` without `--mailbox-root`
 - **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
 - **THEN** the command bootstraps or validates `/repo/.houmao/mailbox`
-- **AND THEN** it does not bootstrap a shared mailbox root under `~/.houmao/`
+- **AND THEN** it does not bootstrap a shared mailbox root under `<platformdirs user config>/`
 
 ### Requirement: `houmao-mgr mailbox status` reports filesystem mailbox root health and summary state
 `houmao-mgr mailbox status` SHALL inspect one filesystem mailbox root and return a structured summary of its health and stored state.
@@ -346,7 +346,7 @@ When no active project overlay exists and the command requires local mailbox sta
 - **AND WHEN** an operator runs `houmao-mgr mailbox status` without `--mailbox-root`
 - **AND WHEN** `HOUMAO_GLOBAL_MAILBOX_DIR` is unset
 - **THEN** the command targets `/repo/.houmao/mailbox`
-- **AND THEN** it does not fall back to a shared mailbox root under `~/.houmao/`
+- **AND THEN** it does not fall back to a shared mailbox root under `<platformdirs user config>/`
 
 #### Scenario: Generic mailbox command bootstraps the missing overlay when mailbox state is needed
 - **WHEN** no active project overlay exists

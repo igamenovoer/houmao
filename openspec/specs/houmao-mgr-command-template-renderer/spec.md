@@ -16,21 +16,21 @@ At minimum, `internals command-templates` SHALL expose:
 - `show`
 - `render`
 
-The initial template registry SHALL include stable template ids for:
+The maintained template registry SHALL include stable template ids for:
 
-- `project.easy.specialist.create`
-- `project.easy.specialist.set`
-- `project.easy.profile.create`
-- `project.easy.profile.set`
-- `project.easy.instance.launch`
-- `project.agents.roles.init`
-- `project.agents.roles.set`
-- `project.agents.recipes.add`
-- `project.agents.recipes.set`
-- `project.agents.launch-profiles.add`
-- `project.agents.launch-profiles.set`
-- credential command families for project and plain agent-definition lanes, with tool lanes `claude`, `codex`, and `gemini`, and command verbs `add`, `set`, `login`, `list`, `get`, `rename`, and `remove`
-- agent lifecycle command templates for launch, launch-profile launch, join, relaunch, cleanup session, and cleanup logs
+- `project.specialist.create`
+- `project.specialist.set`
+- `project.profile.create`
+- `project.profile.set`
+- project-scoped managed-agent lifecycle command templates for launch/list/get/stop and related maintained lifecycle verbs
+- `internals.native-agent.roles.init`
+- `internals.native-agent.roles.set`
+- `internals.native-agent.recipes.add`
+- `internals.native-agent.recipes.set`
+- `internals.native-agent.launch-dossiers.add`
+- `internals.native-agent.launch-dossiers.set`
+- credential command families for project credential lanes, with tool lanes `claude`, `codex`, and `gemini`, and command verbs `add`, `set`, `login`, `list`, `get`, `rename`, and `remove`
+- agent lifecycle command templates for non-project live-agent control where still maintained
 - gateway command templates for discovery/control/TUI helpers, mail notifier status/enable/disable, and reminders list/get/create/set/remove
 - mailbox command templates for shared mailbox, project mailbox, project mailbox accounts/messages, and managed-agent mailbox binding commands
 - managed-agent mail fallback command templates for `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`
@@ -41,8 +41,13 @@ The template registry SHALL NOT include skill-native loop scaffolds, workspace l
 
 #### Scenario: Agent lists supported templates
 - **WHEN** an agent runs `houmao-mgr --print-json internals command-templates list`
-- **THEN** the output includes the initial template ids
+- **THEN** the output includes promoted project specialist/profile template ids and native-agent internals template ids
 - **AND THEN** each listed template includes a short description and target command path
+
+#### Scenario: Old easy and project-agents ids are not maintained public ids
+- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates list`
+- **THEN** the maintained public ids do not include `project.easy.specialist.create`, `project.easy.profile.create`, or `project.agents.launch-profiles.add`
+- **AND THEN** equivalent maintained templates use `project.specialist.*`, `project.profile.*`, or `internals.native-agent.launch-dossiers.*`
 
 #### Scenario: Skill-native scaffolds are not listed as command templates
 - **WHEN** an agent runs `houmao-mgr --print-json internals command-templates list`
@@ -50,7 +55,7 @@ The template registry SHALL NOT include skill-native loop scaffolds, workspace l
 - **AND THEN** every listed template maps to an existing `houmao-mgr` command surface
 
 #### Scenario: Unknown template id fails clearly
-- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates show --id project.easy.unknown`
+- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates show --id project.unknown`
 - **THEN** the command fails clearly
 - **AND THEN** it reports that the requested template id is not registered
 
@@ -76,12 +81,12 @@ Credential templates SHALL describe tool-specific option shapes for Claude, Code
 Gateway, mailbox, and managed-agent mail templates SHALL describe command arguments and conflicts only; HTTP payload examples and mailbox-processing workflow prompts remain owned by their skills or server/API contracts.
 
 #### Scenario: Show reports prompt-mode omission semantics
-- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates show --id project.easy.profile.create`
+- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates show --id project.profile.create`
 - **THEN** the `prompt_mode` field reports the `--prompt-mode` CLI option
 - **AND THEN** it reports `omit-to-inherit` or equivalent omitted semantics rather than a stored unattended default
 
 #### Scenario: Show reports launch posture separately from prompt mode
-- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates show --id project.agents.launch-profiles.add`
+- **WHEN** an agent runs `houmao-mgr --print-json internals command-templates show --id internals.native-agent.launch-dossiers.add`
 - **THEN** launch posture fields report their own CLI options and omitted semantics
 - **AND THEN** prompt mode fields do not imply those launch posture fields
 
@@ -115,13 +120,18 @@ When no blockers exist, `argv` SHALL contain the exact target command and argume
 
 When blockers exist, the renderer SHALL report the blockers and SHALL NOT return an executable `argv`.
 
-#### Scenario: Render returns argv for a sparse easy profile intent
-- **WHEN** an agent renders `project.easy.profile.create` with fields `name=reviewer-fast` and `specialist=reviewer`
-- **THEN** the output argv represents `houmao-mgr project easy profile create --name reviewer-fast --specialist reviewer`
+#### Scenario: Render returns argv for a sparse project profile intent
+- **WHEN** an agent renders `project.profile.create` with fields `name=reviewer-fast` and `specialist=reviewer`
+- **THEN** the output argv represents `houmao-mgr project profile create --name reviewer-fast --specialist reviewer`
 - **AND THEN** the output reports omitted optional fields instead of adding default-valued options
 
+#### Scenario: Render returns argv for a native launch dossier intent
+- **WHEN** an agent renders `internals.native-agent.launch-dossiers.add` with fields `native_agent_root=/tmp/native`, `name=reviewer-native`, and `recipe=reviewer-codex`
+- **THEN** the output argv represents the matching `houmao-mgr internals native-agent launch-dossiers add` command
+- **AND THEN** the output uses launch dossier terminology rather than launch profile terminology
+
 #### Scenario: Render does not execute the target command
-- **WHEN** an agent renders `project.easy.specialist.create` with a valid sparse intent
+- **WHEN** an agent renders `project.specialist.create` with a valid sparse intent
 - **THEN** the renderer returns a command proposal
 - **AND THEN** no specialist is created only because the render command ran
 
@@ -140,17 +150,17 @@ For set-style templates, omitted optional fields SHALL remain absent from argv s
 Clear fields SHALL render only when the target template declares an explicit clear option for that field.
 
 #### Scenario: Omitted prompt mode stays omitted
-- **WHEN** an agent renders `project.easy.specialist.set` with fields `name=reviewer` and `model=gpt-5.4-mini`
+- **WHEN** an agent renders `project.specialist.set` with fields `name=reviewer` and `model=gpt-5.4-mini`
 - **THEN** the output argv includes `--name reviewer` and `--model gpt-5.4-mini`
 - **AND THEN** the output argv does not include `--prompt-mode unattended`, `--prompt-mode as_is`, or `--clear-prompt-mode`
 
 #### Scenario: Explicit clear prompt mode renders clear flag
-- **WHEN** an agent renders `project.easy.specialist.set` with fields `name=reviewer` and `clear_prompt_mode=true`
+- **WHEN** an agent renders `project.specialist.set` with fields `name=reviewer` and `clear_prompt_mode=true`
 - **THEN** the output argv includes `--clear-prompt-mode`
 - **AND THEN** the output reports `clear_prompt_mode` as an applied field rather than an omitted default
 
-#### Scenario: Raw profile set preserves unspecified advanced blocks
-- **WHEN** an agent renders `project.agents.launch-profiles.set` with fields `name=alice` and `workdir=/repos/alice-next`
+#### Scenario: Launch dossier set preserves unspecified advanced blocks
+- **WHEN** an agent renders `internals.native-agent.launch-dossiers.set` with fields `name=alice` and `workdir=/repos/alice-next`
 - **THEN** the output argv includes only the requested profile target and workdir mutation
 - **AND THEN** the output reports that omitted prompt overlay, mailbox, managed-header, and prompt-mode fields are preserved by the target patch command
 
@@ -211,8 +221,8 @@ YAML export SHALL be a generated view of the code-first registry and SHALL NOT b
 The YAML export SHALL preserve field order within a template, sort complete-registry output deterministically by template id, and include a trailing newline.
 
 #### Scenario: Single-template YAML export matches show payload
-- **WHEN** a caller exports `project.easy.instance.launch` as YAML
-- **THEN** the parsed YAML contains the same template id, target argv, field metadata, conflicts, required alternatives, notes, and family metadata as `houmao-mgr --print-json internals command-templates show --id project.easy.instance.launch`
+- **WHEN** a caller exports `project.agents.launch` as YAML
+- **THEN** the parsed YAML contains the same template id, target argv, field metadata, conflicts, required alternatives, notes, and family metadata as `houmao-mgr --print-json internals command-templates show --id project.agents.launch`
 - **AND THEN** the YAML output is deterministic across repeated exports
 
 #### Scenario: Complete-registry YAML export is deterministic
@@ -230,7 +240,7 @@ The export command SHALL support exporting the complete registry to stdout or to
 The export command SHALL fail clearly when the caller supplies neither a template id nor an all-templates selection, or when the caller supplies conflicting output modes.
 
 #### Scenario: Agent exports one template to stdout
-- **WHEN** an agent runs `houmao-mgr internals command-templates export --id project.easy.profile.create`
+- **WHEN** an agent runs `houmao-mgr internals command-templates export --id project.profile.create`
 - **THEN** stdout contains a YAML document for that one command template
 - **AND THEN** the command does not execute the target command represented by the template
 
@@ -252,10 +262,10 @@ Command templates SHALL NOT be treated as the primary agent-facing contract for 
 The command-template registry MAY continue to include entries for the underlying project commands so existing argv-rendering workflows keep working, but packaged skills SHALL prefer config drafts for draft-document authoring and command templates for executable command construction.
 
 #### Scenario: Matching config draft supersedes command-template schema inspection for config authoring
-- **WHEN** an agent needs a specialist-backed easy profile config document
-- **AND WHEN** `internals config-drafts` provides `project.easy.profile`
+- **WHEN** an agent needs a specialist-backed project profile config document
+- **AND WHEN** `internals config-drafts` provides `project.profile`
 - **THEN** maintained skill guidance uses the config draft surface for the YAML authoring shape
-- **AND THEN** it does not require `internals command-templates show --id project.easy.profile.create` only to discover the full CLI option schema
+- **AND THEN** it does not require `internals command-templates show --id project.profile.create` only to discover the full CLI option schema
 
 #### Scenario: Command templates still render executable commands
 - **WHEN** an agent needs to print or run a maintained `houmao-mgr` command that is not represented as a config document

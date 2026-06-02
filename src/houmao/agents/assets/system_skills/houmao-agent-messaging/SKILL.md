@@ -66,8 +66,8 @@ Supported surfaces for this skill include:
 This packaged skill does not cover:
 
 - `houmao-mgr agents launch|join|stop|relaunch|cleanup`
-- `houmao-mgr project easy specialist create|list|get|remove`
-- `houmao-mgr project easy instance launch|list|get|stop`
+- `houmao-mgr project specialist create|list|get|remove`
+- `houmao-mgr project agents launch|list|get|stop`
 - generic managed-agent inspection of liveness, mailbox posture, runtime artifacts, logs, or direct tmux backing
 - ordinary mailbox `status|list|peek|read|send|reply|archive` operations
 - mailbox transport-specific filesystem or Stalwart internals

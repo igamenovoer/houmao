@@ -28,5 +28,5 @@ or:
 
 - Do not guess which live managed agent the user meant.
 - Do not stop an agent from partial name inference when the prompt and recent chat context do not identify it explicitly.
-- Do not route stop requests through `project easy instance stop`; use the canonical `agents stop` lifecycle surface.
+- Do not route stop requests through `project agents stop`; use the canonical `agents stop` lifecycle surface.
 - Do not combine stop with cleanup unless the user explicitly asks for cleanup after stop.

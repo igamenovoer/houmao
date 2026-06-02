@@ -237,7 +237,7 @@ Include applicable fields:
 - per-agent `<task-root>/<agent-name>/states/` requirements for agent-local bookkeeping;
 - per-agent `<task-root>/<agent-name>/repo/` worktree requirements for source mutation;
 - project-scope validation command inputs, including explicit operator commands or documented safe project commands for tools such as Pixi, Python virtual environments, C or C++ build systems, package scripts, and in-project scripts;
-- expected concrete agent workspace names and easy profile names, or explicit raw launch profile fields that `prepare-agents` must resolve before `prepare-workspace`;
+- expected concrete agent workspace names and project profile names, or explicit raw launch profile fields that `prepare-agents` must resolve before `prepare-workspace`;
 - per-agent work-root, shared-resource, memo-seed, and read/write requirements.
 - manual workspace evidence fields required by `validate-loop` when the operator does not run `prepare-workspace`.
 

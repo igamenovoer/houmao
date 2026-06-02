@@ -22,7 +22,7 @@ Representative Houmao-owned roots for maintained local-state command flows:
   memory/
   mailbox/                  # documented separately
 
-~/.houmao/
+<platformdirs user config>/
   registry/
 ```
 
@@ -40,13 +40,13 @@ Representative runtime-owned layout:
 Representative registry-owned layout:
 
 ```text
-~/.houmao/registry/
+<platformdirs user config>/registry/
   live_agents/<agent-id>/record.json
 ```
 
 ## Read By Goal
 
-For maintained local-state command surfaces, `runtime/`, managed-agent memory state under `memory/`, and `mailbox/` now default from one active project overlay. The shared `~/.houmao/` anchor remains the default home for registry state and the explicit legacy-root target for operators who intentionally override runtime or mailbox placement.
+For maintained local-state command surfaces, `runtime/`, managed-agent memory state under `memory/`, and `mailbox/` now default from one active project overlay. The shared `<platformdirs user config>/` anchor remains the default home for registry state and the explicit legacy-root target for operators who intentionally override runtime or mailbox placement.
 
 - [Roots And Ownership](roots-and-ownership.md): Default roots, override precedence, ownership categories, and the mailbox boundary.
 - [Agents And Runtime](agents-and-runtime.md): Generated homes, generated manifests, runtime-owned loop-run recovery records, runtime session roots, nested gateway files, and per-agent memory directories.

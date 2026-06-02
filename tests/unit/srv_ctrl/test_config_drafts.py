@@ -43,9 +43,9 @@ def test_config_draft_list_is_compact_and_contains_initial_ids() -> None:
     ids = {str(item["id"]) for item in drafts if isinstance(item, dict)}
 
     assert ids == {
-        "project.easy.specialist",
-        "project.easy.profile",
-        "project.agents.launch-profile",
+        "project.specialist",
+        "project.profile",
+        "internals.native-agent.launch-dossier",
     }
     assert payload["count"] == 3
     for item in drafts:
@@ -58,17 +58,17 @@ def test_config_draft_list_is_compact_and_contains_initial_ids() -> None:
         str(item["id"]): item["required_intent_keys"] for item in drafts if isinstance(item, dict)
     }
     assert required_keys == {
-        "project.easy.specialist": ["name", "tool", "credential"],
-        "project.easy.profile": ["name", "specialist", "credential"],
-        "project.agents.launch-profile": ["name", "recipe", "credential"],
+        "project.specialist": ["name", "tool", "credential"],
+        "project.profile": ["name", "specialist", "credential"],
+        "internals.native-agent.launch-dossier": ["name", "recipe", "credential"],
     }
 
 
 def test_config_draft_registry_rejects_duplicates() -> None:
     draft = ConfigDraft(
-        draft_id="project.easy.profile",
+        draft_id="project.profile",
         description="Draft profile.",
-        config_kind="project.easy.profile",
+        config_kind="project.profile",
         fields=(DraftField(name="name", required=True),),
         render=lambda fields: {"name": fields["name"]},
     )
@@ -77,19 +77,19 @@ def test_config_draft_registry_rejects_duplicates() -> None:
         build_config_draft_registry([draft, draft])
 
     assert "Duplicate config-draft id" in str(exc_info.value)
-    assert "project.easy.profile" in str(exc_info.value)
+    assert "project.profile" in str(exc_info.value)
 
 
 def test_unknown_config_draft_id_fails_clearly() -> None:
     with pytest.raises(ClickException) as exc_info:
-        generate_config_draft("project.easy.unknown", {"fields": {}})
+        generate_config_draft("project.unknown", {"fields": {}})
 
-    assert "Config draft id `project.easy.unknown` is not registered" in str(exc_info.value)
+    assert "Config draft id `project.unknown` is not registered" in str(exc_info.value)
 
 
-def test_easy_profile_draft_uses_fixed_lane_source_and_omits_schema_metadata() -> None:
+def test_project_profile_draft_uses_fixed_lane_source_and_omits_template_metadata() -> None:
     result = generate_config_draft(
-        "project.easy.profile",
+        "project.profile",
         {
             "fields": {
                 "name": "reviewer-fast",
@@ -101,8 +101,9 @@ def test_easy_profile_draft_uses_fixed_lane_source_and_omits_schema_metadata() -
     payload = yaml.safe_load(result.yaml)
 
     assert payload == {
+        "config_kind": "project.profile",
         "name": "reviewer-fast",
-        "profile_lane": "easy_profile",
+        "profile_lane": "profile",
         "source": {"kind": "specialist", "name": "reviewer"},
         "defaults": {"auth": "reviewer-creds"},
     }
@@ -111,9 +112,9 @@ def test_easy_profile_draft_uses_fixed_lane_source_and_omits_schema_metadata() -
     assert "fields" not in result.yaml
 
 
-def test_raw_launch_profile_draft_uses_recipe_source() -> None:
+def test_native_launch_dossier_draft_uses_recipe_source() -> None:
     result = generate_config_draft(
-        "project.agents.launch-profile",
+        "internals.native-agent.launch-dossier",
         {
             "fields": {
                 "name": "alice",
@@ -125,14 +126,15 @@ def test_raw_launch_profile_draft_uses_recipe_source() -> None:
     payload = yaml.safe_load(result.yaml)
 
     assert payload["name"] == "alice"
-    assert payload["profile_lane"] == "launch_profile"
+    assert payload["config_kind"] == "internals.native-agent.launch-dossier"
+    assert payload["resource_kind"] == "launch_dossier"
     assert payload["source"] == {"kind": "recipe", "name": "reviewer-codex"}
     assert payload["defaults"] == {"auth": "alice-creds"}
 
 
 def test_specialist_draft_uses_high_level_specialist_shape() -> None:
     result = generate_config_draft(
-        "project.easy.specialist",
+        "project.specialist",
         {
             "fields": {
                 "name": "reviewer",
@@ -143,7 +145,7 @@ def test_specialist_draft_uses_high_level_specialist_shape() -> None:
     )
     payload = yaml.safe_load(result.yaml)
 
-    assert payload["config_kind"] == "project.easy.specialist"
+    assert payload["config_kind"] == "project.specialist"
     assert payload["name"] == "reviewer"
     assert payload["tool"] == "codex"
     assert payload["credential"] == {"name": "reviewer-creds"}
@@ -158,7 +160,7 @@ def test_specialist_draft_uses_high_level_specialist_shape() -> None:
 
 def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
     missing = generate_config_draft(
-        "project.easy.profile",
+        "project.profile",
         {"fields": {"name": "reviewer-fast", "specialist": "reviewer"}},
     )
     assert missing.has_blockers
@@ -166,7 +168,7 @@ def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
     assert missing.blockers[0].field == "credential"
 
     invalid = generate_config_draft(
-        "project.easy.profile",
+        "project.profile",
         {"fields": {"name": "reviewer-fast", "specialist": "reviewer", "credential": 2}},
     )
     assert invalid.has_blockers
@@ -174,7 +176,7 @@ def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
 
     for draft_id, fields, hidden_field in (
         (
-            "project.easy.profile",
+            "project.profile",
             {
                 "name": "reviewer-fast",
                 "specialist": "reviewer",
@@ -184,7 +186,7 @@ def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
             "model",
         ),
         (
-            "project.easy.specialist",
+            "project.specialist",
             {
                 "name": "reviewer",
                 "tool": "codex",
@@ -194,17 +196,17 @@ def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
             "api_key",
         ),
         (
-            "project.agents.launch-profile",
+            "internals.native-agent.launch-dossier",
             {
                 "name": "reviewer-raw",
                 "recipe": "reviewer-codex",
                 "credential": "reviewer-creds",
-                "profile_lane": "easy_profile",
+                "profile_lane": "profile",
             },
             "profile_lane",
         ),
         (
-            "project.easy.profile",
+            "project.profile",
             {
                 "name": "reviewer-fast",
                 "specialist": "reviewer",
@@ -214,7 +216,7 @@ def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
             "env",
         ),
         (
-            "project.easy.profile",
+            "project.profile",
             {
                 "name": "reviewer-fast",
                 "specialist": "reviewer",
@@ -224,7 +226,7 @@ def test_config_draft_reports_missing_invalid_and_unsupported_fields() -> None:
             "memo_seed_text",
         ),
         (
-            "project.easy.profile",
+            "project.profile",
             {
                 "name": "reviewer-fast",
                 "specialist": "reviewer",
@@ -252,13 +254,13 @@ def test_config_drafts_cli_list_generate_json_and_blockers() -> None:
             "config-drafts",
             "generate",
             "--id",
-            "project.easy.profile",
+            "project.profile",
             "--intent",
             '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}',
         ],
     )
     assert yaml_result.exit_code == 0, yaml_result.output
-    assert yaml.safe_load(yaml_result.output)["profile_lane"] == "easy_profile"
+    assert yaml.safe_load(yaml_result.output)["profile_lane"] == "profile"
     assert yaml.safe_load(yaml_result.output)["defaults"] == {"auth": "reviewer-creds"}
 
     json_payload = _json_result(
@@ -267,12 +269,12 @@ def test_config_drafts_cli_list_generate_json_and_blockers() -> None:
             "config-drafts",
             "generate",
             "--id",
-            "project.easy.profile",
+            "project.profile",
             "--intent",
             '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}',
         ]
     )
-    assert json_payload["draft_id"] == "project.easy.profile"
+    assert json_payload["draft_id"] == "project.profile"
     assert yaml.safe_load(str(json_payload["yaml"]))["source"]["kind"] == "specialist"
 
     blocked = CliRunner().invoke(
@@ -282,7 +284,7 @@ def test_config_drafts_cli_list_generate_json_and_blockers() -> None:
             "config-drafts",
             "generate",
             "--id",
-            "project.easy.profile",
+            "project.profile",
             "--intent",
             '{"fields":{"name":"reviewer-fast","specialist":"reviewer"}}',
         ],
@@ -298,7 +300,7 @@ def test_command_template_rendering_remains_available_for_command_workflows() ->
             "command-templates",
             "render",
             "--id",
-            "project.agents.recipes.add",
+            "internals.native-agent.recipes.add",
             "--intent",
             '{"fields":{"name":"reviewer-codex","role":"reviewer","tool":"codex"}}',
         ]
@@ -306,8 +308,8 @@ def test_command_template_rendering_remains_available_for_command_workflows() ->
 
     assert payload["argv"] == [
         "houmao-mgr",
-        "project",
-        "agents",
+        "internals",
+        "native-agent",
         "recipes",
         "add",
         "--name",
@@ -330,27 +332,27 @@ def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     profiles = _skill_text(
         "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/profiles.md"
     )
-    raw_profiles = _skill_text(
+    launch_dossiers = _skill_text(
         "src/houmao/agents/assets/system_skills/"
-        "houmao-agent-definition/subskills/low-level/raw-profiles.md"
+        "houmao-agent-definition/subskills/low-level/launch-dossiers.md"
     )
     memory = _skill_text("src/houmao/agents/assets/system_skills/houmao-memory-mgr/SKILL.md")
 
     assert "internals config-drafts generate" in agent_definition
-    assert "project.easy.specialist" in specialists
-    assert "project.easy.profile" in profiles
-    assert "project.agents.launch-profile" in raw_profiles
+    assert "project.specialist" in specialists
+    assert "project.profile" in profiles
+    assert "internals.native-agent.launch-dossier" in launch_dossiers
     assert "intent fields are only `name`, `tool`, and `credential`" in specialists
     assert "intent fields are only `name`, `specialist`, and `credential`" in profiles
-    assert "intent fields are only `name`, `recipe`, and `credential`" in raw_profiles
+    assert "intent fields are only `name`, `recipe`, and `credential`" in launch_dossiers
     assert "Do not pass memo seed fields to `internals config-drafts generate`" in memory
     assert "use maintained profile `set` memo-seed fields" in memory
     assert "command-templates show" not in agent_definition
     assert "command-templates show" not in specialists
     assert "command-templates show" not in profiles
-    assert "project.easy.specialist.create" not in specialists
-    assert "project.easy.profile.create" not in profiles
-    assert "project.agents.launch-profiles.add --intent" not in raw_profiles
+    assert "project.specialist.create" not in specialists
+    assert "project.profile.create" not in profiles
+    assert "internals native-agent launch-dossiers add --intent" not in launch_dossiers
     assert "api_key" not in specialists
     assert "memo_seed_text" not in profiles
-    assert "memo_seed_text" not in raw_profiles
+    assert "memo_seed_text" not in launch_dossiers

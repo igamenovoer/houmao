@@ -4,13 +4,21 @@
 TBD - created by archiving change add-central-agent-registry. Update Purpose after archive.
 ## Requirements
 ### Requirement: Shared agent registry uses a fixed per-user root with isolated live-agent directories
-The shared agent registry SHALL keep its fixed per-user root under the Houmao-owned home anchor and SHALL support an env-var override named `HOUMAO_GLOBAL_REGISTRY_DIR`.
+The shared agent registry SHALL keep its fixed per-user root under the platformdirs user config path for app name `houmao` and no app author, and SHALL support an env-var override named `HOUMAO_GLOBAL_REGISTRY_DIR`.
 
-When `HOUMAO_GLOBAL_REGISTRY_DIR` is set to an absolute directory path, the system SHALL use that value as the effective registry root instead of the home-relative default. The override SHALL support CI, tests, and similarly controlled environments.
+On Linux, the default shared registry root is expected to be `~/.config/houmao/registry`.
+
+When `HOUMAO_GLOBAL_REGISTRY_DIR` is set to an absolute directory path, the system SHALL use that value as the effective registry root instead of the platformdirs-derived default. The override SHALL support CI, tests, and similarly controlled environments.
 
 #### Scenario: Env-var override relocates the shared registry root
 - **WHEN** `HOUMAO_GLOBAL_REGISTRY_DIR` is set to an absolute directory path
 - **THEN** the system uses that directory as the effective shared registry root
+
+#### Scenario: Default registry root uses platformdirs config path
+- **WHEN** `HOUMAO_GLOBAL_REGISTRY_DIR` is unset
+- **THEN** the system derives the effective shared registry root from the platformdirs user config path for `houmao`
+- **AND THEN** on ordinary Linux systems the path is `~/.config/houmao/registry`
+- **AND THEN** the default is not `~/.houmao/registry`
 
 ### Requirement: Shared registry records are strict, secret-free contracts that point to runtime-owned state
 
@@ -192,7 +200,7 @@ When current-session discovery cannot use a valid tmux-published manifest pointe
 - **AND THEN** launcher-managed CAO home state and runtime task artifacts are stored elsewhere
 
 ### Requirement: The system provides a minimal operator-facing cleanup entrypoint for stale `live_agents/` directories
-The system SHALL provide a local operator-facing cleanup entrypoint at `houmao-mgr admin cleanup registry` that classifies stale directories under `~/.houmao/registry/live_agents/` or the effective override root.
+The system SHALL provide a local operator-facing cleanup entrypoint at `houmao-mgr admin cleanup registry` that classifies stale directories under `<platformdirs user config>/registry/live_agents/` or the effective override root.
 
 That tooling SHALL remove directories whose `record.json` is missing, malformed, or expired beyond a bounded grace period.
 

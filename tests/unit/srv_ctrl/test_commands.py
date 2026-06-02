@@ -36,6 +36,7 @@ from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
 )
+from houmao.project.overlay import bootstrap_project_overlay
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
 from houmao.srv_ctrl.commands.main import cli, main
 from houmao.version import get_version
@@ -314,21 +315,26 @@ def test_main_renders_uncaught_mailbox_exception_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_main_renders_uncaught_project_recipe_exception_without_traceback(
+def test_main_renders_uncaught_native_recipe_exception_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_definitions._resolve_existing_project_overlay",
-        lambda **kwargs: SimpleNamespace(project_root=(tmp_path / "repo").resolve()),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_definitions._list_named_preset_summaries",
+        "houmao.srv_ctrl.commands.native_agent._list_recipe_summaries",
         lambda **kwargs: (_ for _ in ()).throw(ValueError("unexpected recipe failure")),
     )
 
-    exit_code = main(["project", "agents", "recipes", "list"])
+    exit_code = main(
+        [
+            "internals",
+            "native-agent",
+            "recipes",
+            "list",
+            "--native-agent-root",
+            str((tmp_path / "native-agents").resolve()),
+        ]
+    )
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -585,9 +591,11 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
-    assert "selected houmao project overlay" in result.output.lower()
+    assert "first-class local houmao project workflows" in result.output.lower()
     assert "agents" in result.output
-    assert "easy" in result.output
+    assert "easy" not in result.output
+    assert "specialist" in result.output
+    assert "profile" in result.output
     assert "mailbox" in result.output
     assert "init" in result.output
     assert "status" in result.output
@@ -2079,6 +2087,7 @@ def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
 ) -> None:
     working_directory = (tmp_path / "repo").resolve()
     working_directory.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
 
     build_result = SimpleNamespace(
@@ -2117,15 +2126,15 @@ def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
         payload["runtime_root_detail"]
         == "Selected the active project runtime root from the current project overlay."
     )
-    assert payload["project_overlay_bootstrapped"] is True
+    assert payload["project_overlay_bootstrapped"] is False
     assert payload["overlay_root"] == str(expected_overlay_root)
     assert (
         payload["overlay_root_detail"]
-        == "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate."
+        == "Selected overlay root from nearest-ancestor project discovery."
     )
     assert (
         payload["overlay_bootstrap_detail"]
-        == "Applied implicit bootstrap for the selected overlay root during this invocation."
+        == "Reused the selected project overlay without implicit bootstrap."
     )
 
 
@@ -2150,6 +2159,7 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
         tmux_session_name="gpu-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -2200,10 +2210,10 @@ def test_agents_launch_reports_project_aware_root_details_in_json(
         payload["mailbox_root_detail"]
         == "Selected the active project mailbox root from the current project overlay."
     )
-    assert payload["project_overlay_bootstrapped"] is True
+    assert payload["project_overlay_bootstrapped"] is False
     assert (
         payload["overlay_bootstrap_detail"]
-        == "Applied implicit bootstrap for the selected overlay root during this invocation."
+        == "Reused the selected project overlay without implicit bootstrap."
     )
 
 
@@ -2215,6 +2225,7 @@ def test_agents_launch_uses_invocation_project_roots_when_workdir_points_elsewhe
     runtime_workdir = (tmp_path / "runtime-workdir").resolve()
     source_repo.mkdir(parents=True, exist_ok=True)
     runtime_workdir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(source_repo)
 
     manifest_path = source_repo / "brain.json"
     manifest_path.write_text("{}\n", encoding="utf-8")
@@ -2290,7 +2301,7 @@ def test_agents_launch_uses_invocation_project_roots_when_workdir_points_elsewhe
     assert payload["pages_dir"] == str((expected_memory_root / "pages").resolve())
     assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
     assert payload["overlay_root"] == str(expected_overlay_root)
-    assert payload["project_overlay_bootstrapped"] is True
+    assert payload["project_overlay_bootstrapped"] is False
     assert captured["target_kwargs"]["working_directory"] == runtime_workdir
     assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
     assert captured["start_kwargs"]["working_directory"] == runtime_workdir
@@ -2306,6 +2317,7 @@ def test_agents_launch_explicit_preset_path_uses_preset_source_project(
     runtime_workdir = (tmp_path / "runtime-workdir").resolve()
     invocation_directory.mkdir(parents=True, exist_ok=True)
     runtime_workdir.mkdir(parents=True, exist_ok=True)
+    bootstrap_project_overlay(source_repo)
     preset_path = (
         source_repo / ".houmao" / "agents" / "presets" / "gpu-kernel-coder-codex-default.yaml"
     ).resolve()
@@ -2618,7 +2630,7 @@ def test_agents_launch_rejects_conflicting_launch_profile_provider(
     )
 
     assert result.exit_code != 0
-    assert "conflicts with launch profile" in result.output
+    assert "conflicts with native launch dossier" in result.output
 
 
 def test_agents_launch_rejects_removed_persist_dir_option(
@@ -3125,6 +3137,7 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
         tmux_session_name="gpu-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3183,9 +3196,9 @@ def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),
-            "overlay_root_detail": "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
-            "project_overlay_bootstrapped": True,
-            "overlay_bootstrap_detail": "Applied implicit bootstrap for the selected overlay root during this invocation.",
+            "overlay_root_detail": "Selected overlay root from nearest-ancestor project discovery.",
+            "project_overlay_bootstrapped": False,
+            "overlay_bootstrap_detail": "Reused the selected project overlay without implicit bootstrap.",
         }
     ]
     assert captured["build_request"].operator_prompt_mode == "unattended"
@@ -3228,6 +3241,7 @@ def test_agents_launch_preserves_explicit_as_is_prompt_mode(
         tmux_session_name="gpu-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3286,6 +3300,7 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
         tmux_session_name="gpu-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3344,9 +3359,9 @@ def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_foll
             "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
             "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
             "overlay_root": str(working_directory / ".houmao"),
-            "overlay_root_detail": "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
-            "project_overlay_bootstrapped": True,
-            "overlay_bootstrap_detail": "Applied implicit bootstrap for the selected overlay root during this invocation.",
+            "overlay_root_detail": "Selected overlay root from nearest-ancestor project discovery.",
+            "project_overlay_bootstrapped": False,
+            "overlay_bootstrap_detail": "Reused the selected project overlay without implicit bootstrap.",
         },
         {
             "terminal_handoff": "skipped_non_interactive",
@@ -3378,6 +3393,7 @@ def test_agents_launch_auth_override_wins_over_preset_default(
         tmux_session_name="gpu-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3436,6 +3452,7 @@ def test_agents_launch_allows_missing_agent_name(
         tmux_session_name="gpu-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3496,6 +3513,7 @@ def test_agents_launch_headless_keeps_native_headless_backend(
         tmux_session_name="claude-session",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3548,6 +3566,7 @@ def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
         operator_prompt_mode="unattended",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
@@ -3611,6 +3630,7 @@ def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
         operator_prompt_mode="unattended",
     )
 
+    bootstrap_project_overlay(working_directory)
     monkeypatch.chdir(working_directory)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",

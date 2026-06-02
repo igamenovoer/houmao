@@ -46,6 +46,7 @@ from .command_templates import (
     write_command_template_yaml,
     write_command_templates_yaml,
 )
+from .native_agent import native_agent_group
 from .output import OutputContext, emit
 
 _GRAPH_INPUT_HELP = "NetworkX node-link JSON graph file; use `-` to read stdin."
@@ -81,6 +82,9 @@ def command_templates_group() -> None:
 @internals_group.group(name="config-drafts")
 def config_drafts_group() -> None:
     """Generate concise YAML config drafts from sparse intent."""
+
+
+internals_group.add_command(native_agent_group)
 
 
 @config_drafts_group.command(name="list")

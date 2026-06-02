@@ -29,7 +29,7 @@ Brain-builder and launch-resolution tests SHALL keep representative integration 
 CLI tests for managed system-skill policy SHALL verify user-facing wiring for each command lane while avoiding repeated copies of shared validation and policy semantics.
 
 #### Scenario: Each user-facing lane has a compact smoke test
-- **WHEN** testing `project easy specialist`, `project easy profile`, or `project agents launch-profiles` managed system-skill policy options
+- **WHEN** testing `project specialist`, `project profile`, or `internals native-agent launch-dossiers` managed system-skill policy options
 - **THEN** each lane SHALL have a compact test proving the command accepts policy options and emits or persists the expected user-visible payload shape
 
 #### Scenario: Shared validation is tested once

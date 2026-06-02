@@ -184,8 +184,8 @@ def _status_overlay_bootstrap_detail(roots: ProjectAwareLocalRoots) -> str:
 
     if roots.project_overlay is None:
         return (
-            "Project status used non-creating resolution and would bootstrap the selected overlay "
-            "during a stateful project command."
+            "Project status used read-only resolution. Stateful project commands require "
+            "`houmao-mgr project init` or an explicitly selected existing project overlay."
         )
     return describe_overlay_bootstrap(created_overlay=False, overlay_exists=True)
 
@@ -200,7 +200,7 @@ def _missing_selected_overlay_message(
     message = (
         "No Houmao project overlay is available at the selected overlay root "
         f"`{roots.overlay_root}`. This command uses non-creating resolution and did not "
-        "bootstrap it."
+        "bootstrap it. Run `houmao-mgr project init` or select an existing project overlay."
     )
     if fallback_label is not None:
         return f"{message} It did not fall back to the {fallback_label}."
@@ -570,7 +570,7 @@ def _validate_specialist_create_inputs(
     system_prompt: str | None,
     system_prompt_file: Path | None,
 ) -> str | None:
-    """Validate project easy specialist creation inputs."""
+    """Validate project specialist creation inputs."""
 
     if system_prompt is not None and system_prompt_file is not None:
         raise click.ClickException(
@@ -639,7 +639,7 @@ def _parse_specialist_env_records_or_click(
         return validate_persistent_env_records(
             parsed,
             auth_env_allowlist=adapter.auth_env_allowlist,
-            source="project easy specialist create --env-set",
+            source="project specialist create --env-set",
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -668,9 +668,9 @@ def _profile_lane_label(profile_lane: str) -> str:
     """Return one operator-facing launch-profile lane label."""
 
     if profile_lane == "easy_profile":
-        return "easy-profile"
+        return "profile"
     if profile_lane == "launch_profile":
-        return "launch-profile"
+        return "launch-dossier"
     return profile_lane
 
 
@@ -678,9 +678,9 @@ def _profile_lane_management_label(profile_lane: str) -> str:
     """Return one operator-facing lane-management label."""
 
     if profile_lane == "easy_profile":
-        return "easy profile"
+        return "project profile"
     if profile_lane == "launch_profile":
-        return "explicit launch-profile"
+        return "native launch dossier"
     return _profile_lane_label(profile_lane)
 
 
@@ -688,9 +688,9 @@ def _profile_lane_command_surface(profile_lane: str) -> str | None:
     """Return the maintained command surface for one profile lane."""
 
     if profile_lane == "easy_profile":
-        return "houmao-mgr project easy profile"
+        return "houmao-mgr project profile"
     if profile_lane == "launch_profile":
-        return "houmao-mgr project agents launch-profiles"
+        return "houmao-mgr internals native-agent launch-dossiers"
     return None
 
 
@@ -700,9 +700,9 @@ def _wrong_lane_launch_profile_message(*, name: str, profile_lane: str, action: 
     command_surface = _profile_lane_command_surface(profile_lane)
     if command_surface is None:
         lane_label = _profile_lane_label(profile_lane)
-        return f"Launch profile `{name}` is not an available `{lane_label}` definition."
+        return f"Profile `{name}` is not an available `{lane_label}` definition."
     return (
-        f"Launch profile `{name}` belongs to the {_profile_lane_management_label(profile_lane)} "
+        f"Profile `{name}` belongs to the {_profile_lane_management_label(profile_lane)} "
         f"lane; use `{command_surface} {action} --name {name}`."
     )
 
@@ -731,7 +731,7 @@ def _load_launch_profile_or_click(
             )
         lane_label = _profile_lane_label(expected_lane)
         raise click.ClickException(
-            f"Launch profile `{name}` is not an available `{lane_label}` definition."
+            f"Profile `{name}` is not an available `{lane_label}` definition."
         )
     return resolved
 
@@ -753,7 +753,7 @@ def _resolve_launch_profile_create_operation_or_click(
     if existing.profile_lane != profile_lane:
         lane_label = _profile_lane_label(profile_lane)
         raise click.ClickException(
-            f"Launch profile `{profile_name}` is not an available `{lane_label}` definition."
+            f"Profile `{profile_name}` is not an available `{lane_label}` definition."
         )
     confirm_destructive_action(
         prompt=(
@@ -762,10 +762,10 @@ def _resolve_launch_profile_create_operation_or_click(
         ),
         yes=yes,
         non_interactive_message=(
-            f"Launch profile `{profile_name}` already exists in `{overlay.catalog_path}`. "
+            f"Profile `{profile_name}` already exists in `{overlay.catalog_path}`. "
             "Rerun with `--yes` to replace it non-interactively."
         ),
-        cancelled_message="Launch profile replacement cancelled.",
+        cancelled_message="Profile replacement cancelled.",
     )
     return "replace"
 
@@ -1469,7 +1469,7 @@ def _store_launch_profile_from_cli(
             pass
         else:
             raise click.ClickException(
-                f"Launch profile `{profile_name}` already exists in `{overlay.catalog_path}`."
+                f"Profile `{profile_name}` already exists in `{overlay.catalog_path}`."
             )
         current = None
     elif operation == "patch":
@@ -2103,7 +2103,7 @@ def _instance_payload(
 
 
 def _instance_easy_profile_name(manifest_payload: dict[str, object]) -> str | None:
-    """Return the originating easy-profile name from one runtime manifest when available."""
+    """Return the originating profile name from one runtime manifest when available."""
 
     launch_profile = _instance_launch_profile_provenance(manifest_payload)
     if not isinstance(launch_profile, dict):

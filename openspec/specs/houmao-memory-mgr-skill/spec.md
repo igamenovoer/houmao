@@ -90,7 +90,7 @@ The skill SHALL warn that short-lived retry counters, dedupe databases, mailbox 
 - **AND THEN** it does not tell the agent to run or simulate a generated page reindex operation
 
 ### Requirement: `houmao-memory-mgr` explains launch-profile memo seed scope
-When the packaged `houmao-memory-mgr` skill guides launch-profile or easy-profile memo seed edits, it SHALL explain that memo seed sources define which managed-memory components are replaced.
+When the packaged `houmao-memory-mgr` skill guides launch-profile or project-profile memo seed edits, it SHALL explain that memo seed sources define which managed-memory components are replaced.
 
 The skill SHALL guide memo-only seed requests through `--memo-seed-text` or `--memo-seed-file` without suggesting or requiring a memo seed policy.
 
@@ -108,7 +108,7 @@ The skill SHALL distinguish `--clear-memo-seed`, which removes stored profile se
 - **AND THEN** the skill does not present `--clear-memo-seed` as a way to write an empty `houmao-memo.md`
 
 ### Requirement: `houmao-memory-mgr` treats profile-owned memo seed edits as maintained profile command fields
-The packaged `houmao-memory-mgr` skill SHALL treat memo seed options that are part of easy profile or raw launch-profile authoring as fields on the maintained profile create, add, or set commands.
+The packaged `houmao-memory-mgr` skill SHALL treat memo seed options that are part of project profile or raw launch-profile authoring as fields on the maintained profile create, add, or set commands.
 
 The skill SHALL NOT duplicate profile YAML skeletons or full profile command skeletons only to explain memo seed flags.
 

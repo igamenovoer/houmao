@@ -50,7 +50,7 @@ Target resolution SHALL use this order:
 
 1. explicit `--agent-def-dir`,
 2. explicit `--project`,
-3. `HOUMAO_AGENT_DEF_DIR`,
+3. `HOUMAO_NATIVE_AGENT_ROOT`,
 4. active project-overlay discovery,
 5. otherwise fail with a clear target-resolution error.
 
@@ -71,7 +71,7 @@ If an explicit or env-provided agent-definition directory resolves to the compat
 
 #### Scenario: Missing target fails clearly
 - **WHEN** an operator runs `houmao-mgr credentials gemini list`
-- **AND WHEN** no explicit selector, `HOUMAO_AGENT_DEF_DIR`, or active project overlay can be resolved
+- **AND WHEN** no explicit selector, `HOUMAO_NATIVE_AGENT_ROOT`, or active project overlay can be resolved
 - **THEN** the command fails explicitly
 - **AND THEN** the error explains how to select either a project target or an agent-definition directory target
 

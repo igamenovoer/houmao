@@ -21,7 +21,7 @@ Purpose: provide a manual guided Houmao tour that starts from current state, tea
 Available functionality:
 
 - Orient from current project, specialist, profile, managed-agent, mailbox, gateway, and memory-relevant state.
-- Guide the beginner stage: tool selection, credentials, project/mailbox basics, specialists, optional easy profiles, launch, and first conversation.
+- Guide the beginner stage: tool selection, credentials, project/mailbox basics, specialists, optional project profiles, launch, and first conversation.
 - Guide the intermediate stage: memo/pages, direct prompts, inter-agent mailbox messaging, operator-origin mail or prompt injection through mail, notifier rounds, reminders, and inspection.
 - Guide the advanced stage: loop-lite, loop-pro tree/generic modes, and isolated multi-agent workspace management.
 - Explain likely next actions in first-time-user-friendly language.
@@ -56,7 +56,7 @@ Beginner guidance teaches the path to one useful managed agent and a first conve
 3. Prepare or select credentials for that tool.
 4. Understand mailbox basics: mailbox root setup is distinct from per-agent mailbox account ownership.
 5. Create a specialist.
-6. Optionally create an easy profile for reusable launch defaults.
+6. Optionally create an project profile for reusable launch defaults.
 7. Launch one managed agent with foreground-first tour posture.
 8. Talk to the agent through the maintained prompt/messaging surface.
 
@@ -96,7 +96,7 @@ A typical beginner setup path is:
 1. Create or inspect a Houmao project and understand the mailbox root.
 2. Choose an available tool CLI and prepare credentials.
 3. Create a specialist: customize its system prompt, choose the provider/tooling posture, and select credentials.
-4. Create an optional easy profile when reusable launch defaults matter.
+4. Create an optional project profile when reusable launch defaults matter.
 5. Launch the agent. The default tour posture is a visible TUI managed agent with a foreground gateway sidecar.
 6. Talk to the agent through the maintained messaging surface, then decide whether to inspect state, use memo/mailbox, launch a second agent, or move toward advanced coordination.
 
@@ -115,7 +115,7 @@ This packaged skill covers a branching guided learning path for:
 - beginner mailbox subsystem basics
 - beginner tool selection and credential readiness
 - beginner specialist creation
-- beginner optional easy-profile creation
+- beginner optional project-profile creation
 - beginner easy-instance launch
 - beginner first prompt or conversation
 - intermediate managed-agent memo and pages orientation
@@ -151,8 +151,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 4. Start from current-state orientation rather than assuming the tour begins at project initialization:
    - inspect project posture through `houmao-mgr project status`
-   - inspect reusable specialists through `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>` when the branch needs them
-   - inspect reusable profiles through `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>` when the branch needs them
+   - inspect reusable specialists through `houmao-mgr project specialist list` or `houmao-mgr project specialist get --name <name>` when the branch needs them
+   - inspect reusable profiles through `houmao-mgr project profile list` or `houmao-mgr project profile get --name <name>` when the branch needs them
    - inspect running managed agents through `houmao-mgr agents list`
    - inspect one live managed agent through `houmao-mgr agents state`, `houmao-mgr agents gateway status`, or `houmao-mgr agents mail resolve-live` when the branch needs live capability
    - inspect managed-agent memory posture through `houmao-mgr agents memory status` only when the selected branch needs memo or pages context
@@ -181,14 +181,14 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 ## References
 
 - Read [references/question-style.md](references/question-style.md) when the tour needs to ask for user input in a first-time-user-friendly way with explanations, examples, and recommended defaults or skip options.
-- Read [references/concepts.md](references/concepts.md) when the tour needs a compact self-contained glossary for the vocabulary used across branches (specialist, easy profile, launch profile, managed agent, recipe, tool adapter, gateway, gateway sidecar, mailbox root, mailbox account, principal id, prompt injection through mail, notifier round, user agent, master, loop plan, lite loop, pro loop, tree-loop, generic-loop, isolated workspace, relaunch, cleanup).
+- Read [references/concepts.md](references/concepts.md) when the tour needs a compact self-contained glossary for the vocabulary used across branches (specialist, project profile, launch profile, managed agent, recipe, tool adapter, gateway, gateway sidecar, mailbox root, mailbox account, principal id, prompt injection through mail, notifier round, user agent, master, loop plan, lite loop, pro loop, tree-loop, generic-loop, isolated workspace, relaunch, cleanup).
 
 ## Routing Guidance
 
 - Route project overlay setup or explanation to `houmao-project-mgr`.
 - Route mailbox root, account, registration, or late-binding administration to `houmao-mailbox-mgr`.
 - Route credential readiness and credential content work to `houmao-credential-mgr` when credential mutation or inspection is needed.
-- Route specialist, easy profile, raw profile, `create-agent-fast-forward`, and easy-instance launch work to `houmao-agent-definition`.
+- Route specialist, project profile, launch dossier, `create-agent-fast-forward`, and easy-instance launch work to `houmao-agent-definition`.
 - Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, logs, turn-state evidence, and runtime artifact inspection to `houmao-agent-inspect`.
 - Route ordinary prompt, interrupt, raw input, or mailbox-routing entry for running agents to `houmao-agent-messaging`.
 - Route gateway lifecycle, gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
@@ -208,7 +208,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not turn the tour into a full catalog of every packaged Houmao system skill.
 - Do not force a linear step order or restart the user from project initialization when current Houmao state already exists.
 - Do not claim ownership of the direct-operation command shapes that belong to the maintained Houmao skill families.
-- Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
+- Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project ...`.
 - Do not collapse stop, relaunch, and cleanup into one vague "manage agent" action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
 - Do not route current loop planning or generated loop run-control requests to retired loop packages.

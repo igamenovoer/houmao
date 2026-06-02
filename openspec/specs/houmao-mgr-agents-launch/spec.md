@@ -336,7 +336,7 @@ When `--launch-profile` is used, the command SHALL:
 - derive the effective recipe and tool from that source before build,
 - apply launch-profile defaults before direct CLI overrides.
 
-`houmao-mgr agents launch` SHALL NOT consume easy `project easy profile` selections through `--launch-profile`.
+`houmao-mgr agents launch` SHALL NOT consume easy `project profile` selections through `--launch-profile`.
 
 When the resolved profile source already determines one exact tool family, the effective provider SHALL default from that resolved source.
 
@@ -677,7 +677,7 @@ Direct launch-time overrides for other launch fields, such as `--agent-name`, `-
 
 `houmao-mgr agents launch` SHALL accept optional `--reuse-home` for the current launch.
 
-`--reuse-home` SHALL be launch-owned only and SHALL NOT be persisted into explicit launch profiles.
+`--reuse-home` SHALL be launch-owned only and SHALL NOT be persisted into native launch dossiers.
 
 When `--reuse-home` is supplied, the command SHALL treat the request as restart of one stopped logical managed agent on one compatible preserved home for the resolved managed identity instead of allocating a new home.
 
@@ -728,7 +728,7 @@ If no compatible stopped preserved home can be resolved, the command SHALL fail 
 ### Requirement: Launch-profile-backed launch applies skill overlays
 When `houmao-mgr agents launch --launch-profile <name>` uses an explicit launch profile that stores skill overlays, the managed launch SHALL apply those skill overlays during brain-home construction without mutating the source recipe.
 
-When `houmao-mgr project easy instance launch --profile <name>` uses an easy profile that stores skill overlays, the delegated managed launch SHALL apply those skill overlays during brain-home construction without mutating the source specialist.
+When `houmao-mgr project agents launch --profile <name>` uses an project profile that stores skill overlays, the delegated managed launch SHALL apply those skill overlays during brain-home construction without mutating the source specialist.
 
 Registered profile skill refs SHALL be merged with the source preset skills by name and SHALL use the existing registered project skill projection contract.
 
@@ -749,9 +749,9 @@ If a private profile skill source is unavailable or does not contain `SKILL.md` 
 - **AND THEN** it includes private skill `audit` copied from `/repo/profile-skills/audit`
 - **AND THEN** project skill `audit` is not added to the project skill registry
 
-#### Scenario: Easy profile contributes private symlink skill
-- **WHEN** easy profile `reviewer-a` stores private skill `live-tools` from `/repo/profile-skills/live-tools` with mode `symlink`
-- **AND WHEN** an operator runs `houmao-mgr project easy instance launch --profile reviewer-a`
+#### Scenario: Project profile contributes private symlink skill
+- **WHEN** project profile `reviewer-a` stores private skill `live-tools` from `/repo/profile-skills/live-tools` with mode `symlink`
+- **AND WHEN** an operator runs `houmao-mgr project agents launch --profile reviewer-a`
 - **THEN** the built agent home includes private skill `live-tools`
 - **AND THEN** the installed private skill path is a symlink to `/repo/profile-skills/live-tools`
 - **AND THEN** project skill `live-tools` is not added to the project skill registry

@@ -77,8 +77,8 @@ def test_command_template_list_covers_command_surfaces_and_excludes_skill_scaffo
     ids = {str(item["id"]) for item in templates if isinstance(item, dict)}
     families = {str(item["family"]) for item in templates if isinstance(item, dict)}
 
-    assert "project.easy.profile.create" in ids
-    assert "project.agents.recipes.add" in ids
+    assert "project.profile.create" in ids
+    assert "internals.native-agent.recipes.add" in ids
     assert "project.credentials.codex.add" in ids
     assert "agents.gateway.reminders.create" in ids
     assert "project.mailbox.messages.get" in ids
@@ -86,8 +86,11 @@ def test_command_template_list_covers_command_surfaces_and_excludes_skill_scaffo
     assert "loop-scaffold.pro.execplan-shell" not in ids
     assert "workspace-layout.in-repo" not in ids
     assert {
-        "project.easy",
-        "project.agents.launch-profiles",
+        "project.specialist",
+        "project.profile",
+        "project.agents",
+        "internals.native-agent.recipes",
+        "internals.native-agent.launch-dossiers",
         "project.credentials",
         "agents.lifecycle",
         "agents.gateway",
@@ -108,7 +111,7 @@ def test_show_reports_prompt_mode_as_omit_to_inherit() -> None:
             "command-templates",
             "show",
             "--id",
-            "project.easy.profile.create",
+            "project.profile.create",
         ]
     )
     fields = payload["fields"]
@@ -118,9 +121,9 @@ def test_show_reports_prompt_mode_as_omit_to_inherit() -> None:
     assert prompt_mode["default_action"] == "omit-to-inherit"
 
 
-def test_sparse_easy_profile_render_omits_prompt_mode_and_headless() -> None:
+def test_sparse_project_profile_render_omits_prompt_mode_and_headless() -> None:
     payload = _render(
-        "project.easy.profile.create",
+        "project.profile.create",
         {"name": "reviewer-fast", "specialist": "reviewer"},
     )
     argv = _argv(payload)
@@ -128,7 +131,6 @@ def test_sparse_easy_profile_render_omits_prompt_mode_and_headless() -> None:
     assert argv == [
         "houmao-mgr",
         "project",
-        "easy",
         "profile",
         "create",
         "--name",
@@ -141,13 +143,12 @@ def test_sparse_easy_profile_render_omits_prompt_mode_and_headless() -> None:
 
 
 def test_specialist_set_patch_preserves_prompt_mode_by_omission() -> None:
-    payload = _render("project.easy.specialist.set", {"name": "reviewer", "model": "gpt-5"})
+    payload = _render("project.specialist.set", {"name": "reviewer", "model": "gpt-5"})
     argv = _argv(payload)
 
     assert argv == [
         "houmao-mgr",
         "project",
-        "easy",
         "specialist",
         "set",
         "--name",
@@ -160,15 +161,12 @@ def test_specialist_set_patch_preserves_prompt_mode_by_omission() -> None:
 
 
 def test_clear_prompt_mode_renders_only_when_explicit() -> None:
-    payload = _render(
-        "project.easy.specialist.set", {"name": "reviewer", "clear_prompt_mode": True}
-    )
+    payload = _render("project.specialist.set", {"name": "reviewer", "clear_prompt_mode": True})
     argv = _argv(payload)
 
     assert argv == [
         "houmao-mgr",
         "project",
-        "easy",
         "specialist",
         "set",
         "--name",
@@ -178,13 +176,12 @@ def test_clear_prompt_mode_renders_only_when_explicit() -> None:
 
 
 def test_explicit_prompt_mode_renders_when_supplied() -> None:
-    payload = _render("project.easy.specialist.set", {"name": "reviewer", "prompt_mode": "as_is"})
+    payload = _render("project.specialist.set", {"name": "reviewer", "prompt_mode": "as_is"})
     argv = _argv(payload)
 
     assert argv == [
         "houmao-mgr",
         "project",
-        "easy",
         "specialist",
         "set",
         "--name",
@@ -194,15 +191,18 @@ def test_explicit_prompt_mode_renders_when_supplied() -> None:
     ]
 
 
-def test_raw_launch_profile_patch_preserves_advanced_blocks() -> None:
-    payload = _render("project.agents.launch-profiles.set", {"name": "alice", "workdir": "/tmp/a"})
+def test_native_launch_dossier_patch_preserves_advanced_blocks() -> None:
+    payload = _render(
+        "internals.native-agent.launch-dossiers.set",
+        {"name": "alice", "workdir": "/tmp/a"},
+    )
     argv = _argv(payload)
 
     assert argv == [
         "houmao-mgr",
-        "project",
-        "agents",
-        "launch-profiles",
+        "internals",
+        "native-agent",
+        "launch-dossiers",
         "set",
         "--name",
         "alice",
@@ -378,7 +378,7 @@ def test_packaged_skill_guidance_uses_cli_owned_templates() -> None:
     assert "agents.gateway.reminders.list|get|create|set|remove" in gateway
     assert "mailbox.<verb>" in mailbox
     assert "agents.mail.<verb>" in email
-    assert "project.easy.profile.create" in memory
+    assert "project.profile.create" in memory
     assert "CLI template rendering" in specialist
 
 
@@ -397,8 +397,8 @@ def test_packaged_skill_guidance_avoids_covered_default_bearing_skeletons() -> N
 
 def test_family_modules_contribute_expected_template_inventory() -> None:
     family_ids = {
-        project_easy: "project.easy.instance.launch",
-        project_agents: "project.agents.launch-profiles.set",
+        project_easy: "project.agents.launch",
+        project_agents: "internals.native-agent.launch-dossiers.set",
         credentials: "project.credentials.codex.add",
         agents_lifecycle: "agents.launch-profile.launch",
         agents_gateway: "agents.gateway.reminders.create",
@@ -413,22 +413,22 @@ def test_family_modules_contribute_expected_template_inventory() -> None:
 
 
 def test_registry_rejects_duplicate_template_ids() -> None:
-    template = get_command_template("project.easy.profile.create")
+    template = get_command_template("project.profile.create")
 
     with pytest.raises(ClickException) as exc_info:
         build_template_registry((template, template))
 
     assert "Duplicate command-template id" in str(exc_info.value)
-    assert "project.easy.profile.create" in str(exc_info.value)
+    assert "project.profile.create" in str(exc_info.value)
 
 
 def test_single_template_yaml_export_matches_show_and_is_deterministic() -> None:
-    first = export_command_template_yaml("project.easy.instance.launch")
-    second = export_command_template_yaml("project.easy.instance.launch")
+    first = export_command_template_yaml("project.agents.launch")
+    second = export_command_template_yaml("project.agents.launch")
 
     assert first == second
     assert first.endswith("\n")
-    assert yaml.safe_load(first) == show_command_template("project.easy.instance.launch")
+    assert yaml.safe_load(first) == show_command_template("project.agents.launch")
 
 
 def test_all_template_yaml_export_is_sorted_and_complete() -> None:
@@ -442,18 +442,16 @@ def test_all_template_yaml_export_is_sorted_and_complete() -> None:
     list_payload = _json_result(["internals", "command-templates", "list"])
     assert ids == sorted(ids)
     assert len(ids) == list_payload["count"]
-    assert "project.easy.instance.launch" in ids
+    assert "project.agents.launch" in ids
     assert "agents.mail.send" in ids
 
 
 def test_cli_export_single_template_to_stdout_and_file(tmp_path: Path) -> None:
     stdout_result = CliRunner().invoke(
-        cli, ["internals", "command-templates", "export", "--id", "project.easy.profile.create"]
+        cli, ["internals", "command-templates", "export", "--id", "project.profile.create"]
     )
     assert stdout_result.exit_code == 0, stdout_result.output
-    assert yaml.safe_load(stdout_result.output) == show_command_template(
-        "project.easy.profile.create"
-    )
+    assert yaml.safe_load(stdout_result.output) == show_command_template("project.profile.create")
 
     output_path = tmp_path / "profile-create.yaml"
     file_result = CliRunner().invoke(
@@ -464,14 +462,14 @@ def test_cli_export_single_template_to_stdout_and_file(tmp_path: Path) -> None:
             "command-templates",
             "export",
             "--id",
-            "project.easy.profile.create",
+            "project.profile.create",
             "--output",
             str(output_path),
         ],
     )
     assert file_result.exit_code == 0, file_result.output
     assert yaml.safe_load(output_path.read_text(encoding="utf-8")) == show_command_template(
-        "project.easy.profile.create"
+        "project.profile.create"
     )
     assert json.loads(file_result.output)["written"] == str(output_path.resolve())
 
@@ -504,9 +502,9 @@ def test_cli_export_all_templates_to_stdout_and_directory(tmp_path: Path) -> Non
     assert (
         result_payload["count"] == _json_result(["internals", "command-templates", "list"])["count"]
     )
-    exported_path = output_dir / "project.easy.instance.launch.yaml"
+    exported_path = output_dir / "project.agents.launch.yaml"
     assert yaml.safe_load(exported_path.read_text(encoding="utf-8")) == show_command_template(
-        "project.easy.instance.launch"
+        "project.agents.launch"
     )
 
 

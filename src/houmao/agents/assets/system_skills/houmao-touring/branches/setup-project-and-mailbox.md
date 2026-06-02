@@ -18,7 +18,7 @@ Use this beginner branch when the user wants project overlay setup, project expl
 5. After the setup branch, summarize what now exists and offer beginner next actions:
    - choose a tool and prepare credentials
    - create a specialist
-   - create an optional easy profile
+   - create an optional project profile
    - launch an agent
    - send the first prompt after launch
    - return later for mailbox account setup if skipped

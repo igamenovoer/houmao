@@ -20,13 +20,13 @@ Use this action only when the user wants to create one new low-level role or one
 Use one of these template ids:
 
 ```text
-project.agents.roles.init
-project.agents.recipes.add
+internals.native-agent.roles.init
+internals.native-agent.recipes.add
 ```
 
 ## Guardrails
 
 - Do not guess whether the user wanted a role or a recipe.
 - Do not guess the role name, recipe name, tool lane, or prompt content.
-- Do not use `project agents roles scaffold`.
+- Do not use `internals native-agent roles scaffold`.
 - Do not replace this action with direct filesystem edits under `.houmao/agents/`.
