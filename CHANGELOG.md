@@ -4,6 +4,33 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [1.0.0] - 2026-06-03
+
+### Added
+
+- **Scoped managed-agent CLI families**: `houmao-mgr agents` now uses explicit `global`, `single`, `self`, and `external` scopes for fleet inspection, selected-agent lifecycle/control, current-session operations, and communication-only remote imports.
+- **Agent-authored config drafts**: `houmao-mgr internals config-drafts` generates compact schema-backed drafts for project specialists, project profiles, and native launch dossiers, with JSON error guidance that returns the expected schema and example payload when callers provide malformed intent.
+- **Project-aware native-agent command surfaces**: project targeting and provider-aligned native-agent surfaces were consolidated around maintained `project ...` and `internals native-agent ...` command families.
+- **Release automation and stable skill sync**: published GitHub releases build and validate the wheel and sdist, publish through PyPI trusted publishing, deploy docs from the release tag, and dispatch the Houmao tool-skills mirror on the stable branch.
+
+### Changed
+
+- **Command-template rendering retired from the primary authoring path**: executable command construction now favors direct maintained commands, while config drafts own supported YAML authoring shapes.
+- **Houmao touring now starts from state and routes fast paths more directly**: the touring skill has an explicit first-look workflow, hides project-ready fast paths until a project overlay exists, and makes Single Agent Full Run try `create-agent-fast-forward` before separately walking credential, specialist, or profile setup.
+- **Agent-definition fast-forward prepares mailbox-backed launch defaults**: `create-agent-fast-forward` now initializes mailbox readiness, stores filesystem mailbox posture on the generated project profile, and leaves per-agent mailbox registration to launch-time safe bootstrap.
+- **System skills now track the scoped CLI vocabulary**: packaged skills route project setup, agent definition, instance lifecycle, messaging, gateway, mailbox, memory, and inspection work through their current owners.
+
+### Fixed
+
+- **CLI diagnostics for JSON authoring failures**: config-draft intent parsing now gives callers the schema and example needed to fix missing or incorrectly nested fields.
+- **Touring fast paths no longer bypass project setup**: bare `$houmao-touring` in a blank workspace offers only project creation, subsystem exploration, and inspection until a Houmao project overlay exists.
+- **Plain agent fixtures and packaged guidance were refreshed for current command shapes**: tests and skill contracts now align on the scoped `houmao-mgr` surfaces.
+
+### Notes
+
+- This stable release promotes the 0.11.0 release-candidate line and includes the post-RC scoped CLI, release publishing, and packaged skill-routing refinements.
+- The `gh release create v1.0.0` event triggers `pypi-release.yml`, `docs.yml`, and the stable tool-skills sync workflow dispatch.
+
 ## [0.11.0rc1] - 2026-06-02
 
 ### Added
