@@ -11,7 +11,6 @@ from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_ALL,
     SYSTEM_SKILL_SET_CORE,
     SYSTEM_SKILL_OPERATOR_MESSAGING,
-    SYSTEM_SKILL_UTILS_LLM_WIKI,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     PROFILE_SYSTEM_SKILL_POLICY_MODES,
     SOURCE_SYSTEM_SKILL_POLICY_MODES,
@@ -52,10 +51,7 @@ CORE_SYSTEM_SKILLS = (
     "houmao-agent-messaging",
     "houmao-agent-gateway",
 )
-ALL_SYSTEM_SKILLS = (
-    *CORE_SYSTEM_SKILLS,
-    SYSTEM_SKILL_UTILS_LLM_WIKI,
-)
+ALL_SYSTEM_SKILLS = CORE_SYSTEM_SKILLS
 
 
 def _write(path: Path, content: str) -> None:
@@ -92,7 +88,6 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
-        "houmao-utils-llm-wiki",
         "houmao-utils-workspace-mgr",
         "houmao-touring",
         "houmao-mailbox-mgr",
@@ -126,6 +121,11 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-loop-pairwise-v4",
         "houmao-agent-loop-pairwise-v5",
         "houmao-agent-loop-generic",
+    )
+    assert "houmao-utils-llm-wiki" not in catalog.skills
+    assert "houmao-utils-llm-wiki" not in catalog.retired_skill_names
+    assert all(
+        "houmao-utils-llm-wiki" not in record.skill_names for record in catalog.sets.values()
     )
     assert tuple(catalog.sets.keys()) == (
         SYSTEM_SKILL_SET_CORE,
@@ -410,7 +410,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
     assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
 
 
-def test_resolve_system_skill_selection_all_adds_utilities_to_core() -> None:
+def test_resolve_system_skill_selection_all_tracks_current_catalog() -> None:
     catalog = load_system_skill_catalog()
 
     resolved = resolve_system_skill_selection(
@@ -422,6 +422,7 @@ def test_resolve_system_skill_selection_all_adds_utilities_to_core() -> None:
     assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_launch_sets
     assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_join_sets
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
+    assert "houmao-utils-llm-wiki" not in resolved
 
 
 def test_resolve_system_skill_selection_cli_default_includes_agent_instance_messaging_and_gateway_skills() -> (
@@ -434,12 +435,24 @@ def test_resolve_system_skill_selection_cli_default_includes_agent_instance_mess
     assert resolved == ALL_SYSTEM_SKILLS
 
 
+def test_resolve_system_skill_selection_rejects_removed_llm_wiki_selector() -> None:
+    catalog = load_system_skill_catalog()
+
+    with pytest.raises(
+        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
+    ):
+        resolve_system_skill_selection(
+            catalog,
+            skill_names=("houmao-utils-llm-wiki",),
+        )
+
+
 def test_parse_system_skill_selection_policy_normalizes_and_serializes_selectors() -> None:
     policy = parse_system_skill_selection_policy(
         {
             "mode": "extend",
             "sets": [SYSTEM_SKILL_SET_CORE, SYSTEM_SKILL_SET_CORE],
-            "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI, SYSTEM_SKILL_UTILS_LLM_WIKI],
+            "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR, SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
         },
         allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
         default_mode="default",
@@ -449,12 +462,12 @@ def test_parse_system_skill_selection_policy_normalizes_and_serializes_selectors
     assert policy == SystemSkillSelectionPolicy(
         mode="extend",
         set_names=(SYSTEM_SKILL_SET_CORE,),
-        skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+        skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
     )
     assert system_skill_selection_policy_to_payload(policy) == {
         "mode": "extend",
         "sets": [SYSTEM_SKILL_SET_CORE],
-        "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI],
+        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
     }
     assert (
         parse_system_skill_selection_policy(
@@ -479,7 +492,7 @@ def test_parse_system_skill_selection_policy_rejects_invalid_modes_and_selectors
 
     with pytest.raises(SystemSkillPolicyError, match="cannot be combined"):
         parse_system_skill_selection_policy(
-            {"mode": "none", "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI]},
+            {"mode": "none", "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR]},
             allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
             default_mode="inherit",
             source="profile.defaults",
@@ -509,6 +522,16 @@ def test_parse_system_skill_selection_policy_rejects_invalid_modes_and_selectors
             source="recipe.launch",
         )
 
+    with pytest.raises(
+        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
+    ):
+        parse_system_skill_selection_policy(
+            {"mode": "extend", "skills": ["houmao-utils-llm-wiki"]},
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            source="recipe.launch",
+        )
+
 
 def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes() -> None:
     catalog = load_system_skill_catalog()
@@ -518,26 +541,26 @@ def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes
         catalog=catalog,
         source_policy=SystemSkillSelectionPolicy(
             mode="extend",
-            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
         ),
     )
     profile_additive = resolve_managed_system_skill_selection(
         catalog=catalog,
         source_policy=SystemSkillSelectionPolicy(
             mode="extend",
-            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
         ),
         profile_policy=SystemSkillSelectionPolicy(
             mode="extend",
             set_names=(SYSTEM_SKILL_SET_CORE,),
-            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
         ),
     )
     profile_replace = resolve_managed_system_skill_selection(
         catalog=catalog,
         source_policy=SystemSkillSelectionPolicy(
             mode="extend",
-            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
         ),
         profile_policy=SystemSkillSelectionPolicy(
             mode="replace",
@@ -553,10 +576,10 @@ def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes
     assert default_selection.explicit_skill_names == ()
     assert default_selection.resolved_skill_names == CORE_SYSTEM_SKILLS
     assert source_additive.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
-    assert source_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert source_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
     assert source_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
     assert profile_additive.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
-    assert profile_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert profile_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
     assert profile_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
     assert profile_replace.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
     assert profile_replace.explicit_skill_names == ()
@@ -645,32 +668,12 @@ def test_current_packaged_system_skills_route_explicit_help_before_workflows() -
         "houmao-agent-loop-pro": "- `help`: explain this skill's purpose",
         "houmao-agent-loop-lite": "- `help`: explain this skill's purpose",
         SYSTEM_SKILL_UTILS_WORKSPACE_MGR: "- `help`: explain this skill's purpose",
-        SYSTEM_SKILL_UTILS_LLM_WIKI: "read-only meta operation `help`",
     }
     for skill_name, marker in operation_markers.items():
         skill_text = (_packaged_skill_asset_root(skill_name) / "SKILL.md").read_text(
             encoding="utf-8"
         )
         assert marker in skill_text
-
-
-def test_houmao_utils_llm_wiki_packaged_asset_shape() -> None:
-    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_UTILS_LLM_WIKI)
-    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-
-    assert (skill_root / "SKILL.md").is_file()
-    assert (skill_root / "references").is_dir()
-    assert (skill_root / "scripts").is_dir()
-    assert (skill_root / "subskills").is_dir()
-    assert (skill_root / "viewer").is_dir()
-    assert (skill_root / "viewer/audit-shared/package.json").is_file()
-    assert (skill_root / "viewer/web/package.json").is_file()
-    assert not list(skill_root.rglob("node_modules"))
-    assert not list(skill_root.rglob("dist"))
-    assert "name: houmao-utils-llm-wiki" in skill_text
-    assert "python3 scripts/scaffold.py" in skill_text
-    assert "Authored by" not in skill_text
-    assert "Karpathy" not in skill_text
 
 
 def test_houmao_utils_workspace_mgr_packaged_asset_shape() -> None:
@@ -1607,7 +1610,6 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert (
         home_path / "skills/houmao-agent-loop-lite/assets/scaffolds/execplan/manifest.md.tmpl"
     ).is_file()
-    assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
     assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
 
     loop_pro_skill = (home_path / "skills/houmao-agent-loop-pro/SKILL.md").read_text(
@@ -1904,12 +1906,12 @@ def test_sync_system_skills_for_home_removes_unselected_current_and_retired_path
     tmp_path: Path,
 ) -> None:
     home_path = (tmp_path / "codex-home").resolve()
-    stale_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
+    stale_removed_wiki_path = home_path / "skills/houmao-utils-llm-wiki/SKILL.md"
     stale_project_mgr_path = home_path / "skills/houmao-project-mgr/SKILL.md"
     user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
     unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
     retired_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
-    _write(stale_wiki_path, "stale wiki\n")
+    _write(stale_removed_wiki_path, "stale removed wiki\n")
     _write(stale_project_mgr_path, "stale project manager\n")
     _write(user_skill_path, "custom user skill\n")
     _write(unknown_houmao_path, "not catalog owned\n")
@@ -1928,19 +1930,13 @@ def test_sync_system_skills_for_home_removes_unselected_current_and_retired_path
     assert result.explicit_skill_names == ()
     assert result.resolved_skill_names == ()
     assert result.projected_relative_dirs == ()
-    assert result.removed_skill_names == (
-        SYSTEM_SKILL_UTILS_LLM_WIKI,
-        "houmao-project-mgr",
-    )
-    assert result.removed_projected_relative_dirs == (
-        "skills/houmao-utils-llm-wiki",
-        "skills/houmao-project-mgr",
-    )
+    assert result.removed_skill_names == ("houmao-project-mgr",)
+    assert result.removed_projected_relative_dirs == ("skills/houmao-project-mgr",)
     assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v5",)
     assert result.removed_retired_projected_relative_dirs == (
         "skills/houmao-agent-loop-pairwise-v5",
     )
-    assert not stale_wiki_path.exists()
+    assert stale_removed_wiki_path.is_file()
     assert not stale_project_mgr_path.exists()
     assert not retired_loop_path.exists()
     assert user_skill_path.is_file()
@@ -1957,7 +1953,7 @@ def test_sync_system_skills_for_home_projects_exact_replacement_selection(
     selection = resolve_managed_system_skill_selection(
         source_policy=SystemSkillSelectionPolicy(
             mode="replace",
-            skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+            skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
         )
     )
 
@@ -1969,13 +1965,13 @@ def test_sync_system_skills_for_home_projects_exact_replacement_selection(
     installed_records = discover_installed_system_skills(tool="codex", home_path=home_path)
 
     assert result.selected_set_names == ()
-    assert result.explicit_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
-    assert result.resolved_skill_names == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
-    assert result.projected_relative_dirs == ("skills/houmao-utils-llm-wiki",)
+    assert result.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
+    assert result.resolved_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
+    assert result.projected_relative_dirs == ("skills/houmao-utils-workspace-mgr",)
     assert result.removed_skill_names == ("houmao-project-mgr",)
     assert not stale_project_mgr_path.exists()
-    assert (home_path / "skills/houmao-utils-llm-wiki/SKILL.md").is_file()
-    assert tuple(record.name for record in installed_records) == (SYSTEM_SKILL_UTILS_LLM_WIKI,)
+    assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
+    assert tuple(record.name for record in installed_records) == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
 
 
 def test_install_system_skills_for_home_ignores_superseded_skill_record(

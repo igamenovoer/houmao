@@ -295,7 +295,7 @@ The skill SHALL describe config drafts as minimal opinionated drafts and SHALL d
 
 The skill SHALL direct agents to the CLI-owned config draft as the authoritative source for the config kind, fixed lane/source values, required credential/auth reference, and draft YAML shape.
 
-The skill MAY continue to use `houmao-mgr internals command-templates render` for command-oriented workflows such as `roles`, `recipes`, launch command printing, and remaining executable command construction.
+For executable command-oriented workflows that are not config documents, the skill SHALL document direct `houmao-mgr` command snippets in fenced `bash` blocks and SHALL NOT call `houmao-mgr internals command-templates`.
 
 #### Scenario: Profile authoring generates a config draft
 - **WHEN** a user asks `houmao-agent-definition profiles` to create project profile `reviewer-fast` for specialist `reviewer` and credential `reviewer-creds`
@@ -311,49 +311,33 @@ The skill MAY continue to use `houmao-mgr internals command-templates render` fo
 #### Scenario: Specialist authoring generates a specialist draft
 - **WHEN** a user asks `houmao-agent-definition specialists` to prepare a Codex specialist named `reviewer` with credential `reviewer-creds`
 - **THEN** the skill guidance directs the agent to generate `project.specialist`
-- **AND THEN** the guidance does not require loading the full `project.specialist.create` command-template schema to see every possible credential, skill, mailbox, and launch option
+- **AND THEN** the guidance does not require loading a separate executable-command schema to see every possible credential, skill, mailbox, and launch option
 
-#### Scenario: Recipe authoring can still use command templates
+#### Scenario: Recipe authoring uses direct commands
 - **WHEN** a user asks `houmao-agent-definition recipes` to create recipe `reviewer-codex` from role `reviewer` and tool `codex`
 - **AND WHEN** no recipe config-draft contract exists
-- **THEN** the skill guidance may direct the agent to render `internals.native-agent.recipes.add`
+- **THEN** the skill guidance shows the maintained direct `houmao-mgr internals native-agent recipes ...` command in a fenced `bash` block
 - **AND THEN** the guidance does not invent a recipe YAML draft that Houmao does not provide
 
-#### Scenario: Fast-forward uses drafts for config and command templates for launch printing
+#### Scenario: Fast-forward uses drafts and direct launch command printing
 - **WHEN** `create-agent-fast-forward` prepares a launchable project profile and prints the launch command
 - **THEN** the skill guidance uses config drafts for specialist/profile preparation
-- **AND THEN** it may still base the printed launch command on `internals command-templates render`
+- **AND THEN** it prints the maintained `houmao-mgr project agents launch ...` command directly
 
-### Requirement: `houmao-agent-definition` delegates credential command shapes to credential templates
-When `houmao-agent-definition` needs to route credential discovery or credential creation while preparing specialists or recipes, it SHALL use CLI-owned credential command templates or direct read-only credential commands rather than carrying tool-specific credential option menus in agent-definition Markdown.
+### Requirement: `houmao-agent-definition` uses direct command snippets for executable workflows
+The packaged `houmao-agent-definition` skill SHALL document executable commands as fenced `bash` snippets.
 
-The skill MAY describe when credential discovery is needed, but credential command shape, project-vs-plain lane selection, and Claude/Codex/Gemini option fields SHALL come from the credential command-template registry or the credential-management skill.
+The skill SHALL NOT reference `houmao-mgr internals command-templates show`, `houmao-mgr internals command-templates render`, command-template ids, or command-template blocker recovery.
 
-#### Scenario: Specialist create references credential template for credential authoring
-- **WHEN** a user asks `houmao-agent-definition specialists` to create a Codex specialist and also provide new credential material
-- **THEN** the skill guidance routes credential command authoring through the matching credential template
-- **AND THEN** the specialist command render only references the selected credential name
+The skill SHALL preserve required-input and conflict guardrails in prose before each direct command workflow.
 
-### Requirement: `houmao-agent-definition` preserves prompt-mode and TUI/headless omission through templates
-The packaged `houmao-agent-definition` skill SHALL preserve the distinction between prompt mode and launch posture by following the CLI-owned template renderer for supported authoring flows.
+#### Scenario: Low-level role command is shown directly
+- **WHEN** a user asks the skill to initialize or edit a low-level role
+- **THEN** the skill guidance shows a direct `houmao-mgr internals native-agent roles ...` command in a fenced `bash` block
+- **AND THEN** it does not render a command-template id first
 
-When prompt mode is not explicit in the current prompt or recent conversation context, the skill SHALL omit prompt-mode fields from rendered intent rather than setting `unattended` or `as_is`.
+#### Scenario: Launch command is shown directly
+- **WHEN** a user asks the skill to print or run a managed launch command
+- **THEN** the skill guidance shows a direct `houmao-mgr project agents launch ...` command in a fenced `bash` block
+- **AND THEN** omitted optional flags remain absent unless explicitly requested
 
-When TUI/headless posture is not explicit and the selected tool or launch lane does not require headless posture, the skill SHALL omit launch-posture fields from rendered intent.
-
-#### Scenario: Unspecified prompt mode remains unset
-- **WHEN** a user asks the skill to create or update a Codex project profile
-- **AND WHEN** the user does not mention prompt mode
-- **THEN** the rendered intent omits prompt mode
-- **AND THEN** the resulting command does not persist a prompt-mode field only because the skill has a preferred default
-
-#### Scenario: Explicit unattended is still honored
-- **WHEN** a user explicitly asks the skill to make a profile launch with unattended prompt mode
-- **THEN** the rendered intent includes prompt mode `unattended`
-- **AND THEN** the resulting command includes the matching prompt-mode option reported by the template renderer
-
-#### Scenario: Unspecified launch posture remains TUI-preferred
-- **WHEN** a user asks the skill to prepare a launch command for a TUI-capable Codex or Claude profile
-- **AND WHEN** the user does not request headless execution
-- **THEN** the rendered intent omits headless launch posture
-- **AND THEN** the resulting command remains TUI/local-interactive preferred where supported

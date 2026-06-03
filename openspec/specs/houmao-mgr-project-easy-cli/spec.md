@@ -25,7 +25,7 @@ The promoted commands SHALL preserve the project-layer semantics of specialists,
 - **AND THEN** the command persists the same project-layer specialist semantics formerly owned by `project easy specialist create`
 
 ### Requirement: Project profile replaces easy profile terminology
-The user-facing term `easy profile` SHALL be replaced by `profile` in ordinary project commands, documentation, config drafts, command-template descriptions, and packaged system skills.
+The user-facing term `easy profile` SHALL be replaced by `profile` in ordinary project commands, documentation, config drafts, and packaged system skills.
 
 Internal persisted lane names MAY remain stable during migration when changing them would create unnecessary catalog churn, but user-facing output SHALL explain the resource as a project profile.
 
@@ -1268,9 +1268,9 @@ For specialist commands, omitted policy SHALL mean the managed-launch default se
 When a specialist command receives one or more system-skill selectors without an explicit mode, it SHALL store additive mode. When an project-profile command receives one or more system-skill selectors without an explicit mode, it SHALL store additive mode over the inherited source policy.
 
 #### Scenario: Specialist create stores additive utility skill policy
-- **WHEN** an operator runs `houmao-mgr project specialist create --name researcher --tool codex --api-key sk-test --system-skill houmao-utils-llm-wiki`
+- **WHEN** an operator runs `houmao-mgr project specialist create --name researcher --tool codex --api-key sk-test --system-skill houmao-utils-workspace-mgr`
 - **THEN** the persisted specialist records managed system-skill policy as additive
-- **AND THEN** the generated compatibility recipe records `houmao-utils-llm-wiki` under `launch.system_skills`
+- **AND THEN** the generated compatibility recipe records `houmao-utils-workspace-mgr` under `launch.system_skills`
 
 #### Scenario: Specialist set clears stored system-skill policy
 - **WHEN** specialist `researcher` stores additive system-skill policy
@@ -1280,9 +1280,9 @@ When a specialist command receives one or more system-skill selectors without an
 
 #### Scenario: Project profile create stores additive profile policy
 - **WHEN** specialist `researcher` already exists
-- **AND WHEN** an operator runs `houmao-mgr project profile create --name researcher-wiki --specialist researcher --system-skill houmao-utils-llm-wiki`
+- **AND WHEN** an operator runs `houmao-mgr project profile create --name researcher-workspace --specialist researcher --system-skill houmao-utils-workspace-mgr`
 - **THEN** the project profile stores additive managed system-skill policy
-- **AND THEN** launches from that profile include the source specialist policy plus `houmao-utils-llm-wiki`
+- **AND THEN** launches from that profile include the source specialist policy plus `houmao-utils-workspace-mgr`
 
 #### Scenario: Project profile set disables managed system skills
 - **WHEN** project profile `researcher-minimal` already exists
@@ -1292,64 +1292,11 @@ When a specialist command receives one or more system-skill selectors without an
 
 #### Scenario: Invalid easy system-skill name fails clearly
 - **WHEN** an operator runs `houmao-mgr project specialist create --name researcher --tool codex --api-key sk-test --system-skill not-a-skill`
-- **THEN** the command fails before storing the specialist
-- **AND THEN** the error identifies `not-a-skill` as an unknown Houmao system skill
+- **THEN** the command fails before writing specialist or profile configuration
+- **AND THEN** the error identifies the unknown system skill
 
-### Requirement: `project` authoring surfaces provide command-template entries
-The CLI-owned command-template registry SHALL provide template entries for these `project` surfaces:
+#### Scenario: Removed easy system-skill name fails clearly
+- **WHEN** an operator runs `houmao-mgr project specialist create --name researcher --tool codex --api-key sk-test --system-skill houmao-utils-llm-wiki`
+- **THEN** the command fails before writing specialist or profile configuration
+- **AND THEN** the error identifies `houmao-utils-llm-wiki` as an unknown system skill
 
-- `houmao-mgr project specialist create`
-- `houmao-mgr project specialist set`
-- `houmao-mgr project profile create`
-- `houmao-mgr project profile set`
-- `houmao-mgr project agents launch`
-
-Each template entry SHALL map structured field names to the corresponding CLI options and SHALL document required fields, optional fields, clear flags, conflicts, and omitted-field semantics for that surface.
-
-Rendering a `project` template SHALL produce argv that is equivalent to invoking the underlying `project` command directly with the same explicit options.
-
-Profile templates SHALL include profile-owned memo seed fields because those fields are authored through `project profile create|set`.
-
-#### Scenario: Specialist create has a template entry
-- **WHEN** an agent lists command templates
-- **THEN** `project.specialist.create` appears as a supported template id
-- **AND THEN** it maps to `houmao-mgr project specialist create`
-
-#### Scenario: Project profile set has clear-field metadata
-- **WHEN** an agent shows `project.profile.set`
-- **THEN** the template describes supported update and clear fields for nullable launch defaults
-- **AND THEN** it distinguishes omitted fields from explicit clears
-
-#### Scenario: Project profile create exposes memo seed fields
-- **WHEN** an agent shows `project.profile.create`
-- **THEN** the template reports supported memo seed text, file, and directory fields
-- **AND THEN** it reports conflicts between mutually exclusive memo seed sources
-
-### Requirement: `project` templates preserve launch default omission
-`project` command templates SHALL preserve the underlying CLI's sparse default behavior by omitting optional fields that are absent from render intent.
-
-For profile and specialist create surfaces, omitted optional fields SHALL remain absent from rendered argv rather than being populated from skill-owned defaults.
-
-For profile and specialist set surfaces, omitted optional fields SHALL remain absent from rendered argv so existing stored state is preserved.
-
-For easy instance launch, omitted one-shot overrides SHALL remain absent from rendered argv so launch policy and stored profile/specialist state resolve the effective behavior.
-
-Prompt mode SHALL only render when the intent explicitly sets or clears prompt mode.
-
-Headless or TUI launch posture SHALL only render when the intent explicitly requests launch posture or a template rule can determine a required posture from supplied intent.
-
-#### Scenario: Project profile create omits prompt mode by default
-- **WHEN** an agent renders `project.profile.create` with only `name=reviewer-fast` and `specialist=reviewer`
-- **THEN** the rendered argv does not include `--prompt-mode`
-- **AND THEN** the rendered output reports prompt mode as omitted/inherited
-
-#### Scenario: Specialist set preserves existing prompt mode
-- **WHEN** an agent renders `project.specialist.set` with only `name=reviewer` and `model=gpt-5.4-mini`
-- **THEN** the rendered argv does not include `--prompt-mode` or `--clear-prompt-mode`
-- **AND THEN** the target specialist's stored prompt mode is preserved by the patch command
-
-#### Scenario: Easy launch keeps one-shot posture absent when unspecified
-- **WHEN** an agent renders `project.agents.launch` for specialist `reviewer` and instance `reviewer-1`
-- **AND WHEN** the render intent does not include headless or TUI posture
-- **THEN** the rendered argv does not include `--headless`
-- **AND THEN** the eventual launch remains governed by stored state and launch policy rather than a skill-owned posture default

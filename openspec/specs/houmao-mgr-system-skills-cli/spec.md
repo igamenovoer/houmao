@@ -539,60 +539,28 @@ At minimum, each single-tool uninstall result SHALL report removed skill names, 
 - **AND WHEN** the operator later runs `houmao-mgr system-skills status --tool codex --home <that-home>`
 - **THEN** status reports no installed current Houmao-owned skills for that home
 
-### Requirement: `houmao-mgr system-skills` surfaces the LLM Wiki utility skill and utils set
-`houmao-mgr system-skills` SHALL use the packaged catalog inventory and named sets when reporting, installing, inspecting, and removing `houmao-utils-llm-wiki`.
-
-When `system-skills install` resolves an explicit `utils` set selection, the reported installed skill names and later `system-skills status` output SHALL include `houmao-utils-llm-wiki` whenever that install completed successfully.
-
-When `system-skills install` resolves the packaged CLI-default selection, the resolved installed skill names SHALL NOT include `houmao-utils-llm-wiki`.
-
-`system-skills uninstall` SHALL remove `houmao-utils-llm-wiki` when that current catalog-known skill path exists in the resolved home.
-
-#### Scenario: Operator lists the utility skill and named set
-- **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the output includes `houmao-utils-llm-wiki` in the current skill inventory
-- **AND THEN** the output includes the `utils` named set
-- **AND THEN** the managed-launch, managed-join, and CLI-default set lists do not include `utils`
-
-#### Scenario: Operator installs the utility set explicitly
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill-set utils`
-- **THEN** the resolved skill list includes `houmao-utils-llm-wiki`
-- **AND THEN** the skill is projected into the Codex home under `skills/houmao-utils-llm-wiki/`
-
-#### Scenario: Operator installs the utility skill explicitly
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki`
-- **THEN** the resolved skill list includes `houmao-utils-llm-wiki`
-- **AND THEN** the skill is projected into the Codex home under `skills/houmao-utils-llm-wiki/`
-
-#### Scenario: CLI-default install omits the utility skill
-- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex`
-- **THEN** the resolved CLI-default skill list does not include `houmao-utils-llm-wiki`
-
-#### Scenario: Uninstall removes an installed utility skill path
-- **WHEN** a Codex home contains `skills/houmao-utils-llm-wiki/`
-- **AND WHEN** an operator runs `houmao-mgr system-skills uninstall --tool codex --home <home>`
-- **THEN** the command removes `skills/houmao-utils-llm-wiki/`
-
 ### Requirement: `houmao-mgr system-skills` surfaces utility skills through all
 `houmao-mgr system-skills` SHALL use the packaged catalog inventory and fixed set lists when reporting, installing, and inspecting Houmao-owned utility skills.
 
-That current inventory SHALL surface `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` as installable packaged skills.
+That current inventory SHALL surface `houmao-utils-workspace-mgr` as an installable packaged utility skill.
 
-The reported named sets SHALL include `all` as the set that contains the utility skills and SHALL NOT report `utils` as a current installable set.
+The reported named sets SHALL include `all` as the set that contains current utility skills and SHALL NOT report `utils` as a current installable set.
 
-When `system-skills install` resolves the packaged CLI-default set list, the resolved installed skill names and later `system-skills status` output SHALL include `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`.
+When `system-skills install` resolves the packaged CLI-default set list, the resolved installed skill names and later `system-skills status` output SHALL include `houmao-utils-workspace-mgr`.
 
-#### Scenario: List reports utility skills and all
+#### Scenario: List reports current utility skills and all
 - **WHEN** an operator runs `houmao-mgr system-skills list`
-- **THEN** the command reports `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` in the current Houmao-owned skill inventory
-- **AND THEN** it reports `all` as the named set that includes those utility skills
+- **THEN** the command reports `houmao-utils-workspace-mgr` in the current Houmao-owned skill inventory
+- **AND THEN** it does not report `houmao-utils-llm-wiki` in the current Houmao-owned skill inventory
+- **AND THEN** it reports `all` as the named set that includes current utility skills
 - **AND THEN** it does not report `utils` as a current named set
 
-#### Scenario: Omitted-selection install and status report utility skills
+#### Scenario: Omitted-selection install and status report current utility skills
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
 - **AND WHEN** no `--skill-set` or `--skill` is supplied
-- **THEN** the install result reports `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` in the resolved current skill list
-- **AND THEN** a later `houmao-mgr system-skills status` for that home reports those utility skills as installed when the CLI-default install completed successfully
+- **THEN** the install result reports `houmao-utils-workspace-mgr` in the resolved current skill list
+- **AND THEN** it does not report `houmao-utils-llm-wiki` in the resolved current skill list
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-utils-workspace-mgr` as installed when the CLI-default install completed successfully
 
 ### Requirement: `houmao-mgr system-skills install` plain output reports projected skill locations
 `houmao-mgr system-skills install` SHALL make the human-readable install result distinguish each selected tool's effective home from the tool-native location where Houmao-owned skills were projected.
@@ -690,3 +658,20 @@ When installation removes known retired loop skill projections, `houmao-mgr syst
 - **WHEN** installing current system skills removes stale retired loop projections
 - **THEN** the command output lists the removed retired skill paths
 - **AND THEN** the command output lists `houmao-agent-loop-pro` as installed when selected
+
+### Requirement: `houmao-mgr system-skills` rejects the removed LLM Wiki selector
+The `houmao-mgr system-skills` command family SHALL treat `houmao-utils-llm-wiki` as an unknown system skill rather than as a current or retired Houmao-owned skill.
+
+The command family SHALL NOT report stale `houmao-utils-llm-wiki` projection paths as current installed skills or retired leftovers.
+
+#### Scenario: Explicit install of removed skill fails
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki`
+- **THEN** the command fails before mutating the target home
+- **AND THEN** the error identifies `houmao-utils-llm-wiki` as an unknown system skill
+
+#### Scenario: Status ignores stale removed skill path
+- **WHEN** a Codex home contains `skills/houmao-utils-llm-wiki/`
+- **AND WHEN** an operator runs `houmao-mgr system-skills status --tool codex --home <home>`
+- **THEN** the command does not report `houmao-utils-llm-wiki` as an installed current skill
+- **AND THEN** the command does not report `houmao-utils-llm-wiki` as a retired leftover
+

@@ -26,7 +26,6 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-process-emails-via-gateway` for round-oriented gateway mailbox workflow
 - `houmao-agent-email-comms` for ordinary shared-mailbox operations and the no-gateway fallback path
 - `houmao-adv-usage-pattern` for supported multi-skill mailbox and gateway workflow compositions such as self-wakeup through self-mail plus notifier-driven rounds
-- `houmao-utils-llm-wiki` for explicit persistent Markdown LLM Wiki knowledge-base utilities: scaffold, ingest, compile, query, lint, audit, and local viewer workflows
 - `houmao-utils-workspace-mgr` for explicit multi-agent workspace planning, creation, validation, and summary utilities: dry-run plans, untracked task-scoped in-repo workspace collections, out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, tracked submodule materialization, launch-profile cwd updates, project-command readiness checks, and optional memo-seed workspace rules
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users move through beginner agent creation, intermediate live operation, and advanced loop/workspace coordination when relevant
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
@@ -118,7 +117,6 @@ The current packaged Houmao-owned skills are:
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 - `houmao-adv-usage-pattern`
-- `houmao-utils-llm-wiki`
 - `houmao-utils-workspace-mgr`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
@@ -240,7 +238,6 @@ pixi run houmao-mgr system-skills install --tool copilot
 pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot
 pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --skill-set core
 pixi run houmao-mgr system-skills install --tool gemini --skill-set core
-pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki
 pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
 ```
@@ -248,9 +245,9 @@ pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill h
 Selection rules:
 
 - omitting both `--skill-set` and `--skill` expands the catalog's CLI-default set list
-- the CLI-default set list is `all`; use `--skill-set core` when utility skills should be omitted
+- the CLI-default set list is `all`; use `--skill-set core` when you want the managed-launch selection
 - repeatable `--skill-set` expands named sets in the order given
-- repeatable `--skill` appends explicit skill names after the expanded sets; use explicit utility skills on homes that already have `core` when you do not want the rest of `all`
+- repeatable `--skill` appends explicit skill names after the expanded sets, and can also be used alone for a small named subset
 - `--symlink` switches the install from copied projection to directory symlink projection
 - the final skill list is deduplicated by first occurrence
 - unknown set names or skill names are errors
@@ -339,9 +336,9 @@ The conceptual groups are:
 
 - automation: mailbox rounds, ordinary mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control
 - control: touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration
-- utils: `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`
+- utils: `houmao-utils-workspace-mgr`
 
-CLI-default installation expands `all`, which installs every packaged Houmao system skill. Managed launch and managed join expand `core`, which installs automation plus control and excludes only the utility workflows.
+CLI-default installation expands `all`, which installs every packaged Houmao system skill. Managed launch and managed join expand `core`, the closed managed selection currently used for automation, control, and workspace-preparation routing.
 
 ## When To Use This Surface
 

@@ -197,7 +197,6 @@ At minimum the table SHALL include one row for each of the following skills curr
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 - `houmao-adv-usage-pattern`
-- `houmao-utils-llm-wiki`
 - `houmao-utils-workspace-mgr`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
@@ -231,18 +230,6 @@ The row for `houmao-agent-loop-pairwise-v4` SHALL describe it as the template-dr
 - **WHEN** a reader opens the README "System Skills" subsection
 - **THEN** the table contains `houmao-utils-workspace-mgr`
 - **AND THEN** the row describes the skill as a utility for planning and executing multi-agent workspace layouts before launch
-
-#### Scenario: Pairwise-v3 is surfaced in the README catalog
-- **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains `houmao-agent-loop-pairwise-v3`
-- **AND THEN** the row describes the skill as the workspace-aware pairwise loop authoring and run-control skill
-- **AND THEN** the row is placed immediately adjacent to `houmao-agent-loop-pairwise-v2` so the v1 / v2 / v3 progression is visually obvious
-
-#### Scenario: Pairwise-v4 is surfaced in the README catalog
-- **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains `houmao-agent-loop-pairwise-v4`
-- **AND THEN** the row describes the skill as the template-driven successor for strict generated document templates and coverage audits
-- **AND THEN** the row is placed immediately adjacent to `houmao-agent-loop-pairwise-v3` so the v1 / v2 / v3 / v4 progression is visually obvious
 
 ### Requirement: README auto-install wording includes all pairwise variants when `core` includes them
 When the README describes the managed-home or CLI-default system-skill expansions, that wording SHALL include every pairwise loop-skill variant currently packaged in the `core` set of `src/houmao/agents/assets/system_skills/catalog.toml`.
@@ -335,23 +322,6 @@ The five skills identified SHALL be `houmao-agent-loop-pairwise`, `houmao-agent-
 - **WHEN** a reader reads any sentence in §4 that enumerates the number of packaged loop skills
 - **THEN** that sentence says five, not four
 - **AND THEN** the table or list shows `houmao-agent-loop-pairwise-v4` alongside the other four loop skills
-
-### Requirement: README system-skills table lists the LLM Wiki utility skill
-The README "System Skills: Agent Self-Management" subsection SHALL document `houmao-utils-llm-wiki` as one of the packaged Houmao-owned system skills.
-
-The README row SHALL describe the skill as an explicit utility for persistent Markdown LLM Wiki knowledge bases, including scaffold, ingest, compile, query, lint, audit, and local viewer workflows.
-
-The README SHALL explain that `houmao-utils-llm-wiki` is not part of managed-home auto-install or CLI-default install selections and must be selected with `--skill-set utils` or `--skill houmao-utils-llm-wiki`.
-
-#### Scenario: Reader sees the LLM Wiki utility in the README catalog
-- **WHEN** a reader scans the README system-skills table
-- **THEN** they find `houmao-utils-llm-wiki`
-- **AND THEN** the row describes persistent Markdown knowledge-base workflows
-
-#### Scenario: Reader sees explicit utility install examples
-- **WHEN** a reader scans the README system-skills install examples
-- **THEN** they can find an example using `--skill-set utils` or `--skill houmao-utils-llm-wiki`
-- **AND THEN** the README does not imply that the utility skill is installed by default
 
 ### Requirement: README explains current core and all set surface
 The README system-skills subsection SHALL explain that the current installable named sets are `core` and `all`.
@@ -467,3 +437,4 @@ The README SHALL distinguish skill-level help from the `houmao-mgr system-skills
 - **THEN** they see that installed skills can answer explicit read-only help requests
 - **AND THEN** they see at least one `$<skill> help` example
 - **AND THEN** the README does not imply that help runs commands or mutates Houmao state
+

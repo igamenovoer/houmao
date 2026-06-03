@@ -21,10 +21,6 @@ description = "Unified mailbox operations and fallback guidance skill."
 asset_subpath = "houmao-adv-usage-pattern"
 description = "Advanced Houmao workflow composition skill layered on top of direct-operation skills."
 
-[skills.houmao-utils-llm-wiki]
-asset_subpath = "houmao-utils-llm-wiki"
-description = "LLM Wiki utility skill for persistent Markdown knowledge bases and bundled local viewer workflows."
-
 [skills.houmao-utils-workspace-mgr]
 asset_subpath = "houmao-utils-workspace-mgr"
 description = "Utility skill for planning, creating, validating, and summarizing multi-agent workspace layouts."
@@ -129,7 +125,6 @@ skills = [
   "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
-  "houmao-utils-llm-wiki",
 ]
 
 [auto_install]

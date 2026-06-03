@@ -161,7 +161,7 @@ The orientation-level entry points are:
 | `houmao-agent-loop-lite` | Lightweight Markdown/direct-SQL generated loop authoring and operation. |
 | `houmao-agent-loop-pro` | Schema-rich loop authoring, preparation, validation, launch, run control, and recovery for complex generated teams. |
 
-`houmao-specialist-mgr` may still appear in older installed homes as compatibility guidance, but current specialist and profile work belongs to `houmao-agent-definition`. Managed launch and join install the catalog's `core` set by default; explicit CLI installation defaults to `all`, which adds optional utility workflows. For the complete catalog, grouping, auto-install behavior, and per-skill boundaries, see the [System Skills Overview](docs/getting-started/system-skills-overview.md).
+`houmao-specialist-mgr` may still appear in older installed homes as compatibility guidance, but current specialist and profile work belongs to `houmao-agent-definition`. Managed launch and join install the catalog's `core` set by default; explicit CLI installation defaults to `all`, the complete current packaged catalog. For the complete catalog, grouping, auto-install behavior, and per-skill boundaries, see the [System Skills Overview](docs/getting-started/system-skills-overview.md).
 
 ## Subsystems at a Glance
 

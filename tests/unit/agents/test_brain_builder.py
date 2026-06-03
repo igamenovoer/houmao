@@ -19,7 +19,8 @@ from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import (
-    SYSTEM_SKILL_UTILS_LLM_WIKI,
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
+    SystemSkillCatalogError,
     SystemSkillSelectionPolicy,
     discover_installed_system_skills,
 )
@@ -342,7 +343,7 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
             credential_profile="personal-a",
             source_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="extend",
-                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
             ),
             home_id="codex-home-source-system-skills",
         )
@@ -350,8 +351,8 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
 
     installed_records = discover_installed_system_skills(tool="codex", home_path=result.home_path)
     installed_names = tuple(record.name for record in installed_records)
-    assert SYSTEM_SKILL_UTILS_LLM_WIKI in installed_names
-    assert (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md").is_file()
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in installed_names
+    assert (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}/SKILL.md").is_file()
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
@@ -359,10 +360,40 @@ def test_build_brain_home_applies_source_additive_system_skill_policy(
     ]
     assert system_skill_provenance["source_policy"] == {
         "mode": "extend",
-        "skills": [SYSTEM_SKILL_UTILS_LLM_WIKI],
+        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
     }
     assert system_skill_provenance["profile_policy"] == {}
-    assert SYSTEM_SKILL_UTILS_LLM_WIKI in system_skill_provenance["resolved_skills"]
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in system_skill_provenance["resolved_skills"]
+
+
+def test_build_brain_home_rejects_removed_llm_wiki_system_skill_policy_before_mutation(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = agent_def_dir / "tmp/agents-runtime"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    with pytest.raises(
+        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
+    ):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=runtime_root,
+                tool="codex",
+                skills=["skill-a"],
+                config_profile="default",
+                credential_profile="personal-a",
+                source_system_skill_policy=SystemSkillSelectionPolicy(
+                    mode="extend",
+                    skill_names=("houmao-utils-llm-wiki",),
+                ),
+                home_id="codex-home-removed-system-skill",
+            )
+        )
+
+    assert not (runtime_root / "homes/codex-home-removed-system-skill").exists()
 
 
 def test_build_brain_home_profile_replacement_overrides_source_system_skill_policy(
@@ -382,7 +413,7 @@ def test_build_brain_home_profile_replacement_overrides_source_system_skill_poli
             credential_profile="personal-a",
             source_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="extend",
-                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
             ),
             launch_profile_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="replace",
@@ -396,15 +427,20 @@ def test_build_brain_home_profile_replacement_overrides_source_system_skill_poli
         record.name
         for record in discover_installed_system_skills(tool="codex", home_path=result.home_path)
     )
-    assert SYSTEM_SKILL_UTILS_LLM_WIKI not in installed_names
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in installed_names
 
     manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
     system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
         "system_skills"
     ]
+    assert system_skill_provenance["source_policy"] == {
+        "mode": "extend",
+        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
+    }
     assert system_skill_provenance["profile_policy"] == {"mode": "replace", "sets": ["core"]}
     assert system_skill_provenance["selected_sets"] == ["core"]
-    assert SYSTEM_SKILL_UTILS_LLM_WIKI not in system_skill_provenance["resolved_skills"]
+    assert system_skill_provenance["explicit_skills"] == []
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in system_skill_provenance["resolved_skills"]
 
 
 def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on_reuse(
@@ -422,14 +458,10 @@ def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on
             skills=["skill-a"],
             config_profile="default",
             credential_profile="personal-a",
-            source_system_skill_policy=SystemSkillSelectionPolicy(
-                mode="extend",
-                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
-            ),
             home_id="codex-home-reused-system-skills",
         )
     )
-    assert (first_result.home_path / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md").is_file()
+    assert (first_result.home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
 
     second_result = build_brain_home(
         BuildRequest(
@@ -452,7 +484,7 @@ def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on
     ]
     assert system_skill_provenance["profile_policy"] == {"mode": "none"}
     assert system_skill_provenance["resolved_skills"] == []
-    assert SYSTEM_SKILL_UTILS_LLM_WIKI in system_skill_provenance["removed_skills"]
+    assert "houmao-project-mgr" in system_skill_provenance["removed_skills"]
 
 
 def test_build_brain_home_rejects_registered_system_skill_name_collision(
@@ -461,7 +493,7 @@ def test_build_brain_home_rejects_registered_system_skill_name_collision(
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
-    _write(agent_def_dir / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md", "# collision\n")
+    _write(agent_def_dir / "skills/houmao-agent-definition/SKILL.md", "# collision\n")
 
     with pytest.raises(BuildError, match="cannot collide with packaged Houmao system-skill names"):
         build_brain_home(
@@ -469,7 +501,7 @@ def test_build_brain_home_rejects_registered_system_skill_name_collision(
                 agent_def_dir=agent_def_dir,
                 runtime_root=agent_def_dir / "tmp/agents-runtime",
                 tool="codex",
-                skills=[SYSTEM_SKILL_UTILS_LLM_WIKI],
+                skills=["houmao-agent-definition"],
                 config_profile="default",
                 credential_profile="personal-a",
                 home_id="codex-home-system-skill-collision",
@@ -481,7 +513,7 @@ def test_build_brain_home_rejects_private_system_skill_name_collision(tmp_path: 
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
     _seed_repo(agent_def_dir)
-    private_skill = tmp_path / "private" / SYSTEM_SKILL_UTILS_LLM_WIKI
+    private_skill = tmp_path / "private" / "houmao-agent-definition"
     _write(private_skill / "SKILL.md", "# collision\n")
 
     with pytest.raises(BuildError, match="cannot collide with packaged Houmao system-skill names"):
@@ -493,7 +525,7 @@ def test_build_brain_home_rejects_private_system_skill_name_collision(tmp_path: 
                 skills=["skill-a"],
                 private_skills=(
                     PrivateSkillProjection(
-                        name=SYSTEM_SKILL_UTILS_LLM_WIKI,
+                        name="houmao-agent-definition",
                         source_path=private_skill,
                         mode="copy",
                     ),
@@ -1032,14 +1064,16 @@ def test_build_brain_home_projects_gemini_policy_system_skills_under_gemini_root
             credential_profile="oauth-only",
             source_system_skill_policy=SystemSkillSelectionPolicy(
                 mode="replace",
-                skill_names=(SYSTEM_SKILL_UTILS_LLM_WIKI,),
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
             ),
             home_id="gemini-home-system-policy",
         )
     )
 
-    assert (result.home_path / f".gemini/skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}/SKILL.md").is_file()
-    assert not (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_LLM_WIKI}").exists()
+    assert (
+        result.home_path / f".gemini/skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}/SKILL.md"
+    ).is_file()
+    assert not (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}").exists()
 
 
 def test_build_brain_home_reuse_leaves_legacy_gemini_agents_skill_root_unmanaged(

@@ -45,7 +45,7 @@ Managed launch and join are separate from these explicit user-driven installatio
 
 ## The Packaged Skills
 
-Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into three organization groups: **automation** for autonomous agent operation, mailbox/gateway/memory behavior, messaging, and inspection; **control** for operator-facing project, specialist, credential, definition, lifecycle, touring, and loop workflows; and **utils** for optional utility workflows.
+Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into three organization groups: **automation** for autonomous agent operation, mailbox/gateway/memory behavior, messaging, and inspection; **control** for operator-facing project, specialist, credential, definition, lifecycle, touring, and loop workflows; and **utils** for workspace utility workflows.
 
 ### Control: Guided Touring
 
@@ -86,7 +86,6 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
-| `houmao-utils-llm-wiki` | Persistent Markdown LLM Wiki knowledge-base workflows: scaffold, ingest, compile, query, lint, audit, and local viewer launch. This is a utility skill, not a managed-agent lifecycle or messaging control surface. | Installed through `houmao-mgr system-skills install --tool <tool> --skill-set all` or `--skill houmao-utils-llm-wiki`; inside the skill, helper workflows use `python3 scripts/...` from the installed skill root |
 | `houmao-utils-workspace-mgr` | Multi-agent workspace planning, creation, validation, and summarization: dry-run plans, untracked task-scoped in-repo workspace collections, out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, safe local-state symlinks, tracked submodule materialization, launch-profile cwd updates, project-command readiness checks, and optional memo-seed workspace rules. This is a utility skill, not a managed-agent lifecycle or messaging control surface. | Installed through `houmao-mgr system-skills install --tool <tool> --skill-set all` or `--skill houmao-utils-workspace-mgr`; it prepares and validates Houmao-standard workspace structure before agents are launched |
 
 ### Control: Loop authoring and master-run control
@@ -117,9 +116,9 @@ The catalog exposes two installable sets so internal skill routing does not poin
 | Install path | Set | Meaning |
 |---|---|---|
 | Managed launch / join | `core` | The closed automation and control surface for managed agents |
-| CLI default | `all` | `core` plus the utility skills |
+| CLI default | `all` | All current packaged skills |
 
-The skills are still organized conceptually into three groups. Automation covers mailbox rounds, direct mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control. Control covers touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration. Utils covers `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`.
+The skills are still organized conceptually into three groups. Automation covers mailbox rounds, direct mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control. Control covers touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration. Utils covers `houmao-utils-workspace-mgr`.
 
 The catalog source of truth lives at `src/houmao/agents/assets/system_skills/catalog.toml`:
 
@@ -134,8 +133,8 @@ The named sets resolve as:
 
 | Set | Skills it expands to |
 |---|---|
-| `core` | All non-utility packaged skills: automation plus operator-control skills |
-| `all` | `core` plus `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` |
+| `core` | The closed managed-launch selection: automation and operator-control skills plus `houmao-utils-workspace-mgr` for workspace preparation workflows that core skills route to |
+| `all` | All current packaged Houmao-owned skills; currently the same skill list as `core` |
 
 Managed launch stores policy separately from explicit `system-skills install`. A source recipe or specialist may record:
 
@@ -144,7 +143,7 @@ launch:
   system_skills:
     mode: extend
     skills:
-      - houmao-utils-llm-wiki
+      - houmao-utils-workspace-mgr
 ```
 
 Source policies use `default`, `extend`, `replace`, or `none`; omitted source policy is `default`, which expands the catalog's `managed_launch_sets`. Launch profiles use `inherit`, `extend`, `replace`, or `none`; omitted profile policy is `inherit`, which uses the source's effective selection. On reused managed homes, the managed-home sync removes exact catalog-known Houmao system-skill paths that are no longer selected while preserving unrelated user skill paths.
@@ -166,11 +165,10 @@ Copilot repository skills can be discovered by Copilot surfaces that read `.gith
 
 For named-set or explicit-skill installs, repeat `--skill-set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
 
-Use `--skill-set core` when the target home should avoid utility workflows. On a home that already has `core`, install one utility by explicit skill name when you do not want the rest of `all`:
+Use `--skill-set core` when the target home should receive the managed-launch selection. Use explicit `--skill` selectors when you want to install only a named subset:
 
 ```bash
 houmao-mgr system-skills install --tool codex --skill-set core
-houmao-mgr system-skills install --tool codex --skill houmao-utils-llm-wiki
 houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
 ```
 
@@ -194,7 +192,7 @@ Two short heuristics help decide which skill applies to a task that an agent or 
 
 **By entry style.** When the user explicitly asks for a first-run guided tour or wants help re-orienting from current Houmao state, start with `houmao-touring`. It is the manual guided entrypoint that inspects current posture, offers stage-aware next actions, and teaches beginner setup, intermediate live operation, and advanced coordination rather than flattening every function into one broad reference surface.
 
-**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is before launch* belongs to `houmao-agent-definition`: use `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, or `create-agent-fast-forward`. Ordinary profile wording means `profiles`; `launch-dossiers` is the explicit recipe-backed low-level route. Credential bundle contents belong to `houmao-credential-mgr`. Inspecting *what one live managed agent is doing right now* - liveness, screen posture, mailbox posture, logs, artifacts, or tmux backing - belongs to `houmao-agent-inspect`. Editing the per-agent `houmao-memo.md` file or contained `pages/` files belongs to `houmao-memory-mgr`. Building or maintaining a persistent Markdown knowledge base belongs to `houmao-utils-llm-wiki`. Planning, creating, validating, or summarizing a multi-agent workspace before launch belongs to `houmao-utils-workspace-mgr`. Administering *mailbox authority itself* - mailbox roots, mailbox registrations, and late mailbox binding - belongs to `houmao-mailbox-mgr`. Clarifying operator intent and dispatching one or more prompt-by-default or mailbox-on-request packets belongs to `houmao-operator-messaging`. Driving *what a live agent does* - sending it a prompt, attaching a gateway, or participating in mailbox workflows - belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`. Lightweight Markdown/direct-SQL loop packages belong to `houmao-agent-loop-lite`; topology-rich schema/harness loop packages belong to `houmao-agent-loop-pro`.
+**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is before launch* belongs to `houmao-agent-definition`: use `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, or `create-agent-fast-forward`. Ordinary profile wording means `profiles`; `launch-dossiers` is the explicit recipe-backed low-level route. Credential bundle contents belong to `houmao-credential-mgr`. Inspecting *what one live managed agent is doing right now* - liveness, screen posture, mailbox posture, logs, artifacts, or tmux backing - belongs to `houmao-agent-inspect`. Editing the per-agent `houmao-memo.md` file or contained `pages/` files belongs to `houmao-memory-mgr`. Planning, creating, validating, or summarizing a multi-agent workspace before launch belongs to `houmao-utils-workspace-mgr`. Administering *mailbox authority itself* - mailbox roots, mailbox registrations, and late mailbox binding - belongs to `houmao-mailbox-mgr`. Clarifying operator intent and dispatching one or more prompt-by-default or mailbox-on-request packets belongs to `houmao-operator-messaging`. Driving *what a live agent does* - sending it a prompt, attaching a gateway, or participating in mailbox workflows - belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`. Lightweight Markdown/direct-SQL loop packages belong to `houmao-agent-loop-lite`; topology-rich schema/harness loop packages belong to `houmao-agent-loop-pro`.
 
 **By transport and boundary.** When the task is "inspect this running agent," start with `houmao-agent-inspect` and let it choose summary state, managed detail, gateway TUI tracking, mailbox posture, logs, artifacts, or tmux peek in that order. When the task is "edit this agent's memo" or "add/remove something from the agent memo," use `houmao-memory-mgr`. When the task is "clarify this operator instruction and dispatch it to agents," use `houmao-operator-messaging`. When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the mailbox work the notifier just reported," use the round-oriented `houmao-process-emails-via-gateway`. When the task is "use a supported multi-skill mailbox or gateway composition such as self-wakeup through self-mail," use `houmao-adv-usage-pattern`. When the task is "what project is active here?" or "what changes for other subcommands when `.houmao/` exists?", use `houmao-project-mgr`.
 

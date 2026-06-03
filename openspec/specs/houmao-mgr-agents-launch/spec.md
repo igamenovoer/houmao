@@ -22,21 +22,6 @@ If the primary surface cannot be established, launch SHALL fail before publishin
 - **THEN** the command reports launch failure
 - **AND THEN** it does not publish an active lifecycle-aware managed-agent registry record for that failed launch
 
-### Requirement: Agent relaunch CLI surface provides a command-template entry
-The CLI-owned command-template registry SHALL provide template entries for selected-agent relaunch through `houmao-mgr agents single --agent-id <id> relaunch` or `houmao-mgr agents single --agent-name <name> relaunch`, and for current-session active refresh through `houmao-mgr agents self relaunch`.
-
-The selected-agent relaunch templates SHALL describe group-level agent selectors, explicit chat-session mode fields, explicit chat-session id fields, and conflicts between mutually exclusive chat-session policies.
-
-#### Scenario: Relaunch omits chat-session policy by default
-- **WHEN** an agent renders `agents.single.relaunch` with an explicit agent name but no explicit chat-session policy
-- **THEN** the rendered argv includes the agent selector
-- **AND THEN** chat-session mode and chat-session id options remain absent
-
-#### Scenario: Relaunch chat-session conflict blocks rendering
-- **WHEN** an agent renders `agents.single.relaunch` with conflicting chat-session policy fields
-- **THEN** the renderer reports a blocker
-- **AND THEN** it does not return executable argv
-
 ### Requirement: Managed-agent birth is source-scoped rather than global management
 The maintained global managed-agent management surface SHALL NOT expose a first-birth launch command.
 
@@ -59,3 +44,4 @@ Existing local managed-agent identities MAY be adopted into the registry through
 - **WHEN** an operator wants to create a managed agent from project profile `reviewer`
 - **THEN** the maintained command path is `houmao-mgr project agents launch --profile reviewer`
 - **AND THEN** the launch resolves source definitions from the selected project overlay rather than from global registry state
+

@@ -21,7 +21,10 @@ from houmao.agents.realm_controller.manifest import default_manifest_path
 from houmao.agents.system_skills import SystemSkillSelectionPolicy
 from houmao.project.catalog import ManagedContentRef
 from houmao.project.launch_profiles import ResolvedLaunchProfileMemoSeed
-from houmao.srv_ctrl.commands.agents.core import launch_managed_agent_locally
+from houmao.srv_ctrl.commands.agents.core import (
+    _resolve_launch_profile_system_skill_policy_or_click,
+    launch_managed_agent_locally,
+)
 
 
 def _expected_default_section_metadata(*, header_enabled: bool) -> dict[str, object]:
@@ -157,7 +160,7 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
     manifest_path.write_text("{}\n", encoding="utf-8")
     source_system_skill_policy = SystemSkillSelectionPolicy(
         mode="extend",
-        skill_names=("houmao-utils-llm-wiki",),
+        skill_names=("houmao-utils-workspace-mgr",),
     )
     profile_system_skill_policy = SystemSkillSelectionPolicy(mode="replace", set_names=("core",))
     _install_basic_launch_patches(
@@ -245,6 +248,17 @@ def test_launch_managed_agent_locally_merges_launch_profile_skill_overlays(
         ],
         "private_shadowed_names": ["notes"],
     }
+
+
+def test_launch_profile_policy_rejects_removed_llm_wiki_system_skill_selector() -> None:
+    with pytest.raises(click.ClickException, match="Unknown system skill `houmao-utils-llm-wiki`"):
+        _resolve_launch_profile_system_skill_policy_or_click(
+            {
+                "mode": "extend",
+                "skills": ["houmao-utils-llm-wiki"],
+            },
+            source="launch dossier `alice` system_skills",
+        )
 
 
 def test_launch_managed_agent_locally_forwards_gateway_args_to_runtime(

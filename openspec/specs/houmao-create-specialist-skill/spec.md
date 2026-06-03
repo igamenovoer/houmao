@@ -381,52 +381,20 @@ The wrapper SHALL use `create-agent-fast-forward` as the primary name for the on
 - **THEN** the wrapper points one-pass profile preparation requests to `houmao-agent-definition` and `create-agent-fast-forward`
 - **AND THEN** it does not present ready-profile generation as an independent wrapper-owned workflow
 
-### Requirement: `houmao-specialist-mgr` delegates supported command authoring to CLI-owned templates
-The packaged `houmao-specialist-mgr` skill SHALL act as compatibility guidance for specialist-oriented work and SHALL route supported specialist command authoring to the CLI-owned templates used by `houmao-agent-definition`.
+### Requirement: `houmao-specialist-mgr` delegates supported command authoring to config drafts and direct snippets
+The packaged `houmao-specialist-mgr` compatibility skill SHALL route supported specialist work to `houmao-agent-definition` for config-draft-backed preparation and direct executable command guidance.
 
-At minimum, the skill SHALL use CLI-owned templates for:
+When the compatibility skill documents a command itself, it SHALL use fenced `bash` snippets for direct maintained `houmao-mgr` commands.
 
-- specialist create through `project.specialist.create`
-- specialist update through `project.specialist.set`
-- specialist-backed launch through `project.agents.launch`
+The skill SHALL NOT reference `houmao-mgr internals command-templates show`, `houmao-mgr internals command-templates render`, command-template ids, or template blockers.
 
-For covered flows, the skill SHALL render sparse intent from explicit user inputs and recovered explicit context only.
-
-The skill SHALL NOT maintain a full Markdown-owned command template for covered commands that pre-fills optional default-sensitive flags.
-
-The skill SHALL NOT grow an independent specialist command catalog when the same command surface is already covered by `houmao-agent-definition`.
-
-#### Scenario: Specialist create uses template renderer
+#### Scenario: Specialist create routes to draft-backed guidance
 - **WHEN** a user asks `houmao-specialist-mgr` to create Codex specialist `reviewer` with credential `reviewer-creds`
-- **AND WHEN** the user does not request prompt-mode persistence
-- **THEN** the skill guidance directs the agent to render `project.specialist.create` with the explicit specialist, tool, and credential fields
-- **AND THEN** the guidance does not tell the agent to add `--prompt-mode unattended`
+- **THEN** the skill routes the work through `houmao-agent-definition` specialist guidance
+- **AND THEN** that guidance uses config drafts or direct project commands without command-template rendering
 
-#### Scenario: Specialist update clears prompt mode only when explicit
-- **WHEN** a user asks `houmao-specialist-mgr` to clear a specialist's stored prompt mode
-- **THEN** the skill guidance directs the agent to render `project.specialist.set` with the explicit clear prompt-mode field
-- **AND THEN** the resulting command uses the clear flag reported by the template renderer
-
-#### Scenario: Specialist launch uses rendered argv
+#### Scenario: Specialist launch uses direct command guidance
 - **WHEN** a user asks `houmao-specialist-mgr` to launch specialist `reviewer` as instance `reviewer-1`
-- **THEN** the skill guidance directs the agent to render `project.agents.launch`
-- **AND THEN** the launch command is based on the renderer output rather than a hand-authored Markdown command skeleton
-
-### Requirement: `houmao-specialist-mgr` treats template blockers as user-facing recovery points
-When `internals command-templates render` returns blockers for a supported `houmao-specialist-mgr` flow, the skill SHALL instruct the agent to stop before executing the target command and recover the missing or conflicting inputs.
-
-If the blocked field is a missing required input that cannot be recovered from the current prompt or recent conversation context, the skill SHALL ask the user for that input.
-
-If the blocked field is a conflict between explicit user instructions, the skill SHALL report the conflict and ask the user which instruction should win.
-
-#### Scenario: Missing launch target remains a question
-- **WHEN** a user asks `houmao-specialist-mgr` to launch an instance
-- **AND WHEN** the specialist name cannot be recovered from prompt or recent conversation context
-- **THEN** template rendering reports the missing required field
-- **AND THEN** the skill asks the user for the missing specialist name before running any launch command
-
-#### Scenario: Conflicting posture request is not guessed
-- **WHEN** a user asks for both TUI and headless launch posture in the same specialist launch request
-- **THEN** template rendering reports a conflict
-- **AND THEN** the skill asks the user to choose the intended posture instead of guessing
+- **THEN** the skill routes to direct `houmao-mgr project agents launch --specialist reviewer --name reviewer-1` guidance
+- **AND THEN** missing inputs or conflicting posture requests are resolved before command execution
 

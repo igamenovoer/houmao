@@ -1185,30 +1185,6 @@ That coverage SHALL show at least one single-tool explicit-home uninstall exampl
 - **THEN** the page explains that uninstall removes exact current Houmao skill paths only
 - **AND THEN** it explains that unrelated user skills, parent roots, legacy paths, and stale install-state files are not removed
 
-### Requirement: CLI reference documents the LLM Wiki utility system skill
-The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-utils-llm-wiki` as a packaged Houmao-owned system skill.
-
-The reference SHALL document the `utils` named set and SHALL show explicit installation examples for both `--skill-set utils` and `--skill houmao-utils-llm-wiki`.
-
-The reference SHALL state that `utils` is not included in managed launch, managed join, or CLI-default selections.
-
-The reference SHALL include `houmao-utils-llm-wiki` anywhere it enumerates the current skill inventory.
-
-#### Scenario: Reader sees the utility skill in system-skills reference
-- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page identifies `houmao-utils-llm-wiki` as a packaged Houmao-owned skill
-- **AND THEN** the page lists `utils` as a named set
-
-#### Scenario: Reader can install the utility skill from documented examples
-- **WHEN** a reader checks the install examples in `docs/reference/cli/system-skills.md`
-- **THEN** the examples include `--skill-set utils` or `--skill houmao-utils-llm-wiki`
-- **AND THEN** the surrounding text states that the utility skill is explicit-only
-
-#### Scenario: CLI default documentation excludes the utility set
-- **WHEN** a reader checks managed-launch, managed-join, or CLI-default selection lists in CLI reference docs
-- **THEN** those default-selection lists do not include `utils`
-- **AND THEN** they do not imply `houmao-utils-llm-wiki` is installed by default
-
 ### Requirement: CLI reference explains system-skills home and projection output
 The CLI reference SHALL document that `houmao-mgr system-skills` plain output distinguishes effective tool homes from tool-native skill projection locations.
 
@@ -1397,3 +1373,12 @@ At minimum, the migration examples SHALL cover:
 - **WHEN** a reader opens the managed-agent CLI reference after the scoped split
 - **THEN** the page includes examples mapping old ambiguous command paths to `agents global`, `agents single`, `agents self`, `agents external`, or `project agents`
 - **AND THEN** current-session examples use `agents self` rather than `--current-session`
+
+### Requirement: CLI reference omits the removed LLM Wiki utility system skill
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL NOT describe `houmao-utils-llm-wiki` as a current packaged Houmao-owned system skill, current set member, install example, status result, or uninstall target.
+
+#### Scenario: Reader cannot install the removed utility from documented examples
+- **WHEN** a reader checks install examples in `docs/reference/cli/system-skills.md`
+- **THEN** no example uses `--skill houmao-utils-llm-wiki`
+- **AND THEN** no current inventory or set listing includes `houmao-utils-llm-wiki`
+

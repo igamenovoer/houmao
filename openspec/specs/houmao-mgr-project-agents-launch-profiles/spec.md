@@ -387,7 +387,7 @@ When a launch-profile command receives one or more system-skill selectors withou
 `launch-profiles get --name <profile>` SHALL report stored managed system-skill policy separately from project registered/private skill overlays.
 
 #### Scenario: Add stores additive utility skill policy
-- **WHEN** an operator runs `houmao-mgr internals native-agent launch-dossiers add --name researcher-wiki --recipe researcher-codex-default --system-skill houmao-utils-llm-wiki`
+- **WHEN** an operator runs `houmao-mgr internals native-agent launch-dossiers add --name researcher-workspace --recipe researcher-codex-default --system-skill houmao-utils-workspace-mgr`
 - **THEN** the command creates an explicit launch profile with additive managed system-skill policy
 - **AND THEN** the projected launch-profile YAML records that policy under profile defaults
 
@@ -404,9 +404,14 @@ When a launch-profile command receives one or more system-skill selectors withou
 - **AND THEN** future launches from that profile inherit the source recipe policy
 
 #### Scenario: Mutually exclusive system-skill flags fail
-- **WHEN** an operator runs `houmao-mgr internals native-agent launch-dossiers set --name researcher --no-system-skills --system-skill houmao-utils-llm-wiki`
+- **WHEN** an operator runs `houmao-mgr internals native-agent launch-dossiers set --name researcher --no-system-skills --system-skill houmao-utils-workspace-mgr`
 - **THEN** the command fails before updating the launch profile
 - **AND THEN** the error explains that disabled mode cannot be combined with explicit system-skill selectors
+
+#### Scenario: Removed system-skill selector fails
+- **WHEN** an operator runs `houmao-mgr internals native-agent launch-dossiers add --name researcher-wiki --recipe researcher-codex-default --system-skill houmao-utils-llm-wiki`
+- **THEN** the command fails before writing the launch profile
+- **AND THEN** the error identifies `houmao-utils-llm-wiki` as an unknown system skill
 
 ### Requirement: Launch-profile templates preserve create and patch omission semantics
 The launch-profile templates SHALL distinguish create-style omission from patch-style omission.
@@ -433,3 +438,4 @@ Launch posture SHALL only render when the intent explicitly requests a TUI/headl
 - **WHEN** an agent renders a launch-profile template with an explicit headless posture request
 - **THEN** the rendered argv includes the matching launch posture option
 - **AND THEN** the output reports the posture field as applied rather than inferred
+

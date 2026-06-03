@@ -48,7 +48,7 @@ At minimum, the unified skill SHALL provide internal guidance for:
 
 When current prompt or recent mailbox context already provides the exact current `gateway.base_url`, the skill SHALL use that value directly for shared `/v1/mail/*` operations.
 
-When current prompt or recent mailbox context does not provide the exact live gateway endpoint, the skill SHALL direct the agent to `houmao-mgr agents mail resolve-live`.
+When current prompt or recent mailbox context does not provide the exact live gateway endpoint, the skill SHALL direct the agent to `houmao-mgr agents self mail resolve-live` for the current managed session or `houmao-mgr agents single --agent-name|--agent-id ... mail resolve-live` for a selected managed agent.
 
 When the resolved mailbox binding reports no live gateway facade, the skill SHALL direct the agent to the supported no-gateway fallback surface for the active transport instead of guessing a gateway endpoint.
 
@@ -62,7 +62,7 @@ The skill SHALL continue to treat `message_ref` and `thread_ref` as opaque share
 
 #### Scenario: No-gateway session uses the fallback surface
 - **WHEN** an agent follows `houmao-agent-email-comms` for ordinary mailbox work
-- **AND WHEN** `houmao-mgr agents mail resolve-live` reports `gateway: null`
+- **AND WHEN** `houmao-mgr agents self mail resolve-live` reports `gateway: null`
 - **THEN** the skill directs the agent to the supported fallback surface for the resolved transport
 - **AND THEN** it does not guess a localhost port or invent a direct shared-gateway endpoint
 
@@ -108,20 +108,20 @@ When showing manager CLI post examples, the skill SHALL either omit `--reply-pol
 - **THEN** the skill explains that operator-origin posts default to replies through `HOUMAO-operator@houmao.localhost`
 - **AND THEN** it identifies `reply_policy=none` as the way to request a one-way operator-origin note
 
-### Requirement: `houmao-agent-email-comms` uses CLI-owned templates for managed-agent mail fallback commands
-The packaged `houmao-agent-email-comms` skill SHALL use CLI-owned command templates when it needs to author supported `houmao-mgr agents mail ...` fallback commands.
+### Requirement: `houmao-agent-email-comms` uses direct scoped command snippets for managed-agent mail fallback commands
+The packaged `houmao-agent-email-comms` skill SHALL document supported managed-agent mail fallback commands as direct fenced `bash` snippets or equivalent explicit command shapes.
 
 At minimum, covered fallback commands SHALL include `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
-The skill SHALL keep gateway HTTP selection logic, transport-specific mailbox workflow, and message-processing guidance in skill text, because those concerns are not command-template rendering.
+The skill SHALL document fallback mail move with the current destination option:
 
-#### Scenario: Fallback send uses template renderer
-- **WHEN** the skill has selected fallback CLI mail send for one turn
-- **THEN** it renders `agents.mail.send` with explicit recipient, subject, and body fields
-- **AND THEN** command shape comes from the template registry
+```bash
+houmao-mgr agents self mail move --message-ref <message_ref> --destination-box <box>
+```
 
-#### Scenario: HTTP-vs-CLI routing remains skill-owned
-- **WHEN** live gateway HTTP is available and preferable for the current workflow
-- **THEN** the skill may use HTTP workflow guidance directly
-- **AND THEN** the command-template renderer is not responsible for choosing that workflow
+The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining managed-agent mail fallback commands.
 
+#### Scenario: Fallback move uses destination-box
+- **WHEN** a user asks the skill to move a mailbox message to another box without a live gateway facade
+- **THEN** the skill guidance shows `mail move --message-ref <message_ref> --destination-box <box>`
+- **AND THEN** it does not show the stale `mail move --message-ref <message_ref> --box <box>` command shape

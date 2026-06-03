@@ -111,7 +111,7 @@ Rules:
 
 ## Managed System-Skill Policy
 
-Managed system skills are packaged Houmao-owned instruction packages such as `houmao-agent-definition`, `houmao-agent-messaging`, and `houmao-utils-llm-wiki`. They share the visible tool skill root with project skills, but they are selected and synchronized separately.
+Managed system skills are packaged Houmao-owned instruction packages such as `houmao-agent-definition`, `houmao-agent-messaging`, and `houmao-utils-workspace-mgr`. They share the visible tool skill root with project skills, but they are selected and synchronized separately.
 
 Source recipes and specialists may store source-owned policy under `launch.system_skills` with modes:
 
@@ -132,11 +132,11 @@ Selectors are validated against the packaged system-skill catalog. On reused hom
 Examples:
 
 ```bash
-# Add one optional utility to all launches from an project profile.
+# Store an additive utility selector for launches from a project profile.
 houmao-mgr project profile create \
-  --name researcher-wiki \
+  --name researcher-workspace \
   --specialist researcher \
-  --system-skill houmao-utils-llm-wiki
+  --system-skill houmao-utils-workspace-mgr
 
 # Make an explicit launch profile use exactly every packaged system skill.
 houmao-mgr internals native-agent launch-dossiers set \

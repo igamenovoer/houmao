@@ -249,20 +249,16 @@ The skill SHALL NOT instruct callers to hand-edit mailbox-root files for single-
 - **THEN** the skill directs the caller to `houmao-mgr project mailbox clear-messages`
 - **AND THEN** it does not replace the all-account reset with `project mailbox messages clear --address`
 
-### Requirement: `houmao-mailbox-mgr` uses CLI-owned templates for mailbox command authoring
-The packaged `houmao-mailbox-mgr` skill SHALL instruct agents to use CLI-owned command templates before authoring supported mailbox commands.
+### Requirement: `houmao-mailbox-mgr` uses direct command snippets for mailbox commands
+The packaged `houmao-mailbox-mgr` skill SHALL document supported mailbox administration commands as direct fenced `bash` snippets or equivalent explicit command shapes.
 
 Covered command families SHALL include shared mailbox commands, project mailbox commands, project mailbox account/message commands, and managed-agent mailbox binding commands.
 
-The skill SHALL keep transport explanation and mailbox workflow guidance in skill text, but command shapes, required fields, clear/remove behavior, and conflict rules SHALL come from the template registry.
+The skill SHALL keep transport explanation and mailbox workflow guidance in skill text, but executable command shapes SHALL be shown directly.
 
-#### Scenario: Project mailbox account get uses template renderer
-- **WHEN** a user asks the skill to inspect one project mailbox account by address
-- **THEN** the skill guidance directs the agent to render the project mailbox account-get template
-- **AND THEN** it does not require a skill-owned command skeleton
+The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining mailbox administration commands.
 
-#### Scenario: Managed-agent mailbox register uses template renderer
-- **WHEN** a user asks the skill to register a filesystem mailbox binding for one managed agent
-- **THEN** the skill guidance directs the agent to render the managed-agent mailbox register template
-- **AND THEN** selector conflicts are handled by template blockers
-
+#### Scenario: Managed-agent mailbox register uses direct scoped command shape
+- **WHEN** a user asks the skill to register a filesystem mailbox binding for one selected managed agent
+- **THEN** the skill guidance shows a direct command under `houmao-mgr agents single --agent-name <agent-name> mailbox register ...` or `houmao-mgr agents single --agent-id <agent-id> mailbox register ...`
+- **AND THEN** it does not direct the agent to render a managed-agent mailbox command-template id

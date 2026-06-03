@@ -31,7 +31,6 @@ SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 SYSTEM_SKILL_MEMORY_MGR = "houmao-memory-mgr"
 SYSTEM_SKILL_AGENT_LOOP_PRO = "houmao-agent-loop-pro"
-SYSTEM_SKILL_UTILS_LLM_WIKI = "houmao-utils-llm-wiki"
 SYSTEM_SKILL_UTILS_WORKSPACE_MGR = "houmao-utils-workspace-mgr"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {

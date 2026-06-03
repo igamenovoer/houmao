@@ -121,7 +121,6 @@ At minimum the guide SHALL surface the following skills currently declared in th
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 - `houmao-adv-usage-pattern`
-- `houmao-utils-llm-wiki`
 - `houmao-utils-workspace-mgr`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
@@ -242,25 +241,6 @@ The guide SHALL explain the removal boundary at a narrative level: uninstall rem
 #### Scenario: Reader sees uninstall's deletion boundary
 - **WHEN** a reader checks the overview guide's uninstall guidance
 - **THEN** the guide states that unrelated user skills, parent roots, legacy paths, and obsolete install-state files are outside the uninstall deletion boundary
-
-### Requirement: System-skills overview guide includes the LLM Wiki utility skill
-The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-utils-llm-wiki` as one of the currently shipped packaged Houmao-owned system skills.
-
-The guide SHALL describe the skill as a general utility for building and maintaining persistent Markdown LLM Wiki knowledge bases with scaffold, ingest, compile, query, lint, audit, and local viewer workflows.
-
-The guide SHALL place `houmao-utils-llm-wiki` in a utility group or equivalent section distinct from managed-agent lifecycle, messaging, gateway, mailbox, memory, project authoring, and loop-control skills.
-
-The guide SHALL explain that the `utils` set is explicit-only and not included in managed launch, managed join, or CLI-default install selections.
-
-#### Scenario: Reader finds the utility skill in the overview
-- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
-- **THEN** they find `houmao-utils-llm-wiki` in the packaged skill overview
-- **AND THEN** the description frames it as a knowledge-base utility rather than a managed-agent control skill
-
-#### Scenario: Reader sees explicit-only utility default behavior
-- **WHEN** a reader checks the overview guide's named-set or default-selection explanation
-- **THEN** it lists `utils` as a named set containing `houmao-utils-llm-wiki`
-- **AND THEN** it explains that default selections do not include `utils`
 
 ### Requirement: System-skills overview guide explains organization groups and installable sets
 The system-skills overview guide SHALL explain that automation, control, and utils are organization groups used for documentation readability.
@@ -383,3 +363,12 @@ The guide SHALL explain that explicit help or usage requests are handled before 
 - **THEN** they see prompt-level help examples for installed skills
 - **AND THEN** they understand help is read-only and handled before workflow routing
 - **AND THEN** they understand ordinary task-shaped requests continue into the task workflow
+
+### Requirement: System-skills overview omits the removed LLM Wiki utility skill
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL NOT describe `houmao-utils-llm-wiki` as a current packaged Houmao-owned system skill, installable named set member, managed-launch selector example, or canonical concern-routing target.
+
+#### Scenario: Reader does not see removed LLM Wiki as current
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the packaged skills table does not contain `houmao-utils-llm-wiki`
+- **AND THEN** install examples do not use `houmao-utils-llm-wiki`
+

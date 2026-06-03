@@ -265,20 +265,16 @@ The guidance SHALL mention that `unread_only` is a lower-noise mode and that rea
 - **THEN** the skill presents `mail-notifier` as mailbox-driven notification control
 - **AND THEN** it does not describe notifier mode as a generic unfinished-job persistence mechanism
 
-### Requirement: `houmao-agent-gateway` uses CLI-owned templates for supported gateway commands
-The packaged `houmao-agent-gateway` skill SHALL instruct agents to use CLI-owned command templates before authoring supported `houmao-mgr agents gateway ...` commands.
+### Requirement: `houmao-agent-gateway` uses direct scoped command snippets for supported gateway commands
+The packaged `houmao-agent-gateway` skill SHALL document supported gateway commands as direct fenced `bash` snippets or equivalent explicit command shapes.
 
-At minimum, covered command families SHALL include gateway discovery/control/TUI helpers, mail notifier status/enable/disable, and reminders list/get/create/set/remove.
+At minimum, covered command families SHALL include scoped gateway discovery/control/TUI helpers, mail notifier status/enable/disable, and reminders list/get/create/set/remove.
 
-The skill SHALL keep live gateway HTTP workflow guidance, mailbox handoff prose, and semantic reminder prompt design in skill text where those concerns are not direct `houmao-mgr` command rendering.
+The skill SHALL keep live gateway HTTP workflow guidance, mailbox handoff prose, and semantic reminder prompt design in skill text where those concerns are not direct `houmao-mgr` command spelling.
 
-#### Scenario: Reminder create uses template renderer
-- **WHEN** a user asks the skill to create a gateway reminder
-- **THEN** the skill guidance directs the agent to render `agents.gateway.reminders.create`
-- **AND THEN** conflicts such as prompt-vs-send-keys delivery are handled by template blockers
+The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining gateway commands.
 
-#### Scenario: Notifier enable uses template renderer
-- **WHEN** a user asks the skill to enable the gateway mail notifier
-- **THEN** the skill guidance directs the agent to render the notifier-enable template
-- **AND THEN** omitted notifier policy fields remain absent unless explicitly requested
-
+#### Scenario: Reminder create uses direct scoped command shape
+- **WHEN** a user asks the skill to create a gateway reminder for selected agent `reviewer`
+- **THEN** the skill guidance shows a direct command under `houmao-mgr agents single --agent-name reviewer gateway reminders create ...`
+- **AND THEN** it does not direct the agent to render a reminder command-template id

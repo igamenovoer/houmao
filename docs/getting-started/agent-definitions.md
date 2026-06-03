@@ -107,7 +107,7 @@ The compatibility-projected declarative recipe file. The filename supplies the r
 - optional `mailbox`
 - optional `extra`
 
-`launch.system_skills` is the source-owned managed system-skill policy for managed homes built from that recipe. Omit it to keep the packaged managed-launch default, use `mode: extend` with `skills: [houmao-utils-llm-wiki]` to add one utility skill, use `mode: replace` with selected `sets` or `skills` for exact selection, or use `mode: none` to install no current Houmao-owned system skills.
+`launch.system_skills` is the source-owned managed system-skill policy for managed homes built from that recipe. Omit it to keep the packaged managed-launch default, use `mode: extend` with `skills: [houmao-utils-workspace-mgr]` to record an additive current-skill selector, use `mode: replace` with selected `sets` or `skills` for exact selection, or use `mode: none` to install no current Houmao-owned system skills.
 
 ### `launch-profiles/<profile>.yaml`
 

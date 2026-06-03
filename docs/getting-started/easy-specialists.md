@@ -138,15 +138,15 @@ houmao-mgr project specialist create \
   --skill repo-map
 ```
 
-Managed launch installs the catalog's `core` system-skill set by default. To add the optional LLM Wiki utility only for one specialist, store an additive source policy:
+Managed launch installs the catalog's `core` system-skill set by default. To store an explicit additive source policy for a utility skill, name a current catalog skill:
 
 ```bash
 houmao-mgr project specialist create \
-  --name wiki-researcher \
+  --name workspace-researcher \
   --tool codex \
-  --system-prompt "Maintain the project wiki as you work." \
+  --system-prompt "Plan and validate multi-agent workspaces before launch." \
   --api-key "$OPENAI_API_KEY" \
-  --system-skill houmao-utils-llm-wiki
+  --system-skill houmao-utils-workspace-mgr
 ```
 
 That writes `launch.system_skills` into the generated recipe. Use `--system-skills-mode replace --system-skill-set all` when the specialist should use exactly a named set or `--no-system-skills` when it should launch without current Houmao-owned system skills.
@@ -185,7 +185,7 @@ Common patch options:
 To return a specialist to the managed-launch catalog default after experimenting with a utility skill:
 
 ```bash
-houmao-mgr project specialist set --name wiki-researcher --clear-system-skills
+houmao-mgr project specialist set --name workspace-researcher --clear-system-skills
 ```
 
 ## Project Profiles
@@ -242,12 +242,12 @@ Project profiles may also override or extend the source specialist's managed sys
 
 ```bash
 houmao-mgr project profile create \
-  --name wiki-researcher-default \
-  --specialist wiki-researcher \
-  --system-skill houmao-utils-llm-wiki
+  --name workspace-researcher-default \
+  --specialist workspace-researcher \
+  --system-skill houmao-utils-workspace-mgr
 ```
 
-Use `--no-system-skills` on a profile for a minimal future launch, or `houmao-mgr project profile set --name wiki-researcher-default --clear-system-skills` to remove the profile override and inherit the source specialist again.
+Use `--no-system-skills` on a profile for a minimal future launch, or `houmao-mgr project profile set --name workspace-researcher-default --clear-system-skills` to remove the profile override and inherit the source specialist again.
 
 Project profiles may store a memo seed through `--memo-seed-text`, `--memo-seed-file`, or `--memo-seed-dir`. `profile set` supports the same seed inputs for replacing the stored seed and `--clear-memo-seed` to remove the stored seed. Memo seeds always replace only the components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and touch pages only when `pages/` is present. Omitted memo-seed inputs are preserved on patch edits and cleared on same-name replacement.
 
