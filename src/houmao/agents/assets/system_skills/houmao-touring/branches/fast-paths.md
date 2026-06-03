@@ -2,6 +2,8 @@
 
 Use this branch when the user wants an outcome now and explicitly invoked `houmao-touring`. Fast paths are use cases, not command aliases. They keep explanation short, inspect enough state for safety, and route concrete work to the maintained owning skills.
 
+Precondition: a Houmao project overlay must exist before presenting fast path use cases as available choices. If no project overlay exists, do not continue into this branch's use-case menu. Offer only `Create Houmao Project`, `Subsystem Exploration`, and `Inspect`; after project setup, return to fast path selection.
+
 ## Selection
 
 | Use Case | Select When | Primary Owner Routes |

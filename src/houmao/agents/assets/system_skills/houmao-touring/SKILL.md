@@ -115,7 +115,7 @@ Scan:
 
 | Inspected State | Likely Intent | First Choice |
 | --- | --- | --- |
-| No project overlay | The user needs foundation and a first useful agent. | Single Agent Full Run. |
+| No project overlay | The user needs project foundation before agent workflows. | Create Houmao Project. |
 | Project overlay exists, no specialists | The user is ready to define a launchable agent. | Single Agent Full Run, starting at agent definition. |
 | Specialists or profiles exist, no running agents | The user is likely ready to launch and operate. | Single Agent Full Run, starting at launch readiness. |
 | One running agent | The user likely wants to operate or inspect it. | Live operation choices inside Single Agent Full Run. |
@@ -124,6 +124,8 @@ Scan:
 | Component/internal/working-logic wording | The user wants component understanding. | Subsystem Exploration. |
 
 The guess orders choices. It must not execute concrete setup, launch, prompt, mail, gateway, memory, lifecycle, workspace, or loop work without user confirmation.
+
+Fast paths are project-ready choices. If no Houmao project overlay exists, do not present `Single Agent Full Run`, `Operator-Controlled Agent Team`, or `Pro Agent Loop` as selectable no-prompt choices. Say those choices become available after project creation.
 
 ### No-Prompt Response Shape
 
@@ -134,10 +136,49 @@ Use a compact response with these parts:
 | Intro | One sentence: Houmao creates, runs, inspects, and coordinates CLI-based AI agents with managed runtime, gateway, mailbox, memory, and loop support. |
 | Current Posture | Compact project/definition/runtime/live-control status. |
 | Likely Intent | The inferred path and why it fits. |
-| Next Choices | Two to four choices, including the guessed path and Subsystem Exploration. |
+| Next Choices | Use the state-specific menu below. Without a project overlay, show exactly the three blank-workspace choices. With a project overlay, include the guessed path and `Subsystem Exploration` by name. |
 | Required Input | Ask the user to pick a path, say `inspect first`, or say `more detail`. |
 
 If inspection cannot run, report current posture as unknown and offer `inspect first` as the first choice.
+
+### No-Prompt Choice Menu
+
+For bare `$houmao-touring`, choose the menu from project posture. Adapt wording to the inspected state, but do not hide or rename `Subsystem Exploration`.
+
+Blank workspace, no Houmao project overlay:
+
+| Choice | Intent | User Can Say | Route |
+| --- | --- | --- | --- |
+| Create Houmao Project | Initialize the foundation required by agent workflows. | `create project` | `houmao-project-mgr` |
+| Subsystem Exploration | Understand Houmao by component area before creating state. | `subsystems` or a subsystem name | `branches/subsystem-exploration.md` |
+| Inspect | Show current directory, project, and runtime evidence without mutation. | `inspect` | Read-only inspection |
+
+In this state, show only these three choices. Do not show `Fast Path Use Cases`, `Single Agent Full Run`, `Operator-Controlled Agent Team`, or `Pro Agent Loop` until a Houmao project overlay exists.
+
+Project-ready workspace, Houmao project overlay exists:
+
+| Choice | Best For | User Can Say |
+| --- | --- | --- |
+| Continue Likely Path | Follow the state-based guess. | `continue` |
+| Fast Path Use Cases | Build useful Houmao workflows quickly. | `single agent`, `team`, or `pro loop` |
+| Subsystem Exploration | Understand Houmao by component area. | `subsystems` or a subsystem name |
+| Inspect First | See evidence before choosing. | `inspect first` |
+
+Do not collapse the project-ready menu into only fast path choices. If space is tight, keep the guessed path, `Subsystem Exploration`, and `inspect first`.
+
+### Subsystem Exploration Choices
+
+When the no-prompt entrypoint offers `Subsystem Exploration`, include a compact preview of component choices. Load `branches/subsystem-exploration.md` only after the user selects this path or names one subsystem.
+
+| Choice | Subsystems | Best For |
+| --- | --- | --- |
+| Project State | Project overlay, Agent definition | Where Houmao state lives and how agents become launchable. |
+| Runtime Control | Managed runtime, Gateway | How agents run, expose live control, and report lifecycle. |
+| Communication | Messaging, Mailbox | How prompts, operator mail, inter-agent mail, and notifier work connect. |
+| Context and Evidence | Memory, Inspection | How durable context and read-only evidence guide decisions. |
+| Multi-Agent Structure | Workspace, Loop orchestration | How isolated work areas and generated loops organize teams. |
+
+Keep this preview short. Use `more detail` or the branch page before expanding any subsystem.
 
 ## Coverage Model
 
@@ -147,6 +188,8 @@ If inspection cannot run, report current posture as unknown and offer `inspect f
 | Subsystem exploration | Component-oriented explanation for system understanding. | `branches/subsystem-exploration.md` |
 
 Fast paths:
+
+Precondition: a Houmao project overlay must exist. If missing, route `Create Houmao Project` through `houmao-project-mgr`, then return to fast-path selection after project setup.
 
 | Use Case | Coverage |
 | --- | --- |
@@ -183,7 +226,15 @@ Operation result:
 | Next | Nearby choices, routed by intent. |
 | Need | Input needed to continue, if any. |
 
-Branch choices:
+Blank-workspace branch choices:
+
+| Choice | Intent | Route |
+| --- | --- | --- |
+| Create Houmao Project | Create the project foundation needed by later agent workflows. | `houmao-project-mgr` |
+| Subsystem Exploration | Inspect Houmao by component area. | Load `branches/subsystem-exploration.md`. |
+| Inspect | Show current evidence without mutation. | Read-only inspection. |
+
+Project-ready branch choices:
 
 | Choice | Intent | Route |
 | --- | --- | --- |
@@ -196,7 +247,7 @@ Branch choices:
 
 | State | Welcome Shape |
 | --- | --- |
-| Blank slate | Short Houmao intro, current posture, likely Single Agent Full Run path, alternatives. |
+| Blank slate | Short Houmao intro, current posture, likely Create Houmao Project path, Subsystem Exploration, and Inspect. |
 | Existing state | One short acknowledgement, current posture, state-aware next choices. |
 | Recent welcome already given | Skip welcome; continue from current posture. |
 

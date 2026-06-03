@@ -395,6 +395,21 @@ def test_houmao_touring_packaged_guidance_contract() -> None:
     assert "## No-Prompt Entrypoint" in skill_text
     assert "### Intent Guess Matrix" in skill_text
     assert "### No-Prompt Response Shape" in skill_text
+    assert "### No-Prompt Choice Menu" in skill_text
+    assert "No project overlay | The user needs project foundation before agent workflows." in (
+        skill_text
+    )
+    assert "Fast paths are project-ready choices" in skill_text
+    assert "Without a project overlay, show exactly the three blank-workspace choices" in (
+        skill_text
+    )
+    assert "Blank workspace, no Houmao project overlay" in skill_text
+    assert "Create Houmao Project" in skill_text
+    assert "In this state, show only these three choices" in skill_text
+    assert "Do not show `Fast Path Use Cases`" in skill_text
+    assert "Project-ready workspace, Houmao project overlay exists" in skill_text
+    assert "Do not collapse the project-ready menu into only fast path choices" in skill_text
+    assert "### Subsystem Exploration Choices" in skill_text
     assert "No project overlay" in skill_text
     assert "Multiple running agents" in skill_text
     assert "Existing loop artifacts or topology hints" in skill_text
@@ -419,6 +434,11 @@ def test_houmao_touring_packaged_guidance_contract() -> None:
     assert "scan for existing Houmao project state first" in openai_agent_text
     assert "infer the likely starting intent from that state" in openai_agent_text
     assert "current posture, likely intent, next choices, and required input" in openai_agent_text
+    assert "show only three no-prompt choices: Create Houmao Project" in openai_agent_text
+    assert "do not show fast paths until a project overlay exists" in openai_agent_text
+    assert "include Subsystem Exploration by name as a visible no-prompt choice" in (
+        openai_agent_text
+    )
     assert "Do not respond with only a generic skill-activation acknowledgement" in (
         openai_agent_text
     )
@@ -431,6 +451,20 @@ def test_houmao_touring_packaged_guidance_contract() -> None:
     ):
         assert use_case in skill_text
         assert use_case in fast_paths
+
+    assert "Precondition: a Houmao project overlay must exist" in fast_paths
+    assert "Offer only `Create Houmao Project`, `Subsystem Exploration`, and `Inspect`" in (
+        fast_paths
+    )
+
+    for subsystem_choice in (
+        "Project State",
+        "Runtime Control",
+        "Communication",
+        "Context and Evidence",
+        "Multi-Agent Structure",
+    ):
+        assert subsystem_choice in skill_text
 
     assert "foreground-first gateway posture" in fast_paths
     assert "mail-notifier" in fast_paths
