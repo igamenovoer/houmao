@@ -18,12 +18,14 @@ Do not split these into separate micro fast paths for talk, mail, inspect, notif
 
 Goal: create and operate one fully functional managed agent across the useful Houmao surfaces, not merely launch a process.
 
-| Phase | Intent | Route |
+| Phase | First Choice | Secondary Routes |
 | --- | --- | --- |
-| Foundation | Confirm project overlay, tool, credential, specialist/profile readiness. | `houmao-project-mgr`, `houmao-credential-mgr`, `houmao-agent-definition`. |
-| Launch | Start one visible managed agent with foreground-first gateway posture unless the user asked otherwise. | `houmao-agent-definition`, then gateway posture through `houmao-agent-gateway` when needed. |
-| Operate | Send first prompt, inspect live state, use memo/pages, use mailbox, enable or inspect mail-notifier, create reminders. | `houmao-agent-messaging`, `houmao-agent-inspect`, `houmao-memory-mgr`, `houmao-agent-email-comms`, `houmao-agent-gateway`. |
-| Follow Up | Stop, relaunch, or clean up only when the user chooses lifecycle work. | `houmao-agent-instance`. |
+| Create Agent | Route first to `houmao-agent-definition create-agent-fast-forward` so the owning skill creates or selects the specialist, creates or updates the project profile, prepares mailbox-backed launch defaults, and prints the launch command. | Use `houmao-project-mgr`, `houmao-credential-mgr`, `houmao-agent-definition specialists`, or `houmao-agent-definition profiles` only when fast-forward reports missing input, missing project state, credential blockers, or the user asks for manual control. |
+| Launch | Launch from the fast-forward profile command and start one visible managed agent with foreground-first gateway posture unless the user asked otherwise. | Route gateway posture changes to `houmao-agent-gateway` only when needed. |
+| Operate | Send first prompt, inspect live state, use memo/pages, use mailbox, enable or inspect mail-notifier, create reminders. | Route to `houmao-agent-messaging`, `houmao-agent-inspect`, `houmao-memory-mgr`, `houmao-agent-email-comms`, and `houmao-agent-gateway`. |
+| Follow Up | Stop, relaunch, or clean up only when the user chooses lifecycle work. | Route to `houmao-agent-instance`. |
+
+For Single Agent Full Run, do not start by separately walking the user through credential setup, specialist creation, and profile creation. Try `create-agent-fast-forward` first, then repair only the blockers it reports.
 
 After each phase, summarize the result and offer two to four nearby next choices. Do not dump command syntax; if the user asks for `more detail`, route command examples to the owning skill or show only the narrow command needed for the current decision.
 

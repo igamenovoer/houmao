@@ -31,6 +31,32 @@ Never answer a bare invocation with only a generic activation acknowledgement.
 
 This skill teaches and routes. It does not own direct-operation command behavior.
 
+## Workflow
+
+Start here for every invocation. Use the first matching row before loading any branch file.
+
+Before workflow, answer explicit skill-help intent from `## Help` and stop.
+
+| Step | First Look | Use It To |
+| --- | --- | --- |
+| 1 | `## Help` | Answer explicit skill-help intent and stop. |
+| 2 | `## Entry Contract` | Classify every non-help request before command execution. |
+| 3 | `## No-Prompt Entrypoint` | Handle bare `$houmao-touring` and orientation requests with state inspection first. |
+| 4 | `### No-Prompt Choice Menu` | Choose blank-workspace or project-ready choices from inspected state. |
+| 5 | `## Coverage Model` | Map project-ready outcome requests to fast paths and check their project-overlay precondition. |
+| 6 | `## Branches` | Load exactly one named branch after the user selects a path. |
+| 7 | `## Routing Guidance` | Route concrete setup, runtime, mail, memory, loop, and lifecycle work to owning skills. |
+| 8 | `## Presentation Rules` | Report compactly as result, status, next choices, and required input. |
+
+Launcher order:
+
+| Order | Launcher |
+| --- | --- |
+| 1 | `houmao-mgr` on `PATH` |
+| 2 | `uv tool run --from houmao houmao-mgr` |
+| 3 | Development launcher only if the first two do not satisfy the turn |
+| User override | Follow an explicitly requested launcher |
+
 ## Help
 
 When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section and stop.
@@ -256,30 +282,6 @@ Full blank-slate intro:
 ```text
 Welcome to Houmao. Houmao creates, runs, inspects, and coordinates CLI-based AI agents with managed runtime, gateway, mailbox, memory, and loop support.
 ```
-
-## Workflow
-
-Before workflow, answer explicit skill-help intent from `## Help` and stop.
-
-| Step | Action |
-| --- | --- |
-| 1 | Confirm the user asked for the guided touring experience. |
-| 2 | Choose one `houmao-mgr` launcher. |
-| 3 | Inspect current state for orientation/outcome requests. |
-| 4 | Infer likely path from state and request intent. |
-| 5 | Present compact posture, likely intent, choices, and required input. |
-| 6 | Load exactly one branch page when the user selects a path. |
-| 7 | Route concrete work to owning Houmao skills. |
-| 8 | After each completed branch step, summarize state and offer next choices. |
-
-Launcher order:
-
-| Order | Launcher |
-| --- | --- |
-| 1 | `houmao-mgr` on `PATH` |
-| 2 | `uv tool run --from houmao houmao-mgr` |
-| 3 | Development launcher only if the first two do not satisfy the turn |
-| User override | Follow an explicitly requested launcher |
 
 ## Branches
 

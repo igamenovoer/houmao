@@ -392,6 +392,22 @@ def test_houmao_touring_packaged_guidance_contract() -> None:
     )
     assert "scan for existing Houmao project state" in skill_text
     assert "infer the user's likely starting intent from that state" in skill_text
+    assert "## Workflow" in skill_text
+    assert "Start here for every invocation" in skill_text
+    assert "First Look" in skill_text
+    assert "`## Entry Contract` | Classify every non-help request before command execution." in (
+        skill_text
+    )
+    assert (
+        "`## No-Prompt Entrypoint` | Handle bare `$houmao-touring` and orientation requests"
+        in skill_text
+    )
+    assert "`## Branches` | Load exactly one named branch after the user selects a path." in (
+        skill_text
+    )
+    assert "`## Routing Guidance` | Route concrete setup, runtime, mail, memory, loop" in (
+        skill_text
+    )
     assert "## No-Prompt Entrypoint" in skill_text
     assert "### Intent Guess Matrix" in skill_text
     assert "### No-Prompt Response Shape" in skill_text
@@ -456,6 +472,11 @@ def test_houmao_touring_packaged_guidance_contract() -> None:
     assert "Offer only `Create Houmao Project`, `Subsystem Exploration`, and `Inspect`" in (
         fast_paths
     )
+    assert "Route first to `houmao-agent-definition create-agent-fast-forward`" in fast_paths
+    assert "prepares mailbox-backed launch defaults" in fast_paths
+    assert "Launch from the fast-forward profile command" in fast_paths
+    assert "Try `create-agent-fast-forward` first" in fast_paths
+    assert "repair only the blockers it reports" in fast_paths
 
     for subsystem_choice in (
         "Project State",
@@ -1302,6 +1323,15 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project agents stop --name <name>" in easy_stop
     assert "create-agent-fast-forward" in ready_profile
     assert "Do not launch the managed agent." in ready_profile
+    assert "initializes default filesystem mailbox readiness" in ready_profile
+    assert "will create the agent mailbox at launch time" in ready_profile
+    assert "Prepare default project filesystem mailbox readiness" in ready_profile
+    assert "project mailbox init" in ready_profile
+    assert "--mail-transport filesystem" in ready_profile
+    assert "--mail-root <selected-root>" in ready_profile
+    assert "Do not manually preregister the same-root ordinary per-agent mailbox address" in (
+        ready_profile
+    )
     assert "command -v houmao-mgr" in manage_credentials_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_credentials_skill
     assert ".venv/bin/houmao-mgr" in manage_credentials_skill
