@@ -29,10 +29,10 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 For `create`, use the CLI-owned config draft before running the maintained command:
 
 ```text
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
 ```
 
-The `project.specialist` config draft is intentionally minimal. Its intent fields are only `name`, `tool`, and `credential`. For prompt content, setup changes, model/reasoning, skills, env records, system-skill policy, mailbox posture, or credential material, use the maintained `project specialist create|set` command fields directly instead of adding them to the draft intent.
+The `project.specialist` config draft is intentionally minimal. Its JSON intent must contain a top-level `fields` object whose only draft fields are `name`, `tool`, and `credential`. For prompt content, setup changes, model/reasoning, skills, env records, system-skill policy, mailbox posture, or credential material, use the maintained `project specialist create|set` command fields directly instead of adding them to the draft intent.
 
 For `set`, keep the maintained patch command explicit and include only the user-requested mutation fields.
 

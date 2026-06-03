@@ -54,12 +54,12 @@ This workflow creates or selects a specialist, creates or updates a project prof
 
 ```text
 <chosen houmao-mgr launcher> project specialist get --name <specialist>
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
 <chosen houmao-mgr launcher> project profile get --name <profile>
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
 ```
 
-Use `project.specialist` draft intent fields `name`, `tool`, and `credential`. Use `project.profile` draft intent fields `name`, `specialist`, and `credential`. Do not pass launch defaults, model, env, mailbox, prompt overlay, memo seed, gateway, or credential material fields to config drafts; apply those through maintained project commands when the user supplied them.
+Use a top-level `fields` object for config-draft JSON intents. Use `project.specialist` draft fields `name`, `tool`, and `credential`; use `project.profile` draft fields `name`, `specialist`, and `credential`. Do not pass launch defaults, model, env, mailbox, prompt overlay, memo seed, gateway, or credential material fields to config drafts; apply those through maintained project commands when the user supplied them.
 
 Report this launch command without executing it:
 

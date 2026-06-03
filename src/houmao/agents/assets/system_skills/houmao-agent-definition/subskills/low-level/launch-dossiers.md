@@ -32,10 +32,10 @@ Launch dossiers are low-level native-agent launch material. The maintained CLI s
 For `add`, same-name replacement, and launch-dossier config-document preparation, use the CLI-owned config draft before running the maintained command:
 
 ```text
-<chosen houmao-mgr launcher> internals config-drafts generate --id internals.native-agent.launch-dossier --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id internals.native-agent.launch-dossier --intent '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}'
 ```
 
-The `internals.native-agent.launch-dossier` config draft is intentionally minimal. Its intent fields are only `name`, `recipe`, and `credential`. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, relaunch policy, or other stored defaults, use the maintained `internals native-agent launch-dossiers add|set` fields directly instead of adding them to the draft intent.
+The `internals.native-agent.launch-dossier` config draft is intentionally minimal. Its JSON intent must contain a top-level `fields` object whose only draft fields are `name`, `recipe`, and `credential`. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, relaunch policy, or other stored defaults, use the maintained `internals native-agent launch-dossiers add|set` fields directly instead of adding them to the draft intent.
 
 ## Add And Set Fields
 

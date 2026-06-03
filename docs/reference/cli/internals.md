@@ -40,6 +40,29 @@ The internal build command accepts the retained direct build inputs: `--preset`,
 
 ---
 
+## config-drafts
+
+Generate concise YAML configuration drafts from sparse JSON intent without mutating project or native-agent state.
+
+```text
+houmao-mgr internals config-drafts list
+houmao-mgr internals config-drafts generate --id <draft-id> --intent '<json>'
+```
+
+Supported draft ids are `project.specialist`, `project.profile`, and `internals.native-agent.launch-dossier`. The `--intent` value accepts an inline JSON object, `-` for stdin, or a path to a JSON file. Intent JSON must be an object with a top-level `fields` mapping.
+
+Examples:
+
+```bash
+houmao-mgr internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+houmao-mgr internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
+houmao-mgr internals config-drafts generate --id internals.native-agent.launch-dossier --intent '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}'
+```
+
+When intent JSON is invalid or has the wrong shape, the command prints a fix guide with the selected draft id, `--intent` source, JSON Schema-style expected shape, required `fields.*` paths, and a valid example.
+
+---
+
 ## graph high
 
 Houmao-aware loop graph helpers.

@@ -1232,15 +1232,23 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "project.profile" in easy_profiles
     assert "project.specialist" in easy_specialists
     assert "minimal opinionated drafts" in manage_agent_definition_skill
-    assert "`project.specialist`: `name`, `tool`, `credential`" in (manage_agent_definition_skill)
-    assert "`project.profile`: `name`, `specialist`, `credential`" in (
+    assert '`project.specialist`: `{"fields":{"name":"general-kimi"' in (
         manage_agent_definition_skill
     )
-    assert "`internals.native-agent.launch-dossier`: `name`, `recipe`, `credential`" in (
+    assert '`project.profile`: `{"fields":{"name":"reviewer-fast"' in (
         manage_agent_definition_skill
     )
-    assert "intent fields are only `name`, `tool`, and `credential`" in easy_specialists
-    assert "intent fields are only `name`, `specialist`, and `credential`" in easy_profiles
+    assert '`internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native"' in (
+        manage_agent_definition_skill
+    )
+    assert '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}' in (
+        easy_specialists
+    )
+    assert (
+        '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
+    ) in easy_profiles
+    assert "top-level `fields` object" in easy_specialists
+    assert "top-level `fields` object" in easy_profiles
     assert "Do not remove and recreate a project specialist" in easy_specialists
     assert "--prompt-overlay-mode append|replace" in easy_profiles
     assert "Env Lookup Mode" in easy_specialists
@@ -1352,9 +1360,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "internals native-agent roles list" in definition_roles
     assert "internals native-agent recipes list" in definition_recipes
     assert "internals.native-agent.launch-dossier" in definition_launch_profiles
-    assert "intent fields are only `name`, `recipe`, and `credential`" in (
-        definition_launch_profiles
-    )
+    assert (
+        '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex",'
+        '"credential":"reviewer-creds"}}'
+    ) in definition_launch_profiles
+    assert "top-level `fields` object" in definition_launch_profiles
     assert "Do not pass memo seed fields to `internals config-drafts generate`" in (memory_skill)
     assert "internals native-agent recipes ..." in definition_recipes
     assert "houmao-credential-mgr" in manage_agent_definition_skill
@@ -1750,9 +1760,9 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_advanced_usage = (
         home_path / "skills/houmao-touring/branches/advanced-usage.md"
     ).read_text(encoding="utf-8")
-    touring_fast_paths = (
-        home_path / "skills/houmao-touring/branches/fast-paths.md"
-    ).read_text(encoding="utf-8")
+    touring_fast_paths = (home_path / "skills/houmao-touring/branches/fast-paths.md").read_text(
+        encoding="utf-8"
+    )
     touring_subsystem_exploration = (
         home_path / "skills/houmao-touring/branches/subsystem-exploration.md"
     ).read_text(encoding="utf-8")

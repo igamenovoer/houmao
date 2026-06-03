@@ -92,11 +92,11 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `project.specialist`
    - `project.profile`
    - `internals.native-agent.launch-dossier`
-8. Generate config drafts only with the required fields for the selected draft id:
-   - `project.specialist`: `name`, `tool`, `credential`
-   - `project.profile`: `name`, `specialist`, `credential`
-   - `internals.native-agent.launch-dossier`: `name`, `recipe`, `credential`
-   - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '<json>'`
+8. Generate config drafts only with the required fields for the selected draft id. The JSON intent must be an object with a top-level `fields` mapping; do not pass flat top-level draft fields.
+   - `project.specialist`: `{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}`
+   - `project.profile`: `{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}`
+   - `internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}`
+   - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '{"fields":{...}}'`
 9. For full customization beyond those required holes, use the maintained project subcommands directly; do not pass hidden full-model fields such as model, env, mailbox, memo seed, gateway, prompt overlay, or credential material to config drafts.
 10. For command-oriented flows that are not config documents, show and run direct maintained commands in fenced `bash` blocks, using only explicit user inputs and recovered explicit context:
    - `project agents launch`

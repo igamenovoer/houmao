@@ -30,6 +30,37 @@ def _json_result(args: list[str]) -> dict[str, object]:
     return payload
 
 
+def _config_draft_generate_result(draft_id: str, intent: str) -> object:
+    """Run one config-draft generate CLI call."""
+
+    return CliRunner().invoke(
+        cli,
+        [
+            "--print-plain",
+            "internals",
+            "config-drafts",
+            "generate",
+            "--id",
+            draft_id,
+            "--intent",
+            intent,
+        ],
+    )
+
+
+def _assert_fix_guide(output: str, *, draft_id: str, example_payload: str) -> None:
+    """Assert common config-draft fix-guide output."""
+
+    assert "Fix guide:" in output
+    assert f"houmao-mgr internals config-drafts generate --id {draft_id}" in output
+    assert "- input: --intent" in output
+    assert "inline JSON object, `-` for stdin, or path to a JSON file" in output
+    assert "expected JSON shape" in output
+    assert '"required": [' in output
+    assert '"fields"' in output
+    assert example_payload in output
+
+
 def _skill_text(relative_path: str) -> str:
     """Return one packaged skill asset."""
 
@@ -291,6 +322,155 @@ def test_config_drafts_cli_list_generate_json_and_blockers() -> None:
     )
     assert blocked.exit_code != 0
     assert "Required field `credential` was not supplied" in blocked.output
+    _assert_fix_guide(
+        blocked.output,
+        draft_id="project.profile",
+        example_payload=(
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer",'
+            '"credential":"reviewer-creds"}}'
+        ),
+    )
+
+
+def test_config_drafts_cli_flat_intent_reports_fields_wrapper() -> None:
+    result = _config_draft_generate_result(
+        "project.specialist",
+        '{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}',
+    )
+
+    assert result.exit_code != 0
+    assert "draft fields at the top level" in result.output
+    assert "top-level `fields` object" in result.output
+    assert "fields.name, fields.tool, fields.credential" in result.output
+    assert '"enum": [' in result.output
+    assert '"claude"' in result.output
+    assert '"codex"' in result.output
+    assert '"gemini"' in result.output
+    assert "shell quoting" not in result.output
+    _assert_fix_guide(
+        result.output,
+        draft_id="project.specialist",
+        example_payload=(
+            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+        ),
+    )
+
+
+def test_config_drafts_cli_shape_and_parse_failures_include_fix_guides() -> None:
+    cases = (
+        (
+            "project.profile",
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer"}}',
+            "Required field `credential` was not supplied",
+            "fields.name, fields.specialist, fields.credential",
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer",'
+            '"credential":"reviewer-creds"}}',
+        ),
+        (
+            "project.specialist",
+            '{"fields":{"name":"reviewer","tool":"openai","credential":"reviewer-creds"}}',
+            "Field `tool` must be one of: claude, codex, gemini",
+            "fields.name, fields.tool, fields.credential",
+            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}',
+        ),
+        (
+            "project.profile",
+            '{"fields":["name"]}',
+            "Intent JSON must contain an object-valued `fields` mapping",
+            "fields.name, fields.specialist, fields.credential",
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer",'
+            '"credential":"reviewer-creds"}}',
+        ),
+        (
+            "project.profile",
+            '["name"]',
+            "Intent JSON must be an object",
+            "fields.name, fields.specialist, fields.credential",
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer",'
+            '"credential":"reviewer-creds"}}',
+        ),
+        (
+            "project.profile",
+            '{"fields":',
+            "Invalid intent JSON",
+            "fields.name, fields.specialist, fields.credential",
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer",'
+            '"credential":"reviewer-creds"}}',
+        ),
+    )
+
+    for draft_id, intent, message, paths, example_payload in cases:
+        result = _config_draft_generate_result(draft_id, intent)
+        assert result.exit_code != 0
+        assert message in result.output
+        assert paths in result.output
+        _assert_fix_guide(result.output, draft_id=draft_id, example_payload=example_payload)
+
+
+def test_config_drafts_cli_valid_generation_stays_unchanged_for_registered_drafts() -> None:
+    cases = (
+        (
+            "project.specialist",
+            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}',
+            {
+                "config_kind": "project.specialist",
+                "name": "general-kimi",
+                "tool": "claude",
+                "credential": {"name": "kimi-coding"},
+                "setup": "default",
+                "launch": {"prompt_mode": "unattended"},
+            },
+        ),
+        (
+            "project.profile",
+            '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}',
+            {
+                "config_kind": "project.profile",
+                "name": "reviewer-fast",
+                "profile_lane": "profile",
+                "source": {"kind": "specialist", "name": "reviewer"},
+                "defaults": {"auth": "reviewer-creds"},
+            },
+        ),
+        (
+            "internals.native-agent.launch-dossier",
+            '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}',
+            {
+                "config_kind": "internals.native-agent.launch-dossier",
+                "name": "reviewer-native",
+                "resource_kind": "launch_dossier",
+                "source": {"kind": "recipe", "name": "reviewer-codex"},
+                "defaults": {"auth": "reviewer-creds"},
+            },
+        ),
+    )
+
+    for draft_id, intent, expected in cases:
+        result = _config_draft_generate_result(draft_id, intent)
+        assert result.exit_code == 0, result.output
+        assert yaml.safe_load(result.output) == expected
+
+
+def test_config_drafts_cli_fix_guide_omits_secret_values() -> None:
+    result = _config_draft_generate_result(
+        "project.specialist",
+        (
+            '{"fields":{"name":"reviewer","tool":"codex","credential":"reviewer-creds",'
+            '"api_key":"sk-super-secret"}}'
+        ),
+    )
+
+    assert result.exit_code != 0
+    assert "Intent supplied fields that this config draft does not support" in result.output
+    assert "api_key" in result.output
+    assert "sk-super-secret" not in result.output
+    _assert_fix_guide(
+        result.output,
+        draft_id="project.specialist",
+        example_payload=(
+            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+        ),
+    )
 
 
 def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
@@ -314,9 +494,19 @@ def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     assert "project.specialist" in specialists
     assert "project.profile" in profiles
     assert "internals.native-agent.launch-dossier" in launch_dossiers
-    assert "intent fields are only `name`, `tool`, and `credential`" in specialists
-    assert "intent fields are only `name`, `specialist`, and `credential`" in profiles
-    assert "intent fields are only `name`, `recipe`, and `credential`" in launch_dossiers
+    assert '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}' in (
+        specialists
+    )
+    assert (
+        '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
+    ) in profiles
+    assert (
+        '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex",'
+        '"credential":"reviewer-creds"}}'
+    ) in launch_dossiers
+    assert "top-level `fields` object" in specialists
+    assert "top-level `fields` object" in profiles
+    assert "top-level `fields` object" in launch_dossiers
     assert "Do not pass memo seed fields to `internals config-drafts generate`" in memory
     assert "use maintained profile `set` memo-seed fields" in memory
     assert "command-templates" not in agent_definition

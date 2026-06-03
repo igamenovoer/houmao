@@ -8,10 +8,13 @@ import click
 import networkx as nx  # type: ignore[import-untyped]
 
 from houmao.srv_ctrl.config_drafts import (
+    DraftBlocker,
     generate_config_draft,
+    get_config_draft,
     list_config_drafts,
     load_draft_intent,
 )
+from houmao.srv_ctrl.config_drafts.guidance import render_config_draft_intent_fix_guide
 from houmao.agents.loop_graph.analysis import (
     analyze_graph,
     apply_mutation_ops,
@@ -90,10 +93,13 @@ def config_drafts_list_command() -> None:
 def config_drafts_generate_command(draft_id: str, raw_intent: str) -> None:
     """Generate one config-draft YAML document without mutating project state."""
 
-    result = generate_config_draft(draft_id, load_draft_intent(raw_intent))
+    draft = get_config_draft(draft_id)
+    result = generate_config_draft(draft.draft_id, load_draft_intent(raw_intent, draft=draft))
     if result.has_blockers:
-        messages = "; ".join(blocker.message for blocker in result.blockers)
-        raise click.ClickException(messages)
+        messages = "; ".join(_config_draft_blocker_message(blocker) for blocker in result.blockers)
+        raise click.ClickException(
+            render_config_draft_intent_fix_guide(problem=messages, draft=draft)
+        )
     if _active_print_style() == "json":
         emit(result.to_payload())
         return
@@ -109,6 +115,17 @@ def _active_print_style() -> str:
         if isinstance(output, OutputContext):
             return output.style
     return "plain"
+
+
+def _config_draft_blocker_message(blocker: DraftBlocker) -> str:
+    """Return one user-facing config-draft blocker message."""
+
+    if blocker.fields:
+        fields = ", ".join(f"`{field}`" for field in blocker.fields)
+        return f"{blocker.message} Fields: {fields}."
+    if blocker.field is not None and f"`{blocker.field}`" not in blocker.message:
+        return f"{blocker.message} Field: `{blocker.field}`."
+    return blocker.message
 
 
 @internals_group.group(name="graph")

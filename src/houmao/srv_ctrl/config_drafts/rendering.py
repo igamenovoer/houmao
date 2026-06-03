@@ -11,6 +11,10 @@ from typing import Any
 import click
 import yaml
 
+from houmao.srv_ctrl.config_drafts.guidance import (
+    flat_intent_field_names,
+    render_config_draft_intent_fix_guide,
+)
 from houmao.srv_ctrl.config_drafts.models import (
     ConfigDraft,
     ConfigDraftRenderResult,
@@ -20,26 +24,29 @@ from houmao.srv_ctrl.config_drafts.models import (
 from houmao.srv_ctrl.config_drafts.registry import get_config_draft
 
 
-def load_draft_intent(raw_intent: str) -> dict[str, object]:
+def load_draft_intent(raw_intent: str, *, draft: ConfigDraft | None = None) -> dict[str, object]:
     """Load draft intent from inline JSON, stdin, or a JSON file path."""
 
     raw_value = raw_intent.strip()
     if raw_value == "-":
         document = sys.stdin.read()
-    elif raw_value.startswith("{"):
+    elif _looks_like_inline_json(raw_value):
         document = raw_value
     else:
         path = Path(raw_intent).expanduser()
         try:
             document = path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise click.ClickException(f"Failed to read intent JSON `{raw_intent}`: {exc}") from exc
+            message = f"Failed to read intent JSON `{raw_intent}`: {exc}"
+            raise click.ClickException(_with_fix_guide(message, draft=draft)) from exc
     try:
         payload = json.loads(document)
     except json.JSONDecodeError as exc:
-        raise click.ClickException(f"Invalid intent JSON: {exc}") from exc
+        message = f"Invalid intent JSON: {exc}"
+        raise click.ClickException(_with_fix_guide(message, draft=draft)) from exc
     if not isinstance(payload, dict):
-        raise click.ClickException("Intent JSON must be an object.")
+        message = "Intent JSON must be an object."
+        raise click.ClickException(_with_fix_guide(message, draft=draft))
     return dict(payload)
 
 
@@ -47,7 +54,7 @@ def generate_config_draft(draft_id: str, intent: Mapping[str, object]) -> Config
     """Generate one config draft without mutating project state."""
 
     draft = get_config_draft(draft_id)
-    fields = _intent_fields(intent)
+    fields = _intent_fields(intent, draft=draft)
     blockers = _draft_blockers(draft=draft, fields=fields)
     if blockers:
         return ConfigDraftRenderResult(
@@ -71,12 +78,28 @@ def dump_config_draft_yaml(payload: Mapping[str, Any]) -> str:
     return document if document.endswith("\n") else f"{document}\n"
 
 
-def _intent_fields(intent: Mapping[str, object]) -> dict[str, object]:
+def _intent_fields(intent: Mapping[str, object], *, draft: ConfigDraft) -> dict[str, object]:
     """Return the sparse draft fields mapping from one intent payload."""
 
-    raw_fields = intent.get("fields", {})
+    if "fields" not in intent:
+        flat_fields = flat_intent_field_names(intent, draft)
+        if flat_fields:
+            field_list = ", ".join(f"`{name}`" for name in flat_fields)
+            message = (
+                "Intent JSON supplied draft fields at the top level. "
+                f"Nest {field_list} under the top-level `fields` object."
+            )
+        else:
+            message = "Intent JSON must contain an object-valued `fields` mapping."
+        raise click.ClickException(
+            render_config_draft_intent_fix_guide(problem=message, draft=draft)
+        )
+    raw_fields = intent["fields"]
     if not isinstance(raw_fields, dict):
-        raise click.ClickException("Intent JSON must contain an object-valued `fields` mapping.")
+        message = "Intent JSON must contain an object-valued `fields` mapping."
+        raise click.ClickException(
+            render_config_draft_intent_fix_guide(problem=message, draft=draft)
+        )
     return {str(name): value for name, value in raw_fields.items()}
 
 
@@ -184,3 +207,23 @@ def _field_is_active(*, value: object, supplied: bool) -> bool:
     if isinstance(value, dict):
         return bool(value)
     return True
+
+
+def _looks_like_inline_json(raw_value: str) -> bool:
+    """Return whether a raw intent argument should be parsed as inline JSON."""
+
+    if not raw_value:
+        return False
+    if raw_value.startswith(("{", "[", '"')):
+        return True
+    if raw_value in {"true", "false", "null"}:
+        return True
+    return raw_value[0].isdigit()
+
+
+def _with_fix_guide(message: str, *, draft: ConfigDraft | None) -> str:
+    """Add a config-draft fix guide when draft metadata is available."""
+
+    if draft is None:
+        return message
+    return render_config_draft_intent_fix_guide(problem=message, draft=draft)

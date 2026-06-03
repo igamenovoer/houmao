@@ -30,10 +30,10 @@ Use this subskill when the user wants to create, inspect, update, list, replace,
 For `create`, same-name replacement, and profile config-document preparation, use the CLI-owned config draft before running the maintained command:
 
 ```text
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '<json>'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
 ```
 
-The `project.profile` config draft is intentionally minimal. Its intent fields are only `name`, `specialist`, and `credential`. The draft fixes the project profile lane and specialist source kind, then records the credential as the profile auth reference. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, or other stored defaults, use the maintained `project profile create|set` fields directly instead of adding them to the draft intent.
+The `project.profile` config draft is intentionally minimal. Its JSON intent must contain a top-level `fields` object whose only draft fields are `name`, `specialist`, and `credential`. The draft fixes the project profile lane and specialist source kind, then records the credential as the profile auth reference. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, or other stored defaults, use the maintained `project profile create|set` fields directly instead of adding them to the draft intent.
 
 For `set`, keep the maintained patch command explicit and include only the user-requested mutation fields.
 
