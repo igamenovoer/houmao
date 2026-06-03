@@ -110,6 +110,9 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert "Markdown/direct-SQL loop authoring" in (
         catalog.skills["houmao-agent-loop-lite"].description or ""
     )
+    assert "users not yet familiar with Houmao" in (
+        catalog.skills["houmao-touring"].description or ""
+    )
     assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
     assert "Manual operator messaging skill" in (
         catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
@@ -370,6 +373,94 @@ def test_houmao_system_input_questions_distinguish_required_and_optional_inputs(
     assert "Optional: none for this step." in workspace_skill
     assert "Do not use this format for the user's task/domain intent" in workspace_skill
     assert "Do not force `Required`/`Optional` labels onto user-task" in (touring_question_style)
+
+
+def test_houmao_touring_packaged_guidance_contract() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-touring")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    openai_agent_text = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
+    fast_paths = (skill_root / "branches/fast-paths.md").read_text(encoding="utf-8")
+    subsystem_exploration = (skill_root / "branches/subsystem-exploration.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "users who are not yet familiar with Houmao" in skill_text
+    assert "first-run users, re-orienting operators, and developers" in skill_text
+    assert 'A bare invocation such as `$houmao-touring` means "start orientation now"' in skill_text
+    assert "Never answer a bare invocation with only a generic activation acknowledgement" in (
+        skill_text
+    )
+    assert "scan for existing Houmao project state" in skill_text
+    assert "infer the user's likely starting intent from that state" in skill_text
+    assert "## No-Prompt Entrypoint" in skill_text
+    assert "### Intent Guess Matrix" in skill_text
+    assert "### No-Prompt Response Shape" in skill_text
+    assert "No project overlay" in skill_text
+    assert "Multiple running agents" in skill_text
+    assert "Existing loop artifacts or topology hints" in skill_text
+    assert "Current Posture" in skill_text
+    assert "Likely Intent" in skill_text
+    assert "Required Input" in skill_text
+    assert "empty open-ended greeting" in skill_text
+    assert "Fast path use cases" in skill_text
+    assert "Subsystem exploration" in skill_text
+    assert "Help intent" in skill_text
+    assert "Orientation request" in skill_text
+    assert "Outcome request" in skill_text
+    assert "Subsystem-exploration request" in skill_text
+    assert "inspect current state before choosing a welcome shape" in skill_text
+    assert "Presentation Examples" in skill_text
+    assert "Keep tables at four columns or fewer" in skill_text
+    assert "Use `more detail`" in skill_text
+    assert "Route by user intent" in skill_text
+    assert "Do not duplicate detailed behavior" in skill_text
+    assert "users not yet familiar with Houmao" in openai_agent_text
+    assert "If the user invokes bare $houmao-touring" in openai_agent_text
+    assert "scan for existing Houmao project state first" in openai_agent_text
+    assert "infer the likely starting intent from that state" in openai_agent_text
+    assert "current posture, likely intent, next choices, and required input" in openai_agent_text
+    assert "Do not respond with only a generic skill-activation acknowledgement" in (
+        openai_agent_text
+    )
+    assert "empty how-can-I-help greeting" in openai_agent_text
+
+    for use_case in (
+        "Single Agent Full Run",
+        "Operator-Controlled Agent Team",
+        "Pro Agent Loop",
+    ):
+        assert use_case in skill_text
+        assert use_case in fast_paths
+
+    assert "foreground-first gateway posture" in fast_paths
+    assert "mail-notifier" in fast_paths
+    assert "operator-origin mail" in fast_paths
+    assert "inter-agent mail" in fast_paths
+    assert "`tree-loop`" in fast_paths
+    assert "`generic-loop`" in fast_paths
+    assert "Do not duplicate pro-loop schemas" in fast_paths
+
+    for subsystem in (
+        "Project overlay",
+        "Agent definition",
+        "Managed runtime",
+        "Gateway",
+        "Messaging",
+        "Mailbox",
+        "Memory",
+        "Inspection",
+        "Workspace",
+        "Loop orchestration",
+    ):
+        assert subsystem in subsystem_exploration
+
+    assert "Boundary" in subsystem_exploration
+    assert "Required input" in subsystem_exploration
+    assert "Generated state" in subsystem_exploration
+    assert "Routes" in subsystem_exploration
+    assert "Next choices" in subsystem_exploration
+    assert "passive server" in subsystem_exploration
+    assert "`more detail`" in subsystem_exploration
 
 
 def test_loop_skills_route_system_input_question_guidance() -> None:
@@ -1625,6 +1716,12 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     touring_advanced_usage = (
         home_path / "skills/houmao-touring/branches/advanced-usage.md"
     ).read_text(encoding="utf-8")
+    touring_fast_paths = (
+        home_path / "skills/houmao-touring/branches/fast-paths.md"
+    ).read_text(encoding="utf-8")
+    touring_subsystem_exploration = (
+        home_path / "skills/houmao-touring/branches/subsystem-exploration.md"
+    ).read_text(encoding="utf-8")
     pairwise_edge_loop_pattern = (
         home_path
         / "skills/houmao-adv-usage-pattern/patterns/pairwise-edge-loop-via-gateway-and-mailbox.md"
@@ -1643,10 +1740,14 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
     assert "houmao-agent-loop-pro" in advanced_usage_skill
     assert "houmao-agent-loop-lite" in advanced_usage_skill
     assert "Choose `tree-loop` or `generic-loop` inside pro" in advanced_usage_skill
-    assert "beginner, intermediate, and advanced stages" in touring_skill
-    assert "Guide the beginner stage" in touring_skill
-    assert "Guide the intermediate stage" in touring_skill
-    assert "Guide the advanced stage" in touring_skill
+    assert "users who are not yet familiar with Houmao" in touring_skill
+    assert "Fast path use cases" in touring_skill
+    assert "Subsystem exploration" in touring_skill
+    assert "Single Agent Full Run" in touring_fast_paths
+    assert "Operator-Controlled Agent Team" in touring_fast_paths
+    assert "Pro Agent Loop" in touring_fast_paths
+    assert "Project overlay" in touring_subsystem_exploration
+    assert "Loop orchestration" in touring_subsystem_exploration
     assert "houmao-process-emails-via-gateway" in touring_skill
     assert "houmao-memory-mgr" in touring_skill
     assert "houmao-utils-workspace-mgr" in touring_skill

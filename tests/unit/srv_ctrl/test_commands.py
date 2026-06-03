@@ -34,7 +34,7 @@ from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
 )
-from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
+from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError, ManagedAgentTarget
 from houmao.srv_ctrl.commands.main import cli, main
 from houmao.version import get_version
 
@@ -274,7 +274,31 @@ def test_main_renders_uncaught_mailbox_exception_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert "Unexpected internal error while running `houmao-mgr`" in captured.err
     assert "unexpected mailbox failure" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_empty_uncaught_assertion_as_internal_error_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.mailbox.list_mailbox_accounts",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError()),
+    )
+
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    mailbox_root.mkdir(parents=True, exist_ok=True)
+
+    exit_code = main(["mailbox", "accounts", "list", "--mailbox-root", str(mailbox_root)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Unexpected internal error while running `houmao-mgr`" in captured.err
+    assert "exception: AssertionError" in captured.err
+    assert captured.err.strip() != "Error: AssertionError"
     assert "Traceback" not in captured.err
 
 
@@ -301,6 +325,7 @@ def test_main_renders_uncaught_native_recipe_exception_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert "Unexpected internal error while running `houmao-mgr`" in captured.err
     assert "unexpected recipe failure" in captured.err
     assert "Traceback" not in captured.err
 
@@ -382,6 +407,57 @@ def test_agents_gateway_attach_help_mentions_foreground_default() -> None:
     assert "--gateway-tui-final-stable-active-recovery-seconds FLOAT RANGE" in result.output
     assert "Window `0` remains" in result.output
     assert "foreground by default" in result.output
+
+
+def test_agents_single_gateway_status_surfaces_stale_target_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="agent-stale-1",
+        transport="headless",
+        tool="codex",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="agent-stale-1",
+        tmux_session_name="HOUMAO-alice",
+        tmux_window_name=None,
+        manifest_path="/tmp/missing/manifest.json",
+        session_root="/tmp/missing",
+        agent_name="alice",
+        agent_id="agent-stale-1",
+    )
+    record = SimpleNamespace(
+        agent_name="alice",
+        agent_id="agent-stale-1",
+        lifecycle=SimpleNamespace(state="active"),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/missing/manifest.json",
+            session_root="/tmp/missing",
+        ),
+        terminal=SimpleNamespace(session_name="HOUMAO-alice"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: ManagedAgentTarget(
+            mode="local_stale",
+            agent_ref="alice",
+            identity=identity,
+            record=record,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-name", "alice", "gateway", "status"],
+    )
+
+    assert result.exit_code == 1
+    assert "Cannot show gateway status for managed agent `alice`." in result.output
+    assert "stale or missing" in result.output
+    assert "agent_id=`agent-stale-1`" in result.output
+    assert "tmux_session=`HOUMAO-alice`" in result.output
+    assert "houmao-mgr agents single --agent-id agent-stale-1 stop" in result.output
+    assert "Error: AssertionError" not in result.output
 
 
 def test_agents_list_plain_renders_rows_from_pydantic_payload(

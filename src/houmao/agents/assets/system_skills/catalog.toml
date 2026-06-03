@@ -27,7 +27,7 @@ description = "Utility skill for planning, creating, validating, and summarizing
 
 [skills.houmao-touring]
 asset_subpath = "houmao-touring"
-description = "Manual guided touring skill for first-time or re-orienting Houmao users."
+description = "Manual guided touring skill for users not yet familiar with Houmao."
 
 [skills.houmao-mailbox-mgr]
 asset_subpath = "houmao-mailbox-mgr"

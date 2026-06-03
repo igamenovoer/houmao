@@ -7,11 +7,7 @@ Use this beginner branch when the user wants to create or inspect specialists or
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Route credential readiness to `houmao-credential-mgr` when the user needs to inspect, add, update, log in to, or select a credential before authoring or launch.
 3. Route specialist creation, project-profile creation, `create-agent-fast-forward`, and easy-instance launch to `houmao-agent-definition`.
-4. When the user needs concrete examples while touring, show the maintained command shapes instead of leaving the namespace implicit:
-   - inspect specialists with `houmao-mgr project specialist list` or `houmao-mgr project specialist get --name <name>`
-   - inspect profiles with `houmao-mgr project profile list` or `houmao-mgr project profile get --name <name>`
-   - launch from a specialist with `houmao-mgr project agents launch --specialist <name> --name <instance-name>`
-   - launch from a profile with `houmao-mgr project agents launch --profile <name> --name <instance-name>`
+4. When the user needs concrete examples while touring, first route to `houmao-agent-definition`. Show command shapes only when the user asks for `more detail` or the owning skill has selected the exact operation.
 5. Explain the difference between the reusable source and the live runtime:
    - a specialist is a reusable template
    - a project profile is an optional reusable launch-default wrapper

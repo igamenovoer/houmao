@@ -91,6 +91,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_mail_notifier_status,
     gateway_prompt,
     gateway_send_keys,
+    gateway_status,
     gateway_tui_history,
     gateway_tui_note_prompt,
     gateway_tui_state,
@@ -1538,6 +1539,109 @@ def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stal
     assert target.mode == "local_stale"
     assert target.controller is None
     assert target.record is record
+
+
+def test_gateway_status_rejects_stale_local_target_with_actionable_diagnostic(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        gateway_status(target)
+
+    message = exc_info.value.message
+    assert "Cannot show gateway status for managed agent `gpu`." in message
+    assert "stale or missing" in message
+    assert "agent_id=`agent-degraded-1`" in message
+    assert "tmux_session=`HOUMAO-stale`" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
+
+
+def test_gateway_tui_state_rejects_stale_local_target_before_controller_access(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="tui"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        gateway_tui_state(target)
+
+    message = exc_info.value.message
+    assert "Cannot show gateway TUI state for managed agent `gpu`." in message
+    assert "stale or missing" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
+
+
+def test_managed_agent_state_rejects_degraded_local_target_before_controller_access(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-degraded",
+    )
+    target = ManagedAgentTarget(
+        mode="local_degraded",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        managed_agent_state_payload(target)
+
+    message = exc_info.value.message
+    assert "Cannot inspect managed-agent state for managed agent `gpu`." in message
+    assert "degraded" in message
+    assert "primary window or pane" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
+
+
+def test_mail_status_rejects_stale_local_target_before_controller_access(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        mail_status(target)
+
+    message = exc_info.value.message
+    assert "Cannot show managed-agent mail status for managed agent `gpu`." in message
+    assert "stale or missing" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
 
 
 def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -> None:

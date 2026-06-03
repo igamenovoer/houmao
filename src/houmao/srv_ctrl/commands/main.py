@@ -43,8 +43,19 @@ cli.add_command(system_skills_group)
 def _render_uncaught_exception(exc: Exception) -> click.ClickException:
     """Convert one uncaught maintained-command exception into CLI error text."""
 
-    detail = str(exc).strip() or exc.__class__.__name__
-    return click.ClickException(detail)
+    exception_name = exc.__class__.__name__
+    detail = str(exc).strip()
+    if detail:
+        message = (
+            "Unexpected internal error while running `houmao-mgr`: "
+            f"{detail} (exception: {exception_name})."
+        )
+    else:
+        message = (
+            "Unexpected internal error while running `houmao-mgr` "
+            f"(exception: {exception_name})."
+        )
+    return click.ClickException(message)
 
 
 def main(argv: list[str] | None = None) -> int:
