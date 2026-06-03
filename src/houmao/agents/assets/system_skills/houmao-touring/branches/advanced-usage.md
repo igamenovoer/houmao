@@ -36,10 +36,10 @@ Use this advanced branch when a guided-tour user is ready for composed multi-age
 - **Pro loop authoring** - use `houmao-agent-loop-pro` to scaffold intention files, clarify loop intent, generate schema-rich execplan artifacts, validate readiness, prepare workspaces, launch agents, and operate the generated loop.
 - **Tree-loop mode in pro** - choose `tree-loop` inside `houmao-agent-loop-pro` when downstream work is a local-close tree: each node replies to its immediate upstream, and non-tree cycles are handled through explicit relay choices in the generated execplan.
 - **Generic-loop mode in pro** - choose `generic-loop` inside `houmao-agent-loop-pro` when the communication graph may contain cycles, relay lanes, or task-specific predecessor-context forwarding choices.
-- **Isolated multi-agent workspace management** - use `houmao-utils-workspace-mgr` to plan, create, validate, or summarize in-repo or out-of-repo workspaces, per-agent worktrees, local-only shared repos, safe local-state symlinks, launch-profile cwd updates, project-command readiness, and optional memo-seed workspace rules.
+- **Isolated multi-agent workspace management** - use `houmao-utils-workspace-mgr` to plan, create, validate, or summarize workspaces. This covers in-repo or out-of-repo layouts, per-agent worktrees, local-only shared repos, safe local-state symlinks, launch-profile cwd updates, project-command readiness, and optional memo-seed workspace rules.
 - **Elemental coordination patterns** - use `houmao-adv-usage-pattern` when the user wants a supported mailbox/gateway coordination pattern before generating a full loop package.
 
-## Loop And Workspace Ownership Boundaries
+## Loop and Workspace Ownership Boundaries
 
 Generated loops and isolated workspaces are advanced composed workflows:
 
@@ -62,10 +62,10 @@ When the user asks for current loop authoring, route to `houmao-agent-loop-lite`
 
 ## Guardrails
 
-- Do not route current loop planning or generated loop run-control requests to retired loop packages.
-- Do not make the user agent the upstream driver of the execution loop.
+- Route current loop planning and generated loop run-control requests only to the maintained loop packages.
+- Keep the user agent outside the execution loop rather than making it the upstream driver.
 - Do not restate tree-loop or generic-loop plan templates, run charters, stop modes, routing packets, mailbox result protocol, workspace creation or validation details, or reminder protocol inline.
 - Do not push composed tree/generic loop topology, recursive child-control planning, rendered graph semantics, or run-control actions down into `houmao-adv-usage-pattern`.
-- Do not include unrelated utility skills in the normal advanced tour merely because they are packaged system skills.
+- Skip unrelated utility skills in the normal advanced tour, even when they are packaged system skills.
 - Do not mark any advanced orchestration entry as recommended, preferred, primary, or default unless the user's stated goal clearly selects it.
-- Do not collapse the advanced entries into a single generic "advanced" surface; each entry has its own owning skill.
+- Keep each advanced entry on its own owning skill rather than collapsing them into a single generic "advanced" surface.

@@ -14,7 +14,7 @@ Use this intermediate branch when the user wants to operate or coordinate one or
    - one gateway-notified open-mail processing round with a prompt-provided gateway base URL -> `houmao-process-emails-via-gateway`
    - generic live state, screen, mailbox-posture, logs, turn-state, or artifact inspection -> `houmao-agent-inspect`
    - gateway lifecycle, TUI watch, mail-notifier enable/disable/status, or reminders -> `houmao-agent-gateway`
-4. When ordinary mailbox work needs current live bindings or the exact current `gateway.base_url`, let `houmao-agent-messaging` or `houmao-agent-email-comms` resolve that through `houmao-mgr agents self mail resolve-live` for the caller's own managed session or `houmao-mgr agents single --agent-name <name> mail resolve-live` for a selected agent.
+4. When ordinary mailbox work needs current live bindings or the exact current `gateway.base_url`, let `houmao-agent-messaging` or `houmao-agent-email-comms` resolve it. For the caller's own managed session, use `houmao-mgr agents self mail resolve-live`. For a selected agent, use `houmao-mgr agents single --agent-name <name> mail resolve-live`.
 5. When the prompt is a notifier round and already provides the gateway base URL, route to `houmao-process-emails-via-gateway` rather than rediscovering the gateway here.
 6. When current tour context already shows that a live gateway is attached and mailbox accounts are set up, explicitly suggest gateway `mail-notifier` as a useful intermediate next action because it lets the agent wake for open mail.
 7. When two or more agents are running, present manual coordination as an intermediate action: send prompts or mailbox messages, inspect responses, update memo context when useful, and only escalate to advanced loop guidance when repeated coordination is emerging.
@@ -42,8 +42,8 @@ Use this intermediate branch when the user wants to operate or coordinate one or
 
 ## Guardrails
 
-- Do not treat reminders as durable recovered state; keep their durability description on `houmao-agent-gateway`.
+- Keep the durability description of reminders on `houmao-agent-gateway`; do not treat them as durable recovered state.
 - Do not treat ordinary mailbox send or read work as part of the gateway-only control surface.
-- Do not guess the live agent target or the current gateway base URL.
+- Never guess the live agent target or the current gateway base URL.
 - Do not rediscover a missing gateway base URL inside a notifier-round workflow; route only when the round provides it.
-- Do not present generated loop authoring as the default solution for one-off manual coordination.
+- Generated loop authoring is not the default solution for one-off manual coordination.

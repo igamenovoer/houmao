@@ -14,7 +14,7 @@ The trigger word `houmao` is intentional. Use the `houmao-touring` skill name di
 
 ## Help
 
-When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section before presenting the welcome, inspecting state, choosing a branch page, routing to another skill, command execution, or missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me tour this Houmao project", route to the guided tour instead of stopping at generic help.
+When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section. Present this help before the welcome, state inspection, branch selection, skill routing, command execution, or missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me tour this Houmao project", route to the guided tour instead of stopping at generic help.
 
 Purpose: provide a manual guided Houmao tour that starts from current state, teaches the system in beginner, intermediate, and advanced stages, and routes selected work to maintained owning skills.
 
@@ -56,7 +56,7 @@ Beginner guidance teaches the path to one useful managed agent and a first conve
 3. Prepare or select credentials for that tool.
 4. Understand mailbox basics: mailbox root setup is distinct from per-agent mailbox account ownership.
 5. Create a specialist.
-6. Optionally create an project profile for reusable launch defaults.
+6. Optionally create a project profile for reusable launch defaults.
 7. Launch one managed agent with foreground-first tour posture.
 8. Talk to the agent through the maintained prompt/messaging surface.
 
@@ -85,7 +85,7 @@ Advanced guidance teaches composed multi-agent systems:
 
 When the user starts the guided tour, present a welcome message that adapts to the inspected current Houmao state. Keep the welcome user-facing and never imply that the user must restart from the beginning when Houmao state already exists. Do not repeat the welcome on every turn; if the recent conversation already covered it, skip it and proceed with the current-state orientation.
 
-### Full welcome (blank-slate workspace)
+### Full Welcome (Blank-Slate Workspace)
 
 Present the full welcome only when the workspace has no project overlay, no reusable specialists, and no running managed agents. Use the following baseline:
 
@@ -102,7 +102,7 @@ A typical beginner setup path is:
 
 Start by checking what already exists here, then suggest stage-aware next actions instead of restarting from scratch.
 
-### Short acknowledgement (workspace already has state)
+### Short Acknowledgement (Workspace Already Has State)
 
 Present a short one-to-two-sentence acknowledgement in place of the full welcome whenever the inspected workspace already has any of: a project overlay, one or more reusable specialists, one or more running managed agents. Follow it immediately with the current-state orientation and the stage-aware offered next actions from the orient branch's posture-to-action matrix. Do not push the user back into the full initial setup sequence in that case.
 
@@ -181,7 +181,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 ## References
 
 - Read [references/question-style.md](references/question-style.md) when the tour needs to ask for user input in a first-time-user-friendly way with explanations, examples, and recommended defaults or skip options.
-- Read [references/concepts.md](references/concepts.md) when the tour needs a compact self-contained glossary for the vocabulary used across branches (specialist, project profile, launch profile, managed agent, recipe, tool adapter, gateway, gateway sidecar, mailbox root, mailbox account, principal id, prompt injection through mail, notifier round, user agent, master, loop plan, lite loop, pro loop, tree-loop, generic-loop, isolated workspace, relaunch, cleanup).
+- Read [references/concepts.md](references/concepts.md) when the tour needs a compact self-contained glossary for the vocabulary used across branches. That reference covers: specialist, project profile, launch profile, managed agent, recipe, tool adapter, gateway, gateway sidecar, mailbox root, mailbox account, principal id, prompt injection through mail, notifier round, user agent, master, loop plan, lite loop, pro loop, tree-loop, generic-loop, isolated workspace, relaunch, and cleanup.
 
 ## Routing Guidance
 
@@ -205,13 +205,13 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 ## Guardrails
 
 - Do not activate `houmao-touring` unless the user explicitly asked for the guided tour experience.
-- Do not turn the tour into a full catalog of every packaged Houmao system skill.
-- Do not force a linear step order or restart the user from project initialization when current Houmao state already exists.
+- Keep the tour focused; do not turn it into a full catalog of every packaged Houmao system skill.
+- Never force a linear step order or restart the user from project initialization when current Houmao state already exists.
 - Do not claim ownership of the direct-operation command shapes that belong to the maintained Houmao skill families.
-- Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project ...`.
-- Do not collapse stop, relaunch, and cleanup into one vague "manage agent" action.
+- Avoid inventing top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project ...`.
+- Keep stop, relaunch, and cleanup as separate actions rather than collapsing them into one vague "manage agent" action.
 - Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
-- Do not route current loop planning or generated loop run-control requests to retired loop packages.
-- Do not restate composed tree/generic loop topology, run-control details, typed-template rules, direct-SQL state rules, isolated workspace creation or validation rules, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-lite` or `houmao-agent-loop-pro`, workspace preparation on `houmao-utils-workspace-mgr`, and elemental patterns on `houmao-adv-usage-pattern`.
-- Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
-- Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.
+- Route current loop planning and generated loop run-control requests only to the maintained loop packages.
+- Keep composed tree/generic loop topology, run-control details, typed-template rules, direct-SQL state rules, isolated workspace creation or validation rules, and elemental local-close edge-loop protocol on their owning skills. Route generated loop planning to `houmao-agent-loop-lite` or `houmao-agent-loop-pro`. Route workspace preparation to `houmao-utils-workspace-mgr` and elemental patterns to `houmao-adv-usage-pattern`.
+- Never auto-run cleanup after stop or treat cleanup as safe for a live session.
+- Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution. Paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install`. They SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.

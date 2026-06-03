@@ -1,4 +1,4 @@
-# Orient On Current Houmao State
+# Orient on Current Houmao State
 
 Use this branch first when the user explicitly wants the `houmao-touring` experience.
 
@@ -19,7 +19,7 @@ Use this branch first when the user explicitly wants the `houmao-touring` experi
 5. Classify the inspected workspace posture using the posture-to-action routing table below. That table is the source of truth for deciding which stage-aware next actions to offer.
 6. Explain the current posture in plain language and offer the actions named for that posture. The offered actions are offers, not mandates; the user can always choose a different supported branch.
 
-## Posture-To-Action Routing Table
+## Posture-to-Action Routing Table
 
 Use this table to map inspected workspace posture to the set of stage-aware next touring actions. Do not force the user into exactly one row entry when more than one is reasonable for the inspected posture.
 
@@ -46,8 +46,8 @@ Use this table to map inspected workspace posture to the set of stage-aware next
 ## Guardrails
 
 - Do not treat missing project state as a reason to hide later stages; explain that intermediate and advanced actions become useful after setup.
-- Do not assume the tour is complete after one launch or one prompt.
-- Do not inspect deeper live state than the selected next action actually needs.
+- Never assume the tour is complete after one launch or one prompt.
+- Inspect deeper live state only when the selected next action actually needs it.
 - Do not replace the maintained `project ...` inspection commands with guessed top-level aliases or direct `.houmao/easy/` filesystem probing.
-- Do not re-derive the offered actions in free prose when the posture-to-action routing table already covers the inspected posture.
-- Do not treat the routing table as a mandate; the offered actions remain offers, and the user may choose any supported branch from the top-level `SKILL.md` branches list.
+- Use the posture-to-action routing table directly instead of re-deriving the offered actions in free prose.
+- The routing table is not a mandate; the offered actions remain offers, and the user may choose any supported branch from the top-level `SKILL.md` branches list.

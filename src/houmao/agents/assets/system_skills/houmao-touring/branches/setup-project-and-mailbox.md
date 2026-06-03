@@ -1,4 +1,4 @@
-# Project And Mailbox Setup Branch
+# Project and Mailbox Setup Branch
 
 Use this beginner branch when the user wants project overlay setup, project explanation, or project-local mailbox subsystem basics.
 
@@ -32,8 +32,8 @@ Use this beginner branch when the user wants project overlay setup, project expl
 
 ## Guardrails
 
-- Do not present project mailbox setup as mandatory for every Houmao project.
+- Project mailbox setup is not mandatory for every Houmao project.
 - Do not collapse mailbox-root bootstrap, manual mailbox-account registration, and launch-owned per-agent mailbox binding into one vague setup step.
 - Do not hand-edit `.houmao/` or mailbox directories when the maintained project or mailbox skills already own those steps.
-- Do not bury the fact that mailbox setup can be revisited later.
-- Do not present inter-agent mail, notifier rounds, or prompt injection through mail as beginner prerequisites; those belong to the intermediate stage after an agent exists.
+- Make it clear that mailbox setup can be revisited later.
+- Inter-agent mail, notifier rounds, and prompt injection through mail belong to the intermediate stage after an agent exists. Do not present them as beginner prerequisites.

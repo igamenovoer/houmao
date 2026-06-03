@@ -1,4 +1,4 @@
-# Author And Launch Branch
+# Author and Launch Branch
 
 Use this beginner branch when the user wants to create or inspect specialists or profiles, prepare launch defaults, or launch a managed agent.
 
@@ -14,7 +14,7 @@ Use this beginner branch when the user wants to create or inspect specialists or
    - launch from a profile with `houmao-mgr project agents launch --profile <name> --name <instance-name>`
 5. Explain the difference between the reusable source and the live runtime:
    - a specialist is a reusable template
-   - an project profile is an optional reusable launch-default wrapper
+   - a project profile is an optional reusable launch-default wrapper
    - a managed agent is the running live instance launched from those sources
 6. When the user is unsure, treat profile creation as optional and explain that direct specialist-backed launch is enough for a first run.
 7. When the user wants durable launch-time context for future agents, route profile memo-seed work to `houmao-memory-mgr` instead of treating it as ordinary prompt overlay text.
@@ -35,9 +35,9 @@ Use this beginner branch when the user wants to create or inspect specialists or
 
 ## Guardrails
 
-- Do not force profile creation before launch.
+- Keep profile creation optional; do not force it before launch.
 - Do not describe launching an agent as consuming or deleting the specialist source.
-- Do not pretend the touring branch owns the detailed specialist credential and launch semantics; keep those on `houmao-agent-definition`.
+- The touring branch does not own detailed specialist credential and launch semantics; keep those on `houmao-agent-definition`.
 - Do not point users at top-level `houmao-mgr easy ...`, `houmao-mgr specialists ...`, or raw `.houmao/easy/` inspection when the maintained tour surface is `houmao-mgr project ...`.
-- Do not suggest background gateway launch or attach during a tour unless the user explicitly asks for background or detached gateway execution.
+- Suggest foreground gateway posture during a tour unless the user explicitly asks for background or detached gateway execution.
 - Do not present loop or isolated workspace setup as a beginner launch prerequisite.

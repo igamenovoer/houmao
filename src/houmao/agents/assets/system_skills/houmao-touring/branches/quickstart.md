@@ -52,11 +52,11 @@ When `command -v claude`, `command -v codex`, and `command -v gemini` all fail:
 
 ## Guardrails
 
-- Do not pick a tool for the user when multiple tool CLIs are detected; ask.
+- Ask the user which tool to use when multiple tool CLIs are detected; do not pick one yourself.
 - Do not mark any detected tool as recommended, preferred, primary, or default.
-- Do not attempt to launch when no supported tool CLI is available; explain the supported set instead.
+- Explain the supported tool set instead of attempting to launch when no supported tool CLI is available.
 - Do not add background gateway flags unless the user explicitly asked for background or detached gateway execution.
 - Do not hand-edit `.houmao/`, runtime, or mailbox paths; route that work through the owning skill.
-- Do not restate the concrete command shapes that belong to `houmao-project-mgr`, `houmao-agent-definition`, or `houmao-credential-mgr`.
-- Do not treat the quickstart branch as the only valid starting branch; the explicit setup branch remains available for users who want the fuller project-and-mailbox path.
-- Do not make advanced loop or isolated workspace setup the default next step after the first launch; offer it only when coordination intent is emerging or explicit.
+- Leave the concrete command shapes that belong to `houmao-project-mgr`, `houmao-agent-definition`, or `houmao-credential-mgr` on those skills.
+- The quickstart branch is not the only valid starting branch; the explicit setup branch remains available for users who want the fuller project-and-mailbox path.
+- Offer advanced loop or isolated workspace setup only when coordination intent is emerging or explicit. Do not make it the default next step after the first launch.

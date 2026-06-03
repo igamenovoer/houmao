@@ -24,7 +24,7 @@ Use this intermediate branch when the user wants to inspect, stop, relaunch, joi
 
 ## Guardrails
 
-- Do not collapse stop, relaunch, and cleanup into one action.
+- Keep stop, relaunch, and cleanup as separate actions.
 - Do not reinterpret relaunch as a fresh launch when relaunch is unavailable.
-- Do not present cleanup as safe for a live session or as an automatic next step after stop.
-- Do not treat join/adopt as a beginner requirement; use it only when the user asks to bring an existing session under management.
+- Cleanup is never safe for a live session and is not an automatic next step after stop.
+- Use join/adopt only when the user asks to bring an existing session under management; do not treat it as a beginner requirement.

@@ -73,9 +73,9 @@ You can skip this now and come back later.
 Use a shape like:
 
 ```text
-Do you want to create an project profile too?
+Do you want to create a project profile too?
 
-An project profile stores reusable launch defaults on top of a specialist. It is optional for a first launch.
+A project profile stores reusable launch defaults on top of a specialist. It is optional for a first launch.
 
 Required if you choose this branch:
 - project profile name
@@ -113,7 +113,7 @@ Common first actions:
 - create another specialist and launch a second agent
 ```
 
-### Stop, Relaunch, Or Cleanup
+### Stop, Relaunch, or Cleanup
 
 Use a shape like:
 
