@@ -2,7 +2,7 @@
 
 `houmao-touring` currently works as a branching guided learning skill, but much of its behavior is expressed as broad scope and branch lists. The top-level workflow still frames the skill primarily as a first-time guided tour, and it does not give agents a crisp enough contract for choosing between orientation, outcome-driven fast paths, and component-oriented subsystem exploration.
 
-The design notes under `docs/design/` introduce durable terminology and decisions for this revision:
+The design notes under `context/design/skills/houmao-touring-design/` introduce durable terminology and decisions for this revision:
 
 - the touring skill is for users not yet familiar with Houmao, including first-run users, re-orienting operators, and developers inspecting system logic;
 - the tour has two coverage lanes: fast path use cases and subsystem exploration;
@@ -97,7 +97,7 @@ This keeps touring stable as the command-owning skills evolve. It also keeps the
 
 ### Decision: Keep Implementation Self-Contained
 
-All installed touring content must remain inside the packaged skill asset directory. The implementation may add branch or reference files under that directory, but `SKILL.md` and branch pages must not link to `docs/design/`, `openspec/`, or other source-repository-only paths.
+All installed touring content must remain inside the packaged skill asset directory. The implementation may add branch or reference files under that directory, but `SKILL.md` and branch pages must not link to `context/design/skills/houmao-touring-design/`, `openspec/`, or other source-repository-only paths.
 
 ## Risks / Trade-offs
 

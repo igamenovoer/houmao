@@ -31,4 +31,4 @@
 - Packaged skill content under `src/houmao/agents/assets/system_skills/houmao-touring/`.
 - Existing `houmao-touring-skill` OpenSpec requirements.
 - Unit tests that assert packaged skill anchors and installed content.
-- Design notes under `docs/design/` that inform the revised skill behavior.
+- Design notes under `context/design/skills/houmao-touring-design/` that inform the revised skill behavior.
