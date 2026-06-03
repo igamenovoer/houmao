@@ -44,13 +44,13 @@ This packaged skill covers exactly these maintained mailbox-administration surfa
 - `help` (read-only meta operation)
 - `houmao-mgr mailbox ...`
 - `houmao-mgr project mailbox ...`
-- `houmao-mgr agents mailbox ...`
+- `houmao-mgr agents single --agent-id <id> mailbox ...` or `--agent-name <name>`
 
 This packaged skill does not cover:
 
-- `houmao-mgr agents mail ...`
+- `houmao-mgr agents self mail ...` and `houmao-mgr agents single ... mail ...`
 - shared `/v1/mail/*` workflow
-- `houmao-mgr agents gateway mail-notifier ...`
+- `houmao-mgr agents self gateway mail-notifier ...` and `houmao-mgr agents single ... gateway mail-notifier ...`
 - direct gateway `/v1/mail-notifier` or `/v1/reminders`
 - ad hoc filesystem editing inside mailbox roots
 
@@ -62,15 +62,15 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 2. Select the maintained lane:
    - arbitrary filesystem mailbox root -> `houmao-mgr mailbox ...`
    - project overlay mailbox root -> `houmao-mgr project mailbox ...`
-   - existing local managed-agent late binding -> `houmao-mgr agents mailbox ...`
+   - existing local managed-agent late binding -> `houmao-mgr agents single --agent-id <id> mailbox ...` or `--agent-name <name>`
 3. Keep mailbox ownership boundaries explicit:
    - use `mailbox init|status|repair|cleanup|clear-messages|export` to manage the shared mailbox root itself
    - use `mailbox clear-messages` or `project mailbox clear-messages` when the operator wants to remove delivered emails while keeping mailbox accounts registered
    - use `mailbox messages clear --address` or `project mailbox messages clear --address` when the operator wants to remove delivered emails visible to one selected mailbox account while preserving other accounts
    - use `mailbox export` or `project mailbox export` when the operator wants to archive filesystem mailbox state; default export materializes symlinks so the archive can move to filesystems that do not support symlink artifacts
    - use `mailbox register|unregister` or `project mailbox register|unregister` for manual mailbox-account administration under that root
-   - use `agents mailbox ...` when the task is adding or changing mailbox support for an already-running local managed agent
-   - when the user is preparing a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same root, explain that mailbox registration may be owned by the later `project easy instance launch` step rather than by manual preregistration here
+   - use `agents single ... mailbox ...` when the task is adding or changing mailbox support for an already-running local managed agent
+   - when the user is preparing a new specialist-backed easy instance whose ordinary mailbox address will be derived from the managed-agent name under the same root, explain that mailbox registration may be owned by the later `project agents launch` step rather than by manual preregistration here
 4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
 5. Keep mailbox identity guidance explicit when the user needs help choosing values:
    - ordinary principal ids use the canonical `HOUMAO-<agentname>` form
@@ -83,8 +83,16 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 7. Reuse that same chosen launcher for the selected mailbox-admin action.
-8. Load exactly one action page for the task you need to complete.
-9. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
+8. For supported mailbox command authoring, build the direct maintained command before executing:
+   - `mailbox <verb>` for arbitrary filesystem mailbox-root commands
+   - `project mailbox <verb>` for active project mailbox-root commands
+   - `mailbox accounts <verb>` and `project mailbox accounts <verb>` for account inspection
+   - `mailbox messages <verb>` and `project mailbox messages <verb>` for structural message inspection or clearing
+   - `agents single ... mailbox status|register|unregister` for late binding on an existing local managed agent
+9. Include only fields the user explicitly supplied or that were recovered from explicit recent context.
+10. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
+11. Load exactly one action page for the task you need to complete.
+12. Report the result from the command that ran and keep mailbox-admin routing boundaries explicit.
 
 ## Actions
 
@@ -136,7 +144,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Route requests to remove delivered emails for one selected mailbox account while preserving other accounts to `actions/messages-clear.md`; do not route that request to all-account `clear-messages`, registration cleanup, or account unregister.
 - Route requests to archive or export filesystem mailbox state to `actions/export.md`; preserve selected-account scope with repeated `--address` values and expose `--symlink-mode preserve` only when the user explicitly wants symlink preservation.
 - Treat `project mailbox register` as manual mailbox-account administration, not as the default preparation step for every future mailbox-enabled easy launch.
-- When the task is preparing a new specialist-backed easy instance whose same-root ordinary mailbox address will be derived from the managed-agent instance name, explain that the later `project easy instance launch --mail-transport filesystem --mail-root ...` step may own that address instead of preregistering it here.
+- When the task is preparing a new specialist-backed easy instance whose same-root ordinary mailbox address will be derived from the managed-agent instance name, explain that the later `project agents launch --mail-transport filesystem --mail-root ...` step may own that address instead of preregistering it here.
 - When the task is attaching mailbox support to an already-running local managed agent, route to `actions/agent-binding-register.md` instead of treating it as generic account registration.
 - Treat Stalwart as a transport/bootstrap boundary, not as a peer `houmao-mgr mailbox ...` administration lane.
 
@@ -152,6 +160,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not hand-edit mailbox-root files when the maintained `houmao-mgr` surfaces already cover the task.
+- Do not invent alternate mailbox CLI shapes; use the direct mailbox, project mailbox, and scoped managed-agent mailbox commands shown in this skill package.
 - Do not use `mailbox cleanup` when the user asked to remove delivered email content while preserving accounts; use `mailbox clear-messages` or `project mailbox clear-messages` for all-account scope, and use `mailbox messages clear --address` or `project mailbox messages clear --address` for one selected account.
 - Do not recommend ad hoc recursive mailbox-root copying when the maintained export command covers the request.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for mailbox administration.

@@ -71,6 +71,8 @@ from houmao.shared_tui_tracking.models import (
 TerminalId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{8}$")]
 ManagedAgentTransportKind = Literal["tui", "headless"]
 ManagedAgentLifecycleState = Literal["active", "stopped", "relaunching", "retired"]
+ManagedAgentManagementKind = Literal["local_lifecycle", "external_communication_only"]
+ManagedAgentLifecycleOwner = Literal["local", "remote"]
 ManagedAgentAvailability = Literal["available", "unavailable", "error"]
 ManagedAgentLastTurnResult = Literal["success", "interrupted", "known_failure", "none", "unknown"]
 ManagedAgentTurnStatus = Literal["active", "completed", "failed", "interrupted", "unknown"]
@@ -479,6 +481,11 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
     agent_name: str | None = None
     agent_id: str | None = None
     lifecycle_state: ManagedAgentLifecycleState | None = None
+    management_kind: ManagedAgentManagementKind | None = None
+    lifecycle_owner: ManagedAgentLifecycleOwner | None = None
+    external_agent_id: str | None = None
+    remote_pair_api_base_url: str | None = None
+    remote_agent_ref: str | None = None
 
     @field_validator(
         "tracked_agent_id",
@@ -493,6 +500,11 @@ class HoumaoManagedAgentIdentity(_HoumaoModel):
         "agent_name",
         "agent_id",
         "lifecycle_state",
+        "management_kind",
+        "lifecycle_owner",
+        "external_agent_id",
+        "remote_pair_api_base_url",
+        "remote_agent_ref",
     )
     @classmethod
     def _optional_not_blank(cls, value: str | None) -> str | None:

@@ -1,6 +1,6 @@
 # Mailbox Runtime Contracts
 
-This page explains the runtime-owned contract around mailbox configuration, manifest-backed bindings, projected skills, and `agents mail` request and result handling.
+This page explains the runtime-owned contract around mailbox configuration, manifest-backed bindings, projected skills, and scoped `agents ... mail ...` request and result handling.
 
 ## Mental Model
 
@@ -10,7 +10,7 @@ The runtime is the authority for mailbox attachment to a session.
 - The runtime resolves that into one `MailboxResolvedConfig`.
 - The session manifest persists that resolved mailbox binding as the durable mailbox authority reused by resume and gateway transport access.
 - The runtime projects the mailbox system skill into the built brain home under a visible tool-native flat Houmao-owned skill surface: Claude and Codex use top-level `skills/houmao-.../`, while Gemini uses top-level `.gemini/skills/houmao-.../`.
-- Later mailbox work resolves current bindings through `pixi run houmao-mgr agents mail resolve-live` instead of assuming the provider process's inherited mailbox env snapshot is still current.
+- Later mailbox work resolves current bindings through `pixi run houmao-mgr agents self mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live` instead of assuming the provider process's inherited mailbox env snapshot is still current.
 - That same command is also the runtime-owned discovery path for the attached shared-mailbox gateway facade: when a valid live gateway is attached it returns a `gateway` object with `base_url`, `host`, `port`, `protocol_version`, and `state_path`; otherwise it returns `gateway: null`.
 
 ## Declarative And Resolved Config
@@ -48,7 +48,7 @@ That persisted `launch_plan.mailbox` payload is also the durable mailbox capabil
 
 ## Manager-Owned `resolve-live` Contract
 
-`pixi run houmao-mgr agents mail resolve-live` is the supported current-mailbox discovery surface.
+Scoped mail `resolve-live` is the supported current-mailbox discovery surface.
 
 Top-level fields:
 
@@ -82,7 +82,7 @@ Stalwart-specific fields:
 Important rules:
 
 - Treat the persisted manifest mailbox payload as durable authority and the resolver output as the current actionable mailbox contract.
-- Resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live` before direct attached-session mailbox work. Inside the owning tmux session, selectors may be omitted. Outside tmux, or when targeting a different agent, use `--agent-id` or `--agent-name`.
+- Resolve current mailbox bindings through `pixi run houmao-mgr agents self mail resolve-live` before direct attached-session mailbox work. Outside tmux, or when targeting a different agent, use `pixi run houmao-mgr agents single --agent-id <id> mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live`.
 - Mailbox-specific shell export is not part of the supported runtime contract.
 - Treat `mailbox.filesystem.root` as authoritative.
 - `mailbox.filesystem.sqlite_path` remains the shared mailbox-root `index.sqlite` catalog.
@@ -115,9 +115,9 @@ For Gemini, Houmao-owned projection now targets `.gemini/skills/...`, and `.agen
 
 Shared runtime rules:
 
-- require `houmao-mgr agents mail resolve-live` for tmux-backed same-session discovery,
+- require `houmao-mgr agents self mail resolve-live` for tmux-backed same-session discovery,
 - prefer the live gateway `/v1/mail/*` facade for shared mailbox operations when the resolver returns a live `gateway.base_url`,
-- otherwise use `houmao-mgr agents mail list|peek|read|send|post|reply|mark|move|archive`,
+- otherwise use scoped `houmao-mgr agents single ... mail list|peek|read|send|post|reply|mark|move|archive`,
 - treat `message_ref` as the shared message, reply, and lifecycle target contract,
 - treat `authoritative: false` as submission-only rather than mailbox truth,
 - present `rules/` as markdown policy guidance and `rules/scripts/` as compatibility or implementation detail rather than the ordinary workflow contract.
@@ -133,7 +133,7 @@ Stalwart-specific rules:
 - use the current `mailbox.stalwart.*` fields returned by the resolver for direct transport access when no live gateway mailbox facade is available,
 - do not assume filesystem mailbox rules, SQLite paths, locks, or projection symlinks exist for this transport.
 
-## Managed `agents mail` Contract
+## Managed Scoped Mail Contract
 
 Public subcommands:
 
@@ -177,7 +177,7 @@ Result-strength rules:
 
 ```mermaid
 sequenceDiagram
-    participant CLI as agents mail
+    participant CLI as scoped agents mail
     participant RT as Runtime
     participant MB as Gateway facade<br/>or transport
     participant Ses as Live session

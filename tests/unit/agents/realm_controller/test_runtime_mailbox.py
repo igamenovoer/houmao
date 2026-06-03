@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,7 +28,20 @@ from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import mailbox_env_bindings
 from houmao.mailbox.filesystem import MailboxBootstrapError
 from houmao.mailbox import MailboxPrincipal, bootstrap_filesystem_mailbox
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.project.overlay import bootstrap_project_overlay
+
+
+@pytest.fixture(autouse=True)
+def _isolate_and_cleanup_shared_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> Iterator[None]:
+    """Keep runtime mailbox tests from publishing records into the user registry."""
+    registry_root = (tmp_path / "registry").resolve()
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root))
+    yield
+    shutil.rmtree(registry_root, ignore_errors=True)
 
 
 def _write(path: Path, text: str) -> None:

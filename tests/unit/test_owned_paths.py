@@ -55,14 +55,13 @@ def test_registry_root_defaults_under_platformdirs_home_anchor(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    fake_home = tmp_path / "home-anchor"
-    fake_user_data_path = fake_home / ".local" / "share" / "houmao"
+    fake_config_path = tmp_path / "config" / "houmao"
     monkeypatch.setattr(
-        "houmao.owned_paths.platformdirs.user_data_path",
-        lambda **kwargs: fake_user_data_path,
+        "houmao.owned_paths.platformdirs.user_config_path",
+        lambda **kwargs: fake_config_path,
     )
 
-    assert resolve_registry_root() == (fake_home / ".houmao" / "registry").resolve()
+    assert resolve_registry_root() == (fake_config_path / "registry").resolve()
 
 
 def test_mailbox_root_uses_env_override_when_no_explicit_override(tmp_path: Path) -> None:

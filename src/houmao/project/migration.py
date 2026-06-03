@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 from houmao.agents.definition_parser import parse_agent_preset
 from houmao.agents.model_selection import model_config_to_payload
+from houmao.agents.system_skills import system_skill_selection_policy_to_payload
 from houmao.project.catalog import (
     CATALOG_SCHEMA_VERSION,
     ProjectCatalog,
@@ -105,7 +106,7 @@ def detect_project_migration_plan(overlay: HoumaoProjectOverlay) -> ProjectMigra
     unsupported_reasons: list[str] = []
     steps: list[ProjectMigrationStep] = []
 
-    if catalog_exists and state.catalog_version not in {14, CATALOG_SCHEMA_VERSION}:
+    if catalog_exists and state.catalog_version not in {14, 16, CATALOG_SCHEMA_VERSION}:
         unsupported_reasons.append(
             f"catalog schema version `{state.catalog_version}` is not supported for automatic migration"
         )
@@ -118,11 +119,11 @@ def detect_project_migration_plan(overlay: HoumaoProjectOverlay) -> ProjectMigra
                 paths=(overlay.catalog_path,),
             )
         )
-    elif state.catalog_version == 14:
+    elif state.catalog_version in {14, 16}:
         steps.append(
             ProjectMigrationStep(
                 code="upgrade-catalog-schema",
-                description="Upgrade the project catalog schema for project skill registry metadata.",
+                description="Upgrade the project catalog schema for current launch-profile metadata.",
                 paths=(overlay.catalog_path,),
             )
         )
@@ -358,21 +359,29 @@ def _upgrade_catalog_schema_in_place(catalog_path: Path) -> None:
         version = _catalog_schema_version(connection)
         if version == CATALOG_SCHEMA_VERSION:
             return
-        if version != 14:
+        if version not in {14, 16}:
             raise ValueError(
                 f"Catalog `{catalog_path}` is not at a supported migratable schema version: {version}"
             )
-        column_names = {
+        skill_column_names = {
             str(row["name"])
             for row in connection.execute("PRAGMA table_info(skill_packages)").fetchall()
         }
-        if "mode" not in column_names:
+        if "mode" not in skill_column_names:
             connection.execute("ALTER TABLE skill_packages ADD COLUMN mode TEXT DEFAULT 'copy'")
-        if "source_path" not in column_names:
+        if "source_path" not in skill_column_names:
             connection.execute("ALTER TABLE skill_packages ADD COLUMN source_path TEXT")
         connection.execute(
             "UPDATE skill_packages SET mode = 'copy' WHERE mode IS NULL OR TRIM(mode) = ''"
         )
+        launch_profile_column_names = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(launch_profiles)").fetchall()
+        }
+        if "system_skills_payload" not in launch_profile_column_names:
+            connection.execute(
+                "ALTER TABLE launch_profiles ADD COLUMN system_skills_payload TEXT NOT NULL DEFAULT '{}'"
+            )
         connection.execute(
             "UPDATE catalog_meta SET value = ? WHERE key = 'schema_version'",
             (str(CATALOG_SCHEMA_VERSION),),
@@ -393,6 +402,11 @@ def _legacy_launch_mapping(preset: Any) -> dict[str, Any]:
         payload["model"] = model_payload
     if preset.launch.env_records:
         payload["env_records"] = dict(preset.launch.env_records)
+    system_skill_payload = system_skill_selection_policy_to_payload(
+        preset.launch_system_skill_policy
+    )
+    if system_skill_payload:
+        payload["system_skills"] = system_skill_payload
     return payload
 
 

@@ -1,6 +1,6 @@
 # Loop Authoring Guide
 
-Houmao has two current loop authoring entrypoints: `houmao-agent-loop-lite` and `houmao-agent-loop-pro`. Both scaffold a loop directory, clarify intent, generate an execplan, prepare agents, validate readiness, launch agents, and operate the generated loop. Choose lite for Markdown/direct-SQL loops with required generated skills and no generated harness. Choose pro for schema-rich topology work, graph validation, harness-backed contracts, and heavier generated run-control surfaces.
+Houmao has two current loop authoring entrypoints: `houmao-agent-loop-lite` and `houmao-agent-loop-pro`. Both use routed skill pages for authoring, execution, validation, launch, and run control. Choose lite for Markdown/direct-SQL loops with required generated skills and no generated harness. Choose pro for schema-rich topology work, graph validation, harness-backed contracts, and heavier generated run-control surfaces.
 
 For mailbox-driven loops, first understand the runtime model: agents are normally woken by gateway notifier prompts, process bounded mail event work, optionally run one prompt-invoked tick, then finish the chat turn. They should not wait in-chat for future mail or periodic ticks. See [Notifier-Prompt-Driven Loop Runtime](../reference/gateway/operations/notifier-prompt-driven-loops.md).
 
@@ -8,7 +8,7 @@ For mailbox-driven loops, first understand the runtime model: agents are normall
 
 | Skill | What it owns | Main operations |
 |---|---|---|
-| `houmao-agent-loop-lite` | Lightweight generated loop definitions with Markdown contracts, typed Markdown templates, direct SQLite state, and generated skills | `init`, `clarify`, `generate-skills`, `validate`, `prepare-agents`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
+| `houmao-agent-loop-lite` | Pro-shaped routed workflow with lightweight generated artifacts: Markdown contracts, typed Markdown templates, direct SQLite state, and generated skills | `init`, `clarify-intent`, `clarify-execplan`, `execplan-fast-forward`, staged `execplan-*` generation without harness, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
 | `houmao-agent-loop-pro` | Schema-rich generated loop definitions for `tree-loop` and `generic-loop` topologies | `init`, `clarify-intent`, `clarify-execplan`, `execplan-fast-forward`, staged `execplan-*` generation, `prepare-agents`, `prepare-workspace`, `validate-loop`, `launch-agents`, `start`, `status`, `pause`, `resume`, `recover`, `stop` |
 
 Do not choose among retired loop packages for new work. Choose lite explicitly for Markdown/direct-SQL/no-harness loops, or choose the topology mode inside the pro-generated execplan.
@@ -31,7 +31,7 @@ The pro skill accepts legacy topology wording such as "pairwise" as compatibilit
 
 ## Lite Default Shape
 
-Lite keeps the pro-like root spine while removing unused generated layers:
+Lite keeps the pro-like routed workflow and root spine while removing unused generated layers:
 
 ```text
 <loop-dir>/

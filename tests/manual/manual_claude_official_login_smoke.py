@@ -112,43 +112,26 @@ def _prepare_official_login_bundle(*, auth_root: Path, source_config_dir: Path) 
     return auth_root
 
 
-def _materialize_temp_agent_def_dir(
-    *,
-    source_agent_def_dir: Path,
-    auth_bundle_root: Path,
-    auth_name: str,
-    workdir: Path,
-) -> Path:
-    """Copy the tracked plain fixture tree and materialize one auth bundle into it."""
+def _materialize_temp_claude_config(*, auth_bundle_root: Path, workdir: Path) -> Path:
+    """Create one temp Claude config dir from the local-only auth bundle."""
 
-    def _ignore_auth_contents(directory: str, names: list[str]) -> set[str]:
-        if Path(directory).name != "auth":
-            return set()
-        return {name for name in names if name != ".gitignore"}
-
-    if not source_agent_def_dir.is_dir():
+    files_dir = auth_bundle_root / "files"
+    credentials_path = files_dir / ".credentials.json"
+    claude_json_path = files_dir / ".claude.json"
+    if not credentials_path.is_file():
         raise RuntimeError(
-            f"Tracked plain agent-definition fixture root is missing: `{source_agent_def_dir}`."
-        )
-    if not auth_bundle_root.is_dir():
-        raise RuntimeError(
-            f"Local Claude auth bundle missing: `{auth_bundle_root}`. "
+            f"Local Claude auth bundle missing `{credentials_path}`. "
             "Provision it first or drop `--skip-provision`."
         )
 
-    materialized_agent_def_dir = (workdir / "agent-def").resolve()
-    shutil.copytree(
-        source_agent_def_dir,
-        materialized_agent_def_dir,
-        symlinks=True,
-        ignore=_ignore_auth_contents,
-    )
-    destination_auth_root = (
-        materialized_agent_def_dir / "tools" / "claude" / "auth" / auth_name
-    ).resolve()
-    destination_auth_root.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(auth_bundle_root, destination_auth_root, symlinks=True)
-    return materialized_agent_def_dir
+    config_dir = (workdir / "vendor-claude-config").resolve()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(credentials_path, config_dir / ".credentials.json")
+    if claude_json_path.is_file():
+        shutil.copy2(claude_json_path, config_dir / ".claude.json")
+    else:
+        (config_dir / ".claude.json").write_text("{}\n", encoding="utf-8")
+    return config_dir
 
 
 def _load_launch_payload(output: str) -> dict[str, object]:
@@ -164,14 +147,15 @@ def _load_launch_payload(output: str) -> dict[str, object]:
     raise RuntimeError(f"Did not find launch-complete payload in output:\n{output}")
 
 
-def _validated_env(*, agent_def_dir: Path) -> dict[str, str]:
+def _validated_env() -> dict[str, str]:
     """Return the sanitized environment for the smoke launch."""
 
     env = dict(os.environ)
-    env["HOUMAO_AGENT_DEF_DIR"] = str(agent_def_dir.resolve())
     env["HOUMAO_CLI_PRINT_STYLE"] = "json"
     env["HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE"] = "cwd_only"
     for variable in (
+        "HOUMAO_AGENT_DEF_DIR",
+        "HOUMAO_NATIVE_AGENT_ROOT",
         "HOUMAO_GLOBAL_RUNTIME_DIR",
         "HOUMAO_GLOBAL_MAILBOX_DIR",
         "HOUMAO_PROJECT_OVERLAY_DIR",
@@ -180,13 +164,77 @@ def _validated_env(*, agent_def_dir: Path) -> dict[str, str]:
     return env
 
 
+def _bootstrap_smoke_project(
+    *,
+    workdir: Path,
+    source_agent_def_dir: Path,
+    auth_bundle_root: Path,
+    auth_name: str,
+    env: dict[str, str],
+) -> None:
+    """Create the temporary project credential and specialist used by the smoke flow."""
+
+    if not source_agent_def_dir.is_dir():
+        raise RuntimeError(
+            f"Tracked plain agent-definition fixture root is missing: `{source_agent_def_dir}`."
+        )
+    role_prompt_path = (
+        source_agent_def_dir / "roles" / "server-api-smoke" / "system-prompt.md"
+    ).resolve()
+    if not role_prompt_path.is_file():
+        raise RuntimeError(f"Expected smoke role prompt at `{role_prompt_path}`.")
+
+    config_dir = _materialize_temp_claude_config(
+        auth_bundle_root=auth_bundle_root,
+        workdir=workdir,
+    )
+    _run_command(args=["pixi", "run", "houmao-mgr", "project", "init"], cwd=workdir, env=env)
+    _run_command(
+        args=[
+            "pixi",
+            "run",
+            "houmao-mgr",
+            "project",
+            "credentials",
+            "claude",
+            "add",
+            "--name",
+            auth_name,
+            "--config-dir",
+            str(config_dir),
+        ],
+        cwd=workdir,
+        env=env,
+    )
+    _run_command(
+        args=[
+            "pixi",
+            "run",
+            "houmao-mgr",
+            "project",
+            "specialist",
+            "create",
+            "--name",
+            "server-api-smoke",
+            "--system-prompt-file",
+            str(role_prompt_path),
+            "--tool",
+            "claude",
+            "--credential",
+            auth_name,
+        ],
+        cwd=workdir,
+        env=env,
+    )
+
+
 def _run_smoke_launch(
     *,
     repo_root: Path,
     source_agent_def_dir: Path,
     auth_bundle_root: Path,
     auth_name: str,
-) -> tuple[Path, Path, dict[str, object]]:
+) -> tuple[Path, dict[str, object]]:
     """Run the headless Claude smoke launch from a fresh temp workdir."""
 
     tmp_root = repo_root / "tmp"
@@ -194,30 +242,26 @@ def _run_smoke_launch(
     workdir = Path(
         tempfile.mkdtemp(prefix="claude-official-login-smoke-", dir=str(tmp_root))
     ).resolve()
-    materialized_agent_def_dir = _materialize_temp_agent_def_dir(
+    env = _validated_env()
+    _bootstrap_smoke_project(
+        workdir=workdir,
         source_agent_def_dir=source_agent_def_dir,
         auth_bundle_root=auth_bundle_root,
         auth_name=auth_name,
-        workdir=workdir,
+        env=env,
     )
-    env = _validated_env(agent_def_dir=materialized_agent_def_dir)
-    preset_path = (
-        materialized_agent_def_dir / "presets" / "server-api-smoke-claude-default.yaml"
-    ).resolve()
-    if not preset_path.is_file():
-        raise RuntimeError(f"Expected smoke preset at `{preset_path}`.")
-
     process = _run_command(
         args=[
             "pixi",
             "run",
             "houmao-mgr",
+            "project",
             "agents",
             "launch",
-            "--agents",
-            str(preset_path),
-            "--provider",
-            "claude_code",
+            "--specialist",
+            "server-api-smoke",
+            "--name",
+            "server-api-smoke",
             "--auth",
             auth_name,
             "--headless",
@@ -226,28 +270,28 @@ def _run_smoke_launch(
         env=env,
     )
     payload = _load_launch_payload(process.stdout)
-    return workdir, materialized_agent_def_dir, payload
+    return workdir, payload
 
 
 def _stop_and_cleanup_session(
     *,
     workdir: Path,
-    agent_def_dir: Path,
     agent_id: str,
     manifest_path: Path,
 ) -> None:
     """Stop and clean up the launched managed session."""
 
-    env = _validated_env(agent_def_dir=agent_def_dir)
+    env = _validated_env()
     _run_command(
         args=[
             "pixi",
             "run",
             "houmao-mgr",
             "agents",
-            "stop",
+            "single",
             "--agent-id",
             agent_id,
+            "stop",
         ],
         cwd=workdir,
         env=env,
@@ -258,6 +302,9 @@ def _stop_and_cleanup_session(
             "run",
             "houmao-mgr",
             "agents",
+            "single",
+            "--agent-id",
+            agent_id,
             "cleanup",
             "session",
             "--manifest-path",
@@ -285,7 +332,7 @@ def main() -> None:
         "--plain-agent-def-dir",
         type=Path,
         default=_default_plain_agent_def_dir(repo_root),
-        help="Tracked plain fixture root copied into one temp direct-dir launch tree.",
+        help="Tracked plain fixture root used as smoke prompt seed material.",
     )
     parser.add_argument(
         "--auth-bundles-dir",
@@ -341,7 +388,7 @@ def main() -> None:
     if shutil.which("tmux") is None:
         raise RuntimeError("tmux not found on PATH")
 
-    workdir, materialized_agent_def_dir, launch_payload = _run_smoke_launch(
+    workdir, launch_payload = _run_smoke_launch(
         repo_root=resolved_repo_root,
         source_agent_def_dir=resolved_plain_agent_def_dir,
         auth_bundle_root=auth_root,
@@ -354,14 +401,12 @@ def main() -> None:
 
     _stop_and_cleanup_session(
         workdir=workdir,
-        agent_def_dir=materialized_agent_def_dir,
         agent_id=agent_id,
         manifest_path=manifest_path,
     )
 
     print("claude-official-login-smoke=PASS")
     print(f"workdir={workdir}")
-    print(f"agent_def_dir={materialized_agent_def_dir}")
     print(f"agent_id={agent_id}")
     print(f"manifest_path={manifest_path}")
     print(f"auth_bundle_root={auth_root}")

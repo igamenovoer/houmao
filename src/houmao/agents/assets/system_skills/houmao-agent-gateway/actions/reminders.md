@@ -23,8 +23,9 @@ Use this action when the attached agent needs one or more ranked live reminders 
    - `deliver_at_utc`
 10. Recover whether each reminder is `one_off` or `repeat`.
 11. Prefer the managed-agent reminder seam first:
-   - `<chosen houmao-mgr launcher> agents gateway reminders list|get|create|set|remove ...`
-   - `/houmao/agents/{agent_ref}/gateway/reminders...` only when the current task is already operating through pair-managed HTTP
+   - run `agents single ... gateway reminders list|get|create|set|remove` for selected-agent CLI work
+   - run `agents self gateway reminders list|get|create|set|remove` for current-session CLI work
+   - use `/houmao/agents/{agent_ref}/gateway/reminders...` only when the current task is already operating through pair-managed HTTP
 12. Keep ranking numeric:
    - use `--ranking <int>` for exact placement
    - use `--before-all` to insert above the current minimum ranking
@@ -34,24 +35,14 @@ Use this action when the attached agent needs one or more ranked live reminders 
 
 ## Preferred CLI Surface
 
-Inspection:
+Run direct scoped reminder commands:
 
-- `<chosen houmao-mgr launcher> agents gateway reminders list --agent-name gpu`
-- `<chosen houmao-mgr launcher> agents gateway reminders get --agent-name gpu --reminder-id greminder-123`
-
-Create:
-
-- `<chosen houmao-mgr launcher> agents gateway reminders create --agent-name gpu --title "Check inbox" --mode one_off --prompt "Review the inbox now." --after-all --start-after-seconds 300`
-- `<chosen houmao-mgr launcher> agents gateway reminders create --agent-name gpu --title "Dismiss dialog" --mode one_off --sequence "<[Escape]>" --no-ensure-enter --before-all --start-after-seconds 5`
-
-Update:
-
-- `<chosen houmao-mgr launcher> agents gateway reminders set --agent-name gpu --reminder-id greminder-123 --before-all`
-- `<chosen houmao-mgr launcher> agents gateway reminders set --agent-name gpu --reminder-id greminder-123 --paused --deliver-at-utc 2026-04-09T12:00:00+00:00`
-
-Delete:
-
-- `<chosen houmao-mgr launcher> agents gateway reminders remove --agent-name gpu --reminder-id greminder-123`
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds>
+<chosen houmao-mgr launcher> agents self gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders set --reminder-id <id> [--title <title>] [--prompt <prompt>] [--paused | --no-paused]
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders remove --reminder-id <id>
+```
 
 ## Direct Gateway Routes
 
@@ -104,7 +95,7 @@ Representative send-keys reminder payload:
 ## Guardrails
 
 - Do not claim that reminders survive gateway stop or restart; they are process-local in-memory state.
-- Do not skip the supported `houmao-mgr agents gateway reminders ...` or `/houmao/agents/{agent_ref}/gateway/reminders...` surfaces when they already satisfy the task.
+- Do not skip the supported `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, or `/houmao/agents/{agent_ref}/gateway/reminders...` surfaces when they already satisfy the task.
 - Do not create a repeating reminder without `interval_seconds`.
 - Do not set both `start_after_seconds` and `deliver_at_utc` in the same request.
 - Do not set both `prompt` and `send_keys` in the same reminder, and do not omit both.
@@ -113,3 +104,4 @@ Representative send-keys reminder payload:
 - Do not hide backend limitations: unsupported `send_keys` reminders fail with HTTP `422` at create or update time.
 - Do not describe pausing a reminder as promoting lower-ranked reminders automatically; a paused effective reminder still blocks them.
 - Do not describe reminders as extending the durable public `POST /v1/requests` kinds.
+- Do not hand-author supported reminder CLI commands from Markdown skeletons.

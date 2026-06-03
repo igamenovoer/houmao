@@ -76,7 +76,6 @@ def test_project_catalog_exposes_sql_views_and_integrity_checks(
         cli,
         [
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -396,6 +395,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "automation-notice": "disabled",
             "task-reminder": "enabled",
         },
+        system_skills_mapping={
+            "mode": "extend",
+            "skills": ["houmao-utils-workspace-mgr"],
+        },
         prompt_overlay_mode="append",
         prompt_overlay_text="Prefer Alice repository conventions.",
         gateway_mail_notifier_appendix_text="Prefer urgent legal mail before routine updates.",
@@ -408,6 +411,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
     assert profile.prompt_overlay_ref is not None
     assert profile.gateway_mail_notifier_appendix_ref is not None
     assert profile.memo_seed is not None
+    assert profile.system_skills_payload == {
+        "mode": "extend",
+        "skills": ["houmao-utils-workspace-mgr"],
+    }
 
     projection_root = catalog.materialize_projection()
     projection_path = projection_root / "launch-profiles" / "alice.yaml"
@@ -438,6 +445,10 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             "managed_header_sections": {
                 "automation-notice": "disabled",
                 "task-reminder": "enabled",
+            },
+            "system_skills": {
+                "mode": "extend",
+                "skills": ["houmao-utils-workspace-mgr"],
             },
             "prompt_overlay": {
                 "mode": "append",
@@ -484,6 +495,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
                 reasoning_level,
                 managed_header_policy,
                 managed_header_section_policy,
+                system_skills_payload,
                 prompt_overlay_mode,
                 gateway_mail_notifier_appendix_relative_path,
                 relaunch_chat_session_payload,
@@ -503,6 +515,7 @@ def test_project_catalog_persists_and_projects_launch_profiles(
             4,
             "inherit",
             '{"automation-notice": "disabled", "task-reminder": "enabled"}',
+            '{"mode": "extend", "skills": ["houmao-utils-workspace-mgr"]}',
             "append",
             "prompts/launch-profiles/alice-mail-notifier-appendix.md",
             '{"mode": "tool_last_or_new"}',

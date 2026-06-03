@@ -18,7 +18,7 @@ That catalog SHALL be the source of truth for project-local identities and relat
 - auth profiles,
 - mailbox policies,
 - references between those objects,
-- source-lane provenance that distinguishes specialist-backed easy profiles from recipe-backed explicit launch profiles.
+- source-lane provenance that distinguishes specialist-backed project profiles from recipe-backed native launch dossiers.
 
 Project-local directory structure SHALL NOT remain the primary source of those semantic relationships once the catalog is present.
 

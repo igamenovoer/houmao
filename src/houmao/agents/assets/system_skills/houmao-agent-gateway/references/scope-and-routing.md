@@ -27,5 +27,5 @@ Use `houmao-agent-gateway` when the task is about the managed gateway itself or 
 
 - Current-session managed identity is manifest-first: `HOUMAO_MANIFEST_PATH`, then `HOUMAO_AGENT_ID`.
 - Live gateway env (`HOUMAO_AGENT_GATEWAY_HOST` and `HOUMAO_AGENT_GATEWAY_PORT`) is for live direct gateway control only.
-- Exact live mailbox `gateway.base_url` should come from `houmao-mgr agents mail resolve-live` or the matching managed-agent HTTP resolver.
+- Exact live mailbox `gateway.base_url` should come from `houmao-mgr agents self mail resolve-live`, `houmao-mgr agents single ... mail resolve-live`, or the matching managed-agent HTTP resolver.
 - `HOUMAO_GATEWAY_ATTACH_PATH` and `HOUMAO_GATEWAY_ROOT` are retired from the supported public discovery contract.

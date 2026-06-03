@@ -218,7 +218,7 @@ The planner's tick skill is separate from mail-received handlers. It asks the ha
 
 The operator-control skill is loop-bound, so it carries the concrete loop slug and generated package paths instead of asking the operator to restate loop identity for every lifecycle action. It routes platform mechanics to maintained Houmao skills while using generated harness control commands for run state, execution mode, and operator intent records.
 
-Workspace setup in this abstract example is not implemented by generated role skills or agent preparation. The generated workspace contract should provide policy and structured inputs for `prepare-workspace`, which routes supported layouts through `houmao-utils-workspace-mgr`; the default is the standard `in-repo` flavor with explicit extra bookkeeping directories such as task `runs/`, task `artifacts/`, per-agent `artifacts/`, and ignored per-agent `tmp/` when the loop needs them.
+Workspace setup in this abstract example is not implemented by generated role skills or agent preparation. The generated workspace contract should provide policy and structured inputs for `prepare-workspace`, which routes supported layouts through `houmao-utils-workspace-mgr` `plan`, `create`, `validate`, and `summarize`; the default is the standard `in-repo` flavor with task `shared-kb/` for cross-run knowledge, task `owner-states/<subdir>/...` for per-run task-owner bookkeeping, per-agent `repo/` worktrees for source mutation, per-agent `states/` for agent-local bookkeeping, and validation commands when project-scope readiness checks are known.
 
 `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence, `validate-loop`, `launch-agents`, and `start` are separate ordered execution stages. `prepare-agents` resolves concrete agent/profile and launch facts first. `prepare-workspace` consumes those facts with generated workspace contracts to prepare or verify workspace facts. `validate-loop` checks concrete pre-launch readiness, including workspace, mailbox/gateway/notifier, harness, run artifact, state, launchability, and no in-chat waiting posture. `launch-agents` starts prepared agents and reports live-agent/session facts. `start` sends the first loop trigger after agents are live. After launch, `<loop-slug>-operator-control` is the loop-local lifecycle surface for status, start, pause, resume, stop, recover, mode switching, and manual stepping when those operations apply.
 
@@ -300,7 +300,7 @@ A mature execplan can use purpose-based specs instead of one monolithic contract
 - `specs/collab/`: scheduling policy, topology, collaboration records, and loop behavior.
 - `specs/comms/`: message template registry, JSON schemas, and Markdown renderers.
 - `specs/state/`: state schema, migrations, seed data, and invariants when runtime state is needed.
-- `specs/workspace/`: repository, command, workspace, artifact, runtime path contracts, and inputs for `houmao-utils-workspace-mgr`.
+- `specs/workspace/`: repository, command, workspace, standard workspace-manager surfaces, validation command contracts, and inputs for `houmao-utils-workspace-mgr`.
 - `specs/run/`: run directory layout, durable artifact preservation, audit, status, and recovery posture.
 - `specs/participants/`: abstract role templates and stable role instances.
 

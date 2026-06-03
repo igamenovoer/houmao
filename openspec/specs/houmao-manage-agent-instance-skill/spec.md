@@ -6,14 +6,16 @@ The system SHALL package a Houmao-owned system skill named `houmao-agent-instanc
 
 That skill SHALL instruct agents to manage live managed-agent instances through these supported lifecycle commands:
 
-- `houmao-mgr agents launch`
-- `houmao-mgr project easy instance launch`
-- `houmao-mgr agents join`
-- `houmao-mgr agents list`
-- `houmao-mgr agents stop`
-- `houmao-mgr agents relaunch`
-- `houmao-mgr agents cleanup session`
-- `houmao-mgr agents cleanup logs`
+- `houmao-mgr project agents launch`
+- `houmao-mgr agents self join`
+- `houmao-mgr agents global list`
+- `houmao-mgr agents single --agent-id <id> stop`
+- `houmao-mgr agents single --agent-name <name> stop`
+- `houmao-mgr agents self relaunch`
+- `houmao-mgr agents single --agent-id <id> relaunch`
+- `houmao-mgr agents single --agent-name <name> relaunch`
+- `houmao-mgr agents single --agent-id <id> cleanup session|logs`
+- `houmao-mgr agents single --agent-name <name> cleanup session|logs`
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
 
@@ -24,20 +26,18 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `relaunch`
 - `cleanup`
 
-That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-specialist-mgr` also offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
+That packaged skill SHALL remain the canonical Houmao-owned skill for general live managed-agent lifecycle guidance even when `houmao-agent-definition` offers specialist-scoped `launch` and `stop` entry points with post-action handoff into this skill.
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
-- `project easy specialist create|list|get|remove`
-- `project easy instance list|get|stop`
-- `agents prompt`, `agents interrupt`, `agents turn`, and `agents gateway ...`
-- `agents mailbox ...`, `agents mail ...`, and `agents cleanup mailbox`
+- `project specialist create|list|get|remove`
+- ordinary prompt, interrupt, turn, gateway, mailbox, and mail work that is already owned by dedicated skills
 - `project mailbox ...` and `admin cleanup runtime ...`
 
-#### Scenario: Installed skill points the agent at instance lifecycle commands
+#### Scenario: Installed skill points the agent at scoped instance lifecycle commands
 - **WHEN** an agent opens the installed `houmao-agent-instance` skill
-- **THEN** the skill directs the agent to use the supported launch, join, list, stop, relaunch, and cleanup commands for managed-agent instances
-- **AND THEN** it does not redirect the agent to ad hoc filesystem editing or unrelated runtime-control surfaces
+- **THEN** the skill directs the agent to use the supported project launch, self join, global list, and selected-agent stop, relaunch, and cleanup commands for managed-agent instances
+- **AND THEN** it does not redirect the agent to ad hoc filesystem editing, removed root-level `agents join`, or removed root-level `agents list|stop|relaunch|cleanup` commands
 
 #### Scenario: Installed skill routes to action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-agent-instance` skill
@@ -52,7 +52,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 #### Scenario: Installed skill remains the follow-up lifecycle surface after specialist-scoped entry
 - **WHEN** an agent or user reaches `houmao-agent-instance` after using specialist-scoped `launch` or `stop` guidance
 - **THEN** the skill remains the canonical packaged Houmao-owned entry point for further live managed-agent lifecycle work
-- **AND THEN** it does not require `houmao-specialist-mgr` to become a general-purpose instance-management skill
+- **AND THEN** it does not require another specialist-authoring skill to become a general-purpose instance-management skill
 
 ### Requirement: `houmao-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
@@ -100,60 +100,54 @@ The skill SHALL NOT guess missing required inputs that are not explicit in curre
 
 The skill SHALL select commands by lifecycle source and target:
 
-- use `houmao-mgr agents launch` for launching one predefined role or preset
-- use `houmao-mgr project easy instance launch` for launching one predefined specialist
-- use `houmao-mgr agents join` for adopting one existing provider session into Houmao control
-- use `houmao-mgr agents list` for listing live managed-agent instances
-- use `houmao-mgr agents stop` for stopping one live managed agent
-- use `houmao-mgr agents relaunch` for relaunching one tmux-backed managed-agent surface without rebuilding its home
-- use `houmao-mgr agents cleanup session|logs` for cleaning stopped-session artifacts
+- use `houmao-mgr project agents launch --profile <profile>` or `houmao-mgr project agents launch --specialist <specialist>` for project-scoped managed-agent birth,
+- use `houmao-mgr agents self join --agent-name <name>` for adopting the caller's current tmux session into Houmao control,
+- use `houmao-mgr agents global list` for listing live local managed-agent instances,
+- use `houmao-mgr agents single --agent-id <id> stop` or `houmao-mgr agents single --agent-name <name> stop` for stopping one selected live managed agent,
+- use `houmao-mgr agents self relaunch` for current-session relaunch when the caller is inside the owning managed session,
+- use `houmao-mgr agents single --agent-id <id> relaunch` or `houmao-mgr agents single --agent-name <name> relaunch` for selected-agent relaunch,
+- use `houmao-mgr agents single --agent-id <id> cleanup session|logs` or `houmao-mgr agents single --agent-name <name> cleanup session|logs` for stopped-session artifact cleanup.
 
 At minimum, the skill SHALL require the agent to obtain:
 
-- for direct launch: enough input to run `agents launch`, including the agent selector and provider
-- for specialist-backed launch: the specialist name and instance name
+- for project launch: either a project profile or specialist source and any required instance name,
 - for join: the managed-agent name, and for headless join also the provider plus required launch args
 - for stop: a concrete managed-agent target
 - for relaunch: either a concrete managed-agent target or enough current-session context to run the current-session relaunch form honestly
 - for cleanup: a concrete cleanup kind plus one supported cleanup selector
 
-The skill SHALL NOT route specialist-backed runtime listing or stopping through `project easy instance list|get|stop`; once running, those instances SHALL be treated as managed agents on the canonical `agents` lifecycle surface.
+The skill SHALL NOT route general lifecycle listing or selected-agent stop through `project agents list|get|stop` unless the user explicitly asks for the selected-project facade.
 
 When relaunch is unavailable because the selected session lacks relaunch posture or the current-session authority cannot be resolved, the skill SHALL report relaunch as unavailable and SHALL NOT silently route that request through a fresh launch command without explicit user direction.
 
-#### Scenario: Specialist-backed launch uses the easy instance surface
+#### Scenario: Specialist-backed launch uses the project instance surface
 - **WHEN** the user asks to launch an agent from an existing specialist
-- **THEN** the skill directs the agent to use `houmao-mgr project easy instance launch`
-- **AND THEN** it does not redirect that request to `houmao-mgr agents launch`
+- **THEN** the skill directs the agent to use `houmao-mgr project agents launch --specialist <specialist>`
+- **AND THEN** it does not redirect that request to a removed root-level `houmao-mgr agents launch` command
 
-#### Scenario: Existing live-session adoption uses join
+#### Scenario: Existing live-session adoption uses self join
 - **WHEN** the user asks Houmao to take over an already-running supported provider session
-- **THEN** the skill directs the agent to use `houmao-mgr agents join`
-- **AND THEN** it treats that join flow as creation of a managed-agent instance under Houmao control
+- **THEN** the skill directs the agent to use `houmao-mgr agents self join --agent-name <name>`
+- **AND THEN** it treats that join flow as current-session adoption rather than selected-agent lifecycle work
 
-#### Scenario: Live-instance list uses the canonical agents surface
+#### Scenario: Live-instance list uses the global agents scope
 - **WHEN** the user asks to list current managed-agent instances
-- **THEN** the skill directs the agent to use `houmao-mgr agents list`
+- **THEN** the skill directs the agent to use `houmao-mgr agents global list`
 - **AND THEN** it does not require a project-aware specialist instance listing path for that lifecycle view
 
-#### Scenario: Explicit relaunch uses the canonical agents relaunch surface
+#### Scenario: Explicit relaunch uses selected-agent scope
 - **WHEN** the user asks to relaunch one managed agent and provides an explicit managed-agent name or id
-- **THEN** the skill directs the agent to use `houmao-mgr agents relaunch`
-- **AND THEN** it does not reinterpret that request as `agents launch` or `project easy instance launch`
+- **THEN** the skill directs the agent to use `houmao-mgr agents single --agent-name <name> relaunch` or `houmao-mgr agents single --agent-id <id> relaunch`
+- **AND THEN** it does not reinterpret that request as `project agents launch`
 
-#### Scenario: Current-session relaunch uses manifest-backed session context
+#### Scenario: Current-session relaunch uses self scope
 - **WHEN** the user asks to relaunch from inside the owning tmux session and no explicit selector is required
-- **THEN** the skill permits the current-session `houmao-mgr agents relaunch` form
+- **THEN** the skill permits the current-session `houmao-mgr agents self relaunch` form
 - **AND THEN** it does not require an unnecessary explicit target if current-session authority is already the intended relaunch contract
 
-#### Scenario: Relaunch-unavailable remains explicit instead of falling back to launch
-- **WHEN** the selected relaunch path cannot be used because current-session authority is missing or the target session has no relaunch posture
-- **THEN** the skill tells the agent to report that relaunch is unavailable
-- **AND THEN** it does not silently replace the request with a fresh managed launch
-
-#### Scenario: Cleanup stays within session and logs scope
+#### Scenario: Cleanup stays within selected-agent scope
 - **WHEN** the user asks to clean instance artifacts after stop
-- **THEN** the skill directs the agent to use `houmao-mgr agents cleanup session` or `houmao-mgr agents cleanup logs` as appropriate
+- **THEN** the skill directs the agent to use `houmao-mgr agents single ... cleanup session` or `houmao-mgr agents single ... cleanup logs` as appropriate
 - **AND THEN** it does not route that request to mailbox cleanup or broader admin cleanup surfaces
 
 #### Scenario: Missing lifecycle target requires a user question
@@ -164,7 +158,7 @@ When relaunch is unavailable because the selected session lacks relaunch posture
 ### Requirement: `houmao-agent-instance` launch guidance preserves foreground-first gateway posture
 The packaged `houmao-agent-instance` launch action guidance SHALL preserve foreground-first gateway posture whenever it teaches a launch lane that may start or inherit gateway attachment.
 
-For specialist-backed launch through `project easy instance launch`, the guidance SHALL defer detailed launch-time gateway behavior to `houmao-specialist-mgr` while still stating that agents MUST NOT add background gateway flags unless the user explicitly requests detached background gateway execution.
+For specialist-backed launch through `project agents launch`, the guidance SHALL defer detailed launch-time gateway behavior to `houmao-specialist-mgr` while still stating that agents MUST NOT add background gateway flags unless the user explicitly requests detached background gateway execution.
 
 For explicit launch-profile-backed managed launch, the guidance SHALL state that stored launch-profile gateway posture may already control gateway auto-attach, and agents SHALL NOT add one-shot background gateway overrides unless the user explicitly requests background gateway execution.
 
@@ -242,7 +236,7 @@ The skill SHALL ask for a provider session id before selecting exact relaunch mo
 ### Requirement: `houmao-agent-instance` prefers TUI-supported launch posture when unspecified
 The packaged `houmao-agent-instance` launch guidance SHALL instruct agents that omitted headless/TUI launch posture means "prefer TUI/local interactive when the selected tool or launch lane supports it."
 
-For direct role or preset launch, raw-profile-backed launch, and specialist-backed easy launch, the skill SHALL NOT add a one-shot `--headless` flag unless the user explicitly asks for headless execution or the selected tool/lane is known to require headless.
+For direct role or preset launch, launch-dossier-backed launch, and specialist-backed easy launch, the skill SHALL NOT add a one-shot `--headless` flag unless the user explicitly asks for headless execution or the selected tool/lane is known to require headless.
 
 For profile-backed launch, the skill SHALL preserve explicit stored profile posture: an existing stored headless profile MAY launch headless, but the skill SHALL NOT add headless on top of an unspecified user request.
 
@@ -255,13 +249,13 @@ The skill SHALL keep prompt mode separate from launch posture and SHALL NOT trea
 - **AND THEN** the resulting command leaves launch posture TUI/local-interactive preferred when supported
 
 #### Scenario: Raw-profile-backed launch does not add a headless override by default
-- **WHEN** a user asks `houmao-agent-instance launch` to launch through an existing raw profile
+- **WHEN** a user asks `houmao-agent-instance launch` to launch through an existing launch dossier
 - **AND WHEN** the user does not request a headless one-shot override
 - **THEN** the skill guidance directs the agent to omit `--headless`
 - **AND THEN** it preserves whatever explicit posture is already stored on the selected profile
 
 #### Scenario: Specialist-backed launch does not add headless by default
-- **WHEN** a user asks `houmao-agent-instance launch` to launch from an existing Codex or Claude easy specialist
+- **WHEN** a user asks `houmao-agent-instance launch` to launch from an existing Codex or Claude specialist
 - **AND WHEN** the user does not request headless execution
 - **THEN** the skill guidance directs the agent to omit `--headless`
 - **AND THEN** it treats the launch as TUI/local-interactive preferred when supported
@@ -270,3 +264,13 @@ The skill SHALL keep prompt mode separate from launch posture and SHALL NOT trea
 - **WHEN** a selected specialist or launch lane is known to require headless execution
 - **THEN** the skill guidance may include the required headless flag or report the requirement
 - **AND THEN** it explains that this is a tool or lane constraint rather than the default for unspecified launch posture
+
+### Requirement: `houmao-agent-instance` uses direct scoped command snippets for lifecycle command authoring
+The packaged `houmao-agent-instance` skill SHALL document supported lifecycle commands as direct fenced `bash` snippets or equivalent explicit command shapes.
+
+The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining lifecycle commands.
+
+#### Scenario: Join guidance shows self join directly
+- **WHEN** a user asks the skill how to adopt the current tmux session
+- **THEN** the skill guidance shows `houmao-mgr agents self join --agent-name <managed-agent-name>`
+- **AND THEN** it does not show `houmao-mgr agents join --name <managed-agent-name>`

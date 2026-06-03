@@ -56,7 +56,14 @@ from houmao.agents.model_selection import (
     model_config_to_payload,
     resolve_model_config_layers,
 )
-from houmao.agents.system_skills import install_system_skills_for_home
+from houmao.agents.system_skills import (
+    SystemSkillCatalog,
+    SystemSkillSelectionPolicy,
+    load_system_skill_catalog,
+    resolve_managed_system_skill_selection,
+    sync_system_skills_for_home,
+    system_skill_selection_policy_to_payload,
+)
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_managed_agent_id,
@@ -115,6 +122,8 @@ class BuildRequest:
     recipe_launch_overrides: LaunchOverrides | None = None
     launch_profile_model_config: ModelConfig | None = None
     direct_model_config: ModelConfig | None = None
+    source_system_skill_policy: SystemSkillSelectionPolicy | None = None
+    launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
     role_prompt_override: str | None = None
     managed_prompt_header: dict[str, Any] | None = None
     houmao_system_prompt_layout: dict[str, Any] | None = None
@@ -415,6 +424,34 @@ def _validate_private_skill_projections(
             )
 
 
+def _validate_project_skill_system_skill_collisions(
+    *,
+    selected_skills: list[str],
+    private_skills: tuple[PrivateSkillProjection, ...],
+    catalog: SystemSkillCatalog,
+) -> None:
+    """Reject project/private skills that collide with current Houmao system skills."""
+
+    system_skill_names = set(catalog.skill_names)
+    registered_collisions = sorted(set(selected_skills).intersection(system_skill_names))
+    private_collisions = sorted(
+        {private_skill.name for private_skill in private_skills}.intersection(system_skill_names)
+    )
+    if not registered_collisions and not private_collisions:
+        return
+
+    collision_parts: list[str] = []
+    if registered_collisions:
+        collision_parts.append(f"registered project skills: {', '.join(registered_collisions)}")
+    if private_collisions:
+        collision_parts.append(f"profile-private skills: {', '.join(private_collisions)}")
+    raise BuildError(
+        "Project/private skill names cannot collide with packaged Houmao system-skill names "
+        f"({'; '.join(collision_parts)}). Rename the project/private skill or select the packaged "
+        "system skill through system_skills policy."
+    )
+
+
 def _generate_home_id(tool: str) -> str:
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%SZ")
     short_uuid = uuid.uuid4().hex[:6]
@@ -587,6 +624,17 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         raise BuildError(f"Missing skills repository: {skills_root}")
     _validate_skill_names(skills_root=skills_root, selected_skills=request.skills)
     _validate_private_skill_projections(request.private_skills)
+    system_skill_catalog = load_system_skill_catalog()
+    _validate_project_skill_system_skill_collisions(
+        selected_skills=request.skills,
+        private_skills=request.private_skills,
+        catalog=system_skill_catalog,
+    )
+    managed_system_skill_selection = resolve_managed_system_skill_selection(
+        source_policy=request.source_system_skill_policy,
+        profile_policy=request.launch_profile_system_skill_policy,
+        catalog=system_skill_catalog,
+    )
 
     if not setup_dir.is_dir():
         raise BuildError(f"Missing setup bundle: {setup_dir}")
@@ -631,10 +679,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         source = skills_root / skill_name
         destination = skill_destination_dir / skill_name
         _project_path(source, destination, mode=adapter.skills_mode)
-    install_system_skills_for_home(
+    system_skill_sync_result = sync_system_skills_for_home(
         tool=request.tool,
         home_path=home_path,
-        auto_install_kind="managed_launch",
+        selection=managed_system_skill_selection,
     )
     for private_skill in request.private_skills:
         destination = skill_destination_dir / private_skill.name
@@ -794,6 +842,27 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             }
             for private_skill in request.private_skills
         ]
+    construction_provenance["system_skills"] = {
+        "source_policy": system_skill_selection_policy_to_payload(
+            request.source_system_skill_policy
+        ),
+        "profile_policy": system_skill_selection_policy_to_payload(
+            request.launch_profile_system_skill_policy
+        ),
+        "selected_sets": list(system_skill_sync_result.selected_set_names),
+        "explicit_skills": list(system_skill_sync_result.explicit_skill_names),
+        "resolved_skills": list(system_skill_sync_result.resolved_skill_names),
+        "projected_relative_dirs": list(system_skill_sync_result.projected_relative_dirs),
+        "removed_skills": list(system_skill_sync_result.removed_skill_names),
+        "removed_projected_relative_dirs": list(
+            system_skill_sync_result.removed_projected_relative_dirs
+        ),
+        "removed_retired_skills": list(system_skill_sync_result.removed_retired_skill_names),
+        "removed_retired_projected_relative_dirs": list(
+            system_skill_sync_result.removed_retired_projected_relative_dirs
+        ),
+        "projection_mode": system_skill_sync_result.projection_mode,
+    }
 
     manifest: dict[str, Any] = {
         "schema_version": 3,
@@ -1243,7 +1312,7 @@ def main(argv: list[str] | None = None) -> int:
         missing.append("--setup (or preset.setup)")
     if not auth_raw:
         missing.append("--auth (or preset.auth)")
-    if not skills_raw:
+    if not namespace.skills and recipe is None:
         missing.append("at least one --skill (or preset.skills)")
     if missing:
         raise BuildError(f"Missing required inputs: {', '.join(missing)}")
@@ -1263,6 +1332,7 @@ def main(argv: list[str] | None = None) -> int:
         preset_path=preset_path,
         preset_launch_overrides=recipe.launch_overrides if recipe else None,
         preset_model_config=recipe.launch_model_config if recipe else None,
+        source_system_skill_policy=recipe.launch_system_skill_policy if recipe else None,
         mailbox=recipe.mailbox if recipe else None,
         agent_name=recipe.default_agent_name if recipe else None,
         home_id=namespace.home_id,

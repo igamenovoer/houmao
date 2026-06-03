@@ -7,7 +7,6 @@ strategies:
       - raw_launch
       - claude_headless
       - cao_rest
-      - houmao_server_rest
     supported_versions: ">=2.1.81"
     minimal_inputs:
       credential_forms:

@@ -25,7 +25,7 @@ For example, managed agent `researcher` in `/repo` gets:
 
 Houmao creates the memory root, memo file, and `pages/` directory for every managed agent. The runtime manifest stores `memory_root`, `memo_file`, and `pages_dir`.
 
-Managed launches also render a default `memo-cue` section in the managed prompt header. That cue contains the resolved absolute `houmao-memo.md` path and makes memo reading mandatory before planning or acting at every prompt turn, new dialog, topic change, compaction, or cleared-context boundary. It tells agents to keep the memo limited to concise working rules, standing constraints, and current facts; never use it as a log, journal, transcript, or scratchpad; move long details into `pages/` with a short memo note and relative link; and update it only on explicit memo prompts or obviously stale facts. Disable only that cue with `--managed-header-section memo-cue=disabled`, or disable the whole managed header with `--no-managed-header`.
+Managed launches also render a default `memo-cue` section in the managed prompt header. That cue contains the resolved absolute `houmao-memo.md` path, tells agents to read it before planning or acting, and requires relevant memo facts and constraints to be applied in the agent's next actions unless higher-priority system, developer, or user instructions conflict. It tells agents not to merely acknowledge the memo, to keep it limited to current facts, standing rules, and links to longer `pages/` notes, and to update it only when explicitly asked or when existing memo content is clearly stale. Disable only that cue with `--managed-header-section memo-cue=disabled`, or disable the whole managed header with `--no-managed-header`.
 
 ## Environment Variables
 
@@ -42,8 +42,8 @@ The previous workspace, scratch, persist, job, and generic memory variables are 
 Use the normal launch and join commands. There are no managed-memory persist flags:
 
 ```bash
-houmao-mgr agents launch --agents researcher
-houmao-mgr agents join --agent-name researcher
+houmao-mgr project agents launch --specialist researcher --name researcher
+houmao-mgr agents self join --agent-name researcher
 ```
 
 Work artifacts belong in the launched workdir, an operator-designated project path, or an external directory named in the task instructions.

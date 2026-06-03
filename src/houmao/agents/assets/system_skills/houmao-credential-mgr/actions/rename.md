@@ -7,16 +7,16 @@ Use this action only when the user wants to rename one existing credential.
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, current credential name, new credential name, and target from the current prompt first and recent chat context second when they were stated explicitly.
 3. If any of those inputs are still missing, ask the user before proceeding.
-4. Run the selected command.
-5. Report the renamed credential name, previous name, and any diagnostic metadata returned by the command.
+4. Run the direct credential rename command.
+6. Report the renamed credential name, previous name, and any diagnostic metadata returned by the command.
 
 ## Command Shape
 
-Use one of:
+Run the matching direct command:
 
-```text
-<chosen houmao-mgr launcher> project credentials <tool> rename --name <old> --to <new>
-<chosen houmao-mgr launcher> credentials <tool> rename --agent-def-dir <path> --name <old> --to <new>
+```bash
+<chosen houmao-mgr launcher> project credentials <tool> rename --name <credential> --to <new-credential>
+<chosen houmao-mgr launcher> internals native-agent credentials <tool> rename --native-agent-root <dir> --name <credential> --to <new-credential>
 ```
 
 ## Guardrails

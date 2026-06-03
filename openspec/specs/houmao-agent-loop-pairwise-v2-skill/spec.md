@@ -375,6 +375,16 @@ The skill SHALL not rename existing v2 runtime paths, recovery names, generated 
 - **THEN** those references remain unchanged
 - **AND THEN** surrounding prose uses tree-loop terminology where it explains the topology to users
 
+### Requirement: Pairwise-v2 legacy guidance names current scoped memory surfaces
+The retired packaged `houmao-agent-loop-pairwise-v2` skill SHALL NOT route managed-memory work through removed root-level `houmao-mgr agents memory ...` command shapes.
+
+When legacy v2 guidance mentions maintained CLI memory surfaces, it SHALL name or delegate to current `houmao-memory-mgr` guidance for `houmao-mgr agents self memory ...` and `houmao-mgr agents single --agent-name|--agent-id ... memory ...`.
+
+#### Scenario: Legacy v2 memory routing avoids removed agents memory shorthand
+- **WHEN** a caller reads the retired pairwise-v2 skill routing guidance for managed-memory reads or writes
+- **THEN** the guidance routes through `houmao-memory-mgr` and current scoped memory surfaces
+- **AND THEN** it does not name `houmao-mgr agents memory ...` as a supported command family
+
 ### Requirement: Pairwise-v2 skill is retired
 The system SHALL NOT package `houmao-agent-loop-pairwise-v2` as a current installable Houmao-owned system skill.
 

@@ -11,10 +11,9 @@ Use this action only when the user wants late filesystem mailbox posture for one
 
 ## Command Shape
 
-Use:
-
-```text
-<chosen houmao-mgr launcher> agents mailbox status (--agent-id <id> | --agent-name <name>)
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox status
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox status
 ```
 
 ## Guardrails

@@ -597,6 +597,11 @@ class CompatibilityControlCore:
                     auth=resolved_target.preset.auth,
                     preset_path=resolved_target.preset_path,
                     preset_launch_overrides=resolved_target.preset.launch_overrides,
+                    source_system_skill_policy=getattr(
+                        resolved_target.preset,
+                        "launch_system_skill_policy",
+                        None,
+                    ),
                     operator_prompt_mode=resolved_target.preset.operator_prompt_mode,
                     persistent_env_records=resolved_target.preset.launch_env_records,
                     mailbox=resolved_target.preset.mailbox,

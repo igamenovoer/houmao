@@ -2,18 +2,17 @@
 
 ## CLI Surfaces
 
-- [houmao-mgr](cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
+- [houmao-mgr](cli/houmao-mgr.md): Primary management CLI for agents, brains, projects, credentials, mailbox, and local workflow control.
 - [system-skills](cli/system-skills.md): Install and inspect the packaged Houmao-owned skill sets for resolved tool homes.
-- [houmao-server](cli/houmao-server.md): HTTP server for session management and TUI tracking.
-- [houmao-passive-server](cli/houmao-passive-server.md): Registry-driven stateless server.
+- [houmao-passive-server](cli/houmao-passive-server.md): Maintained registry-driven API server for discovery, observation, request submission, gateway proxying, mail proxying, and managed-headless agents.
 - [CLI Entrypoints](cli.md): Module-level entry points and common runtime flags.
 
 ### Managed-Agent Command Families
 
-- [agents gateway](cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
-- [agents turn](cli/agents-turn.md): Managed headless turn submission and inspection.
-- [agents mail](cli/agents-mail.md): Managed-agent mailbox follow-up commands.
-- [agents mailbox](cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [scoped agents gateway](cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
+- [scoped agents turn](cli/agents-turn.md): Managed headless turn submission and inspection.
+- [scoped agents mail](cli/agents-mail.md): Managed-agent mailbox follow-up commands.
+- [scoped agents mailbox](cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
 - [admin cleanup](cli/admin-cleanup.md): Registry and runtime maintenance commands.
 
 ## Build Phase
@@ -47,14 +46,15 @@
 - [Claude Vendor Login Files](claude-vendor-login-files.md): How Houmao imports `.credentials.json` and `.claude.json`, and how to validate that lane locally.
 - [Release Publishing](release-publishing.md): PyPI trusted publishing setup and the GitHub release flow.
 - [Realm Controller](realm_controller.md): Runtime session orchestration.
-- [Houmao Server Pair](houmao_server_pair.md): Server + manager pair workflows.
+- [Passive Server API](cli/houmao-passive-server.md): Maintained API-based coordination for running agents.
 - [Managed-Agent API](managed_agent_api.md): Direct agent control API surface.
 
 - [Realm Controller Send-Keys](realm_controller_send_keys.md): Raw tmux send-keys control.
-- [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md): Server agent API validation.
+- [Houmao Server Pair](houmao_server_pair.md): Historical old-server pair notes for recognizing retired workflows.
+- [Houmao Server Agent API Live Suite](houmao_server_agent_api_live_suite.md): Historical old-server API validation notes.
 
 ## Developer Guides
 
 - [TUI Parsing](../developer/tui-parsing/index.md): Shadow parser architecture and maintenance.
 - [Terminal Recorder](../developer/terminal-record/index.md): Recording internals.
-- [Houmao Server Internals](../developer/houmao-server/index.md): Server-owned TUI tracking.
+- [Retired Server Internals](../developer/houmao-server/index.md): Internal notes for retained old-server modules.

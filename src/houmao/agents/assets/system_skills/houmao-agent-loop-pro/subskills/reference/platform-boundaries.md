@@ -12,14 +12,14 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 
 ## Maintained Skill Ownership
 
-- `houmao-utils-workspace-mgr`: workspace planning and creation.
+- `houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries.
 - `houmao-mailbox-mgr`: mailbox setup, inspection, repair, cleanup, export, registration, and late mailbox binding.
 - `houmao-agent-email-comms`: ordinary mail status, list, read, send, post, reply, mark, move, and archive operations.
 - `houmao-process-emails-via-gateway`: notifier-driven open-mail rounds when the current round provides the gateway base URL.
 - `houmao-agent-messaging`: managed-agent prompt, interrupt, mailbox handoff, and gateway-backed communication routing.
 - `houmao-agent-gateway`: gateway lifecycle, notifier posture, reminders, and gateway posture.
 - `houmao-agent-instance`: managed-agent launch, join, relaunch, stop, and lifecycle control.
-- `houmao-agent-definition`: specialist, easy-profile, raw-profile, credential-defaulting, and pre-launch definition preparation. Treat `houmao-mgr project easy ...` as its underlying CLI surface for this skill.
+- `houmao-agent-definition`: specialist, project-profile, launch-dossier, credential-defaulting, and pre-launch definition preparation. Treat `houmao-mgr project ...` as its underlying CLI surface for this skill.
 - `houmao-memory-mgr`: memo seed and memory posture.
 - `houmao-agent-inspect`: managed-agent liveness, TUI state, mailbox posture, runtime artifacts, logs, and tmux inspection.
 
@@ -33,16 +33,16 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 
 ## Workspace Rule
 
-- When a generated loop needs managed agent workspaces, `prepare-agents` first resolves concrete agent/easy-profile facts when workspace setup needs agent or profile names.
-- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr`.
-- Generated workspace contracts may describe launch cwd, work roots, shared resources, writable temp/artifact paths, notes paths, read/write rules, workspace-manager inputs, and readiness postconditions.
+- When a generated loop needs managed agent workspaces, `prepare-agents` first resolves concrete agent/project-profile facts when workspace setup needs agent or profile names.
+- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-utils-workspace-mgr` `plan`, `create`, `validate`, or `summarize`.
+- Generated workspace contracts may describe launch cwd, work roots, task `shared-kb/`, task `owner-states/<subdir>/...`, per-agent `states/`, shared resources, read/write rules, workspace-manager inputs, validation commands, and readiness postconditions.
 - Do not create agent workspaces directly from general execution pages when the workspace manager can represent the layout.
 - Keep workspace preparation separate from agent preparation; neither stage calls the other.
 - Manual workspace setup is acceptable only when explicit readiness evidence satisfies the generated workspace contract.
 
 ## Launch Rule
 
-- `prepare-agents` prepares launchable easy profiles and prepared agent facts; it does not launch live agents as normal behavior.
+- `prepare-agents` prepares launchable project profiles and prepared agent facts; it does not launch live agents as normal behavior.
 - `validate-loop` checks read-only pre-launch readiness before `launch-agents`; do not fold live workspace readiness into `validate-execplan`.
 - `launch-agents` uses maintained Houmao launch surfaces to start prepared agents and report live-agent/session facts.
 - `start` sends the first loop trigger after agents are live; it does not launch agents.
@@ -77,6 +77,6 @@ Generated harnesses do not own:
 - managed-agent launch;
 - gateway discovery;
 - memory management;
-- workspace creation.
+- workspace planning, creation, validation, or summaries.
 
 Generated harnesses do own loop-local deterministic helpers such as validation, lookup, rendering, state initialization, state query, record validation, and controlled record application.

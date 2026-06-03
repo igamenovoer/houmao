@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import os
 import shutil
 import subprocess
-from typing import Any, ParamSpec, Sequence, TypeVar, cast
+from typing import Any, Literal, ParamSpec, Sequence, TypeVar, cast
 
 import click
 
@@ -17,7 +18,6 @@ from houmao.agents.managed_launch_force import (
 from houmao.agents.realm_controller.agent_identity import normalize_user_managed_agent_name
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.cao.rest_client import CaoApiError
-from houmao.server.client import HoumaoServerClient
 from houmao.server.models import HoumaoManagedAgentIdentity
 from houmao.server.pair_client import (
     PairAuthorityClientProtocol,
@@ -26,12 +26,22 @@ from houmao.server.pair_client import (
     resolve_pair_authority_client,
 )
 
-_CAO_DEFAULT_PORT = int(os.environ.get("CAO_PORT", "9889"))
+_PASSIVE_SERVER_DEFAULT_PORT = int(os.environ.get("HOUMAO_PASSIVE_SERVER_PORT", "9891"))
 _COMPAT_HTTP_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_HTTP_TIMEOUT_SECONDS"
 _COMPAT_CREATE_TIMEOUT_ENV_VAR = "HOUMAO_COMPAT_CREATE_TIMEOUT_SECONDS"
 _FC = TypeVar("_FC", bound=Callable[..., Any])
 _ParamT = ParamSpec("_ParamT")
 _ReturnT = TypeVar("_ReturnT")
+_MANAGED_AGENT_SCOPE_CONTEXT_KEY = "houmao_managed_agent_scope_context"
+
+
+@dataclass(frozen=True)
+class ManagedAgentScopeContext:
+    """Targeting context inherited by scoped `agents` command groups."""
+
+    scope: Literal["single", "self"]
+    agent_id: str | None = None
+    agent_name: str | None = None
 
 
 class OptionalValueOption(click.Option):
@@ -87,9 +97,9 @@ def require_cao_executable() -> str:
 
 
 def resolve_server_base_url(*, port: int | None = None) -> str:
-    """Return the Houmao pair-authority base URL for pair-compatible delegation."""
+    """Return the maintained Houmao passive-server base URL for API delegation."""
 
-    return f"http://127.0.0.1:{port or _CAO_DEFAULT_PORT}"
+    return f"http://127.0.0.1:{port or _PASSIVE_SERVER_DEFAULT_PORT}"
 
 
 def resolve_pair_client(*, port: int | None = None) -> PairAuthorityClientProtocol:
@@ -104,7 +114,7 @@ def require_supported_houmao_pair(
     timeout_seconds: float | None = None,
     create_timeout_seconds: float | None = None,
 ) -> PairAuthorityClientProtocol:
-    """Ensure the target server is one supported Houmao pair authority."""
+    """Ensure the target server is the maintained Houmao pair authority."""
 
     try:
         return resolve_pair_authority_client(
@@ -114,30 +124,6 @@ def require_supported_houmao_pair(
         ).client
     except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
         raise click.ClickException(str(exc)) from exc
-
-
-def require_houmao_server_pair(
-    *,
-    base_url: str,
-    timeout_seconds: float | None = None,
-    create_timeout_seconds: float | None = None,
-) -> HoumaoServerClient:
-    """Ensure the target pair authority is specifically `houmao-server`."""
-
-    try:
-        resolution = resolve_pair_authority_client(
-            base_url=base_url,
-            timeout_seconds=timeout_seconds,
-            create_timeout_seconds=create_timeout_seconds,
-        )
-    except (PairAuthorityConnectionError, UnsupportedPairAuthorityError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    if resolution.health.houmao_service != "houmao-server":
-        raise click.ClickException(
-            "This command requires `houmao-server`; `houmao-passive-server` does not expose "
-            "the legacy session-backed pair control surface."
-        )
-    return cast(HoumaoServerClient, resolution.client)
 
 
 def run_passthrough(
@@ -246,6 +232,28 @@ def managed_agent_selector_options(function: _FC) -> _FC:
         help="Authoritative managed-agent id.",
     )(function)
     return function
+
+
+def set_managed_agent_scope_context(
+    *,
+    ctx: click.Context,
+    scope_context: ManagedAgentScopeContext,
+) -> None:
+    """Store one scoped managed-agent targeting context on Click metadata."""
+
+    ctx.meta[_MANAGED_AGENT_SCOPE_CONTEXT_KEY] = scope_context
+
+
+def get_managed_agent_scope_context() -> ManagedAgentScopeContext | None:
+    """Return the active scoped managed-agent targeting context, if any."""
+
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return None
+    value = ctx.meta.get(_MANAGED_AGENT_SCOPE_CONTEXT_KEY)
+    if isinstance(value, ManagedAgentScopeContext):
+        return value
+    return None
 
 
 def overwrite_confirm_option(function: _FC) -> _FC:

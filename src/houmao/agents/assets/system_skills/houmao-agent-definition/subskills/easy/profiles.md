@@ -1,6 +1,6 @@
-# Easy Profiles
+# Project Profiles
 
-Use this subskill when the user wants to create, inspect, update, list, replace, or remove one specialist-backed easy profile through `project easy profile ...`.
+Use this subskill when the user wants to create, inspect, update, list, replace, or remove one specialist-backed project profile through `project profile ...`.
 
 ## Preconditions
 
@@ -8,7 +8,7 @@ Use this subskill when the user wants to create, inspect, update, list, replace,
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
 - Read [../common/profile-lanes.md](../common/profile-lanes.md).
 - Read [../common/credential-routing.md](../common/credential-routing.md) when auth overrides are involved.
-- Confirm the profile lane is specialist-backed easy profile, not explicit recipe-backed launch profile.
+- Confirm the profile lane is specialist-backed project profile, not a native launch dossier.
 
 ## Actions
 
@@ -22,17 +22,24 @@ Use this subskill when the user wants to create, inspect, update, list, replace,
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> project easy profile list
-<chosen houmao-mgr launcher> project easy profile get --name <name>
-<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> ...
-<chosen houmao-mgr launcher> project easy profile create --name <profile> --specialist <specialist> --yes ...
-<chosen houmao-mgr launcher> project easy profile set --name <profile> ...
-<chosen houmao-mgr launcher> project easy profile remove --name <profile>
+<chosen houmao-mgr launcher> project profile list
+<chosen houmao-mgr launcher> project profile get --name <name>
+<chosen houmao-mgr launcher> project profile remove --name <profile>
 ```
+
+For `create`, same-name replacement, and profile config-document preparation, use the CLI-owned config draft before running the maintained command:
+
+```text
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
+```
+
+The `project.profile` config draft is intentionally minimal. Its JSON intent must contain a top-level `fields` object whose only draft fields are `name`, `specialist`, and `credential`. The draft fixes the project profile lane and specialist source kind, then records the credential as the profile auth reference. For model, env, mailbox, launch posture, managed header, prompt overlay, notifier appendix, memo seed, or other stored defaults, use the maintained `project profile create|set` fields directly instead of adding them to the draft intent.
+
+For `set`, keep the maintained patch command explicit and include only the user-requested mutation fields.
 
 ## Stored Defaults
 
-Easy profiles may store:
+Project profiles may store:
 
 - identity: `--agent-name`, `--agent-id`
 - working directory: `--workdir`
@@ -49,7 +56,7 @@ Easy profiles may store:
 
 ## Default Launch Posture
 
-When the user does not specify headless or TUI posture, omit `--headless`. An easy profile without stored headless posture remains TUI/local-interactive preferred on later launch when the selected tool supports it.
+When the user does not specify headless or TUI posture, omit `--headless`. An project profile without stored headless posture remains TUI/local-interactive preferred on later launch when the selected tool supports it.
 
 Only persist `--headless` when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from `--prompt-mode unattended`, mailbox defaults, gateway defaults, model defaults, or automation-oriented wording.
 
@@ -76,8 +83,9 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 
 ## Rules
 
-- Use `project easy profile set` for ordinary edits.
-- Use `project easy profile create --yes` only for intended same-name replacement; replacement clears omitted optional fields.
+- Use `project profile set` for ordinary edits.
+- Use `project profile create --yes` only for intended same-name replacement; replacement clears omitted optional fields.
+- For covered profile config documents, treat `internals config-drafts generate` output as authoritative for the profile lane, source kind, required credential/auth reference, and YAML shape.
 - `--auth` selects a stored auth display-name override; it does not create or edit credentials.
 - `--mail-transport` is required when declarative mailbox fields are present.
 - `filesystem` mailbox defaults accept `--mail-root` and reject Stalwart URL flags.
@@ -86,13 +94,15 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 - Do not mix `--prompt-overlay-text` and `--prompt-overlay-file`.
 - Do not mix `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`; use at most one source.
 - Supplying a new memo-seed source on `profile set` replaces the stored seed. `--clear-memo-seed` cannot be combined with a new source.
-- Let the easy profile or later easy launch own ordinary same-root per-agent mailbox bootstrap when the mailbox identity will be derived from the managed-agent name.
+- Let the project profile or later project launch own ordinary same-root per-agent mailbox bootstrap when the mailbox identity will be derived from the managed-agent name.
 
 ## Guardrails
 
-- Do not enter credential discovery for easy-profile creation.
-- Do not use `project agents launch-profiles set` for easy-profile edits.
-- Do not remove and recreate an easy profile for ordinary default edits.
-- Do not treat profile creation as launching or mutating a live easy instance.
+- Do not enter credential discovery for project profile creation.
+- Do not use `internals native-agent launch-dossiers set` for project profile edits.
+- Do not remove and recreate a project profile for ordinary default edits.
+- Do not treat profile creation as launching or mutating a live managed agent.
 - Do not store `--headless` by default for TUI-capable tools.
-- Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled easy launch.
+- Do not add `--prompt-mode`, `--headless`, or clear flags unless the user explicitly supplied those fields.
+- Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled project launch.
+- Do not pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, or prompt overlay fields to `project.profile` config drafts.

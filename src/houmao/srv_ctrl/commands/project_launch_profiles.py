@@ -93,6 +93,34 @@ def get_project_launch_profile_command(name: str) -> None:
     help="Repeatable persistent launch env record (`NAME=value`).",
 )
 @click.option(
+    "--system-skill-set",
+    "system_skill_sets",
+    multiple=True,
+    help="Add one packaged Houmao system-skill set to launches from this profile.",
+)
+@click.option(
+    "--system-skill",
+    "system_skills",
+    multiple=True,
+    help="Add one packaged Houmao system skill to launches from this profile.",
+)
+@click.option(
+    "--system-skills-mode",
+    type=click.Choice(("inherit", "extend", "replace", "none")),
+    default=None,
+    help="Persist profile-owned managed system-skill policy.",
+)
+@click.option(
+    "--no-system-skills",
+    is_flag=True,
+    help="Disable managed system-skill installation for launches from this profile.",
+)
+@click.option(
+    "--clear-system-skills",
+    is_flag=True,
+    help="Clear stored managed system-skill policy on an existing profile.",
+)
+@click.option(
     "--add-registered-skill",
     "add_registered_skill",
     multiple=True,
@@ -218,6 +246,11 @@ def add_project_launch_profile_command(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     add_registered_skill: tuple[str, ...],
     remove_registered_skill: tuple[str, ...],
     add_private_skill: tuple[Path, ...],
@@ -270,6 +303,11 @@ def add_project_launch_profile_command(
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
         add_registered_skill=add_registered_skill,
         remove_registered_skill=remove_registered_skill,
         add_private_skill=add_private_skill,
@@ -356,6 +394,34 @@ def add_project_launch_profile_command(
     help="Repeatable persistent launch env record replacement (`NAME=value`).",
 )
 @click.option("--clear-env", is_flag=True, help="Clear stored persistent launch env records.")
+@click.option(
+    "--system-skill-set",
+    "system_skill_sets",
+    multiple=True,
+    help="Set one packaged Houmao system-skill set in this profile policy.",
+)
+@click.option(
+    "--system-skill",
+    "system_skills",
+    multiple=True,
+    help="Set one packaged Houmao system skill in this profile policy.",
+)
+@click.option(
+    "--system-skills-mode",
+    type=click.Choice(("inherit", "extend", "replace", "none")),
+    default=None,
+    help="Set profile-owned managed system-skill policy mode.",
+)
+@click.option(
+    "--no-system-skills",
+    is_flag=True,
+    help="Disable managed system-skill installation for launches from this profile.",
+)
+@click.option(
+    "--clear-system-skills",
+    is_flag=True,
+    help="Clear profile-owned managed system-skill policy.",
+)
 @click.option(
     "--add-registered-skill",
     "add_registered_skill",
@@ -521,6 +587,11 @@ def set_project_launch_profile_command(
     clear_prompt_mode: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     add_registered_skill: tuple[str, ...],
     remove_registered_skill: tuple[str, ...],
     add_private_skill: tuple[Path, ...],
@@ -581,6 +652,11 @@ def set_project_launch_profile_command(
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
         add_registered_skill=add_registered_skill,
         remove_registered_skill=remove_registered_skill,
         add_private_skill=add_private_skill,

@@ -12,10 +12,8 @@ Use this action only when the user wants to remove delivered filesystem mailbox 
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox clear-messages [--mailbox-root <path>] [--dry-run] [--yes]
+```bash
+<chosen houmao-mgr launcher> mailbox clear-messages [--mailbox-root <root>] [--dry-run] [--yes]
 <chosen houmao-mgr launcher> project mailbox clear-messages [--dry-run] [--yes]
 ```
 

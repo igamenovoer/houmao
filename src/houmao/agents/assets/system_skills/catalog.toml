@@ -21,17 +21,13 @@ description = "Unified mailbox operations and fallback guidance skill."
 asset_subpath = "houmao-adv-usage-pattern"
 description = "Advanced Houmao workflow composition skill layered on top of direct-operation skills."
 
-[skills.houmao-utils-llm-wiki]
-asset_subpath = "houmao-utils-llm-wiki"
-description = "LLM Wiki utility skill for persistent Markdown knowledge bases and bundled local viewer workflows."
-
 [skills.houmao-utils-workspace-mgr]
 asset_subpath = "houmao-utils-workspace-mgr"
-description = "Utility skill for planning and executing multi-agent workspace layouts."
+description = "Utility skill for planning, creating, validating, and summarizing multi-agent workspace layouts."
 
 [skills.houmao-touring]
 asset_subpath = "houmao-touring"
-description = "Manual guided touring skill for first-time or re-orienting Houmao users."
+description = "Manual guided touring skill for users not yet familiar with Houmao."
 
 [skills.houmao-mailbox-mgr]
 asset_subpath = "houmao-mailbox-mgr"
@@ -47,7 +43,7 @@ description = "Project overlay lifecycle, layout, and project-scoped easy-instan
 
 [skills.houmao-specialist-mgr]
 asset_subpath = "houmao-specialist-mgr"
-description = "Compatibility wrapper that routes project-easy specialist and profile work to houmao-agent-definition."
+description = "Compatibility wrapper that routes project-specialist and profile work to houmao-agent-definition."
 
 [skills.houmao-credential-mgr]
 asset_subpath = "houmao-credential-mgr"
@@ -55,7 +51,7 @@ description = "Project-local credential management skill."
 
 [skills.houmao-agent-definition]
 asset_subpath = "houmao-agent-definition"
-description = "Canonical pre-launch agent-definition skill for roles, recipes, raw-profiles, specialists, profiles, and create-agent-fast-forward."
+description = "Canonical pre-launch agent-definition skill for roles, recipes, launch-dossiers, specialists, profiles, and create-agent-fast-forward."
 
 [skills.houmao-agent-loop-pro]
 asset_subpath = "houmao-agent-loop-pro"
@@ -72,6 +68,10 @@ description = "Managed agent instance lifecycle skill."
 [skills.houmao-agent-inspect]
 asset_subpath = "houmao-agent-inspect"
 description = "Managed agent read-only inspection skill."
+
+[skills.houmao-operator-messaging]
+asset_subpath = "houmao-operator-messaging"
+description = "Manual operator messaging skill for clarifying and dispatching messages to one or more managed agents."
 
 [skills.houmao-agent-messaging]
 asset_subpath = "houmao-agent-messaging"
@@ -99,6 +99,7 @@ skills = [
   "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
+  "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
 ]
@@ -121,9 +122,9 @@ skills = [
   "houmao-agent-loop-lite",
   "houmao-agent-instance",
   "houmao-agent-inspect",
+  "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
-  "houmao-utils-llm-wiki",
 ]
 
 [auto_install]

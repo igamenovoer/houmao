@@ -21,4 +21,4 @@ Use:
 
 - Do not describe `project status` as mutating the overlay.
 - Do not omit `would_bootstrap_overlay` when the user is asking what happens before initialization.
-- Do not present `project easy instance list|get|stop` as having the same bootstrap behavior as `project status`.
+- Do not present `project agents list|get|stop` as having the same bootstrap behavior as `project status`.

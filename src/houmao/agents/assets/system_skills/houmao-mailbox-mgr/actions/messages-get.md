@@ -12,11 +12,9 @@ Use this action only when the user wants one structurally projected message for 
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox messages get --address <full-address> --message-id <canonical-message-id> [--mailbox-root <path>]
-<chosen houmao-mgr launcher> project mailbox messages get --address <full-address> --message-id <canonical-message-id>
+```bash
+<chosen houmao-mgr launcher> mailbox messages get --address <address> --message-id <message-id> [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox messages get --address <address> --message-id <message-id>
 ```
 
 ## Guardrails

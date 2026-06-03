@@ -8,7 +8,6 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
@@ -16,7 +15,6 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
-    LaunchPolicyResolutionError,
     SessionManifestError,
 )
 from houmao.agents.realm_controller.gateway_models import (
@@ -28,10 +26,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayStatusV1,
     GatewayTuiTrackingTimingOverridesV1,
 )
-from houmao.server.pair_client import PairAuthorityConnectionError, PairAuthorityHealthProbe
 from houmao.server.models import (
-    HoumaoCurrentInstance,
-    HoumaoHealthResponse,
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentListResponse,
 )
@@ -39,12 +34,8 @@ from houmao.mailbox.protocol import (
     HOUMAO_NO_REPLY_POLICY_VALUE,
     HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE,
 )
-from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError
+from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError, ManagedAgentTarget
 from houmao.srv_ctrl.commands.main import cli, main
-from houmao.srv_ctrl.server_startup import (
-    HoumaoDetachedServerStartResult,
-    HoumaoServerStartLogPaths,
-)
 from houmao.version import get_version
 
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
@@ -74,27 +65,6 @@ def _manifest_gateway_authority(
     return SimpleNamespace(attach=endpoint, control=endpoint)
 
 
-class _FakeSession:
-    def __init__(self, session_id: str) -> None:
-        self.id = session_id
-
-    def model_dump(self, mode: str = "json") -> dict[str, object]:
-        del mode
-        return {"id": self.id}
-
-
-class _FakePairClient:
-    def __init__(self) -> None:
-        self.m_delete_session_calls: list[str] = []
-
-    def list_sessions(self) -> list[_FakeSession]:
-        return [_FakeSession("sess-a"), _FakeSession("sess-b")]
-
-    def delete_session(self, session_name: str) -> object:
-        self.m_delete_session_calls.append(session_name)
-        return SimpleNamespace(success=True)
-
-
 _ACTIONABLE_SELECTOR_ERROR = "\n".join(
     (
         "No local managed agent matched friendly name `agent-test`.",
@@ -102,9 +72,9 @@ _ACTIONABLE_SELECTOR_ERROR = "\n".join(
         "`agent-test` matches the live local tmux/session alias for agent_name `gpu` "
         "(agent_id `agent-1234`).",
         "Fallback lookup through the default pair authority also failed: "
-        "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused",
+        "Failed to reach a Houmao pair authority at http://127.0.0.1:9891: connection refused",
         "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
-        "or inspect `houmao-mgr agents list`.",
+        "or inspect `houmao-mgr agents global list`.",
     )
 )
 
@@ -126,49 +96,13 @@ def _decode_json_stream(output: str) -> list[dict[str, object]]:
     return payloads
 
 
-def _make_native_launch_target(
-    *,
-    working_directory: Path,
-    tool: str,
-    role_name: str,
-    operator_prompt_mode: str | None,
-    auth: str = "default",
-    setup: str = "default",
-) -> SimpleNamespace:
-    """Build one preset-backed native launch target test double."""
-
-    preset = SimpleNamespace(
-        tool=tool,
-        skills=[],
-        setup=setup,
-        auth=auth,
-        launch_overrides=None,
-        launch_env_records=None,
-        operator_prompt_mode=operator_prompt_mode,
-        mailbox=None,
-        extra={},
-    )
-    preset_path = (working_directory / "preset.yaml").resolve()
-    return SimpleNamespace(
-        tool=tool,
-        agent_def_dir=working_directory / "agents",
-        role_name=role_name,
-        role_prompt=f"You are {role_name}.",
-        preset=preset,
-        preset_path=preset_path,
-    )
-
-
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
     assert set(cli.commands.keys()) == {
         "admin",
         "agents",
-        "brains",
-        "credentials",
         "internals",
         "mailbox",
         "project",
-        "server",
         "system-skills",
     }
 
@@ -178,7 +112,6 @@ def test_bare_invocation_prints_help() -> None:
 
     assert result.exit_code == 0
     assert "Usage: houmao-mgr" in result.output
-    assert "server" in result.output
     assert "agents" in result.output
     assert "internals" in result.output
     assert "mailbox" in result.output
@@ -223,7 +156,7 @@ def test_main_renders_mailbox_click_exception_without_traceback(
         _raise_mailbox_failure,
     )
 
-    exit_code = main(["agents", "mailbox", "register", "--agent-id", "agent-123"])
+    exit_code = main(["agents", "single", "--agent-id", "agent-123", "mailbox", "register"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -253,7 +186,7 @@ def test_agents_mailbox_register_accepts_yes_and_forwards_confirmation_callback(
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "mailbox", "register", "--agent-id", "agent-123", "--yes"],
+        ["agents", "single", "--agent-id", "agent-123", "mailbox", "register", "--yes"],
     )
 
     assert result.exit_code == 0, result.output
@@ -282,11 +215,12 @@ def test_main_renders_gateway_mail_notifier_click_exception_without_traceback(
     exit_code = main(
         [
             "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
             "gateway",
             "mail-notifier",
             "enable",
-            "--agent-id",
-            "agent-123",
             "--interval-seconds",
             "60",
         ]
@@ -315,7 +249,7 @@ def test_main_renders_runtime_domain_error_without_traceback(
         lambda **kwargs: (_ for _ in ()).throw(runtime_error),
     )
 
-    exit_code = main(["agents", "stop", "--agent-id", "agent-123"])
+    exit_code = main(["agents", "single", "--agent-id", "agent-123", "stop"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -340,28 +274,58 @@ def test_main_renders_uncaught_mailbox_exception_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert "Unexpected internal error while running `houmao-mgr`" in captured.err
     assert "unexpected mailbox failure" in captured.err
     assert "Traceback" not in captured.err
 
 
-def test_main_renders_uncaught_project_recipe_exception_without_traceback(
+def test_main_renders_empty_uncaught_assertion_as_internal_error_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_definitions._resolve_existing_project_overlay",
-        lambda **kwargs: SimpleNamespace(project_root=(tmp_path / "repo").resolve()),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_definitions._list_named_preset_summaries",
-        lambda **kwargs: (_ for _ in ()).throw(ValueError("unexpected recipe failure")),
+        "houmao.srv_ctrl.commands.mailbox.list_mailbox_accounts",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError()),
     )
 
-    exit_code = main(["project", "agents", "recipes", "list"])
+    mailbox_root = (tmp_path / "mailbox").resolve()
+    mailbox_root.mkdir(parents=True, exist_ok=True)
+
+    exit_code = main(["mailbox", "accounts", "list", "--mailbox-root", str(mailbox_root)])
     captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert "Unexpected internal error while running `houmao-mgr`" in captured.err
+    assert "exception: AssertionError" in captured.err
+    assert captured.err.strip() != "Error: AssertionError"
+    assert "Traceback" not in captured.err
+
+
+def test_main_renders_uncaught_native_recipe_exception_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.native_agent._list_recipe_summaries",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("unexpected recipe failure")),
+    )
+
+    exit_code = main(
+        [
+            "internals",
+            "native-agent",
+            "recipes",
+            "list",
+            "--native-agent-root",
+            str((tmp_path / "native-agents").resolve()),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Unexpected internal error while running `houmao-mgr`" in captured.err
     assert "unexpected recipe failure" in captured.err
     assert "Traceback" not in captured.err
 
@@ -419,7 +383,7 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("server fallback should not run")),
     )
 
-    exit_code = main(["agents", "stop", "--agent-name", "gpu"])
+    exit_code = main(["agents", "single", "--agent-name", "gpu", "stop"])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -428,18 +392,72 @@ def test_main_recovers_stale_local_managed_agent_stop_without_traceback(
 
 
 def test_agents_gateway_attach_help_mentions_foreground_default() -> None:
-    result = CliRunner().invoke(cli, ["agents", "gateway", "attach", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "gateway", "attach", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "--background" in result.output
     assert "--foreground" not in result.output
-    assert "--target-tmux-session" in result.output
+    assert "--target-tmux-session" not in result.output
     assert "--pair-port" in result.output
     assert "--gateway-tui-watch-poll-interval-seconds FLOAT RANGE" in result.output
     assert "--gateway-tui-stale-active-recovery-seconds FLOAT RANGE" in result.output
     assert "--gateway-tui-final-stable-active-recovery-seconds FLOAT RANGE" in result.output
     assert "Window `0` remains" in result.output
     assert "foreground by default" in result.output
+
+
+def test_agents_single_gateway_status_surfaces_stale_target_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = HoumaoManagedAgentIdentity(
+        tracked_agent_id="agent-stale-1",
+        transport="headless",
+        tool="codex",
+        session_name=None,
+        terminal_id=None,
+        runtime_session_id="agent-stale-1",
+        tmux_session_name="HOUMAO-alice",
+        tmux_window_name=None,
+        manifest_path="/tmp/missing/manifest.json",
+        session_root="/tmp/missing",
+        agent_name="alice",
+        agent_id="agent-stale-1",
+    )
+    record = SimpleNamespace(
+        agent_name="alice",
+        agent_id="agent-stale-1",
+        lifecycle=SimpleNamespace(state="active"),
+        runtime=SimpleNamespace(
+            manifest_path="/tmp/missing/manifest.json",
+            session_root="/tmp/missing",
+        ),
+        terminal=SimpleNamespace(session_name="HOUMAO-alice"),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **kwargs: ManagedAgentTarget(
+            mode="local_stale",
+            agent_ref="alice",
+            identity=identity,
+            record=record,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-name", "alice", "gateway", "status"],
+    )
+
+    assert result.exit_code == 1
+    assert "Cannot show gateway status for managed agent `alice`." in result.output
+    assert "stale or missing" in result.output
+    assert "agent_id=`agent-stale-1`" in result.output
+    assert "tmux_session=`HOUMAO-alice`" in result.output
+    assert "houmao-mgr agents single --agent-id agent-stale-1 stop" in result.output
+    assert "Error: AssertionError" not in result.output
 
 
 def test_agents_list_plain_renders_rows_from_pydantic_payload(
@@ -464,7 +482,7 @@ def test_agents_list_plain_renders_rows_from_pydantic_payload(
         lambda *, port=None: HoumaoManagedAgentListResponse(agents=[identity]),
     )
 
-    result = CliRunner().invoke(cli, ["--print-plain", "agents", "list"])
+    result = CliRunner().invoke(cli, ["--print-plain", "agents", "global", "list"])
 
     assert result.exit_code == 0, result.output
     assert "Managed Agents (1):" in result.output
@@ -485,7 +503,10 @@ def test_agents_list_forwards_lifecycle_state_filter(
         ),
     )
 
-    result = CliRunner().invoke(cli, ["--print-plain", "agents", "list", "--state", "stopped"])
+    result = CliRunner().invoke(
+        cli,
+        ["--print-plain", "agents", "global", "list", "--state", "stopped"],
+    )
 
     assert result.exit_code == 0, result.output
     assert captured == {"port": None, "lifecycle_state": "stopped"}
@@ -522,7 +543,15 @@ def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
 
     result = CliRunner().invoke(
         cli,
-        ["--print-plain", "agents", "gateway", "status", "--agent-name", "alpha"],
+        [
+            "--print-plain",
+            "agents",
+            "single",
+            "--agent-name",
+            "alpha",
+            "gateway",
+            "status",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -538,7 +567,10 @@ def test_agents_gateway_status_plain_renders_fields_from_pydantic_payload(
 
 
 def test_agents_gateway_help_mentions_send_keys_reminders_and_mail_notifier() -> None:
-    result = CliRunner().invoke(cli, ["agents", "gateway", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "gateway", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "send-keys" in result.output
@@ -548,7 +580,10 @@ def test_agents_gateway_help_mentions_send_keys_reminders_and_mail_notifier() ->
 
 
 def test_agents_gateway_tui_help_mentions_subcommands() -> None:
-    result = CliRunner().invoke(cli, ["agents", "gateway", "tui", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "gateway", "tui", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "state" in result.output
@@ -558,7 +593,18 @@ def test_agents_gateway_tui_help_mentions_subcommands() -> None:
 
 
 def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
-    result = CliRunner().invoke(cli, ["agents", "gateway", "mail-notifier", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
+            "gateway",
+            "mail-notifier",
+            "--help",
+        ],
+    )
 
     assert result.exit_code == 0
     assert "status" in result.output
@@ -567,7 +613,16 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
 
     enable_result = CliRunner().invoke(
         cli,
-        ["agents", "gateway", "mail-notifier", "enable", "--help"],
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
+            "gateway",
+            "mail-notifier",
+            "enable",
+            "--help",
+        ],
     )
     assert enable_result.exit_code == 0
     assert "--mode [any_inbox|unread_only]" in enable_result.output
@@ -577,7 +632,10 @@ def test_agents_gateway_mail_notifier_help_mentions_subcommands() -> None:
 
 
 def test_agents_gateway_reminders_help_mentions_subcommands() -> None:
-    result = CliRunner().invoke(cli, ["agents", "gateway", "reminders", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "gateway", "reminders", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "list" in result.output
@@ -591,10 +649,43 @@ def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
     result = CliRunner().invoke(cli, ["agents", "--help"])
 
     assert result.exit_code == 0
-    assert "mailbox" in result.output
-    assert "relaunch" in result.output
+    assert "global" in result.output
+    assert "single" in result.output
+    assert "self" in result.output
+    assert "external" in result.output
+    assert "\n  mailbox" not in result.output
+    assert "\n  relaunch" not in result.output
+    assert "\n  launch" not in result.output
+    assert "\n  join" not in result.output
     assert "\n  show" not in result.output
     assert "cao" not in result.output
+
+
+def test_agents_scoped_join_memory_and_mail_move_help_exposes_current_shapes() -> None:
+    runner = CliRunner()
+
+    self_join = runner.invoke(cli, ["agents", "self", "join", "--help"])
+    assert self_join.exit_code == 0, self_join.output
+    assert "--agent-name" in self_join.output
+    assert "--name " not in self_join.output
+
+    self_memory = runner.invoke(cli, ["agents", "self", "memory", "--help"])
+    assert self_memory.exit_code == 0, self_memory.output
+    assert "path" in self_memory.output
+    assert "memo" in self_memory.output
+
+    single_memory = runner.invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "memory", "--help"],
+    )
+    assert single_memory.exit_code == 0, single_memory.output
+    assert "path" in single_memory.output
+    assert "memo" in single_memory.output
+
+    mail_move = runner.invoke(cli, ["agents", "self", "mail", "move", "--help"])
+    assert mail_move.exit_code == 0, mail_move.output
+    assert "--destination-box" in mail_move.output
+    assert "--box" not in mail_move.output
 
 
 def test_top_level_mailbox_help_mentions_local_admin_surface() -> None:
@@ -615,9 +706,11 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
     result = CliRunner().invoke(cli, ["project", "--help"])
 
     assert result.exit_code == 0
-    assert "selected houmao project overlay" in result.output.lower()
+    assert "first-class local houmao project workflows" in result.output.lower()
     assert "agents" in result.output
-    assert "easy" in result.output
+    assert "easy" not in result.output
+    assert "specialist" in result.output
+    assert "profile" in result.output
     assert "mailbox" in result.output
     assert "init" in result.output
     assert "status" in result.output
@@ -626,7 +719,10 @@ def test_top_level_project_help_mentions_local_overlay_surface() -> None:
 
 
 def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
-    result = CliRunner().invoke(cli, ["agents", "mailbox", "--help"])
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "mailbox", "--help"],
+    )
 
     assert result.exit_code == 0
     assert "late filesystem mailbox registration" in result.output.lower()
@@ -636,7 +732,7 @@ def test_agents_mailbox_help_mentions_late_registration_surface() -> None:
 
 
 def test_agents_mail_post_help_reports_operator_mailbox_default() -> None:
-    result = CliRunner().invoke(cli, ["agents", "mail", "post", "--help"])
+    result = CliRunner().invoke(cli, ["agents", "self", "mail", "post", "--help"])
 
     assert result.exit_code == 0
     normalized_output = " ".join(result.output.split())
@@ -675,10 +771,11 @@ def test_agents_mail_post_forwards_reply_policy_default_and_explicit_none(
         cli,
         [
             "agents",
-            "mail",
-            "post",
+            "single",
             "--agent-name",
             "agent-test",
+            "mail",
+            "post",
             "--subject",
             "Operator note",
             "--body-content",
@@ -697,23 +794,31 @@ def test_agents_mail_post_forwards_reply_policy_default_and_explicit_none(
     [
         (
             "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
-            ["agents", "state", "--agent-name", "agent-test"],
+            ["agents", "single", "--agent-name", "agent-test", "state"],
         ),
         (
             "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
-            ["agents", "prompt", "--agent-name", "agent-test", "--prompt", "hello"],
+            [
+                "agents",
+                "single",
+                "--agent-name",
+                "agent-test",
+                "prompt",
+                "--prompt",
+                "hello",
+            ],
         ),
         (
             "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
-            ["agents", "gateway", "tui", "state", "--agent-name", "agent-test"],
+            ["agents", "single", "--agent-name", "agent-test", "gateway", "tui", "state"],
         ),
         (
             "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target",
-            ["agents", "mail", "status", "--agent-name", "agent-test"],
+            ["agents", "single", "--agent-name", "agent-test", "mail", "status"],
         ),
         (
             "houmao.srv_ctrl.commands.agents.turn.resolve_managed_agent_target",
-            ["agents", "turn", "status", "--agent-name", "agent-test", "turn-123"],
+            ["agents", "single", "--agent-name", "agent-test", "turn", "status", "turn-123"],
         ),
     ],
 )
@@ -761,7 +866,7 @@ def test_agents_gateway_attach_defaults_to_foreground_execution(
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "gateway", "attach", "--agent-id", "agent-123"],
+        ["agents", "single", "--agent-id", "agent-123", "gateway", "attach"],
     )
 
     assert result.exit_code == 0, result.output
@@ -802,10 +907,11 @@ def test_agents_gateway_attach_forwards_background_flag(
         cli,
         [
             "agents",
-            "gateway",
-            "attach",
+            "single",
             "--agent-id",
             "agent-123",
+            "gateway",
+            "attach",
             "--background",
             "--gateway-tui-watch-poll-interval-seconds",
             "0.25",
@@ -831,39 +937,12 @@ def test_agents_gateway_attach_forwards_background_flag(
     assert json.loads(result.output) == {"status": "ok"}
 
 
-def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authority(
+def test_agents_gateway_attach_current_session_rejects_retired_pair_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     manifest_path = (tmp_path / "manifest.json").resolve()
     manifest_path.write_text("{}\n", encoding="utf-8")
-    captured: dict[str, object] = {}
-    identity = HoumaoManagedAgentIdentity(
-        tracked_agent_id="tracked-pair",
-        transport="tui",
-        tool="codex",
-        session_name="pair-session",
-        terminal_id="term-123",
-        runtime_session_id=None,
-        tmux_session_name="pair-session",
-        tmux_window_name="agent",
-        manifest_path=str(manifest_path),
-        session_root=str(tmp_path.resolve()),
-        agent_name="HOUMAO-pair",
-        agent_id="agent-123",
-    )
-    client = SimpleNamespace(
-        pair_authority_kind="houmao-server",
-        attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
-            captured.update(
-                {
-                    "pair_agent_ref": agent_ref,
-                    "pair_execution_mode": getattr(request_model, "execution_mode", None),
-                }
-            )
-            or {"status": "ok", "agent_ref": agent_ref}
-        ),
-    )
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
@@ -913,26 +992,11 @@ def test_agents_gateway_attach_current_session_uses_manifest_first_pair_authorit
         ),
     )
 
-    def _require_pair(*, base_url: str) -> object:
-        captured["base_url"] = base_url
-        return client
+    result = CliRunner().invoke(cli, ["agents", "self", "gateway", "attach"])
 
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.require_houmao_server_pair",
-        _require_pair,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
-        lambda resolved_client, *, agent_ref: identity,
-    )
-
-    result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
-
-    assert result.exit_code == 0, result.output
-    assert captured["base_url"] == "http://127.0.0.1:9889"
-    assert captured["pair_agent_ref"] == "pair-session"
-    assert captured["pair_execution_mode"] == "tmux_auxiliary_window"
-    assert json.loads(result.output) == {"status": "ok", "agent_ref": "pair-session"}
+    assert result.exit_code != 0
+    assert "retired backend `houmao_server_rest`" in result.output
+    assert "houmao-passive-server" in result.output
 
 
 def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
@@ -1046,7 +1110,7 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
         ),
     )
 
-    result = CliRunner().invoke(cli, ["agents", "gateway", "attach"])
+    result = CliRunner().invoke(cli, ["agents", "self", "gateway", "attach"])
 
     assert result.exit_code == 0, result.output
     assert captured["agent_def_dir"] == agent_def_dir
@@ -1057,117 +1121,14 @@ def test_agents_gateway_attach_current_session_falls_back_to_registry_agent_id(
     assert json.loads(result.output) == {"status": "local-attached"}
 
 
-def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_terminal_session(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    manifest_path = (tmp_path / "manifest.json").resolve()
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True)
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.tmux_session_exists",
-        lambda *, session_name: session_name == "external-session",
-    )
-
-    def _read_tmux_env(*, session_name: str, variable_name: str) -> str | None:
-        assert session_name == "external-session"
-        mapping = {
-            AGENT_MANIFEST_PATH_ENV_VAR: None,
-            AGENT_DEF_DIR_ENV_VAR: None,
-        }
-        return mapping[variable_name]
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
-        _read_tmux_env,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_live_agent_records_by_terminal_session_name",
-        lambda session_name: (
-            SimpleNamespace(
-                runtime=SimpleNamespace(
-                    manifest_path=str(manifest_path),
-                    agent_def_dir=str(agent_def_dir),
-                )
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.load_session_manifest",
-        lambda path: SimpleNamespace(path=Path(path), payload={"manifest": "payload"}),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.parse_session_manifest_payload",
-        lambda payload, source: SimpleNamespace(
-            backend="claude_headless",
-            tool="claude",
-            tmux_session_name="external-session",
-            tmux=SimpleNamespace(session_name="external-session"),
-            agent_name="HOUMAO-headless",
-            agent_id="published-alpha",
-            gateway_authority=_manifest_gateway_authority(),
-            houmao_server=None,
-        ),
-    )
-
-    controller = SimpleNamespace(
-        agent_id="published-alpha",
-        agent_identity="HOUMAO-headless",
-        manifest_path=manifest_path,
-        attach_gateway=lambda *, execution_mode_override=None: (
-            captured.setdefault("execution_mode_override", execution_mode_override),
-            SimpleNamespace(status="ok", detail=""),
-        )[1],
-        gateway_status=lambda: {"status": "local-attached"},
-    )
-
-    def _resume_runtime_session(*, agent_def_dir: Path, session_manifest_path: Path) -> object:
-        captured["agent_def_dir"] = agent_def_dir
-        captured["session_manifest_path"] = session_manifest_path
-        return controller
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resume_runtime_session",
-        _resume_runtime_session,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._identity_from_controller",
-        lambda resolved_controller: HoumaoManagedAgentIdentity(
-            tracked_agent_id="tracked-local",
-            transport="headless",
-            tool="claude",
-            session_name=None,
-            terminal_id=None,
-            runtime_session_id="tracked-local",
-            tmux_session_name="external-session",
-            tmux_window_name="agent",
-            manifest_path=str(manifest_path),
-            session_root=str(tmp_path.resolve()),
-            agent_name="HOUMAO-headless",
-            agent_id="published-alpha",
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.attach_gateway",
-        lambda target, *, background=False, tui_tracking_timing_overrides=None: (
-            captured.update(
-                {
-                    "target": target,
-                    "background": background,
-                    "tui_tracking_timing_overrides": tui_tracking_timing_overrides,
-                }
-            )
-            or {"status": "local-attached"}
-        ),
-    )
-
+def test_agents_gateway_target_tmux_session_option_is_not_public_under_scopes() -> None:
     result = CliRunner().invoke(
         cli,
         [
             "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
             "gateway",
             "attach",
             "--target-tmux-session",
@@ -1175,12 +1136,8 @@ def test_agents_gateway_attach_target_tmux_session_falls_back_to_registry_termin
         ],
     )
 
-    assert result.exit_code == 0, result.output
-    assert captured["agent_def_dir"] == agent_def_dir
-    assert captured["session_manifest_path"] == manifest_path
-    assert captured["target"].agent_ref == "published-alpha"
-    assert captured["background"] is False
-    assert json.loads(result.output) == {"status": "local-attached"}
+    assert result.exit_code != 0
+    assert "No such option: --target-tmux-session" in result.output
 
 
 def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
@@ -1211,10 +1168,11 @@ def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
         cli,
         [
             "agents",
-            "gateway",
-            "send-keys",
+            "single",
             "--agent-name",
             "gpu",
+            "gateway",
+            "send-keys",
             "--pair-port",
             "9889",
             "--sequence",
@@ -1265,10 +1223,11 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
         cli,
         [
             "agents",
-            "gateway",
-            "prompt",
+            "single",
             "--agent-name",
             "gpu",
+            "gateway",
+            "prompt",
             "--pair-port",
             "9889",
             "--prompt",
@@ -1317,10 +1276,11 @@ def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
         cli,
         [
             "agents",
-            "gateway",
-            "prompt",
+            "single",
             "--agent-name",
             "gpu",
+            "gateway",
+            "prompt",
             "--prompt",
             "hello",
         ],
@@ -1378,6 +1338,7 @@ def test_agents_gateway_send_keys_inside_tmux_uses_current_session_resolution(
         cli,
         [
             "agents",
+            "self",
             "gateway",
             "send-keys",
             "--sequence",
@@ -1386,7 +1347,7 @@ def test_agents_gateway_send_keys_inside_tmux_uses_current_session_resolution(
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["session_name"] == "join-sess"
+    assert captured["session_name"] is None
     assert captured["target"] is target
     assert captured["sequence"] == "abc"
     assert captured["escape_special_keys"] is False
@@ -1397,41 +1358,40 @@ def test_agents_gateway_send_keys_without_selector_outside_tmux_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway._try_current_tmux_session_name",
-        lambda: None,
+        "houmao.srv_ctrl.commands.agents.gateway._require_current_tmux_session_name",
+        lambda: (_ for _ in ()).throw(
+            click.ClickException(
+                "Current-session attach must be run from inside the target tmux session."
+            )
+        ),
     )
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "gateway", "send-keys", "--sequence", "<[Escape]>"],
+        ["agents", "self", "gateway", "send-keys", "--sequence", "<[Escape]>"],
     )
 
     assert result.exit_code != 0
     assert (
-        "Exactly one of `--agent-id`, `--agent-name`, or `--target-tmux-session` is required"
-        in result.output
+        "Current-session attach must be run from inside the target tmux session." in result.output
     )
 
 
-def test_agents_gateway_rejects_pair_port_with_target_tmux_session() -> None:
+def test_agents_self_gateway_rejects_pair_port() -> None:
     result = CliRunner().invoke(
         cli,
         [
             "agents",
+            "self",
             "gateway",
             "status",
-            "--target-tmux-session",
-            "gpu-session",
             "--pair-port",
             "9891",
         ],
     )
 
     assert result.exit_code != 0
-    assert (
-        "`--pair-port` is only supported with an explicit `--agent-id` or `--agent-name` "
-        "`status` target."
-    ) in result.output
+    assert "No such option: --pair-port" in result.output
 
 
 def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_and_mode(
@@ -1475,10 +1435,10 @@ def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_a
         cli,
         [
             "agents",
+            "self",
             "gateway",
             "mail-notifier",
             "enable",
-            "--current-session",
             "--interval-seconds",
             "60",
             "--mode",
@@ -1511,10 +1471,10 @@ def test_agents_gateway_mail_notifier_enable_rejects_invalid_mode() -> None:
         cli,
         [
             "agents",
+            "self",
             "gateway",
             "mail-notifier",
             "enable",
-            "--current-session",
             "--interval-seconds",
             "60",
             "--mode",
@@ -1611,11 +1571,12 @@ def test_agents_gateway_reminders_create_with_explicit_selector_builds_payload(
         cli,
         [
             "agents",
+            "single",
+            "--agent-name",
+            "gpu",
             "gateway",
             "reminders",
             "create",
-            "--agent-name",
-            "gpu",
             "--pair-port",
             "9889",
             "--title",
@@ -1764,11 +1725,12 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
         [
             "--print-plain",
             "agents",
+            "single",
+            "--agent-name",
+            "gpu",
             "gateway",
             "reminders",
             "set",
-            "--agent-name",
-            "gpu",
             "--reminder-id",
             "greminder-edit",
             "--before-all",
@@ -1817,10 +1779,10 @@ def test_agents_gateway_tui_state_inside_tmux_uses_current_session_resolution(
         ),
     )
 
-    result = CliRunner().invoke(cli, ["agents", "gateway", "tui", "state"])
+    result = CliRunner().invoke(cli, ["agents", "self", "gateway", "tui", "state"])
 
     assert result.exit_code == 0, result.output
-    assert captured["session_name"] == "join-sess"
+    assert captured["session_name"] is None
     assert captured["target"] is target
     assert json.loads(result.output) == {"terminal_id": "term-123"}
 
@@ -1847,11 +1809,12 @@ def test_agents_gateway_tui_note_prompt_forwards_prompt(
         cli,
         [
             "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
             "gateway",
             "tui",
             "note-prompt",
-            "--agent-id",
-            "agent-123",
             "--prompt",
             "hello",
         ],
@@ -1896,11 +1859,12 @@ def test_agents_gateway_tui_watch_emits_polled_state_until_interrupted(
         cli,
         [
             "agents",
+            "single",
+            "--agent-name",
+            "gpu",
             "gateway",
             "tui",
             "watch",
-            "--agent-name",
-            "gpu",
             "--interval-seconds",
             "0.2",
         ],
@@ -1966,7 +1930,7 @@ def test_agents_relaunch_current_session_uses_manifest_first_runtime(
         ),
     )
 
-    result = CliRunner().invoke(cli, ["agents", "relaunch"])
+    result = CliRunner().invoke(cli, ["agents", "self", "relaunch"])
 
     assert result.exit_code == 0, result.output
     assert captured == {
@@ -1984,19 +1948,16 @@ def test_agents_relaunch_current_session_uses_manifest_first_runtime(
 
 
 def test_agents_relaunch_rejects_port_without_explicit_selector() -> None:
-    result = CliRunner().invoke(cli, ["agents", "relaunch", "--port", "9889"])
+    result = CliRunner().invoke(cli, ["agents", "self", "relaunch", "--port", "9889"])
 
     assert result.exit_code != 0
-    assert (
-        "`--port` is only supported with an explicit `--agent-id` or `--agent-name` relaunch target."
-        in result.output
-    )
+    assert "No such option: --port" in result.output
 
 
 def test_agents_relaunch_rejects_chat_session_id_without_exact_mode() -> None:
     result = CliRunner().invoke(
         cli,
-        ["agents", "relaunch", "--chat-session-id", "provider-session-1"],
+        ["agents", "self", "relaunch", "--chat-session-id", "provider-session-1"],
     )
 
     assert result.exit_code != 0
@@ -2046,6 +2007,7 @@ def test_agents_relaunch_current_session_forwards_chat_session_selection(
         cli,
         [
             "agents",
+            "self",
             "relaunch",
             "--chat-session-mode",
             "exact",
@@ -2084,7 +2046,15 @@ def test_agents_relaunch_with_explicit_target_uses_managed_agent_helper(
 
     result = CliRunner().invoke(
         cli,
-        ["agents", "relaunch", "--agent-id", "agent-123", "--port", "9889"],
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            "agent-123",
+            "relaunch",
+            "--port",
+            "9889",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -2130,9 +2100,10 @@ def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
         cli,
         [
             "agents",
-            "relaunch",
+            "single",
             "--agent-name",
             "alpha",
+            "relaunch",
             "--chat-session-mode",
             "tool_last_or_new",
         ],
@@ -2145,122 +2116,14 @@ def test_agents_relaunch_explicit_target_forwards_chat_session_selection(
     assert chat_session.session_id is None
 
 
-def test_server_status_reports_no_server_running(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raise_unavailable(*, base_url: str) -> object:
-        raise PairAuthorityConnectionError(
-            base_url=base_url,
-            cause=RuntimeError("connection refused"),
-        )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        _raise_unavailable,
-    )
-
-    result = CliRunner().invoke(cli, ["server", "status"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload == {
-        "api_base_url": "http://127.0.0.1:9889",
-        "detail": "No supported Houmao pair authority is running.",
-        "running": False,
-    }
-
-
-def test_server_start_defaults_to_detached_startup_result(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-
-    def _fake_start_detached(config: object) -> HoumaoDetachedServerStartResult:
-        captured["config"] = config
-        return HoumaoDetachedServerStartResult(
-            success=True,
-            running=True,
-            api_base_url="http://127.0.0.1:9999",
-            detail="Started houmao-server.",
-            pid=123,
-            server_root=str((tmp_path / "runtime").resolve()),
-            reused_existing=False,
-            log_paths=HoumaoServerStartLogPaths(
-                stdout=str((tmp_path / "stdout.log").resolve()),
-                stderr=str((tmp_path / "stderr.log").resolve()),
-            ),
-        )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.start_detached_server", _fake_start_detached
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "server",
-            "start",
-            "--api-base-url",
-            "http://127.0.0.1:9999",
-            "--runtime-root",
-            str((tmp_path / "runtime").resolve()),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["success"] is True
-    assert payload["running"] is True
-    assert payload["mode"] == "background"
-    assert payload["api_base_url"] == "http://127.0.0.1:9999"
-    assert payload["pid"] == 123
-    assert payload["reused_existing"] is False
-    assert payload["runtime_root"] == str((tmp_path / "runtime").resolve())
-    assert (
-        payload["runtime_root_detail"]
-        == "Selected runtime root from the explicit `--runtime-root` override."
-    )
-    assert payload["log_paths"]["stdout"].endswith("stdout.log")
-    assert captured["config"] is not None
-
-
-def test_server_start_foreground_keeps_direct_run_server_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_calls: list[dict[str, object]] = []
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.start_detached_server",
-        lambda config: (_ for _ in ()).throw(AssertionError("detached start should not run")),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.run_server",
-        lambda **kwargs: run_calls.append(kwargs),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "server",
-            "start",
-            "--foreground",
-            "--api-base-url",
-            "http://127.0.0.1:9998",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert result.output == ""
-    assert len(run_calls) == 1
-    assert run_calls[0]["api_base_url"] == "http://127.0.0.1:9998"
-    assert "startup_child" not in run_calls[0]
-
-
-def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
+def test_native_agent_brain_build_reports_direct_root_and_runtime_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     working_directory = (tmp_path / "repo").resolve()
     working_directory.mkdir(parents=True, exist_ok=True)
+    native_agent_root = (working_directory / "native-agents").resolve()
+    native_agent_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(working_directory)
 
     build_result = SimpleNamespace(
@@ -2278,8 +2141,12 @@ def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
         cli,
         [
             "--print-json",
-            "brains",
+            "internals",
+            "native-agent",
+            "brain",
             "build",
+            "--native-agent-root",
+            str(native_agent_root),
             "--tool",
             "codex",
             "--skill",
@@ -2288,1701 +2155,186 @@ def test_brains_build_reports_project_aware_runtime_selection_and_bootstrap(
             "default",
             "--auth",
             "work",
+            "--runtime-root",
+            "runtime",
         ],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    expected_overlay_root = (working_directory / ".houmao").resolve()
-    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
+    expected_runtime_root = (working_directory / "runtime").resolve()
+    assert payload["native_agent_root"] == str(native_agent_root)
+    assert payload["native_agent_root_source"] == "cli"
+    assert payload["runtime_root"] == str(expected_runtime_root)
     assert (
         payload["runtime_root_detail"]
-        == "Selected the active project runtime root from the current project overlay."
+        == "Selected runtime root from the explicit `--runtime-root` override."
     )
-    assert payload["project_overlay_bootstrapped"] is True
-    assert payload["overlay_root"] == str(expected_overlay_root)
-    assert (
-        payload["overlay_root_detail"]
-        == "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate."
-    )
-    assert (
-        payload["overlay_bootstrap_detail"]
-        == "Applied implicit bootstrap for the selected overlay root during this invocation."
-    )
+    assert "overlay_root" not in payload
 
 
-def test_agents_launch_reports_project_aware_root_details_in_json(
+def test_native_agent_brain_build_accepts_cwd_relative_preset_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="codex",
-        role_name="gpu-kernel-coder",
-        operator_prompt_mode="unattended",
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: controller,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "codex",
-            "--headless",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    expected_overlay_root = (working_directory / ".houmao").resolve()
-    expected_memory_root = (
-        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
-    ).resolve()
-    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["memory_root"] == str(expected_memory_root)
-    assert payload["memo_file"] == str((expected_memory_root / "houmao-memo.md").resolve())
-    assert payload["pages_dir"] == str((expected_memory_root / "pages").resolve())
-    assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
-    assert payload["overlay_root"] == str(expected_overlay_root)
-    assert (
-        payload["runtime_root_detail"]
-        == "Selected the active project runtime root from the current project overlay."
-    )
-    assert (
-        payload["mailbox_root_detail"]
-        == "Selected the active project mailbox root from the current project overlay."
-    )
-    assert payload["project_overlay_bootstrapped"] is True
-    assert (
-        payload["overlay_bootstrap_detail"]
-        == "Applied implicit bootstrap for the selected overlay root during this invocation."
-    )
-
-
-def test_agents_launch_uses_invocation_project_roots_when_workdir_points_elsewhere(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    source_repo = (tmp_path / "source-repo").resolve()
-    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
-    source_repo.mkdir(parents=True, exist_ok=True)
-    runtime_workdir.mkdir(parents=True, exist_ok=True)
-
-    manifest_path = source_repo / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    preset = SimpleNamespace(
-        tool="codex",
-        skills=[],
-        setup="default",
-        auth="default",
-        launch_overrides=None,
-        launch_env_records=None,
-        operator_prompt_mode="unattended",
-        mailbox=None,
-        extra={},
-    )
-    target = SimpleNamespace(
-        tool="codex",
-        agent_def_dir=(source_repo / ".houmao" / "agents").resolve(),
-        role_name="gpu-kernel-coder",
-        role_prompt="You are gpu-kernel-coder.",
-        preset=preset,
-        preset_path=(source_repo / ".houmao" / "agents" / "presets" / "gpu.yaml").resolve(),
-    )
-    controller = SimpleNamespace(
-        manifest_path=source_repo / ".houmao" / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-    captured: dict[str, object] = {}
-
-    monkeypatch.chdir(source_repo)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: (captured.setdefault("target_kwargs", kwargs), target)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "codex",
-            "--headless",
-            "--workdir",
-            str(runtime_workdir),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    expected_overlay_root = (source_repo / ".houmao").resolve()
-    expected_memory_root = (
-        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
-    ).resolve()
-    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["memory_root"] == str(expected_memory_root)
-    assert payload["memo_file"] == str((expected_memory_root / "houmao-memo.md").resolve())
-    assert payload["pages_dir"] == str((expected_memory_root / "pages").resolve())
-    assert payload["mailbox_root"] == str((expected_overlay_root / "mailbox").resolve())
-    assert payload["overlay_root"] == str(expected_overlay_root)
-    assert payload["project_overlay_bootstrapped"] is True
-    assert captured["target_kwargs"]["working_directory"] == runtime_workdir
-    assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
-    assert captured["start_kwargs"]["working_directory"] == runtime_workdir
-    assert not (runtime_workdir / ".houmao").exists()
-
-
-def test_agents_launch_explicit_preset_path_uses_preset_source_project(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    invocation_directory = (tmp_path / "invocation").resolve()
-    source_repo = (tmp_path / "source-repo").resolve()
-    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
-    invocation_directory.mkdir(parents=True, exist_ok=True)
-    runtime_workdir.mkdir(parents=True, exist_ok=True)
-    preset_path = (
-        source_repo / ".houmao" / "agents" / "presets" / "gpu-kernel-coder-codex-default.yaml"
-    ).resolve()
+    working_directory = (tmp_path / "repo").resolve()
+    working_directory.mkdir(parents=True, exist_ok=True)
+    native_agent_root = (working_directory / "native-agents").resolve()
+    native_agent_root.mkdir(parents=True, exist_ok=True)
+    preset_path = working_directory / "tests/fixtures/plain-agent-def/presets/smoke.yaml"
     preset_path.parent.mkdir(parents=True, exist_ok=True)
     preset_path.write_text(
         "\n".join(
             [
-                "role: gpu-kernel-coder",
+                "role: server-api-smoke",
                 "tool: codex",
                 "setup: default",
                 "skills: []",
+                "auth: yunwu-openai",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-    manifest_path = source_repo / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    preset = SimpleNamespace(
-        tool="codex",
-        skills=[],
-        setup="default",
-        auth="default",
-        launch_overrides=None,
-        launch_env_records=None,
-        operator_prompt_mode="unattended",
-        mailbox=None,
-        extra={},
-    )
-    target = SimpleNamespace(
-        tool="codex",
-        agent_def_dir=(source_repo / ".houmao" / "agents").resolve(),
-        role_name="gpu-kernel-coder",
-        role_prompt="You are gpu-kernel-coder.",
-        preset=preset,
-        preset_path=preset_path,
-    )
-    controller = SimpleNamespace(
-        manifest_path=source_repo / ".houmao" / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-    captured: dict[str, object] = {}
+    monkeypatch.chdir(working_directory)
 
-    monkeypatch.chdir(invocation_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: (captured.setdefault("target_kwargs", kwargs), target)[1],
+    captured: dict[str, object] = {}
+    build_result = SimpleNamespace(
+        home_id="brain-home-1",
+        home_path=(working_directory / "home").resolve(),
+        launch_helper_path=(working_directory / "launch.sh").resolve(),
+        manifest_path=(working_directory / "brain.json").resolve(),
     )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
-    )
+
+    def _build_brain_home(request):
+        captured["request"] = request
+        return build_result
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.brains.build_brain_home", _build_brain_home)
 
     result = CliRunner().invoke(
         cli,
         [
             "--print-json",
-            "agents",
-            "launch",
-            "--agents",
-            str(preset_path),
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "codex",
-            "--headless",
-            "--workdir",
-            str(runtime_workdir),
+            "internals",
+            "native-agent",
+            "brain",
+            "build",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--preset",
+            "tests/fixtures/plain-agent-def/presets/smoke.yaml",
+            "--runtime-root",
+            "runtime",
         ],
     )
 
     assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    expected_overlay_root = (source_repo / ".houmao").resolve()
-    expected_memory_root = (
-        expected_overlay_root / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
-    ).resolve()
-    assert payload["runtime_root"] == str((expected_overlay_root / "runtime").resolve())
-    assert payload["memory_root"] == str(expected_memory_root)
-    assert payload["memo_file"] == str((expected_memory_root / "houmao-memo.md").resolve())
-    assert payload["pages_dir"] == str((expected_memory_root / "pages").resolve())
-    assert payload["overlay_root"] == str(expected_overlay_root)
-    assert captured["target_kwargs"]["agent_def_dir"] == (expected_overlay_root / "agents")
-    assert captured["target_kwargs"]["working_directory"] == runtime_workdir
-    assert captured["start_kwargs"]["working_directory"] == runtime_workdir
-    assert not (invocation_directory / ".houmao").exists()
-    assert not (runtime_workdir / ".houmao").exists()
+    request = captured["request"]
+    assert request.preset_path == preset_path.resolve()
+    assert request.tool == "codex"
+    assert request.skills == []
+    assert request.setup == "default"
+    assert request.auth == "yunwu-openai"
 
 
-def test_agents_launch_help_exposes_workdir_not_working_directory() -> None:
-    result = CliRunner().invoke(cli, ["agents", "launch", "--help"])
-
-    assert result.exit_code == 0, result.output
-    assert "--launch-profile TEXT" in result.output
-    assert "--workdir DIRECTORY" in result.output
-    assert "--working-directory" not in result.output
-
-
-def test_agents_launch_resolves_explicit_launch_profile_defaults(
+def test_native_agent_brain_build_accepts_bare_preset_with_empty_skills(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    runner = CliRunner()
-    invocation_directory = (tmp_path / "invoke").resolve()
-    project_root = (tmp_path / "repo").resolve()
-    runtime_workdir = (tmp_path / "runtime-workdir").resolve()
-    source_agent_def_dir = (project_root / ".houmao" / "agents").resolve()
-    recipe_path = (source_agent_def_dir / "presets" / "researcher-codex-default.yaml").resolve()
-    invocation_directory.mkdir(parents=True, exist_ok=True)
-    project_root.mkdir(parents=True, exist_ok=True)
-    runtime_workdir.mkdir(parents=True, exist_ok=True)
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text("role: researcher\n", encoding="utf-8")
-
-    overlay = SimpleNamespace(project_root=project_root)
-    resolved_profile = SimpleNamespace(
-        entry=SimpleNamespace(
-            name="alice",
-            profile_lane="launch_profile",
-            source_kind="recipe",
-            source_name="researcher-codex-default",
-            managed_agent_name="alice",
-            managed_agent_id="agent-alice",
-            workdir=str(project_root / "profile-workdir"),
-            auth_name="alice-creds",
-            model_name=None,
-            reasoning_level=None,
-            operator_prompt_mode="unattended",
-            env_payload={"PROJECT_CONTEXT": "alice"},
-            mailbox_payload={
-                "transport": "filesystem",
-                "principal_id": "alice",
-                "address": "alice@agents.localhost",
-                "filesystem_root": "/shared-mail-root",
-            },
-            posture_payload={"headless": True, "gateway_port": 9011},
-            managed_header_policy="inherit",
-            managed_header_section_policy={"automation-notice": "disabled"},
-            prompt_overlay_mode="append",
+    working_directory = (tmp_path / "repo").resolve()
+    native_agent_root = (working_directory / "native-agents").resolve()
+    preset_path = native_agent_root / "presets/smoke.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: server-api-smoke",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "auth: yunwu-openai",
+                "",
+            ]
         ),
-        source_exists=True,
-        recipe_path=recipe_path,
-        provider="codex",
-        recipe_name="researcher-codex-default",
-        prompt_overlay_text="Prefer Alice repository conventions.",
-        gateway_mail_notifier_appendix_text="Keep legal notices ahead of routine reports.",
-        memo_seed=None,
+        encoding="utf-8",
     )
+    monkeypatch.chdir(working_directory)
+
     captured: dict[str, object] = {}
-
-    monkeypatch.chdir(invocation_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
-        lambda **kwargs: SimpleNamespace(project_overlay=overlay),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
-        lambda **kwargs: resolved_profile,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
-        lambda project_overlay: source_agent_def_dir,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or SimpleNamespace(
-                agent_identity=kwargs["agent_name"],
-                agent_id="agent-1234",
-                tmux_session_name="alice-session",
-                manifest_path=(tmp_path / "manifest.json").resolve(),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
-        lambda **kwargs: None,
+    build_result = SimpleNamespace(
+        home_id="brain-home-1",
+        home_path=(working_directory / "home").resolve(),
+        launch_helper_path=(working_directory / "launch.sh").resolve(),
+        manifest_path=(working_directory / "brain.json").resolve(),
     )
 
-    result = runner.invoke(
+    def _build_brain_home(request):
+        captured["request"] = request
+        return build_result
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.brains.build_brain_home", _build_brain_home)
+
+    result = CliRunner().invoke(
         cli,
         [
-            "agents",
-            "launch",
-            "--launch-profile",
-            "alice",
-            "--provider",
+            "--print-json",
+            "internals",
+            "native-agent",
+            "brain",
+            "build",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--preset",
+            "smoke",
+            "--runtime-root",
+            "runtime",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    request = captured["request"]
+    assert request.preset_path == preset_path.resolve()
+    assert request.skills == []
+
+
+def test_native_agent_brain_build_rejects_missing_skill_without_preset(
+    tmp_path: Path,
+) -> None:
+    native_agent_root = (tmp_path / "native-agents").resolve()
+    native_agent_root.mkdir(parents=True, exist_ok=True)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "internals",
+            "native-agent",
+            "brain",
+            "build",
+            "--native-agent-root",
+            str(native_agent_root),
+            "--tool",
             "codex",
+            "--setup",
+            "default",
             "--auth",
-            "breakglass",
-            "--workdir",
-            str(runtime_workdir),
-            "--managed-header-section",
-            "task-reminder=enabled",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["agents"] == str(recipe_path)
-    assert captured["agent_name"] == "alice"
-    assert captured["agent_id"] == "agent-alice"
-    assert captured["auth"] == "breakglass"
-    assert captured["provider"] == "codex"
-    assert captured["working_directory"] == runtime_workdir
-    assert captured["source_working_directory"] == project_root
-    assert captured["source_agent_def_dir"] == source_agent_def_dir
-    assert captured["headless"] is True
-    assert captured["gateway_auto_attach"] is True
-    assert captured["gateway_host"] == "127.0.0.1"
-    assert captured["gateway_port"] == 9011
-    assert captured["operator_prompt_mode"] == "unattended"
-    assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
-    assert captured["prompt_overlay_mode"] == "append"
-    assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
-    assert (
-        captured["launch_profile_mail_notifier_appendix_text"]
-        == "Keep legal notices ahead of routine reports."
-    )
-    assert captured["managed_header_section_overrides"] == {"task-reminder": "enabled"}
-    assert captured["launch_profile_managed_header_section_policy"] == {
-        "automation-notice": "disabled"
-    }
-    assert captured["declared_mailbox"].transport == "filesystem"
-    assert captured["declared_mailbox"].filesystem_root == "/shared-mail-root"
-    assert captured["launch_profile_provenance"] == {
-        "name": "alice",
-        "lane": "launch_profile",
-        "source_kind": "recipe",
-        "source_name": "researcher-codex-default",
-        "recipe_name": "researcher-codex-default",
-        "prompt_overlay": {
-            "mode": "append",
-            "present": True,
-        },
-        "gateway_mail_notifier_appendix": {
-            "present": True,
-        },
-        "memo_seed": {
-            "present": False,
-        },
-    }
-
-
-def test_agents_launch_rejects_conflicting_launch_profile_provider(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    invocation_directory = tmp_path.resolve()
-    invocation_directory.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(invocation_directory)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
-        lambda **kwargs: SimpleNamespace(project_overlay=SimpleNamespace(project_root=tmp_path)),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
-        lambda **kwargs: SimpleNamespace(
-            entry=SimpleNamespace(
-                name="alice",
-                profile_lane="launch_profile",
-                source_kind="recipe",
-                source_name="researcher-codex-default",
-                managed_agent_name=None,
-                managed_agent_id=None,
-                workdir=None,
-                auth_name=None,
-                model_name=None,
-                reasoning_level=None,
-                operator_prompt_mode=None,
-                env_payload={},
-                mailbox_payload=None,
-                posture_payload={},
-                managed_header_policy="inherit",
-                prompt_overlay_mode=None,
-            ),
-            source_exists=True,
-            recipe_path=(tmp_path / "recipe.yaml").resolve(),
-            provider="codex",
-            recipe_name="researcher-codex-default",
-            prompt_overlay_text=None,
-            gateway_mail_notifier_appendix_text=None,
-            memo_seed=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
-        lambda project_overlay: (tmp_path / "agents").resolve(),
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--launch-profile",
-            "alice",
-            "--provider",
-            "claude_code",
+            "work",
         ],
     )
 
     assert result.exit_code != 0
-    assert "conflicts with launch profile" in result.output
+    assert "Missing required build inputs: --skill" in result.output
 
 
-def test_agents_launch_rejects_removed_persist_dir_option(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_agents_launch_paths_are_not_public() -> None:
     runner = CliRunner()
-    invocation_directory = tmp_path.resolve()
-    source_agent_def_dir = (tmp_path / "agents").resolve()
-    recipe_path = (source_agent_def_dir / "recipe.yaml").resolve()
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text("role: researcher\n", encoding="utf-8")
-    monkeypatch.chdir(invocation_directory)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
-        lambda **kwargs: SimpleNamespace(project_overlay=SimpleNamespace(project_root=tmp_path)),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
-        lambda **kwargs: SimpleNamespace(
-            entry=SimpleNamespace(
-                name="alice",
-                profile_lane="launch_profile",
-                source_kind="recipe",
-                source_name="researcher-codex-default",
-                managed_agent_name="alice",
-                managed_agent_id="agent-alice",
-                workdir=None,
-                auth_name=None,
-                model_name=None,
-                reasoning_level=None,
-                operator_prompt_mode=None,
-                env_payload={},
-                mailbox_payload=None,
-                posture_payload={},
-                managed_header_policy="inherit",
-                prompt_overlay_mode=None,
-            ),
-            source_exists=True,
-            recipe_path=recipe_path,
-            provider="codex",
-            recipe_name="researcher-codex-default",
-            prompt_overlay_text=None,
-            gateway_mail_notifier_appendix_text=None,
-            memo_seed=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
-        lambda project_overlay: source_agent_def_dir,
-    )
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--launch-profile",
-            "alice",
-            "--provider",
-            "codex",
-            "--persist-dir",
-            str((tmp_path / "shared" / "alice-persist").resolve()),
-        ],
-    )
-
-    assert result.exit_code == 2
-    assert "No such option: --persist-dir" in result.output
-
-
-def test_agents_launch_help_mentions_force_mode() -> None:
-    result = CliRunner().invoke(cli, ["agents", "launch", "--help"])
-
-    assert result.exit_code == 0
-    assert "--force [keep-stale|clean]" in result.output
-    assert "--reuse-home" in result.output
-
-
-def test_agents_launch_bare_force_forwards_keep_stale(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    captured: dict[str, object] = {}
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or SimpleNamespace(
-                agent_identity="worker-a",
-                agent_id="agent-1234",
-                tmux_session_name="worker-a",
-                manifest_path=(tmp_path / "manifest.json").resolve(),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
-        lambda **kwargs: None,
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--force",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["force_mode"] == "keep-stale"
-
-
-def test_agents_launch_forwards_reuse_home(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    captured: dict[str, object] = {}
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or SimpleNamespace(
-                agent_identity="worker-a",
-                agent_id="agent-1234",
-                tmux_session_name="worker-a",
-                manifest_path=(tmp_path / "manifest.json").resolve(),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
-        lambda **kwargs: None,
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--reuse-home",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["reuse_home"] is True
-
-
-def test_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (_ for _ in ()).throw(
-            click.ClickException(
-                "Managed launch `--reuse-home` requires one compatible stopped preserved home for "
-                "managed agent `worker-a` (agent_id `agent-worker-a`), but none was found."
-            )
-        ),
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--agent-name",
-            "worker-a",
-            "--reuse-home",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "requires one compatible stopped preserved home" in result.output
-
-
-def test_agents_launch_reuse_home_live_owner_conflict_requires_force(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (_ for _ in ()).throw(
-            click.ClickException(
-                "Managed agent `worker-a` (agent_id `agent-worker-a`) already owns a live "
-                "registry record. Stop the live owner before attempting `--reuse-home` restart."
-            )
-        ),
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--agent-name",
-            "worker-a",
-            "--reuse-home",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Stop the live owner before attempting `--reuse-home` restart." in result.output
-
-
-def test_agents_launch_launch_profile_forwards_reuse_home_with_current_profile_inputs(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    invocation_directory = (tmp_path / "invoke").resolve()
-    project_root = (tmp_path / "repo").resolve()
-    source_agent_def_dir = (project_root / ".houmao" / "agents").resolve()
-    recipe_path = (source_agent_def_dir / "presets" / "researcher-codex-default.yaml").resolve()
-    invocation_directory.mkdir(parents=True, exist_ok=True)
-    project_root.mkdir(parents=True, exist_ok=True)
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text("role: researcher\n", encoding="utf-8")
-
-    overlay = SimpleNamespace(project_root=project_root)
-    resolved_profile = SimpleNamespace(
-        entry=SimpleNamespace(
-            name="alice",
-            profile_lane="launch_profile",
-            source_kind="recipe",
-            source_name="researcher-codex-default",
-            managed_agent_name="alice",
-            managed_agent_id="agent-alice",
-            workdir=str(project_root / "profile-workdir"),
-            auth_name="alice-creds",
-            model_name="gpt-5.4-mini",
-            reasoning_level=4,
-            operator_prompt_mode="unattended",
-            env_payload={"PROJECT_CONTEXT": "alice"},
-            mailbox_payload=None,
-            posture_payload={"headless": True},
-            managed_header_policy="inherit",
-            managed_header_section_policy={},
-            prompt_overlay_mode="append",
-        ),
-        source_exists=True,
-        recipe_path=recipe_path,
-        provider="codex",
-        recipe_name="researcher-codex-default",
-        prompt_overlay_text="Prefer Alice repository conventions.",
-        gateway_mail_notifier_appendix_text=None,
-        memo_seed=None,
-    )
-    captured: dict[str, object] = {}
-
-    monkeypatch.chdir(invocation_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
-        lambda **kwargs: SimpleNamespace(project_overlay=overlay),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
-        lambda **kwargs: resolved_profile,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
-        lambda project_overlay: source_agent_def_dir,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or SimpleNamespace(
-                agent_identity=kwargs["agent_name"],
-                agent_id="agent-1234",
-                tmux_session_name="alice-session",
-                manifest_path=(tmp_path / "manifest.json").resolve(),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
-        lambda **kwargs: None,
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--launch-profile",
-            "alice",
-            "--provider",
-            "codex",
-            "--reuse-home",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["reuse_home"] is True
-    assert captured["agent_name"] == "alice"
-    assert captured["agent_id"] == "agent-alice"
-    assert captured["operator_prompt_mode"] == "unattended"
-    assert captured["persistent_env_records"] == {"PROJECT_CONTEXT": "alice"}
-    assert captured["prompt_overlay_mode"] == "append"
-    assert captured["prompt_overlay_text"] == "Prefer Alice repository conventions."
-    assert captured["launch_profile_model_config"].name == "gpt-5.4-mini"
-    assert captured["launch_profile_model_config"].reasoning.level == 4
-
-
-def test_agents_launch_rejects_reuse_home_clean_force_before_delegation(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: pytest.fail("launch should not delegate `--reuse-home --force clean`"),
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--reuse-home",
-            "--force",
-            "clean",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "`--reuse-home` is incompatible with `--force clean`" in result.output
-
-
-def test_agents_launch_rejects_invalid_force_mode() -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--force",
-            "broken",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Invalid value for '--force'" in result.output
-
-
-def test_agents_launch_rejects_invalid_managed_header_section_inputs() -> None:
-    unknown_section_result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--managed-header-section",
-            "typo=enabled",
-        ],
-    )
-    assert unknown_section_result.exit_code != 0
-    assert "unsupported managed-header section" in unknown_section_result.output
-
-    unknown_state_result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--managed-header-section",
-            "identity=maybe",
-        ],
-    )
-    assert unknown_state_result.exit_code != 0
-    assert "unsupported managed-header section policy" in unknown_state_result.output
-
-
-def test_agents_launch_direct_managed_header_override_wins_over_profile_policy(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    invocation_directory = tmp_path.resolve()
-    source_agent_def_dir = (tmp_path / "agents").resolve()
-    recipe_path = (source_agent_def_dir / "recipe.yaml").resolve()
-    recipe_path.parent.mkdir(parents=True, exist_ok=True)
-    recipe_path.write_text("role: researcher\n", encoding="utf-8")
-    monkeypatch.chdir(invocation_directory)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_project_aware_local_roots",
-        lambda **kwargs: SimpleNamespace(project_overlay=SimpleNamespace(project_root=tmp_path)),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_launch_profile",
-        lambda **kwargs: SimpleNamespace(
-            entry=SimpleNamespace(
-                name="alice",
-                profile_lane="launch_profile",
-                source_kind="recipe",
-                source_name="researcher-codex-default",
-                managed_agent_name="alice",
-                managed_agent_id="agent-alice",
-                workdir=None,
-                auth_name=None,
-                model_name=None,
-                reasoning_level=None,
-                operator_prompt_mode=None,
-                env_payload={},
-                mailbox_payload=None,
-                posture_payload={},
-                managed_header_policy="disabled",
-                prompt_overlay_mode=None,
-            ),
-            source_exists=True,
-            recipe_path=recipe_path,
-            provider="codex",
-            recipe_name="researcher-codex-default",
-            prompt_overlay_text=None,
-            gateway_mail_notifier_appendix_text=None,
-            memo_seed=None,
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.materialize_project_agent_catalog_projection",
-        lambda project_overlay: source_agent_def_dir,
-    )
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.launch_managed_agent_locally",
-        lambda **kwargs: (
-            captured.update(kwargs)
-            or SimpleNamespace(
-                agent_identity=kwargs["agent_name"],
-                agent_id="agent-1234",
-                tmux_session_name="alice-session",
-                manifest_path=(tmp_path / "manifest.json").resolve(),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.emit_local_launch_completion",
-        lambda **kwargs: None,
-    )
-
-    result = runner.invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--launch-profile",
-            "alice",
-            "--provider",
-            "codex",
-            "--managed-header",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["managed_header_override"] is True
-    assert captured["launch_profile_managed_header_policy"] == "disabled"
-
-
-def test_server_sessions_shutdown_all_uses_pair_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _FakePairClient()
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.require_houmao_server_pair",
-        lambda *, base_url: client,
-    )
-
-    result = CliRunner().invoke(cli, ["server", "sessions", "shutdown", "--all"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert client.m_delete_session_calls == ["sess-a", "sess-b"]
-    assert payload["results"] == [
-        {"session": "sess-a", "success": True},
-        {"session": "sess-b", "success": True},
-    ]
-
-
-def test_agents_launch_builds_and_starts_local_runtime_then_attaches(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    attach_calls: list[str] = []
-    captured: dict[str, object] = {}
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="codex",
-        role_name="gpu-kernel-coder",
-        operator_prompt_mode="unattended",
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: (captured.setdefault("build_request", request), build_result)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared",
-        lambda *, session_name: attach_calls.append(session_name),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "codex",
-            "--session-name",
-            "gpu-session",
-        ],
-    )
-
-    assert result.exit_code == 0
-    payloads = _decode_json_stream(result.output)
-    expected_memory_root = (
-        working_directory / ".houmao" / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
-    )
-    assert payloads == [
-        {
-            "status": "Managed agent launch complete",
-            "agent_name": "gpu",
-            "agent_id": "agent-1234",
-            "tmux_session_name": "gpu-session",
-            "manifest_path": str(controller.manifest_path),
-            "runtime_root": str(working_directory / ".houmao" / "runtime"),
-            "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
-            "memory_root": str(expected_memory_root),
-            "memo_file": str(expected_memory_root / "houmao-memo.md"),
-            "pages_dir": str(expected_memory_root / "pages"),
-            "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
-            "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
-            "overlay_root": str(working_directory / ".houmao"),
-            "overlay_root_detail": "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
-            "project_overlay_bootstrapped": True,
-            "overlay_bootstrap_detail": "Applied implicit bootstrap for the selected overlay root during this invocation.",
-        }
-    ]
-    assert captured["build_request"].operator_prompt_mode == "unattended"
-    assert captured["build_request"].agent_name == "gpu"
-    assert captured["build_request"].agent_id == "0aa0be2a866411d9ff03515227454947"
-    assert captured["build_request"].role_prompt_override == compose_managed_launch_prompt(
-        base_prompt="You are gpu-kernel-coder.",
-        overlay_mode=None,
-        overlay_text=None,
-        managed_header_enabled=True,
-        agent_name="gpu",
-        agent_id="0aa0be2a866411d9ff03515227454947",
-        memo_file=str(expected_memory_root / "houmao-memo.md"),
-    )
-    assert captured["start_kwargs"]["backend"] == "local_interactive"
-    assert captured["start_kwargs"]["agent_name"] == "gpu"
-    assert captured["start_kwargs"]["agent_id"] is None
-    assert attach_calls == ["gpu-session"]
-
-
-def test_agents_launch_preserves_explicit_as_is_prompt_mode(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="codex",
-        role_name="gpu-kernel-coder",
-        operator_prompt_mode="as_is",
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: (captured.setdefault("build_request", request), build_result)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
-        lambda: False,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "codex",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert captured["build_request"].operator_prompt_mode == "as_is"
-    assert captured["start_kwargs"]["backend"] == "local_interactive"
-
-
-def test_agents_launch_non_interactive_skips_tmux_attach_and_reports_manual_follow_up(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="claude",
-        role_name="gpu-kernel-coder",
-        operator_prompt_mode="unattended",
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: controller,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
-        lambda: False,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("attach should be skipped")),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "claude_code",
-            "--session-name",
-            "gpu-session",
-        ],
-    )
-
-    assert result.exit_code == 0
-    payloads = _decode_json_stream(result.output)
-    expected_memory_root = (
-        working_directory / ".houmao" / "memory" / "agents" / "0aa0be2a866411d9ff03515227454947"
-    )
-    assert payloads == [
-        {
-            "status": "Managed agent launch complete",
-            "agent_name": "gpu",
-            "agent_id": "agent-1234",
-            "tmux_session_name": "gpu-session",
-            "manifest_path": str(controller.manifest_path),
-            "runtime_root": str(working_directory / ".houmao" / "runtime"),
-            "runtime_root_detail": "Selected the active project runtime root from the current project overlay.",
-            "memory_root": str(expected_memory_root),
-            "memo_file": str(expected_memory_root / "houmao-memo.md"),
-            "pages_dir": str(expected_memory_root / "pages"),
-            "mailbox_root": str(working_directory / ".houmao" / "mailbox"),
-            "mailbox_root_detail": "Selected the active project mailbox root from the current project overlay.",
-            "overlay_root": str(working_directory / ".houmao"),
-            "overlay_root_detail": "Selected overlay root from the default project-aware `<cwd>/.houmao` candidate.",
-            "project_overlay_bootstrapped": True,
-            "overlay_bootstrap_detail": "Applied implicit bootstrap for the selected overlay root during this invocation.",
-        },
-        {
-            "terminal_handoff": "skipped_non_interactive",
-            "attach_command": "tmux attach-session -t gpu-session",
-        },
-    ]
-
-
-def test_agents_launch_auth_override_wins_over_preset_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="claude",
-        role_name="gpu-kernel-coder",
-        operator_prompt_mode=None,
-        auth="default",
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="gpu",
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: (captured.setdefault("build_request", request), build_result)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: controller,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
-        lambda: False,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--provider",
-            "claude_code",
-            "--auth",
-            "kimi-coding",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert captured["build_request"].auth == "kimi-coding"
-
-
-def test_agents_launch_allows_missing_agent_name(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="claude",
-        role_name="gpu-kernel-coder",
-        operator_prompt_mode=None,
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-1234",
-        agent_identity="HOUMAO-claude-gpu-kernel-coder",
-        tmux_session_name="gpu-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: (captured.setdefault("build_request", request), build_result)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._caller_has_interactive_terminal",
-        lambda: False,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--provider",
-            "claude_code",
-        ],
-    )
-
-    assert result.exit_code == 0
-    payloads = _decode_json_stream(result.output)
-    assert payloads[0]["agent_name"] == "HOUMAO-claude-gpu-kernel-coder"
-    assert captured["build_request"].agent_name == "HOUMAO-claude-gpu-kernel-coder"
-    assert captured["build_request"].agent_id == "fd4e1392c17d45c0490fc10e3cd80b49"
-    assert captured["start_kwargs"]["agent_name"] is None
-
-
-def test_agents_launch_headless_keeps_native_headless_backend(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="claude",
-        role_name="researcher",
-        operator_prompt_mode=None,
-    )
-    controller = SimpleNamespace(
-        manifest_path=working_directory / "runtime" / "manifest.json",
-        agent_id="agent-claude",
-        agent_identity="claude",
-        tmux_session_name="claude-session",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (captured.setdefault("start_kwargs", kwargs), controller)[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.attach_tmux_session_shared",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("tmux attach should not run")),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--agent-name",
-            "claude",
-            "--provider",
-            "claude_code",
-            "--headless",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["start_kwargs"]["backend"] == "claude_headless"
-
-
-def test_agents_launch_interactive_reports_launch_policy_compatibility_failure(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="claude",
-        role_name="researcher",
-        operator_prompt_mode="unattended",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (_ for _ in ()).throw(
-            LaunchPolicyResolutionError(
-                requested_operator_prompt_mode="unattended",
-                tool="claude",
-                policy_backend="raw_launch",
-                detected_version="2.1.83",
-                detail=(
-                    "No compatible unattended launch strategy exists for tool='claude', "
-                    "backend='raw_launch', version='2.1.83', "
-                    "requested_operator_prompt_mode='unattended'."
-                ),
-            )
-        ),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--agent-name",
-            "claude",
-            "--provider",
-            "claude_code",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "runtime backend `local_interactive`" in result.output
-    assert "provider startup did not begin" in result.output
-    assert "requested_operator_prompt_mode='unattended'" in result.output
-    assert "policy_backend='raw_launch'" in result.output
-    assert "detected_version='2.1.83'" in result.output
-
-
-def test_agents_launch_headless_reports_launch_policy_compatibility_failure(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    working_directory = tmp_path.resolve()
-    manifest_path = working_directory / "brain.json"
-    manifest_path.write_text("{}\n", encoding="utf-8")
-    build_result = SimpleNamespace(manifest_path=manifest_path)
-    target = _make_native_launch_target(
-        working_directory=working_directory,
-        tool="claude",
-        role_name="researcher",
-        operator_prompt_mode="unattended",
-    )
-
-    monkeypatch.chdir(working_directory)
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_native_launch_target",
-        lambda **kwargs: target,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.build_brain_home",
-        lambda request: build_result,
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.start_runtime_session",
-        lambda **kwargs: (_ for _ in ()).throw(
-            LaunchPolicyResolutionError(
-                requested_operator_prompt_mode="unattended",
-                tool="claude",
-                policy_backend="claude_headless",
-                detected_version="2.1.83",
-                detail=(
-                    "No compatible unattended launch strategy exists for tool='claude', "
-                    "backend='claude_headless', version='2.1.83', "
-                    "requested_operator_prompt_mode='unattended'."
-                ),
-            )
-        ),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "researcher",
-            "--agent-name",
-            "claude",
-            "--provider",
-            "claude_code",
-            "--headless",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "runtime backend `claude_headless`" in result.output
-    assert "provider startup did not begin" in result.output
-    assert "policy_backend='claude_headless'" in result.output
-    assert "detected_version='2.1.83'" in result.output
-
-
-def test_agents_launch_rejects_unsupported_provider() -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--agent-name",
-            "gpu",
-            "--provider",
-            "kiro_cli",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Invalid provider `kiro_cli`." in result.output
-
-
-def test_agents_launch_rejects_removed_yolo_flag() -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "agents",
-            "launch",
-            "--agents",
-            "gpu-kernel-coder",
-            "--provider",
-            "codex",
-            "--yolo",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "No such option: --yolo" in result.output
-
-
-def test_server_status_reports_health_and_current_instance(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _HealthyClient:
-        def __init__(self, base_url: str) -> None:
-            self.m_base_url = base_url
-
-        def health_extended(self) -> HoumaoHealthResponse:
-            return HoumaoHealthResponse(status="ok", service="cli-agent-orchestrator")
-
-        def current_instance(self) -> HoumaoCurrentInstance:
-            return HoumaoCurrentInstance(
-                pid=123,
-                api_base_url=self.m_base_url,
-                server_root="/tmp/houmao-server",
-            )
-
-        def list_sessions(self) -> list[_FakeSession]:
-            return [_FakeSession("sess-a")]
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=_HealthyClient(base_url),
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-server"),
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["server", "status", "--port", "9999"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["running"] is True
-    assert payload["api_base_url"] == "http://127.0.0.1:9999"
-    assert payload["active_session_count"] == 1
-
-
-def test_server_status_accepts_passive_pair_authority(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _PassiveClient:
-        def __init__(self, base_url: str) -> None:
-            self.m_base_url = base_url
-
-        def current_instance(self) -> HoumaoCurrentInstance:
-            return HoumaoCurrentInstance(
-                pid=456,
-                api_base_url=self.m_base_url,
-                server_root="/tmp/houmao-passive-server",
-            )
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=_PassiveClient(base_url),
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["server", "status", "--port", "9891"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["running"] is True
-    assert payload["api_base_url"] == "http://127.0.0.1:9891"
-    assert payload["health"]["houmao_service"] == "houmao-passive-server"
-    assert payload["active_session_count"] is None
-    assert payload["active_sessions"] is None
-
-
-def test_server_stop_accepts_passive_pair_authority(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _PassiveClient:
-        def shutdown_server(self) -> object:
-            return SimpleNamespace(success=True)
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.server.resolve_pair_authority_client",
-        lambda *, base_url: SimpleNamespace(
-            client=_PassiveClient(),
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["server", "stop", "--port", "9891"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload == {
-        "api_base_url": "http://127.0.0.1:9891",
-        "detail": "Shutdown request accepted.",
-        "running": False,
-        "success": True,
-    }
+    launch_paths = (
+        ["agents", "launch", "--help"],
+        ["agents", "global", "launch", "--help"],
+        ["agents", "single", "--agent-id", "agent-123", "launch", "--help"],
+    )
+
+    for argv in launch_paths:
+        result = runner.invoke(cli, argv)
+        assert result.exit_code != 0
+        assert "No such command 'launch'" in result.output

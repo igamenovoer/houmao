@@ -12,15 +12,13 @@ Use this action only when the user wants structural message projections for one 
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox messages list --address <full-address> [--mailbox-root <path>]
-<chosen houmao-mgr launcher> project mailbox messages list --address <full-address>
+```bash
+<chosen houmao-mgr launcher> mailbox messages list --address <address> [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox messages list --address <address>
 ```
 
 ## Guardrails
 
 - Do not treat this action as unread-state inspection.
 - Do not mark messages read, archived, or deleted from this action.
-- Do not switch to `houmao-mgr agents mail ...` unless the user actually needs actor-scoped mailbox participation state.
+- Do not switch to `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` unless the user actually needs actor-scoped mailbox participation state.

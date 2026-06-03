@@ -11,10 +11,8 @@ Use this action only when the user wants operator-facing mailbox registrations u
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox accounts list [--mailbox-root <path>]
+```bash
+<chosen houmao-mgr launcher> mailbox accounts list [--mailbox-root <root>]
 <chosen houmao-mgr launcher> project mailbox accounts list
 ```
 

@@ -4,7 +4,7 @@ Define the packaged specialist-management system skill contract for routed speci
 ### Requirement: Houmao provides a packaged `houmao-create-specialist` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-specialist-mgr` under the maintained system-skill asset root.
 
-That skill SHALL instruct agents to manage reusable specialists through `houmao-mgr project easy specialist create|list|get|remove` and specialist-scoped runtime actions through `houmao-mgr project easy instance launch|stop` rather than through deprecated or lower-level authoring surfaces.
+That skill SHALL instruct agents to manage reusable specialists through `houmao-mgr project specialist create|list|get|remove` and specialist-scoped runtime actions through `houmao-mgr project agents launch|stop` rather than through deprecated or lower-level authoring surfaces.
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
 
@@ -25,7 +25,7 @@ The create action within that packaged skill SHALL describe the documented proje
 
 #### Scenario: Installed skill points the agent at specialist management and specialist-scoped lifecycle commands
 - **WHEN** an agent opens the installed specialist-management skill
-- **THEN** the skill directs the agent to use `houmao-mgr project easy specialist create|list|get|remove` and `houmao-mgr project easy instance launch|stop`
+- **THEN** the skill directs the agent to use `houmao-mgr project specialist create|list|get|remove` and `houmao-mgr project agents launch|stop`
 - **AND THEN** it does not redirect the agent to deprecated entrypoints or ad hoc filesystem editing
 
 #### Scenario: Installed skill routes to action-specific local guidance
@@ -76,7 +76,7 @@ The skill SHALL only probe development-project hints such as `.venv`, Pixi files
 
 The skill SHALL honor an explicit user instruction to use a specific launcher family even when a higher-priority default launcher is available.
 
-The resolved launcher SHALL be reused for any routed `project easy specialist` action selected through the packaged skill.
+The resolved launcher SHALL be reused for any routed `project specialist` action selected through the packaged skill.
 
 #### Scenario: PATH launcher is preferred before development probing
 - **WHEN** `command -v houmao-mgr` succeeds in the current workspace
@@ -120,7 +120,7 @@ When required inputs remain unresolved after checking prompt and recent conversa
 
 When the user explicitly requests `auto credentials`, the skill SHALL treat that as a create-action auth-discovery mode rather than as a literal CLI flag or replacement credential-bundle name.
 
-When the user omits tool or credential input, the skill SHALL inspect registered credentials from the active Houmao project or `HOUMAO_AGENT_DEF_DIR` target by running the supported `houmao-mgr ... credentials <tool> list` commands. If registered credentials exist, the skill SHALL pick a registered credential that matches the prompt or nearby context when possible; otherwise, it SHALL pick the credential with the latest listed update time.
+When the user omits tool or credential input, the skill SHALL inspect registered credentials from the active Houmao project or `HOUMAO_NATIVE_AGENT_ROOT` target by running the supported `houmao-mgr ... credentials <tool> list` commands. If registered credentials exist, the skill SHALL pick a registered credential that matches the prompt or nearby context when possible; otherwise, it SHALL pick the credential with the latest listed update time.
 
 If no Houmao credential target can be resolved or if no credentials are registered, the skill SHALL stop before discovery and report the suggested fix.
 
@@ -147,7 +147,7 @@ The skill SHALL NOT apply credential discovery rules to `list`, `get`, or `remov
 - **WHEN** the current prompt asks the agent to create a specialist
 - **AND WHEN** the specialist name is known
 - **AND WHEN** the tool lane or credential name is not explicit in the current prompt or recent conversation context
-- **AND WHEN** the active Houmao project or `HOUMAO_AGENT_DEF_DIR` target has registered credentials
+- **AND WHEN** the active Houmao project or `HOUMAO_NATIVE_AGENT_ROOT` target has registered credentials
 - **THEN** the skill chooses a registered credential by prompt or recent conversation context when possible
 - **AND THEN** it otherwise chooses the credential with the latest listed update time
 - **AND THEN** it uses that credential's tool lane and name for `--tool` and `--credential`
@@ -192,9 +192,9 @@ The create action SHALL NOT present `claude_state.template.json` as one of the w
 - **AND THEN** it does not describe `claude_state.template.json` as a Claude credential lane
 
 ### Requirement: `houmao-create-specialist` explains filesystem mailbox behavior on specialist-backed easy launch
-When the packaged `houmao-specialist-mgr` skill describes `project easy instance launch` with filesystem mailbox support, the launch guidance SHALL distinguish launch-time mailbox flags from profile-create declarative mailbox fields.
+When the packaged `houmao-specialist-mgr` skill describes `project agents launch` with filesystem mailbox support, the launch guidance SHALL distinguish launch-time mailbox flags from profile-create declarative mailbox fields.
 
-At minimum, that launch guidance SHALL state that `project easy instance launch` does not accept profile-create declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
+At minimum, that launch guidance SHALL state that `project agents launch` does not accept profile-create declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
 
 The launch guidance SHALL state that the supported launch-time filesystem mailbox inputs are `--mail-transport filesystem`, `--mail-root`, and optional `--mail-account-dir`.
 
@@ -205,9 +205,9 @@ The launch guidance SHALL explain that `--mail-account-dir` is a private filesys
 The launch guidance SHALL warn that manual preregistration of the same address under the same mailbox root can collide with the launch's safe mailbox bootstrap for that instance.
 
 #### Scenario: Specialist launch guidance excludes profile-only mailbox fields
-- **WHEN** an agent reads the specialist-manager launch action for mailbox-enabled `project easy instance launch`
+- **WHEN** an agent reads the specialist-manager launch action for mailbox-enabled `project agents launch`
 - **THEN** the skill states that launch-time filesystem mailbox support uses only the documented launch flags
-- **AND THEN** it does not present `--mail-address` or `--mail-principal-id` as supported `project easy instance launch` flags
+- **AND THEN** it does not present `--mail-address` or `--mail-principal-id` as supported `project agents launch` flags
 
 #### Scenario: Specialist launch guidance explains private mailbox directory placement
 - **WHEN** an agent reads the specialist-manager launch action for `--mail-account-dir`
@@ -220,29 +220,29 @@ The launch guidance SHALL warn that manual preregistration of the same address u
 - **THEN** the skill warns that preregistering that same address can make safe launch bootstrap fail
 - **AND THEN** it tells the reader to let launch own that address unless they are intentionally using a different manual-registration or late-binding lane
 
-### Requirement: `houmao-specialist-mgr` routes easy-profile editing commands
-The packaged `houmao-specialist-mgr` skill SHALL treat specialist-backed easy-profile editing as part of its easy-profile authoring responsibility.
+### Requirement: `houmao-specialist-mgr` routes project-profile editing commands
+The packaged `houmao-specialist-mgr` skill SHALL treat specialist-backed project-profile editing as part of its project-profile authoring responsibility.
 
-When a user asks to update one existing easy profile's stored launch defaults, the skill SHALL route to `houmao-mgr project easy profile set --name <profile> ...`.
+When a user asks to update one existing project profile's stored launch defaults, the skill SHALL route to `houmao-mgr project profile set --name <profile> ...`.
 
-When a user asks to replace one existing easy profile definition, the skill SHALL route to `houmao-mgr project easy profile create --name <profile> --specialist <specialist> ... --yes` after identifying the replacement intent.
+When a user asks to replace one existing project profile definition, the skill SHALL route to `houmao-mgr project profile create --name <profile> --specialist <specialist> ... --yes` after identifying the replacement intent.
 
-The skill SHALL NOT route ordinary easy-profile stored-default edits through manual remove/recreate.
+The skill SHALL NOT route ordinary project-profile stored-default edits through manual remove/recreate.
 
-#### Scenario: Skill routes easy-profile patch request to set
-- **WHEN** a user asks an agent using `houmao-specialist-mgr` to change the workdir on easy profile `alice`
-- **THEN** the skill guidance routes that request through `project easy profile set --name alice --workdir <path>`
+#### Scenario: Skill routes project-profile patch request to set
+- **WHEN** a user asks an agent using `houmao-specialist-mgr` to change the workdir on project profile `alice`
+- **THEN** the skill guidance routes that request through `project profile set --name alice --workdir <path>`
 - **AND THEN** it does not instruct the agent to remove and recreate `alice`
 
 #### Scenario: Skill distinguishes replacement from patch
-- **WHEN** a user asks an agent using `houmao-specialist-mgr` to rebuild easy profile `alice` over a different specialist
+- **WHEN** a user asks an agent using `houmao-specialist-mgr` to rebuild project profile `alice` over a different specialist
 - **THEN** the skill guidance treats that as replacement
-- **AND THEN** it routes through `project easy profile create --name alice --specialist <specialist> --yes`
+- **AND THEN** it routes through `project profile create --name alice --specialist <specialist> --yes`
 
 ### Requirement: `houmao-specialist-mgr` routes specialist update requests
-The packaged `houmao-specialist-mgr` skill SHALL instruct agents to route existing-specialist update requests through `houmao-mgr project easy specialist set --name <specialist> ...`.
+The packaged `houmao-specialist-mgr` skill SHALL instruct agents to route existing-specialist update requests through `houmao-mgr project specialist set --name <specialist> ...`.
 
-The top-level skill router SHALL include specialist update as an easy-workflow action and SHALL distinguish it from specialist creation, same-name specialist replacement, easy-profile update, and easy-instance runtime work.
+The top-level skill router SHALL include specialist update as an easy-workflow action and SHALL distinguish it from specialist creation, same-name specialist replacement, project-profile update, and easy-instance runtime work.
 
 The specialist update guidance SHALL require the specialist name and at least one explicit update or clear option before running the command.
 
@@ -250,21 +250,21 @@ The specialist update guidance SHALL tell agents that omitted fields are preserv
 
 #### Scenario: Installed skill routes specialist skill edits to set
 - **WHEN** a user asks an agent to add or remove a skill on an existing specialist
-- **THEN** the installed `houmao-specialist-mgr` skill routes the agent to `project easy specialist set`
+- **THEN** the installed `houmao-specialist-mgr` skill routes the agent to `project specialist set`
 - **AND THEN** it does not instruct the agent to remove and recreate the specialist for that ordinary edit
 
 #### Scenario: Installed skill asks before running an empty specialist update
 - **WHEN** a user asks to update specialist `researcher` but does not state any concrete update field
 - **THEN** the installed `houmao-specialist-mgr` skill tells the agent to ask for the missing update details
-- **AND THEN** it does not run `project easy specialist set --name researcher` without an update or clear flag
+- **AND THEN** it does not run `project specialist set --name researcher` without an update or clear flag
 
 #### Scenario: Installed skill distinguishes profile update from specialist update
-- **WHEN** a user asks to update a reusable launch default on an easy profile
-- **THEN** the installed `houmao-specialist-mgr` skill routes the agent to `project easy profile set`
-- **AND THEN** it does not use `project easy specialist set` for profile-owned birth-time defaults
+- **WHEN** a user asks to update a reusable launch default on an project profile
+- **THEN** the installed `houmao-specialist-mgr` skill routes the agent to `project profile set`
+- **AND THEN** it does not use `project specialist set` for profile-owned birth-time defaults
 
 ### Requirement: `houmao-specialist-mgr` preserves foreground-first launch-time gateway posture
-The packaged `houmao-specialist-mgr` launch guidance SHALL explain that `project easy instance launch` enables launch-time gateway auto-attach by default unless `--no-gateway` or stored profile posture disables it.
+The packaged `houmao-specialist-mgr` launch guidance SHALL explain that `project agents launch` enables launch-time gateway auto-attach by default unless `--no-gateway` or stored profile posture disables it.
 
 The launch guidance SHALL state that default launch-time gateway auto-attach uses foreground same-session auxiliary-window execution when supported, and that detached background gateway execution is a separate gateway-sidecar posture.
 
@@ -279,7 +279,7 @@ The launch guidance SHALL distinguish managed-agent `--headless` or `--no-headle
 - **AND THEN** it describes the resulting launch-time gateway auto-attach as foreground same-session auxiliary-window execution when supported
 
 #### Scenario: Profile-backed launch keeps stored posture without inventing background mode
-- **WHEN** an agent follows `houmao-specialist-mgr` guidance to launch through an easy profile
+- **WHEN** an agent follows `houmao-specialist-mgr` guidance to launch through an project profile
 - **AND WHEN** the selected profile does not explicitly store or imply detached background gateway execution
 - **THEN** the guidance does not add a background gateway flag as a one-shot override
 - **AND THEN** it leaves profile-backed gateway posture to the stored profile defaults plus explicit user-provided CLI overrides
@@ -303,7 +303,7 @@ The packaged `houmao-specialist-mgr` skill SHALL ship three per-tool credential 
 - `codex-credential-kinds.md`
 - `gemini-credential-kinds.md`
 
-Each kinds reference page SHALL enumerate the user-facing credential kinds the selected tool accepts through `houmao-mgr project easy specialist create`, including at minimum the following kinds per tool:
+Each kinds reference page SHALL enumerate the user-facing credential kinds the selected tool accepts through `houmao-mgr project specialist create`, including at minimum the following kinds per tool:
 
 - Claude: API key, auth token, OAuth token, and a vendor-login config-directory kind that carries `.credentials.json` plus companion `.claude.json` when present.
 - Codex: API key, and a cached login state kind that carries an `auth.json` file.
@@ -313,7 +313,7 @@ Each kinds reference page SHALL for every enumerated kind state:
 
 - a plain-language name for the kind that a first-time user can recognize,
 - a description of what the user would provide for that kind (for example a string value, a file path, or a directory path),
-- the `project easy specialist create` flag that the kind maps to in the `houmao-specialist-mgr` command surface,
+- the `project specialist create` flag that the kind maps to in the `houmao-specialist-mgr` command surface,
 - a short guidance line on when the user would pick that kind.
 
 Each kinds reference page SHALL name discovery shortcuts (auto credentials, env lookup, directory scan) as alternatives to picking an explicit kind, and SHALL cite the matching `*-credential-lookup.md` reference for discovery-mode details rather than restating discovery rules inline.
@@ -352,31 +352,49 @@ The kinds reference pages SHALL NOT replace the existing `*-credential-lookup.md
 - **AND THEN** it maps that kind to the `--google-api-key` plus `--use-vertex-ai` create flags rather than folding it into the generic API key kind
 
 ### Requirement: `houmao-specialist-mgr` is no longer the canonical specialist-management skill
-The system SHALL treat `houmao-agent-definition` as the canonical packaged skill for specialist and easy-profile authoring.
+The system SHALL treat `houmao-agent-definition` as the canonical packaged skill for specialist and project-profile authoring.
 
 If `houmao-specialist-mgr` remains packaged, it SHALL act as a compatibility wrapper that routes users to the corresponding `houmao-agent-definition` easy subskill and states that `houmao-agent-definition` is the canonical current skill.
 
 #### Scenario: Old specialist skill invocation redirects to unified skill
-- **WHEN** a user or installed agent invokes `houmao-specialist-mgr` for specialist or easy-profile authoring
+- **WHEN** a user or installed agent invokes `houmao-specialist-mgr` for specialist or project-profile authoring
 - **THEN** the skill tells the agent to use the corresponding `houmao-agent-definition` easy subskill
-- **AND THEN** it does not present itself as the independent canonical owner of specialist and easy-profile workflows
+- **AND THEN** it does not present itself as the independent canonical owner of specialist and project-profile workflows
 
 ### Requirement: Existing specialist behavior is preserved inside unified easy subskills
-The unified `houmao-agent-definition` easy subskills SHALL preserve the supported specialist and easy-profile authoring behavior previously documented by `houmao-specialist-mgr`, including create, set, list, get, remove, profile create, profile set, easy launch, and easy stop routing.
+The unified `houmao-agent-definition` easy subskills SHALL preserve the supported specialist and project-profile authoring behavior previously documented by `houmao-specialist-mgr`, including create, set, list, get, remove, profile create, profile set, easy launch, and easy stop routing.
 
 The unified guidance SHALL still tell users that broad follow-up live-agent lifecycle management belongs to `houmao-agent-instance` after easy launch or stop.
 
-#### Scenario: Specialist update still uses project easy specialist set
+#### Scenario: Specialist update still uses project specialist set
 - **WHEN** a user asks to patch an existing specialist through the unified skill
-- **THEN** the unified easy specialist subskill routes the request through `houmao-mgr project easy specialist set`
+- **THEN** the unified specialist subskill routes the request through `houmao-mgr project specialist set`
 - **AND THEN** it does not remove and recreate the specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits
 
 ### Requirement: `houmao-specialist-mgr` compatibility wrapper routes renamed agent-definition subcommands
 If `houmao-specialist-mgr` remains packaged, it SHALL identify `houmao-agent-definition` as the canonical owner for `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`.
 
-The wrapper SHALL use `create-agent-fast-forward` as the primary name for the one-pass specialist-to-easy-profile workflow and SHALL treat older ready-profile wording as compatibility terminology.
+The wrapper SHALL use `create-agent-fast-forward` as the primary name for the one-pass specialist-to-project-profile workflow and SHALL treat older ready-profile wording as compatibility terminology.
 
 #### Scenario: Compatibility wrapper names fast-forward path
 - **WHEN** an agent opens `houmao-specialist-mgr`
 - **THEN** the wrapper points one-pass profile preparation requests to `houmao-agent-definition` and `create-agent-fast-forward`
 - **AND THEN** it does not present ready-profile generation as an independent wrapper-owned workflow
+
+### Requirement: `houmao-specialist-mgr` delegates supported command authoring to config drafts and direct snippets
+The packaged `houmao-specialist-mgr` compatibility skill SHALL route supported specialist work to `houmao-agent-definition` for config-draft-backed preparation and direct executable command guidance.
+
+When the compatibility skill documents a command itself, it SHALL use fenced `bash` snippets for direct maintained `houmao-mgr` commands.
+
+The skill SHALL NOT reference `houmao-mgr internals command-templates show`, `houmao-mgr internals command-templates render`, command-template ids, or template blockers.
+
+#### Scenario: Specialist create routes to draft-backed guidance
+- **WHEN** a user asks `houmao-specialist-mgr` to create Codex specialist `reviewer` with credential `reviewer-creds`
+- **THEN** the skill routes the work through `houmao-agent-definition` specialist guidance
+- **AND THEN** that guidance uses config drafts or direct project commands without command-template rendering
+
+#### Scenario: Specialist launch uses direct command guidance
+- **WHEN** a user asks `houmao-specialist-mgr` to launch specialist `reviewer` as instance `reviewer-1`
+- **THEN** the skill routes to direct `houmao-mgr project agents launch --specialist reviewer --name reviewer-1` guidance
+- **AND THEN** missing inputs or conflicting posture requests are resolved before command execution
+

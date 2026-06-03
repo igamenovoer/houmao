@@ -10,8 +10,8 @@ The system SHALL support two user-facing authoring lanes over that shared launch
 
 Persisting, listing, inspecting, or removing a launch profile SHALL NOT by itself create, stop, or mutate a live managed-agent instance.
 
-#### Scenario: Easy profile persists reusable birth-time config without creating an instance
-- **WHEN** an operator creates easy profile `alice` targeting specialist `cuda-coder`
+#### Scenario: Project profile persists reusable birth-time config without creating an instance
+- **WHEN** an operator creates project profile `alice` targeting specialist `cuda-coder`
 - **THEN** the system persists `alice` as reusable birth-time launch configuration
 - **AND THEN** it does not create a live managed-agent instance only because the profile was created
 
@@ -30,7 +30,7 @@ The system SHALL expose project-local launch profiles through a stable named com
 Catalog-backed profiles authored through either lane SHALL project into that same compatibility tree so low-level inspection and launch resolution can address one stable named resource family.
 
 #### Scenario: Easy-authored profile projects into the launch-profile tree
-- **WHEN** a project-local easy profile named `alice` exists in the authoritative catalog
+- **WHEN** a project-local project profile named `alice` exists in the authoritative catalog
 - **THEN** the system materializes a compatibility resource at `.houmao/agents/launch-profiles/alice.yaml`
 - **AND THEN** low-level launch-profile inspection can resolve that same named profile through the projected path
 
@@ -117,8 +117,8 @@ Launch-profile inspection payloads SHALL report the stored managed-header policy
 - **THEN** the shared launch-profile object stores that policy as birth-time launch configuration
 - **AND THEN** later inspection of that launch profile reports managed-header policy `disabled`
 
-#### Scenario: Easy profile stores inherit managed-header policy
-- **WHEN** an operator creates one easy profile without forcing managed-header enabled or disabled
+#### Scenario: Project profile stores inherit managed-header policy
+- **WHEN** an operator creates one project profile without forcing managed-header enabled or disabled
 - **THEN** the shared launch-profile object records managed-header policy `inherit`
 - **AND THEN** later launch resolution can still fall through to the system default for that field
 
@@ -150,21 +150,21 @@ Neither patch nor replacement mutation SHALL create, stop, relaunch, or rewrite 
 - **AND THEN** live instance `alice-1` and its existing runtime manifest remain unchanged by that stored-profile mutation
 
 ### Requirement: Launch-profile replacement preserves profile lane boundaries
-The shared launch-profile authoring surfaces SHALL NOT allow replacement across the easy-profile and explicit-launch-profile lanes.
+The shared launch-profile authoring surfaces SHALL NOT allow replacement across the project-profile and explicit-launch-profile lanes.
 
 When a same-name profile exists in a different lane from the requested authoring surface, replacement SHALL fail clearly before updating the stored profile.
 
 #### Scenario: Easy replacement cannot replace explicit launch profile
 - **WHEN** explicit launch profile `alice` already exists
-- **AND WHEN** an operator requests same-name easy-profile replacement for `alice`
-- **THEN** the replacement fails clearly because `alice` is not an easy profile
+- **AND WHEN** an operator requests same-name project-profile replacement for `alice`
+- **THEN** the replacement fails clearly because `alice` is not an project profile
 - **AND THEN** the existing explicit launch profile remains unchanged
 
-#### Scenario: Explicit replacement cannot replace easy profile
-- **WHEN** easy profile `alice` already exists
+#### Scenario: Explicit replacement cannot replace project profile
+- **WHEN** project profile `alice` already exists
 - **AND WHEN** an operator requests same-name explicit launch-profile replacement for `alice`
 - **THEN** the replacement fails clearly because `alice` is not an explicit launch profile
-- **AND THEN** the existing easy profile remains unchanged
+- **AND THEN** the existing project profile remains unchanged
 
 ### Requirement: Launch profiles may store memo seeds
 The shared launch-profile object family SHALL support one optional memo seed as reusable birth-time launch configuration.
@@ -191,7 +191,7 @@ Patch mutation SHALL preserve an existing memo seed when no memo seed field is s
 - **AND THEN** profile inspection does not report a memo seed policy
 
 #### Scenario: Profile stores a memo-shaped seed directory
-- **WHEN** an operator creates easy profile `writer` with a seed directory containing `houmao-memo.md` and `pages/style.md`
+- **WHEN** an operator creates project profile `writer` with a seed directory containing `houmao-memo.md` and `pages/style.md`
 - **THEN** the shared launch-profile object records a memo seed with source kind `tree`
 - **AND THEN** later profile inspection reports that a memo seed is present without printing the full contents of `pages/style.md`
 - **AND THEN** profile inspection does not report a memo seed policy
@@ -208,10 +208,10 @@ Patch mutation SHALL preserve an existing memo seed when no memo seed field is s
 - **THEN** the replacement profile no longer records a memo seed
 
 #### Scenario: Cross-lane replacement cannot replace memo seed owner
-- **WHEN** easy profile `alice` stores a memo seed
+- **WHEN** project profile `alice` stores a memo seed
 - **AND WHEN** an operator attempts to replace `alice` through the explicit launch-profile lane
 - **THEN** the replacement fails because the profile lane does not match
-- **AND THEN** the easy profile and its memo seed relationship remain unchanged
+- **AND THEN** the project profile and its memo seed relationship remain unchanged
 
 ### Requirement: Launch profiles may store relaunch chat-session policy
 The shared launch-profile object family SHALL support an optional relaunch-only chat-session policy for future live managed-agent instances created from that profile.
@@ -248,4 +248,44 @@ Patch mutation SHALL preserve an existing relaunch chat-session policy when no r
 - **WHEN** launch profile `reviewer` stores relaunch chat-session mode `tool_last_or_new`
 - **AND WHEN** an operator patches only the profile workdir
 - **THEN** the stored relaunch chat-session policy remains associated with the profile
+
+### Requirement: Launch profiles store managed system-skill policy as birth-time configuration
+The shared launch-profile object family SHALL support an optional managed system-skill policy as reusable birth-time launch configuration.
+
+That stored policy SHALL support:
+
+- `inherit`, meaning use the effective source specialist or recipe policy,
+- `extend`, meaning add named system-skill sets or explicit skills to the effective source policy,
+- `replace`, meaning use exactly the named system-skill sets or explicit skills stored on the profile,
+- `none`, meaning install no current Houmao-owned system skills for future launches from the profile.
+
+When no system-skill policy is stored on a launch profile, the profile SHALL behave as `inherit`.
+
+Patch mutation SHALL preserve an existing launch-profile system-skill policy when no system-skill field is supplied. Replacement mutation SHALL clear an existing system-skill policy unless the replacement request supplies one. Stored mutation SHALL affect future launches only and SHALL NOT rewrite any live managed-agent instance.
+
+Launch-profile inspection SHALL report the stored system-skill policy when present without expanding secret or credential material.
+
+#### Scenario: Launch profile inspection reports additive policy
+- **WHEN** launch profile `researcher-workspace` stores additive system-skill policy for `houmao-utils-workspace-mgr`
+- **AND WHEN** an operator inspects that profile
+- **THEN** the inspection output reports the stored system-skill mode and selected skill name
+- **AND THEN** it distinguishes that policy from project registered/private skill overlays
+
+#### Scenario: Patch preserves stored system-skill policy
+- **WHEN** launch profile `researcher-workspace` stores additive system-skill policy and workdir `/repos/a`
+- **AND WHEN** an operator patches only the workdir to `/repos/b`
+- **THEN** the stored launch profile records workdir `/repos/b`
+- **AND THEN** the stored system-skill policy remains associated with the profile
+
+#### Scenario: Replacement clears omitted system-skill policy
+- **WHEN** launch profile `researcher-workspace` stores additive system-skill policy
+- **AND WHEN** an operator replaces `researcher-workspace` in the same profile lane without supplying system-skill policy
+- **THEN** the replacement profile no longer stores explicit system-skill policy
+- **AND THEN** future launches from that profile inherit the source specialist or recipe policy
+
+#### Scenario: Stored profile policy does not mutate live instances
+- **WHEN** managed-agent instance `researcher-1` was launched from profile `researcher-workspace`
+- **AND WHEN** an operator changes the stored profile system-skill policy
+- **THEN** future launches from the profile use the updated policy
+- **AND THEN** live instance `researcher-1` and its existing runtime manifest remain unchanged by that stored-profile mutation
 

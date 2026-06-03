@@ -51,21 +51,22 @@ This packaged skill covers exactly these gateway actions:
 
 Supported surfaces for this skill include:
 
-- `houmao-mgr agents gateway attach|detach|status`
-- `houmao-mgr agents gateway prompt|interrupt|send-keys`
-- `houmao-mgr agents gateway tui state|history|watch|note-prompt`
-- `houmao-mgr agents gateway reminders list|get|create|set|remove`
-- `houmao-mgr agents gateway mail-notifier status|enable|disable`
-- `houmao-mgr agents mail resolve-live`
+- `houmao-mgr agents single --agent-id <id> gateway attach|detach|status` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> gateway prompt|interrupt|send-keys` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> gateway tui state|history|watch|note-prompt` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> gateway reminders list|get|create|set|remove` or `--agent-name <name>`
+- `houmao-mgr agents single --agent-id <id> gateway mail-notifier status|enable|disable` or `--agent-name <name>`
+- `houmao-mgr agents self gateway ...` for the current managed tmux session
+- `houmao-mgr agents self mail resolve-live`
 - live gateway env vars `HOUMAO_AGENT_GATEWAY_HOST`, `HOUMAO_AGENT_GATEWAY_PORT`, `HOUMAO_GATEWAY_PROTOCOL_VERSION`, and `HOUMAO_GATEWAY_STATE_PATH`
 - live gateway HTTP routes under `/v1/status`, `/v1/requests`, `/v1/control/*`, `/v1/reminders`, and `/v1/mail-notifier`
 - pair-managed HTTP routes under `/houmao/agents/{agent_ref}/gateway*`, including `/gateway/reminders*`
 
 This packaged skill does not cover:
 
-- `houmao-mgr agents launch|join|stop|relaunch|cleanup`
+- `houmao-mgr project agents launch`, `houmao-mgr agents self join`, and selected lifecycle under `houmao-mgr agents single ...`
 - generic managed-agent inspection of liveness, mailbox posture, runtime artifacts, non-gateway logs, or tmux backing when the target is not gateway-specific
-- ordinary transport-neutral `houmao-mgr agents prompt|interrupt`
+- ordinary transport-neutral `houmao-mgr agents single ... prompt|interrupt` or `houmao-mgr agents self prompt|interrupt`
 - transport-specific mailbox internals
 - the full `/v1/mail/*` route contract
 - direct editing of runtime files under `.houmao/`
@@ -85,20 +86,32 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
    - if the user explicitly asks for a specific launcher, follow that request instead of the default order
 6. Reuse that same chosen launcher for the selected gateway action.
-7. Prefer the managed-agent seam first for outside callers:
-   - `houmao-mgr agents gateway ...` for CLI-driven work
+7. For supported `houmao-mgr agents single ... gateway ...` or `houmao-mgr agents self gateway ...` command authoring, build the direct command before executing:
+   - `agents.single.gateway.status|attach|detach|prompt|interrupt|send-keys`
+   - `agents.self.gateway.status|attach|detach|prompt|interrupt|send-keys`
+   - `agents.single.gateway.tui.state|history|watch|note-prompt`
+   - `agents.self.gateway.tui.state|history|watch|note-prompt`
+   - `agents.single.gateway.mail-notifier.status|enable|disable`
+   - `agents.self.gateway.mail-notifier.status|enable|disable`
+   - `agents.single.gateway.reminders.list|get|create|set|remove`
+   - `agents.self.gateway.reminders.list|get|create|set|remove`
+8. Include only fields the user explicitly supplied or that were recovered from explicit recent context.
+9. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
+10. Prefer the managed-agent seam first for outside callers:
+   - `houmao-mgr agents single ... gateway ...` for selected-agent CLI-driven work
+   - `houmao-mgr agents self gateway ...` for current-session CLI-driven work
    - `/houmao/agents/*/gateway...` for pair-managed HTTP control
-8. When the caller is already the attached agent or another process inside the same managed tmux session:
+11. When the caller is already the attached agent or another process inside the same managed tmux session:
    - use manifest-first current-session discovery through `HOUMAO_MANIFEST_PATH` first and `HOUMAO_AGENT_ID` second
    - use live gateway env only after the task genuinely needs direct gateway `/v1/...` HTTP
-   - use `houmao-mgr agents mail resolve-live` when shared mailbox work needs the exact live `gateway.base_url`
-9. Load exactly one action page:
+   - run `agents self mail resolve-live` when shared mailbox work needs the exact current-session live `gateway.base_url`
+12. Load exactly one action page:
    - `actions/lifecycle.md`
    - `actions/discover.md`
    - `actions/gateway-services.md`
    - `actions/reminders.md`
    - `actions/mail-notifier.md`
-10. Use the local references only when you need the routing boundary or the HTTP route summary:
+13. Use the local references only when you need the routing boundary or the HTTP route summary:
    - `references/scope-and-routing.md`
    - `references/http-surface.md`
 
@@ -135,7 +148,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not teach `HOUMAO_GATEWAY_ATTACH_PATH` or `HOUMAO_GATEWAY_ROOT` as supported current-session discovery.
-- Do not scrape live gateway env for shared mailbox work when `houmao-mgr agents mail resolve-live` is the supported exact `gateway.base_url` resolver.
+- Do not scrape live gateway env for shared mailbox work when `agents.self.mail.resolve-live` is the supported exact current-session `gateway.base_url` resolver.
 - Do not describe `/v1/reminders` as durable across gateway stop or restart.
-- Do not invent reminder surfaces beyond the supported `houmao-mgr agents gateway reminders ...`, `/houmao/agents/{agent_ref}/gateway/reminders...`, and direct `/v1/reminders` routes.
+- Do not invent reminder surfaces beyond the supported `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, `/houmao/agents/{agent_ref}/gateway/reminders...`, and direct `/v1/reminders` routes.
+- Do not invent alternate gateway CLI shapes; use the direct scoped gateway commands shown in this skill package.
 - Do not restate transport-specific mailbox detail here; delegate that to the mailbox skill family.

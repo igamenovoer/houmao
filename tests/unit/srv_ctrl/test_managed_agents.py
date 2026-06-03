@@ -91,6 +91,7 @@ from houmao.srv_ctrl.commands.managed_agents import (
     gateway_mail_notifier_status,
     gateway_prompt,
     gateway_send_keys,
+    gateway_status,
     gateway_tui_history,
     gateway_tui_note_prompt,
     gateway_tui_state,
@@ -394,7 +395,7 @@ def test_resolve_managed_agent_target_reports_local_name_miss_before_default_pai
         "Failed to reach a Houmao pair authority at http://127.0.0.1:9889: connection refused"
     ) in message
     assert (
-        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "Retry with `houmao-mgr agents global list`, the correct friendly managed-agent name, "
         "or `--agent-id <id>`."
     ) in message
 
@@ -483,7 +484,7 @@ def test_resolve_managed_agent_target_reports_exact_tmux_alias_hint_on_local_nam
     ) in message
     assert (
         "Retry with `--agent-name gpu`, `--agent-id agent-1234`, "
-        "or inspect `houmao-mgr agents list`."
+        "or inspect `houmao-mgr agents global list`."
     ) in message
 
 
@@ -525,7 +526,7 @@ def test_resolve_managed_agent_target_omits_alias_hint_when_alias_match_is_not_u
     assert "No local managed agent matched friendly name `agent-test`." in message
     assert "tmux/session alias" not in message
     assert (
-        "Retry with `houmao-mgr agents list`, the correct friendly managed-agent name, "
+        "Retry with `houmao-mgr agents global list`, the correct friendly managed-agent name, "
         "or `--agent-id <id>`."
     ) in message
 
@@ -616,8 +617,8 @@ def test_resolve_managed_agent_target_rejects_stopped_local_record(
     assert "lifecycle_state=stopped" in message
     assert "manifest_path=/tmp/stopped/manifest.json" in message
     assert "session_root=/tmp/stopped" in message
-    assert "agents relaunch --agent-id agent-stopped" in message
-    assert "agents cleanup session --agent-id agent-stopped" in message
+    assert "agents single --agent-id agent-stopped relaunch" in message
+    assert "agents single --agent-id agent-stopped cleanup session" in message
 
 
 def test_resolve_relaunch_managed_agent_target_accepts_stopped_local_record(
@@ -1244,8 +1245,8 @@ def test_stop_managed_agent_registry_transition_failure_includes_guidance(
     assert "Recovery guidance:" in response.detail
     assert "failed_phase: shared-registry lifecycle transition" in response.detail
     assert (
-        "houmao-mgr agents cleanup session --manifest-path "
-        f"{record.runtime.manifest_path} --purge-registry --dry-run"
+        "houmao-mgr agents single --agent-id agent-degraded-1 cleanup session "
+        "--purge-registry --dry-run"
     ) in response.detail
     assert "Traceback" not in response.detail
 
@@ -1409,7 +1410,7 @@ def test_relaunch_managed_agent_fails_cleanly_for_stale_active_without_manifest(
 
     message = str(exc_info.value)
     assert "cannot be relaunched" in message
-    assert "houmao-mgr agents launch" in message
+    assert "houmao-mgr project agents launch" in message
 
 
 def test_relaunch_managed_agent_failed_revival_leaves_stopped_record(
@@ -1538,6 +1539,109 @@ def test_resolve_managed_agent_target_routes_stale_active_record_into_local_stal
     assert target.mode == "local_stale"
     assert target.controller is None
     assert target.record is record
+
+
+def test_gateway_status_rejects_stale_local_target_with_actionable_diagnostic(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        gateway_status(target)
+
+    message = exc_info.value.message
+    assert "Cannot show gateway status for managed agent `gpu`." in message
+    assert "stale or missing" in message
+    assert "agent_id=`agent-degraded-1`" in message
+    assert "tmux_session=`HOUMAO-stale`" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
+
+
+def test_gateway_tui_state_rejects_stale_local_target_before_controller_access(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="tui"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        gateway_tui_state(target)
+
+    message = exc_info.value.message
+    assert "Cannot show gateway TUI state for managed agent `gpu`." in message
+    assert "stale or missing" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
+
+
+def test_managed_agent_state_rejects_degraded_local_target_before_controller_access(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-degraded",
+    )
+    target = ManagedAgentTarget(
+        mode="local_degraded",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        managed_agent_state_payload(target)
+
+    message = exc_info.value.message
+    assert "Cannot inspect managed-agent state for managed agent `gpu`." in message
+    assert "degraded" in message
+    assert "primary window or pane" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
+
+
+def test_mail_status_rejects_stale_local_target_before_controller_access(
+    tmp_path: Path,
+) -> None:
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path,
+        manifest_present=True,
+        session_name="HOUMAO-stale",
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="gpu",
+        identity=_managed_identity(transport="headless"),
+        record=record,
+    )
+
+    with pytest.raises(click.ClickException) as exc_info:
+        mail_status(target)
+
+    message = exc_info.value.message
+    assert "Cannot show managed-agent mail status for managed agent `gpu`." in message
+    assert "stale or missing" in message
+    assert "houmao-mgr agents single --agent-id agent-degraded-1 stop" in message
+    assert "AssertionError" not in message
 
 
 def test_register_mailbox_binding_converts_mailbox_operation_errors_to_click() -> None:
@@ -3176,29 +3280,27 @@ def test_attach_gateway_forwards_tui_timing_overrides_to_local_controller(
     assert controller.attach_calls == [("tmux_auxiliary_window", timings)]
 
 
-def test_attach_gateway_sends_execution_mode_to_pair_client() -> None:
+def test_attach_gateway_rejects_remote_passive_pair_without_local_authority() -> None:
     captured: list[tuple[str, object]] = []
     target = ManagedAgentTarget(
         mode="server",
         agent_ref="published-alpha",
         identity=_managed_identity(),
         client=SimpleNamespace(
-            pair_authority_kind="houmao-server",
+            pair_authority_kind="houmao-passive-server",
             attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
                 captured.append((agent_ref, request_model)) or _gateway_status()
             ),
         ),
     )
 
-    response = attach_gateway(target, background=True)
+    with pytest.raises(click.ClickException, match="local authority"):
+        attach_gateway(target, background=True)
 
-    assert response.gateway_port == 9901
-    assert len(captured) == 1
-    assert captured[0][0] == "published-alpha"
-    assert getattr(captured[0][1], "execution_mode") == "detached_process"
+    assert captured == []
 
 
-def test_attach_gateway_sends_tui_timing_overrides_to_pair_client() -> None:
+def test_attach_gateway_rejects_remote_passive_pair_with_tui_timing_overrides() -> None:
     captured: list[tuple[str, object]] = []
     timings = GatewayTuiTrackingTimingOverridesV1(
         watch_poll_interval_seconds=0.25,
@@ -3210,21 +3312,17 @@ def test_attach_gateway_sends_tui_timing_overrides_to_pair_client() -> None:
         agent_ref="published-alpha",
         identity=_managed_identity(),
         client=SimpleNamespace(
-            pair_authority_kind="houmao-server",
+            pair_authority_kind="houmao-passive-server",
             attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
                 captured.append((agent_ref, request_model)) or _gateway_status()
             ),
         ),
     )
 
-    response = attach_gateway(target, tui_tracking_timing_overrides=timings)
+    with pytest.raises(click.ClickException, match="local authority"):
+        attach_gateway(target, tui_tracking_timing_overrides=timings)
 
-    assert response.gateway_port == 9901
-    assert len(captured) == 1
-    assert captured[0][0] == "published-alpha"
-    request_model = captured[0][1]
-    assert getattr(request_model, "execution_mode") == "tmux_auxiliary_window"
-    assert getattr(request_model, "tui_tracking_timings") == timings
+    assert captured == []
 
 
 def test_submit_headless_turn_uses_local_runtime_controller(

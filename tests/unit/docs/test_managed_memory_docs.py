@@ -40,10 +40,10 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
     assert "`memo-cue`" in header
     assert "<memo_cue>" in header
     assert "absolute `houmao-memo.md` path" in header
-    assert "compaction, or cleared-context boundary" in header
-    assert "do not use it as a log or scratchpad" in header
-    assert "put long details in `pages/`" in header
-    assert "memo-relative page links such as `pages/notes/todo.md`" in header
+    assert "apply relevant memo facts and constraints" in header
+    assert "not to merely acknowledge the memo" in header
+    assert "links to longer `pages/` notes" in header
+    assert "existing memo content is clearly stale" in header
     assert "`houmao-memory-mgr`" in system_skills
     assert "`core`" in system_skills
     assert "`recover_and_continue`" in system_skills
@@ -77,15 +77,17 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     )
     quickstart = (REPO_ROOT / "docs/getting-started/quickstart.md").read_text(encoding="utf-8")
     cli_reference = (REPO_ROOT / "docs/reference/cli/houmao-mgr.md").read_text(encoding="utf-8")
-    project_launch_profiles_skill = (
+    native_launch_dossiers_skill = (
         REPO_ROOT
-        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/raw-profiles.md"
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/low-level/launch-dossiers.md"
     ).read_text(encoding="utf-8")
     easy_profile_create_skill = (
-        REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/profiles.md"
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/profiles.md"
     ).read_text(encoding="utf-8")
     easy_launch_skill = (
-        REPO_ROOT / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/launch-instance.md"
+        REPO_ROOT
+        / "src/houmao/agents/assets/system_skills/houmao-agent-definition/subskills/easy/launch-instance.md"
     ).read_text(encoding="utf-8")
 
     assert "## Memo Seeds" in launch_profiles
@@ -100,8 +102,8 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
     assert "--memo-seed-text" in quickstart
     assert "--memo-seed-policy" not in cli_reference
     assert "--clear-memo-seed" in cli_reference
-    assert "--memo-seed-dir" in project_launch_profiles_skill
-    assert "--memo-seed-policy" not in project_launch_profiles_skill
+    assert "--memo-seed-dir" in easy_profile_create_skill
+    assert "--memo-seed-policy" not in native_launch_dossiers_skill
     assert "--memo-seed-policy" not in easy_profile_create_skill
     assert "stored memo seed" in easy_launch_skill
 
@@ -110,7 +112,7 @@ def test_launch_profile_docs_and_skills_describe_memo_seed_surface() -> None:
         easy_specialists,
         quickstart,
         cli_reference,
-        project_launch_profiles_skill,
+        native_launch_dossiers_skill,
         easy_profile_create_skill,
         easy_launch_skill,
     ):

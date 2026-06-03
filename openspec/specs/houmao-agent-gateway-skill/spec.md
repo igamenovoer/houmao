@@ -32,7 +32,7 @@ That packaged skill SHALL remain the canonical Houmao-owned skill for gateway-sp
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `agents launch|join|stop|relaunch|cleanup`
-- `project easy specialist create|list|get|remove`
+- `project specialist create|list|get|remove`
 - ordinary prompt or mailbox work that is already satisfied by `houmao-agent-messaging` and the mailbox skills
 - mailbox transport-specific filesystem or Stalwart internals
 - inventing new `houmao-mgr`, managed-agent API, or direct gateway routes that the current implementation does not expose
@@ -265,3 +265,16 @@ The guidance SHALL mention that `unread_only` is a lower-noise mode and that rea
 - **THEN** the skill presents `mail-notifier` as mailbox-driven notification control
 - **AND THEN** it does not describe notifier mode as a generic unfinished-job persistence mechanism
 
+### Requirement: `houmao-agent-gateway` uses direct scoped command snippets for supported gateway commands
+The packaged `houmao-agent-gateway` skill SHALL document supported gateway commands as direct fenced `bash` snippets or equivalent explicit command shapes.
+
+At minimum, covered command families SHALL include scoped gateway discovery/control/TUI helpers, mail notifier status/enable/disable, and reminders list/get/create/set/remove.
+
+The skill SHALL keep live gateway HTTP workflow guidance, mailbox handoff prose, and semantic reminder prompt design in skill text where those concerns are not direct `houmao-mgr` command spelling.
+
+The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining gateway commands.
+
+#### Scenario: Reminder create uses direct scoped command shape
+- **WHEN** a user asks the skill to create a gateway reminder for selected agent `reviewer`
+- **THEN** the skill guidance shows a direct command under `houmao-mgr agents single --agent-name reviewer gateway reminders create ...`
+- **AND THEN** it does not direct the agent to render a reminder command-template id

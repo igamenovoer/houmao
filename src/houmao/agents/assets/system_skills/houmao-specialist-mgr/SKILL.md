@@ -20,6 +20,7 @@ Available functionality:
 - Redirect specialist, profile, create-agent-fast-forward, launch-agent, and stop-agent work to `houmao-agent-definition`.
 - Preserve older ready-profile wording as compatibility terminology.
 - Point credential discovery used during specialist creation to the canonical definition skill.
+- Delegate config-draft generation and direct command guidance to `houmao-agent-definition`.
 
 Common starting prompts:
 
@@ -54,9 +55,10 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 3. Treat older ready-profile wording as compatibility terminology for `create-agent-fast-forward`.
 4. Do not run commands from this wrapper.
 5. Do not maintain separate specialist, profile, launch, stop, or credential-reference guidance here.
+6. Do not duplicate command details here; the canonical skill owns the routing guidance.
 
 ## Guardrails
 
-- Do not present this skill as the independent owner for specialist or easy-profile workflows.
+- Do not present this skill as the independent owner for specialist or project-profile workflows.
 - Do not duplicate command details from `houmao-agent-definition`.
 - Do not route broad live-agent lifecycle work here; use `houmao-agent-instance` after any easy launch or stop.

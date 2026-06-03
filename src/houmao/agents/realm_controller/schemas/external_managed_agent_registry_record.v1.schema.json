@@ -1,0 +1,308 @@
+{
+  "$defs": {
+    "HoumaoManagedAgentIdentity": {
+      "additionalProperties": false,
+      "description": "Transport-neutral managed-agent identity.",
+      "properties": {
+        "tracked_agent_id": {
+          "title": "Tracked Agent Id",
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "tui",
+            "headless"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "session_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Name"
+        },
+        "terminal_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Terminal Id"
+        },
+        "runtime_session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Session Id"
+        },
+        "tmux_session_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Session Name"
+        },
+        "tmux_window_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tmux Window Name"
+        },
+        "manifest_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Path"
+        },
+        "session_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Root"
+        },
+        "agent_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Name"
+        },
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "lifecycle_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "active",
+                "stopped",
+                "relaunching",
+                "retired"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lifecycle State"
+        },
+        "management_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "local_lifecycle",
+                "external_communication_only"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Management Kind"
+        },
+        "lifecycle_owner": {
+          "anyOf": [
+            {
+              "enum": [
+                "local",
+                "remote"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lifecycle Owner"
+        },
+        "external_agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Agent Id"
+        },
+        "remote_pair_api_base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Pair Api Base Url"
+        },
+        "remote_agent_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Agent Ref"
+        }
+      },
+      "required": [
+        "tracked_agent_id",
+        "transport",
+        "tool"
+      ],
+      "title": "HoumaoManagedAgentIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Communication-only registry contract for an externally owned managed agent.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "kind": {
+      "const": "external_communication_only",
+      "default": "external_communication_only",
+      "title": "Kind",
+      "type": "string"
+    },
+    "local_name": {
+      "title": "Local Name",
+      "type": "string"
+    },
+    "external_agent_id": {
+      "title": "External Agent Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "pair_api_base_url": {
+      "title": "Pair Api Base Url",
+      "type": "string"
+    },
+    "remote_agent_ref": {
+      "title": "Remote Agent Ref",
+      "type": "string"
+    },
+    "gateway_expected": {
+      "default": false,
+      "title": "Gateway Expected",
+      "type": "boolean"
+    },
+    "lifecycle_owner": {
+      "const": "remote",
+      "default": "remote",
+      "title": "Lifecycle Owner",
+      "type": "string"
+    },
+    "created_at_utc": {
+      "title": "Created At Utc",
+      "type": "string"
+    },
+    "updated_at_utc": {
+      "title": "Updated At Utc",
+      "type": "string"
+    },
+    "verified_at_utc": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verified At Utc"
+    },
+    "cached_identity": {
+      "$ref": "#/$defs/HoumaoManagedAgentIdentity"
+    }
+  },
+  "required": [
+    "local_name",
+    "external_agent_id",
+    "generation_id",
+    "pair_api_base_url",
+    "remote_agent_ref",
+    "created_at_utc",
+    "updated_at_utc",
+    "cached_identity"
+  ],
+  "title": "ExternalManagedAgentRegistryRecordV1",
+  "type": "object"
+}

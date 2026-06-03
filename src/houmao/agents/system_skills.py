@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib import import_module, resources
@@ -10,7 +11,7 @@ import json
 from pathlib import Path
 import shutil
 import tomllib
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 
 SYSTEM_SKILLS_PACKAGE = "houmao.agents.assets.system_skills"
@@ -25,11 +26,11 @@ SYSTEM_SKILL_CREDENTIAL_MGR = "houmao-credential-mgr"
 SYSTEM_SKILL_AGENT_DEFINITION = "houmao-agent-definition"
 SYSTEM_SKILL_AGENT_INSTANCE = "houmao-agent-instance"
 SYSTEM_SKILL_AGENT_INSPECT = "houmao-agent-inspect"
+SYSTEM_SKILL_OPERATOR_MESSAGING = "houmao-operator-messaging"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
 SYSTEM_SKILL_MEMORY_MGR = "houmao-memory-mgr"
 SYSTEM_SKILL_AGENT_LOOP_PRO = "houmao-agent-loop-pro"
-SYSTEM_SKILL_UTILS_LLM_WIKI = "houmao-utils-llm-wiki"
 SYSTEM_SKILL_UTILS_WORKSPACE_MGR = "houmao-utils-workspace-mgr"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
@@ -40,6 +41,21 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
 }
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
 SystemSkillProjectionMode = Literal["copy", "symlink"]
+SystemSkillPolicyMode = Literal["default", "inherit", "extend", "replace", "none"]
+SourceSystemSkillPolicyMode = Literal["default", "extend", "replace", "none"]
+ProfileSystemSkillPolicyMode = Literal["inherit", "extend", "replace", "none"]
+SOURCE_SYSTEM_SKILL_POLICY_MODES: tuple[SystemSkillPolicyMode, ...] = (
+    "default",
+    "extend",
+    "replace",
+    "none",
+)
+PROFILE_SYSTEM_SKILL_POLICY_MODES: tuple[SystemSkillPolicyMode, ...] = (
+    "inherit",
+    "extend",
+    "replace",
+    "none",
+)
 
 
 class SystemSkillError(RuntimeError):
@@ -52,6 +68,10 @@ class SystemSkillCatalogError(SystemSkillError):
 
 class SystemSkillInstallError(SystemSkillError):
     """Raised when system-skill installation cannot complete safely."""
+
+
+class SystemSkillPolicyError(SystemSkillError):
+    """Raised when a managed-launch system-skill policy is invalid."""
 
 
 @dataclass(frozen=True)
@@ -108,6 +128,36 @@ class SystemSkillCatalog:
 
 
 @dataclass(frozen=True)
+class SystemSkillSelectionPolicy:
+    """Stored managed-launch policy for Houmao-owned system skills."""
+
+    mode: SystemSkillPolicyMode
+    set_names: tuple[str, ...] = ()
+    skill_names: tuple[str, ...] = ()
+
+    def to_payload(self) -> dict[str, object]:
+        """Return a JSON/YAML-safe representation of this policy."""
+
+        payload: dict[str, object] = {"mode": self.mode}
+        if self.set_names:
+            payload["sets"] = list(self.set_names)
+        if self.skill_names:
+            payload["skills"] = list(self.skill_names)
+        return payload
+
+
+@dataclass(frozen=True)
+class ResolvedManagedSystemSkillSelection:
+    """Effective managed-launch system-skill selection after policy resolution."""
+
+    selected_set_names: tuple[str, ...]
+    explicit_skill_names: tuple[str, ...]
+    resolved_skill_names: tuple[str, ...]
+    source_policy: SystemSkillSelectionPolicy | None = None
+    profile_policy: SystemSkillSelectionPolicy | None = None
+
+
+@dataclass(frozen=True)
 class SystemSkillInstallResult:
     """Outcome of one system-skill installation request."""
 
@@ -118,6 +168,23 @@ class SystemSkillInstallResult:
     resolved_skill_names: tuple[str, ...]
     projected_relative_dirs: tuple[str, ...]
     projection_mode: SystemSkillProjectionMode
+    removed_retired_skill_names: tuple[str, ...] = ()
+    removed_retired_projected_relative_dirs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SystemSkillSyncResult:
+    """Outcome of syncing one managed home to an exact resolved selection."""
+
+    tool: str
+    home_path: Path
+    selected_set_names: tuple[str, ...]
+    explicit_skill_names: tuple[str, ...]
+    resolved_skill_names: tuple[str, ...]
+    projected_relative_dirs: tuple[str, ...]
+    projection_mode: SystemSkillProjectionMode
+    removed_skill_names: tuple[str, ...] = ()
+    removed_projected_relative_dirs: tuple[str, ...] = ()
     removed_retired_skill_names: tuple[str, ...] = ()
     removed_retired_projected_relative_dirs: tuple[str, ...] = ()
 
@@ -259,6 +326,170 @@ def resolve_system_skill_selection(
         resolved.append(skill_name)
 
     return tuple(resolved)
+
+
+def parse_system_skill_selection_policy(
+    payload: object,
+    *,
+    allowed_modes: tuple[SystemSkillPolicyMode, ...],
+    default_mode: SystemSkillPolicyMode,
+    source: str,
+    catalog: SystemSkillCatalog | None = None,
+) -> SystemSkillSelectionPolicy | None:
+    """Parse one stored managed-launch system-skill policy payload.
+
+    Empty or omitted payloads return ``None`` so callers can apply source/profile
+    omission semantics explicitly.
+    """
+
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise SystemSkillPolicyError(f"{source}: system_skills must be a mapping")
+    if not payload:
+        return None
+
+    unknown_keys = sorted(set(payload) - {"mode", "sets", "skills"})
+    if unknown_keys:
+        raise SystemSkillPolicyError(
+            f"{source}: system_skills has unknown field(s): {', '.join(unknown_keys)}"
+        )
+
+    raw_mode = payload.get("mode", default_mode)
+    if not isinstance(raw_mode, str):
+        raise SystemSkillPolicyError(f"{source}: system_skills.mode must be a string")
+    if raw_mode not in {"default", "inherit", "extend", "replace", "none"}:
+        raise SystemSkillPolicyError(f"{source}: unknown system-skills mode `{raw_mode}`")
+    mode = cast(SystemSkillPolicyMode, raw_mode)
+
+    policy = SystemSkillSelectionPolicy(
+        mode=mode,
+        set_names=_parse_system_skill_policy_string_sequence(
+            payload.get("sets"), source=source, key="sets"
+        ),
+        skill_names=_parse_system_skill_policy_string_sequence(
+            payload.get("skills"), source=source, key="skills"
+        ),
+    )
+    validate_system_skill_selection_policy(
+        policy,
+        allowed_modes=allowed_modes,
+        catalog=catalog,
+        source=source,
+    )
+    return policy
+
+
+def system_skill_selection_policy_to_payload(
+    policy: SystemSkillSelectionPolicy | None,
+) -> dict[str, object]:
+    """Return a JSON/YAML-safe system-skill policy payload."""
+
+    if policy is None:
+        return {}
+    return policy.to_payload()
+
+
+def validate_system_skill_selection_policy(
+    policy: SystemSkillSelectionPolicy,
+    *,
+    allowed_modes: tuple[SystemSkillPolicyMode, ...],
+    catalog: SystemSkillCatalog | None = None,
+    source: str,
+) -> None:
+    """Validate policy mode and selectors against the packaged catalog."""
+
+    if policy.mode not in allowed_modes:
+        allowed = "|".join(allowed_modes)
+        raise SystemSkillPolicyError(
+            f"{source}: system-skills mode `{policy.mode}` is not allowed here; "
+            f"expected one of {allowed}"
+        )
+    if policy.mode in {"default", "inherit", "none"} and (policy.set_names or policy.skill_names):
+        raise SystemSkillPolicyError(
+            f"{source}: system-skills mode `{policy.mode}` cannot be combined with "
+            "explicit set or skill selectors"
+        )
+    if policy.mode == "replace" and not policy.set_names and not policy.skill_names:
+        raise SystemSkillPolicyError(
+            f"{source}: system-skills mode `replace` requires at least one set or skill "
+            "selector; use `none` to disable system skills"
+        )
+
+    effective_catalog = catalog or load_system_skill_catalog()
+    resolve_system_skill_selection(
+        effective_catalog,
+        set_names=policy.set_names,
+        skill_names=policy.skill_names,
+    )
+
+
+def resolve_managed_system_skill_selection(
+    *,
+    source_policy: SystemSkillSelectionPolicy | None = None,
+    profile_policy: SystemSkillSelectionPolicy | None = None,
+    catalog: SystemSkillCatalog | None = None,
+) -> ResolvedManagedSystemSkillSelection:
+    """Resolve source and profile policy into one exact managed-launch selection."""
+
+    effective_catalog = catalog or load_system_skill_catalog()
+    if source_policy is not None:
+        validate_system_skill_selection_policy(
+            source_policy,
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            catalog=effective_catalog,
+            source="source system_skills",
+        )
+    if profile_policy is not None:
+        validate_system_skill_selection_policy(
+            profile_policy,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            catalog=effective_catalog,
+            source="profile system_skills",
+        )
+
+    source_selection = _resolve_source_system_skill_selection(
+        catalog=effective_catalog,
+        source_policy=source_policy,
+    )
+    if profile_policy is None or profile_policy.mode == "inherit":
+        return ResolvedManagedSystemSkillSelection(
+            selected_set_names=source_selection.selected_set_names,
+            explicit_skill_names=source_selection.explicit_skill_names,
+            resolved_skill_names=source_selection.resolved_skill_names,
+            source_policy=source_policy,
+            profile_policy=profile_policy,
+        )
+    if profile_policy.mode == "none":
+        return ResolvedManagedSystemSkillSelection(
+            selected_set_names=(),
+            explicit_skill_names=(),
+            resolved_skill_names=(),
+            source_policy=source_policy,
+            profile_policy=profile_policy,
+        )
+    if profile_policy.mode == "replace":
+        return _build_resolved_managed_system_skill_selection(
+            catalog=effective_catalog,
+            set_names=profile_policy.set_names,
+            skill_names=profile_policy.skill_names,
+            source_policy=source_policy,
+            profile_policy=profile_policy,
+        )
+
+    selected_set_names = _dedupe_strings(
+        (*source_selection.selected_set_names, *profile_policy.set_names)
+    )
+    explicit_skill_names = _dedupe_strings(
+        (*source_selection.explicit_skill_names, *profile_policy.skill_names)
+    )
+    return _build_resolved_managed_system_skill_selection(
+        catalog=effective_catalog,
+        set_names=selected_set_names,
+        skill_names=explicit_skill_names,
+        source_policy=source_policy,
+        profile_policy=profile_policy,
+    )
 
 
 def resolve_auto_install_skill_selection(
@@ -455,6 +686,85 @@ def install_system_skills_for_home(
     )
 
 
+def sync_system_skills_for_home(
+    *,
+    tool: str,
+    home_path: Path,
+    selection: ResolvedManagedSystemSkillSelection,
+    projection_mode: SystemSkillProjectionMode = "copy",
+) -> SystemSkillSyncResult:
+    """Sync one managed home to an exact resolved system-skill selection."""
+
+    _validate_projection_mode(projection_mode)
+    catalog = load_system_skill_catalog()
+    resolved_skill_names = resolve_system_skill_selection(
+        catalog,
+        set_names=selection.selected_set_names,
+        skill_names=selection.explicit_skill_names,
+    )
+    if resolved_skill_names != selection.resolved_skill_names:
+        raise SystemSkillPolicyError(
+            "Resolved managed system-skill selection does not match its selectors."
+        )
+
+    resolved_home_path = home_path.resolve()
+    resolved_home_path.mkdir(parents=True, exist_ok=True)
+    resolved_skill_name_set = set(selection.resolved_skill_names)
+    removed_skill_names: list[str] = []
+    removed_projected_relative_dirs: list[str] = []
+    for skill_name in catalog.skill_names:
+        if skill_name in resolved_skill_name_set:
+            continue
+        projected_relative_dir = projected_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        target_path = resolved_home_path / projected_relative_dir
+        if not target_path.exists() and not target_path.is_symlink():
+            continue
+        _remove_existing_path_if_present(target_path)
+        removed_skill_names.append(skill_name)
+        removed_projected_relative_dirs.append(projected_relative_dir)
+
+    removed_retired_skill_names, removed_retired_projected_relative_dirs = (
+        _remove_retired_system_skill_projections_for_home(
+            catalog=catalog,
+            tool=tool,
+            home_path=resolved_home_path,
+        )
+    )
+
+    projected_relative_dirs: list[str] = []
+    for skill_name in selection.resolved_skill_names:
+        skill_record = catalog.skills[skill_name]
+        projected_relative_dir = projected_system_skill_relative_dir(
+            tool=tool,
+            skill_name=skill_name,
+        )
+        projected_relative_dirs.append(projected_relative_dir)
+        target_path = resolved_home_path / projected_relative_dir
+        _remove_existing_path_if_present(target_path)
+        _project_packaged_skill(
+            asset_subpath=skill_record.asset_subpath,
+            destination_root=target_path,
+            projection_mode=projection_mode,
+        )
+
+    return SystemSkillSyncResult(
+        tool=tool,
+        home_path=resolved_home_path,
+        selected_set_names=selection.selected_set_names,
+        explicit_skill_names=selection.explicit_skill_names,
+        resolved_skill_names=selection.resolved_skill_names,
+        projected_relative_dirs=tuple(projected_relative_dirs),
+        projection_mode=projection_mode,
+        removed_skill_names=tuple(removed_skill_names),
+        removed_projected_relative_dirs=tuple(removed_projected_relative_dirs),
+        removed_retired_skill_names=removed_retired_skill_names,
+        removed_retired_projected_relative_dirs=removed_retired_projected_relative_dirs,
+    )
+
+
 def uninstall_system_skills_for_home(
     *,
     tool: str,
@@ -515,6 +825,111 @@ def uninstall_system_skills_for_home(
         absent_retired_skill_names=tuple(absent_retired_skill_names),
         absent_retired_projected_relative_dirs=tuple(absent_retired_projected_relative_dirs),
     )
+
+
+def _resolve_source_system_skill_selection(
+    *,
+    catalog: SystemSkillCatalog,
+    source_policy: SystemSkillSelectionPolicy | None,
+) -> ResolvedManagedSystemSkillSelection:
+    """Resolve the recipe/specialist side of a managed-launch policy."""
+
+    if source_policy is None or source_policy.mode == "default":
+        return _build_resolved_managed_system_skill_selection(
+            catalog=catalog,
+            set_names=catalog.auto_install.managed_launch_sets,
+            skill_names=(),
+            source_policy=source_policy,
+            profile_policy=None,
+        )
+    if source_policy.mode == "none":
+        return ResolvedManagedSystemSkillSelection(
+            selected_set_names=(),
+            explicit_skill_names=(),
+            resolved_skill_names=(),
+            source_policy=source_policy,
+            profile_policy=None,
+        )
+    if source_policy.mode == "replace":
+        return _build_resolved_managed_system_skill_selection(
+            catalog=catalog,
+            set_names=source_policy.set_names,
+            skill_names=source_policy.skill_names,
+            source_policy=source_policy,
+            profile_policy=None,
+        )
+
+    selected_set_names = _dedupe_strings(
+        (*catalog.auto_install.managed_launch_sets, *source_policy.set_names)
+    )
+    return _build_resolved_managed_system_skill_selection(
+        catalog=catalog,
+        set_names=selected_set_names,
+        skill_names=source_policy.skill_names,
+        source_policy=source_policy,
+        profile_policy=None,
+    )
+
+
+def _build_resolved_managed_system_skill_selection(
+    *,
+    catalog: SystemSkillCatalog,
+    set_names: tuple[str, ...],
+    skill_names: tuple[str, ...],
+    source_policy: SystemSkillSelectionPolicy | None,
+    profile_policy: SystemSkillSelectionPolicy | None,
+) -> ResolvedManagedSystemSkillSelection:
+    """Build one resolved managed selection from already chosen selectors."""
+
+    selected_set_names = _dedupe_strings(set_names)
+    explicit_skill_names = _dedupe_strings(skill_names)
+    return ResolvedManagedSystemSkillSelection(
+        selected_set_names=selected_set_names,
+        explicit_skill_names=explicit_skill_names,
+        resolved_skill_names=resolve_system_skill_selection(
+            catalog,
+            set_names=selected_set_names,
+            skill_names=explicit_skill_names,
+        ),
+        source_policy=source_policy,
+        profile_policy=profile_policy,
+    )
+
+
+def _parse_system_skill_policy_string_sequence(
+    value: object,
+    *,
+    source: str,
+    key: str,
+) -> tuple[str, ...]:
+    """Parse a policy string-list field and preserve first-seen order."""
+
+    if value is None:
+        return ()
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise SystemSkillPolicyError(f"{source}: system_skills.{key} must be a list of strings")
+
+    values: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            raise SystemSkillPolicyError(
+                f"{source}: system_skills.{key}[{index}] must be a non-empty string"
+            )
+        values.append(item)
+    return _dedupe_strings(tuple(values))
+
+
+def _dedupe_strings(values: tuple[str, ...]) -> tuple[str, ...]:
+    """Return values in first-seen order with duplicates removed."""
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return tuple(deduped)
 
 
 def _parse_system_skill_catalog(

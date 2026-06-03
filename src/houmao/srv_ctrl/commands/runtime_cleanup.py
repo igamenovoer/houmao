@@ -29,8 +29,10 @@ from houmao.agents.realm_controller.registry_storage import (
     publish_managed_agent_record,
     record_path_for_agent_id,
     remove_managed_agent_record,
+    load_external_managed_agent_record_by_agent_id,
     resolve_cleanup_managed_agent_record_by_agent_id,
     resolve_cleanup_managed_agent_records_by_name,
+    resolve_external_managed_agent_records_by_name,
 )
 from houmao.owned_mutation import require_owned_mutation_path
 from houmao.owned_paths import HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR
@@ -136,6 +138,7 @@ def resolve_managed_session_cleanup_target(
             agent_name=agent_name,
         )
         if record is None:
+            _raise_if_external_cleanup_selector(agent_id=agent_id, agent_name=agent_name)
             stopped_target = _resolve_stopped_cleanup_target_from_runtime_root(
                 agent_id=agent_id,
                 agent_name=agent_name,
@@ -1064,6 +1067,47 @@ def _resolve_local_cleanup_registry_record(
     if len(matches) == 1:
         return matches[0]
     return None
+
+
+def _raise_if_external_cleanup_selector(
+    *,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Reject local cleanup for external communication-only imports."""
+
+    if agent_id is not None:
+        try:
+            record = load_external_managed_agent_record_by_agent_id(agent_id)
+        except SessionManifestError:
+            record = None
+        if record is None:
+            return
+        raise CleanupResolutionError(
+            "Local cleanup is unsupported for external communication-only managed agent "
+            f"`{record.local_name}` ({record.external_agent_id}). Lifecycle is owned by "
+            f"remote authority `{record.pair_api_base_url}` for remote agent "
+            f"`{record.remote_agent_ref}`. Use `houmao-mgr agents external remove` only when "
+            "you want to delete the local import."
+        )
+
+    assert agent_name is not None
+    matches = resolve_external_managed_agent_records_by_name(agent_name)
+    if not matches:
+        return
+    if len(matches) > 1:
+        raise CleanupResolutionError(
+            f"Local cleanup selector `--agent-name {agent_name}` matches multiple external "
+            "communication-only imports. Use `houmao-mgr agents external remove --agent-id ...` "
+            "to delete one local import."
+        )
+    record = matches[0]
+    raise CleanupResolutionError(
+        "Local cleanup is unsupported for external communication-only managed agent "
+        f"`{record.local_name}` ({record.external_agent_id}). Lifecycle is owned by remote "
+        f"authority `{record.pair_api_base_url}` for remote agent `{record.remote_agent_ref}`. "
+        "Use `houmao-mgr agents external remove` only when you want to delete the local import."
+    )
 
 
 def _resolve_stopped_cleanup_target_from_runtime_root(

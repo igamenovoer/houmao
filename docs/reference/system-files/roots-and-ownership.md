@@ -14,7 +14,7 @@ Current implementation detail that matters operationally: explicit overrides may
 
 There are now two main `.houmao` anchors to keep straight in maintained operator workflows:
 
-- `~/.houmao/` is the per-user shared Houmao home anchor. Registry still defaults there, and operators can still point runtime or mailbox back there explicitly.
+- `<platformdirs user config>/` is the per-user shared Houmao home anchor. Registry still defaults there, and operators can still point runtime or mailbox back there explicitly.
 - `<active-overlay>/` means the selected project overlay root itself, usually `<repo>/.houmao/`. Maintained project-aware local-state commands now derive runtime, managed-agent memory, mailbox, and easy roots from that one overlay.
 
 ## Ownership Categories
@@ -29,32 +29,34 @@ There are now two main `.houmao` anchors to keep straight in maintained operator
 
 | Surface | Default path | Current override surfaces | Ownership | Contract level |
 | --- | --- | --- | --- | --- |
-| Houmao home anchor | `~/.houmao` | none as a first-class operator surface | Houmao-owned | Stable anchor derived from a platformdirs-aware home lookup |
-| Project-local overlay | `<project-root>/.houmao` when initialized | nearest-ancestor `.houmao/houmao-config.toml`; explicit `--agent-def-dir` and `HOUMAO_AGENT_DEF_DIR` still outrank discovery for agent-definition resolution | Repo-local project overlay | Stable local operator workflow |
+| Houmao home anchor | `<platformdirs user config>` | none as a first-class operator surface | Houmao-owned | Stable anchor derived from a platformdirs-aware home lookup |
+| Project-local overlay | `<project-root>/.houmao` when initialized | nearest-ancestor `.houmao/houmao-config.toml`; `HOUMAO_PROJECT_OVERLAY_DIR` for explicit selection | Repo-local project overlay | Stable local operator workflow |
 | Runtime root | `<active-overlay>/runtime` for maintained project-aware command surfaces | explicit CLI/API/config override where supported, then `HOUMAO_GLOBAL_RUNTIME_DIR` | Houmao-owned | Stable root family |
-| Registry root | `~/.houmao/registry` | current operator-facing override `HOUMAO_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
+| Registry root | `<platformdirs user config>/registry` | current operator-facing override `HOUMAO_GLOBAL_REGISTRY_DIR` | Houmao-owned | Stable root family |
 | Project memory root | `<active-overlay>/memory` for maintained project-aware command surfaces | selected project overlay only | Managed-agent memory | Stable root family |
 | Mailbox root | `<active-overlay>/mailbox` for maintained project-aware command surfaces | `HOUMAO_GLOBAL_MAILBOX_DIR` or explicit mailbox-root override | Separate mailbox subsystem | Out of scope for this subtree |
 
-The active overlay root itself is selected from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`. `ancestor` remains the default nearest-ancestor lookup mode, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`.
+For project commands, `houmao-mgr project --project-dir <dir> ...` selects the human-facing project directory and resolves the overlay as `<dir>/.houmao`. Otherwise the active overlay root is selected from `HOUMAO_PROJECT_OVERLAY_DIR` first, then ambient discovery under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`. `ancestor` remains the default nearest-ancestor lookup mode, while `cwd_only` restricts lookup to `<cwd>/.houmao/houmao-config.toml`.
 
 ## Root-Resolution Notes
 
 ### Houmao home anchor
 
-The shared `~/.houmao` anchor is derived from a platformdirs-aware home lookup rather than from a hardcoded Linux-only `/home/<user>` assumption. Registry defaults hang off that anchor directly, and runtime or mailbox can still be redirected there explicitly.
+The shared `<platformdirs user config>` anchor is derived from a platformdirs-aware home lookup rather than from a hardcoded Linux-only `/home/<user>` assumption. Registry defaults hang off that anchor directly, and runtime or mailbox can still be redirected there explicitly.
 
 ### Runtime root
 
 The runtime root is where Houmao stores generated homes, generated manifests, runtime session roots, and Houmao server roots. In maintained project-aware command flows, the default runtime root is `<active-overlay>/runtime`. If no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao/runtime`. Different entrypoints expose the explicit override differently:
 
-- `houmao-mgr brains build` exposes `--runtime-root`,
+- `houmao-mgr internals native-agent brain build` exposes `--runtime-root`,
 - programmatic calls expose `runtime_root=...`,
-- otherwise maintained project-aware surfaces fall back to the active overlay runtime root, while explicit `HOUMAO_GLOBAL_RUNTIME_DIR` or `--runtime-root ~/.houmao/runtime` still lets operators target the shared legacy root directly.
+- otherwise maintained project-aware surfaces fall back to the active overlay runtime root, while explicit `HOUMAO_GLOBAL_RUNTIME_DIR` or `--runtime-root <platformdirs user config>/runtime` still lets operators target the shared config root directly.
 
 ### Registry root
 
-Current operator-facing registry relocation happens through `HOUMAO_GLOBAL_REGISTRY_DIR`. The internal shared-path helper also supports explicit roots, but the main operational contract today is the env-var override and the default `~/.houmao/registry`.
+Current operator-facing registry relocation happens through `HOUMAO_GLOBAL_REGISTRY_DIR`. The internal shared-path helper also supports explicit roots, but the main operational contract today is the env-var override and the default `<platformdirs user config>/registry`.
+
+`live_agents/` records are local lifecycle locator metadata for Houmao-managed sessions. `external_agents/` records are also registry-owned, but they are remote locator metadata only: they store a remote passive-server URL, remote agent reference, timestamps, and cached identity. They do not make the local process the lifecycle owner of the remote agent.
 
 ### Project memory root and agent memory roots
 
@@ -68,7 +70,7 @@ The project memory root is derived from the selected active overlay, not from th
 
 When the runtime starts, joins, resumes, or relaunches a managed session, it publishes `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`.
 
-If no overlay exists yet and a maintained local-state command needs one, Houmao bootstraps `<cwd>/.houmao/memory/` along with the rest of the overlay.
+If no overlay exists yet and a maintained local-state command needs one, the command fails with guidance to run `houmao-mgr project init` or select an existing project overlay.
 
 ## Contract Strength
 

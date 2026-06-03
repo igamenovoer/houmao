@@ -38,7 +38,7 @@ def test_resolve_project_aware_agent_def_dir_prefers_cli_over_env_and_project(
     assert resolution.agent_def_dir == (nested_dir / "../cli-agent-def").resolve()
 
 
-def test_resolve_project_aware_agent_def_dir_uses_env_when_cli_missing(
+def test_resolve_project_aware_agent_def_dir_ignores_legacy_env_when_cli_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -46,14 +46,13 @@ def test_resolve_project_aware_agent_def_dir_uses_env_when_cli_missing(
     nested_dir = project_root / "nested"
     nested_dir.mkdir(parents=True, exist_ok=True)
     bootstrap_project_overlay(project_root)
-    env_agent_def_dir = (tmp_path / "env-agent-def").resolve()
-    monkeypatch.setenv(AGENT_DEF_DIR_ENV_VAR, str(env_agent_def_dir))
+    monkeypatch.setenv(AGENT_DEF_DIR_ENV_VAR, str((tmp_path / "env-agent-def").resolve()))
 
     resolution = resolve_project_aware_agent_def_dir(cwd=nested_dir)
 
-    assert resolution.source == "env"
-    assert resolution.agent_def_dir == env_agent_def_dir
-    assert resolution.project_overlay is None
+    assert resolution.source == "project_config"
+    assert resolution.agent_def_dir == (project_root / ".houmao" / "agents").resolve()
+    assert resolution.project_overlay is not None
 
 
 def test_resolve_project_aware_agent_def_dir_discovers_nearest_project_overlay(
@@ -76,7 +75,7 @@ def test_resolve_project_aware_agent_def_dir_discovers_nearest_project_overlay(
     assert resolution.agent_def_dir == (project_root / ".houmao" / "agents").resolve()
 
 
-def test_resolve_project_aware_agent_def_dir_falls_back_to_houmao_default(
+def test_resolve_project_aware_agent_def_dir_reports_missing_houmao_candidate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -88,7 +87,7 @@ def test_resolve_project_aware_agent_def_dir_falls_back_to_houmao_default(
 
     resolution = resolve_project_aware_agent_def_dir(cwd=workdir)
 
-    assert resolution.source == "default"
+    assert resolution.source == "missing"
     assert resolution.agent_def_dir == (workdir / ".houmao" / "agents").resolve()
 
 
@@ -256,21 +255,17 @@ def test_resolve_project_aware_local_roots_reports_overlay_local_defaults(tmp_pa
     assert roots.created_overlay is False
 
 
-def test_ensure_project_aware_local_roots_bootstraps_missing_overlay(tmp_path: Path) -> None:
+def test_ensure_project_aware_local_roots_rejects_missing_overlay(tmp_path: Path) -> None:
     workdir = (tmp_path / "workspace").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    roots = ensure_project_aware_local_roots(cwd=workdir)
+    with pytest.raises(ValueError, match="houmao-mgr project init"):
+        ensure_project_aware_local_roots(cwd=workdir)
 
-    assert roots.project_overlay is not None
-    assert roots.created_overlay is True
-    assert roots.overlay_root == (workdir / ".houmao").resolve()
-    assert roots.overlay_discovery_mode == "ancestor"
-    assert (workdir / ".houmao" / "houmao-config.toml").is_file()
-    assert roots.runtime_root == (workdir / ".houmao" / "runtime").resolve()
+    assert not (workdir / ".houmao").exists()
 
 
-def test_ensure_project_aware_local_roots_preserves_env_selected_overlay_source_on_bootstrap(
+def test_ensure_project_aware_local_roots_rejects_missing_env_selected_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -279,17 +274,10 @@ def test_ensure_project_aware_local_roots_preserves_env_selected_overlay_source_
     workdir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(PROJECT_OVERLAY_DIR_ENV_VAR, str(overlay_root))
 
-    roots = ensure_project_aware_local_roots(cwd=workdir)
+    with pytest.raises(ValueError, match="HOUMAO_PROJECT_OVERLAY_DIR"):
+        ensure_project_aware_local_roots(cwd=workdir)
 
-    assert roots.project_overlay is not None
-    assert roots.created_overlay is True
-    assert roots.overlay_root == overlay_root
-    assert roots.overlay_root_source == "env"
-    assert roots.overlay_discovery_mode == "ancestor"
-    assert roots.runtime_root == (overlay_root / "runtime").resolve()
-    assert roots.jobs_root == (overlay_root / "jobs").resolve()
-    assert roots.mailbox_root == (overlay_root / "mailbox").resolve()
-    assert (overlay_root / "houmao-config.toml").is_file()
+    assert not (overlay_root / "houmao-config.toml").exists()
 
 
 def test_resolve_project_overlay_cwd_only_ignores_parent_overlay(

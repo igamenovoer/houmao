@@ -7,6 +7,14 @@ from pathlib import Path
 import click
 import networkx as nx  # type: ignore[import-untyped]
 
+from houmao.srv_ctrl.config_drafts import (
+    DraftBlocker,
+    generate_config_draft,
+    get_config_draft,
+    list_config_drafts,
+    load_draft_intent,
+)
+from houmao.srv_ctrl.config_drafts.guidance import render_config_draft_intent_fix_guide
 from houmao.agents.loop_graph.analysis import (
     analyze_graph,
     apply_mutation_ops,
@@ -31,7 +39,8 @@ from houmao.agents.loop_graph.packets import (
     validate_pairwise_v2_packets,
 )
 
-from .output import emit
+from .native_agent import native_agent_group
+from .output import OutputContext, emit
 
 _GRAPH_INPUT_HELP = "NetworkX node-link JSON graph file; use `-` to read stdin."
 _GRAPH_OUTPUT_NOTE = "Input and output graphs use NetworkX node-link JSON with `nodes` and `edges`."
@@ -56,6 +65,67 @@ def _help(summary: str, *examples: str) -> str:
 @click.group(name="internals")
 def internals_group() -> None:
     """Internal Houmao utility commands for agents and maintainers."""
+
+
+@internals_group.group(name="config-drafts")
+def config_drafts_group() -> None:
+    """Generate concise YAML config drafts from sparse intent."""
+
+
+internals_group.add_command(native_agent_group)
+
+
+@config_drafts_group.command(name="list")
+def config_drafts_list_command() -> None:
+    """List supported config-draft ids."""
+
+    emit(list_config_drafts())
+
+
+@config_drafts_group.command(name="generate")
+@click.option("--id", "draft_id", required=True, help="Config-draft id to generate.")
+@click.option(
+    "--intent",
+    "raw_intent",
+    required=True,
+    help="Intent JSON object, `-` for stdin, or a path to a JSON file.",
+)
+def config_drafts_generate_command(draft_id: str, raw_intent: str) -> None:
+    """Generate one config-draft YAML document without mutating project state."""
+
+    draft = get_config_draft(draft_id)
+    result = generate_config_draft(draft.draft_id, load_draft_intent(raw_intent, draft=draft))
+    if result.has_blockers:
+        messages = "; ".join(_config_draft_blocker_message(blocker) for blocker in result.blockers)
+        raise click.ClickException(
+            render_config_draft_intent_fix_guide(problem=messages, draft=draft)
+        )
+    if _active_print_style() == "json":
+        emit(result.to_payload())
+        return
+    click.echo(result.yaml, nl=False)
+
+
+def _active_print_style() -> str:
+    """Return the current root output style."""
+
+    ctx = click.get_current_context(silent=True)
+    if ctx is not None and isinstance(ctx.obj, dict):
+        output = ctx.obj.get("output")
+        if isinstance(output, OutputContext):
+            return output.style
+    return "plain"
+
+
+def _config_draft_blocker_message(blocker: DraftBlocker) -> str:
+    """Return one user-facing config-draft blocker message."""
+
+    if blocker.fields:
+        fields = ", ".join(f"`{field}`" for field in blocker.fields)
+        return f"{blocker.message} Fields: {fields}."
+    if blocker.field is not None and f"`{blocker.field}`" not in blocker.message:
+        return f"{blocker.message} Field: `{blocker.field}`."
+    return blocker.message
 
 
 @internals_group.group(name="graph")

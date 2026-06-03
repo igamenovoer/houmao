@@ -31,7 +31,7 @@ The supported external contract for attach, resume, and relaunch is `manifest.js
 
 `attach.json` may still exist as internal bootstrap state for gateway startup, offline status materialization, and metadata transfer. It is not the supported public attach authority.
 
-Representative internal bootstrap payload for a `cao_rest` session:
+Representative legacy/internal bootstrap payload for an old `cao_rest` session:
 
 ```json
 {
@@ -55,7 +55,7 @@ Representative internal bootstrap payload for a `cao_rest` session:
 }
 ```
 
-Representative `houmao_server_rest` internal bootstrap payload:
+Representative legacy/internal `houmao_server_rest` bootstrap payload:
 
 ```json
 {
@@ -81,20 +81,20 @@ Representative `houmao_server_rest` internal bootstrap payload:
 Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
-- Live attach and request execution currently support runtime-owned `local_interactive` sessions, runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`), and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`).
-- Gateway-owned live TUI tracking routes currently support attached runtime-owned REST-backed sessions and attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no backend-provided terminal alias exists on that path.
-- Native headless internal bootstrap metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-server` for a server-managed headless agent instead of resuming that headless session locally.
+- Live attach and request execution currently support runtime-owned `local_interactive` sessions and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`). Legacy REST-backed manifest records may still be recognized for old-artifact inspection or explicit rejection, but new public launches do not create them.
+- Gateway-owned live TUI tracking routes currently support attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no backend-provided terminal alias exists on that path.
+- Native headless internal bootstrap metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-passive-server` for a passive-server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` may keep `manifest_path` for gateway internals, but the runtime-owned session manifest remains the supported persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
 - `gateway_manifest.json` is derived publication only. It may expose desired listener data and `gateway_pid`, but attach and control behavior must trust `manifest.json` plus tmux or registry discovery instead of treating `gateway_manifest.json` as primary authority.
 
-Pair-managed current-session attach rules:
+Current-session attach rules:
 
 - tmux-published `HOUMAO_MANIFEST_PATH` is the preferred current-session manifest locator
 - when `HOUMAO_MANIFEST_PATH` is missing or stale, `HOUMAO_AGENT_ID` plus the shared registry must resolve exactly one fresh `runtime.manifest_path`
 - the resolved manifest must belong to the current tmux session
-- the resolved manifest must use `backend = "houmao_server_rest"`
-- manifest-declared pair attach authority is authoritative for current-session pair attach
-- delegated pair launch may publish these stable artifacts before the matching managed-agent registration exists, so current-session attach readiness is later than capability publication
+- the resolved manifest must describe a maintained tmux-backed managed session
+- manifest-declared authority and shared-registry identity are authoritative for current-session attach
+- stable artifacts may publish before passive-server discovery catches up, so current-session attach readiness can be later than capability publication
 
 ## Live Gateway Bindings
 
@@ -112,7 +112,7 @@ Important rules:
 - The runtime validates these bindings structurally before trusting them.
 - `GET /health` is the authoritative liveness check for the live gateway.
 - A dead gateway can leave stale env behind temporarily; validation plus health probing is what cleans that up.
-- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents mail resolve-live`.
+- These env vars are a runtime publication surface, not the preferred attached-mail discovery contract for agent turns. For shared-mailbox work, the supported runtime-owned resolver is `pixi run houmao-mgr agents self mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live`.
 
 ## Gateway Client Proxy Policy
 
@@ -332,7 +332,7 @@ Reminders are process-local in-memory state:
 - due-but-not-yet-delivered reminders are also lost on restart
 - reminders do not create rows in `queue.sqlite` until or unless some other gateway feature persists its own internal work
 - `GET /v1/reminders` reports only the current live gateway process state
-- this is the direct live gateway HTTP surface only; there is no supported `houmao-mgr agents gateway reminders ...` CLI family or `/houmao/agents/{agent_ref}/gateway/reminders` projection
+- this is the direct live gateway HTTP surface underneath the supported scoped `houmao-mgr agents single/self ... gateway reminders ...` CLI family and `/houmao/agents/{agent_ref}/gateway/reminders` projection
 
 Representative create request:
 
@@ -486,7 +486,7 @@ Representative refusal payload (returned under an HTTP error status):
 
 Current behavior:
 
-- TUI-backed sessions (`cao_rest`, `houmao_server_rest`, and `local_interactive`) require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
+- TUI-backed sessions require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
 - Recoverable degraded chat context and current-error diagnostics do not by themselves block ordinary prompt dispatch when the TUI-backed session otherwise satisfies the prompt-ready contract
 - TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits the tool-appropriate context-reset signal, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
 - Codex TUI reset-then-send uses `/new`; other TUI tools use their configured reset signal, commonly `/clear`
@@ -498,7 +498,7 @@ Current behavior:
 - omitted headless `chat_session` means `mode = "auto"`, which resolves in order as pending `next_prompt_override`, pinned `current`, persisted `startup_default`, then fresh `new`
 - recoverable degraded chat context does not force headless `chat_session.mode = "new"`; ordinary headless selector resolution still applies unless the caller explicitly requests fresh context
 - `chat_session.mode = "current"` fails explicitly when the managed session has no pinned current provider session
-- server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
+- passive-server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
 - `force=true` bypasses only readiness/busy posture; it does not bypass blank prompt validation, detached state, reconciliation blocking, or unsupported backends
 - `codex_app_server` direct gateway prompt control is not implemented
 - successful direct prompt control records gateway-owned prompt-note evidence for TUI-backed sessions
@@ -509,13 +509,12 @@ This route returns the gateway-owned live `HoumaoTerminalStateResponse` for one 
 
 Current availability rules:
 
-- attached runtime-owned REST-backed sessions (`cao_rest`, `houmao_server_rest`),
 - attached runtime-owned `local_interactive` sessions, and
 - HTTP `422` for attached backends that do not have a gateway-owned TUI tracker.
 
 For attached `local_interactive`, the gateway synthesizes tracked identity from internal bootstrap `runtime_session_id` metadata (falling back to `attach_identity`), keeps `terminal_aliases` empty, and therefore exposes the runtime session id as the public `terminal_id` on this route.
 
-For attached runtime-owned `local_interactive` sessions outside `houmao-server`, repo-owned local/serverless workflow guidance now centers on this route together with `POST /v1/control/tui/note-prompt`. That pairing is the supported local inspection and explicit-input-provenance surface.
+For attached runtime-owned `local_interactive` sessions outside passive-server, repo-owned local workflow guidance now centers on this route together with `POST /v1/control/tui/note-prompt`. That pairing is the supported local inspection and explicit-input-provenance surface.
 
 ### `GET /v1/control/tui/history`
 
@@ -525,7 +524,7 @@ It is a bounded in-memory recent snapshot surface rather than the coarse transit
 
 The tracker retains at most 1000 recent snapshots per tracked session in memory. That retention cap is internal implementation configuration and is not currently a user-facing knob.
 
-For attached runtime-owned `local_interactive` sessions outside `houmao-server`, this route is now part of the supported local inspection workflow together with `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt`.
+For attached runtime-owned `local_interactive` sessions outside passive-server, this route is now part of the supported local inspection workflow together with `GET /v1/control/tui/state` and `POST /v1/control/tui/note-prompt`.
 
 ### `POST /v1/control/tui/note-prompt`
 
@@ -897,7 +896,7 @@ Representative detached-process payload:
 }
 ```
 
-Representative same-session `houmao_server_rest` payload:
+Representative same-session auxiliary-window payload:
 
 ```json
 {
@@ -920,7 +919,7 @@ Current rules:
 - `execution_mode = "detached_process"` must omit tmux execution-handle fields
 - `execution_mode = "tmux_auxiliary_window"` must include `tmux_window_id`, `tmux_window_index`, and `tmux_pane_id`
 - same-session mode must never record `tmux_window_index = "0"`
-- for pair-managed `houmao_server_rest`, the recorded tmux handle is the authoritative live gateway surface for attach, detach, cleanup, and auxiliary-window recreation
+- for same-session auxiliary-window mode, the recorded tmux handle is the authoritative live gateway surface for attach, detach, cleanup, and auxiliary-window recreation
 - non-zero tmux windows remain non-contractual by convention; callers should rely on the recorded current-instance handle rather than window naming heuristics
 - once the session root is known, `run/current-instance.json` is also the authoritative local live-gateway record used by runtime-owned cross-session endpoint discovery
 
@@ -960,7 +959,7 @@ Artifact roles:
 - `logs/gateway.log`: append-only line-oriented running log for lifecycle, notifier polling, busy deferrals, and execution outcomes
 - `logs/diagnostics/gateway-diagnostic.log`: opt-in structured JSONL diagnostic log. Rotated siblings use numeric suffixes such as `gateway-diagnostic.log.1`. These files are cleanup-sensitive log artifacts, not durable gateway state.
 - `run/current-instance.json`: current process id, host, port, upstream epoch and instance id, plus same-session execution-handle fields when the gateway is hosted in a tmux auxiliary window
-- `run/gateway.pid`: pidfile mirror; still written for same-session mode, but the tmux execution handle in `current-instance.json` is the authoritative stop or cleanup target for pair-managed `houmao_server_rest`
+- `run/gateway.pid`: pidfile mirror; still written for same-session mode, but the tmux execution handle in `current-instance.json` is the authoritative stop or cleanup target
 
 Operator note:
 

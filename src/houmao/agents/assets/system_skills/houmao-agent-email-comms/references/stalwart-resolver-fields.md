@@ -1,6 +1,6 @@
 # Stalwart Mailbox Resolver Fields
 
-When current prompt or mailbox context does not already provide the exact gateway base URL or current binding set, resolve the current binding set through `houmao-mgr agents mail resolve-live` before mailbox work.
+When current prompt or mailbox context does not already provide the exact gateway base URL or current binding set, resolve the current binding set through `houmao-mgr agents self mail resolve-live` before mailbox work.
 
 For current-session managed use, that manager-owned helper resolves the current agent from the owning tmux session when selectors are omitted, returns the current actionable mailbox payload, and includes a `gateway` object with the exact `base_url`, `host`, `port`, `protocol_version`, and `state_path` for the shared `/v1/mail/*` facade when a valid attached gateway is live.
 

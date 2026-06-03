@@ -10,7 +10,7 @@
 
 - Generated execplan exists.
 - Concrete agent/profile facts have been prepared or explicitly supplied.
-- Operator wants workspace setup planned, executed, or verified after agent preparation.
+- Operator wants workspace setup planned, created, validated, or summarized after agent preparation.
 
 ## Inputs
 
@@ -24,9 +24,9 @@ Use when present:
 - prepared concrete agent/profile facts from `prepare-agents`;
 - generated participant specs;
 - generated run artifact contracts;
-- existing workspace-manager plan or workspace contract docs;
+- existing workspace-manager plan, validation report, summary, or workspace contract docs;
 - operator-supplied manual workspace readiness evidence;
-- operator approval for execution.
+- operator approval for workspace creation.
 
 ## Actions
 
@@ -35,51 +35,59 @@ Use when present:
 3. If the manifest and generated docs record that no managed workspace is required, report that no workspace setup is required and stop.
 4. Read `execplan/specs/workspace/workspace.toml`, `execplan/agents/bindings.toml`, prepared agent/profile facts, and related participant or run contracts when workspace setup or verification is required.
 5. Extract workspace-manager inputs:
-   - operation: `plan` or `execute`;
+   - operation: `plan`, `create`, `validate`, or `summarize`;
    - workspace flavor, defaulting to `in-repo` when unspecified and supported;
    - task name, repo root, and workspace root policy;
-   - concrete agent ids, workspace agent names, and easy profile or explicit raw launch profile names prepared by `prepare-agents`;
+   - concrete agent ids, workspace agent names, and project profile or explicit raw launch profile names prepared by `prepare-agents`;
    - launch cwd policy;
-   - per-agent work roots, knowledge paths, shared resources, and read/write rules;
-   - loop bookkeeping directories, including durable task/agent artifact paths and ignored transient paths;
+   - per-agent work roots, `shared-kb`, `owner-states`, per-agent `states`, shared resources, and read/write rules;
+   - project-scope validation commands or documented safe project commands;
    - memo-seed and launch-profile adjustment posture.
-6. Default to workspace-manager `plan` mode unless the user explicitly asks to execute or has approved a current plan.
-7. Use `houmao-utils-workspace-mgr` for supported workspace planning or execution.
-8. Do not duplicate workspace-manager mechanics such as worktree creation, branch creation, local-state symlinks, submodule materialization, shared repos, `.gitignore` updates, memo-seed writes, or launch-profile cwd edits.
-9. If the execplan selects a custom operator-owned workspace or the user supplies manual workspace readiness evidence, do not translate it into a standard workspace. Verify and report the custom or manual facts described by the execplan.
-10. After plan or execution, compare available workspace facts with generated workspace contracts, generated agent bindings, and prepared agent/profile facts.
+6. Default to workspace-manager `plan` mode unless the user explicitly asks to create, validate, or summarize a workspace, or has approved a current plan for creation.
+7. Treat legacy `execute` wording in older generated material or operator prompts as workspace-manager `create`, and report the normalized operation as `create`.
+8. Use `houmao-utils-workspace-mgr` for supported workspace planning, creation, validation, or summaries.
+9. Do not duplicate workspace-manager mechanics such as worktree creation, branch creation, local-state links, submodule materialization, shared repos, ignore-rule updates, memo-seed writes, or launch-profile cwd edits.
+10. If the execplan selects a custom operator-owned workspace or the user supplies manual workspace readiness evidence, do not translate it into a standard workspace. Verify and report the custom or manual facts described by the execplan.
+11. After planning, creation, validation, or summarization, compare available workspace facts with generated workspace contracts, generated agent bindings, and prepared agent/profile facts.
 
 ## Postconditions To Check
 
-For standard executed workspaces, check applicable facts:
+For standard created or validated workspaces, check applicable facts:
 - workspace contract docs exist;
 - per-agent worktrees exist;
-- per-agent knowledge paths exist;
-- shared knowledge paths or repos exist;
-- loop-requested bookkeeping directories exist;
-- ignored transient paths are covered by ignore rules;
+- task-local `shared-kb/` exists when shared task knowledge is required;
+- task-local `owner-states/<subdir>/...` exists when per-run task-owner bookkeeping is required;
+- per-agent `states/` exists when agent-local bookkeeping is required;
 - launch-profile cwd posture matches the selected workspace flavor when profile adjustment was requested;
 - memo-seed files exist when requested;
-- no two agents share the same mutable worktree or private knowledge directory.
+- workspace-manager `validate` has passed, or missing/skipped/failed validation checks are reported with follow-up actions;
+- no two agents share the same mutable worktree or private bookkeeping directory.
+
+A workspace-manager `plan` report alone is not launch-ready evidence when managed workspace readiness is required.
 
 ## Tips
 
 - When Git worktrees are required, read `../reference/git-worktree-readiness.md`.
-- Treat Git worktree readiness as a multi-part contract: registered worktree, branch/cwd posture, project runtime, submodules, local-only state, project config parity, task tooling, and recorded evidence.
+- Treat Git worktree readiness as a multi-part contract: registered worktree, branch/cwd posture, submodules, required local-state links, project-scope validation commands, and recorded evidence.
 - Keep standard worktree creation and repair routed through `houmao-utils-workspace-mgr` when it can represent the layout.
 
 ## Report
 
 Report:
-- operation used: `plan`, `execute`, or custom verification;
+- operation used: `plan`, `create`, `validate`, `summarize`, or custom/manual verification;
 - workspace flavor and root facts;
 - no-workspace posture when the execplan records an intentional omission;
 - manual workspace evidence accepted or rejected when supplied;
 - prepared agent/profile facts used as workspace-manager inputs;
+- planned facts;
+- created facts;
+- validated facts;
+- summarized facts;
 - ready facts;
-- planned-but-not-executed facts;
 - missing facts;
-- inconsistencies against `workspace.toml` or `bindings.toml`;
+- inconsistent facts against `workspace.toml` or `bindings.toml`;
+- custom/manual facts;
+- skipped or failed validation checks;
 - whether later execution stages may treat workspace readiness as complete.
 
 ## Constraints

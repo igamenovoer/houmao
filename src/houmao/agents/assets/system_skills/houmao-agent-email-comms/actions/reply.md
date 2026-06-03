@@ -10,8 +10,8 @@ curl -sS -X POST "$GATEWAY_BASE_URL/v1/mail/reply" \
 
 Do not reconstruct transport-local threading identifiers yourself.
 
-When no live gateway facade is available, use the supported managed fallback surface instead:
+When no live gateway facade is available, run the direct fallback command:
 
 ```bash
-houmao-mgr agents mail reply --message-ref <opaque message_ref> --body-content "..."
+<chosen houmao-mgr launcher> agents self mail reply --message-ref <message_ref> --body-content <body>
 ```

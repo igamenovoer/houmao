@@ -276,7 +276,7 @@ def post_mail_command(
 @click.option(
     "--message-ref",
     required=True,
-    help="Opaque message reference returned by `agents mail list`.",
+    help="Opaque message reference returned by scoped `agents ... mail list`.",
 )
 @click.option("--body-content", default=None, help="Inline body content.")
 @click.option("--body-file", default=None, help="Body content file path.")

@@ -13,11 +13,9 @@ Use this action only when the user wants to deactivate or purge one filesystem m
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox unregister --address <full-address> [--mailbox-root <path>] [--mode deactivate|purge]
-<chosen houmao-mgr launcher> project mailbox unregister --address <full-address> [--mode deactivate|purge]
+```bash
+<chosen houmao-mgr launcher> mailbox unregister --address <address> [--mailbox-root <root>] [--mode deactivate|purge]
+<chosen houmao-mgr launcher> project mailbox unregister --address <address> [--mode deactivate|purge]
 ```
 
 ## Guardrails

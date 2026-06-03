@@ -165,6 +165,26 @@ class _FakeHeadlessSession:
         return
 
 
+def test_start_runtime_session_rejects_retired_houmao_server_backend(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(tmp_path)
+    _seed_role(agent_def_dir)
+
+    with pytest.raises(SessionManifestError, match="houmao_server_rest.*retired"):
+        start_runtime_session(
+            agent_def_dir=agent_def_dir,
+            brain_manifest_path=brain_manifest_path,
+            role_name="r",
+            runtime_root=runtime_root,
+            backend="houmao_server_rest",
+            working_directory=tmp_path,
+            agent_name="gpu",
+        )
+
+
 def test_start_resume_send_prompt_and_stop_refresh_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

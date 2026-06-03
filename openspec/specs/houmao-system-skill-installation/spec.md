@@ -390,19 +390,6 @@ The removal contract SHALL return enough structured information for callers to r
 - **THEN** it targets current Houmao-owned skill paths under `.gemini/skills/`
 - **AND THEN** it does not target `.agents/skills/` as the primary Houmao-owned system-skill removal root
 
-### Requirement: LLM Wiki utility skill ships the all-in-one payload
-The packaged `houmao-utils-llm-wiki` asset SHALL include the adapted all-in-one LLM Wiki skill instructions, references, scripts, subskills, and bundled viewer source.
-
-The packaged skill SHALL keep helper command examples in `python3` form.
-
-The packaged skill SHALL NOT preserve upstream attribution text.
-
-#### Scenario: Maintainer inspects the packaged utility asset
-- **WHEN** a maintainer inspects `src/houmao/agents/assets/system_skills/houmao-utils-llm-wiki/`
-- **THEN** it contains `SKILL.md`, `references/`, `scripts/`, `subskills/`, and `viewer/`
-- **AND THEN** helper examples use `python3`
-- **AND THEN** the packaged skill text does not preserve upstream attribution text
-
 ### Requirement: Installable system-skill sets are closed over internal skill routing
 Each installable named set in the packaged current-system-skill catalog SHALL be closed over internal system-skill routing references.
 
@@ -417,28 +404,30 @@ This closure requirement SHALL apply to every installable named set, including `
 - **AND THEN** maintainers must either add the referenced skill to `core` or remove the routing reference
 
 ### Requirement: Packaged utility skills are available through all
-The packaged current-system-skill catalog SHALL include `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr` as current installable utility skills.
+The packaged current-system-skill catalog SHALL include `houmao-utils-workspace-mgr` as a current installable utility skill.
 
-The `all` set SHALL include both utility skills.
+The `all` set SHALL include the current utility skill.
 
 The `core` set SHALL exclude utility skills unless a future change explicitly promotes a utility into the managed core surface.
 
-The packaged catalog's fixed `cli_default_sets` selection SHALL include `all`, so omitted-selection explicit CLI installs include utility skills by default.
+The packaged catalog's fixed `cli_default_sets` selection SHALL include `all`, so omitted-selection explicit CLI installs include the current utility skill by default.
 
 The packaged catalog's fixed `managed_launch_sets` and `managed_join_sets` selections SHALL include `core`, so managed launch and join do not install utility skills by default.
 
-#### Scenario: CLI default includes utility skills
+#### Scenario: CLI default includes current utility skills
 - **WHEN** an operator installs system skills into an external tool home without selecting `--skill-set` or `--skill`
 - **THEN** the installer resolves `cli_default_sets = ["all"]`
-- **AND THEN** the resolved skill list includes `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`
+- **AND THEN** the resolved skill list includes `houmao-utils-workspace-mgr`
+- **AND THEN** the resolved skill list does not include `houmao-utils-llm-wiki`
 
 #### Scenario: Managed auto-install excludes utility skills
 - **WHEN** Houmao installs system skills into a managed launch or join home
 - **THEN** the installer resolves `core`
-- **AND THEN** the resolved skill list excludes `houmao-utils-llm-wiki` and `houmao-utils-workspace-mgr`
+- **AND THEN** the resolved skill list excludes `houmao-utils-workspace-mgr`
+- **AND THEN** the resolved skill list excludes `houmao-utils-llm-wiki`
 
 ### Requirement: Packaged catalog marks unified agent definition as canonical
-The packaged current-system-skill catalog SHALL expose `houmao-agent-definition` as the canonical installable skill for pre-launch agent-definition, specialist, easy-profile, raw recipe-backed profile, and fast-forward profile-preparation workflows.
+The packaged current-system-skill catalog SHALL expose `houmao-agent-definition` as the canonical installable skill for pre-launch agent-definition, specialist, project-profile, raw recipe-backed profile, and fast-forward profile-preparation workflows.
 
 The catalog SHALL NOT require default installations to include both canonical `houmao-agent-definition` and a separate canonical specialist-management skill.
 
@@ -550,3 +539,89 @@ Retired loop cleanup behavior SHALL remain limited to the known retired loop nam
 - **WHEN** a resolved target home contains `houmao-agent-loop-lite`
 - **AND WHEN** the operator uninstalls Houmao system skills for that home
 - **THEN** the uninstall workflow removes the `houmao-agent-loop-lite` projection
+
+### Requirement: Managed launch system-skill installation accepts resolved source policy
+The managed-home system-skill installer SHALL support a resolved managed-launch selection policy derived from stored specialist, recipe, and launch-profile configuration.
+
+When no stored policy is supplied, managed launch installation SHALL preserve the existing default behavior by resolving the packaged catalog's `auto_install.managed_launch_sets`.
+
+The policy SHALL support additive, exact replacement, and disabled installation modes while continuing to validate all named set and explicit skill selectors against the packaged current system-skill catalog.
+
+For reused managed homes, applying an exact replacement or disabled selection SHALL remove exact catalog-known current Houmao-owned system-skill projection paths that are not in the resolved selection, and SHALL preserve unrelated user skill paths.
+
+#### Scenario: Omitted managed policy preserves core default
+- **WHEN** Houmao constructs a managed home without a stored system-skill policy
+- **THEN** it installs the skill list resolved from the packaged catalog's `managed_launch_sets`
+- **AND THEN** existing managed-launch defaults remain unchanged
+
+#### Scenario: Additive managed policy installs one current utility skill
+- **WHEN** managed launch resolves an additive system-skill policy containing explicit skill `houmao-utils-workspace-mgr`
+- **THEN** the installer resolves the packaged managed-launch default selection
+- **AND THEN** it appends `houmao-utils-workspace-mgr` to the installed skill list without duplicating any skill name
+
+#### Scenario: Replacement managed policy installs exact all set
+- **WHEN** managed launch resolves an exact replacement system-skill policy containing set `all`
+- **THEN** the installer installs the skills resolved from `all`
+- **AND THEN** it does not implicitly add the packaged `managed_launch_sets` selection a second time
+
+#### Scenario: Disabled managed policy removes stale current Houmao-owned system skills
+- **WHEN** a reused Codex managed home contains `skills/houmao-agent-definition/` from an earlier launch
+- **AND WHEN** managed launch resolves disabled system-skill installation for that home
+- **THEN** the managed-home sync removes exact current Houmao-owned system-skill paths from the home
+- **AND THEN** it preserves unrelated non-Houmao skill paths under the tool skill root
+
+#### Scenario: Unknown managed policy selector fails before mutation
+- **WHEN** managed launch resolves a system-skill policy containing unknown set `utilities`
+- **THEN** validation fails before mutating the managed home
+- **AND THEN** the error identifies the unknown system-skill set selector
+
+#### Scenario: Removed LLM Wiki policy selector fails before mutation
+- **WHEN** managed launch resolves a system-skill policy containing explicit skill `houmao-utils-llm-wiki`
+- **THEN** validation fails before mutating the managed home
+- **AND THEN** the error identifies `houmao-utils-llm-wiki` as an unknown system skill
+
+### Requirement: Packaged catalog includes the operator messaging skill in default control sets
+The packaged current-system-skill catalog SHALL include `houmao-operator-messaging` as a current installable Houmao-owned system skill.
+
+That packaged skill SHALL use `houmao-operator-messaging` as both its catalog key and its packaged `asset_subpath`.
+
+The packaged catalog's `core` named set SHALL include `houmao-operator-messaging` because it is part of the closed operator-control skill surface.
+
+The packaged catalog's `all` named set SHALL include `houmao-operator-messaging` because `all` includes every `core` skill plus packaged utility skills.
+
+The packaged catalog SHALL NOT add a dedicated named set for `houmao-operator-messaging`; the current installable named-set surface SHALL remain `core` and `all`.
+
+Because managed launch and managed join resolve `core`, and CLI-default installation resolves `all`, those fixed auto-install selections SHALL include `houmao-operator-messaging` through existing set membership.
+
+#### Scenario: Maintainer sees operator messaging in the packaged catalog
+- **WHEN** a maintainer inspects the packaged current-system-skill catalog
+- **THEN** the current installable skill inventory includes `houmao-operator-messaging`
+- **AND THEN** the skill uses `houmao-operator-messaging` as its flat packaged asset subpath under the maintained runtime asset root
+
+#### Scenario: Core and all sets expose operator messaging
+- **WHEN** a maintainer inspects the packaged `core` and `all` named sets
+- **THEN** both sets include `houmao-operator-messaging`
+- **AND THEN** no additional operator-messaging-specific named set is present
+
+#### Scenario: Default installs include operator messaging through existing sets
+- **WHEN** Houmao resolves packaged skill installation for managed launch, managed join, or CLI-default installation
+- **THEN** the resolved install list includes `houmao-operator-messaging`
+- **AND THEN** that inclusion comes from the existing `core` or `all` set expansion
+
+### Requirement: Removed LLM Wiki system skill is outside Houmao-owned inventory
+The packaged system-skill catalog SHALL NOT include `houmao-utils-llm-wiki` as a current skill, set member, auto-install selection member, or retired Houmao-owned skill name.
+
+System-skill install, sync, status, and uninstall workflows SHALL NOT treat `skills/houmao-utils-llm-wiki/` or equivalent tool-native projection paths as current or retired Houmao-owned projections.
+
+#### Scenario: Catalog omits the removed LLM Wiki skill
+- **WHEN** the packaged system-skill catalog is loaded
+- **THEN** `houmao-utils-llm-wiki` is absent from the current skill inventory
+- **AND THEN** `houmao-utils-llm-wiki` is absent from every named set and auto-install selection
+- **AND THEN** `houmao-utils-llm-wiki` is absent from `retired_skill_names`
+
+#### Scenario: Stale LLM Wiki projection is outside automatic cleanup
+- **WHEN** a target tool home contains `skills/houmao-utils-llm-wiki/`
+- **AND WHEN** Houmao installs, syncs, inspects, or uninstalls Houmao-owned system skills for that home
+- **THEN** the stale LLM Wiki path is not reported as a current or retired Houmao-owned skill
+- **AND THEN** the stale LLM Wiki path is not removed by Houmao-owned system-skill cleanup
+

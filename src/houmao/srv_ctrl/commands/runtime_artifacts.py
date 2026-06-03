@@ -454,7 +454,12 @@ def materialize_delegated_launch(
     agent_profile: str,
     working_directory: Path,
 ) -> tuple[Path, Path, str, str]:
-    """Materialize Houmao-owned manifest/session-root artifacts for one server-backed launch."""
+    """Materialize artifacts for a retired delegated old-server launch path."""
+
+    raise RuntimeError(
+        "Delegated `houmao_server_rest` launch artifact materialization is retired. "
+        "Use `houmao-passive-server` managed-headless launch APIs instead."
+    )
 
     project_roots = (
         ensure_project_aware_local_roots(cwd=working_directory)
@@ -726,6 +731,7 @@ def materialize_headless_launch_request(
             auth=target.preset.auth,
             preset_path=target.preset_path,
             preset_launch_overrides=target.preset.launch_overrides,
+            source_system_skill_policy=target.preset.launch_system_skill_policy,
             operator_prompt_mode=target.preset.operator_prompt_mode,
             persistent_env_records=target.preset.launch_env_records,
             mailbox=target.preset.mailbox,

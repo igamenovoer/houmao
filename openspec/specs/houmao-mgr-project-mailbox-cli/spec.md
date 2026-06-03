@@ -307,3 +307,4 @@ The command SHALL include selected overlay details in the structured result usin
 - **WHEN** an operator runs `houmao-mgr project mailbox messages --help`
 - **THEN** the help output lists `clear` as an account-scoped project mailbox message operation
 - **AND THEN** the help output keeps `project mailbox clear-messages` as the all-account project mailbox-root reset
+

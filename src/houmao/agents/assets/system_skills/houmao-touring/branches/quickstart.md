@@ -1,6 +1,6 @@
 # Quickstart Branch
 
-Use this branch when the user wants to reach one running managed agent with the minimum number of decisions. This branch is appropriate for a blank-slate workspace or for any caller who explicitly asks for a "quickstart" path.
+Use this beginner branch when the user wants to reach one running managed agent with the minimum number of decisions. This branch is appropriate for a blank-slate workspace or for any caller who explicitly asks for a "quickstart" path.
 
 ## Workflow
 
@@ -11,17 +11,21 @@ Use this branch when the user wants to reach one running managed agent with the 
    - `command -v gemini`
 3. List the detected tool CLIs to the user without priority, without ordering that implies recommendation, and without marking any detected tool as the default or preferred tool. When more than one tool is detected, ask the user which one to use before proceeding.
 4. When the workspace has no project overlay, route project initialization through `houmao-project-mgr` first. Do not attempt specialist authoring before the overlay exists.
-5. Route specialist authoring, credential attachment, and easy-instance launch through `houmao-agent-definition`. Let that skill own the concrete command shapes; this branch only carries the minimum-viable decisions:
+5. Explain mailbox basics only at the beginner level: the project mailbox root is separate from per-agent mailbox accounts, and per-agent mailbox identity can often be owned by the later launch path.
+6. Route credential readiness to `houmao-credential-mgr` when the user needs to inspect, add, update, or log in to a credential before launch.
+7. Route specialist authoring, credential selection, and easy-instance launch through `houmao-agent-definition`. Let that skill own the concrete command shapes; this branch only carries the minimum-viable decisions:
    - one specialist name the user can remember (see `references/question-style.md` and `references/concepts.md` for vocabulary),
    - one credential for the chosen tool (API key or locally signed-in credential),
    - one managed-agent instance name for the launch.
-6. Advise foreground-first gateway posture for tmux-backed first-run launches in the same way as the rest of the tour; carry that rule into the downstream skill rather than restating the launch flags here.
-7. After the first launch succeeds, summarize the new current state and offer the next likely branches:
-   - send a normal prompt,
-   - watch live gateway or TUI state,
-   - enable automatic email notification when mailbox accounts are set up,
-   - create another specialist or launch another agent,
-   - explore advanced usage through the features enumeration branch.
+8. Advise foreground-first gateway posture for tmux-backed first-run launches in the same way as the rest of the tour; carry that rule into the downstream skill rather than restating the launch flags here.
+9. After the first launch succeeds, summarize the new current state and offer stage-aware next actions:
+   - talk to the agent through `houmao-agent-messaging`,
+   - inspect what is running through `houmao-agent-inspect`,
+   - add or read memo context through `houmao-memory-mgr`,
+   - try mailbox basics through `houmao-agent-email-comms` when mailbox bindings are ready,
+   - enable or inspect mail-notifier posture through `houmao-agent-gateway` when a live gateway and mailbox are ready,
+   - create another specialist or launch a second agent,
+   - move to advanced loop or workspace guidance only when the user asks for repeated or team coordination.
 
 ## No Tool Detected
 
@@ -48,10 +52,11 @@ When `command -v claude`, `command -v codex`, and `command -v gemini` all fail:
 
 ## Guardrails
 
-- Do not pick a tool for the user when multiple tool CLIs are detected; ask.
+- Ask the user which tool to use when multiple tool CLIs are detected; do not pick one yourself.
 - Do not mark any detected tool as recommended, preferred, primary, or default.
-- Do not attempt to launch when no supported tool CLI is available; explain the supported set instead.
+- Explain the supported tool set instead of attempting to launch when no supported tool CLI is available.
 - Do not add background gateway flags unless the user explicitly asked for background or detached gateway execution.
 - Do not hand-edit `.houmao/`, runtime, or mailbox paths; route that work through the owning skill.
-- Do not restate the concrete command shapes that belong to `houmao-project-mgr`, `houmao-agent-definition`, or `houmao-credential-mgr`.
-- Do not treat the quickstart branch as the only valid starting branch; the explicit setup branch remains available for users who want the fuller project-and-mailbox path.
+- Leave the concrete command shapes that belong to `houmao-project-mgr`, `houmao-agent-definition`, or `houmao-credential-mgr` on those skills.
+- The quickstart branch is not the only valid starting branch; the explicit setup branch remains available for users who want the fuller project-and-mailbox path.
+- Offer advanced loop or isolated workspace setup only when coordination intent is emerging or explicit. Do not make it the default next step after the first launch.

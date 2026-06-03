@@ -249,26 +249,6 @@ def _sample_cao_plan(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     )
 
 
-def _sample_houmao_server_plan(tmp_path: Path) -> LaunchPlan:
-    return LaunchPlan(
-        backend="houmao_server_rest",
-        tool="codex",
-        executable="codex",
-        args=[],
-        working_directory=tmp_path,
-        home_env_var="CODEX_HOME",
-        home_path=tmp_path / "home",
-        env={},
-        env_var_names=[],
-        role_injection=RoleInjectionPlan(
-            method="cao_profile",
-            role_name="role",
-            prompt="role prompt",
-        ),
-        metadata={},
-    )
-
-
 def _sample_cao_plan_with_mailbox(tmp_path: Path, *, tool: str = "codex") -> LaunchPlan:
     mailbox_root = tmp_path / "mailbox"
     principal_id = "HOUMAO-gpu"
@@ -1962,13 +1942,13 @@ def test_gateway_service_explicit_new_headless_prompt_uses_new_session_selection
     assert fake_session.session_selections[0].mode == "new"
 
 
-def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_server(
+def test_gateway_service_routes_passive_server_managed_headless_prompts_through_pair_authority(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     gateway_root = _seed_headless_gateway_root(
         tmp_path,
-        managed_api_base_url="http://127.0.0.1:9889",
+        managed_api_base_url="http://127.0.0.1:9891",
         managed_agent_ref="claude-headless-1",
         include_local_authority=False,
     )
@@ -1977,7 +1957,7 @@ def test_gateway_service_routes_server_managed_headless_prompts_through_houmao_s
         "houmao.agents.realm_controller.gateway_service.resolve_pair_authority_client",
         lambda *, base_url: SimpleNamespace(
             client=fake_client,
-            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-server"),
+            health=PairAuthorityHealthProbe(status="ok", houmao_service="houmao-passive-server"),
         ),
     )
 
@@ -2029,7 +2009,7 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
 ) -> None:
     gateway_root = _seed_headless_gateway_root(
         tmp_path,
-        managed_api_base_url="http://127.0.0.1:9889",
+        managed_api_base_url="http://127.0.0.1:9891",
         managed_agent_ref="claude-headless-1",
         include_local_authority=False,
     )
@@ -2082,44 +2062,6 @@ def test_gateway_service_blocks_server_managed_headless_when_prompt_admission_is
     finally:
         fake_client.release_event.set()
         runtime.shutdown()
-
-
-def test_ensure_gateway_capability_supports_houmao_server_backend(tmp_path: Path) -> None:
-    manifest_path = default_manifest_path(
-        tmp_path,
-        "houmao_server_rest",
-        "houmao-server-rest-20260319-120000Z-abcd1234",
-    )
-    _write(manifest_path, "{}\n")
-
-    paths = ensure_gateway_capability(
-        GatewayCapabilityPublication(
-            manifest_path=manifest_path,
-            backend="houmao_server_rest",
-            tool="codex",
-            session_id="houmao-server-rest-20260319-120000Z-abcd1234",
-            tmux_session_name="HOUMAO-gpu",
-            working_directory=tmp_path,
-            backend_state={
-                "api_base_url": "http://127.0.0.1:9889",
-                "session_name": "cao-gpu",
-                "terminal_id": "term-123",
-                "parsing_mode": "shadow_only",
-                "tmux_window_name": "developer-1",
-            },
-            agent_def_dir=tmp_path / "agents",
-        )
-    )
-
-    attach_payload = json.loads(paths.attach_path.read_text(encoding="utf-8"))
-    metadata = attach_payload["backend_metadata"]
-
-    assert attach_payload["backend"] == "houmao_server_rest"
-    assert metadata["api_base_url"] == "http://127.0.0.1:9889"
-    assert metadata["session_name"] == "cao-gpu"
-    assert metadata["terminal_id"] == "term-123"
-    assert metadata["tmux_window_name"] == "developer-1"
-    assert "profile_name" not in metadata
 
 
 def test_gateway_status_invalidates_stale_live_bindings(
@@ -2202,188 +2144,6 @@ def test_gateway_status_invalidates_stale_live_bindings(
     assert status.gateway_health == "not_attached"
     assert captured_unset["session_name"] == "HOUMAO-gpu"
     assert AGENT_GATEWAY_HOST_ENV_VAR in captured_unset["variable_names"]
-
-
-def test_houmao_server_gateway_attach_persists_tmux_execution_handle_and_recreates_aux_window(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    manifest_path = default_manifest_path(tmp_path, "houmao_server_rest", "houmao-server-rest-1")
-    _write(manifest_path, "{}\n")
-    paths = ensure_gateway_capability(
-        GatewayCapabilityPublication(
-            manifest_path=manifest_path,
-            backend="houmao_server_rest",
-            tool="codex",
-            session_id="houmao-server-rest-1",
-            tmux_session_name="HOUMAO-gpu",
-            working_directory=tmp_path,
-            backend_state={
-                "api_base_url": "http://127.0.0.1:9889",
-                "session_name": "cao-gpu",
-                "terminal_id": "term-123",
-                "parsing_mode": "shadow_only",
-                "tmux_window_name": "developer-1",
-            },
-            agent_def_dir=tmp_path / "agents",
-        )
-    )
-    controller = RuntimeSessionController(
-        launch_plan=_sample_houmao_server_plan(tmp_path),
-        role_name="role",
-        brain_manifest_path=tmp_path / "brain.yaml",
-        manifest_path=manifest_path,
-        agent_def_dir=(tmp_path / "agents").resolve(),
-        backend_session=_FakeInteractiveSession(),
-        agent_identity="HOUMAO-gpu",
-        tmux_session_name="HOUMAO-gpu",
-    )
-
-    tmux_state = {
-        "handles": [("@9", "1", "%9"), ("@10", "2", "%10")],
-        "alive": {"%9": True, "%10": True},
-        "current": None,
-        "kill_calls": [],
-    }
-
-    def _fake_run_tmux(
-        args: list[str], *, timeout_seconds: float | None = None
-    ) -> subprocess.CompletedProcess[str]:
-        del timeout_seconds
-        if args[:1] == ["new-window"]:
-            window_id, window_index, pane_id = tmux_state["handles"].pop(0)
-            tmux_state["current"] = (window_id, window_index, pane_id)
-            write_gateway_current_instance(
-                paths.current_instance_path,
-                GatewayCurrentInstanceV1(
-                    pid=4242,
-                    host="127.0.0.1",
-                    port=43123,
-                    execution_mode="tmux_auxiliary_window",
-                    tmux_window_id=window_id,
-                    tmux_window_index=window_index,
-                    tmux_pane_id=pane_id,
-                    managed_agent_instance_epoch=1,
-                ),
-            )
-            return subprocess.CompletedProcess(
-                args=args,
-                returncode=0,
-                stdout=f"{window_id}\t{window_index}\t{pane_id}\n",
-                stderr="",
-            )
-        if args[:1] == ["kill-window"]:
-            tmux_state["kill_calls"].append(list(args))
-            target = args[-1]
-            current = tmux_state["current"]
-            if current is not None and current[0] == target:
-                if not tmux_state["alive"].get(current[2], False):
-                    return subprocess.CompletedProcess(
-                        args=args,
-                        returncode=1,
-                        stdout="",
-                        stderr="can't find window",
-                    )
-                tmux_state["alive"][current[2]] = False
-                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
-            return subprocess.CompletedProcess(
-                args=args,
-                returncode=1,
-                stdout="",
-                stderr="can't find window",
-            )
-        raise AssertionError(f"Unexpected tmux call: {args}")
-
-    def _fake_list_tmux_panes(*, session_name: str):  # type: ignore[no-untyped-def]
-        assert session_name == "HOUMAO-gpu"
-        current = tmux_state["current"]
-        if current is None:
-            return ()
-        window_id, window_index, pane_id = current
-        if not tmux_state["alive"].get(pane_id, False):
-            return ()
-        return (
-            type(
-                "Pane",
-                (),
-                {
-                    "pane_id": pane_id,
-                    "session_name": session_name,
-                    "window_id": window_id,
-                    "window_index": window_index,
-                    "window_name": "gateway",
-                    "pane_index": "0",
-                    "pane_active": True,
-                    "pane_dead": False,
-                    "pane_pid": 4242,
-                },
-            )(),
-        )
-
-    class _HealthyGatewayClient:
-        def __init__(self, *, endpoint, timeout_seconds: float = 5.0) -> None:
-            del endpoint, timeout_seconds
-
-        def health(self):  # type: ignore[no-untyped-def]
-            return type("Health", (), {"protocol_version": "v1"})()
-
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.run_tmux_shared",
-        _fake_run_tmux,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.list_tmux_panes_shared",
-        _fake_list_tmux_panes,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.GatewayClient",
-        _HealthyGatewayClient,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.set_tmux_session_environment_shared",
-        lambda **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.unset_tmux_session_environment_shared",
-        lambda **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime._backend_state_for_session",
-        lambda session: {
-            "api_base_url": "http://127.0.0.1:9889",
-            "session_name": "cao-gpu",
-            "terminal_id": "term-123",
-            "parsing_mode": "shadow_only",
-            "tmux_window_name": "developer-1",
-        },
-    )
-
-    first_attach = controller.attach_gateway()
-    assert first_attach.status == "ok"
-    first_current_instance = GatewayCurrentInstanceV1.model_validate(
-        json.loads(paths.current_instance_path.read_text(encoding="utf-8"))
-    )
-    assert first_current_instance.execution_mode == "tmux_auxiliary_window"
-    assert first_current_instance.tmux_window_id == "@9"
-    assert first_current_instance.tmux_pane_id == "%9"
-
-    tmux_state["alive"]["%9"] = False
-
-    second_attach = controller.attach_gateway()
-    assert second_attach.status == "ok"
-    second_current_instance = GatewayCurrentInstanceV1.model_validate(
-        json.loads(paths.current_instance_path.read_text(encoding="utf-8"))
-    )
-    assert second_current_instance.tmux_window_id == "@10"
-    assert second_current_instance.tmux_pane_id == "%10"
-
-    detach_result = controller.detach_gateway()
-    assert detach_result.status == "ok"
-    assert tmux_state["kill_calls"] == [
-        ["kill-window", "-t", "@9"],
-        ["kill-window", "-t", "@10"],
-    ]
-    assert not paths.current_instance_path.exists()
 
 
 def test_same_session_gateway_shell_command_expands_live_tmux_pane(tmp_path: Path) -> None:
@@ -3492,7 +3252,7 @@ class _FakeManagedPairClient:
         self,
         *,
         block_prompt: bool = False,
-        pair_authority_kind: str = "houmao-server",
+        pair_authority_kind: str = "houmao-passive-server",
     ) -> None:
         self.pair_authority_kind = pair_authority_kind
         self.block_prompt = block_prompt
@@ -7425,7 +7185,7 @@ def test_gateway_mail_notifier_renders_gateway_bootstrap_prompt_with_houmao_gate
         assert "skills/mailbox/houmao-agent-email-comms/SKILL.md" not in prompt
         assert "skills/houmao-process-emails-via-gateway/SKILL.md" not in prompt
         assert "skills/houmao-agent-email-comms/SKILL.md" not in prompt
-        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
+        assert "pixi run houmao-mgr agents self mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert (
             "Mailbox API: `GET /v1/mail/status`; "
@@ -7541,7 +7301,7 @@ def test_gateway_mail_notifier_falls_back_when_houmao_skills_are_not_installed(
         prompt = fake_client.submitted_prompts[0][1]
         assert "Houmao mailbox skills are not installed." in prompt
         assert "Use the mailbox API below directly for this round." in prompt
-        assert "pixi run houmao-mgr agents mail resolve-live" not in prompt
+        assert "pixi run houmao-mgr agents self mail resolve-live" not in prompt
         assert "http://127.0.0.1:43123" in prompt
         assert (
             "Mailbox API: `GET /v1/mail/status`; "

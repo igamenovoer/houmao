@@ -53,7 +53,7 @@ def test_start_session_rejects_retired_raw_cao_backend(
     assert exit_code == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "Standalone backend='cao_rest' operator workflows are retired" in captured.err
+    assert "Standalone CAO/old-server runtime workflows are retired" in captured.err
 
 
 def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
@@ -90,6 +90,31 @@ def test_start_session_rejects_retired_raw_cao_backend_before_runtime_start(
     assert exit_code == 2
     assert captured_calls == []
     assert "retired" in capsys.readouterr().err
+
+
+def test_start_session_rejects_retired_houmao_server_backend_with_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    _isolate_agent_def_resolution(monkeypatch, tmp_path)
+
+    exit_code = cli.main(
+        [
+            "start-session",
+            "--brain-manifest",
+            "tmp/brain.yaml",
+            "--role",
+            "gpu-kernel-coder",
+            "--backend",
+            "houmao_server_rest",
+        ]
+    )
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "retired" in captured.err
 
 
 def test_start_session_forwards_mailbox_overrides(
@@ -376,7 +401,7 @@ def test_start_session_uses_env_agent_def_dir_when_cli_flag_missing(
     assert captured_kwargs["agent_def_dir"] == env_agent_def_dir.resolve()
 
 
-def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
+def test_start_session_requires_project_when_cli_and_env_missing(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -413,8 +438,9 @@ def test_start_session_uses_default_agent_def_dir_when_cli_and_env_missing(
         ]
     )
 
-    assert exit_code == 0
-    assert captured_kwargs["agent_def_dir"] == (tmp_path / ".houmao" / "agents").resolve()
+    assert exit_code == 2
+    assert captured_kwargs == {}
+    assert not (tmp_path / ".houmao").exists()
 
 
 def test_start_session_uses_discovered_project_overlay_when_present(

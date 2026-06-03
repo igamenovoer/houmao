@@ -110,18 +110,18 @@ export HOUMAO_PROJECT_OVERLAY_DIR=$(pwd)/scripts/demo/single-agent-mail-prompt-i
 cd scripts/demo/single-agent-mail-prompt-injection/outputs/project
 
 # 2. Import auth, create specialist, launch instance (claude lane).
-pixi run houmao-mgr credentials add claude kimi-coding \
-  --auth-fixture-dir tests/fixtures/auth-bundles/claude/kimi-coding   # one-time
-pixi run houmao-mgr project easy specialist create \
+pixi run houmao-mgr project credentials claude add \
+  --name kimi-coding \
+  --api-key "$ANTHROPIC_API_KEY"   # one-time
+pixi run houmao-mgr project specialist create \
   --name single-inject-claude \
-  --provider claude_code \
+  --tool claude \
   --setup default \
-  --auth kimi-coding \
+  --credential kimi-coding \
   --system-prompt-file scripts/demo/single-agent-mail-prompt-injection/inputs/system_prompt.md
-pixi run houmao-mgr project easy instance launch \
+pixi run houmao-mgr project agents launch \
   --specialist single-inject-claude \
-  --instance-name single-inject-claude \
-  --session hm-single-inject-claude
+  --agent-name single-inject-claude
 
 # 3. Register the mailbox binding and attach a gateway.
 pixi run houmao-mgr agents mailbox register --agent-name single-inject-claude

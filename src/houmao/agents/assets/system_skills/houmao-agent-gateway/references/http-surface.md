@@ -67,6 +67,6 @@ Use `houmao-agent-email-comms` for the exact `/v1/mail/*` request contract once 
 
 ## Reminder Layering
 
-- Prefer `houmao-mgr agents gateway reminders ...` for operator-facing CLI work.
+- Prefer `houmao-mgr agents single ... gateway reminders ...` or `houmao-mgr agents self gateway reminders ...` for operator-facing CLI work.
 - Use `/houmao/agents/{agent_ref}/gateway/reminders...` when the current task is already operating through pair-managed HTTP.
 - Use direct `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live gateway contract.

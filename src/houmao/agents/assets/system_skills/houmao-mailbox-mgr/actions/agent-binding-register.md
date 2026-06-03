@@ -13,10 +13,9 @@ Use this action only when the user wants to add or update one filesystem mailbox
 
 ## Command Shape
 
-Use:
-
-```text
-<chosen houmao-mgr launcher> agents mailbox register (--agent-id <id> | --agent-name <name>) [--mailbox-root <path>] [--principal-id <principal-id>] [--address <full-address>] [--mode safe|force|stash] [--yes]
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox register [--mailbox-root <root>] [--principal-id <principal-id>] [--address <address>] [--mode safe|force|stash] [--yes]
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox register [--mailbox-root <root>] [--principal-id <principal-id>] [--address <address>] [--mode safe|force|stash] [--yes]
 ```
 
 ## Guardrails

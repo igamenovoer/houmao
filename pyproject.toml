@@ -1,6 +1,6 @@
 [project]
 name = "Houmao"
-version = "0.10.1"
+version = "1.0.0"
 description = "Framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,8 +35,6 @@ dependencies = [
 ]
 
 [project.scripts]
-houmao-cli = "houmao.cli:main"
-houmao-server = "houmao.server.cli:main"
 houmao-mgr = "houmao.srv_ctrl.cli:main"
 houmao-passive-server = "houmao.passive_server.cli:main"
 

@@ -12,11 +12,9 @@ Use this action only when the user wants to remove inactive or stashed mailbox r
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox cleanup [--mailbox-root <path>] [--inactive-older-than-seconds <n>] [--stashed-older-than-seconds <n>] [--dry-run]
-<chosen houmao-mgr launcher> project mailbox cleanup [--inactive-older-than-seconds <n>] [--stashed-older-than-seconds <n>] [--dry-run]
+```bash
+<chosen houmao-mgr launcher> mailbox cleanup [--mailbox-root <root>] [--inactive-older-than-seconds <seconds>] [--stashed-older-than-seconds <seconds>] [--dry-run]
+<chosen houmao-mgr launcher> project mailbox cleanup [--inactive-older-than-seconds <seconds>] [--stashed-older-than-seconds <seconds>] [--dry-run]
 ```
 
 ## Guardrails

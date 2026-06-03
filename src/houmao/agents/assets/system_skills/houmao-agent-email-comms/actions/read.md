@@ -28,4 +28,9 @@ When multiple open messages exist:
 - choose the message or messages to inspect,
 - re-list if the inbox snapshot may have changed before taking more actions.
 
-When no live gateway facade is available, use `houmao-mgr agents mail peek` or `houmao-mgr agents mail read` for the selected message.
+When no live gateway facade is available, run the direct fallback command for the selected message:
+
+```bash
+<chosen houmao-mgr launcher> agents self mail peek --message-ref <message_ref>
+<chosen houmao-mgr launcher> agents self mail read --message-ref <message_ref>
+```

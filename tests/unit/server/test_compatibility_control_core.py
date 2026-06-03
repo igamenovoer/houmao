@@ -224,7 +224,7 @@ def test_initialize_terminal_preserves_color_env_when_tmux_injection_disabled(
                 "export CODEX_HOME=/tmp/houmao-test-launch-home/codex; "
                 "export CAO_TERMINAL_ID=abcd1234; provider --start"
             ),
-        }
+        },
     ]
 
 

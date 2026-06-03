@@ -7,7 +7,7 @@ last.
 Functions
 ---------
 resolve_houmao_home_root
-    Return the shared ``~/.houmao`` anchor.
+    Return the shared platformdirs user config anchor.
 resolve_registry_root
     Resolve the effective shared-registry root.
 resolve_runtime_root
@@ -38,9 +38,9 @@ _HOU_MAO_DIRNAME = ".houmao"
 
 
 def resolve_houmao_home_root() -> Path:
-    """Return the shared ``~/.houmao`` anchor directory."""
+    """Return the shared platformdirs user config anchor directory."""
 
-    return (_resolve_home_anchor_from_platformdirs() / _HOU_MAO_DIRNAME).resolve()
+    return Path(platformdirs.user_config_path(appname="houmao", appauthor=False)).resolve()
 
 
 def resolve_registry_root(
@@ -181,24 +181,3 @@ def _resolve_optional_path(value: str | Path | None, *, base: Path | None) -> Pa
 
     anchor = (base or Path.cwd()).resolve()
     return (anchor / path).resolve()
-
-
-def _resolve_home_anchor_from_platformdirs() -> Path:
-    """Infer the current user's home anchor from a platformdirs-managed path."""
-
-    user_data_path = Path(platformdirs.user_data_path(appname="houmao", appauthor=False))
-    parts = user_data_path.parts
-
-    if "AppData" in parts:
-        index = parts.index("AppData")
-        return Path(*parts[:index]).resolve()
-
-    if "Library" in parts:
-        index = parts.index("Library")
-        return Path(*parts[:index]).resolve()
-
-    if ".local" in parts:
-        index = parts.index(".local")
-        return Path(*parts[:index]).resolve()
-
-    return Path.home().expanduser().resolve()

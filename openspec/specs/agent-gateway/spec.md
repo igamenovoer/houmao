@@ -1810,3 +1810,4 @@ Recoverable degraded context, generic current-error diagnostics, or historical c
 - **WHEN** ordinary prompt control or notifier prompt delivery occurs without an explicit clean-context selector or policy match
 - **THEN** the gateway does not run a reset-then-send workflow
 - **AND THEN** it does not force a native headless fresh-chat selector solely from that generic evidence
+

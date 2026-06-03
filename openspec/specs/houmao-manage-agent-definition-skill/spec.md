@@ -3,20 +3,28 @@ Define the packaged Houmao-owned `houmao-agent-definition` system skill for low-
 ## Requirements
 ### Requirement: Houmao provides a packaged `houmao-agent-definition` system skill
 
-The system SHALL package a Houmao-owned system skill named `houmao-agent-definition` under the maintained system-skill asset root.
+The system SHALL replace the old agent-definition skill guidance with packaged Houmao-owned guidance that separates project agent management from native-agent internals.
 
-That skill SHALL instruct agents to manage low-level project-local agent definitions through these supported current commands:
+The canonical ordinary project guidance SHALL instruct agents to manage project-layer resources through:
 
-- `houmao-mgr project agents roles list`
-- `houmao-mgr project agents roles get`
-- `houmao-mgr project agents roles init`
-- `houmao-mgr project agents roles set`
-- `houmao-mgr project agents roles remove`
-- `houmao-mgr project agents presets list`
-- `houmao-mgr project agents presets get`
-- `houmao-mgr project agents presets add`
-- `houmao-mgr project agents presets set`
-- `houmao-mgr project agents presets remove`
+- `houmao-mgr project specialist ...`
+- `houmao-mgr project profile ...`
+- project-scoped managed-agent lifecycle commands
+- `houmao-mgr project credentials ...`
+- `houmao-mgr project skills ...`
+
+The canonical native-provider guidance SHALL instruct agents to use internal native-agent commands only when the user explicitly asks for provider-aligned native material, launch dossiers, recipes, roles, or direct native-agent root work:
+
+- `houmao-mgr internals native-agent roles list`
+- `houmao-mgr internals native-agent roles get`
+- `houmao-mgr internals native-agent roles init`
+- `houmao-mgr internals native-agent roles set`
+- `houmao-mgr internals native-agent roles remove`
+- `houmao-mgr internals native-agent recipes ...`
+- `houmao-mgr internals native-agent launch-dossiers ...`
+- `houmao-mgr internals native-agent tools ...`
+
+The skill SHALL avoid using `agent definition`, `raw profile`, or `launch profile` as ordinary project terms. It SHALL define `native agent` and `launch dossier` as internal compatibility-layer terms.
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
 
@@ -26,33 +34,66 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `set`
 - `remove`
 
-That packaged skill SHALL treat these surfaces as explicitly out of scope:
-
-- `project easy specialist ...`
-- `project easy instance ...`
-- `agents launch|join|list|stop|cleanup`
-- `project agents tools <tool> auth list|get|add|set|remove` when the user is asking to mutate auth-bundle contents rather than which bundle a preset references
-- direct hand-editing under `.houmao/agents/roles/` or `.houmao/agents/presets/`
+The top-level skill guidance SHALL route ordinary user requests for reusable agent configuration to project specialists and project profiles unless the user explicitly asks for native-agent internals.
 
 The packaged skill SHALL NOT instruct agents to use retired or unsupported low-level shapes such as:
 
-- `houmao-mgr project agents roles scaffold`
-- `houmao-mgr project agents roles presets ...`
+- `houmao-mgr internals native-agent roles scaffold`
+- `houmao-mgr internals native-agent roles presets ...`
 
-#### Scenario: Installed skill points the agent at the current low-level role and preset commands
-- **WHEN** an agent opens the installed `houmao-agent-definition` skill
-- **THEN** the skill directs the agent to use the supported `project agents roles ...` and `project agents presets ...` command surfaces for low-level definition work
-- **AND THEN** it does not redirect the agent to ad hoc filesystem editing, stale command trees, or unrelated runtime-control surfaces
+#### Scenario: Ordinary specialist request routes to project commands
+- **WHEN** a user asks an agent to create a reusable Codex reviewer
+- **THEN** the packaged guidance routes the agent to `houmao-mgr project specialist create`
+- **AND THEN** it does not route the request to native-agent roles or recipes
+
+#### Scenario: Native launch dossier request routes to internals
+- **WHEN** a user explicitly asks for a native launch dossier
+- **THEN** the packaged guidance routes the agent to `houmao-mgr internals native-agent launch-dossiers ...`
+- **AND THEN** it treats the request as internal provider-aligned material rather than a project profile
 
 #### Scenario: Installed skill routes to action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-agent-definition` skill
 - **THEN** the top-level `SKILL.md` acts as an index/router for `create`, `list`, `get`, `set`, and `remove`
 - **AND THEN** the detailed per-action workflow lives in local action-specific documents rather than one flattened entry page
 
-#### Scenario: Installed skill keeps easy, runtime, and auth-content workflows out of scope
-- **WHEN** an agent reads the installed `houmao-agent-definition` skill
-- **THEN** the skill marks easy-specialist CRUD, managed-agent lifecycle work, direct auth-bundle mutation, and filesystem editing as outside the packaged skill scope
-- **AND THEN** it does not present those actions as part of low-level agent-definition guidance
+### Requirement: Agent-definition skill avoids top-level target-variant commands
+The packaged `houmao-agent-definition` skill SHALL route ordinary project authoring through:
+
+```text
+houmao-mgr project [--project-dir <dir>] ...
+```
+
+The skill SHALL route direct provider-aligned native material through:
+
+```text
+houmao-mgr internals native-agent [--native-agent-root <dir>] ...
+```
+
+The skill SHALL NOT present top-level `credentials --project`, top-level `credentials --agent-def-dir`, or top-level `brains build` as maintained command paths.
+
+#### Scenario: Skill uses project directory selector for project authoring
+- **WHEN** a user asks the agent to create a specialist in project `/repo`
+- **THEN** the skill guidance routes to `houmao-mgr project --project-dir /repo specialist create`
+- **AND THEN** it does not choose a top-level command only to select that project
+
+#### Scenario: Skill uses internals for direct native build
+- **WHEN** a user explicitly asks the agent to build a brain from native-agent root `/tmp/native`
+- **THEN** the skill guidance routes to `houmao-mgr internals native-agent brain build --native-agent-root /tmp/native`
+- **AND THEN** it does not route to top-level `houmao-mgr brains build --agent-def-dir /tmp/native`
+
+### Requirement: System skills use the revised project/native vocabulary consistently
+Packaged system skills that mention Houmao agent authoring or launch preparation SHALL use:
+
+- `specialist` for reusable project-level persona/tool/credential definitions,
+- `profile` for reusable project launch defaults,
+- `managed agent` or `agent instance` for runtime identities,
+- `native agent` for internal provider-aligned launch material,
+- `launch dossier` for internal recipe-backed native launch defaults.
+
+#### Scenario: Loop skills ask for project profiles or launch dossiers explicitly
+- **WHEN** a loop skill asks an agent to prepare launch facts
+- **THEN** it distinguishes project profiles from native launch dossiers
+- **AND THEN** it does not use raw profile or launch profile ambiguously
 
 ### Requirement: `houmao-agent-definition` resolves the `houmao-mgr` launcher in the required precedence order
 
@@ -131,7 +172,7 @@ When the user asks to change env vars or auth files inside an auth bundle, the s
 
 #### Scenario: Full role inspection uses explicit prompt inclusion
 - **WHEN** the user asks the agent to inspect one role's full low-level definition including its prompt text
-- **THEN** the skill directs the agent to use `houmao-mgr project agents roles get --include-prompt`
+- **THEN** the skill directs the agent to use `houmao-mgr internals native-agent roles get --include-prompt`
 - **AND THEN** it does not require direct reads from `.houmao/agents/roles/<role>/system-prompt.md`
 
 #### Scenario: Preset credential change stays within definition structure
@@ -156,43 +197,43 @@ That unified skill SHALL expose these skill-level subcommands:
 
 - `roles` for low-level prompt-only roles;
 - `recipes` for low-level recipes, with `presets` as a compatibility alias;
-- `raw-profiles` for low-level recipe-backed launch profiles using the underlying `houmao-mgr project agents launch-profiles ...` CLI;
-- `specialists` for project-easy specialist templates;
-- `profiles` for specialist-backed easy profiles;
-- `create-agent-fast-forward` for creating or selecting a specialist, creating or updating an easy profile, printing the launch command, and not launching a live agent;
+- `launch-dossiers` for low-level native launch dossiers using the underlying `houmao-mgr internals native-agent launch-dossiers ...` CLI;
+- `specialists` for project-specialist templates;
+- `profiles` for specialist-backed project profiles;
+- `create-agent-fast-forward` for creating or selecting a specialist, creating or updating an project profile, printing the launch command, and not launching a live agent;
 - `launch-agent` for the limited easy launch entry point that hands off broader live lifecycle work to `houmao-agent-instance`;
 - `stop-agent` for the limited easy stop entry point that hands off broader live lifecycle work to `houmao-agent-instance`.
 
-The skill SHALL treat loosely stated `profile`, `agent profile`, `launch profile`, and `ready profile` wording as the `profiles` subcommand by default unless the user explicitly asks for `raw-profiles`, raw profile behavior, recipe-backed profile behavior, or the exact `project agents launch-profiles` CLI surface.
+The skill SHALL treat loosely stated `profile`, `agent profile`, `launch profile`, and `ready profile` wording as the `profiles` subcommand by default unless the user explicitly asks for `launch-dossiers`, launch dossier behavior, recipe-backed profile behavior, or the exact `internals native-agent launch-dossiers` CLI surface.
 
 #### Scenario: Unified skill routes named subcommands
 - **WHEN** an agent reads the packaged `houmao-agent-definition` skill
 - **THEN** the top-level page lists the supported skill subcommands and their local subskill routes
-- **AND THEN** the agent can route a user request that explicitly names `profiles`, `raw-profiles`, or `create-agent-fast-forward` without asking which branch was intended
+- **AND THEN** the agent can route a user request that explicitly names `profiles`, `launch-dossiers`, or `create-agent-fast-forward` without asking which branch was intended
 
-#### Scenario: Ambiguous launch profile means easy profile
-- **WHEN** a user asks to create or update an agent launch profile without saying raw, recipe-backed, or `project agents launch-profiles`
+#### Scenario: Ambiguous launch profile means project profile
+- **WHEN** a user asks to create or update an agent launch profile without saying raw, recipe-backed, or `internals native-agent launch-dossiers`
 - **THEN** the skill routes the request to the `profiles` subcommand
-- **AND THEN** it does not route the request to low-level recipe-backed launch profiles by default
+- **AND THEN** it does not route the request to low-level native launch dossiers by default
 
 ### Requirement: `houmao-agent-definition` uses lane-specific subskills
 The unified `houmao-agent-definition` skill SHALL keep its entry page concise and SHALL route detailed behavior into lane-specific local subskills or references.
 
-At minimum, the skill SHALL distinguish `roles`, `recipes`, `raw-profiles`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`.
+At minimum, the skill SHALL distinguish `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`.
 
 The skill SHALL include shared guidance for launcher resolution, missing-input handling, profile-lane terminology, and credential-routing boundaries.
 
 The entry page SHALL either route existing generic `actions/*` pages through the new subcommand vocabulary or mark those pages as legacy low-level-only references so they do not conflict with the subcommand table.
 
 #### Scenario: Entry page loads only the relevant lane
-- **WHEN** the user asks to update one easy profile
-- **THEN** `houmao-agent-definition` routes to the `profiles` subcommand and easy-profile subskill
-- **AND THEN** it does not load or flatten unrelated low-level recipe, raw-profile, or easy-instance launch instructions into the entry page
+- **WHEN** the user asks to update one project profile
+- **THEN** `houmao-agent-definition` routes to the `profiles` subcommand and project-profile subskill
+- **AND THEN** it does not load or flatten unrelated low-level recipe, launch-dossier, or easy-instance launch instructions into the entry page
 
-#### Scenario: Raw profile route is explicit
-- **WHEN** the user asks for `raw-profiles` or for the exact `project agents launch-profiles` surface
+#### Scenario: Launch dossier route is explicit
+- **WHEN** the user asks for `launch-dossiers` or for the exact `internals native-agent launch-dossiers` surface
 - **THEN** `houmao-agent-definition` routes to the low-level recipe-backed profile subskill
-- **AND THEN** the subskill names the underlying `houmao-mgr project agents launch-profiles ...` commands
+- **AND THEN** the subskill names the underlying `houmao-mgr internals native-agent launch-dossiers ...` commands
 
 ### Requirement: Unified skill keeps neighboring platform concerns out of scope
 The unified `houmao-agent-definition` skill SHALL NOT become the owner for credential bundle CRUD, mailbox root/account administration, workspace creation, broad live managed-agent lifecycle, or direct filesystem edits under `.houmao/`.
@@ -207,7 +248,7 @@ It SHALL route those concerns to `houmao-credential-mgr`, `houmao-mailbox-mgr`, 
 ### Requirement: `houmao-agent-definition` prefers TUI-supported launch posture when unspecified
 The packaged `houmao-agent-definition` skill SHALL instruct agents that omitted headless/TUI launch posture means "prefer TUI/local interactive when the selected tool or launch lane supports it."
 
-This default SHALL apply to skill guidance for specialist-backed easy profile authoring, raw recipe-backed launch-profile authoring, create-agent-fast-forward profile preparation, and the specialist-scoped easy launch entry point.
+This default SHALL apply to skill guidance for specialist-backed project profile authoring, raw recipe-backed launch-profile authoring, create-agent-fast-forward profile preparation, and the specialist-scoped easy launch entry point.
 
 The skill SHALL NOT tell agents to add `--headless`, persist profile `--headless`, or report headless as a stored default unless the user explicitly asks for headless posture or the selected tool/lane is known to require headless.
 
@@ -215,20 +256,20 @@ The skill SHALL keep prompt mode separate from launch posture: `--prompt-mode un
 
 The skill SHALL identify Gemini easy launches as a known required-headless exception and SHALL preserve explicit stored headless posture when inspecting or launching from an existing profile.
 
-#### Scenario: Easy profile creation omits headless by default
-- **WHEN** a user asks `houmao-agent-definition profiles` or `create-agent-fast-forward` to create a Codex or Claude easy profile
+#### Scenario: Project profile creation omits headless by default
+- **WHEN** a user asks `houmao-agent-definition profiles` or `create-agent-fast-forward` to create a Codex or Claude project profile
 - **AND WHEN** the user does not request headless execution
-- **THEN** the skill guidance directs the agent to omit `--headless` from `project easy profile create`
+- **THEN** the skill guidance directs the agent to omit `--headless` from `project profile create`
 - **AND THEN** it treats the resulting profile as TUI/local-interactive preferred for later launch when supported
 
-#### Scenario: Raw profile authoring omits headless by default
-- **WHEN** a user asks `houmao-agent-definition raw-profiles` to add or update a recipe-backed launch profile
+#### Scenario: Launch dossier authoring omits headless by default
+- **WHEN** a user asks `houmao-agent-definition launch-dossiers` to add or update a recipe-backed launch profile
 - **AND WHEN** the user does not request headless execution
 - **THEN** the skill guidance directs the agent to omit `--headless`
 - **AND THEN** it does not infer headless from unattended prompt mode, gateway defaults, mailbox defaults, or model defaults
 
 #### Scenario: Fast-forward launch command stays TUI-preferred when supported
-- **WHEN** `create-agent-fast-forward` prepares a launchable easy profile for a TUI-capable tool
+- **WHEN** `create-agent-fast-forward` prepares a launchable project profile for a TUI-capable tool
 - **AND WHEN** the user does not request headless execution
 - **THEN** the workflow reports a launch command without `--headless`
 - **AND THEN** it reports that launch posture is TUI/local-interactive preferred when supported
@@ -237,3 +278,66 @@ The skill SHALL identify Gemini easy launches as a known required-headless excep
 - **WHEN** `houmao-agent-definition launch-agent` prepares a Gemini easy launch command
 - **THEN** the skill guidance may require `--headless`
 - **AND THEN** it describes that as a selected-tool requirement rather than the default for unspecified launch posture
+
+### Requirement: `houmao-agent-definition` uses config drafts for supported config authoring flows
+The packaged `houmao-agent-definition` skill SHALL instruct agents to use `houmao-mgr internals config-drafts generate` before authoring supported project configuration documents for these skill subcommands:
+
+- `specialists`
+- `profiles`
+- `launch-dossiers`
+- profile preparation inside `create-agent-fast-forward`
+
+For those supported config-authoring flows, the skill SHALL tell agents to generate drafts from explicit user inputs and recovered explicit context only.
+
+The skill SHALL NOT own full default-bearing YAML examples or command skeletons in Markdown for config shapes covered by `internals config-drafts`.
+
+The skill SHALL describe config drafts as minimal opinionated drafts and SHALL direct full customization beyond the draft's required holes back to maintained project subcommands.
+
+The skill SHALL direct agents to the CLI-owned config draft as the authoritative source for the config kind, fixed lane/source values, required credential/auth reference, and draft YAML shape.
+
+For executable command-oriented workflows that are not config documents, the skill SHALL document direct `houmao-mgr` command snippets in fenced `bash` blocks and SHALL NOT call `houmao-mgr internals command-templates`.
+
+#### Scenario: Profile authoring generates a config draft
+- **WHEN** a user asks `houmao-agent-definition profiles` to create project profile `reviewer-fast` for specialist `reviewer` and credential `reviewer-creds`
+- **AND WHEN** the user does not request prompt-mode or headless posture persistence
+- **THEN** the skill guidance directs the agent to generate `project.profile` with only `name`, `specialist`, and `credential`
+- **AND THEN** the generated draft records project-profile lane and specialist source without adding prompt-mode or headless defaults
+
+#### Scenario: Launch dossier authoring generates a raw launch-profile draft
+- **WHEN** a user asks `houmao-agent-definition launch-dossiers` to prepare raw launch profile `alice` with recipe `reviewer-codex` and credential `reviewer-creds`
+- **THEN** the skill guidance directs the agent to generate `internals.native-agent.launch-dossier`
+- **AND THEN** the generated draft records only the fixed recipe-backed profile values and required credential/auth reference
+
+#### Scenario: Specialist authoring generates a specialist draft
+- **WHEN** a user asks `houmao-agent-definition specialists` to prepare a Codex specialist named `reviewer` with credential `reviewer-creds`
+- **THEN** the skill guidance directs the agent to generate `project.specialist`
+- **AND THEN** the guidance does not require loading a separate executable-command schema to see every possible credential, skill, mailbox, and launch option
+
+#### Scenario: Recipe authoring uses direct commands
+- **WHEN** a user asks `houmao-agent-definition recipes` to create recipe `reviewer-codex` from role `reviewer` and tool `codex`
+- **AND WHEN** no recipe config-draft contract exists
+- **THEN** the skill guidance shows the maintained direct `houmao-mgr internals native-agent recipes ...` command in a fenced `bash` block
+- **AND THEN** the guidance does not invent a recipe YAML draft that Houmao does not provide
+
+#### Scenario: Fast-forward uses drafts and direct launch command printing
+- **WHEN** `create-agent-fast-forward` prepares a launchable project profile and prints the launch command
+- **THEN** the skill guidance uses config drafts for specialist/profile preparation
+- **AND THEN** it prints the maintained `houmao-mgr project agents launch ...` command directly
+
+### Requirement: `houmao-agent-definition` uses direct command snippets for executable workflows
+The packaged `houmao-agent-definition` skill SHALL document executable commands as fenced `bash` snippets.
+
+The skill SHALL NOT reference `houmao-mgr internals command-templates show`, `houmao-mgr internals command-templates render`, command-template ids, or command-template blocker recovery.
+
+The skill SHALL preserve required-input and conflict guardrails in prose before each direct command workflow.
+
+#### Scenario: Low-level role command is shown directly
+- **WHEN** a user asks the skill to initialize or edit a low-level role
+- **THEN** the skill guidance shows a direct `houmao-mgr internals native-agent roles ...` command in a fenced `bash` block
+- **AND THEN** it does not render a command-template id first
+
+#### Scenario: Launch command is shown directly
+- **WHEN** a user asks the skill to print or run a managed launch command
+- **THEN** the skill guidance shows a direct `houmao-mgr project agents launch ...` command in a fenced `bash` block
+- **AND THEN** omitted optional flags remain absent unless explicitly requested
+

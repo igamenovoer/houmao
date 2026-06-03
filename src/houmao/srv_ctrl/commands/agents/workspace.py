@@ -32,7 +32,11 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 
 from ..common import managed_agent_selector_options, pair_port_option, pair_request
-from ..managed_agents import ManagedAgentTarget, resolve_managed_agent_target
+from ..managed_agents import (
+    ManagedAgentTarget,
+    _require_live_local_controller,
+    resolve_managed_agent_target,
+)
 from ..output import emit
 
 
@@ -484,9 +488,12 @@ def memory_page_delete(
 def _local_memory_paths(target: ManagedAgentTarget) -> AgentMemoryPaths:
     """Return manifest-backed local memory paths for one resolved target."""
 
-    if target.mode != "local" or target.controller is None:
+    controller = _require_live_local_controller(
+        target,
+        operation="inspect managed-agent memory paths",
+    )
+    if target.mode != "local":
         raise click.ClickException("Memory direct file access requires a local managed agent.")
-    controller = target.controller
     if (
         controller.memory_root is None
         or controller.memo_file is None

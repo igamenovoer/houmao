@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. In project overlays, auth selection is user-facing by display name while the catalog owns the stable underlying auth identity. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties easy profiles and explicit launch profiles together, see [Launch Profiles](launch-profiles.md).
+Houmao orchestrates CLI-based agents (Codex, Claude, Gemini) as real tmux-backed processes with isolated runtime homes. The lifecycle still has two phases. The reusable source model is `recipe + setup + auth`, and reusable birth-time launch configuration lives separately as **launch profiles** that compose with recipe defaults during build. In project overlays, auth selection is user-facing by display name while the catalog owns the stable underlying auth identity. Managed launches also prepend one short Houmao-owned prompt header by default after any prompt-overlay resolution and before backend-specific prompt injection. For the shared conceptual model that ties project profiles and native launch dossiers together, see [Launch Profiles](launch-profiles.md).
 
 ## Two-Phase Lifecycle
 
@@ -54,7 +54,7 @@ flowchart TD
 
 `src/houmao/agents/realm_controller/` reads the built manifest, pairs it with a role package, and resolves a backend-specific `LaunchPlan`.
 
-When a managed agent's registry record claims `active` but the underlying tmux session is broken, `agents stop` and `agents relaunch` route through dedicated recovery helpers rather than failing with a generic error. The runtime probes tmux authority, classifies the session as healthy, degraded, or stale, and dispatches to the appropriate recovery path. See [Degraded and Stale Active Recovery](../reference/run-phase/degraded-stale-recovery.md).
+When a managed agent's registry record claims `active` but the underlying tmux session is broken, selected-agent `agents single ... stop` and `agents single ... relaunch` route through dedicated recovery helpers rather than failing with a generic error. The runtime probes tmux authority, classifies the session as healthy, degraded, or stale, and dispatches to the appropriate recovery path. See [Degraded and Stale Active Recovery](../reference/run-phase/degraded-stale-recovery.md).
 
 ### Key Types
 
@@ -90,7 +90,7 @@ When a managed agent's registry record claims `active` but the underlying tmux s
 | `src/houmao/agents/brain_builder.py` | Build phase: resolved inputs -> runtime home + manifest |
 | `src/houmao/agents/realm_controller/launch_plan.py` | Manifest + role -> backend launch plan |
 | `src/houmao/agents/realm_controller/backends/` | Backend implementations |
-| `src/houmao/srv_ctrl/commands/agents/core.py` | `houmao-mgr agents launch` preset-backed flow |
+| `src/houmao/srv_ctrl/commands/agents/core.py` | Scoped `houmao-mgr agents global|single|self|external` command registration |
 
 ## Project CLI Views
 
@@ -116,7 +116,7 @@ houmao-mgr project
 ```
 
 - `project agents ...` is the low-level compatibility-projection surface for `.houmao/agents/`. Project-local semantic truth lives in `.houmao/catalog.sqlite` plus `.houmao/content/`, while `.houmao/agents/` remains the generated file-tree view consumed by current builders and runtime.
-- `project easy ...` lets users author reusable specialists, optional specialist-backed easy profiles, and view running instances without hand-editing the tree.
+- `project ...` lets users author reusable specialists, optional specialist-backed project profiles, and view running instances without hand-editing the tree.
 - `project mailbox ...` mirrors the generic `houmao-mgr mailbox ...` operations, but automatically targets `<project-root>/.houmao/mailbox`.
 
 Project-aware commands select that overlay root through one shared contract:

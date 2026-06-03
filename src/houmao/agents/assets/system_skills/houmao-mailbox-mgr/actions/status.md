@@ -11,10 +11,8 @@ Use this action only when the user wants mailbox-root health, registration count
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox status [--mailbox-root <path>]
+```bash
+<chosen houmao-mgr launcher> mailbox status [--mailbox-root <root>]
 <chosen houmao-mgr launcher> project mailbox status
 ```
 

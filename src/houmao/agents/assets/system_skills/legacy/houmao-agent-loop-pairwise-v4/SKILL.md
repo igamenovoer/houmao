@@ -194,7 +194,7 @@ Strict generated document templates:
 
 Memory and plan material:
 - Route any agent memo, `houmao memo`, `houmao-memo.md`, or memo-linked `pages/` request that arises while planning, initializing, or starting a pairwise-v4 run to `houmao-memory-mgr`.
-- Route initialize memo writes, recovery-page writes, and related managed-memory reads or writes to `houmao-memory-mgr` and its supported `houmao-mgr agents memory ...` surfaces.
+- Route initialize memo writes, recovery-page writes, and related managed-memory reads or writes to `houmao-memory-mgr` and its supported scoped `houmao-mgr agents self memory ...` or `houmao-mgr agents single ... memory ...` surfaces.
 
 Participant launch:
 - When a pairwise-v4 plan provides launch-profile-backed birth-time references for missing participants, route those launches through `houmao-agent-instance`.

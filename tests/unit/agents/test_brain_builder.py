@@ -18,7 +18,12 @@ from houmao.agents.brain_builder import (
 from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
-from houmao.agents.system_skills import discover_installed_system_skills
+from houmao.agents.system_skills import (
+    SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
+    SystemSkillCatalogError,
+    SystemSkillSelectionPolicy,
+    discover_installed_system_skills,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -272,6 +277,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-agent-loop-lite/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-instance/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-inspect/SKILL.md").is_file()
+    assert (home / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
@@ -293,6 +299,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-agent-loop-lite",
         "houmao-agent-instance",
         "houmao-agent-inspect",
+        "houmao-operator-messaging",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
     )
@@ -317,6 +324,217 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     ]
     assert "NOT_ALLOWLISTED" not in manifest_text
     assert "sk-test-123" not in manifest_text
+
+
+def test_build_brain_home_applies_source_additive_system_skill_policy(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="extend",
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+            ),
+            home_id="codex-home-source-system-skills",
+        )
+    )
+
+    installed_records = discover_installed_system_skills(tool="codex", home_path=result.home_path)
+    installed_names = tuple(record.name for record in installed_records)
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in installed_names
+    assert (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}/SKILL.md").is_file()
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "system_skills"
+    ]
+    assert system_skill_provenance["source_policy"] == {
+        "mode": "extend",
+        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
+    }
+    assert system_skill_provenance["profile_policy"] == {}
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in system_skill_provenance["resolved_skills"]
+
+
+def test_build_brain_home_rejects_removed_llm_wiki_system_skill_policy_before_mutation(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = agent_def_dir / "tmp/agents-runtime"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    with pytest.raises(
+        SystemSkillCatalogError, match="Unknown system skill `houmao-utils-llm-wiki`"
+    ):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=runtime_root,
+                tool="codex",
+                skills=["skill-a"],
+                config_profile="default",
+                credential_profile="personal-a",
+                source_system_skill_policy=SystemSkillSelectionPolicy(
+                    mode="extend",
+                    skill_names=("houmao-utils-llm-wiki",),
+                ),
+                home_id="codex-home-removed-system-skill",
+            )
+        )
+
+    assert not (runtime_root / "homes/codex-home-removed-system-skill").exists()
+
+
+def test_build_brain_home_profile_replacement_overrides_source_system_skill_policy(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="extend",
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+            ),
+            launch_profile_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="replace",
+                set_names=("core",),
+            ),
+            home_id="codex-home-profile-system-skills",
+        )
+    )
+
+    installed_names = tuple(
+        record.name
+        for record in discover_installed_system_skills(tool="codex", home_path=result.home_path)
+    )
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in installed_names
+
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "system_skills"
+    ]
+    assert system_skill_provenance["source_policy"] == {
+        "mode": "extend",
+        "skills": [SYSTEM_SKILL_UTILS_WORKSPACE_MGR],
+    }
+    assert system_skill_provenance["profile_policy"] == {"mode": "replace", "sets": ["core"]}
+    assert system_skill_provenance["selected_sets"] == ["core"]
+    assert system_skill_provenance["explicit_skills"] == []
+    assert SYSTEM_SKILL_UTILS_WORKSPACE_MGR in system_skill_provenance["resolved_skills"]
+
+
+def test_build_brain_home_disabled_profile_policy_removes_stale_system_skills_on_reuse(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+
+    first_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            home_id="codex-home-reused-system-skills",
+        )
+    )
+    assert (first_result.home_path / "skills/houmao-project-mgr/SKILL.md").is_file()
+
+    second_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="codex",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="personal-a",
+            launch_profile_system_skill_policy=SystemSkillSelectionPolicy(mode="none"),
+            home_id="codex-home-reused-system-skills",
+            reuse_home=True,
+        )
+    )
+
+    assert discover_installed_system_skills(tool="codex", home_path=second_result.home_path) == ()
+    manifest = yaml.safe_load(second_result.manifest_path.read_text(encoding="utf-8"))
+    system_skill_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "system_skills"
+    ]
+    assert system_skill_provenance["profile_policy"] == {"mode": "none"}
+    assert system_skill_provenance["resolved_skills"] == []
+    assert "houmao-project-mgr" in system_skill_provenance["removed_skills"]
+
+
+def test_build_brain_home_rejects_registered_system_skill_name_collision(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    _write(agent_def_dir / "skills/houmao-agent-definition/SKILL.md", "# collision\n")
+
+    with pytest.raises(BuildError, match="cannot collide with packaged Houmao system-skill names"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["houmao-agent-definition"],
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="codex-home-system-skill-collision",
+            )
+        )
+
+
+def test_build_brain_home_rejects_private_system_skill_name_collision(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    private_skill = tmp_path / "private" / "houmao-agent-definition"
+    _write(private_skill / "SKILL.md", "# collision\n")
+
+    with pytest.raises(BuildError, match="cannot collide with packaged Houmao system-skill names"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=["skill-a"],
+                private_skills=(
+                    PrivateSkillProjection(
+                        name="houmao-agent-definition",
+                        source_path=private_skill,
+                        mode="copy",
+                    ),
+                ),
+                config_profile="default",
+                credential_profile="personal-a",
+                home_id="codex-home-private-system-skill-collision",
+            )
+        )
 
 
 def test_build_brain_home_copies_selected_setup_bundle_verbatim(
@@ -481,16 +699,16 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "It is acceptable to defer unrelated open emails" in processing_skill
     assert "Archive only the successfully processed selected emails" in processing_skill
     assert "wait for the next notification" in processing_skill
-    assert "Do not switch to `houmao-mgr agents mail resolve-live`" in processing_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in processing_skill
+    assert "Do not switch to `houmao-mgr agents self mail resolve-live`" in processing_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
     assert "houmao-agent-email-comms" in gateway_skill
     assert "houmao-process-emails-via-gateway" in gateway_skill
     assert (
         "current prompt or recent mailbox context already provides the exact current gateway base URL"
         in gateway_skill
     )
-    assert "houmao-mgr agents mail resolve-live" in gateway_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in gateway_skill
+    assert "houmao-mgr agents self mail resolve-live" in gateway_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in gateway_skill
     assert "self-notification.md" in advanced_skill
     assert "pairwise-edge-loop-via-gateway-and-mailbox.md" in advanced_skill
     assert "relay-loop-via-gateway-and-mailbox.md" in advanced_skill
@@ -499,9 +717,12 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "The trigger word `houmao` is intentional." in gateway_skill
     assert "houmao-mgr mailbox ..." in mailbox_mgr_skill
     assert "houmao-mgr project mailbox ..." in mailbox_mgr_skill
-    assert "houmao-mgr agents mailbox ..." in mailbox_mgr_skill
+    assert "houmao-mgr agents single --agent-id <id> mailbox ..." in mailbox_mgr_skill
+    assert "`--agent-name <name>`" in mailbox_mgr_skill
     assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
-    assert "houmao-mgr agents memory" in memory_mgr_skill
+    assert "houmao-mgr agents self memory" in memory_mgr_skill
+    assert "houmao-mgr agents single --agent-name <name> memory" in memory_mgr_skill
+    assert "houmao-mgr agents memory" not in memory_mgr_skill
 
 
 def test_build_brain_home_projects_claude_mailbox_skills_top_level(
@@ -564,20 +785,20 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     assert "For notifier-driven shared mailbox gateway work" in filesystem_skill
     assert "use `houmao-process-emails-via-gateway`" in filesystem_skill
     assert "$GATEWAY_BASE_URL/v1/mail/status" in curl_reference
-    assert "houmao-mgr agents mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
-    assert "pixi run houmao-mgr agents mail resolve-live" not in curl_reference
+    assert "houmao-mgr agents self mail resolve-live | jq -r '.gateway.base_url'" in curl_reference
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in curl_reference
     assert '"schema_version":1,"message_refs":["<opaque message_ref>"]' in curl_reference
 
     assert "houmao-process-emails-via-gateway" in filesystem_skill
     assert "houmao-agent-email-comms" not in filesystem_skill
     assert "gateway: null" in filesystem_skill
     assert "filesystem" in filesystem_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in filesystem_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in filesystem_skill
     assert "houmao-process-emails-via-gateway" in stalwart_skill
     assert "houmao-agent-email-comms" not in stalwart_skill
     assert "gateway: null" in stalwart_skill
     assert "stalwart" in stalwart_skill
-    assert "pixi run houmao-mgr agents mail resolve-live" not in stalwart_skill
+    assert "pixi run houmao-mgr agents self mail resolve-live" not in stalwart_skill
 
 
 def test_load_brain_recipe_rejects_legacy_recipe_shape(tmp_path: Path) -> None:
@@ -817,12 +1038,42 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     assert (result.home_path / ".gemini/skills/houmao-adv-usage-pattern/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-memory-mgr/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-inspect/SKILL.md").is_file()
+    assert (result.home_path / ".gemini/skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
     assert "export GEMINI_API_KEY=" not in launch_script
     assert manifest["runtime"]["launch_contract"]["env_records"] == {"GOOGLE_GENAI_USE_GCA": "true"}
+
+
+def test_build_brain_home_projects_gemini_policy_system_skills_under_gemini_root(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_gemini_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="gemini",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth-only",
+            source_system_skill_policy=SystemSkillSelectionPolicy(
+                mode="replace",
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+            ),
+            home_id="gemini-home-system-policy",
+        )
+    )
+
+    assert (
+        result.home_path / f".gemini/skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}/SKILL.md"
+    ).is_file()
+    assert not (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}").exists()
 
 
 def test_build_brain_home_reuse_leaves_legacy_gemini_agents_skill_root_unmanaged(

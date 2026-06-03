@@ -12,10 +12,9 @@ Use this action only when the user wants to remove one filesystem mailbox bindin
 
 ## Command Shape
 
-Use:
-
-```text
-<chosen houmao-mgr launcher> agents mailbox unregister (--agent-id <id> | --agent-name <name>) [--mode deactivate|purge]
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox unregister [--mode deactivate|purge]
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> mailbox unregister [--mode deactivate|purge]
 ```
 
 ## Guardrails

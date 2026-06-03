@@ -1,6 +1,6 @@
 # Gemini Credential Kinds
 
-Use this reference when `--tool gemini` and the agent needs to present credential-kind options to the user during `project credentials gemini add` or `credentials gemini add --agent-def-dir <path>`.
+Use this reference when `--tool gemini` and the agent needs to present credential-kind options to the user during `project credentials gemini add` or `internals native-agent credentials gemini add --native-agent-root <path>`.
 
 ## Kinds
 
@@ -35,4 +35,4 @@ Optional modifier when using this kind:
 
 ## Discovery Note
 
-The `project credentials gemini add` and `credentials gemini add --agent-def-dir <path>` commands do not run discovery-mode credential creation (auto credentials, env lookup, or directory scan). If you want discovery-mode credential import during creation, use `project easy specialist create` through `houmao-agent-definition` instead.
+The `project credentials gemini add` and `internals native-agent credentials gemini add --native-agent-root <path>` commands do not run discovery-mode credential creation (auto credentials, env lookup, or directory scan). If you want discovery-mode credential import during creation, use `project specialist create` through `houmao-agent-definition` instead.

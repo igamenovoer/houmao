@@ -1,6 +1,6 @@
 # Mailbox Runtime Integration
 
-This page explains how mailbox support is attached to a brain home, a launch plan, a persisted session manifest, and later `agents mail` commands across the filesystem and `stalwart` transports.
+This page explains how mailbox support is attached to a brain home, a launch plan, a persisted session manifest, and later scoped `agents ... mail ...` commands across the filesystem and `stalwart` transports.
 
 ## Mental Model
 
@@ -11,7 +11,7 @@ Mailbox support spans build time, start time, resume time, and control time.
 - Launch-plan composition keeps the durable mailbox binding on the manifest-backed launch plan and does not treat mailbox-specific env publication as part of the mailbox contract.
 - Session manifests persist the redacted mailbox binding rather than inline secrets.
 - Resume reconstructs the same mailbox binding from the manifest payload and materializes session-local secret files when the selected transport needs them.
-- Public `houmao-mgr agents mail ...` commands resolve current mailbox authority first, prefer verified manager-owned or gateway-backed execution when that authority is available, and only fall back to the prompt-turn path when direct authority is unavailable.
+- Public scoped `houmao-mgr agents single/self ... mail ...` commands resolve current mailbox authority first, prefer verified manager-owned or gateway-backed execution when that authority is available, and only fall back to the prompt-turn path when direct authority is unavailable.
 
 ## Build Time
 
@@ -83,14 +83,14 @@ This is why code interacting with mailbox paths must respect `bindings_version` 
 
 For `stalwart`, resume also materializes the session-local credential file from the runtime-owned `credential_ref` store before direct transport access or gateway-backed transport access needs it. That keeps the manifest secret-free while still allowing direct transport access or gateway-backed transport access to reuse the same resolved mailbox capability.
 
-## `agents mail` Integration
+## Scoped `agents ... mail` Integration
 
-The public mailbox control surface is `houmao-mgr agents mail ...`.
+The public mailbox control surface is `houmao-mgr agents single ... mail ...` for selected agents and `houmao-mgr agents self mail ...` for the current managed session.
 
 That layer:
 
 - resolves the target managed agent explicitly or through same-session manifest-first discovery,
-- uses `houmao-mgr agents mail resolve-live` to expose the current normalized mailbox binding and any live `gateway.base_url`,
+- uses scoped mail `resolve-live` to expose the current normalized mailbox binding and any live `gateway.base_url`,
 - prefers pair-owned gateway-backed execution or local manager-owned direct execution for `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`,
 - preserves the existing prompt-turn path only as the non-authoritative local live-TUI fallback when direct authority is still unavailable.
 
@@ -101,13 +101,13 @@ The lower-level runtime prompt path is still implemented through:
 - `run_mail_prompt()`,
 - `parse_mail_result()`.
 
-That lower-level path matters because projected mailbox skills and local fallback still need one structured mailbox request/result contract inside the live session. The public operator contract, however, is now gateway-first and `houmao-mgr agents mail ...`-first rather than a direct Python-module resolver plus mailbox-local scripts.
+That lower-level path matters because projected mailbox skills and local fallback still need one structured mailbox request/result contract inside the live session. The public operator contract, however, is now gateway-first and scoped `houmao-mgr agents ... mail ...`-first rather than a direct Python-module resolver plus mailbox-local scripts.
 
 In practice, the ordinary attached-session path is:
 
-1. resolve current mailbox bindings through `pixi run houmao-mgr agents mail resolve-live`,
+1. resolve current mailbox bindings through `pixi run houmao-mgr agents self mail resolve-live` or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live`,
 2. when the resolver returns `gateway.base_url`, prefer that live gateway `/v1/mail/*` facade for shared mailbox operations,
-3. otherwise use `pixi run houmao-mgr agents mail list|peek|read|send|post|reply|mark|move|archive`,
+3. otherwise use scoped `pixi run houmao-mgr agents single/self ... mail list|peek|read|send|post|reply|mark|move|archive`,
 4. if those manager-owned commands still return `authoritative: false`, verify outcome through manager-owned or transport-owned state instead of treating submission as mailbox truth.
 
 This design keeps mailbox control inside the same runtime session model when needed, while still presenting one simpler public workflow across both transports.

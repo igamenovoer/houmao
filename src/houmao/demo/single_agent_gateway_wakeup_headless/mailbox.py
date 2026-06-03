@@ -90,7 +90,7 @@ def collect_actor_mail_check(
     unread_only: bool,
     limit: int = 10,
 ) -> dict[str, Any]:
-    """Return one actor-scoped `agents mail list` payload."""
+    """Return one actor-scoped managed-agent mail list payload."""
 
     env = build_demo_environment(paths=paths)
     command = [

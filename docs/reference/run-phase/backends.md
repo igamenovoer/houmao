@@ -28,13 +28,13 @@ flowchart LR
     CH["ClaudeHeadlessSession<br/>claude -p per turn<br/>JSON streaming output<br/>--continue for resume"]
     CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
     GH["GeminiHeadlessSession<br/>gemini -p per turn<br/>--resume <session_id>"]
-    LEG["Legacy backends<br/>cao_rest / houmao_server_rest<br/>delegate to external server"]
+    LEG["Legacy/internal backends<br/>cao_rest / houmao_server_rest<br/>rejected for new public launches"]
 
     LP -->|local_interactive| LI
     LP -->|claude_headless| CH
     LP -->|codex_headless<br/>codex_app_server| CX
     LP -->|gemini_headless| GH
-    LP -->|legacy| LEG
+    LP -.->|legacy manifests only| LEG
 ```
 
 ## Backend reference
@@ -103,23 +103,23 @@ Runs Codex in app-server mode, which exposes a local HTTP interface for communic
 - **Role injection:** native developer instructions (same as `codex_headless`).
 - **Use case:** scenarios requiring HTTP-based interaction with the Codex agent.
 
-### cao_rest (legacy)
+### cao_rest (legacy/internal)
 
 **Source:** `backends/cao_rest.py`
 
-Legacy backend that delegates session management to an external server via REST API. Planned for removal.
+Legacy backend that delegated session management to an external REST API. Public operator starts for this backend are retired and fail with migration guidance.
 
 - **Role injection:** profile-based injection via the external server.
-- **Note:** standalone operator use of `backend='cao_rest'` is retired in favor of `houmao-server` + `houmao-mgr`.
+- **Note:** standalone operator use of `backend='cao_rest'` is retired in favor of maintained `houmao-mgr` local/headless flows and `houmao-passive-server` API workflows.
 
-### houmao_server_rest (legacy)
+### houmao_server_rest (legacy/internal)
 
-**Source:** `backends/houmao_server_rest.py`
+**Source:** removed public backend implementation; retained manifests are rejected before new session creation.
 
-Legacy server-backed path that wraps `cao_rest` internally, routing through the Houmao server layer.
+Legacy old-server-backed path. New runtime manifests with this backend are not supported.
 
 - **Role injection:** profile-based injection via the server.
-- **Note:** this backend exists for backward compatibility and is expected to be consolidated with the newer `houmao-server` architecture.
+- **Note:** use maintained local/headless runtime backends or passive-server-owned headless launch APIs.
 
 ## Headless backend base class
 

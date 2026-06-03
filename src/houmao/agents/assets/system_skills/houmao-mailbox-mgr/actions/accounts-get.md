@@ -12,11 +12,9 @@ Use this action only when the user wants one operator-facing mailbox registratio
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox accounts get --address <full-address> [--mailbox-root <path>]
-<chosen houmao-mgr launcher> project mailbox accounts get --address <full-address>
+```bash
+<chosen houmao-mgr launcher> mailbox accounts get --address <address> [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox accounts get --address <address>
 ```
 
 ## Guardrails

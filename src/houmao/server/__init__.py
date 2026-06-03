@@ -1,4 +1,4 @@
-"""Houmao HTTP server package."""
+"""Internal support modules retained from the retired standalone server surface."""
 
 from __future__ import annotations
 

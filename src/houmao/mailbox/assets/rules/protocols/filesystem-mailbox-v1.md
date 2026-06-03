@@ -10,7 +10,7 @@ This protocol note is materialized by the runtime during filesystem mailbox boot
 - `mailboxes/<address>/inbox` and `mailboxes/<address>/sent` contain symlink projections back to canonical message files for the active registration of that full mailbox address.
 - `archive/` and `drafts/` are reserved placeholder directories in v1.
 - `locks/addresses/<address>.lock` is the address-scoped serialization key for delivery, mailbox-state mutation, register, deregister, and repair flows.
-- Ordinary mailbox work should flow through Houmao-owned surfaces such as gateway `/v1/mail/*` or `houmao-mgr agents mail ...`, not through mailbox-owned scripts as the public execution contract.
+- Ordinary mailbox work should flow through Houmao-owned surfaces such as gateway `/v1/mail/*` or scoped `houmao-mgr agents single/self ... mail ...`, not through mailbox-owned scripts as the public execution contract.
 - `rules/` remains the mailbox-local source of policy guidance such as formatting, etiquette, and workflow hints.
 - `rules/scripts/`, when published, is compatibility or implementation detail rather than the primary ordinary workflow surface.
 - Published compatibility helpers keep the stable `--mailbox-root` plus `--payload-file` contract, validate payloads through strict shared schemas before mutation, and emit exactly one JSON object to stdout for both success and failure outcomes.

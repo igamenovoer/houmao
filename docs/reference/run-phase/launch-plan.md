@@ -52,18 +52,19 @@ The result is a fully resolved `LaunchPlan` that a backend can execute without f
 
 ### Launch-profile inputs flow through the manifest
 
-When a managed agent was launched from a reusable launch profile (either an easy `project easy profile` or an explicit `project agents launch-profiles`), the build manifest carries launch-profile-derived inputs into run-phase resolution. At minimum, the following profile-owned values reach the manifest before `build_launch_plan` consumes it:
+When a managed agent was launched from a reusable launch profile (either an easy `project profile` or an explicit `internals native-agent launch-dossiers`), the build manifest carries launch-profile-derived inputs into run-phase resolution. At minimum, the following profile-owned values reach the manifest before `build_launch_plan` consumes it:
 
 - effective auth selection (rendered by auth display name; secrets remain in the auth bundle, never inline, and stored relationships resolve through auth-profile identity),
 - operator prompt-mode intent (`unattended` or `as_is`),
 - durable non-secret env records,
+- requested and resolved managed system-skill policy provenance, including source/profile policy payloads and resolved installed Houmao-owned skill names,
 - declarative mailbox configuration (transport, root, address, principal, Stalwart-only fields when applicable),
 - managed-agent identity defaults (`agent_name`, optionally `agent_id`),
 - the **effective launch prompt** — prompt composition happens in this order: source role prompt, launch-profile prompt overlay resolution, launch-owned appendix append when present, structured render into `<houmao_system_prompt>`, then backend-specific role injection. The runtime does not replay the overlay, appendix, or managed header later as separate bootstrap steps on resumed turns.
 - secret-free `inputs.houmao_system_prompt_layout` metadata describing the rendered structured prompt layout for new builds.
-- secret-free relaunch chat-session policy, when the launch profile stores one. This policy is not consumed during first launch; the runtime reads it later when `agents relaunch` is invoked without a direct chat-session override.
+- secret-free relaunch chat-session policy, when the launch profile stores one. This policy is not consumed during first launch; the runtime reads it later when `agents single ... relaunch` is invoked without a direct chat-session override.
 
-The build manifest and the resulting runtime launch metadata also preserve secret-free **launch-profile provenance** sufficient for inspection and replay: the source lane (specialist or recipe), the birth-time lane (`easy_profile` or `launch_profile`), and the originating profile name when available. Inspection commands such as `houmao-mgr agents state`, `houmao-mgr agents list`, and the easy `houmao-mgr project easy instance get|list` surfaces report that provenance.
+The build manifest and the resulting runtime launch metadata also preserve secret-free **launch-profile provenance** sufficient for inspection and replay: the source lane (specialist or recipe), the birth-time lane (`easy_profile` or `launch_profile`), and the originating profile name when available. Inspection commands such as `houmao-mgr agents single ... state`, `houmao-mgr agents global list`, and the easy `houmao-mgr project agents get|list` surfaces report that provenance.
 
 For the shared conceptual model that ties launch profiles to this run-phase composition step, see [Launch Profiles](../../getting-started/launch-profiles.md).
 
@@ -114,7 +115,7 @@ Returns the default backend for a given tool name.
 **Override behavior:**
 
 - When `prefer_local_interactive=True`, returns `local_interactive` for all tools. This routes the agent through a tmux-backed interactive session instead of the tool's native headless mode.
-- When `prefer_cao=True`, returns `cao_rest` (legacy server-backed path).
+- `prefer_cao=True` is legacy/internal compatibility input. New public operator workflows do not request standalone `cao_rest` launches.
 
 ## See also
 

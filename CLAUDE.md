@@ -22,20 +22,27 @@ When invoking Python or Python-based tools, prefer `pixi run ...` so commands ex
 pixi install && pixi shell   # install deps and enter dev shell
 
 pixi run format              # ruff format src tests docs scripts
-pixi run lint                # ruff check
+pixi run lint                # ruff check src tests docs scripts
 pixi run typecheck           # mypy src (strict mode)
 pixi run test                # unit tests (tests/unit)
 pixi run test-runtime        # runtime-focused suites (tests/unit/agents + tests/unit/cao)
 pixi run build-dist          # build wheel + sdist → dist/
 pixi run check-dist          # validate package metadata with twine
+pixi run docs-build          # mkdocs build --strict
+pixi run docs-serve          # mkdocs serve on 127.0.0.1:8000
+pixi run install-global-tool # install this checkout as a global editable uv tool
 ```
 
-Run a single test file or function:
+Run a single test file or function through Pixi:
 
 ```bash
-python -m pytest tests/unit/agents/test_brain_builder.py
-python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
+pixi run python -m pytest tests/unit/agents/test_brain_builder.py
+pixi run python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 ```
+
+Supported CLI entrypoints are `houmao-mgr` (lifecycle, agents, server control) and `houmao-passive-server` (stateless registry-driven server). Legacy `houmao-cli` and the standalone `houmao-server` launcher have been removed; do not re-introduce them in code or docs.
+
+Optional Pixi environments: `pg-hosting` (local Postgres + pgvector under `tmp/pg-hosting/`, tasks `pg-init`/`pg-start`/`pg-stop`/...) and `gui` (Go + tmux + `webtmux-build`/`webtmux-run`). Activate with `pixi run -e <env> <task>`.
 
 ## Architecture
 
@@ -51,16 +58,14 @@ python -m pytest tests/unit/agents/test_brain_builder.py::test_name -v
 - `src/houmao/agents/realm_controller/` — Run phase: `LaunchPlan`, `RuntimeSessionController`, backends
 - `src/houmao/agents/realm_controller/backends/` — Per-tool/backend implementations
 - `src/houmao/project/` — Project overlay: catalog, easy specialists/profiles, launch profiles, and `.houmao/` resolution helpers
-- `src/houmao/server/` — `houmao-server` REST service (TUI tracking, managed-agent supervision, `/houmao/*` routes)
-- `src/houmao/passive_server/` — Registry-driven stateless `houmao-passive-server` (no CAO compatibility layer, no child process supervision)
+- `src/houmao/server/` — Internal modules retained from the retired standalone server surface (REST app, client, managed-agent supervision, TUI tracking, `/houmao/*` routes); imported by `houmao-mgr` rather than launched directly
+- `src/houmao/passive_server/` — Registry-driven stateless `houmao-passive-server` (no CAO compatibility layer, no child process supervision); CLI entrypoint at `passive_server/cli.py`
 - `src/houmao/mailbox/` — Unified mailbox subsystem: filesystem + Stalwart JMAP transports, managed helpers, operator-origin send
-- `src/houmao/lifecycle/` — Shared ReactiveX readiness / anchored-completion timing kernel reused by the runtime and `houmao-server`
+- `src/houmao/lifecycle/` — Shared ReactiveX readiness / anchored-completion timing kernel reused by the runtime and server modules
 - `src/houmao/terminal_record/` — Tmux session recording service and replay models
 - `src/houmao/shared_tui_tracking/` — Shared TUI state tracker, detectors, and reducer used by runtime and server watch-planes
-- `src/houmao/srv_ctrl/cli.py` — `houmao-mgr` entrypoint for managed lifecycle, agent, and server control
-- `src/houmao/server/cli.py` — `houmao-server` entrypoint
+- `src/houmao/srv_ctrl/cli.py` — `houmao-mgr` entrypoint; subcommands live under `srv_ctrl/commands/` (agents, brains, mailbox, project, managed_agents, native_agent, ...)
 - `src/houmao/cao/` — Retained CAO REST client used only by the deprecated `cao_rest` backend escape hatch
-- `src/houmao/cli.py` and `src/houmao/cao_cli.py` — deprecated compatibility entrypoints; prefer `houmao-mgr` and `houmao-server`
 
 ### Backend Model
 
@@ -100,6 +105,10 @@ skills/
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `chore:` prefixes. Keep commits focused and imperative.
 - Credential files (`auth/`, `*.env`, `auth.json`, `credentials.json`) must never be committed — excluded in `pyproject.toml` and `.gitignore`.
 - Tests: `tests/unit/**/test_*.py`, `tests/integration/**/test_*.py`, `tests/manual/manual_*.py`. Add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
+- When testing agent flows against fixture credentials, default to: Claude → `tests/fixtures/auth-bundles/claude/kimi-coding/`; Codex → `tests/fixtures/auth-bundles/codex/yunwu-openai/`; Gemini → `tests/fixtures/auth-bundles/gemini/personal-a-default/` (prefer OAuth over API-key mode). Override only when the task requires a different lane.
+- For automated TUI agent tests, default to unattended mode unless the task explicitly needs interactive or `as_is` behavior.
+- When a task touches a library/tool/integration that has a source checkout under `extern/orphan/` (e.g., RxPY, codex, filestash, asciinema, cypht, stalwart), inspect that local reference first; only fall back to web docs when the local checkout is missing or out of date.
+- **Branch policy**: never create `codex/*` branches unless the user explicitly asks for that name. If a task needs a new branch, use the name the user gave; otherwise stay on the current branch or ask first.
 - PRs should include: concise problem/solution summary, linked issue/spec (for behavior changes), test evidence (commands run + results), docs updates when CLI behavior or workflows change.
 
 ### Python Style

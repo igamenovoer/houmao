@@ -4,9 +4,9 @@ Use this page when a request mentions credentials, auth, API keys, vendor login 
 
 ## Boundaries
 
-- `specialists` and the specialist-create step inside `create-agent-fast-forward` may create or import one credential bundle as part of `project easy specialist create`.
+- `specialists` and the specialist-create step inside `create-agent-fast-forward` may create or import one credential bundle as part of `project specialist create`.
 - Specialist patching may change which existing credential display name the specialist references.
-- `profiles` and `raw-profiles` authoring may store an `--auth` override by display name.
+- `profiles` and `launch-dossiers` authoring may store an `--auth` override by display name.
 - Credential bundle CRUD, secret mutation, auth-file edits, login flows, and credential rename belong to `houmao-credential-mgr`.
 
 ## Specialist Creation Modes
@@ -27,20 +27,20 @@ Use this only for specialist creation when the user omitted tool or credential i
 
 1. Resolve the Houmao credential target:
    - prefer the active Houmao project overlay;
-   - otherwise use `HOUMAO_AGENT_DEF_DIR` when it points at a plain agent-definition directory;
+   - otherwise use `HOUMAO_NATIVE_AGENT_ROOT` when it points at a plain agent-definition directory;
    - stop if neither target is available.
 2. Inventory registered credentials across supported tool lanes by running the selected `houmao-mgr` launcher for each supported tool:
-   - project target: `<chosen houmao-mgr launcher> project credentials <tool> list`;
-   - plain agent-definition target: `<chosen houmao-mgr launcher> credentials <tool> list --agent-def-dir <path>`.
+   - project target: `<chosen houmao-mgr launcher> project [--project-dir <dir>] credentials <tool> list`;
+   - native-agent target: `<chosen houmao-mgr launcher> internals native-agent credentials <tool> list --native-agent-root <path>`.
 3. Stop if no credentials are registered.
 4. If the prompt or nearby explicit context names a registered tool or credential, use the matching registered credential.
 5. Otherwise choose the credential with the latest listed update time across all registered tools and use its tool lane plus credential name.
 
-Use the `credential_records[].updated_at_utc` field from `houmao-mgr ... credentials <tool> list`. For project credentials this is the project catalog timestamp; for plain agent-definition credentials this is best-effort filesystem metadata.
+Use the `credential_records[].updated_at_utc` field from `houmao-mgr ... credentials <tool> list`. For project credentials this is the project catalog timestamp; for native-agent credentials this is best-effort filesystem metadata.
 
 Failure reports must include a direct suggestion:
 
-- no target: initialize/select a Houmao project, set `HOUMAO_PROJECT_OVERLAY_DIR`, or set `HOUMAO_AGENT_DEF_DIR`;
+- no target: initialize/select a Houmao project, set `HOUMAO_PROJECT_OVERLAY_DIR`, or set `HOUMAO_NATIVE_AGENT_ROOT`;
 - no registered credentials: add or login one credential through `houmao-credential-mgr`.
 
 ## Tool References

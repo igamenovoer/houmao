@@ -11,8 +11,8 @@ The managed prompt header is adjacent to this pipeline but is not itself a `Laun
 ```mermaid
 flowchart TD
     A["1. ToolAdapter LaunchDefaults<br/>(lowest priority)"]
-    B["2. Recipe LaunchOverrides<br/>(`project agents recipes ...` /<br/>compatibility `presets ...`)"]
-    C["3. Launch-profile defaults<br/>(easy `project easy profile ...` or<br/>explicit `project agents launch-profiles ...`)"]
+    B["2. Recipe LaunchOverrides<br/>(`internals native-agent recipes ...` /<br/>compatibility `presets ...`)"]
+    C["3. Launch-profile defaults<br/>(easy `project profile ...` or<br/>explicit `internals native-agent launch-dossiers ...`)"]
     D["4. Direct LaunchOverrides<br/>(CLI overrides on the launching command)"]
     E["5. Live runtime mutations<br/>(late mailbox registration, etc.)"]
     M["merge_launch_intent()"]

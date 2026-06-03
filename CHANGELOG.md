@@ -4,6 +4,51 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [1.0.0] - 2026-06-03
+
+### Added
+
+- **Scoped managed-agent CLI families**: `houmao-mgr agents` now uses explicit `global`, `single`, `self`, and `external` scopes for fleet inspection, selected-agent lifecycle/control, current-session operations, and communication-only remote imports.
+- **Agent-authored config drafts**: `houmao-mgr internals config-drafts` generates compact schema-backed drafts for project specialists, project profiles, and native launch dossiers, with JSON error guidance that returns the expected schema and example payload when callers provide malformed intent.
+- **Project-aware native-agent command surfaces**: project targeting and provider-aligned native-agent surfaces were consolidated around maintained `project ...` and `internals native-agent ...` command families.
+- **Release automation and stable skill sync**: published GitHub releases build and validate the wheel and sdist, publish through PyPI trusted publishing, deploy docs from the release tag, and dispatch the Houmao tool-skills mirror on the stable branch.
+
+### Changed
+
+- **Command-template rendering retired from the primary authoring path**: executable command construction now favors direct maintained commands, while config drafts own supported YAML authoring shapes.
+- **Houmao touring now starts from state and routes fast paths more directly**: the touring skill has an explicit first-look workflow, hides project-ready fast paths until a project overlay exists, and makes Single Agent Full Run try `create-agent-fast-forward` before separately walking credential, specialist, or profile setup.
+- **Agent-definition fast-forward prepares mailbox-backed launch defaults**: `create-agent-fast-forward` now initializes mailbox readiness, stores filesystem mailbox posture on the generated project profile, and leaves per-agent mailbox registration to launch-time safe bootstrap.
+- **System skills now track the scoped CLI vocabulary**: packaged skills route project setup, agent definition, instance lifecycle, messaging, gateway, mailbox, memory, and inspection work through their current owners.
+
+### Fixed
+
+- **CLI diagnostics for JSON authoring failures**: config-draft intent parsing now gives callers the schema and example needed to fix missing or incorrectly nested fields.
+- **Touring fast paths no longer bypass project setup**: bare `$houmao-touring` in a blank workspace offers only project creation, subsystem exploration, and inspection until a Houmao project overlay exists.
+- **Plain agent fixtures and packaged guidance were refreshed for current command shapes**: tests and skill contracts now align on the scoped `houmao-mgr` surfaces.
+
+### Notes
+
+- This stable release promotes the 0.11.0 release-candidate line and includes the post-RC scoped CLI, release publishing, and packaged skill-routing refinements.
+- The `gh release create v1.0.0` event triggers `pypi-release.yml`, `docs.yml`, and the stable tool-skills sync workflow dispatch.
+
+## [0.11.0rc1] - 2026-06-02
+
+### Added
+
+- **Minimal config drafts for agent-authored project YAML**: `houmao-mgr internals config-drafts` now generates compact model-backed drafts for easy specialists, easy profiles, and raw launch profiles with fixed lane/source semantics and required credential references.
+- **Code-first command-template registry modules and YAML export**: command templates are organized by family modules and can be exported deterministically as YAML for maintainer inspection.
+
+### Changed
+
+- **Agent-definition and memory skills now route config authoring through the smaller contract**: packaged skill guidance uses config drafts for minimal profile/specialist documents and keeps full customization on maintained project subcommands.
+- **Command templates remain argv-oriented**: command-template rendering stays available for executable command construction while config drafts own supported YAML authoring shapes.
+- **Release-candidate skill sync is isolated from stable skill installs**: prerelease GitHub releases now dispatch `igamenovoer/tool-skills` syncs to its `release-candidates` branch, while stable releases continue syncing the mini project on `main`.
+
+### Notes
+
+- This is a release candidate for the next minor release.
+- The `gh release create v0.11.0rc1 --prerelease` event triggers `pypi-release.yml`, `docs.yml`, and the tool-skills sync workflow dispatch.
+
 ## [0.10.1] - 2026-05-19
 
 ### Fixed
@@ -448,6 +493,7 @@ Release superseded by 0.6.4 (missing changelog update).
 
 - `v0.1.0` is the initial public reference point for the project changelog.
 
+[0.11.0rc1]: https://github.com/igamenovoer/houmao/compare/v0.10.1...v0.11.0rc1
 [0.10.1]: https://github.com/igamenovoer/houmao/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/igamenovoer/houmao/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/igamenovoer/houmao/compare/v0.9.0...v0.9.1

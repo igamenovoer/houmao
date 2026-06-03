@@ -68,17 +68,17 @@ Recommended default: initialize the mailbox root now, skip manual per-agent acco
 You can skip this now and come back later.
 ```
 
-### Optional Easy Profile
+### Optional Project Profile
 
 Use a shape like:
 
 ```text
-Do you want to create an easy profile too?
+Do you want to create a project profile too?
 
-An easy profile stores reusable launch defaults on top of a specialist. It is optional for a first launch.
+A project profile stores reusable launch defaults on top of a specialist. It is optional for a first launch.
 
 Required if you choose this branch:
-- easy profile name
+- project profile name
 
 Optional:
 - skip this branch for the first launch
@@ -113,7 +113,7 @@ Common first actions:
 - create another specialist and launch a second agent
 ```
 
-### Stop, Relaunch, Or Cleanup
+### Stop, Relaunch, or Cleanup
 
 Use a shape like:
 

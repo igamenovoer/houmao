@@ -7,25 +7,22 @@ Use this action when the live gateway should poll the attached agent's mailbox a
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the target selector and notifier action from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the task still lacks a required target or interval, ask the user in Markdown before proceeding.
-4. Run `agents gateway status` first when current context does not already confirm that a live gateway is attached.
-5. Use `status` to inspect whether notifier polling is enabled and whether the current mailbox binding supports it.
-6. Use `enable --interval-seconds <n>` to start or reconfigure polling. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail; use `--mode unread_only` only when the caller explicitly wants lower-noise unread-only wakeups. Add `--appendix-text <text>` only when the caller wants runtime-specific guidance appended to notifier prompts; omit it to preserve the current appendix, and pass an empty string to clear it. Keep `--context-error-policy continue_current` and `--pre-notification-context-action none` unless the caller explicitly asks for context recovery or pre-notification compaction.
+4. Run `agents single ... gateway status` or `agents self gateway status` first when current context does not already confirm that a live gateway is attached.
+5. Run `agents single ... gateway mail-notifier status|enable|disable` for selected-agent CLI notifier work, or `agents self gateway mail-notifier status|enable|disable` for current-session CLI notifier work.
+6. Use `enable` with `interval_seconds` to start or reconfigure polling. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail; use `mode=unread_only` only when the caller explicitly wants lower-noise unread-only wakeups. Add `appendix_text` only when the caller wants runtime-specific guidance appended to notifier prompts; omit it to preserve the current appendix, and pass an empty string to clear it. Keep context recovery or pre-notification compaction omitted unless the caller explicitly asks for it.
 7. Use `disable` to stop notifier polling.
 8. When the caller is already operating through the pair-managed HTTP API, use `/houmao/agents/{agent_ref}/gateway/mail-notifier` instead of direct gateway `/v1/mail-notifier`.
 9. Report whether the notifier is enabled now, the current interval, mode, appendix text, and any support or last-error fields that matter.
 
 ## Command Shapes
 
-CLI notifier control:
+Run direct scoped notifier commands:
 
-```text
-<chosen houmao-mgr launcher> agents gateway mail-notifier status --agent-name <name>
-<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60
-<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --mode unread_only
-<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --appendix-text "Prioritize billing notices first."
-<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --context-error-policy clear_context
-<chosen houmao-mgr launcher> agents gateway mail-notifier enable --agent-name <name> --interval-seconds 60 --pre-notification-context-action compact
-<chosen houmao-mgr launcher> agents gateway mail-notifier disable --agent-name <name>
+```bash
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier status
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier enable --interval-seconds <seconds>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway mail-notifier disable
+<chosen houmao-mgr launcher> agents self gateway mail-notifier status
 ```
 
 Mode values:
@@ -68,4 +65,5 @@ Direct live gateway routes:
 - Do not use Codex-specific degraded error labels for other CLI tools. Only `unknown` is shared across tools.
 - Do not describe `unread_only` as a completion signal. Processed mail should be archived so `any_inbox` mode stops notifying for it.
 - Do not describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
-- Do not invent `houmao-mgr agents mail-notifier ...` commands outside the `agents gateway` family.
+- Do not invent unscoped mail-notifier commands outside the `agents single ... gateway` or `agents self gateway` families.
+- Do not add notifier policy fields unless the user explicitly requested them.

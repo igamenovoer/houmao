@@ -19,7 +19,7 @@ Use this page whenever generated loops touch Houmao platform operations rather t
 - `houmao-agent-messaging`: managed-agent prompt, interrupt, mailbox handoff, and gateway-backed communication routing.
 - `houmao-agent-gateway`: gateway lifecycle, notifier posture, reminders, and gateway posture.
 - `houmao-agent-instance`: managed-agent launch, join, relaunch, stop, and lifecycle control.
-- `houmao-agent-definition` and supported `houmao-mgr project easy` surfaces: specialist/profile preparation when needed.
+- `houmao-agent-definition` and supported `houmao-mgr project` surfaces: specialist/profile preparation when needed.
 - `houmao-memory-mgr`: memo seed and memory posture.
 - `houmao-agent-inspect`: managed-agent liveness, TUI state, mailbox posture, runtime artifacts, logs, and tmux inspection.
 

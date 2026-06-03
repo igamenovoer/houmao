@@ -13,7 +13,7 @@ Key modules:
 | `models.py` | Canonical backend and session contracts (`BackendKind`, `InteractiveSession`, `RuntimeSessionController`) |
 | `launch_plan.py` | Bridge between build-time manifest and run-time launch (`LaunchPlan`, `build_launch_plan()`) |
 | `session.py` | Session lifecycle functions (`start_runtime_session()`, `resume_runtime_session()`) |
-| `cli.py` | `houmao-cli` entrypoint (deprecated; prefer `houmao-mgr`) |
+| `cli.py` | Retired compatibility CLI helpers retained only for internal/debug use; the package no longer installs `houmao-cli` |
 | `backends/` | Per-backend session implementations |
 
 ## Backend Model
@@ -60,19 +60,12 @@ Runs `claude -p` for non-interactive prompt–response cycles. Supports session 
 
 Runs `gemini -p` for non-interactive prompt–response cycles. Managed Gemini homes support either `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via `oauth_creds.json`; OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present. Houmao-owned Gemini skills project into `.gemini/skills`, while `.agents/skills` remains only Gemini's upstream alias surface. Follow-up turns resume with `--resume <persisted-session-id>` and must stay in the same recorded working directory.
 
-### Legacy Backends
+### Legacy/Internal Backends
 
-> **Unmaintained — Deprecated Backends.** The `cao_rest` and `houmao_server_rest` backends remain in the codebase as legacy escape hatches, but their documentation is no longer actively maintained. Content below may be incorrect or stale. Prefer `local_interactive` for new work.
+`cao_rest` and `houmao_server_rest` may still appear in type definitions or old manifests so retained internal compatibility code can reject or inspect them explicitly. They are not supported public launch targets. New operator workflows should use `local_interactive`, native headless backends, `houmao-mgr` managed-agent commands, or passive-server-owned headless routes.
 
-The following backends exist for backward compatibility and are planned for removal:
-
-> **Unmaintained — Deprecated Backend.** The `cao_rest` backend remains in the codebase as an escape hatch. Its documentation is no longer actively maintained and the description below may be incorrect or stale. Prefer `local_interactive` for new work.
-
-- **`cao_rest`** — Delegates session lifecycle to an external CAO (CLI Agent Orchestrator) server over REST. This was the original orchestration path and carries significant complexity (~86 KB of integration code). New workflows should not target this backend.
-
-> **Unmaintained — Deprecated Backend.** The `houmao_server_rest` backend remains in the codebase as an escape hatch. Its documentation is no longer actively maintained and the description below may be incorrect or stale. Prefer `local_interactive` for new work.
-
-- **`houmao_server_rest`** — A thin wrapper that routes requests through `houmao-server`, which itself delegates to `cao_rest`. Shares the same deprecation trajectory.
+- **`cao_rest`** — Retired standalone CAO compatibility boundary. Public CLI paths reject new standalone starts with migration guidance.
+- **`houmao_server_rest`** — Retired old-server REST backend identity. Runtime refuses to create new sessions with this backend; use maintained local/headless manager flows or `houmao-passive-server` APIs.
 
 ## Launch Plan
 
@@ -114,7 +107,7 @@ The `RuntimeSessionController` manages the full session lifecycle. It holds refe
 `start_runtime_session()` takes a `LaunchPlan` and:
 
 1. Resolves the backend implementation from `LaunchPlan.backend`.
-2. Creates the tmux session (for local backends) or connects to the remote endpoint (for REST backends).
+2. Creates the tmux session or native headless controller for maintained local/headless backends.
 3. Injects the role via the backend-specific injection strategy.
 4. Persists the session manifest to disk.
 5. Returns the active `InteractiveSession`.
@@ -155,19 +148,6 @@ Unattended startup is a versioned launch policy resolved at launch time against 
 
 ## CLI Surface
 
-The realm controller exposes a CLI via `houmao-cli` (the `cli.py` module) with the following commands:
+The package no longer installs `houmao-cli`. Use **`houmao-mgr`** for maintained runtime lifecycle, managed-agent, gateway, mailbox, credential, cleanup, and project workflows. Use **`houmao-passive-server`** for maintained API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless work.
 
-- **`build-brain`** — Run the build phase and emit a brain manifest.
-- **`start-session`** — Build a launch plan and start a new session.
-- **`send-prompt`** — Send a prompt to a running session.
-- **`gateway-send-prompt`** — Send a prompt through a gateway-attached session.
-- **`send-keys`** — Send raw control input to a resumed session.
-- **`gateway-interrupt`** — Submit an interrupt through an attached live gateway.
-- **`stop-session`** — Stop a session.
-- **`attach-gateway`** — Attach a live gateway to a running session.
-- **`detach-gateway`** — Detach a live gateway without stopping the session.
-- **`gateway-status`** — Read gateway status from the live gateway or stable state artifact.
-- **`cleanup-registry`** — Remove stale shared-registry live-agent directories.
-- **`mail`** — Run mailbox operations against a resumed session.
-
-> **Note:** `houmao-cli` is a deprecated compatibility entrypoint. The preferred CLI surface is **`houmao-mgr`** (`src/houmao/srv_ctrl/cli.py`), which provides the same lifecycle operations along with managed agent, gateway, mailbox, and server control. See [houmao-mgr CLI reference](cli/houmao-mgr.md).
+See [houmao-mgr CLI reference](cli/houmao-mgr.md) and [houmao-passive-server](cli/houmao-passive-server.md).

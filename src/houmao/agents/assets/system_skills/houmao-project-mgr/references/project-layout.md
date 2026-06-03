@@ -23,7 +23,7 @@ Use this reference when the question is how project-local Houmao files are organ
 
 ## Canonical Store vs Compatibility Projection
 
-- `catalog.sqlite` is the canonical semantic store for project-local specialists, roles, recipes, launch profiles, and managed content references.
+- `catalog.sqlite` is the canonical semantic store for project-local specialists, project profiles, credentials, skills, and managed content references.
 - `content/` stores the file-backed payloads those semantic objects refer to.
 - `content/auth/<tool>/<opaque-bundle-ref>/` stores auth payloads by opaque bundle ref rather than by the operator-facing auth display name.
 - `agents/` is the compatibility projection materialized from the catalog and managed content when file-tree consumers need it.

@@ -2,7 +2,7 @@
 
 Internal Houmao utility commands for agents and maintainers.
 
-`houmao-mgr internals` exposes the `graph` command family — a set of NetworkX-backed helpers for loop plan authoring, structural analysis, and low-level graph manipulation. All commands use NetworkX node-link JSON as their graph interchange format.
+`houmao-mgr internals` exposes utility command families for maintainers and agent tooling. `graph` provides NetworkX-backed helpers for loop plan authoring, structural analysis, and low-level graph manipulation. `native-agent` exposes direct provider-aligned file-tree maintenance that is intentionally not ordinary project UX.
 
 ## When to use these commands
 
@@ -11,6 +11,55 @@ Internal Houmao utility commands for agents and maintainers.
 **`graph low`** is for **generic graph construction and NetworkX algorithm access**. Use it when you need to build or transform a graph from scratch, extract subgraphs, or run standard graph algorithms not covered by the high-level surface.
 
 All graph commands accept a node-link JSON file via `--input` (or `--graph` where noted) and use `-` to read from stdin. Commands that produce a graph output emit NetworkX node-link JSON with `nodes`, `edges`, and `graph` keys.
+
+---
+
+## native-agent
+
+Direct native-agent commands operate on a selected native-agent root. Pass `--native-agent-root <dir>` on the leaf command or set `HOUMAO_NATIVE_AGENT_ROOT` to an absolute path. These commands do not discover or mutate a Houmao project catalog.
+
+### credentials
+
+Manage direct native-agent credentials under `tools/<tool>/auth/<name>/`.
+
+```text
+houmao-mgr internals native-agent credentials <tool> list|get|add|set|login|rename|remove --native-agent-root <dir>
+```
+
+Supported tool lanes are `claude`, `codex`, and `gemini`. The per-tool credential input flags match the corresponding project credential surface, including `--auth-token`, `--oauth-token`, and `--config-dir` for Claude credential commands. Use `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials.
+
+### brain build
+
+Build one brain home directly from native-agent material.
+
+```text
+houmao-mgr internals native-agent brain build --native-agent-root <dir> --preset <name>
+```
+
+The internal build command accepts the retained direct build inputs: `--preset`, `--tool`, repeatable `--skill`, `--setup`, `--auth`, `--runtime-root`, `--home-id`, `--reuse-home`, `--launch-overrides`, `--agent-name`, and `--agent-id`. The maintained flag names are `--preset`, `--setup`, and `--auth`; retired top-level brain-build examples using `--recipe`, `--config-profile`, `--cred-profile`, or `--agent-def-dir` are not current. Ordinary project launches build brain homes internally through `houmao-mgr project agents launch`.
+
+---
+
+## config-drafts
+
+Generate concise YAML configuration drafts from sparse JSON intent without mutating project or native-agent state.
+
+```text
+houmao-mgr internals config-drafts list
+houmao-mgr internals config-drafts generate --id <draft-id> --intent '<json>'
+```
+
+Supported draft ids are `project.specialist`, `project.profile`, and `internals.native-agent.launch-dossier`. The `--intent` value accepts an inline JSON object, `-` for stdin, or a path to a JSON file. Intent JSON must be an object with a top-level `fields` mapping.
+
+Examples:
+
+```bash
+houmao-mgr internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+houmao-mgr internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
+houmao-mgr internals config-drafts generate --id internals.native-agent.launch-dossier --intent '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}'
+```
+
+When intent JSON is invalid or has the wrong shape, the command prints a fix guide with the selected draft id, `--intent` source, JSON Schema-style expected shape, required `fields.*` paths, and a valid example.
 
 ---
 

@@ -40,7 +40,7 @@ Mail-driven loops normally use one of three surfaces, depending on who is acting
 | --- | --- | --- |
 | `houmao-process-emails-via-gateway` skill | Agent that was woken by a notifier prompt | Process one notifier-driven mailbox round through the provided gateway base URL. |
 | `houmao-agent-email-comms` skill | Agent or operator-agent doing lower-level mail work | List, read, send, reply, mark, move, or archive mail, including no-gateway fallback when supported. |
-| `houmao-mgr agents mail ...` CLI | Human operator, scripts, or external orchestration | Resolve live mailbox posture, inspect mail, send/post/reply, and perform lifecycle updates. |
+| Scoped `houmao-mgr agents single/self ... mail ...` CLI | Human operator, scripts, or external orchestration | Resolve live mailbox posture, inspect mail, send/post/reply, and perform lifecycle updates. |
 | Gateway `/v1/mail/*` HTTP routes | Maintained Houmao skills and tools with a live gateway URL | Transport-neutral live mailbox operations for the attached session. |
 
 Generated loop skills should prefer maintained Houmao skills instead of hand-coding mailbox mechanics. Generated docs may still explain the gateway API contract so maintainers can debug or implement loop-local harness checks around payloads, records, and prompt guidance.
@@ -100,9 +100,9 @@ Use `peek` instead of `read` when a diagnostic pass should not change read state
 The operator-facing CLI equivalents are:
 
 ```bash
-pixi run houmao-mgr agents mail list --agent-name <agent> --not-archived
-pixi run houmao-mgr agents mail read --agent-name <agent> --message-ref '<message-ref>'
-pixi run houmao-mgr agents mail peek --agent-name <agent> --message-ref '<message-ref>'
+pixi run houmao-mgr agents single --agent-name <agent> mail list --not-archived
+pixi run houmao-mgr agents single --agent-name <agent> mail read --message-ref '<message-ref>'
+pixi run houmao-mgr agents single --agent-name <agent> mail peek --message-ref '<message-ref>'
 ```
 
 ### Reply And Archive
@@ -134,13 +134,11 @@ curl -sS "$GATEWAY_BASE_URL/v1/mail/archive" \
 CLI equivalents:
 
 ```bash
-pixi run houmao-mgr agents mail reply \
-  --agent-name <agent> \
+pixi run houmao-mgr agents single --agent-name <agent> mail reply \
   --message-ref '<message-ref>' \
   --body-content 'Acknowledged. I will run the next bounded pass now.'
 
-pixi run houmao-mgr agents mail archive \
-  --agent-name <agent> \
+pixi run houmao-mgr agents single --agent-name <agent> mail archive \
   --message-ref '<message-ref>'
 ```
 
@@ -276,8 +274,7 @@ There are two authoring paths.
 The sender writes a Markdown fenced code block with info string `houmao-notify` inside `body_content`. The first non-empty fence is extracted into the canonical `notify_block` field when the message is composed. The fence remains in the body so the receiver can also see the same text after reading the mail.
 
 ```bash
-pixi run houmao-mgr agents mail send \
-  --agent-name sender \
+pixi run houmao-mgr agents single --agent-name sender mail send \
   --to receiver@houmao.localhost \
   --subject "Work result ready" \
   --body-content $'Result package is ready.\n\n```houmao-notify\nAfter reading this result, run the review-received event skill and then run reviewer-on-schedule-tick once.\n```'
@@ -299,8 +296,7 @@ The sender can pass the canonical `notify_block` field directly through CLI flag
 CLI:
 
 ```bash
-pixi run houmao-mgr agents mail post \
-  --agent-name receiver \
+pixi run houmao-mgr agents single --agent-name receiver mail post \
   --subject "Continue loop" \
   --body-content "Operator note for the current loop." \
   --notify-block "Process current loop mail, run the lead tick once, then stop." \

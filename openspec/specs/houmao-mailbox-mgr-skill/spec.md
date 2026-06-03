@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the packaged Houmao-owned mailbox-administration skill for filesystem mailbox roots, project mailbox roots, and late local managed-agent mailbox binding.
-
 ## Requirements
-
 ### Requirement: Houmao provides a packaged `houmao-mailbox-mgr` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-mailbox-mgr` under the maintained system-skill asset root.
 
@@ -250,3 +248,17 @@ The skill SHALL NOT instruct callers to hand-edit mailbox-root files for single-
 - **WHEN** the user asks to clear all delivered messages from the selected project mailbox root while preserving accounts
 - **THEN** the skill directs the caller to `houmao-mgr project mailbox clear-messages`
 - **AND THEN** it does not replace the all-account reset with `project mailbox messages clear --address`
+
+### Requirement: `houmao-mailbox-mgr` uses direct command snippets for mailbox commands
+The packaged `houmao-mailbox-mgr` skill SHALL document supported mailbox administration commands as direct fenced `bash` snippets or equivalent explicit command shapes.
+
+Covered command families SHALL include shared mailbox commands, project mailbox commands, project mailbox account/message commands, and managed-agent mailbox binding commands.
+
+The skill SHALL keep transport explanation and mailbox workflow guidance in skill text, but executable command shapes SHALL be shown directly.
+
+The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining mailbox administration commands.
+
+#### Scenario: Managed-agent mailbox register uses direct scoped command shape
+- **WHEN** a user asks the skill to register a filesystem mailbox binding for one selected managed agent
+- **THEN** the skill guidance shows a direct command under `houmao-mgr agents single --agent-name <agent-name> mailbox register ...` or `houmao-mgr agents single --agent-id <agent-id> mailbox register ...`
+- **AND THEN** it does not direct the agent to render a managed-agent mailbox command-template id

@@ -9,13 +9,10 @@ from houmao.version import get_version
 
 from .admin import admin_group
 from .agents import agents_group
-from .brains import brains_group
-from .credentials import credentials_group
 from .internals import internals_group
 from .mailbox import mailbox_group
 from .output import OutputContext, output_options, resolve_print_style
 from .project import project_group
-from .server import server_group
 from .system_skills import system_skills_group
 
 _HOUMAO_DOCS_URL = "https://igamenovoer.github.io/houmao/"
@@ -27,7 +24,7 @@ _ROOT_HELP_EPILOG = f"More detailed docs: {_HOUMAO_DOCS_URL}"
 @output_options
 @click.pass_context
 def cli(ctx: click.Context, print_style: str | None) -> None:
-    """Houmao pair CLI with native server and managed-agent command families."""
+    """Houmao manager CLI for local projects and managed-agent workflows."""
 
     ctx.ensure_object(dict)
     ctx.obj["output"] = OutputContext(style=resolve_print_style(print_style))
@@ -37,20 +34,28 @@ def cli(ctx: click.Context, print_style: str | None) -> None:
 
 cli.add_command(admin_group)
 cli.add_command(agents_group)
-cli.add_command(brains_group)
-cli.add_command(credentials_group)
 cli.add_command(internals_group)
 cli.add_command(mailbox_group)
 cli.add_command(project_group)
-cli.add_command(server_group)
 cli.add_command(system_skills_group)
 
 
 def _render_uncaught_exception(exc: Exception) -> click.ClickException:
     """Convert one uncaught maintained-command exception into CLI error text."""
 
-    detail = str(exc).strip() or exc.__class__.__name__
-    return click.ClickException(detail)
+    exception_name = exc.__class__.__name__
+    detail = str(exc).strip()
+    if detail:
+        message = (
+            "Unexpected internal error while running `houmao-mgr`: "
+            f"{detail} (exception: {exception_name})."
+        )
+    else:
+        message = (
+            "Unexpected internal error while running `houmao-mgr` "
+            f"(exception: {exception_name})."
+        )
+    return click.ClickException(message)
 
 
 def main(argv: list[str] | None = None) -> int:

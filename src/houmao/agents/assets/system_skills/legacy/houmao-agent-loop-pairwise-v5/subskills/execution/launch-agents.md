@@ -45,7 +45,7 @@ Use when present:
    - installed generated skills and maintained support skills;
    - notifier prompt posture when mail-driven.
 4. Confirm no required participant is already live in an incompatible session, cwd, profile, or mailbox posture.
-5. Launch missing live agents through `houmao-agent-instance` or supported `houmao-mgr project easy` launch surfaces.
+5. Launch missing live agents through `houmao-agent-instance` or supported `houmao-mgr project` launch surfaces.
 6. Inspect launched or already-live agents through maintained inspection surfaces when needed to confirm liveness and session identity.
 7. Do not send loop-start prompts, mail, or work payloads.
 

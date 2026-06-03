@@ -329,7 +329,9 @@ def _mail_prompt_instruction_lines(
         *installed_skill_lines,
         (
             "Before any direct mailbox access, resolve current mailbox state through the "
-            "manager-owned helper `pixi run houmao-mgr agents mail resolve-live`."
+            "manager-owned helper `pixi run houmao-mgr agents self mail resolve-live` "
+            "from inside the managed session, or `pixi run houmao-mgr agents single "
+            "--agent-name <name> mail resolve-live` from outside it."
         ),
         (
             "Use only the structured fields returned by that helper. Do not guess sender "
@@ -939,7 +941,9 @@ def _verification_paths_for_mailbox(mailbox: MailboxResolvedConfig) -> list[str]
     """Return generic follow-up verification guidance for one submission-only result."""
 
     paths = [
-        "Use manager-owned follow-up such as `houmao-mgr agents mail status` or `houmao-mgr agents mail list` when that authority is available.",
+        "Use manager-owned follow-up such as `houmao-mgr agents self mail status|list` "
+        "or `houmao-mgr agents single --agent-name <name> mail status|list` when that "
+        "authority is available.",
     ]
     if mailbox.transport == "filesystem":
         paths.append(

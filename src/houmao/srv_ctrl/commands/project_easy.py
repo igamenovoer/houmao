@@ -13,11 +13,11 @@ def easy_project_group() -> None:
 
 @easy_project_group.group(name="profile")
 def easy_profile_group() -> None:
-    """Manage high-level specialist-backed reusable launch profiles."""
+    """Manage specialist-backed project profiles."""
 
 
 @easy_profile_group.command(name="create")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 @click.option("--specialist", required=True, help="Source specialist name.")
 @click.option("--agent-name", default=None, help="Optional default managed-agent name.")
 @click.option("--agent-id", default=None, help="Optional default managed-agent id.")
@@ -43,37 +43,65 @@ def easy_profile_group() -> None:
     help="Repeatable persistent launch env record (`NAME=value`).",
 )
 @click.option(
+    "--system-skill-set",
+    "system_skill_sets",
+    multiple=True,
+    help="Add one packaged Houmao system-skill set to launches from this project profile.",
+)
+@click.option(
+    "--system-skill",
+    "system_skills",
+    multiple=True,
+    help="Add one packaged Houmao system skill to launches from this project profile.",
+)
+@click.option(
+    "--system-skills-mode",
+    type=click.Choice(("inherit", "extend", "replace", "none")),
+    default=None,
+    help="Persist profile-owned managed system-skill policy.",
+)
+@click.option(
+    "--no-system-skills",
+    is_flag=True,
+    help="Disable managed system-skill installation for launches from this project profile.",
+)
+@click.option(
+    "--clear-system-skills",
+    is_flag=True,
+    help="Clear stored managed system-skill policy on an existing project profile.",
+)
+@click.option(
     "--add-registered-skill",
     "add_registered_skill",
     multiple=True,
-    help="Add an existing project skill to launches from this easy profile.",
+    help="Add an existing project skill to launches from this project profile.",
 )
 @click.option(
     "--remove-registered-skill",
     "remove_registered_skill",
     multiple=True,
-    help="Remove a registered project skill override from this easy profile.",
+    help="Remove a registered project skill override from this project profile.",
 )
 @click.option(
     "--add-private-skill",
     "add_private_skill",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Copy a profile-private skill directory into launches from this easy profile.",
+    help="Copy a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--add-private-skill-symlink",
     "add_private_skill_symlink",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Symlink a profile-private skill directory into launches from this easy profile.",
+    help="Symlink a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--remove-private-skill",
     "remove_private_skill",
     multiple=True,
     type=click.Path(path_type=Path),
-    help="Remove a profile-private skill source path from this easy profile.",
+    help="Remove a profile-private skill source path from this project profile.",
 )
 @click.option(
     "--mail-transport",
@@ -99,7 +127,7 @@ def easy_profile_group() -> None:
     "--managed-header/--no-managed-header",
     "managed_header",
     default=None,
-    help="Persist managed prompt header policy for launches from this easy profile.",
+    help="Persist managed prompt header policy for launches from this project profile.",
 )
 @click.option(
     "--managed-header-section",
@@ -143,7 +171,7 @@ def easy_profile_group() -> None:
     default=None,
     help="Default runtime guidance appended to mail-notifier prompts for launches from this profile.",
 )
-@click.option("--memo-seed-text", default=None, help="Inline easy-profile memo seed text.")
+@click.option("--memo-seed-text", default=None, help="Inline profile memo seed text.")
 @click.option(
     "--memo-seed-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
@@ -168,6 +196,11 @@ def create_easy_profile_command(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     add_registered_skill: tuple[str, ...],
     remove_registered_skill: tuple[str, ...],
     add_private_skill: tuple[Path, ...],
@@ -196,7 +229,7 @@ def create_easy_profile_command(
     memo_seed_dir: Path | None,
     yes: bool,
 ) -> None:
-    """Create one specialist-backed easy profile."""
+    """Create one specialist-backed project profile."""
 
     overlay = _ensure_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
@@ -220,6 +253,11 @@ def create_easy_profile_command(
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
         add_registered_skill=add_registered_skill,
         remove_registered_skill=remove_registered_skill,
         add_private_skill=add_private_skill,
@@ -268,7 +306,7 @@ def create_easy_profile_command(
 
 
 @easy_profile_group.command(name="set")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 @click.option("--agent-name", default=None, help="Optional default managed-agent name override.")
 @click.option(
     "--clear-agent-name", is_flag=True, help="Clear the stored default managed-agent name."
@@ -307,37 +345,65 @@ def create_easy_profile_command(
 )
 @click.option("--clear-env", is_flag=True, help="Clear stored persistent launch env records.")
 @click.option(
+    "--system-skill-set",
+    "system_skill_sets",
+    multiple=True,
+    help="Set one packaged Houmao system-skill set in this project profile policy.",
+)
+@click.option(
+    "--system-skill",
+    "system_skills",
+    multiple=True,
+    help="Set one packaged Houmao system skill in this project profile policy.",
+)
+@click.option(
+    "--system-skills-mode",
+    type=click.Choice(("inherit", "extend", "replace", "none")),
+    default=None,
+    help="Set profile-owned managed system-skill policy mode.",
+)
+@click.option(
+    "--no-system-skills",
+    is_flag=True,
+    help="Disable managed system-skill installation for launches from this project profile.",
+)
+@click.option(
+    "--clear-system-skills",
+    is_flag=True,
+    help="Clear profile-owned managed system-skill policy.",
+)
+@click.option(
     "--add-registered-skill",
     "add_registered_skill",
     multiple=True,
-    help="Add an existing project skill to launches from this easy profile.",
+    help="Add an existing project skill to launches from this project profile.",
 )
 @click.option(
     "--remove-registered-skill",
     "remove_registered_skill",
     multiple=True,
-    help="Remove a registered project skill override from this easy profile.",
+    help="Remove a registered project skill override from this project profile.",
 )
 @click.option(
     "--add-private-skill",
     "add_private_skill",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Copy a profile-private skill directory into launches from this easy profile.",
+    help="Copy a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--add-private-skill-symlink",
     "add_private_skill_symlink",
     multiple=True,
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Symlink a profile-private skill directory into launches from this easy profile.",
+    help="Symlink a profile-private skill directory into launches from this project profile.",
 )
 @click.option(
     "--remove-private-skill",
     "remove_private_skill",
     multiple=True,
     type=click.Path(path_type=Path),
-    help="Remove a profile-private skill source path from this easy profile.",
+    help="Remove a profile-private skill source path from this project profile.",
 )
 @click.option(
     "--mail-transport",
@@ -439,7 +505,7 @@ def create_easy_profile_command(
     is_flag=True,
     help="Clear the stored mail-notifier appendix default.",
 )
-@click.option("--memo-seed-text", default=None, help="Inline easy-profile memo seed text.")
+@click.option("--memo-seed-text", default=None, help="Inline profile memo seed text.")
 @click.option(
     "--memo-seed-file",
     type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
@@ -471,6 +537,11 @@ def set_easy_profile_command(
     clear_prompt_mode: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     add_registered_skill: tuple[str, ...],
     remove_registered_skill: tuple[str, ...],
     add_private_skill: tuple[Path, ...],
@@ -507,7 +578,7 @@ def set_easy_profile_command(
     memo_seed_dir: Path | None,
     clear_memo_seed: bool,
 ) -> None:
-    """Update one specialist-backed easy profile."""
+    """Update one specialist-backed project profile."""
 
     overlay = _ensure_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
@@ -531,6 +602,11 @@ def set_easy_profile_command(
         reasoning_level=reasoning_level,
         prompt_mode=prompt_mode,
         env_set=env_set,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
         add_registered_skill=add_registered_skill,
         remove_registered_skill=remove_registered_skill,
         add_private_skill=add_private_skill,
@@ -580,7 +656,7 @@ def set_easy_profile_command(
 
 @easy_profile_group.command(name="list")
 def list_easy_profiles_command() -> None:
-    """List persisted project-local easy profiles."""
+    """List persisted project-local project profiles."""
 
     overlay = _resolve_existing_project_overlay()
     resolved_profiles = list_resolved_launch_profiles(overlay=overlay)
@@ -597,17 +673,17 @@ def list_easy_profiles_command() -> None:
         if explicit_profile_count > 0:
             profile_label = "profile" if explicit_profile_count == 1 else "profiles"
             payload["note"] = (
-                "No easy profiles found. "
-                f"Found {explicit_profile_count} explicit launch-{profile_label} in this overlay; "
-                "use `houmao-mgr project agents launch-profiles list`."
+                "No project profiles found. "
+                f"Found {explicit_profile_count} native launch {profile_label} in this overlay; "
+                "use `houmao-mgr internals native-agent launch-dossiers list`."
             )
     emit(payload)
 
 
 @easy_profile_group.command(name="get")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 def get_easy_profile_command(name: str) -> None:
-    """Inspect one persisted easy profile definition."""
+    """Inspect one persisted project profile definition."""
 
     overlay = _resolve_existing_project_overlay()
     emit(
@@ -621,9 +697,9 @@ def get_easy_profile_command(name: str) -> None:
 
 
 @easy_profile_group.command(name="remove")
-@click.option("--name", required=True, help="Easy profile name.")
+@click.option("--name", required=True, help="Project profile name.")
 def remove_easy_profile_command(name: str) -> None:
-    """Remove one persisted easy profile definition."""
+    """Remove one persisted project profile definition."""
 
     overlay = _resolve_existing_project_overlay()
     profile_name = _require_non_empty_name(name, field_name="--name")
@@ -741,6 +817,34 @@ def easy_specialist_group() -> None:
     help="Repeatable persistent specialist env record (`NAME=value`).",
 )
 @click.option(
+    "--system-skill-set",
+    "system_skill_sets",
+    multiple=True,
+    help="Add one packaged Houmao system-skill set to managed launches from this specialist.",
+)
+@click.option(
+    "--system-skill",
+    "system_skills",
+    multiple=True,
+    help="Add one packaged Houmao system skill to managed launches from this specialist.",
+)
+@click.option(
+    "--system-skills-mode",
+    type=click.Choice(("default", "extend", "replace", "none")),
+    default=None,
+    help="Persist specialist-owned managed system-skill policy.",
+)
+@click.option(
+    "--no-system-skills",
+    is_flag=True,
+    help="Persist disabled managed system-skill installation for this specialist.",
+)
+@click.option(
+    "--clear-system-skills",
+    is_flag=True,
+    help="Clear stored managed system-skill policy on an existing specialist.",
+)
+@click.option(
     "--no-unattended",
     is_flag=True,
     help="Persist `launch.prompt_mode: as_is` instead of the easy unattended default.",
@@ -770,6 +874,11 @@ def create_easy_specialist_command(
     skill_names: tuple[str, ...],
     skill_dirs: tuple[Path, ...],
     env_set: tuple[str, ...],
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     no_unattended: bool,
     yes: bool,
 ) -> None:
@@ -834,6 +943,19 @@ def create_easy_specialist_command(
         adapter=adapter,
         env_set=env_set,
     )
+    system_skill_policy_supplied, system_skill_policy_payload = (
+        _resolve_system_skill_policy_payload_or_click(
+            system_skill_sets=system_skill_sets,
+            system_skills=system_skills,
+            system_skills_mode=system_skills_mode,
+            no_system_skills=no_system_skills,
+            clear_system_skills=clear_system_skills,
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            clear_allowed=False,
+            source_label="project specialist create --system-skills",
+        )
+    )
     if model is not None and claude_model is not None:
         raise click.ClickException("`--model` cannot be combined with `--claude-model`.")
     if claude_model is not None and tool_name != "claude":
@@ -868,6 +990,8 @@ def create_easy_specialist_command(
         launch_mapping["model"] = model_payload
     if persistent_env_records:
         launch_mapping["env_records"] = dict(persistent_env_records)
+    if system_skill_policy_supplied and system_skill_policy_payload:
+        launch_mapping["system_skills"] = dict(system_skill_policy_payload)
     auth_profile = _load_auth_profile_or_click(
         overlay=overlay,
         tool=tool_name,
@@ -905,6 +1029,7 @@ def create_easy_specialist_command(
         prompt_mode=prompt_mode,
         model_config=resolved_model_config,
         env_records=persistent_env_records,
+        system_skills=system_skill_policy_payload if system_skill_policy_payload else None,
         overwrite=replace_conflict is not None,
     )
     metadata = catalog.store_specialist(
@@ -924,24 +1049,26 @@ def create_easy_specialist_command(
     )
     materialize_project_agent_catalog_projection(overlay)
     metadata_path = metadata.metadata_path or overlay.catalog_path
-    emit(
-        {
-            "project_root": str(overlay.project_root),
-            "specialist": specialist_name,
-            "tool": tool_name,
-            "setup": setup_name,
-            "provider": metadata.provider,
-            "credential": credential_name,
-            "metadata_path": str(metadata_path),
-            "generated": {
-                "role_prompt": str(system_prompt_path),
-                "preset": str(preset_path),
-                "auth": str(auth_profile.resolved_projection_path(overlay)),
-                "skills": [str(path) for path in metadata.resolved_canonical_skill_paths(overlay)],
-            },
-            "auth_result": auth_result,
-        }
-    )
+    payload: dict[str, object] = {
+        "project_root": str(overlay.project_root),
+        "specialist": specialist_name,
+        "tool": tool_name,
+        "setup": setup_name,
+        "provider": metadata.provider,
+        "credential": credential_name,
+        "launch": dict(launch_mapping),
+        "metadata_path": str(metadata_path),
+        "generated": {
+            "role_prompt": str(system_prompt_path),
+            "preset": str(preset_path),
+            "auth": str(auth_profile.resolved_projection_path(overlay)),
+            "skills": [str(path) for path in metadata.resolved_canonical_skill_paths(overlay)],
+        },
+        "auth_result": auth_result,
+    }
+    if system_skill_policy_payload:
+        payload["system_skills"] = dict(system_skill_policy_payload)
+    emit(payload)
 
 
 def _has_specialist_set_updates(
@@ -959,6 +1086,11 @@ def _has_specialist_set_updates(
     clear_reasoning_level: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     skill_dirs: tuple[Path, ...],
     add_skill_names: tuple[str, ...],
     remove_skill_names: tuple[str, ...],
@@ -981,6 +1113,11 @@ def _has_specialist_set_updates(
             clear_reasoning_level,
             bool(env_set),
             clear_env,
+            bool(system_skill_sets),
+            bool(system_skills),
+            system_skills_mode is not None,
+            no_system_skills,
+            clear_system_skills,
             bool(skill_dirs),
             bool(add_skill_names),
             bool(remove_skill_names),
@@ -1163,6 +1300,11 @@ def _resolve_specialist_set_launch_mapping(
     clear_reasoning_level: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
 ) -> dict[str, Any]:
     """Resolve launch payload updates for one specialist patch."""
 
@@ -1176,8 +1318,26 @@ def _resolve_specialist_set_launch_mapping(
         )
     if env_set and clear_env:
         raise click.ClickException("`--env-set` cannot be combined with `--clear-env`.")
+    system_skill_policy_supplied, system_skill_policy_payload = (
+        _resolve_system_skill_policy_payload_or_click(
+            system_skill_sets=system_skill_sets,
+            system_skills=system_skills,
+            system_skills_mode=system_skills_mode,
+            no_system_skills=no_system_skills,
+            clear_system_skills=clear_system_skills,
+            allowed_modes=SOURCE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="default",
+            clear_allowed=True,
+            source_label="project specialist set --system-skills",
+        )
+    )
 
     launch_mapping = dict(specialist.launch_payload)
+    if system_skill_policy_supplied:
+        if system_skill_policy_payload:
+            launch_mapping["system_skills"] = dict(system_skill_policy_payload)
+        else:
+            launch_mapping.pop("system_skills", None)
     if clear_prompt_mode:
         launch_mapping.pop("prompt_mode", None)
     elif prompt_mode is not None:
@@ -1206,7 +1366,7 @@ def _resolve_specialist_set_launch_mapping(
         launch_mapping["env_records"] = _parse_launch_profile_env_records_or_click(
             adapter=adapter,
             env_set=env_set,
-            source_label="project easy specialist set --env-set",
+            source_label="project specialist set --env-set",
         )
     return launch_mapping
 
@@ -1228,6 +1388,11 @@ def _store_specialist_patch_from_cli(
     clear_reasoning_level: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     skill_dirs: tuple[Path, ...],
     add_skill_names: tuple[str, ...],
     remove_skill_names: tuple[str, ...],
@@ -1285,6 +1450,11 @@ def _store_specialist_patch_from_cli(
         clear_reasoning_level=clear_reasoning_level,
         env_set=env_set,
         clear_env=clear_env,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
     )
     metadata = catalog.store_specialist(
         name=specialist.name,
@@ -1354,6 +1524,34 @@ def _store_specialist_patch_from_cli(
 )
 @click.option("--clear-env", is_flag=True, help="Clear persistent specialist env records.")
 @click.option(
+    "--system-skill-set",
+    "system_skill_sets",
+    multiple=True,
+    help="Set one packaged Houmao system-skill set in this specialist policy.",
+)
+@click.option(
+    "--system-skill",
+    "system_skills",
+    multiple=True,
+    help="Set one packaged Houmao system skill in this specialist policy.",
+)
+@click.option(
+    "--system-skills-mode",
+    type=click.Choice(("default", "extend", "replace", "none")),
+    default=None,
+    help="Set specialist-owned managed system-skill policy mode.",
+)
+@click.option(
+    "--no-system-skills",
+    is_flag=True,
+    help="Disable managed system-skill installation for this specialist.",
+)
+@click.option(
+    "--clear-system-skills",
+    is_flag=True,
+    help="Clear specialist-owned managed system-skill policy.",
+)
+@click.option(
     "--with-skill",
     "skill_dirs",
     multiple=True,
@@ -1383,6 +1581,11 @@ def set_easy_specialist_command(
     clear_reasoning_level: bool,
     env_set: tuple[str, ...],
     clear_env: bool,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     skill_dirs: tuple[Path, ...],
     add_skill_names: tuple[str, ...],
     remove_skill_names: tuple[str, ...],
@@ -1404,6 +1607,11 @@ def set_easy_specialist_command(
         clear_reasoning_level=clear_reasoning_level,
         env_set=env_set,
         clear_env=clear_env,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
         skill_dirs=skill_dirs,
         add_skill_names=add_skill_names,
         remove_skill_names=remove_skill_names,
@@ -1432,6 +1640,11 @@ def set_easy_specialist_command(
         clear_reasoning_level=clear_reasoning_level,
         env_set=env_set,
         clear_env=clear_env,
+        system_skill_sets=system_skill_sets,
+        system_skills=system_skills,
+        system_skills_mode=system_skills_mode,
+        no_system_skills=no_system_skills,
+        clear_system_skills=clear_system_skills,
         skill_dirs=skill_dirs,
         add_skill_names=add_skill_names,
         remove_skill_names=remove_skill_names,
@@ -1500,7 +1713,7 @@ def easy_instance_group() -> None:
 
 @easy_instance_group.command(name="launch")
 @click.option("--specialist", default=None, help="Specialist name.")
-@click.option("--profile", default=None, help="Easy profile name.")
+@click.option("--profile", default=None, help="Project profile name.")
 @click.option("--name", default=None, help="Managed-agent instance name.")
 @click.option("--auth", default=None, help="Optional auth override for the compiled preset.")
 @click.option("--model", default=None, help="Optional one-off launch-owned model override.")
@@ -1669,6 +1882,7 @@ def launch_easy_instance_command(
     launch_profile_mail_notifier_appendix_text: str | None = None
     launch_profile_registered_skill_names: tuple[str, ...] = ()
     launch_profile_private_skills: tuple[Any, ...] = ()
+    launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
     direct_model_config = _build_model_config_or_click(
         model_name=_resolve_model_name_or_click(model),
         reasoning_level=reasoning_level,
@@ -1692,17 +1906,17 @@ def launch_easy_instance_command(
         )
         if resolved_profile.specialist is None or not resolved_profile.source_exists:
             raise click.ClickException(
-                f"Easy profile `{resolved_profile.entry.name}` references unavailable specialist "
+                f"Project profile `{resolved_profile.entry.name}` references unavailable specialist "
                 f"`{resolved_profile.entry.source_name}`."
             )
         specialist_metadata = resolved_profile.specialist
         declared_mailbox = _stored_mailbox_or_click(
             resolved_profile.entry.mailbox_payload,
-            source=f"easy profile `{resolved_profile.entry.name}`",
+            source=f"project profile `{resolved_profile.entry.name}`",
         )
         operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
             resolved_profile.entry.operator_prompt_mode,
-            source=f"easy profile `{resolved_profile.entry.name}`",
+            source=f"project profile `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
         launch_profile_model_config = _build_model_config_or_click(
@@ -1719,6 +1933,10 @@ def launch_easy_instance_command(
             getattr(resolved_profile.entry, "registered_skill_names", ())
         )
         launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
+        launch_profile_system_skill_policy = _resolve_launch_profile_system_skill_policy_or_click(
+            getattr(resolved_profile.entry, "system_skills_payload", {}),
+            source=f"project profile `{resolved_profile.entry.name}` system_skills",
+        )
         launch_profile_provenance = _launch_profile_provenance_payload(resolved_profile)
         launch_profile_memo_seed = resolved_profile.memo_seed
         launch_profile_mail_notifier_appendix_text = (
@@ -1739,7 +1957,7 @@ def launch_easy_instance_command(
         resolved_name = _optional_non_empty_value(name) or resolved_profile.entry.managed_agent_name
         if resolved_name is None:
             raise click.ClickException(
-                "`project easy instance launch --profile` requires `--name` unless the selected "
+                "`project agents launch --profile` requires `--name` unless the selected "
                 "profile stores a default managed-agent name."
             )
         resolved_auth = _optional_non_empty_value(auth) or resolved_profile.entry.auth_name
@@ -1757,9 +1975,7 @@ def launch_easy_instance_command(
         resolved_headless = bool(headless)
         resolved_name = _optional_non_empty_value(name)
         if resolved_name is None:
-            raise click.ClickException(
-                "`project easy instance launch --specialist` requires `--name`."
-            )
+            raise click.ClickException("`project agents launch --specialist` requires `--name`.")
         resolved_auth = _optional_non_empty_value(auth)
         working_directory = (workdir or Path.cwd()).resolve()
 
@@ -1785,7 +2001,7 @@ def launch_easy_instance_command(
         )
     if mail_transport == "email":
         raise click.ClickException(
-            "Mailbox transport `email` is not implemented yet for `project easy instance launch`."
+            "Mailbox transport `email` is not implemented yet for `project agents launch`."
         )
     if mail_transport is None and (mail_root is not None or mail_account_dir is not None):
         raise click.ClickException(
@@ -1793,7 +2009,7 @@ def launch_easy_instance_command(
         )
     if mail_transport == "filesystem" and mail_root is None:
         raise click.ClickException(
-            "`project easy instance launch --mail-transport filesystem` requires `--mail-root`."
+            "`project agents launch --mail-transport filesystem` requires `--mail-root`."
         )
     if mail_transport != "filesystem" and mail_account_dir is not None:
         raise click.ClickException(
@@ -1881,6 +2097,7 @@ def launch_easy_instance_command(
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
         launch_profile_registered_skill_names=launch_profile_registered_skill_names,
         launch_profile_private_skills=launch_profile_private_skills,
+        launch_profile_system_skill_policy=launch_profile_system_skill_policy,
         force_mode=force_mode,
         reuse_home=reuse_home,
     )

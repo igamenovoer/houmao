@@ -8,21 +8,14 @@ import signal
 import socket
 import sqlite3
 import subprocess
-import threading
 import time
-from dataclasses import replace
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import TracebackType
 from typing import Any, Callable, cast
 from urllib import request
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from houmao.agents.realm_controller import cli
-from houmao.agents.realm_controller.backends.cao_rest import CaoSessionState
 from houmao.agents.realm_controller.backends.headless_base import (
     HeadlessInteractiveSession,
     HeadlessSessionState,
@@ -44,7 +37,6 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierPutV1,
     GatewayReminderCreateBatchV1,
     GatewayReminderDefinitionV1,
-    GatewayReminderSendKeysV1,
 )
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
 from houmao.agents.realm_controller.models import SessionControlResult, SessionEvent
@@ -321,127 +313,6 @@ class _FakeTmuxEnv:
         return self.m_values.get(session_name, {}).get(variable_name)
 
 
-class _FakeCaoSessionRegistry:
-    """Shared fake backend state across repeated start and resume calls."""
-
-    def __init__(self, *, api_base_url: str, terminal_id: str) -> None:
-        self.m_api_base_url = api_base_url
-        self.m_terminal_id = terminal_id
-        self.m_session_name = "HOUMAO-gateway"
-        self.m_profile_name = "runtime-profile"
-        self.m_profile_path = str(Path("/tmp/runtime-profile.md"))
-        self.m_direct_prompts: list[str] = []
-        self.m_terminated = False
-
-    def build_state(self, *, parsing_mode: str) -> CaoSessionState:
-        """Build the persisted CAO state used by the fake session."""
-
-        return CaoSessionState(
-            api_base_url=self.m_api_base_url,
-            session_name=self.m_session_name,
-            terminal_id=self.m_terminal_id,
-            profile_name=self.m_profile_name,
-            profile_path=self.m_profile_path,
-            parsing_mode=cast(Any, parsing_mode),
-            tmux_window_name="developer-1",
-            turn_index=0,
-        )
-
-
-class _FakeCaoRestSession:
-    """Minimal fake `cao_rest` session for runtime and CLI integration tests."""
-
-    m_registry: _FakeCaoSessionRegistry | None = None
-
-    def __init__(
-        self,
-        *,
-        launch_plan: Any,
-        api_base_url: str,
-        role_name: str,
-        role_prompt: str,
-        parsing_mode: str,
-        session_manifest_path: Path | None = None,
-        agent_def_dir: Path | None = None,
-        agent_identity: str | None = None,
-        tmux_session_name: str | None = None,
-        profile_store_dir: Path | None = None,
-        poll_interval_seconds: float = 0.4,
-        timeout_seconds: float = 120.0,
-        prepend_role_text: str | None = None,
-        append_role_text: str | None = None,
-        substitutions: dict[str, str] | None = None,
-        existing_state: CaoSessionState | None = None,
-    ) -> None:
-        del (
-            api_base_url,
-            role_name,
-            role_prompt,
-            session_manifest_path,
-            agent_def_dir,
-            agent_identity,
-            tmux_session_name,
-            profile_store_dir,
-            poll_interval_seconds,
-            timeout_seconds,
-            prepend_role_text,
-            append_role_text,
-            substitutions,
-        )
-        registry = type(self).m_registry
-        if registry is None:
-            raise AssertionError("Fake CAO registry is not configured.")
-        self.m_registry = registry
-        self.m_launch_plan = launch_plan
-        self.m_state = existing_state or registry.build_state(parsing_mode=parsing_mode)
-
-    @property
-    def state(self) -> CaoSessionState:
-        """Return the persisted fake CAO state."""
-
-        return self.m_state
-
-    @property
-    def startup_warnings(self) -> tuple[str, ...]:
-        """Return synthetic startup warnings."""
-
-        return ()
-
-    def update_launch_plan(self, launch_plan: Any) -> None:
-        """Update the launch plan during controller persistence flows."""
-
-        self.m_launch_plan = launch_plan
-
-    def send_prompt(self, prompt: str) -> list[SessionEvent]:
-        """Record a direct prompt submission without using the gateway."""
-
-        self.m_registry.m_direct_prompts.append(prompt)
-        self.m_state = replace(self.m_state, turn_index=self.m_state.turn_index + 1)
-        return [
-            SessionEvent(
-                kind="assistant",
-                message=f"direct:{prompt}",
-                turn_index=self.m_state.turn_index,
-            )
-        ]
-
-    def interrupt(self) -> SessionControlResult:
-        """Return a successful direct interrupt result."""
-
-        return SessionControlResult(status="ok", action="interrupt", detail="interrupted")
-
-    def terminate(self) -> SessionControlResult:
-        """Record session termination."""
-
-        self.m_registry.m_terminated = True
-        return SessionControlResult(status="ok", action="terminate", detail="stopped")
-
-    def close(self) -> None:
-        """Close the fake session."""
-
-        return
-
-
 class _FakeHeadlessSessionRegistry:
     """Shared fake state across repeated headless start and resume calls."""
 
@@ -615,211 +486,17 @@ class _FakeLocalInteractiveSession(HeadlessInteractiveSession):
         self._plan = launch_plan
 
 
-class _FakeCaoApiState:
-    """Thread-safe state for the fake CAO HTTP server."""
-
-    def __init__(self, *, terminal_id: str) -> None:
-        self.m_terminal_id = terminal_id
-        self.m_messages: list[tuple[str, str]] = []
-        self.m_interrupt_count = 0
-        self.m_lock = threading.Lock()
-
-    def current_terminal_id(self) -> str:
-        """Return the current terminal id."""
-
-        with self.m_lock:
-            return self.m_terminal_id
-
-    def set_terminal_id(self, terminal_id: str) -> None:
-        """Replace the current terminal id."""
-
-        with self.m_lock:
-            self.m_terminal_id = terminal_id
-
-    def record_message(self, *, terminal_id: str, message: str) -> None:
-        """Record one prompt delivery."""
-
-        with self.m_lock:
-            self.m_messages.append((terminal_id, message))
-
-    def record_interrupt(self) -> None:
-        """Record one interrupt delivery."""
-
-        with self.m_lock:
-            self.m_interrupt_count += 1
-
-    def messages(self) -> list[tuple[str, str]]:
-        """Return a snapshot of recorded prompt deliveries."""
-
-        with self.m_lock:
-            return list(self.m_messages)
-
-    def interrupt_count(self) -> int:
-        """Return the number of recorded interrupts."""
-
-        with self.m_lock:
-            return self.m_interrupt_count
-
-
-class _FakeCaoHttpServer(ThreadingHTTPServer):
-    """HTTP server with attached fake CAO state."""
-
-    def __init__(
-        self,
-        server_address: tuple[str, int],
-        state: _FakeCaoApiState,
-    ) -> None:
-        self.m_state = state
-        super().__init__(server_address, _FakeCaoRequestHandler)
-
-
-class _FakeCaoRequestHandler(BaseHTTPRequestHandler):
-    """Expose the tiny subset of CAO endpoints used by the gateway."""
-
-    def do_GET(self) -> None:  # noqa: N802
-        """Handle fake CAO `GET` requests."""
-
-        parsed = urlparse(self.path)
-        path_parts = parsed.path.strip("/").split("/")
-        if path_parts[:1] == ["cao"]:
-            path_parts = path_parts[1:]
-        state = cast(_FakeCaoApiState, cast(_FakeCaoHttpServer, self.server).m_state)
-        if len(path_parts) == 2 and path_parts[0] == "terminals":
-            terminal_id = path_parts[1]
-            if terminal_id != state.current_terminal_id():
-                self._send_json(
-                    HTTPStatus.NOT_FOUND,
-                    {"detail": f"terminal `{terminal_id}` not found"},
-                )
-                return
-            self._send_json(
-                HTTPStatus.OK,
-                {
-                    "id": terminal_id,
-                    "name": "developer-1",
-                    "provider": "codex",
-                    "session_name": "HOUMAO-gateway",
-                    "agent_profile": "runtime-profile",
-                    "status": "idle",
-                },
-            )
-            return
-        self._send_json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
-
-    def do_POST(self) -> None:  # noqa: N802
-        """Handle fake CAO `POST` requests."""
-
-        parsed = urlparse(self.path)
-        path_parts = parsed.path.strip("/").split("/")
-        if path_parts[:1] == ["cao"]:
-            path_parts = path_parts[1:]
-        query = parse_qs(parsed.query)
-        state = cast(_FakeCaoApiState, cast(_FakeCaoHttpServer, self.server).m_state)
-        if len(path_parts) == 3 and path_parts[0] == "terminals" and path_parts[2] == "input":
-            terminal_id = path_parts[1]
-            message = query.get("message", [""])[0]
-            state.record_message(terminal_id=terminal_id, message=message)
-            self._send_json(HTTPStatus.OK, {"success": True})
-            return
-        if len(path_parts) == 3 and path_parts[0] == "terminals" and path_parts[2] == "exit":
-            state.record_interrupt()
-            self._send_json(HTTPStatus.OK, {"success": True})
-            return
-        self._send_json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
-
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A003
-        """Silence request logging during tests."""
-
-        del format, args
-        return
-
-    def _send_json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
-        """Send one JSON response body."""
-
-        encoded = json.dumps(payload).encode("utf-8")
-        self.send_response(int(status))
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-
-class _FakeCaoServer:
-    """Context-managed fake CAO server used by the gateway integration tests."""
-
-    def __init__(self, *, terminal_id: str) -> None:
-        self.m_state = _FakeCaoApiState(terminal_id=terminal_id)
-        self.m_port = _pick_unused_loopback_port()
-        self.m_server = _FakeCaoHttpServer(("127.0.0.1", self.m_port), self.m_state)
-        self.m_thread = threading.Thread(
-            target=self.m_server.serve_forever,
-            name="fake-cao-server",
-            daemon=True,
-        )
-
-    @property
-    def base_url(self) -> str:
-        """Return the loopback base URL for the fake CAO server."""
-
-        return f"http://127.0.0.1:{self.m_port}"
-
-    def __enter__(self) -> "_FakeCaoServer":
-        """Start the fake CAO server."""
-
-        self.m_thread.start()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        """Stop the fake CAO server."""
-
-        del exc_type, exc, tb
-        self.m_server.shutdown()
-        self.m_server.server_close()
-        self.m_thread.join(timeout=2.0)
-
-    def set_terminal_id(self, terminal_id: str) -> None:
-        """Replace the current terminal id reported by the fake server."""
-
-        self.m_state.set_terminal_id(terminal_id)
-
-    def messages(self) -> list[tuple[str, str]]:
-        """Return recorded prompt deliveries."""
-
-        return self.m_state.messages()
-
-    def interrupt_count(self) -> int:
-        """Return recorded interrupt deliveries."""
-
-        return self.m_state.interrupt_count()
-
-
 def _install_gateway_runtime_fakes(
     *,
     monkeypatch: pytest.MonkeyPatch,
-    registry: _FakeCaoSessionRegistry | None,
     tmux_env: _FakeTmuxEnv,
     registry_root: Path,
     headless_registry: _FakeHeadlessSessionRegistry | None = None,
     local_interactive_registry: _FakeHeadlessSessionRegistry | None = None,
 ) -> None:
-    """Install fake CAO session and tmux environment hooks."""
+    """Install fake runtime session and tmux environment hooks."""
 
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(registry_root.resolve()))
-    if registry is not None:
-        _FakeCaoRestSession.m_registry = registry
-        monkeypatch.setattr(
-            "houmao.agents.realm_controller.runtime.CaoRestSession",
-            _FakeCaoRestSession,
-        )
-        monkeypatch.setattr(
-            "houmao.agents.realm_controller.runtime.HoumaoServerRestSession",
-            _FakeCaoRestSession,
-        )
     if headless_registry is not None:
         _FakeCodexHeadlessSession.m_registry = headless_registry
         monkeypatch.setattr(
@@ -899,15 +576,74 @@ def _assert_raw_cao_start_session_is_retired(
         "cao_rest",
         "--workdir",
         str(tmp_path),
-        "--cao-base-url",
-        "http://127.0.0.1:9889",
     ]
     if extra_args is not None:
         argv.extend(extra_args)
     exit_code, payload, err = _run_cli_json(capsys, argv)
     assert exit_code == 2
     assert payload == {}
-    assert "Standalone backend='cao_rest' operator workflows are retired" in err
+    assert "Standalone CAO/old-server runtime workflows are retired" in err
+
+
+def _start_headless_gateway_cli_session(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    *,
+    mailbox_root: Path | None = None,
+) -> tuple[Path, Path, _FakeHeadlessSessionRegistry, _FakeTmuxEnv, dict[str, Any]]:
+    """Start one maintained headless runtime session for gateway integration tests."""
+
+    agent_def_dir = tmp_path / "repo"
+    runtime_root = tmp_path / "runtime"
+    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    headless_registry = _FakeHeadlessSessionRegistry(session_name="HOUMAO-headless")
+    tmux_env = _FakeTmuxEnv()
+    _install_gateway_runtime_fakes(
+        monkeypatch=monkeypatch,
+        tmux_env=tmux_env,
+        registry_root=tmp_path / "registry",
+        headless_registry=headless_registry,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: bool(session_name),
+    )
+
+    argv = [
+        "start-session",
+        "--agent-def-dir",
+        str(agent_def_dir),
+        "--runtime-root",
+        str(runtime_root),
+        "--brain-manifest",
+        str(brain_manifest_path),
+        "--role",
+        "r",
+        "--backend",
+        "codex_headless",
+        "--workdir",
+        str(tmp_path),
+        "--agent-identity",
+        headless_registry.m_session_name,
+    ]
+    if mailbox_root is not None:
+        argv.extend(
+            [
+                "--mailbox-transport",
+                "filesystem",
+                "--mailbox-root",
+                str(mailbox_root),
+                "--mailbox-address",
+                "HOUMAO-gateway@agents.localhost",
+            ]
+        )
+
+    start_exit, start_payload, start_err = _run_cli_json(capsys, argv)
+    assert start_exit == 0
+    assert start_err == ""
+    manifest_path = Path(str(start_payload["session_manifest"]))
+    return agent_def_dir, manifest_path, headless_registry, tmux_env, start_payload
 
 
 def test_start_session_rejects_retired_raw_cao_backend_even_with_gateway_auto_attach_args(
@@ -951,7 +687,6 @@ def test_runtime_owned_headless_attach_uses_persisted_gateway_defaults(
     tmux_env = _FakeTmuxEnv()
     _install_gateway_runtime_fakes(
         monkeypatch=monkeypatch,
-        registry=None,
         tmux_env=tmux_env,
         registry_root=tmp_path / "registry",
         headless_registry=headless_registry,
@@ -1033,7 +768,6 @@ def test_runtime_owned_headless_between_turn_attach_rebuilds_internal_attach_con
     tmux_env = _FakeTmuxEnv()
     _install_gateway_runtime_fakes(
         monkeypatch=monkeypatch,
-        registry=None,
         tmux_env=tmux_env,
         registry_root=tmp_path / "registry",
         headless_registry=headless_registry,
@@ -1138,7 +872,6 @@ def test_runtime_owned_local_interactive_gateway_link_uses_persisted_defaults(
     tmux_env = _FakeTmuxEnv()
     _install_gateway_runtime_fakes(
         monkeypatch=monkeypatch,
-        registry=None,
         tmux_env=tmux_env,
         registry_root=tmp_path / "registry",
         local_interactive_registry=local_registry,
@@ -1239,97 +972,61 @@ def test_gateway_http_mail_notifier_routes_follow_manifest_mailbox_contract(
 ) -> None:
     """Live gateway notifier routes should use the manifest-backed mailbox contract."""
 
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
     mailbox_root = tmp_path / "mailbox"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
+    agent_def_dir, manifest_path, _headless_registry, _tmux_env, _start_payload = (
+        _start_headless_gateway_cli_session(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            mailbox_root=mailbox_root,
         )
+    )
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    _force_detached_gateway_execution(manifest_path)
 
-        start_exit, start_payload, start_err = _run_cli_json(
+    try:
+        attach_exit, attach_payload, attach_err = _run_cli_json(
             capsys,
             [
-                "start-session",
+                "attach-gateway",
                 "--agent-def-dir",
                 str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "houmao_server_rest",
-                "--workdir",
-                str(tmp_path),
-                "--houmao-base-url",
-                fake_cao.base_url,
-                "--mailbox-transport",
-                "filesystem",
-                "--mailbox-root",
-                str(mailbox_root),
-                "--mailbox-address",
-                "HOUMAO-gateway@agents.localhost",
+                "--agent-identity",
+                str(manifest_path),
+                "--gateway-host",
+                "127.0.0.1",
             ],
         )
-        assert start_exit == 0
-        assert start_err == ""
+        assert attach_exit == 0
+        assert attach_err == ""
 
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        paths = gateway_paths_from_manifest_path(manifest_path)
-        assert paths is not None
-        _force_detached_gateway_execution(manifest_path)
-
-        try:
-            attach_exit, attach_payload, attach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--gateway-host",
-                    "127.0.0.1",
-                ],
+        client = GatewayClient(
+            endpoint=GatewayEndpoint(
+                host="127.0.0.1",
+                port=int(attach_payload["gateway_port"]),
             )
-            assert attach_exit == 0
-            assert attach_err == ""
+        )
 
-            client = GatewayClient(
-                endpoint=GatewayEndpoint(
-                    host="127.0.0.1",
-                    port=int(attach_payload["gateway_port"]),
-                )
-            )
+        initial_status = client.get_mail_notifier()
+        assert initial_status.supported is True
+        assert initial_status.enabled is False
 
-            initial_status = client.get_mail_notifier()
-            assert initial_status.supported is True
-            assert initial_status.enabled is False
+        enabled_status = client.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+        assert enabled_status.supported is True
+        assert enabled_status.enabled is True
+        assert enabled_status.interval_seconds == 60
 
-            enabled_status = client.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
-            assert enabled_status.supported is True
-            assert enabled_status.enabled is True
-            assert enabled_status.interval_seconds == 60
+        disabled_status = client.delete_mail_notifier()
+        assert disabled_status.supported is True
+        assert disabled_status.enabled is False
 
-            disabled_status = client.delete_mail_notifier()
-            assert disabled_status.supported is True
-            assert disabled_status.enabled is False
-
-            _wait_until(lambda: paths.log_path.is_file())
-            log_text = paths.log_path.read_text(encoding="utf-8")
-            assert "mail notifier enabled interval_seconds=60" in log_text
-            assert "mail notifier disabled" in log_text
-        finally:
-            _best_effort_cleanup_gateway(manifest_path)
+        _wait_until(lambda: paths.log_path.is_file())
+        log_text = paths.log_path.read_text(encoding="utf-8")
+        assert "mail notifier enabled interval_seconds=60" in log_text
+        assert "mail notifier disabled" in log_text
+    finally:
+        _best_effort_cleanup_gateway(manifest_path)
 
 
 def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
@@ -1339,142 +1036,89 @@ def test_gateway_runtime_mail_notifier_repeats_when_prompt_ready_returns(
 ) -> None:
     """Manifest-backed notifier polling should repeat for unchanged unread mail."""
 
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
     mailbox_root = tmp_path / "mailbox"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
-
-        start_exit, start_payload, start_err = _run_cli_json(
+    agent_def_dir, manifest_path, headless_registry, _tmux_env, start_payload = (
+        _start_headless_gateway_cli_session(
+            monkeypatch,
             capsys,
-            [
-                "start-session",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "houmao_server_rest",
-                "--workdir",
-                str(tmp_path),
-                "--houmao-base-url",
-                fake_cao.base_url,
-                "--mailbox-transport",
-                "filesystem",
-                "--mailbox-root",
-                str(mailbox_root),
-                "--mailbox-address",
-                "HOUMAO-gateway@agents.localhost",
-            ],
+            tmp_path,
+            mailbox_root=mailbox_root,
         )
-        assert start_exit == 0
-        assert start_err == ""
+    )
 
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        captured_attach: dict[str, object] = {}
-        monkeypatch.setattr(
-            "houmao.agents.realm_controller.runtime._start_gateway_process",
-            lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
-                captured_attach.update(
-                    {
-                        "controller": controller,
-                        "paths": paths,
-                        "host": host,
-                        "port": port,
-                        "execution_mode": execution_mode,
-                        "tui_tracking_timings": tui_tracking_timings,
-                    }
-                )
-                or port
-            ),
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                    "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
+                }
+            )
+            or port
+        ),
+    )
+
+    attach_exit, _attach_payload, attach_err = _run_cli_json(
+        capsys,
+        [
+            "attach-gateway",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+            "--gateway-host",
+            "127.0.0.1",
+        ],
+    )
+    assert attach_exit == 0
+    assert attach_err == ""
+
+    paths = cast(Any, captured_attach["paths"])
+    message_id = _deliver_unread_mailbox_message(
+        mailbox_root,
+        message_id="msg-20260316T090000Z-33333333333333333333333333333333",
+        recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
+        recipient_address=str(start_payload["mailbox"]["address"]),
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=paths.gateway_root,
+        host="127.0.0.1",
+        port=_pick_unused_loopback_port(),
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+
+        _wait_until(lambda: len(headless_registry.m_prompts) >= 1, timeout_seconds=5.0)
+        first_prompt = headless_registry.m_prompts[0]
+        assert message_id not in first_prompt
+        assert "Use the mailbox API below directly for this round." in first_prompt
+        assert f"Gateway: `http://127.0.0.1:{runtime.m_port}`" in first_prompt
+        assert "Mailbox API: `GET /v1/mail/status`;" in first_prompt
+
+        prompt_count = len(headless_registry.m_prompts)
+        _wait_until(
+            lambda: len(headless_registry.m_prompts) >= prompt_count + 1,
+            timeout_seconds=5.0,
         )
+        repeated_prompt = headless_registry.m_prompts[-1]
+        assert message_id not in repeated_prompt
+        assert "Use the mailbox API below directly for this round." in repeated_prompt
+    finally:
+        runtime.shutdown()
 
-        attach_exit, _attach_payload, attach_err = _run_cli_json(
-            capsys,
-            [
-                "attach-gateway",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--agent-identity",
-                str(manifest_path),
-                "--gateway-host",
-                "127.0.0.1",
-            ],
-        )
-        assert attach_exit == 0
-        assert attach_err == ""
-
-        paths = cast(Any, captured_attach["paths"])
-        message_id = _deliver_unread_mailbox_message(
-            mailbox_root,
-            message_id="msg-20260316T090000Z-33333333333333333333333333333333",
-            recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
-            recipient_address=str(start_payload["mailbox"]["address"]),
-        )
-
-        readiness = {"busy": True}
-        monkeypatch.setattr(
-            GatewayServiceRuntime,
-            "_tui_prompt_not_ready_reasons_locked",
-            lambda self: (
-                ["turn.phase='active'", "surface.accepting_input='no'"] if readiness["busy"] else []
-            ),
-        )
-
-        runtime = GatewayServiceRuntime.from_gateway_root(
-            gateway_root=paths.gateway_root,
-            host="127.0.0.1",
-            port=_pick_unused_loopback_port(),
-        )
-        runtime.start()
-        try:
-            runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
-
-            time.sleep(1.3)
-            assert fake_cao.messages() == []
-
-            readiness["busy"] = False
-            _wait_until(lambda: len(fake_cao.messages()) >= 1, timeout_seconds=5.0)
-            first_prompt = fake_cao.messages()[0][1]
-            assert message_id not in first_prompt
-            assert "Use the mailbox API below directly for this round." in first_prompt
-            assert f"Gateway: `http://127.0.0.1:{runtime.m_port}`" in first_prompt
-            assert "Mailbox API: `GET /v1/mail/status`;" in first_prompt
-
-            readiness["busy"] = True
-            prompt_count = len(fake_cao.messages())
-            time.sleep(1.3)
-            assert len(fake_cao.messages()) == prompt_count
-
-            readiness["busy"] = False
-            _wait_until(lambda: len(fake_cao.messages()) >= prompt_count + 1, timeout_seconds=5.0)
-            repeated_prompt = fake_cao.messages()[-1][1]
-            assert message_id not in repeated_prompt
-            assert "Use the mailbox API below directly for this round." in repeated_prompt
-        finally:
-            runtime.shutdown()
-
-        audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
-        busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
-        enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
-        assert busy_rows
-        assert len(enqueued_rows) >= 2
-        assert not any(row.outcome == "dedup_skip" for row in audit_rows)
-        assert any(row.detail is not None and "not prompt-ready" in row.detail for row in busy_rows)
-        assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert len(enqueued_rows) >= 2
+    assert not any(row.outcome == "dedup_skip" for row in audit_rows)
+    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
 
 
 def test_gateway_http_reminder_routes_are_ephemeral_and_do_not_expand_request_kinds(
@@ -1484,341 +1128,12 @@ def test_gateway_http_reminder_routes_are_ephemeral_and_do_not_expand_request_ki
 ) -> None:
     """Live gateway reminders should stay in memory and not extend `/v1/requests` kinds."""
 
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
-
-        start_exit, start_payload, start_err = _run_cli_json(
-            capsys,
-            [
-                "start-session",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "houmao_server_rest",
-                "--workdir",
-                str(tmp_path),
-                "--houmao-base-url",
-                fake_cao.base_url,
-            ],
-        )
-        assert start_exit == 0
-        assert start_err == ""
-
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        _force_detached_gateway_execution(manifest_path)
-        try:
-            attach_exit, attach_payload, attach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--gateway-host",
-                    "127.0.0.1",
-                ],
-            )
-            assert attach_exit == 0
-            assert attach_err == ""
-
-            endpoint = GatewayEndpoint(
-                host="127.0.0.1",
-                port=int(attach_payload["gateway_port"]),
-            )
-            client = GatewayClient(endpoint=endpoint)
-
-            scheduled_result = client.create_reminders(
-                GatewayReminderCreateBatchV1(
-                    reminders=[
-                        GatewayReminderDefinitionV1(
-                            mode="one_off",
-                            title="integration scheduled reminder",
-                            prompt="integration scheduled reminder",
-                            ranking=0,
-                            start_after_seconds=60,
-                        )
-                    ]
-                )
-            )
-            scheduled_reminder = scheduled_result.reminders[0]
-            assert (
-                client.get_reminder(reminder_id=scheduled_reminder.reminder_id).reminder_id
-                == scheduled_reminder.reminder_id
-            )
-            assert [reminder.reminder_id for reminder in client.list_reminders().reminders] == [
-                scheduled_reminder.reminder_id
-            ]
-
-            delete_result = client.delete_reminder(reminder_id=scheduled_reminder.reminder_id)
-            assert delete_result.deleted is True
-            assert client.list_reminders().reminders == []
-
-            send_keys_request = request.Request(
-                url=f"http://{endpoint.host}:{endpoint.port}/v1/reminders",
-                method="POST",
-                headers={"Content-Type": "application/json"},
-                data=json.dumps(
-                    GatewayReminderCreateBatchV1(
-                        reminders=[
-                            GatewayReminderDefinitionV1(
-                                mode="one_off",
-                                title="unsupported send keys reminder",
-                                send_keys=GatewayReminderSendKeysV1(sequence="<[Escape]>"),
-                                ranking=0,
-                                start_after_seconds=60,
-                            )
-                        ]
-                    ).model_dump(mode="json")
-                ).encode("utf-8"),
-            )
-            with pytest.raises(Exception) as send_keys_exc_info:
-                request.urlopen(send_keys_request, timeout=5.0)
-            send_keys_error = send_keys_exc_info.value
-            assert getattr(send_keys_error, "code", None) == 422
-
-            delivered_result = client.create_reminders(
-                GatewayReminderCreateBatchV1(
-                    reminders=[
-                        GatewayReminderDefinitionV1(
-                            mode="one_off",
-                            title="integration delivered reminder",
-                            prompt="integration delivered reminder",
-                            ranking=0,
-                            start_after_seconds=0.1,
-                        )
-                    ]
-                )
-            )
-            delivered_reminder = delivered_result.reminders[0]
-
-            _wait_until(
-                lambda: any(
-                    message == "integration delivered reminder"
-                    for _, message in fake_cao.messages()
-                ),
-                timeout_seconds=5.0,
-            )
-            assert client.list_reminders().reminders == []
-
-            invalid_request = request.Request(
-                url=f"http://{endpoint.host}:{endpoint.port}/v1/requests",
-                method="POST",
-                headers={"Content-Type": "application/json"},
-                data=json.dumps(
-                    {
-                        "schema_version": 1,
-                        "kind": "reminder_prompt",
-                        "payload": {"prompt": "should fail"},
-                    }
-                ).encode("utf-8"),
-            )
-            with pytest.raises(Exception) as exc_info:
-                request.urlopen(invalid_request, timeout=5.0)
-            error = exc_info.value
-            assert getattr(error, "code", None) == 422
-            assert delivered_reminder.reminder_id not in {
-                reminder.reminder_id for reminder in client.list_reminders().reminders
-            }
-        finally:
-            _best_effort_cleanup_gateway(manifest_path)
-
-
-def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    tmp_path: Path,
-) -> None:
-    """Live gateway `/v1/mail/read` should mark one filesystem message read."""
-
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
-    mailbox_root = tmp_path / "mailbox"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
-
-        start_exit, start_payload, start_err = _run_cli_json(
-            capsys,
-            [
-                "start-session",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "houmao_server_rest",
-                "--workdir",
-                str(tmp_path),
-                "--houmao-base-url",
-                fake_cao.base_url,
-                "--mailbox-transport",
-                "filesystem",
-                "--mailbox-root",
-                str(mailbox_root),
-                "--mailbox-address",
-                "HOUMAO-gateway@agents.localhost",
-            ],
-        )
-        assert start_exit == 0
-        assert start_err == ""
-
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        _force_detached_gateway_execution(manifest_path)
-        try:
-            attach_exit, attach_payload, attach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--gateway-host",
-                    "127.0.0.1",
-                ],
-            )
-            assert attach_exit == 0
-            assert attach_err == ""
-
-            message_id = _deliver_unread_mailbox_message(
-                mailbox_root,
-                message_id="msg-20260316T090000Z-44444444444444444444444444444444",
-                recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
-                recipient_address=str(start_payload["mailbox"]["address"]),
-            )
-            client = GatewayClient(
-                endpoint=GatewayEndpoint(
-                    host="127.0.0.1",
-                    port=int(attach_payload["gateway_port"]),
-                )
-            )
-
-            state_response = client.read_mail(
-                GatewayMailMessageRequestV1(
-                    message_ref=f"filesystem:{message_id}",
-                )
-            )
-
-            assert state_response.transport == "filesystem"
-            assert state_response.operation == "read"
-            assert state_response.message.message_ref == f"filesystem:{message_id}"
-            assert state_response.message.read is True
-
-            local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
-                mailbox_root,
-                address=str(start_payload["mailbox"]["address"]),
-            )
-            with sqlite3.connect(local_sqlite_path) as connection:
-                row = connection.execute(
-                    "SELECT is_read FROM message_state WHERE message_id = ?",
-                    (message_id,),
-                ).fetchone()
-            assert row == (1,)
-        finally:
-            _best_effort_cleanup_gateway(manifest_path)
-
-
-def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    tmp_path: Path,
-) -> None:
-    """Live gateway notifier polling should persist queryable audit history."""
-
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
-    mailbox_root = tmp_path / "mailbox"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
-
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
-
-        start_exit, start_payload, start_err = _run_cli_json(
-            capsys,
-            [
-                "start-session",
-                "--agent-def-dir",
-                str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "houmao_server_rest",
-                "--workdir",
-                str(tmp_path),
-                "--houmao-base-url",
-                fake_cao.base_url,
-                "--mailbox-transport",
-                "filesystem",
-                "--mailbox-root",
-                str(mailbox_root),
-                "--mailbox-address",
-                "HOUMAO-gateway@agents.localhost",
-            ],
-        )
-        assert start_exit == 0
-        assert start_err == ""
-
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        captured_attach: dict[str, object] = {}
-        monkeypatch.setattr(
-            "houmao.agents.realm_controller.runtime._start_gateway_process",
-            lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
-                captured_attach.update(
-                    {
-                        "controller": controller,
-                        "paths": paths,
-                        "host": host,
-                        "port": port,
-                        "execution_mode": execution_mode,
-                        "tui_tracking_timings": tui_tracking_timings,
-                    }
-                )
-                or port
-            ),
-        )
-
-        attach_exit, _attach_payload, attach_err = _run_cli_json(
+    agent_def_dir, manifest_path, headless_registry, _tmux_env, _start_payload = (
+        _start_headless_gateway_cli_session(monkeypatch, capsys, tmp_path)
+    )
+    _force_detached_gateway_execution(manifest_path)
+    try:
+        attach_exit, attach_payload, attach_err = _run_cli_json(
             capsys,
             [
                 "attach-gateway",
@@ -1833,50 +1148,224 @@ def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
         assert attach_exit == 0
         assert attach_err == ""
 
-        paths = cast(Any, captured_attach["paths"])
+        endpoint = GatewayEndpoint(
+            host="127.0.0.1",
+            port=int(attach_payload["gateway_port"]),
+        )
+        client = GatewayClient(endpoint=endpoint)
+
+        scheduled_result = client.create_reminders(
+            GatewayReminderCreateBatchV1(
+                reminders=[
+                    GatewayReminderDefinitionV1(
+                        mode="one_off",
+                        title="integration scheduled reminder",
+                        prompt="integration scheduled reminder",
+                        ranking=0,
+                        start_after_seconds=60,
+                    )
+                ]
+            )
+        )
+        scheduled_reminder = scheduled_result.reminders[0]
+        assert (
+            client.get_reminder(reminder_id=scheduled_reminder.reminder_id).reminder_id
+            == scheduled_reminder.reminder_id
+        )
+        assert [reminder.reminder_id for reminder in client.list_reminders().reminders] == [
+            scheduled_reminder.reminder_id
+        ]
+
+        delete_result = client.delete_reminder(reminder_id=scheduled_reminder.reminder_id)
+        assert delete_result.deleted is True
+        assert client.list_reminders().reminders == []
+
+        invalid_request = request.Request(
+            url=f"http://{endpoint.host}:{endpoint.port}/v1/requests",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "reminder_prompt",
+                    "payload": {"prompt": "should fail"},
+                }
+            ).encode("utf-8"),
+        )
+        with pytest.raises(Exception) as exc_info:
+            request.urlopen(invalid_request, timeout=5.0)
+        error = exc_info.value
+        assert getattr(error, "code", None) == 422
+        assert client.list_reminders().reminders == []
+    finally:
+        _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Live gateway `/v1/mail/read` should mark one filesystem message read."""
+
+    mailbox_root = tmp_path / "mailbox"
+    agent_def_dir, manifest_path, _headless_registry, _tmux_env, start_payload = (
+        _start_headless_gateway_cli_session(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            mailbox_root=mailbox_root,
+        )
+    )
+    _force_detached_gateway_execution(manifest_path)
+    try:
+        attach_exit, attach_payload, attach_err = _run_cli_json(
+            capsys,
+            [
+                "attach-gateway",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--agent-identity",
+                str(manifest_path),
+                "--gateway-host",
+                "127.0.0.1",
+            ],
+        )
+        assert attach_exit == 0
+        assert attach_err == ""
+
         message_id = _deliver_unread_mailbox_message(
             mailbox_root,
-            message_id="msg-20260316T090000Z-33333333333333333333333333333333",
+            message_id="msg-20260316T090000Z-44444444444444444444444444444444",
             recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
             recipient_address=str(start_payload["mailbox"]["address"]),
         )
-        monkeypatch.setattr(
-            GatewayServiceRuntime,
-            "_tui_prompt_not_ready_reasons_locked",
-            lambda self: [],
-        )
-
-        runtime = GatewayServiceRuntime.from_gateway_root(
-            gateway_root=paths.gateway_root,
-            host="127.0.0.1",
-            port=_pick_unused_loopback_port(),
-        )
-        runtime.start()
-        try:
-            enabled_status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
-            assert enabled_status.enabled is True
-
-            _wait_until(lambda: bool(fake_cao.messages()), timeout_seconds=5.0)
-            _wait_until(
-                lambda: any(
-                    row.outcome == "enqueued"
-                    for row in read_gateway_notifier_audit_records(paths.queue_path)
-                ),
-                timeout_seconds=5.0,
+        client = GatewayClient(
+            endpoint=GatewayEndpoint(
+                host="127.0.0.1",
+                port=int(attach_payload["gateway_port"]),
             )
+        )
 
-            audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
-            enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
-            assert enqueued_rows
-            assert enqueued_rows[-1].unread_count == 1
-            assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
-            assert enqueued_rows[-1].enqueued_request_id is not None
-            assert fake_cao.messages()
-            latest_prompt = fake_cao.messages()[-1][1]
-            assert message_id not in latest_prompt
-            assert "Use the mailbox API below directly for this round." in latest_prompt
-        finally:
-            runtime.shutdown()
+        state_response = client.read_mail(
+            GatewayMailMessageRequestV1(
+                message_ref=f"filesystem:{message_id}",
+            )
+        )
+
+        assert state_response.transport == "filesystem"
+        assert state_response.operation == "read"
+        assert state_response.message.message_ref == f"filesystem:{message_id}"
+        assert state_response.message.read is True
+
+        local_sqlite_path = resolve_active_mailbox_local_sqlite_path(
+            mailbox_root,
+            address=str(start_payload["mailbox"]["address"]),
+        )
+        with sqlite3.connect(local_sqlite_path) as connection:
+            row = connection.execute(
+                "SELECT is_read FROM message_state WHERE message_id = ?",
+                (message_id,),
+            ).fetchone()
+        assert row == (1,)
+    finally:
+        _best_effort_cleanup_gateway(manifest_path)
+
+
+def test_gateway_http_mail_notifier_persists_queryable_audit_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Live gateway notifier polling should persist queryable audit history."""
+
+    mailbox_root = tmp_path / "mailbox"
+    agent_def_dir, manifest_path, headless_registry, _tmux_env, start_payload = (
+        _start_headless_gateway_cli_session(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            mailbox_root=mailbox_root,
+        )
+    )
+
+    captured_attach: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.runtime._start_gateway_process",
+        lambda *, controller, paths, host, port, execution_mode, tui_tracking_timings: (
+            captured_attach.update(
+                {
+                    "controller": controller,
+                    "paths": paths,
+                    "host": host,
+                    "port": port,
+                    "execution_mode": execution_mode,
+                    "tui_tracking_timings": tui_tracking_timings,
+                }
+            )
+            or port
+        ),
+    )
+
+    attach_exit, _attach_payload, attach_err = _run_cli_json(
+        capsys,
+        [
+            "attach-gateway",
+            "--agent-def-dir",
+            str(agent_def_dir),
+            "--agent-identity",
+            str(manifest_path),
+            "--gateway-host",
+            "127.0.0.1",
+        ],
+    )
+    assert attach_exit == 0
+    assert attach_err == ""
+
+    paths = cast(Any, captured_attach["paths"])
+    message_id = _deliver_unread_mailbox_message(
+        mailbox_root,
+        message_id="msg-20260316T090000Z-33333333333333333333333333333333",
+        recipient_principal_id=str(start_payload["mailbox"]["principal_id"]),
+        recipient_address=str(start_payload["mailbox"]["address"]),
+    )
+    monkeypatch.setattr(
+        GatewayServiceRuntime,
+        "_tui_prompt_not_ready_reasons_locked",
+        lambda self: [],
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=paths.gateway_root,
+        host="127.0.0.1",
+        port=_pick_unused_loopback_port(),
+    )
+    runtime.start()
+    try:
+        enabled_status = runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=1))
+        assert enabled_status.enabled is True
+
+        _wait_until(lambda: bool(headless_registry.m_prompts), timeout_seconds=5.0)
+        _wait_until(
+            lambda: any(
+                row.outcome == "enqueued"
+                for row in read_gateway_notifier_audit_records(paths.queue_path)
+            ),
+            timeout_seconds=5.0,
+        )
+
+        audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+        enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+        assert enqueued_rows
+        assert enqueued_rows[-1].unread_count == 1
+        assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+        assert enqueued_rows[-1].enqueued_request_id is not None
+        assert headless_registry.m_prompts
+        latest_prompt = headless_registry.m_prompts[-1]
+        assert message_id not in latest_prompt
+        assert "Use the mailbox API below directly for this round." in latest_prompt
+    finally:
+        runtime.shutdown()
 
 
 def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(
@@ -1886,104 +1375,75 @@ def test_gateway_status_cleans_up_stale_live_bindings_after_gateway_crash(
 ) -> None:
     """Gateway status should clear stale live bindings after an external crash."""
 
-    agent_def_dir = tmp_path / "repo"
-    runtime_root = tmp_path / "runtime"
-    brain_manifest_path = _seed_brain_manifest(agent_def_dir, tmp_path)
+    agent_def_dir, manifest_path, headless_registry, tmux_env, _start_payload = (
+        _start_headless_gateway_cli_session(monkeypatch, capsys, tmp_path)
+    )
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    _force_detached_gateway_execution(manifest_path)
 
-    with _FakeCaoServer(terminal_id="term-1") as fake_cao:
-        registry = _FakeCaoSessionRegistry(api_base_url=fake_cao.base_url, terminal_id="term-1")
-        tmux_env = _FakeTmuxEnv()
-        _install_gateway_runtime_fakes(
-            monkeypatch=monkeypatch,
-            registry=registry,
-            tmux_env=tmux_env,
-            registry_root=tmp_path / "registry",
-        )
-
-        start_exit, start_payload, start_err = _run_cli_json(
+    try:
+        attach_exit, attach_payload, attach_err = _run_cli_json(
             capsys,
             [
-                "start-session",
+                "attach-gateway",
                 "--agent-def-dir",
                 str(agent_def_dir),
-                "--runtime-root",
-                str(runtime_root),
-                "--brain-manifest",
-                str(brain_manifest_path),
-                "--role",
-                "r",
-                "--backend",
-                "houmao_server_rest",
-                "--workdir",
-                str(tmp_path),
-                "--houmao-base-url",
-                fake_cao.base_url,
+                "--agent-identity",
+                str(manifest_path),
+                "--gateway-port",
+                str(_pick_unused_loopback_port()),
             ],
         )
-        assert start_exit == 0
-        assert start_err == ""
+        assert attach_exit == 0
+        assert attach_err == ""
+        assert attach_payload["status"] == "ok"
 
-        manifest_path = Path(str(start_payload["session_manifest"]))
-        session_name = registry.m_session_name
-        paths = gateway_paths_from_manifest_path(manifest_path)
-        assert paths is not None
-        _force_detached_gateway_execution(manifest_path)
+        gateway_pid = read_pid_file(paths.pid_path)
+        assert gateway_pid is not None
+        os.kill(gateway_pid, signal.SIGKILL)
+        time.sleep(0.2)
 
-        try:
-            attach_exit, attach_payload, attach_err = _run_cli_json(
-                capsys,
-                [
-                    "attach-gateway",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                    "--gateway-port",
-                    str(_pick_unused_loopback_port()),
-                ],
+        status_exit, status_payload, status_err = _run_cli_json(
+            capsys,
+            [
+                "gateway-status",
+                "--agent-def-dir",
+                str(agent_def_dir),
+                "--agent-identity",
+                str(manifest_path),
+            ],
+        )
+        assert status_exit == 0
+        assert status_err == ""
+        assert status_payload["gateway_health"] == "not_attached"
+        assert (
+            tmux_env.get(
+                session_name=headless_registry.m_session_name,
+                variable_name=AGENT_GATEWAY_HOST_ENV_VAR,
             )
-            assert attach_exit == 0
-            assert attach_err == ""
-            assert attach_payload["status"] == "ok"
-
-            gateway_pid = read_pid_file(paths.pid_path)
-            assert gateway_pid is not None
-            os.kill(gateway_pid, signal.SIGKILL)
-            time.sleep(0.2)
-
-            status_exit, status_payload, status_err = _run_cli_json(
-                capsys,
-                [
-                    "gateway-status",
-                    "--agent-def-dir",
-                    str(agent_def_dir),
-                    "--agent-identity",
-                    str(manifest_path),
-                ],
+            is None
+        )
+        assert (
+            tmux_env.get(
+                session_name=headless_registry.m_session_name,
+                variable_name=AGENT_GATEWAY_STATE_PATH_ENV_VAR,
             )
-            assert status_exit == 0
-            assert status_err == ""
-            assert status_payload["gateway_health"] == "not_attached"
-            assert (
-                tmux_env.get(session_name=session_name, variable_name=AGENT_GATEWAY_HOST_ENV_VAR)
-                is None
+            is None
+        )
+        assert (
+            tmux_env.get(
+                session_name=headless_registry.m_session_name,
+                variable_name=AGENT_GATEWAY_PORT_ENV_VAR,
             )
-            assert (
-                tmux_env.get(
-                    session_name=session_name, variable_name=AGENT_GATEWAY_STATE_PATH_ENV_VAR
-                )
-                is None
+            is None
+        )
+        assert (
+            tmux_env.get(
+                session_name=headless_registry.m_session_name,
+                variable_name=AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
             )
-            assert (
-                tmux_env.get(session_name=session_name, variable_name=AGENT_GATEWAY_PORT_ENV_VAR)
-                is None
-            )
-            assert (
-                tmux_env.get(
-                    session_name=session_name,
-                    variable_name=AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
-                )
-                is None
-            )
-        finally:
-            _best_effort_cleanup_gateway(manifest_path)
+            is None
+        )
+    finally:
+        _best_effort_cleanup_gateway(manifest_path)

@@ -23,8 +23,9 @@ The maintained tracked plain-direct-dir fixture tree now lives under `tests/fixt
 
 1. Put behavior in `plain-agent-def/roles/<role>/system-prompt.md`.
 2. Define reusable launch variants in `plain-agent-def/presets/<role>-<tool>-<setup>.yaml`.
-3. Build with `houmao-mgr brains build --preset ...` or explicit `--tool --setup --auth --skill`.
-4. Launch with `houmao-mgr agents launch --agents <role> --provider <provider>`.
+3. Build direct native-agent homes with `houmao-mgr internals native-agent brain build --native-agent-root tests/fixtures/plain-agent-def --preset ...` or explicit `--tool --setup --auth --skill`.
+4. For public managed-agent birth, use a project overlay: register the desired prompt, credential, and skills through `houmao-mgr project ...`, then launch with `houmao-mgr project agents launch --specialist <name>` or `houmao-mgr project agents launch --profile <name>`.
+5. For one launched or adopted local managed agent, use scoped follow-up commands such as `houmao-mgr agents single --agent-id <id> stop`, `houmao-mgr agents single --agent-id <id> cleanup session`, or `houmao-mgr agents self ...` from inside the managed tmux session.
 
 ## Auth Notes
 

@@ -10,8 +10,8 @@ Use this Houmao skill when you need mailbox work around Houmao-managed agents.
 
 Classify the caller up front:
 
-- If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` path. Strong signals include: no agent gateway is attached, `houmao-mgr agents mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
-- If the caller is one live Houmao-managed agent, use the ordinary shared-mailbox workflow in this skill: prefer the live gateway `/v1/mail/*` facade when available, and fall back to `houmao-mgr agents mail ...` when the resolver returns `gateway: null`.
+- If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` path. Strong signals include: no agent gateway is attached, `houmao-mgr agents self mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
+- If the caller is one live Houmao-managed agent, use the ordinary shared-mailbox workflow in this skill: prefer the live gateway `/v1/mail/*` facade when available, and fall back to `houmao-mgr agents self mail ...` when the resolver returns `gateway: null`.
 
 For managed-agent gateway-notified open-mail rounds only, use `houmao-process-emails-via-gateway` first and return here when that round needs exact mailbox operations or transport-local guidance.
 
@@ -49,14 +49,15 @@ Related skills and boundaries:
 Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
 1. Decide the caller posture up front.
-2. If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` action instead of the ordinary managed-agent gateway workflow. Strong signals include: no agent gateway is attached, `houmao-mgr agents mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
+2. If the caller is acting as operator rather than as one live Houmao-managed agent, use the operator-origin `post` action instead of the ordinary managed-agent gateway workflow. Strong signals include: no agent gateway is attached, `houmao-mgr agents self mail resolve-live` returns no usable live binding for the current session, or current context already shows the caller is not part of the Houmao managed-agent system.
 3. For Houmao-managed agent mailbox work, if the current prompt or recent mailbox context already provides the exact current gateway base URL, use that value directly for shared `/v1/mail/*` operations.
-4. Otherwise run `houmao-mgr agents mail resolve-live`.
+4. Otherwise run `agents self mail resolve-live` for the current managed session, or `agents single ... mail resolve-live` when the user explicitly selected another managed agent.
 5. Treat the resolver output as the supported mailbox-discovery contract for this turn.
 6. When the resolver returns a `gateway` object, use the action page that matches the mailbox task you need and use that exact `gateway.base_url` for shared `/v1/mail/*` work.
-7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and the supported `houmao-mgr agents mail ...` fallback surface for that turn.
+7. When the resolver returns `gateway: null`, use the transport page that matches `mailbox.transport` and run the matching `agents self mail <verb>` fallback command for current-session CLI fallback.
 8. Treat `message_ref` and `thread_ref` as opaque shared-mailbox references.
 9. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
+10. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.
 
 ## Missing Input Questions
 
@@ -91,7 +92,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 - Read [references/endpoint-contract.md](references/endpoint-contract.md) for the shared `/v1/mail/*` route summary.
 - Read [references/curl-examples.md](references/curl-examples.md) for copy-paste curl forms against the exact current `gateway.base_url`.
-- Read [references/managed-agent-fallback.md](references/managed-agent-fallback.md) for the supported `houmao-mgr agents mail ...` fallback surface when no live gateway facade exists.
+- Read [references/managed-agent-fallback.md](references/managed-agent-fallback.md) for the supported `houmao-mgr agents self mail ...` and `houmao-mgr agents single ... mail ...` fallback surfaces when no live gateway facade exists.
 - Read [references/filesystem-resolver-fields.md](references/filesystem-resolver-fields.md) or [references/stalwart-resolver-fields.md](references/stalwart-resolver-fields.md) when transport-local resolver fields matter.
 - Read [references/filesystem-layout.md](references/filesystem-layout.md) only when filesystem mailbox layout details are relevant.
 
@@ -101,10 +102,11 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 ## Guardrails
 
-- Do not guess the gateway host or port; use the exact base URL already present in prompt or context when available, otherwise use `gateway.base_url` from `houmao-mgr agents mail resolve-live`.
+- Do not guess the gateway host or port; use the exact base URL already present in prompt or context when available, otherwise use `gateway.base_url` from `houmao-mgr agents self mail resolve-live`.
 - Do not scrape tmux state directly when the manager-owned resolver is available.
 - Do not route operator-origin mailbox delivery through ordinary `/v1/mail/send`; use the dedicated `post` surface.
 - Do not derive mailbox internals from visible `message_ref` or `thread_ref` prefixes.
 - Do not archive a message before the corresponding mailbox action and any required reply succeed.
 - Do not treat this ordinary communication skill as the whole notifier-round workflow when `houmao-process-emails-via-gateway` is available.
 - Do not present direct transport-local access as the first-choice path when a live shared gateway mailbox facade is available.
+- Do not invent alternate fallback command shapes; use the direct scoped `houmao-mgr agents self mail ...` and `houmao-mgr agents single ... mail ...` commands shown in this skill package.

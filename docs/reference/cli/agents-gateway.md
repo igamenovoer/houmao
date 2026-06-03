@@ -1,20 +1,22 @@
-# houmao-mgr agents gateway
+# houmao-mgr agents single/self gateway
 
 Gateway lifecycle and explicit live-gateway request commands for managed agents.
 
 ```
-houmao-mgr agents gateway [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-id <id> gateway [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-name <name> gateway [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents self gateway [OPTIONS] COMMAND [ARGS]...
 ```
 
 ## Scope Note
 
 This CLI covers gateway lifecycle, prompt and interrupt control, raw send-keys, TUI inspection, reminder control, and mail-notifier control.
 
-Reminder operations are available through `houmao-mgr agents gateway reminders ...`.
+Reminder operations are available through `houmao-mgr agents single --agent-id <id> gateway reminders ...`, `houmao-mgr agents single --agent-name <name> gateway reminders ...`, or `houmao-mgr agents self gateway reminders ...`.
 
 - prompt reminders and send-keys reminders both use the same `reminders` subgroup
-- the subgroup follows the same selector rules as the rest of `agents gateway`
-- `--pair-port` works through the managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` proxy
+- the subgroup follows the same group-level target rules as the rest of the scoped gateway family
+- `--pair-port` is available on selected-agent `agents single ... gateway` commands and works through the managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` proxy
 - direct `/v1/reminders` remains the lower-level live gateway contract underneath the CLI
 
 Use [Gateway Reminders](../gateway/operations/reminders.md) for the reminder behavior model and [Protocol And State Contracts](../gateway/contracts/protocol-and-state.md) for the exact HTTP payloads.
@@ -26,7 +28,7 @@ Use [Gateway Reminders](../gateway/operations/reminders.md) for the reminder beh
 Attach or reuse a live gateway for one managed agent, including serverless local TUIs.
 
 ```
-houmao-mgr agents gateway attach [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway attach [OPTIONS]
 ```
 
 If attach times out waiting for gateway health readiness, the command now reports the last observed health probe error when one exists. Use [Gateway Troubleshooting](../gateway/operations/troubleshooting.md) for the readiness timeout checklist and [Protocol And State Contracts](../gateway/contracts/protocol-and-state.md#gateway-client-proxy-policy) for the live gateway proxy policy.
@@ -40,50 +42,38 @@ If attach times out waiting for gateway health readiness, the command now report
 | `--gateway-tui-unknown-to-stalled-timeout-seconds FLOAT` | Override how long an unknown active surface waits before becoming stalled for this attach. |
 | `--gateway-tui-stale-active-recovery-seconds FLOAT` | Override the stale-active recovery safeguard time for this attach. |
 | `--gateway-tui-final-stable-active-recovery-seconds FLOAT` | Override the final stable-active recovery safeguard time for this attach. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. Implied when no selector is provided inside tmux. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit attach. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 ### `detach`
 
 Detach the live gateway for one managed agent.
 
 ```
-houmao-mgr agents gateway detach [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway detach [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `status`
 
 Show live gateway status, including the execution mode and authoritative gateway tmux window index when foreground execution is active.
 
 ```
-houmao-mgr agents gateway status [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway status [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `prompt`
 
 Submit the explicit gateway-mediated prompt path for one managed agent.
 
 ```
-houmao-mgr agents gateway prompt [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway prompt [OPTIONS]
 ```
 
 | Option | Description |
@@ -92,11 +82,7 @@ houmao-mgr agents gateway prompt [OPTIONS]
 | `--force` | Send the prompt even when the gateway does not judge the target prompt-ready. |
 | `--model TEXT` | Request-scoped headless execution model override for this prompt only. |
 | `--reasoning-level INTEGER` | Optional tool/model-specific reasoning preset index override for this prompt only. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway prompt. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 These override flags are accepted only when the resolved managed agent is headless. TUI-backed targets fail clearly instead of silently ignoring them. The override applies to exactly the addressed gateway prompt submission — including when that submission is queued through `submit_prompt` — and does not mutate launch profiles, recipes, specialists, manifests, or any other live session defaults. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper. The meaning of `--reasoning-level` depends on the resolved tool/model ladder, higher unused numbers saturate to that ladder's highest maintained Houmao preset, and `0` means explicit off only when that ladder supports it.
 
@@ -105,41 +91,33 @@ These override flags are accepted only when the resolved managed agent is headle
 Submit the explicit gateway-mediated interrupt path for one managed agent.
 
 ```
-houmao-mgr agents gateway interrupt [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway interrupt [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port to use for explicit managed-agent targeting. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `send-keys`
 
 Submit the explicit gateway raw control-input path for one managed agent.
 
 ```
-houmao-mgr agents gateway send-keys [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway send-keys [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
 | `--sequence TEXT` | Raw control-input sequence to deliver through the live gateway. **Required.** |
 | `--escape-special-keys` | Treat the entire sequence literally instead of parsing `<[key-name]>` tokens. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway raw control input. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `reminders`
 
 Gateway reminder lifecycle and inspection commands.
 
 ```
-houmao-mgr agents gateway reminders [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-id <id> gateway reminders [OPTIONS] COMMAND [ARGS]...
 ```
 
 | Subcommand | Description |
@@ -163,40 +141,32 @@ Create requires exactly one of those ranking modes. `set` preserves the current 
 Show the live reminder set, including `effective_reminder_id` and the current blocked-versus-effective ordering.
 
 ```
-houmao-mgr agents gateway reminders list [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway reminders list [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for reminder listing. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `reminders get`
 
 Show one live reminder while also reporting the set's current `effective_reminder_id`.
 
 ```
-houmao-mgr agents gateway reminders get [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway reminders get [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
 | `--reminder-id TEXT` | Reminder id to inspect. **Required.** |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for reminder lookup. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `reminders create`
 
 Create one live reminder through the managed-agent gateway surface.
 
 ```
-houmao-mgr agents gateway reminders create [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway reminders create [OPTIONS]
 ```
 
 | Option | Description |
@@ -213,18 +183,14 @@ houmao-mgr agents gateway reminders create [OPTIONS]
 | `--start-after-seconds FLOAT` | Relative delivery delay in seconds. |
 | `--deliver-at-utc TEXT` | Absolute UTC delivery timestamp. |
 | `--interval-seconds FLOAT` | Repeat cadence in seconds. Required for repeat reminders. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for reminder creation. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `reminders set`
 
 Patch one reminder through the CLI surface. The CLI fetches the current reminder, applies only supplied overrides, then sends the full replacement payload to the gateway.
 
 ```
-houmao-mgr agents gateway reminders set [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway reminders set [OPTIONS]
 ```
 
 | Option | Description |
@@ -242,35 +208,27 @@ houmao-mgr agents gateway reminders set [OPTIONS]
 | `--start-after-seconds FLOAT` | Reset next delivery to a relative delay in seconds. |
 | `--deliver-at-utc TEXT` | Reset next delivery to an absolute UTC timestamp. |
 | `--interval-seconds FLOAT` | Replacement repeat cadence in seconds. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for reminder update. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `reminders remove`
 
 Delete one live reminder by id.
 
 ```
-houmao-mgr agents gateway reminders remove [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway reminders remove [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
 | `--reminder-id TEXT` | Reminder id to delete. **Required.** |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for reminder deletion. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `tui`
 
 Raw gateway-owned TUI tracking commands. These commands inspect the gateway's internal TUI state tracker, which captures terminal snapshots, readiness signals, and turn boundaries for the managed agent's TUI surface.
 
 ```
-houmao-mgr agents gateway tui [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-id <id> gateway tui [OPTIONS] COMMAND [ARGS]...
 ```
 
 | Subcommand | Description |
@@ -285,73 +243,57 @@ houmao-mgr agents gateway tui [OPTIONS] COMMAND [ARGS]...
 Show raw gateway-owned live TUI state for one managed agent.
 
 ```
-houmao-mgr agents gateway tui state [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway tui state [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI state. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `tui history`
 
 Show bounded raw gateway-owned TUI snapshot history for one managed agent. Returns the recent history buffer of TUI state snapshots maintained by the gateway tracker.
 
 ```
-houmao-mgr agents gateway tui history [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway tui history [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI history. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `tui watch`
 
 Poll raw gateway-owned TUI state repeatedly for one managed agent. In a TTY, clears the screen between polls for a live-updating display. When piped, emits one JSON object per poll cycle.
 
 ```
-houmao-mgr agents gateway tui watch [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway tui watch [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
 | `--interval-seconds FLOAT` | Polling interval for repeated TUI state inspection. Must be > 0. Default: `1.0`. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI watch. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `tui note-prompt`
 
 Record prompt-note provenance without submitting a queued gateway request. This annotates the gateway's TUI tracker with the prompt text for provenance tracking, but does not enqueue a prompt for the agent.
 
 ```
-houmao-mgr agents gateway tui note-prompt [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway tui note-prompt [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
 | `--prompt TEXT` | Prompt text to record in the gateway-owned tracker. If omitted, piped stdin is used. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway TUI prompt note. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `mail-notifier`
 
 Gateway mail-notifier lifecycle and inspection commands. The mail-notifier is a background polling loop within the gateway that periodically checks the agent's mailbox for open inbox work and injects notification prompts through the gateway's request queue. It can also run opt-in context handling before a notification prompt is enqueued.
 
 ```
-houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-id <id> gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 ```
 
 | Subcommand | Description |
@@ -365,23 +307,19 @@ houmao-mgr agents gateway mail-notifier [OPTIONS] COMMAND [ARGS]...
 Show the current mail-notifier status for one managed agent, including whether the notifier is enabled, the configured polling interval, effective mode, effective appendix text, effective context policies, and last-check metadata.
 
 ```
-houmao-mgr agents gateway mail-notifier status [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway mail-notifier status [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier status. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `mail-notifier enable`
 
 Enable or reconfigure the gateway mail-notifier for one managed agent. When enabled, the gateway polls the agent's mailbox at the specified interval and submits notification prompts for mail that matches the selected mode. The default `any_inbox` mode notifies for any unarchived inbox mail, including read or answered mail. The opt-in `unread_only` mode notifies only for unread unarchived inbox mail. `--appendix-text` replaces the runtime appendix appended to future notifier prompts; omit it to preserve the current appendix, or pass an empty value to clear it. `--context-error-policy` defaults to `continue_current`, so degraded context remains diagnostic and does not force reset. `--context-error-policy clear_context` is opt-in and clears context only when the live degraded diagnostic is recognized for the owning CLI tool. `--pre-notification-context-action compact` runs a supported compaction action before each notification prompt; v1 supports Codex TUI through `/compact` and rejects unsupported tool/backend combinations.
 
 ```
-houmao-mgr agents gateway mail-notifier enable [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway mail-notifier enable [OPTIONS]
 ```
 
 | Option | Description |
@@ -391,38 +329,28 @@ houmao-mgr agents gateway mail-notifier enable [OPTIONS]
 | `--appendix-text TEXT` | Runtime guidance appended to each generated notifier prompt. Empty string clears the stored appendix. |
 | `--context-error-policy [continue_current\|clear_context]` | Degraded-context policy. Defaults to `continue_current`; `clear_context` is opt-in and applies only to recognized tool-owned degraded diagnostics. |
 | `--pre-notification-context-action [none\|compact]` | Context action to run before each notification prompt. Defaults to `none`; `compact` is supported for live Codex TUI gateways. |
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier enable. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 #### `mail-notifier disable`
 
 Disable the gateway mail-notifier for one managed agent. The notifier stops polling and no further notification prompts are submitted until re-enabled. Disabling does not clear stored appendix text.
 
 ```
-houmao-mgr agents gateway mail-notifier disable [OPTIONS]
+houmao-mgr agents single --agent-id <id> gateway mail-notifier disable [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--current-session` | Resolve the target from the current tmux session's managed-agent metadata. |
-| `--target-tmux-session TEXT` | Explicit local tmux session name to target from outside tmux. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit notifier disable. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ## Targeting Rules
 
-- Outside tmux, gateway commands require `--agent-id`, `--agent-name`, or `--target-tmux-session`.
-- Use `--target-tmux-session` when you know the local tmux session name but do not want to resolve the managed-agent identity first.
-- Inside a managed tmux session, omitting the selector resolves the current session from `HOUMAO_MANIFEST_PATH` first and falls back to `HOUMAO_AGENT_ID` plus shared registry when needed.
-- `--current-session` is the explicit same-session selector. It cannot be combined with `--agent-id`, `--agent-name`, `--target-tmux-session`, or `--pair-port`.
-- `--target-tmux-session` cannot be combined with `--agent-id`, `--agent-name`, `--current-session`, or `--pair-port`.
-- `--target-tmux-session` resolves locally from the addressed tmux session's `HOUMAO_MANIFEST_PATH` first and falls back to an exact fresh shared-registry `terminal.session_name` match when the tmux-published manifest pointer is missing or stale.
-- `--pair-port` is only supported with explicit `--agent-id` or `--agent-name` targeting. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
+- `agents single --agent-id <id> gateway ...` and `agents single --agent-name <name> gateway ...` require exactly one explicit group-level selected-agent target. Nested gateway leaves do not repeat `--agent-id` or `--agent-name`.
+- `agents self gateway ...` targets the current registered managed tmux session and accepts no explicit selectors, no `--current-session`, and no `--pair-port`.
+- `--pair-port` is only supported on selected-agent `agents single ... gateway` commands. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 - Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.
+- External communication-only targets registered with `houmao-mgr agents external register` are supported through selected-agent communication-safe routes such as `agents single --agent-name <name> gateway status`, `gateway prompt`, and `gateway interrupt`; those commands route through the stored remote pair API base URL and remote agent ref.
+- External targets are rejected for local gateway ownership commands such as `gateway attach`, `gateway detach`, `gateway send-keys`, self/current-session targeting, TUI snapshot helpers, reminders, and mail-notifier mutation.
 
 ## See Also
 

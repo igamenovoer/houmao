@@ -45,16 +45,16 @@ When tool-specific automatic discovery is explicit or selected by default for `c
 #### Scenario: Missing tool defaults from registered credentials
 - **WHEN** the user asks to create a specialist
 - **AND WHEN** the selected tool is not explicit in the current prompt or nearby context
-- **AND WHEN** an active Houmao project or `HOUMAO_AGENT_DEF_DIR` target has registered credentials
+- **AND WHEN** an active Houmao project or `HOUMAO_NATIVE_AGENT_ROOT` target has registered credentials
 - **THEN** the skill picks a registered credential that matches the prompt or nearby context when possible
 - **AND THEN** it otherwise picks the credential with the latest listed update time
 - **AND THEN** it uses that credential's tool lane and name for `--tool` and `--credential`
 
 #### Scenario: Missing Houmao credential target fails with suggestion
 - **WHEN** the user asks to create a specialist without explicit tool or credential input
-- **AND WHEN** no active Houmao project overlay or `HOUMAO_AGENT_DEF_DIR` target can be resolved
+- **AND WHEN** no active Houmao project overlay or `HOUMAO_NATIVE_AGENT_ROOT` target can be resolved
 - **THEN** the skill stops before discovery
-- **AND THEN** it suggests initializing or selecting a Houmao project, setting `HOUMAO_PROJECT_OVERLAY_DIR`, or setting `HOUMAO_AGENT_DEF_DIR`
+- **AND THEN** it suggests initializing or selecting a Houmao project, setting `HOUMAO_PROJECT_OVERLAY_DIR`, or setting `HOUMAO_NATIVE_AGENT_ROOT`
 
 #### Scenario: No registered credentials fails with suggestion
 - **WHEN** the user asks to create a specialist without explicit tool or credential input
@@ -113,7 +113,7 @@ Each tool-specific reference page SHALL NOT instruct agents to use historical sh
 
 The create action within the packaged `houmao-specialist-mgr` system skill SHALL distinguish between:
 
-- discovered auth that can be mapped into supported `houmao-mgr project easy specialist create` inputs for the selected tool,
+- discovered auth that can be mapped into supported `houmao-mgr project specialist create` inputs for the selected tool,
 - discovered auth that cannot be faithfully represented by those supported inputs.
 
 The create action SHALL map discovered auth only into the selected tool’s supported create inputs.
@@ -140,7 +140,7 @@ This importability rule SHALL apply to both user-directed discovery and automati
 
 - **WHEN** the selected tool is Gemini
 - **AND WHEN** create-action discovery finds only a service-account or ADC-based auth setup that is not directly representable by current create-command inputs
-- **THEN** the skill reports that the currently active auth shape is not directly importable for easy specialist creation
+- **THEN** the skill reports that the currently active auth shape is not directly importable for specialist creation
 - **AND THEN** it asks the user for a supported explicit input or another importable credential source instead of inventing a bundle
 
 ### Requirement: `houmao-create-specialist` treats vendor-supported Claude login state and OAuth tokens as importable
@@ -180,7 +180,7 @@ An explicit or discovered `claude_state.template.json` MAY still be used as opti
 - **AND THEN** it may mention the reusable state template only as optional bootstrap input rather than as a credential method
 
 ### Requirement: Specialist credential-source guidance moves under unified agent definition
-The unified `houmao-agent-definition` skill SHALL own the credential-source guidance used when creating easy specialists or when `create-agent-fast-forward` creates a specialist.
+The unified `houmao-agent-definition` skill SHALL own the credential-source guidance used when creating specialists or when `create-agent-fast-forward` creates a specialist.
 
 The existing credential-source modes SHALL remain available under the unified `specialists` and `create-agent-fast-forward` paths:
 

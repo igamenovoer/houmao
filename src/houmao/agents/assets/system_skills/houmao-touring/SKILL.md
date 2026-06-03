@@ -1,161 +1,341 @@
 ---
 name: houmao-touring
-description: Use Houmao's manual guided touring skill to orient first-time or re-orienting users across project setup, mailbox setup, specialist authoring, launches, live-agent operations, and lifecycle follow-up.
+description: Use Houmao's manual guided touring skill for users not yet familiar with Houmao.
 license: MIT
 ---
 
 # Houmao Touring
 
-Use this Houmao skill only when the user explicitly asks for `houmao-touring` or clearly asks for a first-time guided Houmao tour. This is a manual guided tour skill, not the default entrypoint for ordinary direct-operation requests.
+`houmao-touring` is the Houmao-owned guide for users who are not yet familiar with Houmao. That includes first-run users, re-orienting operators, and developers inspecting system logic.
 
-`houmao-touring` is intentionally above the direct-operation skills. It inspects current Houmao state, explains the current posture in plain language, offers the next likely branches, and routes the selected work to the maintained Houmao-owned skill that owns that surface.
+Use this skill only when the user explicitly asks for:
 
-The trigger word `houmao` is intentional. Use the `houmao-touring` skill name directly when you intend to activate this Houmao-owned skill.
+| Trigger | Meaning |
+| --- | --- |
+| `$houmao-touring` | No-prompt orientation entrypoint. |
+| A Houmao guided tour | Start the guided tour. |
+| Houmao subsystem/component exploration | Explain Houmao by component area. |
 
-## Help
+A bare invocation such as `$houmao-touring` means "start orientation now".
 
-When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section before presenting the welcome, inspecting state, choosing a branch page, routing to another skill, command execution, or missing-input questions. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me tour this Houmao project", route to the guided tour instead of stopping at generic help.
+No-prompt behavior:
 
-Purpose: provide a manual guided Houmao tour that starts from current state and routes selected work to maintained direct-operation skills.
+| Do | Do Not |
+| --- | --- |
+| scan for existing Houmao project state. | Say only "the skill is now active." |
+| infer the user's likely starting intent from that state. | Ask "how can I help?" |
+| introduce Houmao in context. | Use any other empty open-ended greeting. |
+| provide next-step instructions. | Wait for the user to know Houmao vocabulary. |
 
-Available functionality:
+Never answer a bare invocation with only a generic activation acknowledgement.
 
-- Orient from current project, specialist, profile, managed-agent, mailbox, and gateway state.
-- Guide quickstart, setup, author-and-launch, live-operations, advanced-usage, and lifecycle-follow-up branches.
-- Explain likely next branches in first-time-user-friendly language.
-- Route actual work to the Houmao skill that owns the selected surface.
-
-Common starting prompts:
-
-- `$houmao-touring help`
-- `$houmao-touring start a guided tour`
-- `$houmao-touring orient me in this project`
-- `$houmao-touring show advanced usage options`
-
-Related skills and boundaries:
-
-- Use direct-operation skills such as `houmao-project-mgr`, `houmao-agent-definition`, `houmao-mailbox-mgr`, `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-inspect`, and `houmao-agent-instance` for ordinary narrow tasks.
-- Use `houmao-agent-loop-lite` or `houmao-agent-loop-pro` for current loop authoring and generated loop operation.
-- Use `houmao-adv-usage-pattern` for elemental multi-skill mailbox or gateway patterns.
-- Do not use this skill as the default entrypoint when the user did not ask for a guided tour.
-
-## Welcome Message
-
-When the user starts the guided tour, present a welcome message that adapts to the inspected current Houmao state. Keep the welcome user-facing and never imply that the user must restart from the beginning when Houmao state already exists. Do not repeat the welcome on every turn; if the recent conversation already covered it, skip it and proceed with the current-state orientation.
-
-### Full welcome (blank-slate workspace)
-
-Present the full welcome only when the workspace has no project overlay, no reusable specialists, and no running managed agents. Use the following baseline:
-
-Welcome to Houmao. Houmao is a framework and CLI toolkit for orchestrating teams of loosely coupled CLI-based AI agents such as Claude, Codex, and Gemini. Each agent is a real CLI process with its own disk state, memory, and native TUI; Houmao coordinates the team through reusable specialists, mailbox messaging, per-agent gateways, and loop plans.
-
-A typical first setup path is:
-
-1. Create or inspect a Houmao project and initialize the mailbox root.
-2. Create a specialist: customize its system prompt, choose the provider/tooling posture, and select credentials.
-3. Create an optional launch profile: set the agent name, working directory, launch defaults, and any extra system prompt customization.
-4. Set up and register the agent mail account.
-5. Launch the agent. The default tour posture is a visible TUI managed agent with a foreground gateway sidecar; when mailbox is ready, enable gateway mail-notifier polling every 5 seconds so the agent can process new mail.
-
-Start by checking what already exists here, then suggest the next likely branch instead of restarting from scratch.
-
-### Short acknowledgement (workspace already has state)
-
-Present a short one-to-two-sentence acknowledgement in place of the full welcome whenever the inspected workspace already has any of: a project overlay, one or more reusable specialists, one or more running managed agents. Follow it immediately with the current-state orientation and the offered next branches from the orient branch's posture-to-branch matrix. Do not push the user back into the full initial setup sequence in that case.
-
-## Scope
-
-This packaged skill covers a branching guided tour for:
-
-- current-state orientation
-- project overlay setup or inspection
-- project-local mailbox setup or inspection
-- specialist creation
-- optional easy-profile creation
-- easy-instance launch
-- post-launch prompt entry
-- post-launch read-only inspection or screen watching
-- ordinary mailbox send or read entry
-- gateway mail-notifier follow-up when a live gateway and mailbox are both ready
-- reminders
-- advanced loop creation guidance through `houmao-agent-loop-lite` or `houmao-agent-loop-pro`
-- managed-agent inspection, stop, relaunch, and cleanup follow-up
-
-This packaged skill does not cover:
-
-- ordinary direct-operation requests that the user did not ask to route through the tour
-- low-level command ownership for project, mailbox, specialist, messaging, gateway, loop-planning, or lifecycle actions
-- ad hoc filesystem editing under `.houmao/`, runtime, or mailbox paths
-- destructive cleanup as an automatic side effect of stop
+This skill teaches and routes. It does not own direct-operation command behavior.
 
 ## Workflow
 
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+Start here for every invocation. Use the first matching row before loading any branch file.
 
-1. Confirm that the user explicitly wants the guided touring experience instead of one narrow direct-operation task.
-2. Present the welcome message, including the typical first setup path, unless the recent conversation already covered it.
-3. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-4. Start from current-state orientation rather than assuming the tour begins at project initialization:
-   - inspect project posture through `houmao-mgr project status`
-   - inspect reusable specialists through `houmao-mgr project easy specialist list` or `houmao-mgr project easy specialist get --name <name>` when the branch needs them
-   - inspect reusable profiles through `houmao-mgr project easy profile list` or `houmao-mgr project easy profile get --name <name>` when the branch needs them
-   - inspect running managed agents through `houmao-mgr agents list`
-   - inspect one live managed agent through `houmao-mgr agents state`, `houmao-mgr agents gateway status`, or `houmao-mgr agents mail resolve-live` when the branch needs live capability
-5. Explain the current posture in plain language and offer the next likely branches.
-6. Load exactly one branch page for the next selected tour branch:
-   - `branches/orient.md`
-   - `branches/quickstart.md`
-   - `branches/setup-project-and-mailbox.md`
-   - `branches/author-and-launch.md`
-   - `branches/live-operations.md`
-   - `branches/advanced-usage.md`
-   - `branches/lifecycle-follow-up.md`
-7. Route execution to the maintained Houmao-owned skill that owns the selected branch.
-8. After that branch completes, summarize the new current state and offer the next likely branches again.
+Before workflow, answer explicit skill-help intent from `## Help` and stop.
+
+| Step | First Look | Use It To |
+| --- | --- | --- |
+| 1 | `## Help` | Answer explicit skill-help intent and stop. |
+| 2 | `## Entry Contract` | Classify every non-help request before command execution. |
+| 3 | `## No-Prompt Entrypoint` | Handle bare `$houmao-touring` and orientation requests with state inspection first. |
+| 4 | `### No-Prompt Choice Menu` | Choose blank-workspace or project-ready choices from inspected state. |
+| 5 | `## Coverage Model` | Map project-ready outcome requests to fast paths and check their project-overlay precondition. |
+| 6 | `## Branches` | Load exactly one named branch after the user selects a path. |
+| 7 | `## Routing Guidance` | Route concrete setup, runtime, mail, memory, loop, and lifecycle work to owning skills. |
+| 8 | `## Presentation Rules` | Report compactly as result, status, next choices, and required input. |
+
+Launcher order:
+
+| Order | Launcher |
+| --- | --- |
+| 1 | `houmao-mgr` on `PATH` |
+| 2 | `uv tool run --from houmao houmao-mgr` |
+| 3 | Development launcher only if the first two do not satisfy the turn |
+| User override | Follow an explicitly requested launcher |
+
+## Help
+
+When the user asks `$houmao-touring help`, `help for houmao-touring`, `usage for houmao-touring`, `available functionality for houmao-touring`, or what this skill can do, answer from this section and stop.
+
+This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state.
+
+Available functionality:
+
+| Lane | Best For | What It Covers |
+| --- | --- | --- |
+| Fast path use cases | Outcome-focused users | Learn Houmao by doing one useful end-to-end use case. |
+| Subsystem exploration | Developer-minded users | Inspect Houmao by component area and owning route. |
+
+Fast path use cases:
+
+| Use Case | Intent | Main Route |
+| --- | --- | --- |
+| Single Agent Full Run | Create and operate one fully functional managed agent. | Setup, definition, launch, gateway, mailbox, memory, inspection, and lifecycle work route to owning skills. |
+| Operator-Controlled Agent Team | Create multiple fully functional agents and control them manually. | Multi-agent setup and live operations route to owning skills. |
+| Pro Agent Loop | Define and construct a generated loop. | Generated loop construction routes through `houmao-agent-loop-pro`. |
+
+Common starting prompts:
+
+| Prompt | Intent |
+| --- | --- |
+| `$houmao-touring help` | Read-only help. |
+| `$houmao-touring` | Orientation request. |
+| `$houmao-touring start a guided tour` | Orientation request. |
+| `$houmao-touring orient me in this project` | Orientation request. |
+| `$houmao-touring help me find the right starting path` | Orientation request. |
+| `$houmao-touring create and operate one complete agent` | Single Agent Full Run. |
+| `$houmao-touring create a manually controlled agent team` | Operator-Controlled Agent Team. |
+| `$houmao-touring define a pro agent loop` | Pro Agent Loop. |
+| `$houmao-touring explore Houmao by subsystem` | Subsystem exploration. |
+
+Related skills and boundaries:
+
+| Boundary | Rule |
+| --- | --- |
+| Tour scope | Orient, teach nearby concepts, infer likely next path, and route. |
+| Direct work | Route project, credential, definition, runtime, gateway, mailbox, memory, inspection, lifecycle, workspace, and loop work to owning skills. |
+| Non-goal | Do not use touring as a broad skill catalog or default router for ordinary narrow requests. |
+
+## Entry Contract
+
+Classify the request before command execution.
+
+| Intent | Trigger Shape | First Action |
+| --- | --- | --- |
+| Help intent | User asks for help, usage, or available functionality. | Answer `## Help` and stop. |
+| Orientation request | User invokes `$houmao-touring` or asks to start/orient. | Inspect current state, infer likely intent, offer best path plus alternatives. |
+| Outcome request | User asks for one complete agent, a manual agent team, or a generated loop. | Inspect only safety-relevant state, then load `branches/fast-paths.md`. |
+| Subsystem-exploration request | User asks for subsystem, component, internal, or working-logic exploration. | Load `branches/subsystem-exploration.md`. |
+| Ordinary direct-operation request | User asks to create, launch, prompt, mail, inspect, stop, or clean up without asking for touring. | Do not activate touring; route to the owning skill. |
+
+For orientation and outcome requests, inspect current state before choosing a welcome shape or branch. For subsystem exploration, do not start the first-agent setup path by default.
+
+## No-Prompt Entrypoint
+
+Bare `$houmao-touring` is the system entrypoint for a user who may know nothing about Houmao.
+
+Required sequence:
+
+| Step | Action |
+| --- | --- |
+| 1 | Scan for existing Houmao project state. |
+| 2 | Infer likely user intent from inspected state. |
+| 3 | Introduce Houmao in the context of that state. |
+| 4 | Present current posture, likely intent, next choices, and required input. |
+| 5 | Wait for the user to confirm a path. |
+
+Scan:
+
+| Area | Inspection |
+| --- | --- |
+| Project | `houmao-mgr project status` |
+| Definitions | `houmao-mgr project specialist list`; `houmao-mgr project profile list` when project state exists |
+| Runtime | `houmao-mgr agents global list` |
+| Live control | gateway, mailbox, and memory posture only when the selected next path needs them |
+
+### Intent Guess Matrix
+
+| Inspected State | Likely Intent | First Choice |
+| --- | --- | --- |
+| No project overlay | The user needs project foundation before agent workflows. | Create Houmao Project. |
+| Project overlay exists, no specialists | The user is ready to define a launchable agent. | Single Agent Full Run, starting at agent definition. |
+| Specialists or profiles exist, no running agents | The user is likely ready to launch and operate. | Single Agent Full Run, starting at launch readiness. |
+| One running agent | The user likely wants to operate or inspect it. | Live operation choices inside Single Agent Full Run. |
+| Multiple running agents | The user may want manual coordination. | Operator-Controlled Agent Team. |
+| Existing loop artifacts or topology hints | The user may want generated orchestration. | Pro Agent Loop. |
+| Component/internal/working-logic wording | The user wants component understanding. | Subsystem Exploration. |
+
+The guess orders choices. It must not execute concrete setup, launch, prompt, mail, gateway, memory, lifecycle, workspace, or loop work without user confirmation.
+
+Fast paths are project-ready choices. If no Houmao project overlay exists, do not present `Single Agent Full Run`, `Operator-Controlled Agent Team`, or `Pro Agent Loop` as selectable no-prompt choices. Say those choices become available after project creation.
+
+### No-Prompt Response Shape
+
+Use a compact response with these parts:
+
+| Part | Content |
+| --- | --- |
+| Intro | One sentence: Houmao creates, runs, inspects, and coordinates CLI-based AI agents with managed runtime, gateway, mailbox, memory, and loop support. |
+| Current Posture | Compact project/definition/runtime/live-control status. |
+| Likely Intent | The inferred path and why it fits. |
+| Next Choices | Use the state-specific menu below. Without a project overlay, show exactly the three blank-workspace choices. With a project overlay, include the guessed path and `Subsystem Exploration` by name. |
+| Required Input | Ask the user to pick a path, say `inspect first`, or say `more detail`. |
+
+If inspection cannot run, report current posture as unknown and offer `inspect first` as the first choice.
+
+### No-Prompt Choice Menu
+
+For bare `$houmao-touring`, choose the menu from project posture. Adapt wording to the inspected state, but do not hide or rename `Subsystem Exploration`.
+
+Blank workspace, no Houmao project overlay:
+
+| Choice | Intent | User Can Say | Route |
+| --- | --- | --- | --- |
+| Create Houmao Project | Initialize the foundation required by agent workflows. | `create project` | `houmao-project-mgr` |
+| Subsystem Exploration | Understand Houmao by component area before creating state. | `subsystems` or a subsystem name | `branches/subsystem-exploration.md` |
+| Inspect | Show current directory, project, and runtime evidence without mutation. | `inspect` | Read-only inspection |
+
+In this state, show only these three choices. Do not show `Fast Path Use Cases`, `Single Agent Full Run`, `Operator-Controlled Agent Team`, or `Pro Agent Loop` until a Houmao project overlay exists.
+
+Project-ready workspace, Houmao project overlay exists:
+
+| Choice | Best For | User Can Say |
+| --- | --- | --- |
+| Continue Likely Path | Follow the state-based guess. | `continue` |
+| Fast Path Use Cases | Build useful Houmao workflows quickly. | `single agent`, `team`, or `pro loop` |
+| Subsystem Exploration | Understand Houmao by component area. | `subsystems` or a subsystem name |
+| Inspect First | See evidence before choosing. | `inspect first` |
+
+Do not collapse the project-ready menu into only fast path choices. If space is tight, keep the guessed path, `Subsystem Exploration`, and `inspect first`.
+
+### Subsystem Exploration Choices
+
+When the no-prompt entrypoint offers `Subsystem Exploration`, include a compact preview of component choices. Load `branches/subsystem-exploration.md` only after the user selects this path or names one subsystem.
+
+| Choice | Subsystems | Best For |
+| --- | --- | --- |
+| Project State | Project overlay, Agent definition | Where Houmao state lives and how agents become launchable. |
+| Runtime Control | Managed runtime, Gateway | How agents run, expose live control, and report lifecycle. |
+| Communication | Messaging, Mailbox | How prompts, operator mail, inter-agent mail, and notifier work connect. |
+| Context and Evidence | Memory, Inspection | How durable context and read-only evidence guide decisions. |
+| Multi-Agent Structure | Workspace, Loop orchestration | How isolated work areas and generated loops organize teams. |
+
+Keep this preview short. Use `more detail` or the branch page before expanding any subsystem.
+
+## Coverage Model
+
+| Lane | Purpose | Branch |
+| --- | --- | --- |
+| Fast path use cases | Outcome-driven routes for useful end-to-end work. | `branches/fast-paths.md` |
+| Subsystem exploration | Component-oriented explanation for system understanding. | `branches/subsystem-exploration.md` |
+
+Fast paths:
+
+Precondition: a Houmao project overlay must exist. If missing, route `Create Houmao Project` through `houmao-project-mgr`, then return to fast-path selection after project setup.
+
+| Use Case | Coverage |
+| --- | --- |
+| Single Agent Full Run | Project overlay, tool/credential readiness, specialist/profile setup, foreground-first launch, gateway, mailbox, notification, prompt, inspection, memory, reminders, lifecycle follow-up. |
+| Operator-Controlled Agent Team | Multiple agents, per-agent gateway/mailbox, prompts, mail, notifier, inspection, memory, reminders, lifecycle. |
+| Pro Agent Loop | `houmao-agent-loop-pro`, loop intent, roles, `tree-loop`/`generic-loop`, mailbox/runtime contracts, workspace preparation when needed, validation, launch, operation. |
+
+Stages are posture labels, not a fixed route:
+
+| Stage | Typical Nearby Work |
+| --- | --- |
+| Beginner | Project overlay, mailbox basics, tool/credential readiness, specialist/profile setup, launch, first prompt. |
+| Intermediate | Prompt, inspect, memo/pages, mailbox, gateway mail-notifier, reminders, manual coordination, lifecycle. |
+| Advanced | Pro loop, lite loop, topology choice, isolated workspace, generated loop operation. |
+
+## Presentation Rules
+
+| Rule | Instruction |
+| --- | --- |
+| Compact by default | Report only result, critical status, next choices, and required input. |
+| Tables | Prefer small Markdown tables for status and choices. Keep tables at four columns or fewer. |
+| Language | Use concise language. Focus on intent and current posture. |
+| Detail | Use `more detail` for command examples, raw evidence, passive server context, deeper TUI tracking behavior, or architecture detail. |
+| Ownership | Route by user intent. Do not duplicate detailed behavior, command syntax, options, or validation rules owned by other Houmao skills. |
+
+### Presentation Examples
+
+Operation result:
+
+| Area | Example Content |
+| --- | --- |
+| Result | What changed or what was learned. |
+| Status | The one or two state facts that matter now. |
+| Next | Nearby choices, routed by intent. |
+| Need | Input needed to continue, if any. |
+
+Blank-workspace branch choices:
+
+| Choice | Intent | Route |
+| --- | --- | --- |
+| Create Houmao Project | Create the project foundation needed by later agent workflows. | `houmao-project-mgr` |
+| Subsystem Exploration | Inspect Houmao by component area. | Load `branches/subsystem-exploration.md`. |
+| Inspect | Show current evidence without mutation. | Read-only inspection. |
+
+Project-ready branch choices:
+
+| Choice | Intent | Route |
+| --- | --- | --- |
+| Single Agent Full Run | Build and operate one complete agent. | Tour guides; concrete setup, launch, gateway, mail, memory, inspection, and lifecycle work route to owning skills. |
+| Operator-Controlled Agent Team | Build and manually control multiple complete agents. | Tour guides; per-agent setup and live operations route to owning skills. |
+| Pro Agent Loop | Generate a loop from roles and topology. | Route generated loop construction to `houmao-agent-loop-pro`. |
+| Subsystem Exploration | Inspect Houmao by component area. | Load `branches/subsystem-exploration.md`. |
+
+## Welcome and Orientation
+
+| State | Welcome Shape |
+| --- | --- |
+| Blank slate | Short Houmao intro, current posture, likely Create Houmao Project path, Subsystem Exploration, and Inspect. |
+| Existing state | One short acknowledgement, current posture, state-aware next choices. |
+| Recent welcome already given | Skip welcome; continue from current posture. |
+
+Full blank-slate intro:
+
+```text
+Welcome to Houmao. Houmao creates, runs, inspects, and coordinates CLI-based AI agents with managed runtime, gateway, mailbox, memory, and loop support.
+```
 
 ## Branches
 
-- Read [branches/orient.md](branches/orient.md) to inspect current Houmao posture and present the next likely tour branches from the posture-to-branch routing table.
-- Read [branches/quickstart.md](branches/quickstart.md) when the user wants a minimum-viable path to one running managed agent; the branch detects available host tool CLIs and routes authoring and launch through the maintained skills.
-- Read [branches/setup-project-and-mailbox.md](branches/setup-project-and-mailbox.md) when the user wants project overlay setup or optional project-local mailbox setup.
-- Read [branches/author-and-launch.md](branches/author-and-launch.md) when the user wants to create specialists or profiles, or launch another agent.
-- Read [branches/live-operations.md](branches/live-operations.md) when the user wants to prompt a running agent, inspect live state or screen posture, send mailbox work, enable automatic mailbox polling through the gateway, or create reminders.
-- Read [branches/advanced-usage.md](branches/advanced-usage.md) when the user wants a flat enumeration of the broader advanced Houmao feature surface, including lite loop authoring, pro loop authoring, advanced-usage patterns, memory, gateway extras, credential management, and low-level agent definition.
-- Read [branches/lifecycle-follow-up.md](branches/lifecycle-follow-up.md) when the user wants to inspect, stop, relaunch, or clean up managed-agent sessions.
+| Branch | Use |
+| --- | --- |
+| `branches/orient.md` | Current posture and stage-aware action table. |
+| `branches/fast-paths.md` | Single Agent Full Run, Operator-Controlled Agent Team, Pro Agent Loop. |
+| `branches/subsystem-exploration.md` | Component-minded subsystem exploration. |
+| `branches/quickstart.md` | Old quickstart wording; prefer Single Agent Full Run for complete fast path. |
+| `branches/setup-project-and-mailbox.md` | Project overlay or mailbox basics. |
+| `branches/author-and-launch.md` | Specialist/profile authoring or launching another agent. |
+| `branches/live-operations.md` | Prompt, memo, mailbox, notifier, gateway, reminder, inspection, manual coordination. |
+| `branches/advanced-usage.md` | Loop-lite, loop-pro tree/generic mode, isolated workspace guidance. |
+| `branches/lifecycle-follow-up.md` | Inspect, stop, relaunch, join/adopt, cleanup follow-up. |
 
 ## References
 
-- Read [references/question-style.md](references/question-style.md) when the tour needs to ask for user input in a first-time-user-friendly way with explanations, examples, and recommended defaults or skip options.
-- Read [references/concepts.md](references/concepts.md) when the tour needs a compact self-contained glossary for the vocabulary used across branches (specialist, easy profile, launch profile, managed agent, recipe, tool adapter, gateway, gateway sidecar, mailbox root, mailbox account, principal id, user agent, master, loop plan, relaunch, cleanup).
+| Reference | Use |
+| --- | --- |
+| `references/question-style.md` | User-input questions with required/optional fields and examples. |
+| `references/concepts.md` | Short vocabulary: specialist, profile, managed agent, gateway, mailbox, notifier round, memory, loop, workspace, relaunch, cleanup. |
 
 ## Routing Guidance
 
-- Route project overlay setup or explanation to `houmao-project-mgr`.
-- Route mailbox administration to `houmao-mailbox-mgr`.
-- Route specialist or profile authoring, `create-agent-fast-forward`, and easy-instance launch to `houmao-agent-definition`.
-- Route generic managed-agent inspection, live screen watching, mailbox-posture inspection, and runtime artifact inspection to `houmao-agent-inspect`.
-- Route ordinary prompt or mailbox-routing entry for running agents to `houmao-agent-messaging`.
-- Route gateway watch, gateway mail-notifier, and reminder work to `houmao-agent-gateway`.
-- Route ordinary mailbox send, read, reply, or archive follow-up to `houmao-agent-email-comms`.
-- Route lightweight Markdown/direct-SQL loop authoring, validation, and generated loop execution to `houmao-agent-loop-lite` when the user explicitly asks for lite or no-harness Markdown loops.
-- Route schema-rich loop authoring, generated execplan validation, topology-heavy planning, and generated loop execution to `houmao-agent-loop-pro`.
-- Present tree-loop and generic-loop as topology choices inside `houmao-agent-loop-pro`, not as separate skill packages.
-- Route elemental immediate driver-worker edge protocol details to `houmao-adv-usage-pattern`, not to the touring skill.
-- Route stop, relaunch, and cleanup follow-up to `houmao-agent-instance`.
+| Intent | Owning Skill |
+| --- | --- |
+| Project overlay setup/explanation | `houmao-project-mgr` |
+| Mailbox root/account/admin | `houmao-mailbox-mgr` |
+| Credential readiness/content | `houmao-credential-mgr` |
+| Specialist/profile/launch dossier/easy launch | `houmao-agent-definition` |
+| Runtime inspection/evidence | `houmao-agent-inspect` |
+| Prompt/interrupt/raw input/mailbox-routing entry | `houmao-agent-messaging` |
+| Gateway lifecycle/watch/mail-notifier/reminders | `houmao-agent-gateway` |
+| Mail send/read/reply/post/archive | `houmao-agent-email-comms` |
+| One gateway-notified open-mail round | `houmao-process-emails-via-gateway` |
+| Memo/pages/memo seed | `houmao-memory-mgr` |
+| Lite loop authoring/execution | `houmao-agent-loop-lite` |
+| Pro loop authoring/topology/execution | `houmao-agent-loop-pro` |
+| Isolated workspace planning/creation/validation | `houmao-utils-workspace-mgr` |
+| Elemental coordination pattern | `houmao-adv-usage-pattern` |
+| Stop/relaunch/join/adopt/list/cleanup | `houmao-agent-instance` |
+
+Present `tree-loop` and `generic-loop` as topology choices inside `houmao-agent-loop-pro`, not as separate skill packages.
 
 ## Guardrails
 
-- Do not activate `houmao-touring` unless the user explicitly asked for the guided tour experience.
-- Do not force a linear step order or restart the user from project initialization when current Houmao state already exists.
-- Do not claim ownership of the direct-operation command shapes that belong to the maintained Houmao skill families.
-- Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...` commands; reusable specialist and profile inspection lives under `houmao-mgr project easy ...`.
-- Do not collapse stop, relaunch, and cleanup into one vague “manage agent” action.
-- Do not ask terse operator-style missing-input questions when the tour needs first-time-user guidance; use the question-style reference instead.
-- Do not route current loop planning or generated loop run-control requests to retired loop packages.
-- Do not restate composed tree loop topology, run-control details, typed-template rules, direct-SQL state rules, or elemental local-close edge-loop protocol inline; keep generated loop planning on `houmao-agent-loop-lite` or `houmao-agent-loop-pro` and elemental patterns on `houmao-adv-usage-pattern`.
-- Do not auto-run cleanup after stop or treat cleanup as safe for a live session.
-- Do not reference paths outside `src/houmao/agents/assets/system_skills/houmao-touring/` from any touring content. The packaged touring skill ships through pypi as part of the Houmao distribution, so paths under `examples/`, `docs/`, `magic-context/`, `openspec/`, or any other development-repository-only location are not reachable after `pip install` and SHALL NOT be cited by `SKILL.md`, any file under `branches/`, any file under `references/`, or any future file added to the packaged asset directory.
+| Guardrail | Rule |
+| --- | --- |
+| Activation | Do not activate unless the user explicitly asked for touring. |
+| Catalog | Do not turn the tour into a full packaged-skill catalog. |
+| State | Never restart from project initialization when current state exists. |
+| Order | Inspect current state before welcome selection for orientation and outcome requests. |
+| Ownership | Do not claim direct-operation command shapes. |
+| Commands | Do not invent top-level `houmao-mgr easy ...` or `houmao-mgr specialists ...`; reusable definitions live under `houmao-mgr project ...`. |
+| Lifecycle | Keep stop, relaunch, and cleanup separate; never auto-run cleanup after stop. |
+| Loops/workspaces | Keep loop topology, run-control, direct-SQL, workspace, and elemental protocol details on owning skills. |
+| Packaging | Keep packaged touring content self-contained; do not reference development-repository-only paths. |

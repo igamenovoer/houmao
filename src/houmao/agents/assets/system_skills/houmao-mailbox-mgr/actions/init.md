@@ -12,10 +12,8 @@ Use this action only when the user wants to bootstrap or validate one filesystem
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox init [--mailbox-root <path>]
+```bash
+<chosen houmao-mgr launcher> mailbox init [--mailbox-root <root>]
 <chosen houmao-mgr launcher> project mailbox init
 ```
 

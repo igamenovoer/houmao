@@ -1,0 +1,15 @@
+# State
+
+## Purpose
+
+Direct SQLite state contract for the lite loop.
+
+## Contents
+
+- `schema.sql`: SQLite schema authority.
+
+## Usage
+
+- Initialize `runs/<run-id>/state.sqlite3` from `schema.sql`.
+- Use short transactions; prefer `BEGIN IMMEDIATE` for serialized writes.
+- Store compact facts and refs, not full mail bodies or long rationale.

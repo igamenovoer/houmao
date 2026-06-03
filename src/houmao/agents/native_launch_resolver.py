@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 from houmao.agents.definition_parser import AgentPreset, load_agent_catalog, resolve_agent_preset
+from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.project.overlay import PROJECT_DIRNAME, resolve_materialized_project_aware_agent_def_dir
 
 _TOOL_BY_PROVIDER: dict[str, str] = {
@@ -61,6 +63,12 @@ def resolve_effective_agent_def_dir(
 
     if agent_def_dir is not None:
         return agent_def_dir.resolve()
+    env_agent_def_dir = os.environ.get(AGENT_DEF_DIR_ENV_VAR)
+    if env_agent_def_dir is not None and env_agent_def_dir.strip():
+        resolved_env_agent_def_dir = Path(env_agent_def_dir).expanduser()
+        if not resolved_env_agent_def_dir.is_absolute():
+            raise ValueError(f"`{AGENT_DEF_DIR_ENV_VAR}` must be an absolute path.")
+        return resolved_env_agent_def_dir.resolve()
     return resolve_materialized_project_aware_agent_def_dir(cwd=working_directory.resolve())
 
 

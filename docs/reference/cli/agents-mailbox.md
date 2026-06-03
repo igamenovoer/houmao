@@ -1,10 +1,14 @@
-# houmao-mgr agents mailbox
+# houmao-mgr agents single/self mailbox
 
 Late filesystem mailbox registration for local managed agents. These commands register, inspect, or remove filesystem mailbox bindings on existing local managed agents without requiring relaunch.
 
 ```
-houmao-mgr agents mailbox [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-id <id> mailbox [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents single --agent-name <name> mailbox [OPTIONS] COMMAND [ARGS]...
+houmao-mgr agents self mailbox [OPTIONS] COMMAND [ARGS]...
 ```
+
+`agents single ... mailbox` uses the group-level selected-agent target. `agents self mailbox` targets the current registered managed tmux session and accepts no explicit selector.
 
 ## Commands
 
@@ -13,7 +17,7 @@ houmao-mgr agents mailbox [OPTIONS] COMMAND [ARGS]...
 Register one filesystem mailbox binding for an existing local managed agent.
 
 ```
-houmao-mgr agents mailbox register [OPTIONS]
+houmao-mgr agents single --agent-id <id> mailbox register [OPTIONS]
 ```
 
 | Option | Description |
@@ -23,8 +27,6 @@ houmao-mgr agents mailbox register [OPTIONS]
 | `--address TEXT` | Optional full mailbox address override. Defaults to the ordinary mailbox address derived from the managed-agent identity, such as `research@houmao.localhost`. |
 | `--mode [safe\|force\|stash]` | Filesystem mailbox registration mode. Default: `safe`. |
 | `--yes` | Confirm destructive replacement without prompting. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix. |
 
 When `register` would replace existing shared mailbox state, it prompts before destructive replacement on interactive terminals. In automation or other non-interactive contexts, rerun with `--yes` to confirm the overwrite explicitly.
 
@@ -35,40 +37,36 @@ When both `--principal-id` and `--address` are omitted for an ordinary managed a
 Remove one filesystem mailbox binding from an existing local managed agent.
 
 ```
-houmao-mgr agents mailbox unregister [OPTIONS]
+houmao-mgr agents single --agent-id <id> mailbox unregister [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
 | `--mode [deactivate\|purge]` | Filesystem mailbox deregistration mode. Default: `deactivate`. |
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ### `status`
 
 Report late mailbox registration posture for one local managed agent.
 
 ```
-houmao-mgr agents mailbox status [OPTIONS]
+houmao-mgr agents single --agent-id <id> mailbox status [OPTIONS]
 ```
 
 | Option | Description |
 |---|---|
-| `--agent-id TEXT` | Authoritative managed-agent id. |
-| `--agent-name TEXT` | Raw creation-time friendly managed-agent name. |
 
 ## Workflow
 
 The preferred local serverless mailbox workflow is:
 
 1. `houmao-mgr mailbox init`
-2. `houmao-mgr agents launch ...` or `houmao-mgr agents join ...`
-3. `houmao-mgr agents mailbox register --agent-name <name>`
-4. `houmao-mgr agents mail ...`
+2. `houmao-mgr project agents launch ...` or `houmao-mgr agents self join ...`
+3. `houmao-mgr agents single --agent-name <name> mailbox register`
+4. `houmao-mgr agents single --agent-name <name> mail ...` or `houmao-mgr agents self mail ...`
 
 When you run that flow from a repo with an active `.houmao/` overlay, steps 1 and 3 now default to `<active-overlay>/mailbox`. Use `--mailbox-root` or `HOUMAO_GLOBAL_MAILBOX_DIR` only when you intentionally want a different mailbox authority.
 
-For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents join`, `agents mailbox register` and `agents mailbox unregister` update the durable manifest-backed mailbox binding without requiring relaunch. That remains true even when a joined session is controllable but non-relaunchable, as long as Houmao can still update the session manifest and validate the resulting mailbox binding safely.
+For supported tmux-backed managed sessions, including sessions adopted through `houmao-mgr agents self join`, scoped mailbox `register` and `unregister` commands update the durable manifest-backed mailbox binding without requiring relaunch. That remains true even when a joined session is controllable but non-relaunchable, as long as Houmao can still update the session manifest and validate the resulting mailbox binding safely.
 
 ## See Also
 

@@ -165,3 +165,4 @@ The join workflow SHALL NOT silently move, rename, or reindex operator-owned tmu
 - **WHEN** an operator runs `houmao-mgr agents join --agent-name coder` inside a tmux session that has no window `0`, pane `0`
 - **THEN** the command fails with an explicit adoption-authority error
 - **AND THEN** it does not move another window or pane into the primary slot as part of join
+

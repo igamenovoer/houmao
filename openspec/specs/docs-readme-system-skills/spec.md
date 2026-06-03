@@ -197,7 +197,6 @@ At minimum the table SHALL include one row for each of the following skills curr
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 - `houmao-adv-usage-pattern`
-- `houmao-utils-llm-wiki`
 - `houmao-utils-workspace-mgr`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
@@ -231,18 +230,6 @@ The row for `houmao-agent-loop-pairwise-v4` SHALL describe it as the template-dr
 - **WHEN** a reader opens the README "System Skills" subsection
 - **THEN** the table contains `houmao-utils-workspace-mgr`
 - **AND THEN** the row describes the skill as a utility for planning and executing multi-agent workspace layouts before launch
-
-#### Scenario: Pairwise-v3 is surfaced in the README catalog
-- **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains `houmao-agent-loop-pairwise-v3`
-- **AND THEN** the row describes the skill as the workspace-aware pairwise loop authoring and run-control skill
-- **AND THEN** the row is placed immediately adjacent to `houmao-agent-loop-pairwise-v2` so the v1 / v2 / v3 progression is visually obvious
-
-#### Scenario: Pairwise-v4 is surfaced in the README catalog
-- **WHEN** a reader opens the README "System Skills" subsection
-- **THEN** the table contains `houmao-agent-loop-pairwise-v4`
-- **AND THEN** the row describes the skill as the template-driven successor for strict generated document templates and coverage audits
-- **AND THEN** the row is placed immediately adjacent to `houmao-agent-loop-pairwise-v3` so the v1 / v2 / v3 / v4 progression is visually obvious
 
 ### Requirement: README auto-install wording includes all pairwise variants when `core` includes them
 When the README describes the managed-home or CLI-default system-skill expansions, that wording SHALL include every pairwise loop-skill variant currently packaged in the `core` set of `src/houmao/agents/assets/system_skills/catalog.toml`.
@@ -299,7 +286,7 @@ The README "CLI Entry Points" subsection SHALL either list `houmao-mgr credentia
 #### Scenario: Operator discovers credentials from the README entry point view
 - **WHEN** an operator reads the README "CLI Entry Points" table
 - **THEN** the page either shows `houmao-mgr credentials` in the table or surfaces it in a neighboring paragraph with a cross-link to the CLI reference section
-- **AND THEN** the reader is not forced to read the narrower `project easy` examples to discover that a first-class credential-management surface exists
+- **AND THEN** the reader is not forced to read the narrower `project` examples to discover that a first-class credential-management surface exists
 
 ### Requirement: README surfaces internals graph as a discoverable command group
 
@@ -336,23 +323,6 @@ The five skills identified SHALL be `houmao-agent-loop-pairwise`, `houmao-agent-
 - **THEN** that sentence says five, not four
 - **AND THEN** the table or list shows `houmao-agent-loop-pairwise-v4` alongside the other four loop skills
 
-### Requirement: README system-skills table lists the LLM Wiki utility skill
-The README "System Skills: Agent Self-Management" subsection SHALL document `houmao-utils-llm-wiki` as one of the packaged Houmao-owned system skills.
-
-The README row SHALL describe the skill as an explicit utility for persistent Markdown LLM Wiki knowledge bases, including scaffold, ingest, compile, query, lint, audit, and local viewer workflows.
-
-The README SHALL explain that `houmao-utils-llm-wiki` is not part of managed-home auto-install or CLI-default install selections and must be selected with `--skill-set utils` or `--skill houmao-utils-llm-wiki`.
-
-#### Scenario: Reader sees the LLM Wiki utility in the README catalog
-- **WHEN** a reader scans the README system-skills table
-- **THEN** they find `houmao-utils-llm-wiki`
-- **AND THEN** the row describes persistent Markdown knowledge-base workflows
-
-#### Scenario: Reader sees explicit utility install examples
-- **WHEN** a reader scans the README system-skills install examples
-- **THEN** they can find an example using `--skill-set utils` or `--skill houmao-utils-llm-wiki`
-- **AND THEN** the README does not imply that the utility skill is installed by default
-
 ### Requirement: README explains current core and all set surface
 The README system-skills subsection SHALL explain that the current installable named sets are `core` and `all`.
 
@@ -378,19 +348,19 @@ The README SHALL distinguish `houmao-utils-workspace-mgr` from lifecycle skills 
 - **AND THEN** the entry describes workspace preparation rather than live managed-agent lifecycle operation
 
 ### Requirement: README system-skill prose describes unified agent definition
-README system-skill prose SHALL describe `houmao-agent-definition` as the canonical skill for low-level roles and recipes, `raw-profiles`, specialists, easy `profiles`, and `create-agent-fast-forward`.
+README system-skill prose SHALL describe `houmao-agent-definition` as the canonical skill for low-level roles and recipes, `launch-dossiers`, specialists, easy `profiles`, and `create-agent-fast-forward`.
 
 README prose SHALL NOT present `houmao-specialist-mgr` as the current independent canonical specialist-management skill after the unification.
 
 #### Scenario: README user-control inventory is not split by specialist manager
 - **WHEN** a reader checks the README system-skill inventory
 - **THEN** the reader sees `houmao-agent-definition` covering both low-level and easy agent-definition workflows
-- **AND THEN** the README does not require the reader to choose `houmao-specialist-mgr` for ordinary specialist or easy-profile authoring
+- **AND THEN** the README does not require the reader to choose `houmao-specialist-mgr` for ordinary specialist or project-profile authoring
 
 #### Scenario: README names default profile terminology
 - **WHEN** a reader checks the README system-skill inventory for profile authoring
-- **THEN** easy-profile authoring is named as `profiles`
-- **AND THEN** low-level recipe-backed profiles are named as `raw-profiles`
+- **THEN** project-profile authoring is named as `profiles`
+- **AND THEN** low-level recipe-backed profiles are named as `launch-dossiers`
 
 ### Requirement: README system-skills narrative lists pro as the loop skill
 The README system-skills sections SHALL list `houmao-agent-loop-pro` as the current packaged loop skill.
@@ -467,3 +437,4 @@ The README SHALL distinguish skill-level help from the `houmao-mgr system-skills
 - **THEN** they see that installed skills can answer explicit read-only help requests
 - **AND THEN** they see at least one `$<skill> help` example
 - **AND THEN** the README does not imply that help runs commands or mutates Houmao state
+

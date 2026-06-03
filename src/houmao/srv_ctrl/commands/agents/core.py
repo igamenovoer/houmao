@@ -50,6 +50,12 @@ from houmao.agents.native_launch_resolver import (
     resolve_native_launch_target,
     resolve_preset_owner_agent_def_dir,
 )
+from houmao.agents.system_skills import (
+    PROFILE_SYSTEM_SKILL_POLICY_MODES,
+    SystemSkillError,
+    SystemSkillSelectionPolicy,
+    parse_system_skill_selection_policy,
+)
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
@@ -107,6 +113,7 @@ from houmao.project.launch_profiles import (
 from houmao.server.tui.process import PaneProcessInspector
 
 from .cleanup import cleanup_group
+from .external import external_group
 from .gateway import (
     _require_current_tmux_session_name,
     _resolve_current_session_agent_def_dir,
@@ -115,15 +122,19 @@ from .gateway import (
 )
 from .mail import mail_group
 from .mailbox import mailbox_group
+from .scopes import clone_scoped_command_tree
 from .turn import turn_group
 from .workspace import memory_group
 from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
+    ManagedAgentScopeContext,
+    get_managed_agent_scope_context,
     managed_agent_selector_options,
     managed_launch_force_option,
     pair_port_option,
     resolve_prompt_text,
     resolve_managed_agent_selector,
+    set_managed_agent_scope_context,
 )
 from ..output import emit
 from ..project_aware_wording import (
@@ -144,9 +155,11 @@ from ..managed_agents import (
     ManagedAgentTarget,
     interrupt_managed_agent,
     list_managed_agents,
+    managed_agent_identity_payload,
     managed_agent_state_payload,
     prompt_managed_agent,
     relaunch_managed_agent,
+    resolve_current_session_managed_agent_target,
     resolve_relaunch_managed_agent_target,
     resolve_managed_agent_target,
     stop_managed_agent,
@@ -293,7 +306,7 @@ def _load_managed_predecessor_home_context(
         raise RuntimeError(
             "Managed preserved-home launch only supports locally owned agents. "
             f"Managed agent `{managed_launch_identity.agent_name}` is currently owned by "
-            "`houmao-server`."
+            "retired backend `houmao_server_rest`."
         )
     if require_same_tool and record.identity.tool != requested_tool:
         raise RuntimeError(
@@ -557,7 +570,7 @@ def _parse_stored_launch_profile_mailbox_or_click(
     try:
         return parse_declarative_mailbox_config(
             payload,
-            source=f"launch profile `{profile_name}`",
+            source=f"launch dossier `{profile_name}`",
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -589,6 +602,24 @@ def _resolve_operator_prompt_mode_or_click(
             "`unattended`."
         )
     return cast(OperatorPromptMode, value)
+
+
+def _resolve_launch_profile_system_skill_policy_or_click(
+    payload: object,
+    *,
+    source: str,
+) -> SystemSkillSelectionPolicy | None:
+    """Return one stored launch-profile system-skill policy or fail as Click error."""
+
+    try:
+        return parse_system_skill_selection_policy(
+            payload,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source=source,
+        )
+    except SystemSkillError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _managed_header_section_overrides_from_options(
@@ -734,6 +765,7 @@ def launch_managed_agent_locally(
     launch_profile_mail_notifier_appendix_text: str | None = None,
     launch_profile_registered_skill_names: tuple[str, ...] = (),
     launch_profile_private_skills: tuple[Any, ...] = (),
+    launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None,
     force_mode: str | None = None,
     reuse_home: bool = False,
 ) -> LocalManagedAgentLaunchResult:
@@ -762,8 +794,13 @@ def launch_managed_agent_locally(
     memo_seed_application: LaunchProfileMemoSeedApplication | None = None
     try:
         if resolved_source_agent_def_dir is None and _is_path_like_launch_selector(agents):
-            invocation_agent_def_dir = resolve_effective_agent_def_dir(
-                working_directory=resolved_source_working_directory
+            selector_path = Path(agents).expanduser()
+            invocation_agent_def_dir = (
+                resolved_source_working_directory
+                if selector_path.is_absolute()
+                else resolve_effective_agent_def_dir(
+                    working_directory=resolved_source_working_directory
+                )
             )
             preset_path = resolve_explicit_or_named_preset_path(
                 agent_def_dir=invocation_agent_def_dir,
@@ -800,9 +837,7 @@ def launch_managed_agent_locally(
             target.preset.skills,
             launch_profile_registered_skill_names,
         )
-        private_skill_projections = _coerce_private_skill_projections(
-            launch_profile_private_skills
-        )
+        private_skill_projections = _coerce_private_skill_projections(launch_profile_private_skills)
         effective_launch_profile_provenance = _with_launch_profile_skill_provenance(
             launch_profile_provenance=launch_profile_provenance,
             registered_skill_names=launch_profile_registered_skill_names,
@@ -869,6 +904,12 @@ def launch_managed_agent_locally(
                 preset_model_config=getattr(target.preset, "launch_model_config", None),
                 launch_profile_model_config=launch_profile_model_config,
                 direct_model_config=direct_model_config,
+                source_system_skill_policy=getattr(
+                    target.preset,
+                    "launch_system_skill_policy",
+                    None,
+                ),
+                launch_profile_system_skill_policy=launch_profile_system_skill_policy,
                 operator_prompt_mode=operator_prompt_mode or target.preset.operator_prompt_mode,
                 persistent_env_records=effective_persistent_env_records,
                 mailbox=declared_mailbox or target.preset.mailbox,
@@ -1059,7 +1100,168 @@ def emit_local_launch_completion(
 
 @click.group(name="agents")
 def agents_group() -> None:
-    """Managed-agent operations across local runtime and `houmao-server` backends."""
+    """Managed-agent operations split by global, single, self, and external scope."""
+
+
+@click.group(name="global")
+def agents_global_group() -> None:
+    """Zero-or-many local managed-agent registry and fleet operations."""
+
+
+@click.group(name="single")
+@click.option("--agent-id", default=None, help="Authoritative managed-agent id.")
+@click.option(
+    "--agent-name",
+    default=None,
+    help="Raw creation-time friendly managed-agent name. Do not include the `HOUMAO-` prefix.",
+)
+@click.pass_context
+def agents_single_group(
+    ctx: click.Context,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Operations for exactly one explicitly selected local managed agent."""
+
+    selected_agent_id, selected_agent_name = resolve_managed_agent_selector(
+        agent_id=agent_id,
+        agent_name=agent_name,
+    )
+    set_managed_agent_scope_context(
+        ctx=ctx,
+        scope_context=ManagedAgentScopeContext(
+            scope="single",
+            agent_id=selected_agent_id,
+            agent_name=selected_agent_name,
+        ),
+    )
+
+
+@click.group(name="self")
+@click.pass_context
+def agents_self_group(ctx: click.Context) -> None:
+    """Operations for the managed agent held by the caller's current tmux session."""
+
+    set_managed_agent_scope_context(
+        ctx=ctx,
+        scope_context=ManagedAgentScopeContext(scope="self"),
+    )
+
+
+@agents_self_group.command(name="identity")
+def self_identity_agent_command() -> None:
+    """Show the current managed tmux-session identity."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(managed_agent_identity_payload(target))
+
+
+@agents_self_group.command(name="state")
+def self_state_agent_command() -> None:
+    """Show the operational summary for the current managed tmux session."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(
+        managed_agent_state_payload(target),
+        plain_renderer=render_agent_state_plain,
+        fancy_renderer=render_agent_state_fancy,
+    )
+
+
+@agents_self_group.command(name="prompt")
+@click.option(
+    "--prompt",
+    default=None,
+    help="Prompt text to submit. If omitted, piped stdin is used.",
+)
+@click.option(
+    "--model",
+    default=None,
+    help="Request-scoped headless execution model override.",
+)
+@click.option(
+    "--reasoning-level",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Request-scoped headless tool/model-specific reasoning preset index override (>=0).",
+)
+def self_prompt_agent_command(
+    prompt: str | None,
+    model: str | None,
+    reasoning_level: int | None,
+) -> None:
+    """Submit the default prompt path to the current managed tmux session."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(
+        prompt_managed_agent(
+            target,
+            prompt=resolve_prompt_text(prompt=prompt),
+            model=model,
+            reasoning_level=reasoning_level,
+        )
+    )
+
+
+@agents_self_group.command(name="interrupt")
+def self_interrupt_agent_command() -> None:
+    """Interrupt the current managed tmux session."""
+
+    target = resolve_current_session_managed_agent_target()
+    emit(interrupt_managed_agent(target))
+
+
+@agents_self_group.command(name="relaunch")
+@click.option(
+    "--chat-session-mode",
+    type=click.Choice(_RELAUNCH_CHAT_SESSION_MODES),
+    default=None,
+    help=(
+        "Provider chat-session policy for this relaunch: new, tool_last_or_new, or exact. "
+        "Omitting the flag uses the launch-profile relaunch policy when present, otherwise new."
+    ),
+)
+@click.option(
+    "--chat-session-id",
+    default=None,
+    help="Provider chat-session id to resume when --chat-session-mode exact is selected.",
+)
+def self_relaunch_agent_command(
+    chat_session_mode: str | None,
+    chat_session_id: str | None,
+) -> None:
+    """Refresh the active tmux-backed surface for the current managed session."""
+
+    relaunch_chat_session = _resolve_relaunch_chat_session_selection_or_click(
+        mode=chat_session_mode,
+        session_id=chat_session_id,
+    )
+    session_name = _require_current_tmux_session_name()
+    resolution = _resolve_current_session_manifest(session_name=session_name)
+    agent_def_dir = _resolve_current_session_agent_def_dir(
+        session_name=session_name,
+        registry_record=resolution.registry_record,
+    )
+    controller = resume_runtime_session(
+        agent_def_dir=agent_def_dir,
+        session_manifest_path=resolution.manifest_path,
+    )
+    result = (
+        controller.relaunch(chat_session=relaunch_chat_session)
+        if relaunch_chat_session is not None
+        else controller.relaunch()
+    )
+    emit(
+        {
+            "success": result.status == "ok",
+            "tracked_agent_id": (
+                controller.agent_id
+                or controller.agent_identity
+                or controller.manifest_path.parent.name
+            ),
+            "detail": result.detail,
+        }
+    )
 
 
 @agents_group.command(name="launch")
@@ -1183,6 +1385,7 @@ def launch_agents_command(
     launch_profile_mail_notifier_appendix_text: str | None = None
     launch_profile_registered_skill_names: tuple[str, ...] = ()
     launch_profile_private_skills: tuple[Any, ...] = ()
+    launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
     gateway_auto_attach = False
     gateway_host = None
     gateway_port = None
@@ -1207,7 +1410,7 @@ def launch_agents_command(
         overlay = project_roots.project_overlay
         if overlay is None:
             raise click.ClickException(
-                "No project overlay is available for `agents launch --launch-profile`; "
+                "No project overlay is available for `project agents launch --profile`; "
                 "select an existing project overlay first."
             )
         try:
@@ -1219,8 +1422,8 @@ def launch_agents_command(
             raise click.ClickException(str(exc)) from exc
         if resolved_profile.entry.profile_lane != "launch_profile":
             raise click.ClickException(
-                f"Launch profile `{resolved_profile.entry.name}` is not an explicit "
-                "recipe-backed launch profile."
+                f"Selected profile `{resolved_profile.entry.name}` is not a native "
+                "recipe-backed launch dossier."
             )
         if (
             not resolved_profile.source_exists
@@ -1228,7 +1431,7 @@ def launch_agents_command(
             or resolved_profile.provider is None
         ):
             raise click.ClickException(
-                f"Launch profile `{resolved_profile.entry.name}` references unavailable recipe "
+                f"Native launch dossier `{resolved_profile.entry.name}` references unavailable recipe "
                 f"`{resolved_profile.entry.source_name}`."
             )
 
@@ -1240,7 +1443,7 @@ def launch_agents_command(
             resolved_working_directory = Path(resolved_profile.entry.workdir).expanduser().resolve()
         operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
             resolved_profile.entry.operator_prompt_mode,
-            source=f"launch profile `{resolved_profile.entry.name}`",
+            source=f"launch dossier `{resolved_profile.entry.name}`",
         )
         persistent_env_records = dict(resolved_profile.entry.env_payload)
         launch_profile_model_config = normalize_model_config(
@@ -1249,7 +1452,7 @@ def launch_agents_command(
         )
         launch_profile_managed_header_policy = normalize_managed_header_policy(
             resolved_profile.entry.managed_header_policy,
-            source=f"launch profile `{resolved_profile.entry.name}`",
+            source=f"launch dossier `{resolved_profile.entry.name}`",
         )
         launch_profile_managed_header_section_policy = dict(
             getattr(resolved_profile.entry, "managed_header_section_policy", {})
@@ -1260,6 +1463,10 @@ def launch_agents_command(
             getattr(resolved_profile.entry, "registered_skill_names", ())
         )
         launch_profile_private_skills = tuple(getattr(resolved_profile, "private_skills", ()))
+        launch_profile_system_skill_policy = _resolve_launch_profile_system_skill_policy_or_click(
+            getattr(resolved_profile.entry, "system_skills_payload", {}),
+            source=f"launch dossier `{resolved_profile.entry.name}` system_skills",
+        )
         launch_profile_provenance = {
             "name": resolved_profile.entry.name,
             "lane": resolved_profile.entry.profile_lane,
@@ -1287,6 +1494,9 @@ def launch_agents_command(
                 else {"present": False}
             ),
         }
+        system_skills_payload = getattr(resolved_profile.entry, "system_skills_payload", {})
+        if system_skills_payload:
+            launch_profile_provenance["system_skills"] = dict(system_skills_payload)
         relaunch_payload = launch_profile_relaunch_payload(resolved_profile)
         if relaunch_payload:
             launch_profile_provenance["relaunch"] = relaunch_payload
@@ -1315,7 +1525,7 @@ def launch_agents_command(
             resolved_provider = resolved_profile.provider
         elif resolved_provider != resolved_profile.provider:
             raise click.ClickException(
-                f"`--provider {resolved_provider}` conflicts with launch profile "
+                f"`--provider {resolved_provider}` conflicts with native launch dossier "
                 f"`{resolved_profile.entry.name}`, which resolves provider "
                 f"`{resolved_profile.provider}`."
             )
@@ -1358,6 +1568,7 @@ def launch_agents_command(
         launch_profile_mail_notifier_appendix_text=launch_profile_mail_notifier_appendix_text,
         launch_profile_registered_skill_names=launch_profile_registered_skill_names,
         launch_profile_private_skills=launch_profile_private_skills,
+        launch_profile_system_skill_policy=launch_profile_system_skill_policy,
         force_mode=force_mode,
         reuse_home=reuse_home,
     )
@@ -1670,12 +1881,144 @@ def relaunch_agent_command(
     emit(response)
 
 
+def _require_single_scope_context() -> ManagedAgentScopeContext:
+    """Return the inherited `agents single` target context."""
+
+    scope_context = get_managed_agent_scope_context()
+    if scope_context is None or scope_context.scope != "single":
+        raise click.ClickException(
+            "`agents single` commands require exactly one group-level `--agent-id` or "
+            "`--agent-name` selector."
+        )
+    return scope_context
+
+
+def _single_selector_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one selected-agent command."""
+
+    scope_context = _require_single_scope_context()
+    return {
+        "agent_id": scope_context.agent_id,
+        "agent_name": scope_context.agent_name,
+    }
+
+
+def _single_gateway_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one selected-agent gateway command."""
+
+    return {
+        **_single_selector_injections(),
+        "current_session": False,
+        "target_tmux_session": None,
+    }
+
+
+def _self_selectorless_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one current-session command."""
+
+    return {
+        "agent_id": None,
+        "agent_name": None,
+        "port": None,
+    }
+
+
+def _self_gateway_injections() -> Mapping[str, Any]:
+    """Return callback parameters for one current-session gateway command."""
+
+    return {
+        "agent_id": None,
+        "agent_name": None,
+        "current_session": True,
+        "target_tmux_session": None,
+        "pair_port": None,
+    }
+
+
+def _install_scoped_agents_commands() -> None:
+    """Replace legacy root `agents` actions with explicit scoped command groups."""
+
+    legacy_commands = dict(agents_group.commands)
+
+    agents_global_group.add_command(legacy_commands["list"])
+
+    selector_params = frozenset({"agent_id", "agent_name"})
+    gateway_single_params = selector_params | frozenset({"current_session", "target_tmux_session"})
+    selector_port_params = selector_params | frozenset({"port"})
+    gateway_self_params = gateway_single_params | frozenset({"pair_port"})
+
+    for command_name in ("state", "prompt", "interrupt", "stop", "relaunch"):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_params,
+                inject_params=_single_selector_injections,
+            )
+        )
+    for command_name in ("gateway",):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=gateway_single_params,
+                inject_params=_single_gateway_injections,
+            )
+        )
+    for command_name in ("mail", "turn", "memory"):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_params,
+                inject_params=_single_selector_injections,
+            )
+        )
+    for command_name in ("mailbox", "cleanup"):
+        agents_single_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_params,
+                inject_params=_single_selector_injections,
+            )
+        )
+
+    agents_self_group.add_command(legacy_commands["join"])
+    agents_self_group.add_command(
+        clone_scoped_command_tree(
+            legacy_commands["gateway"],
+            remove_params=gateway_self_params,
+            inject_params=_self_gateway_injections,
+        )
+    )
+    for command_name in ("mail", "turn", "memory"):
+        agents_self_group.add_command(
+            clone_scoped_command_tree(
+                legacy_commands[command_name],
+                remove_params=selector_port_params,
+                inject_params=_self_selectorless_injections,
+            )
+        )
+    agents_self_group.add_command(
+        clone_scoped_command_tree(
+            legacy_commands["mailbox"],
+            remove_params=selector_params,
+            inject_params=_self_selectorless_injections,
+        )
+    )
+
+    agents_group.commands.clear()
+    agents_group.add_command(agents_global_group)
+    agents_group.add_command(agents_single_group)
+    agents_group.add_command(agents_self_group)
+    agents_group.add_command(legacy_commands["external"])
+
+
 agents_group.add_command(gateway_group)
 agents_group.add_command(cleanup_group)
+agents_group.add_command(external_group)
 agents_group.add_command(mail_group)
 agents_group.add_command(mailbox_group)
 agents_group.add_command(turn_group)
 agents_group.add_command(memory_group)
+_install_scoped_agents_commands()
 
 
 def _parse_join_launch_env(values: tuple[str, ...]) -> tuple[JoinedLaunchEnvBinding, ...]:

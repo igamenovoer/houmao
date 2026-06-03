@@ -203,6 +203,8 @@ def launch_profile_defaults_payload(
         payload["mailbox"] = entry.mailbox_payload
     if entry.posture_payload:
         payload["posture"] = entry.posture_payload
+    if entry.system_skills_payload:
+        payload["system_skills"] = dict(entry.system_skills_payload)
     if entry.managed_header_policy is not None:
         payload["managed_header"] = entry.managed_header_policy
     if entry.managed_header_section_policy:

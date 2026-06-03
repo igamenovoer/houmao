@@ -74,23 +74,23 @@ This validation SHALL be applied before the runtime canonicalizes the managed-ag
 ### Requirement: tmux-backed sessions expose their manifest path and agent-definition root via tmux session environment
 For tmux-backed sessions, the system SHALL set tmux session environment variables named:
 - `HOUMAO_MANIFEST_PATH`
-- `HOUMAO_AGENT_DEF_DIR`
+- `HOUMAO_NATIVE_AGENT_ROOT`
 
 `HOUMAO_MANIFEST_PATH` SHALL be the absolute path of the persisted session manifest JSON for that session.
 
-`HOUMAO_AGENT_DEF_DIR` SHALL be the absolute path of the agent-definition root used for that session launch.
+`HOUMAO_NATIVE_AGENT_ROOT` SHALL be the absolute path of the agent-definition root used for that session launch.
 
 When tmux-backed backend code later resumes control of the same live session with an effective agent-definition root available, it SHALL re-publish the same two pointers into the tmux session environment.
 
 #### Scenario: Session start sets tmux env pointers
 - **WHEN** the runtime starts a tmux-backed session with tmux session name `HOUMAO-gpu-270b87`
 - **THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH`
-- **AND THEN** the tmux session environment contains `HOUMAO_AGENT_DEF_DIR`
+- **AND THEN** the tmux session environment contains `HOUMAO_NATIVE_AGENT_ROOT`
 
 #### Scenario: Resume re-publishes tmux env pointers
 - **WHEN** the runtime resumes control of tmux session `HOUMAO-gpu-270b87`
 - **THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH`
-- **AND THEN** the tmux session environment contains `HOUMAO_AGENT_DEF_DIR`
+- **AND THEN** the tmux session environment contains `HOUMAO_NATIVE_AGENT_ROOT`
 
 ### Requirement: tmux-backed non-CAO session manifests persist their tmux session identity
 For tmux-backed non-CAO sessions (for example tmux-backed headless Claude/Gemini/Codex sessions), the persisted session manifest SHALL include the actual tmux session name used for runtime control and identity resolution.
@@ -121,7 +121,7 @@ When a caller provides a non-path-like `--agent-identity` value, the system SHAL
    - the manifest contains a persisted `tmux_session_name` equal to the actual tmux session used for resolution,
 7) determine the effective agent-definition root as follows:
    - when the caller provided explicit `--agent-def-dir`, use that explicit path as the effective agent-definition root after resolving it to an absolute existing directory,
-   - otherwise read `HOUMAO_AGENT_DEF_DIR` from the resolved tmux session environment and validate that it is absolute and points to an existing directory,
+   - otherwise read `HOUMAO_NATIVE_AGENT_ROOT` from the resolved tmux session environment and validate that it is absolute and points to an existing directory,
 8) proceed with resume/control operations using the resolved manifest path and effective agent-definition root.
 
 The resolution path MAY accept an exact-canonical tmux session name as a legacy compatibility shortcut when such a session exists and its manifest matches the addressed canonical agent identity. For runtime-owned sessions whose tmux handle differs from the canonical agent identity, the system SHALL resolve the tmux session from tmux-local or shared-registry metadata rather than requiring the live tmux session name to equal the canonical agent identity.
@@ -134,10 +134,10 @@ If more than one live tmux session or shared-registry record matches the same ca
 - **WHEN** a caller provides `--agent-identity gpu`
 - **AND WHEN** the caller does not provide explicit `--agent-def-dir`
 - **AND WHEN** live tmux session `AGENTSYS-gpu-270b87` exists
-- **AND WHEN** that tmux session publishes `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR`
+- **AND WHEN** that tmux session publishes `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT`
 - **AND WHEN** the pointed manifest persists `agent_name="AGENTSYS-gpu"` and `tmux_session_name="AGENTSYS-gpu-270b87"`
 - **THEN** the runtime loads the session manifest from the pointed path
-- **AND THEN** the runtime uses the resolved agent-definition root from `HOUMAO_AGENT_DEF_DIR` for resume/control
+- **AND THEN** the runtime uses the resolved agent-definition root from `HOUMAO_NATIVE_AGENT_ROOT` for resume/control
 
 #### Scenario: Legacy exact-name tmux session still resolves when the manifest matches
 - **WHEN** a caller provides `--agent-identity gpu`
@@ -160,21 +160,21 @@ If more than one live tmux session or shared-registry record matches the same ca
 - **WHEN** a caller provides `--agent-identity gpu`
 - **AND WHEN** the caller does not provide explicit `--agent-def-dir`
 - **AND WHEN** resolved tmux session `AGENTSYS-gpu-270b87` exists
-- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` is missing or blank in that tmux session environment
+- **AND WHEN** `HOUMAO_NATIVE_AGENT_ROOT` is missing or blank in that tmux session environment
 - **THEN** the runtime rejects the operation with an explicit "agent definition pointer missing" error
 
 #### Scenario: Non-absolute tmux agent-definition pointer fails explicitly
 - **WHEN** a caller provides `--agent-identity gpu`
 - **AND WHEN** the caller does not provide explicit `--agent-def-dir`
 - **AND WHEN** resolved tmux session `AGENTSYS-gpu-270b87` exists
-- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` contains a relative path
+- **AND WHEN** `HOUMAO_NATIVE_AGENT_ROOT` contains a relative path
 - **THEN** the runtime rejects the operation with an explicit invalid-pointer error
 
 #### Scenario: Stale tmux agent-definition pointer fails explicitly
 - **WHEN** a caller provides `--agent-identity gpu`
 - **AND WHEN** the caller does not provide explicit `--agent-def-dir`
 - **AND WHEN** resolved tmux session `AGENTSYS-gpu-270b87` exists
-- **AND WHEN** `HOUMAO_AGENT_DEF_DIR` points to a missing directory
+- **AND WHEN** `HOUMAO_NATIVE_AGENT_ROOT` points to a missing directory
 - **THEN** the runtime rejects the operation with an explicit stale-pointer error
 
 #### Scenario: Resolved manifest must match the resolved tmux session

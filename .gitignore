@@ -64,6 +64,7 @@ tmp/brains/
 .gemini/
 .codex/
 .claude/
+.kimi-code/
 .aws/cli-agent-orchestrator/
 
 # Repo auth bundles: ignore live credential material by default

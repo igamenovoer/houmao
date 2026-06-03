@@ -69,12 +69,12 @@ The runtime SHALL provide an explicit force-cleanup path that terminates the tmu
 ### Requirement: Deprecated standalone build and start entrypoints use config-first `.houmao` agent-definition resolution
 Deprecated standalone build/start entrypoints SHALL resolve agent-definition roots with this precedence:
 1. explicit CLI `--agent-def-dir`
-2. `HOUMAO_AGENT_DEF_DIR`
+2. `HOUMAO_NATIVE_AGENT_ROOT`
 3. nearest ancestor `.houmao/houmao-config.toml`
 4. default `<cwd>/.houmao/agents`
 
 #### Scenario: Env-var override wins for deprecated standalone build/start entrypoints
-- **WHEN** `HOUMAO_AGENT_DEF_DIR=/tmp/agents`
+- **WHEN** `HOUMAO_NATIVE_AGENT_ROOT=/tmp/agents`
 - **AND WHEN** no explicit CLI `--agent-def-dir` is supplied
 - **THEN** the effective agent-definition root is `/tmp/agents`
 
@@ -215,7 +215,7 @@ At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
 - gateway mail-notifier appendix default
 - launch provenance
 
-The resulting build manifest or runtime launch metadata SHALL preserve profile provenance in a secret-free form sufficient for inspection and replay, including whether the birth-time config came from an easy profile or an explicit launch profile.
+The resulting build manifest or runtime launch metadata SHALL preserve profile provenance in a secret-free form sufficient for inspection and replay, including whether the birth-time config came from an project profile or an explicit launch profile.
 
 When a launch-profile-derived gateway mail-notifier appendix default is present, the launch/runtime pipeline SHALL materialize that value into the runtime-owned gateway notifier state for the new session even if notifier polling starts disabled.
 
@@ -328,11 +328,13 @@ The runtime SHALL treat that composed prompt as the role prompt for backend-spec
 - **AND THEN** the runtime does not also inject the original source role prompt for that launch
 
 ### Requirement: Optional CAO backend via REST boundary
-The system SHALL optionally support CAO-compatible session control through a REST boundary without requiring the core runtime to depend on CAO internals.
+The system SHALL treat any retained CAO-compatible REST boundary as internal compatibility support rather than as a maintained public operator workflow.
 
-For supported operator workflows after this change, that CAO-compatible control SHALL be reached through the Houmao-owned pair authority rather than through public `houmao-cli` flows that create or control standalone `cao_rest` sessions.
+The system MAY retain internal CAO-compatible session-control adapters through a REST boundary without requiring the core runtime to depend on CAO internals.
 
-The runtime MAY retain internal CAO-compatible adapter code for parity, debugging, or transition purposes, but public runtime-management CLI entrypoints that would create or control standalone CAO-backed sessions SHALL fail fast with explicit migration guidance to `houmao-server` and `houmao-mgr`.
+For supported operator workflows after this change, public runtime management SHALL NOT be exposed through `houmao-cli` flows that create or control standalone `cao_rest` sessions, and SHALL NOT migrate users to standalone `houmao-server` as the replacement public path.
+
+The runtime MAY retain internal CAO-compatible adapter code for parity, debugging, or transition purposes, but public runtime-management CLI entrypoints that would create or control standalone CAO-backed sessions SHALL be absent or fail fast with explicit migration guidance to maintained `houmao-mgr` local workflows and `houmao-passive-server` API workflows.
 
 That public deprecation guard SHALL reject deprecated `backend="cao_rest"` operator selections at the CLI entrypoint layer before standalone runtime-session construction begins.
 
@@ -341,25 +343,25 @@ For supported loopback compatibility authorities (`http://localhost:<port>`,
 
 When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
-When the runtime uses a pair-backed compatibility authority internally, it SHALL pass the resolved working directory through to that authority as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or a deprecated launcher home.
+When the runtime uses an internal compatibility authority, it SHALL pass the resolved working directory through to that authority as launch input and SHALL NOT impose a repo-owned validation rule that requires the workdir to live under the user home tree, the tool home, or a deprecated launcher home.
 
 #### Scenario: Deprecated raw CAO-backed runtime start fails with migration guidance
-- **WHEN** a developer invokes `houmao-cli` in a way that would start a standalone `cao_rest` session
-- **THEN** the command exits non-zero with explicit guidance to use `houmao-server` and `houmao-mgr`
+- **WHEN** a developer invokes removed or deprecated runtime CLI compatibility code in a way that would start a standalone `cao_rest` session
+- **THEN** the command exits non-zero with explicit guidance to use maintained `houmao-mgr` or `houmao-passive-server` workflows
 - **AND THEN** it does not create a new standalone CAO-backed session as a supported operator workflow
 
 #### Scenario: CLI rejects deprecated backend selection before runtime construction
-- **WHEN** a developer runs `houmao-cli start-session --backend cao_rest ...`
+- **WHEN** a developer runs a removed or deprecated public runtime CLI start path with `--backend cao_rest`
 - **THEN** the CLI rejects that request with migration guidance before constructing a standalone `CaoRestSession`
 - **AND THEN** internal parity or debugging code paths are not implied to be removed by that public CLI rejection
 
 #### Scenario: Deprecated raw CAO-backed runtime control fails with migration guidance
 - **WHEN** a developer invokes a runtime-management CLI command that would send input to, interrupt, or stop a standalone `cao_rest` session through the deprecated public path
-- **THEN** the command exits non-zero with explicit guidance to move to the supported pair
+- **THEN** the command exits non-zero with explicit guidance to move to maintained manager or passive-server workflows
 - **AND THEN** it does not silently fall back to mutating standalone CAO state behind the user's back
 
 #### Scenario: Loopback pair-compatible communication bypasses caller proxy env by default
-- **WHEN** a developer starts or resumes a pair-backed compatibility session using loopback authority `http://127.0.0.1:9990`
+- **WHEN** a developer starts or resumes an internal pair-compatible session using loopback authority `http://127.0.0.1:9990`
 - **AND WHEN** caller environment includes `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`
 - **THEN** runtime-owned HTTP communication to that loopback compatibility authority bypasses those proxy endpoints by default
 
@@ -1255,11 +1257,11 @@ Changing runtime parsing mode SHALL NOT redefine the active Houmao identity or a
 - **AND THEN** both sessions publish `HOUMAO_MANIFEST_PATH` and related `HOUMAO_*` discovery variables rather than reverting to `AGENTSYS_*`
 
 ### Requirement: Name-addressed tmux-backed session control SHALL recover `agent_def_dir` from session environment
-Name-addressed tmux-backed control SHALL prefer the tmux-published `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR` values when they are present and valid.
+Name-addressed tmux-backed control SHALL prefer the tmux-published `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT` values when they are present and valid.
 
 #### Scenario: Name-addressed control recovers the agent-definition root from HOUMAO tmux env
 - **WHEN** tmux session `HOUMAO-chris` exists
-- **AND WHEN** that tmux session publishes valid `HOUMAO_MANIFEST_PATH` and `HOUMAO_AGENT_DEF_DIR` values
+- **AND WHEN** that tmux session publishes valid `HOUMAO_MANIFEST_PATH` and `HOUMAO_NATIVE_AGENT_ROOT` values
 - **THEN** name-addressed tmux-backed session control resolves the manifest and effective agent-definition root from those `HOUMAO_*` values
 
 ### Requirement: Runtime-launched agent subprocess env injects loopback `NO_PROXY` by default
@@ -1742,7 +1744,7 @@ When the runtime starts or resumes control of a tmux-backed session whose regist
 
 The runtime SHALL determine whether it is the launch authority for shared-registry creation from explicit runtime-readable launch metadata associated with that live session or authority record, rather than inferring launch authority from the current registry contents alone.
 
-By default, the effective shared-registry root SHALL be `~/.houmao/registry`.
+By default, the effective shared-registry root SHALL be `<platformdirs user config>/registry`.
 
 When `HOUMAO_GLOBAL_REGISTRY_DIR` is set, the runtime SHALL publish and refresh shared-registry records under that override path instead.
 
@@ -1752,7 +1754,7 @@ When runtime publication code receives an agent name in namespace-free form, it 
 
 For a given live tmux-backed session whose launch authority is the runtime, the runtime SHALL persist and reuse the same shared-registry `generation_id` across later refreshes and resume-driven republishes of that same session.
 
-That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_DEF_DIR`, or the stable gateway attach pointers already published by the runtime.
+That shared-registry record SHALL coexist with existing tmux session environment discovery pointers and SHALL NOT replace `HOUMAO_MANIFEST_PATH`, `HOUMAO_NATIVE_AGENT_ROOT`, or the stable gateway attach pointers already published by the runtime.
 
 The published record SHALL include the secret-free runtime-owned pointers available for that session, including the manifest path, runtime session root, authoritative `agent_id`, actual tmux session name, and any gateway or mailbox pointers that the runtime has already materialized.
 
@@ -1761,7 +1763,7 @@ For sessions created by another launcher such as `houmao-server`, the runtime SH
 #### Scenario: Direct runtime-owned session start publishes a shared-registry record alongside tmux pointers
 - **WHEN** the runtime starts a direct runtime-owned tmux-backed session with canonical identity `AGENTSYS-gpu`
 - **THEN** the runtime publishes the normal tmux session environment discovery pointers for that session
-- **AND THEN** the runtime also publishes a shared-registry record under `~/.houmao/registry/live_agents/<agent-id>/record.json` for that direct runtime-owned session
+- **AND THEN** the runtime also publishes a shared-registry record under `<platformdirs user config>/registry/live_agents/<agent-id>/record.json` for that direct runtime-owned session
 
 #### Scenario: Runtime publication canonicalizes namespace-free agent input
 - **WHEN** runtime publication logic receives agent input `gpu` for a tmux-backed session whose launch authority is the runtime
@@ -1847,130 +1849,6 @@ The runtime SHALL still surface the registry cleanup failure separately so opera
 - **THEN** the stop operation still reports the successful termination result
 - **AND THEN** the registry cleanup problem is surfaced separately for operator follow-up
 
-### Requirement: Runtime can start sessions through an optional `houmao-server` REST backend
-The runtime SHALL support an optional `houmao-server` REST-backed mode for live interactive sessions.
-
-When that mode is selected, the runtime SHALL:
-
-- create or attach the live session through `houmao-server`
-- persist the `houmao-server` base URL plus session and terminal identity in the session manifest
-- treat `houmao-server` as the server authority for later control operations
-- keep any `houmao-server` upstream-adapter details out of the public runtime backend identity
-- treat `houmao-server` as part of the supported `houmao-server + houmao-mgr` pair rather than as a mixed-pair bridge to raw `cao`
-
-For supported loopback `houmao-server` base URLs, runtime-owned HTTP communication SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
-
-When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the runtime SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
-
-#### Scenario: Starting a `houmao-server` session persists server identity
-- **WHEN** a developer starts a new interactive session using the `houmao-server` REST-backed mode
-- **THEN** the runtime persists a session manifest that records the `houmao-server` base URL and terminal identity needed for resume and later control
-- **AND THEN** subsequent runtime control does not need a separate CAO base URL override for that session
-
-#### Scenario: Runtime does not promise mixed-pair bridging through `houmao-server`
-- **WHEN** a developer uses the `houmao-server` REST-backed mode
-- **THEN** the runtime treats that session as part of the `houmao-server` Houmao-managed path
-- **AND THEN** it does not claim support for mixing that path with raw `cao` client workflows behind the scenes
-
-#### Scenario: Loopback `houmao-server` communication bypasses ambient proxy env by default
-- **WHEN** a developer starts or resumes a `houmao-server`-backed session using loopback base URL `http://127.0.0.1:9890`
-- **AND WHEN** caller environment includes `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`
-- **THEN** runtime-owned HTTP communication to that loopback `houmao-server` endpoint bypasses those proxy endpoints by default
-
-### Requirement: `houmao-server` runtime sessions use a first-class persisted backend identity
-Runtime-owned sessions that use the `houmao-server` REST-backed mode SHALL persist a first-class backend identity named `houmao_server_rest`.
-
-Those persisted sessions SHALL use dedicated `houmao-server`-specific persisted sections rather than reusing `cao_rest`-specific sections for their public contract.
-
-At minimum, the persisted `houmao-server` section SHALL carry the public `houmao-server` transport identity needed for resume and follow-up control, including:
-
-- `api_base_url`
-- server session identity
-- terminal identity
-
-The persisted public contract for `houmao_server_rest` SHALL keep CAO-compatible adapter internals out of the runtime-owned manifest.
-
-#### Scenario: Session manifest records `houmao_server_rest` rather than `cao_rest`
-- **WHEN** a developer starts a runtime-owned session through the `houmao-server` REST-backed mode
-- **THEN** the persisted session manifest records `backend = "houmao_server_rest"`
-- **AND THEN** the manifest uses a dedicated `houmao-server` persisted section instead of overloading `cao` metadata
-
-### Requirement: Runtime-owned artifacts remain authoritative for `houmao-server` sessions
-For `houmao_server_rest` sessions, the runtime-owned session root and manifest SHALL remain the authoritative durable artifacts for later discovery and follow-up control.
-
-When transitional shared-registry publication is used for a `houmao_server_rest` session, the registry runtime pointers SHALL point back to that runtime-owned manifest and session root.
-
-Gateway and mailbox follow-up behavior that still depends on manifest-backed authority in v1 SHALL use those same runtime-owned artifacts for `houmao_server_rest` sessions.
-
-#### Scenario: Registry and follow-up flows point back to the runtime-owned `houmao-server` manifest
-- **WHEN** a `houmao_server_rest` session is published into the transitional shared registry
-- **THEN** the registry runtime pointers reference the Houmao-owned session manifest and session root for that session
-- **AND THEN** later resolution, gateway attach, and mailbox follow-up flows can keep using manifest-backed authority without reinterpreting the session as `cao_rest`
-
-### Requirement: Runtime control of `houmao-server` sessions routes through `houmao-server`
-For `houmao-server`-backed sessions, runtime control operations that inspect or mutate the live session SHALL route through `houmao-server` rather than bypassing it with direct CAO calls.
-
-At minimum, `houmao-server`-routed operations in this change SHALL include:
-
-- status inspection
-- prompt submission
-- control-input submission
-- interrupt
-- stop-session
-
-When the runtime cannot reach the configured `houmao-server` for a `houmao-server`-backed session, runtime control SHALL fail explicitly. It SHALL NOT silently fall back to mutating the underlying CAO terminal directly behind `houmao-server`'s back.
-
-Stopping a `houmao-server`-backed session through the runtime SHALL stop the live session through `houmao-server` and SHALL leave the persisted session in a stopped or unavailable condition consistent with the server response.
-
-#### Scenario: Prompt submission for a `houmao-server` session goes through `houmao-server`
-- **WHEN** a developer submits a prompt to a `houmao-server`-backed session
-- **THEN** the runtime routes that request through the configured `houmao-server` endpoint
-- **AND THEN** the runtime does not inject the prompt directly into CAO or another upstream backend outside `houmao-server`
-
-#### Scenario: Stop-session for a `houmao-server` session does not bypass the server authority
-- **WHEN** a developer stops a `houmao-server`-backed session through the runtime
-- **THEN** the runtime routes that stop request through `houmao-server`
-- **AND THEN** it does not bypass the server by directly deleting or interrupting the underlying CAO terminal
-
-### Requirement: Pair-managed `houmao_server_rest` sessions are tmux-backed, reserve window 0, and publish stable gateway attachability before live attach
-For pair-managed TUI sessions that use `backend = "houmao_server_rest"`, the runtime SHALL create or resume one tmux session per managed agent session.
-
-The runtime SHALL choose and persist one tmux session name per launched session as a stable live-session handle rather than assuming the canonical agent identity is the tmux session name.
-
-The runtime SHALL reserve tmux window `0` as the primary agent surface for that session and SHALL keep the managed agent itself on that primary surface across pair-managed turns.
-
-Later relaunch of that tmux-backed pair-managed session SHALL reuse the same window `0` surface and SHALL NOT allocate a replacement tmux window.
-
-The runtime SHALL publish `HOUMAO_MANIFEST_PATH=<absolute manifest path>` and `HOUMAO_AGENT_ID=<authoritative agent id>` into the tmux session environment so that pair-managed current-session discovery can locate the persisted session manifest directly and fall back through shared-registry resolution when needed.
-
-The runtime SHALL reuse the existing runtime-owned gateway capability publication seam to materialize derived gateway bookkeeping, `state.json`, queue or bootstrap assets, and related session-owned gateway artifacts during pair launch or launch registration, before a live gateway is attached.
-
-A pair-managed session SHALL NOT be treated as current-session attach-ready until both that runtime-owned manifest-backed gateway publication and successful managed-agent registration for the same persisted attach authority have completed.
-
-The runtime SHALL allow auxiliary windows to exist later in the same tmux session for gateway or operator diagnostics, but they SHALL NOT displace the agent from window `0` and SHALL NOT redefine the primary pair-managed attach surface.
-
-Runtime-controlled pair-managed turns and pair-managed tmux resolution SHALL continue targeting the agent surface in window `0` even when another tmux window is currently selected in the foreground for observability.
-
-#### Scenario: Pair launch creates a gateway-capable tmux session before live attach
-- **WHEN** a developer launches a pair-managed TUI session through `houmao-mgr`
-- **THEN** the runtime persists the actual tmux session name for that live session
-- **AND THEN** the tmux session environment contains `HOUMAO_MANIFEST_PATH`
-- **AND THEN** the tmux session environment contains `HOUMAO_AGENT_ID`
-- **AND THEN** the gateway capability artifacts are materialized through the shared runtime-owned gateway publication seam
-- **AND THEN** window `0` is reserved as the primary agent surface for that session
-
-#### Scenario: Current-session attach is unavailable before matching registration completes
-- **WHEN** a delegated pair launch has already published the stable manifest-first discovery inputs into the tmux session
-- **AND WHEN** managed-agent registration for that same persisted attach authority has not yet completed successfully
-- **THEN** the session is not yet current-session attach-ready
-- **AND THEN** pair-managed current-session gateway attach fails closed rather than guessing another authority or alias
-
-#### Scenario: Foreground auxiliary window does not retarget pair-managed execution
-- **WHEN** a pair-managed `houmao_server_rest` session has an auxiliary gateway or diagnostics window selected in the foreground
-- **AND WHEN** the runtime starts another controlled turn against that managed session
-- **THEN** the controlled work still executes on the agent surface in window `0`
-- **AND THEN** the runtime does not need to treat the selected auxiliary window as the authoritative agent surface
-
 ### Requirement: Tmux-backed sessions support session-local relaunch without rebuilding the brain home
 For tmux-backed managed sessions, the system SHALL expose a relaunch surface that reuses the already-built agent home and does not route through build-time `houmao-mgr agents launch` behavior.
 
@@ -2008,7 +1886,7 @@ For Houmao-started tmux-backed sessions, relaunch SHALL rebuild provider-start s
 
 When the built brain manifest contains persistent specialist-owned launch env records, relaunch SHALL reapply those env records as part of the rebuilt launch plan.
 
-When the original live session also received one-off extra env through `project easy instance launch --env-set`, that one-off extra env SHALL apply only to the current live session and SHALL NOT be persisted in relaunch authority.
+When the original live session also received one-off extra env through `project agents launch --env-set`, that one-off extra env SHALL apply only to the current live session and SHALL NOT be persisted in relaunch authority.
 
 The runtime SHALL NOT store one-off instance-launch extra env in:
 
@@ -2023,50 +1901,17 @@ The runtime SHALL NOT store one-off instance-launch extra env in:
 - **AND THEN** the runtime obtains that value from durable specialist launch input rather than from the old live session's one-off launch state
 
 #### Scenario: Relaunch drops one-off instance-launch env
-- **WHEN** a tmux-backed session originally started with one-off `project easy instance launch --env-set FEATURE_FLAG_X=2`
+- **WHEN** a tmux-backed session originally started with one-off `project agents launch --env-set FEATURE_FLAG_X=2`
 - **AND WHEN** the underlying specialist does not declare persistent env record `FEATURE_FLAG_X`
 - **AND WHEN** that session is later relaunched
 - **THEN** the relaunched session does not keep `FEATURE_FLAG_X=2`
 - **AND THEN** relaunch uses only durable launch input that was persisted before runtime rebuild
 
 #### Scenario: Live-session headless turns can still use one-off instance-launch env before relaunch
-- **WHEN** a headless tmux-backed session starts with one-off `project easy instance launch --env-set FEATURE_FLAG_X=2`
+- **WHEN** a headless tmux-backed session starts with one-off `project agents launch --env-set FEATURE_FLAG_X=2`
 - **AND WHEN** the session remains live without relaunch
 - **THEN** later runtime-controlled work in that same live session still uses `FEATURE_FLAG_X=2`
 - **AND THEN** that behavior does not imply that `FEATURE_FLAG_X=2` is durable relaunch posture
-
-### Requirement: Supported pair-managed tmux sessions keep the agent in window 0 while auxiliary windows remain non-authoritative
-For pair-managed tmux sessions that place gateway or other support processes in the same tmux session, the runtime SHALL reserve tmux window `0` for the agent process.
-
-The runtime SHALL support that same-session auxiliary-window topology for `houmao_server_rest`.
-
-The runtime SHALL keep the `houmao-server` process and its internal compatibility support state outside the agent's tmux session even when the gateway sidecar runs inside the managed agent session.
-
-Only tmux window `0` is contractual in that topology. The names, counts, and indices of non-zero tmux windows SHALL remain implementation details and SHALL NOT become part of the public attach or control contract.
-
-Gateway attach, detach, crash cleanup, or auxiliary-window recreation SHALL NOT kill, replace, or repurpose the reserved agent window `0` during normal lifecycle handling.
-
-If the agent process later disappears unexpectedly and the runtime relaunches it inside the same tmux session, the runtime SHALL restore the agent process to window `0` before treating the session as recovered or ready again.
-
-#### Scenario: Pair-managed auxiliary window keeps the agent anchored to window 0
-- **WHEN** a `houmao_server_rest` session runs a gateway or monitoring process in another tmux window
-- **THEN** the agent process remains in window `0`
-- **AND THEN** the non-zero process window does not become part of the public agent contract
-
-#### Scenario: Same-session gateway topology keeps the server process out of the agent tmux session
-- **WHEN** a pair-managed `houmao_server_rest` session runs a same-session gateway companion
-- **THEN** only the gateway sidecar is introduced into an auxiliary tmux window of the managed agent session
-- **AND THEN** the `houmao-server` process and compatibility support state remain outside that tmux session
-
-#### Scenario: Gateway lifecycle preserves the reserved agent window
-- **WHEN** a same-session gateway process attaches, detaches, exits unexpectedly, or is recreated
-- **THEN** the runtime only changes the auxiliary process window state
-- **AND THEN** window `0` remains reserved for the agent surface throughout that sidecar lifecycle
-
-#### Scenario: Relaunch restores the agent process to window 0
-- **WHEN** an agent process in a supported same-session pair layout disappears unexpectedly and the runtime relaunches it in the existing tmux session
-- **THEN** the runtime restores the relaunched agent process to window `0`
-- **AND THEN** the session is not treated as recovered until that canonical agent surface is re-established
 
 ### Requirement: Native headless tmux-backed sessions reserve window 0 for console output and remain gateway-attachable between turns
 For runtime-owned native headless sessions that use tmux as the durable terminal container, the runtime SHALL keep window `0` reserved for the headless agent console surface.
@@ -2243,7 +2088,7 @@ For `operator_prompt_mode = unattended`, the runtime SHALL treat version-support
 - **AND THEN** the session either starts without that prompt or fails before provider start if no compatible suppression strategy exists
 
 ### Requirement: Shared launch-policy application is used across raw and runtime-managed launches
-The system SHALL apply unattended launch policy through one shared Python launch-policy entrypoint across generated raw launch helpers and runtime-managed session backends.
+The system SHALL apply unattended launch policy through one shared Python launch-policy entrypoint across generated raw launch helpers and maintained runtime-managed session backends.
 
 Generated `launch.sh` helpers SHALL remain shell wrappers that invoke that shared Python entrypoint before the final tool `exec`.
 
@@ -2252,10 +2097,10 @@ Generated `launch.sh` helpers SHALL remain shell wrappers that invoke that share
 - **THEN** the shell helper invokes the shared Python launch-policy entrypoint before the final tool `exec`
 - **AND THEN** raw helper launches resolve and apply the same unattended strategy family as runtime-managed launches
 
-#### Scenario: CAO-backed sessions use the same local launch-policy engine
-- **WHEN** a runtime-managed unattended launch starts through `cao_rest` or `houmao_server_rest`
-- **THEN** the local runtime resolves and applies the same launch-policy engine before CAO-compatible terminal startup
-- **AND THEN** CAO-backed sessions do not bypass version detection, override handling, or fail-closed unattended checks
+#### Scenario: Runtime-managed sessions use the same local launch-policy engine
+- **WHEN** a maintained runtime-managed unattended launch starts through local managed, headless, joined, or passive-server-owned launch flow
+- **THEN** the local runtime resolves and applies the same launch-policy engine before provider startup
+- **AND THEN** maintained runtime-managed sessions do not bypass version detection, override handling, or fail-closed unattended checks
 
 ### Requirement: Strategy-owned launch args are not silently overridden
 When unattended launch is requested, the selected strategy SHALL own the effective no-prompt CLI args it requires and the equivalent caller launch-override surfaces that map onto strategy-owned runtime config.
@@ -2364,8 +2209,8 @@ The system SHALL reject launch-override requests before provider start when the 
 
 The runtime SHALL NOT silently ignore unsupported launch-override requests as though they were effective.
 
-#### Scenario: REST-backed launch rejects a launch override it cannot honor
-- **WHEN** a resolved brain manifest requests a launch override that the selected `cao_rest` or `houmao_server_rest` backend does not support end to end
+#### Scenario: Backend launch rejects a launch override it cannot honor
+- **WHEN** a resolved brain manifest requests a launch override that the selected maintained backend cannot support end to end
 - **THEN** launch-plan composition fails before provider start
 - **AND THEN** the error identifies that the rejected launch-override field is unsupported for that backend
 
@@ -2540,7 +2385,7 @@ If a placeholder `brain_manifest.json` is written for a joined session, it SHALL
 
 The join materialization path SHALL create the managed memory root, memo file, and pages directory before publishing managed memory environment variables.
 
-The join materialization path SHALL publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into the adopted tmux session environment.
+The join materialization path SHALL publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into the adopted tmux session environment.
 
 For joined TUI adoption, the persisted manifest and later manifest rewrites SHALL preserve the adopted tmux window identity needed to find the live provider surface. Resume-time capability publication and other post-join local control paths SHALL NOT overwrite that adopted window metadata with `null` or a default launch-time window name.
 
@@ -2555,7 +2400,7 @@ The resulting manifest and tmux session environment SHALL remain the authoritati
 #### Scenario: TUI join materializes a normal `local_interactive` runtime envelope
 - **WHEN** the local join path adopts a live Codex TUI from tmux window `0`, pane `0`
 - **THEN** it writes a normal session root containing placeholder `agent_def/`, placeholder `brain_manifest.json`, a persisted session manifest, and session-local `gateway/` artifacts
-- **AND THEN** it publishes `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_AGENT_DEF_DIR`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into that tmux session environment
+- **AND THEN** it publishes `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into that tmux session environment
 - **AND THEN** it publishes a shared-registry record for the adopted managed agent without requiring a separate join-only discovery store
 
 #### Scenario: Headless join materializes a native headless runtime envelope between turns
@@ -3233,3 +3078,65 @@ Provider-local history that remains in the preserved home MAY stay available aft
 - **AND WHEN** a replacement local managed launch explicitly requests reused-home mode without a stronger session-name override
 - **THEN** the runtime fails clearly
 - **AND THEN** it does not silently generate a different tmux session name for that reused-home restart
+
+### Requirement: Brain build applies effective managed system-skill policy
+When brain construction runs for a managed launch, the build pipeline SHALL resolve source recipe system-skill policy and launch-profile system-skill policy into one effective managed system-skill selection before projecting Houmao-owned system skills into the managed home.
+
+The effective selection SHALL be applied after validating requested system-skill sets and names against the packaged system-skill catalog and before the final manifest is written.
+
+The build pipeline SHALL reject selected project registered skills or profile-private skill projections whose names collide with any current packaged Houmao system-skill name.
+
+The generated build manifest or runtime launch metadata SHALL preserve secret-free provenance that identifies the requested source/profile policy and the resolved system-skill names installed into the managed home.
+
+#### Scenario: Source recipe additive policy installs current utility skill
+- **WHEN** the selected recipe records additive managed system-skill policy for `houmao-utils-workspace-mgr`
+- **AND WHEN** Houmao builds a managed Codex home from that recipe
+- **THEN** the build installs the packaged managed-launch default system skills plus `houmao-utils-workspace-mgr`
+- **AND THEN** the manifest records the resolved installed system-skill names
+
+#### Scenario: Launch-profile replacement policy overrides source policy
+- **WHEN** the source recipe records additive managed system-skill policy for `houmao-utils-workspace-mgr`
+- **AND WHEN** the selected launch profile records replacement policy using set `core`
+- **THEN** the build installs the system-skill selection resolved from `core`
+- **AND THEN** it does not install `houmao-utils-workspace-mgr` only because the source recipe requested it
+
+#### Scenario: Disabled profile policy produces no installed system skills
+- **WHEN** the selected launch profile records disabled managed system-skill policy
+- **AND WHEN** Houmao builds or reuses the target managed home
+- **THEN** the build leaves no current Houmao-owned system-skill projection paths in the managed home
+- **AND THEN** the manifest records an empty resolved system-skill list
+
+#### Scenario: Project skill collision with system skill is rejected
+- **WHEN** the selected recipe includes registered project skill `houmao-agent-definition`
+- **AND WHEN** Houmao starts brain construction for a managed launch
+- **THEN** the build fails before projecting skills into the managed home
+- **AND THEN** the error explains that project/private skill names cannot collide with current Houmao system-skill names
+
+#### Scenario: Removed system-skill selector is rejected
+- **WHEN** the selected recipe records additive managed system-skill policy for `houmao-utils-llm-wiki`
+- **AND WHEN** Houmao starts brain construction for a managed launch
+- **THEN** the build fails before projecting skills into the managed home
+- **AND THEN** the error identifies `houmao-utils-llm-wiki` as an unknown system skill
+
+#### Scenario: Manifest records profile system-skill provenance
+- **WHEN** a managed agent is launched from profile `researcher-workspace` that stores additive managed system-skill policy
+- **THEN** the resulting manifest or launch metadata includes the profile-owned system-skill policy in secret-free provenance
+- **AND THEN** later inspection can determine why the managed home received the additional system skill
+
+### Requirement: Direct brain build CLI is internal native-agent plumbing
+The maintained direct brain-build CLI entrypoint SHALL live under `houmao-mgr internals native-agent`.
+
+The top-level `houmao-mgr brains build` command SHALL NOT be presented as a maintained public manager workflow. Ordinary project users SHALL launch through project or managed-agent launch surfaces instead of invoking brain construction directly.
+
+The internal direct build command SHALL preserve the existing build behavior for constructing brain homes from native-agent recipes, setup bundles, credential selections, launch overrides, and runtime-root options.
+
+#### Scenario: Direct build uses internal command path
+- **WHEN** an operator needs to build a brain home directly from native-agent material
+- **THEN** the maintained CLI path is `houmao-mgr internals native-agent brain build`
+- **AND THEN** the command accepts native-agent build inputs equivalent to the retained direct build contract
+
+#### Scenario: Ordinary project launch remains the user path
+- **WHEN** an operator wants to start a managed agent from a project profile
+- **THEN** the maintained ordinary path is `houmao-mgr project agents launch`
+- **AND THEN** the operator does not need to run direct brain-build plumbing manually
+

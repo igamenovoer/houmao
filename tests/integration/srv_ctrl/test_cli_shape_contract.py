@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import socket
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
 import sys
-import threading
-import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,18 +12,13 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from houmao.agents.realm_controller.agent_identity import AGENT_MANIFEST_PATH_ENV_VAR
-from houmao.agents.realm_controller.backends.tmux_runtime import TmuxPaneRecord
-from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
-from houmao.agents.realm_controller.manifest import (
-    SessionManifestRequest,
-    build_session_manifest_payload,
-    default_manifest_path,
-    write_session_manifest,
+from houmao.agents.realm_controller.backends.tmux_runtime import (
+    TmuxBackedAuthorityHealth,
+    TmuxPaneRecord,
 )
+from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
-    RoleInjectionPlan,
     SessionControlResult,
 )
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
@@ -44,7 +35,6 @@ from houmao.server.models import (
     HoumaoTrackedSurface,
     HoumaoTrackedTurn,
 )
-from houmao.server.client import HoumaoServerClient
 from houmao.srv_ctrl.commands.agents import core as agents_core
 from houmao.srv_ctrl.commands.main import cli
 
@@ -53,14 +43,6 @@ def _source_repo_root() -> Path:
     """Return the tracked repository root."""
 
     return Path(__file__).resolve().parents[3]
-
-
-def _pick_unused_loopback_port() -> int:
-    """Return one likely-free loopback port."""
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _python_subprocess_env() -> dict[str, str]:
@@ -249,9 +231,14 @@ class _FakeHeadlessSession:
 
         return
 
-    def relaunch(self) -> SessionControlResult:
+    def relaunch(
+        self,
+        *,
+        chat_session: object | None = None,
+    ) -> SessionControlResult:
         """Record one relaunch through the shared runtime primitive."""
 
+        del chat_session
         type(self).m_relaunch_calls.append(self.m_state.tmux_session_name or "unknown")
         return SessionControlResult(status="ok", action="relaunch", detail="relaunched")
 
@@ -269,28 +256,6 @@ class _FakeLocalInteractiveSession(_FakeHeadlessSession):
             working_directory=str(launch_plan.working_directory),
             tmux_session_name=tmux_session_name,
         )
-
-
-def _sample_houmao_server_plan(tmp_path: Path) -> LaunchPlan:
-    """Return one minimal `houmao_server_rest` launch plan for manifest-only tests."""
-
-    return LaunchPlan(
-        backend="houmao_server_rest",
-        tool="codex",
-        executable="codex",
-        args=[],
-        working_directory=tmp_path,
-        home_env_var="CODEX_HOME",
-        home_path=tmp_path / "home",
-        env={},
-        env_var_names=[],
-        role_injection=RoleInjectionPlan(
-            method="cao_profile",
-            role_name="r",
-            prompt="role prompt",
-        ),
-        metadata={},
-    )
 
 
 class _FakeSingleSessionTrackingRuntime:
@@ -403,6 +368,19 @@ def _install_fake_tmux_runtime(
         "houmao.srv_ctrl.commands.managed_agents.SingleSessionTrackingRuntime",
         _FakeSingleSessionTrackingRuntime,
     )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
+        lambda *, session_name: bool(session_name),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.managed_agents.probe_tmux_backed_authority",
+        lambda *, session_name: TmuxBackedAuthorityHealth(
+            state="healthy",
+            session_exists=bool(session_name),
+            primary_window_exists=True,
+            primary_pane_exists=True,
+        ),
+    )
 
 
 def _run_houmao_mgr_command(
@@ -426,68 +404,6 @@ def _run_houmao_mgr_command(
         check=False,
     )
 
-
-def _wait_for_server_ready(
-    *,
-    api_base_url: str,
-    timeout_seconds: float = 10.0,
-) -> dict[str, object]:
-    """Wait until the server health and current-instance routes respond."""
-
-    client = HoumaoServerClient(api_base_url, timeout_seconds=0.5)
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            health = client.health_extended()
-            current_instance = client.current_instance().model_dump(mode="json")
-        except Exception:
-            time.sleep(0.1)
-            continue
-        if health.houmao_service == "houmao-server":
-            return current_instance
-        time.sleep(0.1)
-    raise AssertionError(f"Timed out waiting for houmao-server health at {api_base_url}.")
-
-
-def _wait_for_server_stop(*, api_base_url: str, timeout_seconds: float = 10.0) -> None:
-    """Wait until the target server no longer responds."""
-
-    client = HoumaoServerClient(api_base_url, timeout_seconds=0.5)
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            client.health_extended()
-        except Exception:
-            return
-        time.sleep(0.1)
-    raise AssertionError(f"Timed out waiting for houmao-server shutdown at {api_base_url}.")
-
-
-def _run_houmao_mgr_server_start(
-    *,
-    api_base_url: str,
-    runtime_root: Path,
-) -> subprocess.CompletedProcess[str]:
-    """Run `houmao-mgr server start` and capture its detached-start result."""
-
-    return _run_houmao_mgr_command(
-        "server",
-        "start",
-        "--api-base-url",
-        api_base_url,
-        "--runtime-root",
-        str(runtime_root),
-    )
-
-
-class _BlockingHealthHandler(BaseHTTPRequestHandler):
-    """Small HTTP server that occupies the requested port without Houmao routes."""
-
-    def do_GET(self) -> None:  # noqa: N802
-        self.send_response(404)
-        self.end_headers()
-        self.wfile.write(b"not found")
-
     def log_message(self, format: str, *args: object) -> None:
         del format, args
         return
@@ -497,7 +413,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`agents launch` should publish registry state and later resolve local control from it."""
+    """Project launch should publish registry state and later resolve scoped local control."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -517,7 +433,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_control(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: session_name.startswith("gpu-"),
+        lambda *, session_name: session_name.startswith("HOUMAO-gpu-"),
     )
 
     runner = CliRunner()
@@ -564,7 +480,7 @@ def test_houmao_mgr_agents_launch_supports_registry_first_local_interactive_cont
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Default `agents launch` should publish and resolve local interactive TUI control."""
+    """Default project launch should publish and resolve local interactive TUI control."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -625,7 +541,7 @@ def test_houmao_mgr_agents_launch_supports_explicit_launch_profiles(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`agents launch --launch-profile` should resolve the stored profile and publish registry state."""
+    """Project profile launch should resolve the stored profile and publish registry state."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -662,14 +578,23 @@ def test_houmao_mgr_agents_launch_supports_explicit_launch_profiles(
                 managed_header_policy=None,
                 env_payload={},
                 mailbox_payload=None,
+                gateway_mail_notifier_appendix_text=None,
                 posture_payload={},
                 prompt_overlay_mode=None,
             ),
             source_exists=True,
+            source_path=recipe_path,
             recipe_path=recipe_path,
             provider="claude_code",
+            tool="claude",
+            role_name="r",
             recipe_name="r-claude-default",
             prompt_overlay_text=None,
+            memo_seed=None,
+            specialist=None,
+            recipe=None,
+            gateway_mail_notifier_appendix_text=None,
+            private_skills=(),
         ),
     )
     monkeypatch.setattr(
@@ -686,7 +611,7 @@ def test_houmao_mgr_agents_launch_supports_explicit_launch_profiles(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: session_name.startswith("alice"),
+        lambda *, session_name: session_name.startswith("HOUMAO-alice"),
     )
 
     runner = CliRunner()
@@ -711,7 +636,7 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """`agents relaunch` should reuse registry-first local headless authority."""
+    """`agents single ... relaunch` should reuse registry-first local headless authority."""
 
     agent_def_dir = tmp_path / "agent-def"
     registry_root = tmp_path / "registry"
@@ -732,7 +657,7 @@ def test_houmao_mgr_agents_relaunch_supports_registry_first_local_headless_contr
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: session_name.startswith("gpu-"),
+        lambda *, session_name: session_name.startswith("HOUMAO-gpu-"),
     )
 
     runner = CliRunner()
@@ -785,7 +710,7 @@ def test_houmao_mgr_agents_mailbox_register_updates_local_headless_registry_and_
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.managed_agents.tmux_session_exists",
-        lambda *, session_name: session_name.startswith("gpu-"),
+        lambda *, session_name: session_name.startswith("HOUMAO-gpu-"),
     )
 
     runner = CliRunner()
@@ -935,345 +860,6 @@ def test_houmao_mgr_agents_mailbox_register_refreshes_local_interactive_live_pro
     assert mail_status_result.exit_code == 0, mail_status_result.output
     mail_status_payload = json.loads(mail_status_result.output)
     assert mail_status_payload["transport"] == "filesystem"
-
-
-def test_houmao_mgr_agents_gateway_attach_supports_manifest_first_current_session_pair(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Current-session pair attach should resolve from `manifest.json` without gateway pointers."""
-
-    manifest_path = default_manifest_path(tmp_path, "houmao_server_rest", "pair-session-1")
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    payload = build_session_manifest_payload(
-        SessionManifestRequest(
-            launch_plan=_sample_houmao_server_plan(tmp_path),
-            role_name="r",
-            brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="HOUMAO-pair",
-            agent_id="agent-pair-1",
-            tmux_session_name="HOUMAO-pair",
-            session_id="pair-session-1",
-            agent_def_dir=agent_def_dir,
-            backend_state={
-                "api_base_url": "http://127.0.0.1:9890",
-                "session_name": "cao-gpu",
-                "terminal_id": "term-123",
-                "parsing_mode": "shadow_only",
-                "tmux_window_name": "developer-1",
-            },
-        )
-    )
-    write_session_manifest(manifest_path, payload)
-
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.subprocess.run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="HOUMAO-pair\n",
-            stderr="",
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: (
-            str(manifest_path)
-            if session_name == "HOUMAO-pair" and variable_name == AGENT_MANIFEST_PATH_ENV_VAR
-            else None
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.require_houmao_server_pair",
-        lambda base_url: (
-            captured.setdefault("base_url", base_url),
-            SimpleNamespace(
-                pair_authority_kind="houmao-server",
-                attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
-                    captured.setdefault("agent_ref", agent_ref),
-                    captured.setdefault(
-                        "execution_mode", getattr(request_model, "execution_mode", None)
-                    ),
-                    {
-                        "gateway_health": "healthy",
-                        "managed_agent_connectivity": "connected",
-                        "managed_agent_recovery": "idle",
-                        "request_admission": "open",
-                        "active_execution": "idle",
-                        "queue_depth": 0,
-                        "gateway_host": "127.0.0.1",
-                        "gateway_port": 43123,
-                        "execution_mode": "tmux_auxiliary_window",
-                        "gateway_tmux_window_index": "2",
-                    },
-                )[2],
-            ),
-        )[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
-        lambda client, agent_ref: SimpleNamespace(
-            transport="tui",
-            session_name=agent_ref,
-            agent_name="HOUMAO-pair",
-            agent_id="agent-pair-1",
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["--print-json", "agents", "gateway", "attach"])
-
-    assert result.exit_code == 0, result.output
-    assert captured == {
-        "base_url": "http://127.0.0.1:9890",
-        "agent_ref": "cao-gpu",
-        "execution_mode": "tmux_auxiliary_window",
-    }
-    assert json.loads(result.output) == {
-        "gateway_health": "healthy",
-        "managed_agent_connectivity": "connected",
-        "managed_agent_recovery": "idle",
-        "request_admission": "open",
-        "active_execution": "idle",
-        "queue_depth": 0,
-        "gateway_host": "127.0.0.1",
-        "gateway_port": 43123,
-        "execution_mode": "tmux_auxiliary_window",
-        "gateway_tmux_window_index": "2",
-    }
-
-
-def test_houmao_mgr_agents_gateway_attach_supports_explicit_target_tmux_session_pair(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Outside tmux, explicit tmux-session targeting should reuse manifest-backed pair authority."""
-
-    manifest_path = default_manifest_path(tmp_path, "houmao_server_rest", "pair-session-1")
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    payload = build_session_manifest_payload(
-        SessionManifestRequest(
-            launch_plan=_sample_houmao_server_plan(tmp_path),
-            role_name="r",
-            brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="HOUMAO-pair",
-            agent_id="agent-pair-1",
-            tmux_session_name="HOUMAO-pair",
-            session_id="pair-session-1",
-            agent_def_dir=agent_def_dir,
-            backend_state={
-                "api_base_url": "http://127.0.0.1:9890",
-                "session_name": "cao-gpu",
-                "terminal_id": "term-123",
-                "parsing_mode": "shadow_only",
-                "tmux_window_name": "developer-1",
-            },
-        )
-    )
-    write_session_manifest(manifest_path, payload)
-
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.tmux_session_exists",
-        lambda *, session_name: session_name == "HOUMAO-pair",
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.subprocess.run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("current-session tmux discovery should not run")
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: (
-            str(manifest_path)
-            if session_name == "HOUMAO-pair" and variable_name == AGENT_MANIFEST_PATH_ENV_VAR
-            else None
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.require_houmao_server_pair",
-        lambda base_url: (
-            captured.setdefault("base_url", base_url),
-            SimpleNamespace(
-                pair_authority_kind="houmao-server",
-                attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
-                    captured.setdefault("agent_ref", agent_ref),
-                    captured.setdefault(
-                        "execution_mode", getattr(request_model, "execution_mode", None)
-                    ),
-                    {
-                        "gateway_health": "healthy",
-                        "managed_agent_connectivity": "connected",
-                        "managed_agent_recovery": "idle",
-                        "request_admission": "open",
-                        "active_execution": "idle",
-                        "queue_depth": 0,
-                        "gateway_host": "127.0.0.1",
-                        "gateway_port": 43123,
-                        "execution_mode": "tmux_auxiliary_window",
-                        "gateway_tmux_window_index": "2",
-                    },
-                )[2],
-            ),
-        )[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
-        lambda client, agent_ref: SimpleNamespace(
-            transport="tui",
-            session_name=agent_ref,
-            agent_name="HOUMAO-pair",
-            agent_id="agent-pair-1",
-        ),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "agents",
-            "gateway",
-            "attach",
-            "--target-tmux-session",
-            "HOUMAO-pair",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured == {
-        "base_url": "http://127.0.0.1:9890",
-        "agent_ref": "cao-gpu",
-        "execution_mode": "tmux_auxiliary_window",
-    }
-    assert json.loads(result.output) == {
-        "gateway_health": "healthy",
-        "managed_agent_connectivity": "connected",
-        "managed_agent_recovery": "idle",
-        "request_admission": "open",
-        "active_execution": "idle",
-        "queue_depth": 0,
-        "gateway_host": "127.0.0.1",
-        "gateway_port": 43123,
-        "execution_mode": "tmux_auxiliary_window",
-        "gateway_tmux_window_index": "2",
-    }
-
-
-def test_houmao_mgr_agents_gateway_attach_supports_background_override_for_pair_targets(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Pair attach should carry the explicit background execution override."""
-
-    manifest_path = default_manifest_path(tmp_path, "houmao_server_rest", "pair-session-1")
-    agent_def_dir = (tmp_path / "agent-def").resolve()
-    agent_def_dir.mkdir(parents=True, exist_ok=True)
-    payload = build_session_manifest_payload(
-        SessionManifestRequest(
-            launch_plan=_sample_houmao_server_plan(tmp_path),
-            role_name="r",
-            brain_manifest_path=tmp_path / "brain.yaml",
-            agent_name="HOUMAO-pair",
-            agent_id="agent-pair-1",
-            tmux_session_name="HOUMAO-pair",
-            session_id="pair-session-1",
-            agent_def_dir=agent_def_dir,
-            backend_state={
-                "api_base_url": "http://127.0.0.1:9890",
-                "session_name": "cao-gpu",
-                "terminal_id": "term-123",
-                "parsing_mode": "shadow_only",
-                "tmux_window_name": "developer-1",
-            },
-        )
-    )
-    write_session_manifest(manifest_path, payload)
-
-    captured: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.tmux_session_exists",
-        lambda *, session_name: session_name == "HOUMAO-pair",
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.read_tmux_session_environment_value",
-        lambda *, session_name, variable_name: (
-            str(manifest_path)
-            if session_name == "HOUMAO-pair" and variable_name == AGENT_MANIFEST_PATH_ENV_VAR
-            else None
-        ),
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.require_houmao_server_pair",
-        lambda base_url: (
-            captured.setdefault("base_url", base_url),
-            SimpleNamespace(
-                pair_authority_kind="houmao-server",
-                attach_managed_agent_gateway=lambda agent_ref, request_model=None: (
-                    captured.setdefault("agent_ref", agent_ref),
-                    captured.setdefault(
-                        "execution_mode", getattr(request_model, "execution_mode", None)
-                    ),
-                    {
-                        "gateway_health": "healthy",
-                        "managed_agent_connectivity": "connected",
-                        "managed_agent_recovery": "idle",
-                        "request_admission": "open",
-                        "active_execution": "idle",
-                        "queue_depth": 0,
-                        "gateway_host": "127.0.0.1",
-                        "gateway_port": 43123,
-                        "execution_mode": "detached_process",
-                    },
-                )[2],
-            ),
-        )[1],
-    )
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_identity",
-        lambda client, agent_ref: SimpleNamespace(
-            transport="tui",
-            session_name=agent_ref,
-            agent_name="HOUMAO-pair",
-            agent_id="agent-pair-1",
-        ),
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "agents",
-            "gateway",
-            "attach",
-            "--background",
-            "--target-tmux-session",
-            "HOUMAO-pair",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured == {
-        "base_url": "http://127.0.0.1:9890",
-        "agent_ref": "cao-gpu",
-        "execution_mode": "detached_process",
-    }
-    assert json.loads(result.output) == {
-        "gateway_health": "healthy",
-        "managed_agent_connectivity": "connected",
-        "managed_agent_recovery": "idle",
-        "request_admission": "open",
-        "active_execution": "idle",
-        "queue_depth": 0,
-        "gateway_host": "127.0.0.1",
-        "gateway_port": 43123,
-        "execution_mode": "detached_process",
-    }
 
 
 def test_houmao_mgr_agents_help_retires_history_command() -> None:
@@ -1525,132 +1111,17 @@ def test_houmao_mgr_agents_mail_resolve_live_requires_selector_outside_tmux(
     assert "run inside the target tmux session" in result.output
 
 
-def test_houmao_mgr_server_commands_cover_live_lifecycle_and_empty_sessions(
-    tmp_path: Path,
-) -> None:
-    """`server` commands should manage one live `houmao-server` process end to end."""
-
-    port = _pick_unused_loopback_port()
-    api_base_url = f"http://127.0.0.1:{port}"
-    runtime_root = (tmp_path / "runtime").resolve()
-    start_result = _run_houmao_mgr_server_start(
-        api_base_url=api_base_url, runtime_root=runtime_root
-    )
-    assert start_result.returncode == 0, start_result.stderr
-    start_payload = json.loads(start_result.stdout)
-    assert start_payload["success"] is True
-    assert start_payload["running"] is True
-    assert start_payload["mode"] == "background"
-    assert start_payload["api_base_url"] == api_base_url
-    assert start_payload["reused_existing"] is False
-    assert start_payload["log_paths"]["stdout"].endswith("houmao-server.stdout.log")
-    live_instance = _wait_for_server_ready(api_base_url=api_base_url)
-    assert start_payload["current_instance"]["pid"] == live_instance["pid"]
-
+def test_houmao_mgr_help_excludes_retired_server_group() -> None:
     runner = CliRunner()
 
-    status_result = runner.invoke(cli, ["--print-json", "server", "status", "--port", str(port)])
-    assert status_result.exit_code == 0, status_result.output
-    status_payload = json.loads(status_result.output)
-    assert status_payload["running"] is True
-    assert status_payload["api_base_url"] == api_base_url
-    assert status_payload["active_session_count"] == 0
+    help_result = runner.invoke(cli, ["--print-json", "--help"])
+    assert help_result.exit_code == 0, help_result.output
+    assert "server" not in cli.commands
+    assert "server" not in help_result.output
 
-    reuse_result = _run_houmao_mgr_server_start(
-        api_base_url=api_base_url, runtime_root=runtime_root
-    )
-    assert reuse_result.returncode == 0, reuse_result.stderr
-    reuse_payload = json.loads(reuse_result.stdout)
-    assert reuse_payload["success"] is True
-    assert reuse_payload["reused_existing"] is True
-    assert reuse_payload["pid"] == live_instance["pid"]
-
-    sessions_result = runner.invoke(
-        cli, ["--print-json", "server", "sessions", "list", "--port", str(port)]
-    )
-    assert sessions_result.exit_code == 0, sessions_result.output
-    assert json.loads(sessions_result.output) == {"sessions": []}
-
-    shutdown_all_result = runner.invoke(
-        cli,
-        ["--print-json", "server", "sessions", "shutdown", "--all", "--port", str(port)],
-    )
-    assert shutdown_all_result.exit_code == 0, shutdown_all_result.output
-    assert json.loads(shutdown_all_result.output) == {
-        "detail": "No server sessions found to shutdown.",
-        "success": True,
-    }
-
-    stop_result = runner.invoke(cli, ["--print-json", "server", "stop", "--port", str(port)])
-    assert stop_result.exit_code == 0, stop_result.output
-    stop_payload = json.loads(stop_result.output)
-    assert stop_payload["success"] is True
-    assert stop_payload["api_base_url"] == api_base_url
-    _wait_for_server_stop(api_base_url=api_base_url)
-
-
-def test_houmao_mgr_server_start_defaults_to_project_overlay_runtime_root_in_subprocess(
-    tmp_path: Path,
-) -> None:
-    repo_root = (tmp_path / "repo").resolve()
-    repo_root.mkdir(parents=True, exist_ok=True)
-    bootstrap_project_overlay(repo_root)
-    port = _pick_unused_loopback_port()
-    api_base_url = f"http://127.0.0.1:{port}"
-
-    start_result = _run_houmao_mgr_command(
-        "server",
-        "start",
-        "--api-base-url",
-        api_base_url,
-        cwd=repo_root,
-    )
-    assert start_result.returncode == 0, start_result.stderr
-    start_payload = json.loads(start_result.stdout)
-    assert start_payload["success"] is True
-    assert start_payload["runtime_root"] == str((repo_root / ".houmao" / "runtime").resolve())
-    assert (
-        start_payload["runtime_root_detail"]
-        == "Selected the active project runtime root from the current project overlay."
-    )
-    assert Path(start_payload["log_paths"]["stdout"]).exists()
-    _wait_for_server_ready(api_base_url=api_base_url)
-
-    stop_result = _run_houmao_mgr_command("server", "stop", "--port", str(port), cwd=repo_root)
-    assert stop_result.returncode == 0, stop_result.stderr
-    stop_payload = json.loads(stop_result.stdout)
-    assert stop_payload["success"] is True
-    _wait_for_server_stop(api_base_url=api_base_url)
-
-
-def test_houmao_mgr_server_start_reports_unsuccessful_detached_start(
-    tmp_path: Path,
-) -> None:
-    """Detached `server start` should report a failed start result when the child exits early."""
-
-    port = _pick_unused_loopback_port()
-    api_base_url = f"http://127.0.0.1:{port}"
-    runtime_root = (tmp_path / "runtime").resolve()
-    blocker = ThreadingHTTPServer(("127.0.0.1", port), _BlockingHealthHandler)
-    worker = threading.Thread(target=blocker.serve_forever, daemon=True)
-    worker.start()
-    try:
-        result = _run_houmao_mgr_server_start(api_base_url=api_base_url, runtime_root=runtime_root)
-    finally:
-        blocker.shutdown()
-        blocker.server_close()
-        worker.join(timeout=5)
-
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["success"] is False
-    assert payload["running"] is False
-    assert payload["mode"] == "background"
-    assert payload["api_base_url"] == api_base_url
-    assert payload["log_paths"]["stderr"].endswith("houmao-server.stderr.log")
-    assert Path(payload["log_paths"]["stderr"]).exists()
-    assert payload["exit_code"] is not None
-    assert "exited before becoming healthy" in payload["detail"]
+    server_result = runner.invoke(cli, ["--print-json", "server", "--help"])
+    assert server_result.exit_code != 0
+    assert "No such command 'server'" in server_result.output
 
 
 def _sample_join_pane(*, pane_pid: int = 321, window_name: str = "manual") -> TmuxPaneRecord:

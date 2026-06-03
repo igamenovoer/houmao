@@ -8,53 +8,67 @@ The packaged current-system-skill catalog SHALL include `houmao-utils-workspace-
 
 That packaged skill SHALL use `houmao-utils-workspace-mgr` as both its catalog key and its packaged `asset_subpath`.
 
-The skill SHALL support two explicit operation modes:
+The skill SHALL support these explicit operation modes:
 
+- `help`, which explains this skill's independent workspace-preparation purpose, operation list, common prompts, and related-skill boundaries without planning or mutating files.
 - `plan`, which inspects local context and reports the planned workspace organization without mutating files unless the user explicitly asks to write the plan to a Markdown path.
-- `execute`, which creates or updates the planned workspace artifacts, Git worktrees, local-only shared repos, ignore rules, optional memo seed files, and launch-profile cwd settings.
+- `create`, which creates or updates the planned workspace artifacts, Git worktrees, local-only shared repos, ignore rules, local-state links, optional memo seed files, and launch-profile cwd settings.
+- `validate`, which checks prepared workspace and worktree readiness, including project-scope tool availability and required local-state links, without creating or repairing workspace topology.
+- `summarize`, which reports compact prepared-workspace facts for humans, scripts, or upstream planners.
 
 If the operation is unclear, the skill SHALL default to `plan`.
+
+The skill MAY treat `execute` as a compatibility alias for `create`, but `create` SHALL be the standard mutating setup operation name.
 
 The skill SHALL NOT launch agents.
 
 #### Scenario: Plan mode reports a workspace plan without mutation
-- **WHEN** the user asks the workspace-manager skill to prepare or inspect a multi-agent workspace without explicitly requesting execution
+- **WHEN** the user asks the workspace-manager skill to prepare or inspect a multi-agent workspace without explicitly requesting creation
 - **THEN** the skill operates in `plan` mode
-- **AND THEN** it reports planned directories, Git actions, local-state symlink decisions, submodule decisions, launch-profile changes, workspace rules, risks, and unresolved questions
+- **AND THEN** it reports planned directories, Git actions, local-state link decisions, submodule decisions, launch-profile changes, workspace rules, risks, and unresolved questions
 - **AND THEN** it does not modify files unless the user supplied a plan output path
 
-#### Scenario: Execute mode prepares the planned workspace
-- **WHEN** the user explicitly asks the workspace-manager skill to execute a workspace setup
-- **THEN** the skill creates or updates workspace scaffolding, worktrees, local-only shared repos, local-state symlinks, tracked-submodule materialization, `workspace.md`, launch-profile cwd values, and optional memo seed files according to the current plan
+#### Scenario: Create mode prepares the planned workspace
+- **WHEN** the user explicitly asks the workspace-manager skill to create a workspace setup
+- **THEN** the skill creates or updates workspace scaffolding, worktrees, local-only shared repos, local-state links, tracked-submodule materialization, `workspace.md`, launch-profile cwd values, and optional memo seed files according to the current plan
 - **AND THEN** it reports the resulting workspace state and remaining manual work
 - **AND THEN** it does not launch managed agents
+
+#### Scenario: Execute aliases create during transition
+- **WHEN** the user invokes `execute` for a workspace setup
+- **THEN** the skill treats the request as `create` or clearly reports that `create` is the replacement operation
+- **AND THEN** it does not expose a separate behavior path for `execute`
+
+#### Scenario: Summarize reports prepared workspace facts
+- **WHEN** the user asks for a summary of a planned or prepared workspace
+- **THEN** the skill reports workspace flavor, root paths, agent worktree paths, branch names, shared knowledge paths, local-state posture, validation posture, and relevant `workspace.md` references
 
 ### Requirement: Workspace-manager skill separates in-repo and out-of-repo workspace flavors
 The packaged `houmao-utils-workspace-mgr` asset SHALL include one top-level `SKILL.md` and separate subskill pages for workspace flavor details.
 
 The top-level skill SHALL load exactly one flavor page after choosing a workspace flavor:
 
-- `subskills/in-repo-workspace.md` for workspaces rooted under the current repository.
+- `subskills/in-repo-workspace.md` for untracked local workspaces rooted under the current repository.
 - `subskills/out-of-repo-workspace.md` for standalone workspace repositories that mount one or more target repositories.
 
-The in-repo flavor SHALL default the workspace root to `<repo-root>/houmao-ws`.
+The in-repo flavor SHALL default the workspace collection root to `<repo-root>/houmao-ws`.
 
 The in-repo flavor SHALL default each adjusted launch-profile cwd to `<repo-root>` so agents share the parent repository as their visibility surface.
 
-The in-repo flavor SHALL create per-agent repository paths as ignored Git worktrees under each agent workspace and SHALL identify those worktrees as the default mutation surface for source changes and shared-KB changes intended to merge through Git.
+The in-repo flavor SHALL create per-agent repository paths as ignored Git worktrees under each task-local agent workspace and SHALL identify those worktrees as the default mutation surface for source changes intended to merge through Git.
 
-The in-repo flavor SHALL identify each agent's parent-checkout KB path as writable only by that owning agent by default.
+The in-repo flavor SHALL identify task-local `shared-kb/` as untracked cross-run task knowledge and task-local `owner-states/<subdir>/...` as untracked per-run task-owner bookkeeping.
 
 The out-of-repo flavor SHALL treat `ws-root` as a standalone workspace Git repository that tracks workspace metadata and workspace-owned knowledge rather than target repository code.
 
 #### Scenario: In-repo planning uses the in-repo subskill
 - **WHEN** the user requests a workspace rooted inside the current repository
 - **THEN** the workspace-manager skill loads `subskills/in-repo-workspace.md`
-- **AND THEN** the plan uses `<repo-root>/houmao-ws` by default
+- **AND THEN** the plan uses `<repo-root>/houmao-ws` as the default untracked workspace collection
 - **AND THEN** the plan uses `<repo-root>` as the default launch cwd for each in-repo agent
-- **AND THEN** per-agent repository paths are planned as ignored Git worktrees under each agent workspace
-- **AND THEN** the plan identifies each agent's private worktree as the write target for source and shared-KB changes intended to merge through Git
-- **AND THEN** the plan identifies each agent's parent-checkout KB path as writable only by that owning agent by default
+- **AND THEN** per-agent repository paths are planned as ignored Git worktrees under each task-local agent workspace
+- **AND THEN** the plan identifies each agent's private worktree as the write target for source changes intended to merge through Git
+- **AND THEN** the plan identifies task-local `shared-kb/` as cross-run shared knowledge and task-local `owner-states/<subdir>/...` as per-run task-owner bookkeeping
 
 #### Scenario: Out-of-repo planning uses the out-of-repo subskill
 - **WHEN** the user requests a standalone multi-repo workspace
@@ -151,44 +165,48 @@ The skill SHALL instruct agents that submodule commits require a corresponding s
 - **AND THEN** the report tells the operator to initialize the source submodule or select a different materialization mode
 
 ### Requirement: Workspace-manager skill maintains workspace operating documentation
-The workspace-manager skill SHALL maintain `<ws-root>/workspace.md` as a human-readable map and operating contract when execution occurs.
+The workspace-manager skill SHALL maintain `<task-root>/workspace.md` as a human-readable map and operating contract when execution occurs for an in-repo task workspace.
+
+For non-task-scoped workspace modes, the workspace-manager skill SHALL maintain the applicable workspace map at the selected workspace root.
 
 `workspace.md` SHALL record the workspace flavor and root, agents and launch-profile bindings, branch names, repo bindings and materialization modes, local-state symlink decisions, submodule materialization decisions, shared local repos, ignored paths, memo seed files created, and integration or ownership rules.
 
 For in-repo workspaces, `workspace.md` SHALL record that `<repo-root>` is the shared launch cwd and visibility surface.
 
+For in-repo workspaces, `workspace.md` SHALL record that `<repo-root>/houmao-ws` is an untracked local workspace collection.
+
 For in-repo workspaces, `workspace.md` SHALL record read/write ownership rules for:
 
 - parent-checkout source paths
 - each agent's private worktree
-- each agent's private worktree copy of `houmao-ws/shared-kb`
-- parent-checkout `houmao-ws/shared-kb`
-- each agent's parent-checkout `houmao-ws/<agent-name>/kb`
-- sibling agents' KB directories and worktrees
+- task-local `shared-kb/`
+- task-local `owner-states/<subdir>/...`
+- each agent's local bookkeeping surface
+- sibling agents' bookkeeping directories and worktrees
 - `workspace.md` itself
 
 The skill SHALL treat `workspace.md` as documentation rather than the only source of truth.
 
 #### Scenario: Execution writes a workspace map
 - **WHEN** the workspace-manager skill executes a workspace setup
-- **THEN** it writes or updates `<ws-root>/workspace.md`
-- **AND THEN** the file documents the workspace layout, Git branch rules, submodule policy, and shared knowledge paths needed by operators and agents
+- **THEN** it writes or updates the applicable `workspace.md`
+- **AND THEN** the file documents the workspace layout, Git branch rules, submodule policy, shared knowledge paths, owner-state paths, and ownership rules needed by operators and agents
 
 #### Scenario: In-repo workspace map records shared visibility and private mutation rules
 - **WHEN** the workspace-manager skill executes an in-repo workspace setup
-- **THEN** `<ws-root>/workspace.md` records `<repo-root>` as the default launch cwd
+- **THEN** `<task-root>/workspace.md` records `<repo-root>` as the default launch cwd
 - **AND THEN** it marks parent-checkout source paths as read-only by default for agents
 - **AND THEN** it marks each agent's private worktree as writable by that agent for source changes
-- **AND THEN** it marks each agent's private worktree copy of `houmao-ws/shared-kb` as writable by that agent for shared-KB changes intended to merge through Git
-- **AND THEN** it marks each agent's parent-checkout `houmao-ws/<agent-name>/kb` as writable only by that owning agent by default
-- **AND THEN** it marks sibling KB directories, sibling worktrees, and `workspace.md` as read-only by default for non-owning agents
+- **AND THEN** it marks task-local `shared-kb/` as untracked cross-run task knowledge
+- **AND THEN** it marks task-local `owner-states/<subdir>/...` as untracked per-run task-owner bookkeeping
+- **AND THEN** it marks sibling agent bookkeeping directories, sibling worktrees, and `workspace.md` as read-only by default for non-owning agents
 
 ### Requirement: Workspace-manager skill can prepare launch-profile memo seeds with workspace rules
 When the user opts in, the workspace-manager skill SHALL create per-agent Markdown memo seed files that preserve original memo seed text and append workspace-specific rules.
 
-The appended workspace rules SHALL include launch cwd, branch names, writable knowledge paths, shared knowledge paths, local-state symlink policy, submodule commit and push rules, and the integration rule that agents should avoid submodule add/delete/reconfigure changes.
+The appended workspace rules SHALL include launch cwd, branch names, writable knowledge paths, shared knowledge paths, owner-state paths, local-state symlink policy, submodule commit and push rules, and the integration rule that agents should avoid submodule add/delete/reconfigure changes.
 
-For in-repo workspaces, the appended workspace rules SHALL state that the launch cwd is `<repo-root>`, source modifications belong in the agent's private worktree, shared-KB modifications intended for Git merge belong in the agent's private worktree copy of `houmao-ws/shared-kb`, the agent may write its own parent-checkout KB path, and sibling KB directories and worktrees are read-only by default.
+For in-repo workspaces, the appended workspace rules SHALL state that the launch cwd is `<repo-root>`, source modifications belong in the agent's private worktree, task shared knowledge belongs in the untracked task-local `shared-kb/`, per-run task-owner bookkeeping belongs in untracked task-local `owner-states/<subdir>/...`, and sibling bookkeeping directories and worktrees are read-only by default.
 
 The workspace-manager skill SHALL update launch profiles to use generated memo seed files only after writing those files.
 
@@ -204,21 +222,28 @@ The skill SHALL route direct live-agent memo edits to `houmao-memory-mgr` rather
 - **WHEN** the user asks execution to seed workspace rules into agent memo seeds for an in-repo workspace
 - **THEN** each generated memo seed records `<repo-root>` as the launch cwd and shared visibility surface
 - **AND THEN** it instructs the agent to make source changes in its private worktree
-- **AND THEN** it instructs the agent to make shared-KB changes intended for Git merge in its private worktree copy of `houmao-ws/shared-kb`
-- **AND THEN** it identifies the agent's own parent-checkout KB path as writable for agent-owned notes
-- **AND THEN** it identifies sibling KB directories and sibling worktrees as read-only by default
+- **AND THEN** it identifies task-local `shared-kb/` as untracked cross-run shared task knowledge
+- **AND THEN** it identifies task-local `owner-states/<subdir>/...` as untracked per-run task-owner bookkeeping
+- **AND THEN** it identifies sibling bookkeeping directories and sibling worktrees as read-only by default
 
 ### Requirement: Workspace-manager remains the standard workspace-preparation skill
-The packaged `houmao-utils-workspace-mgr` guidance SHALL remain the Houmao-owned standard workspace-preparation surface.
+The packaged `houmao-utils-workspace-mgr` guidance SHALL remain the Houmao-owned standard workspace-preparation and workspace-validation surface.
 
-The skill SHALL support preparing Houmao-standard workspace layouts and SHALL NOT add a `custom` workspace lane that attempts to absorb arbitrary operator-owned workspace contracts.
+The skill SHALL support preparing, validating, and summarizing Houmao-standard workspace layouts and SHALL NOT add a `custom` workspace lane that attempts to absorb arbitrary operator-owned workspace contracts.
+
+The skill SHALL describe upstream requirements and downstream consumers generically. It SHALL NOT make loop plans, loop execplans, or `houmao-agent-loop-pro` part of its own contract.
 
 Users who do not want the Houmao-standard workspace posture SHALL be able to avoid invoking `houmao-utils-workspace-mgr` instead of routing their custom layout through it.
 
 #### Scenario: Custom workspace is not a workspace-manager lane
-- **WHEN** an operator wants a nonstandard workspace layout for a loop run
-- **THEN** the loop plan may record that custom layout directly
+- **WHEN** an operator wants a nonstandard workspace layout
+- **THEN** an upstream plan or operator note may record that custom layout directly
 - **AND THEN** `houmao-utils-workspace-mgr` does not need to expose that custom layout as one of its own operating modes
+
+#### Scenario: Workspace-manager remains independent of loop skills
+- **WHEN** workspace-manager guidance describes prepared workspace summaries, bookkeeping requests, validation, or downstream consumers
+- **THEN** it uses workspace-oriented language
+- **AND THEN** it does not describe those concepts as loop-facing or loop-owned
 
 ### Requirement: In-repo workspace-manager posture is task-scoped
 The loop-facing in-repo posture of `houmao-utils-workspace-mgr` SHALL be task-scoped under:
@@ -230,10 +255,11 @@ The loop-facing in-repo posture of `houmao-utils-workspace-mgr` SHALL be task-sc
 For task-scoped in-repo workspaces, the task root SHALL contain:
 
 - `workspace.md` as the task-local operating contract,
-- `shared-kb/` as the task-local shared knowledge surface,
+- `shared-kb/` as the untracked task-local shared knowledge surface that may persist across runs,
+- `owner-states/` as the untracked task-local container for per-run task-owner bookkeeping subdirectories,
 - one directory per agent beneath the task root.
 
-The repo-level `houmao-ws/workspaces.md` MAY act as an index across task workspaces, but it SHALL NOT replace each task-local `workspace.md` as the authoritative contract for that team.
+The repo-level `houmao-ws/workspaces.md` MAY act as a local untracked index across task workspaces, but it SHALL NOT replace each task-local `workspace.md` as the authoritative contract for that team.
 
 Task-scoped in-repo workspaces SHALL use task-qualified branch names such as:
 
@@ -243,13 +269,18 @@ houmao/<task-name>/<agent-name>/main
 
 #### Scenario: Two in-repo teams can coexist with the same agent names
 - **WHEN** one repository hosts two task-scoped in-repo workspaces with different `task-name` values
-- **THEN** each task receives its own task root, task-local `workspace.md`, task-local `shared-kb`, and task-qualified branches
+- **THEN** each task receives its own task root, task-local `workspace.md`, task-local `shared-kb`, task-local `owner-states`, and task-qualified branches
 - **AND THEN** the two teams can reuse the same `agent-name` values without path or branch collisions
 
-### Requirement: Workspace-manager skill can publish loop-facing standard workspace posture summaries
-The packaged `houmao-utils-workspace-mgr` guidance SHALL support loop-facing summaries for prepared standard workspace postures so loop plans can reference prepared workspace behavior without restating the full workspace layout from scratch.
+#### Scenario: Shared knowledge persists across runs while states are run-scoped
+- **WHEN** a task workspace is reused for multiple runs
+- **THEN** task knowledge that should survive across runs is recorded under `<task-root>/shared-kb/`
+- **AND THEN** per-run task-owner bookkeeping is recorded under `<task-root>/owner-states/<subdir>/...`
 
-For each prepared agent workspace, a loop-facing summary SHALL identify:
+### Requirement: Workspace-manager skill can publish loop-facing standard workspace posture summaries
+The packaged `houmao-utils-workspace-mgr` guidance SHALL support consumer-neutral summaries for prepared standard workspace postures so humans, scripts, or upstream planners can reference prepared workspace behavior without restating the full workspace layout from scratch.
+
+For each prepared agent workspace, a workspace summary SHALL identify:
 
 - the selected workspace flavor,
 - the selected `task-name` and task root for in-repo mode,
@@ -257,13 +288,83 @@ For each prepared agent workspace, a loop-facing summary SHALL identify:
 - the private source-mutation surface,
 - shared writable surfaces when applicable,
 - default read-only shared surfaces,
+- local-state link posture,
+- validation posture when validation has run,
 - ad hoc worktree posture,
 - task-qualified branch names when applicable,
 - the relevant `workspace.md` reference when one exists.
 
-The loop-facing summary SHALL describe writable bookkeeping zones only at the level of allowed standard surfaces. It SHALL NOT prescribe a fixed subtree under per-agent `kb/`.
+The workspace summary SHALL describe writable bookkeeping zones only at the level of allowed standard surfaces. It SHALL NOT prescribe a fixed subtree under per-agent bookkeeping directories.
 
-#### Scenario: In-repo workspace summary is reusable by a loop plan
-- **WHEN** the workspace-manager skill prepares or plans an in-repo workspace for loop participants
-- **THEN** the resulting plan or task-local `workspace.md` can summarize the task root, shared visibility surface, and private mutation surface for each agent
-- **AND THEN** it does not require a loop plan to invent a separate standard in-repo workspace contract from scratch
+#### Scenario: Workspace summary is reusable by downstream consumers
+- **WHEN** the workspace-manager skill prepares, plans, validates, or summarizes a workspace for participants
+- **THEN** the resulting plan, validation report, summary, or `workspace.md` can summarize the workspace root, shared visibility surface, private mutation surface, local-state posture, and validation posture for each agent
+- **AND THEN** it does not require downstream consumers to invent a separate standard workspace contract from scratch
+
+### Requirement: In-repo workspace collection is untracked local state
+The in-repo workspace-manager posture SHALL treat `<repo-root>/houmao-ws` as an untracked local workspace collection directory.
+
+The workspace-manager skill SHALL keep the in-repo workspace collection out of the parent repository's tracked file set by default.
+
+Execution SHALL prefer a local ignore rule in `.git/info/exclude` for `houmao-ws/` unless the user explicitly requests a tracked ignore-file update.
+
+The in-repo workspace collection SHALL contain local coordination material, task knowledge, owner state, workspace maps, and per-agent worktree containers, but SHALL NOT itself be a Git-tracked collaboration surface.
+
+#### Scenario: Execution excludes the workspace collection locally
+- **WHEN** the workspace-manager skill executes an in-repo workspace setup using the default workspace collection
+- **THEN** it ensures `houmao-ws/` is ignored from the parent repository's tracked file set
+- **AND THEN** it prefers recording that ignore rule in `.git/info/exclude`
+- **AND THEN** it reports the ignore decision in the plan or resulting workspace summary
+
+#### Scenario: In-repo workspace state is not a Git merge surface
+- **WHEN** an in-repo workspace contains `workspace.md`, `shared-kb/`, `states/`, or agent bookkeeping files under `<repo-root>/houmao-ws/<task-name>`
+- **THEN** the workspace-manager guidance identifies those paths as untracked local workspace state
+- **AND THEN** it does not instruct agents to commit or merge those paths through the parent repository
+
+### Requirement: Workspace-manager entrypoint is a concise operation router
+The packaged `houmao-utils-workspace-mgr` top-level `SKILL.md` SHALL act as a concise router rather than a long-form policy document.
+
+The top-level entrypoint SHALL include structured sections for activation, help, operations, routing, shared references, and constraints.
+
+The top-level entrypoint SHALL list supported operations in a Markdown table or compact Markdown list that explains what each operation does and when to use it.
+
+Detailed operation behavior SHALL live in routed operation pages, flavor pages, or reference pages rather than the top-level entrypoint.
+
+#### Scenario: Help exposes concise operations
+- **WHEN** the user asks for workspace-manager help or usage
+- **THEN** the response is based on the top-level operation list
+- **AND THEN** the response describes `plan`, `create`, `validate`, and `summarize` without loading detailed policy pages unnecessarily
+
+#### Scenario: Concrete operation routes to one operation page
+- **WHEN** the user invokes a concrete workspace-manager operation
+- **THEN** the skill routes to the matching operation page
+- **AND THEN** it loads only the selected flavor and reference pages needed for that operation
+
+### Requirement: Workspace-manager validates project-scope worktree readiness
+The workspace-manager skill SHALL support a `validate` operation that checks prepared workspace readiness without creating or repairing workspace topology.
+
+Validation SHALL verify that planned or created worktrees exist, use the expected branch posture, and have required local-state links or materialized paths needed for project-scope commands.
+
+Validation SHALL support project-scope tool checks for project-managed commands such as Pixi commands, virtual-environment Python commands, C or C++ build commands, and in-project scripts when those commands are discovered safely or supplied explicitly by the operator.
+
+Validation SHALL prefer explicit operator-provided validation commands and documented project commands over inventing expensive build or test commands.
+
+Validation SHALL report commands considered, commands run, skipped commands, missing local state, failed checks, and recommended follow-up actions.
+
+Validation SHALL NOT mutate workspace topology, create worktrees, rewrite launch profiles, or change workspace ownership rules. Validation MAY allow invoked project tools to create their normal cache, build, or environment outputs.
+
+#### Scenario: Validate reports missing local-state links
+- **WHEN** a prepared worktree is missing a required local-state link or materialized path from the workspace plan
+- **THEN** `validate` reports the missing path and expected source
+- **AND THEN** it recommends rerunning `create` with the appropriate local-state decision or manually repairing the path
+
+#### Scenario: Validate runs project-scope commands
+- **WHEN** the operator supplies validation commands or the project exposes safe documented commands
+- **THEN** `validate` runs those commands from the prepared worktree or selected project cwd
+- **AND THEN** it reports success or failure for each command
+
+#### Scenario: Validate avoids invented heavy commands
+- **WHEN** a project contains build configuration but no explicit safe validation command is supplied or documented
+- **THEN** `validate` reports candidate tooling without inventing a heavy build command
+- **AND THEN** it asks for or records the needed validation command before running it
+

@@ -29,18 +29,18 @@ These commands SHALL operate on local Houmao-owned runtime state and SHALL NOT r
 
 When no stronger explicit runtime-root override exists and the command runs in project context, the effective runtime root SHALL default to `<active-overlay>/runtime`.
 Each cleanup invocation SHALL target exactly one effective runtime root.
-Operators who need to clean legacy shared-root artifacts under `~/.houmao/runtime` SHALL do so by supplying an explicit runtime-root override such as `--runtime-root ~/.houmao/runtime`.
+Operators who need to clean legacy shared-root artifacts under `<platformdirs user config>/runtime` SHALL do so by supplying an explicit runtime-root override such as `--runtime-root <platformdirs user config>/runtime`.
 
 #### Scenario: Project-context runtime cleanup targets the overlay-local runtime root by default
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
 - **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime builds` without `--runtime-root`
 - **THEN** the command evaluates build artifacts under `/repo/.houmao/runtime`
-- **AND THEN** it does not instead default to a shared runtime root under `~/.houmao/runtime`
+- **AND THEN** it does not instead default to a shared runtime root under `<platformdirs user config>/runtime`
 
 #### Scenario: Explicit runtime-root override can still target legacy shared-root cleanup
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
-- **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root ~/.houmao/runtime`
-- **THEN** the command evaluates runtime-session artifacts under `~/.houmao/runtime`
+- **AND WHEN** an operator runs `houmao-mgr admin cleanup runtime sessions --runtime-root <platformdirs user config>/runtime`
+- **THEN** the command evaluates runtime-session artifacts under `<platformdirs user config>/runtime`
 - **AND THEN** it does not also sweep `/repo/.houmao/runtime` in that same invocation
 
 ### Requirement: `houmao-mgr agents cleanup` resolves one local managed session from explicit or current-session authority
@@ -443,3 +443,4 @@ If the selected artifact path itself is a symlink, cleanup SHALL treat that syml
 - **AND WHEN** that artifact path currently exists as a symlink to a directory outside the owned root
 - **THEN** cleanup removes only the symlink artifact path
 - **AND THEN** it does not recursively delete the symlink target
+

@@ -1,13 +1,13 @@
-# Easy Specialists
+# Project Specialists
 
-Use this subskill when the user wants to create, inspect, update, list, or remove one project-easy specialist through `project easy specialist ...`.
+Use this subskill when the user wants to create, inspect, update, list, or remove one project specialist through `project specialist ...`.
 
 ## Preconditions
 
 - Read [../common/launcher.md](../common/launcher.md).
 - Read [../common/missing-inputs.md](../common/missing-inputs.md).
 - Read [../common/credential-routing.md](../common/credential-routing.md) for create requests or credential-reference edits.
-- Confirm the target is a specialist, not an easy profile, explicit launch profile, or live managed agent.
+- Confirm the target is a specialist, not a project profile, native launch dossier, or live managed agent.
 - For create requests, resolve specialist name, tool, and credential from the prompt, nearby explicit context, or Specialist Create Defaulting before choosing a credential path.
 
 ## Actions
@@ -21,12 +21,20 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 ## Command Shapes
 
 ```text
-<chosen houmao-mgr launcher> project easy specialist list
-<chosen houmao-mgr launcher> project easy specialist get --name <name>
-<chosen houmao-mgr launcher> project easy specialist create --name <name> --tool <tool> ...
-<chosen houmao-mgr launcher> project easy specialist set --name <name> ...
-<chosen houmao-mgr launcher> project easy specialist remove --name <name>
+<chosen houmao-mgr launcher> project specialist list
+<chosen houmao-mgr launcher> project specialist get --name <name>
+<chosen houmao-mgr launcher> project specialist remove --name <name>
 ```
+
+For `create`, use the CLI-owned config draft before running the maintained command:
+
+```text
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+```
+
+The `project.specialist` config draft is intentionally minimal. Its JSON intent must contain a top-level `fields` object whose only draft fields are `name`, `tool`, and `credential`. For prompt content, setup changes, model/reasoning, skills, env records, system-skill policy, mailbox posture, or credential material, use the maintained `project specialist create|set` command fields directly instead of adding them to the draft intent.
+
+For `set`, keep the maintained patch command explicit and include only the user-requested mutation fields.
 
 ## Create Inputs
 
@@ -34,10 +42,10 @@ Common specialist inputs:
 
 - `--name`
 - `--tool claude|codex|gemini|...`
-- `--credential <name>`; when omitted, the CLI default is `<specialist-name>-creds`
+- `--credential <name>`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
-- `--no-unattended` to persist `as_is`; otherwise easy specialists default to unattended prompt mode, which does not imply headless launch posture
+- `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference
 - `--model`
 - `--reasoning-level`
 - repeatable `--with-skill <dir>`
@@ -56,7 +64,7 @@ Use credential discovery only for specialist creation.
 
 When the user omits tool or credential input, first apply Specialist Create Defaulting from [../common/credential-routing.md](../common/credential-routing.md):
 
-- no Houmao project or `HOUMAO_AGENT_DEF_DIR`: stop and report how to select one;
+- no Houmao project or `HOUMAO_NATIVE_AGENT_ROOT`: stop and report how to select one;
 - no registered credentials: stop and suggest adding or logging in one credential;
 - registered credentials exist: pick a matching registered credential based on the prompt or nearby context; if nothing matches, use the credential with the latest listed update time.
 
@@ -102,9 +110,11 @@ Common update and clear inputs:
 
 - Do not guess the specialist name, tool lane, credential name, or auth values.
 - Do not infer tool or credential from installed CLIs, project language, file names, vendor tool homes, or credential storage directory basenames.
-- Do not remove and recreate an easy specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project easy specialist set`.
-- Do not use `project easy specialist set` for specialist rename or tool-lane changes. Ask whether to create a new specialist instead.
-- Do not enter credential discovery for list, get, set, remove, easy-profile creation, or launch.
+- Do not remove and recreate a project specialist for ordinary prompt, skill, setup, credential, prompt-mode, model, reasoning-level, or env edits; use `project specialist set`.
+- Do not use `project specialist set` for specialist rename or tool-lane changes. Ask whether to create a new specialist instead.
+- Do not enter credential discovery for list, get, set, remove, project profile creation, or launch.
 - Do not execute login flows or auth-generation helpers.
 - Do not treat `auto credentials` as a literal CLI flag.
 - Do not infer auth identity from `.houmao/` auth directory names.
+- Do not hand-author specialist config YAML skeletons; use `internals config-drafts generate` for supported minimal specialist config authoring.
+- Do not pass model, env, mailbox, prompt, skill, or credential material fields to `project.specialist` config drafts.

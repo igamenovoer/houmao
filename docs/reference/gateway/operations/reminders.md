@@ -18,7 +18,7 @@ The gateway keeps a live reminder set, chooses one effective reminder by ranking
 
 Use reminder surfaces in this order:
 
-1. `houmao-mgr agents gateway reminders ...` for operator-facing CLI work
+1. scoped `houmao-mgr agents single/self ... gateway reminders ...` for operator-facing CLI work
 2. managed-agent `/houmao/agents/{agent_ref}/gateway/reminders...` when the task is already operating through pair-managed HTTP
 3. direct `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live gateway contract
 
@@ -30,7 +30,7 @@ Preferred managed-agent reminder routes:
 
 | Layer | Path | Purpose |
 | --- | --- | --- |
-| CLI | `houmao-mgr agents gateway reminders list|get|create|set|remove` | operator-facing reminder workflow with managed-agent selectors |
+| CLI | `houmao-mgr agents single ... gateway reminders list|get|create|set|remove` or `houmao-mgr agents self gateway reminders list|get|create|set|remove` | operator-facing reminder workflow with scoped managed-agent targets |
 | Pair proxy | `/houmao/agents/{agent_ref}/gateway/reminders` | list or create live reminders through pair-managed authority |
 | Pair proxy | `/houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}` | inspect, replace, or delete one live reminder |
 

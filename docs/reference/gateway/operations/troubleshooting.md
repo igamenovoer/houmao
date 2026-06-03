@@ -19,7 +19,7 @@ Gateway client calls are local control-plane calls. By default, Houmao bypasses 
 Useful first checks:
 
 ```bash
-houmao-mgr agents gateway status --agent-name <friendly-name>
+houmao-mgr agents single --agent-name <friendly-name> gateway status
 ```
 
 ```bash
@@ -32,7 +32,7 @@ If you are debugging an older build that still routes gateway readiness through 
 env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
     -u http_proxy -u https_proxy -u all_proxy \
     NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
-    houmao-mgr agents gateway attach --agent-name <friendly-name>
+    houmao-mgr agents single --agent-name <friendly-name> gateway attach
 ```
 
 ## Need Postmortem Evidence For A Gateway Route
@@ -54,20 +54,20 @@ After the gateway restarts, structured diagnostic entries are written to `<sessi
 
 Diagnostic logs are cleanup-sensitive log artifacts. They are not authoritative queue or notifier state. Use `queue.sqlite` for queued request records and notifier audit rows, `events.jsonl` for append-only gateway events, and `state.json` for the latest status snapshot. Diagnostic logs also avoid mailbox bodies, raw prompts, attachment contents, authorization headers, cookies, bearer tokens, credential material, and environment secrets by default.
 
-## `houmao-mgr agents gateway attach` Reports Missing Manifest Tmux Metadata
+## Scoped `houmao-mgr agents single/self ... gateway attach` Reports Missing Manifest Tmux Metadata
 
 If current-session attach says the tmux session does not publish `HOUMAO_MANIFEST_PATH` or a usable `HOUMAO_AGENT_ID`, the command is not running against a session that has published supported managed-agent discovery metadata yet.
 
 Check:
 
 - you are inside the target tmux session, not another shell or another tmux session
-- the session was launched through the current pair flow that seeds gateway capability
+- the session was launched or adopted through a maintained project/self flow that seeds gateway capability
 - the session is not an older launch that predates the shared capability-publication seam
 
-If you need to attach before current-session metadata is available, use explicit pair attach instead:
+If you need to attach before current-session metadata is available, use explicit attach instead:
 
 ```bash
-houmao-mgr agents gateway attach --agent-name <friendly-name> --pair-port <pair-port>
+houmao-mgr agents single --agent-name <friendly-name> gateway attach --pair-port 9891
 ```
 
 ## Current-Session Attach Reports Stale Metadata
@@ -83,23 +83,23 @@ Typical causes:
 Operator guidance:
 
 - treat the session as stale rather than trying to patch the env by hand
-- relaunch the pair-managed session, use `--target-tmux-session <tmux-session-name>` if the live local tmux handle is known, or use explicit `--agent-name` or exact `--agent-id` attach against the server if the managed-agent registration is still valid
+- relaunch the managed session through `houmao-mgr agents single --agent-name <friendly-name> relaunch`, use `--target-tmux-session <tmux-session-name>` if the live local tmux handle is known, or use `houmao-mgr agents single --agent-name <friendly-name> gateway attach --pair-port <port>` against the passive-server authority if the managed-agent registration is still valid
 
 ## Current-Session Attach Returns Unknown Managed Agent
 
-Current-session pair attach uses the persisted manifest authority `gateway_authority.attach.api_base_url` plus `gateway_authority.attach.managed_agent_ref` as its only managed-agent route target.
+Current-session attach resolves the local manifest or shared-registry record first. If the record includes a managed API authority, that authority must identify a maintained pair target such as `houmao-passive-server`.
 
-That means a seeded manifest alone is not enough. Current-session attach becomes valid only after the matching delegated launch has completed managed-agent registration on that same server.
+That means a seeded manifest alone is not enough. Current-session attach becomes valid only after the matching managed-agent record is discoverable from the same authority.
 
 If the server returns unknown managed agent:
 
-- wait for the delegated launch registration step to finish
-- verify that the persisted `api_base_url` still addresses the intended `houmao-server`
+- wait for registry publication or passive-server discovery to catch up
+- verify that the persisted `api_base_url` still addresses the intended `houmao-passive-server`
 - do not try to override the server target with `--pair-port`; current-session and `--target-tmux-session` modes do not support retargeting
 
 ## Detach Or Cleanup Refuses To Stop Window `0`
 
-For pair-managed `houmao_server_rest`, tmux window `0` is the reserved agent surface. The gateway lifecycle never intentionally kills it.
+For tmux-backed managed sessions, tmux window `0` is the reserved agent surface. The gateway lifecycle never intentionally kills it.
 
 If detach or cleanup reports that it refused to stop window `0`, inspect:
 

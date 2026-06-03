@@ -1,11 +1,11 @@
-# Houmao Server State Tracking
+# Retired Houmao Server State Tracking
 
-`houmao-server` owns the public tracked-state contract for supported interactive TUIs, but it is no longer always the component that runs the live tracker. Clients and dashboards consume `HoumaoTerminalStateResponse`; they do not run a second reducer. Interactive Codex tracking now resolves through the `codex_tui` tracked-TUI family, while headless backend names such as `codex_app_server` remain outside this subsystem.
+This page is internal reference for retained old-server TUI modules and shared tracking models. `houmao-server` is no longer a packaged executable or maintained public server API. Current API-based observation is exposed through `houmao-passive-server`, while this page explains retained implementation pieces that maintained code may still import.
 
-There are now two live-tracking execution modes behind the same public models:
+The retained tracking model still distinguishes two live-tracking execution modes behind the same public models:
 
-- Direct fallback: `houmao-server` runs the tracker locally for eligible managed TUI sessions.
-- Gateway-owned tracking: an attached healthy per-agent gateway runs the live tracker for that one session, and `houmao-server` projects the gateway state back through the same server routes.
+- Direct fallback: retained old-server modules can run the tracker locally for eligible managed TUI sessions.
+- Gateway-owned tracking: an attached healthy per-agent gateway runs the live tracker for that one session, and maintained API surfaces can project the gateway state back through `/houmao/agents/*` routes.
 
 This keeps one public state contract while enforcing single-owner tracking authority during attach, detach, and gateway health transitions.
 

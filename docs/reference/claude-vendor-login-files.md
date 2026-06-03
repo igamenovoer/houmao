@@ -1,6 +1,6 @@
 # Claude Vendor Login Files
 
-This page explains how Houmao handles Claude Code vendor login files, what CLI shape to use, and what to avoid when turning an existing Claude login into a Houmao auth bundle or easy specialist.
+This page explains how Houmao handles Claude Code vendor login files, what CLI shape to use, and what to avoid when turning an existing Claude login into a Houmao auth bundle or specialist.
 
 ## The File Roles
 
@@ -33,7 +33,7 @@ houmao-mgr project credentials claude add \
 Easy-specialist import:
 
 ```bash
-houmao-mgr project easy specialist create \
+houmao-mgr project specialist create \
   --name claude-reviewer \
   --tool claude \
   --system-prompt "You are a Claude-based code reviewer." \
@@ -93,7 +93,7 @@ That script:
 - launches `server-api-smoke` from a fresh workdir under `tmp/`
 - copies `tests/fixtures/plain-agent-def/` into one temporary direct-dir root under `tmp/`
 - materializes `tools/claude/auth/official-login/` there from `tests/fixtures/auth-bundles/claude/official-login/`
-- sets `HOUMAO_AGENT_DEF_DIR` to that temporary direct-dir root
+- sets `HOUMAO_NATIVE_AGENT_ROOT` to that temporary direct-dir root
 - forces an overlay-local `.houmao` inside the temp workdir
 - runs the Claude launch with `--auth official-login --headless` while the tracked `server-api-smoke` preset keeps `launch.prompt_mode: unattended`
 - stops and cleans up the managed session after validation

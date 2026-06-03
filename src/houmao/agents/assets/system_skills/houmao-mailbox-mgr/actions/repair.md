@@ -12,11 +12,9 @@ Use this action only when the user wants to rebuild filesystem mailbox index sta
 
 ## Command Shape
 
-Use one of:
-
-```text
-<chosen houmao-mgr launcher> mailbox repair [--mailbox-root <path>] [--cleanup-staging|--no-cleanup-staging] [--quarantine-staging|--remove-staging]
-<chosen houmao-mgr launcher> project mailbox repair [--cleanup-staging|--no-cleanup-staging] [--quarantine-staging|--remove-staging]
+```bash
+<chosen houmao-mgr launcher> mailbox repair [--mailbox-root <root>]
+<chosen houmao-mgr launcher> project mailbox repair
 ```
 
 ## Guardrails

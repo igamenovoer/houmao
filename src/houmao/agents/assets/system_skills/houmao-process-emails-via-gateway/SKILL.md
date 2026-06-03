@@ -84,7 +84,7 @@ When reply hardening is requested:
 4. Append the reminder to the current reminder set as lowest priority. With the managed CLI surface, use `--after-all`. With direct gateway HTTP, first inspect current reminders and set `ranking` to one greater than the current maximum ranking.
 5. Include enough email context in the reminder prompt to identify the required reply: `message_ref`, `thread_ref` when available, sender, subject, and the intended reply obligation.
 6. Make the reminder prompt explicitly re-check whether the email has already been replied to; if it has not, send the reply through `POST /v1/mail/reply`; if it has already been replied to, do not send a duplicate reply.
-7. If the normal end-of-round path sends the reply before the reminder fires, remove the hardening reminder with `houmao-mgr agents gateway reminders remove ... --reminder-id <reminder_id>` or `DELETE /v1/reminders/{reminder_id}`.
+7. If the normal end-of-round path sends the reply before the reminder fires, remove the hardening reminder with `houmao-mgr agents self gateway reminders remove --reminder-id <reminder_id>` or `DELETE /v1/reminders/{reminder_id}`.
 8. Keep the reminder scoped to reply assurance only. It must not archive the message unless the work and any required reply have succeeded.
 
 ## Reply-Hardening Reminder Template
@@ -123,7 +123,7 @@ For direct gateway creation, use this one-off prompt reminder shape and replace 
 ## Guardrails
 
 - Do not guess the gateway host or port; use the exact gateway base URL provided in the current round context.
-- Do not switch to `houmao-mgr agents mail resolve-live` inside this notifier-round workflow when the base URL is missing; treat that as a contract failure for the current round.
+- Do not switch to `houmao-mgr agents self mail resolve-live` inside this notifier-round workflow when the base URL is missing; treat that as a contract failure for the current round.
 - Do not archive an email before the corresponding work succeeds.
 - Do not archive a reply-required email before its reply succeeds.
 - Do not create repeat reminders for reply hardening; use one-off reminders only.

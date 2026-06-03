@@ -10,8 +10,9 @@ Use this action only when the user wants to create one new credential.
    - Claude: `references/claude-credential-kinds.md`
    - Codex: `references/codex-credential-kinds.md`
    - Gemini: `references/gemini-credential-kinds.md`
-4. Run the selected command.
-5. Report the created credential name, written env vars, and written auth-file paths returned by the command.
+4. Build the direct command: `project credentials <tool> add` for the project lane or `internals native-agent credentials <tool> add` for the direct native-agent lane.
+5. Run the direct command only after required inputs are explicit and conflicts are resolved.
+6. Report the created credential name, written env vars, and written auth-file paths returned by the command.
 
 ## Required Inputs
 
@@ -22,18 +23,14 @@ Use this action only when the user wants to create one new credential.
 
 ## Command Shape
 
-Use one of:
+Run the matching direct command:
 
-```text
-<chosen houmao-mgr launcher> project credentials <tool> add --name <name> ...
-<chosen houmao-mgr launcher> credentials <tool> add --agent-def-dir <path> --name <name> ...
+```bash
+<chosen houmao-mgr launcher> project credentials <tool> add --name <credential> [<tool-specific credential flags>]
+<chosen houmao-mgr launcher> internals native-agent credentials <tool> add --native-agent-root <dir> --name <credential> [<tool-specific credential flags>]
 ```
 
-Supported tool-specific inputs:
-
-- Claude: `--api-key`, `--auth-token`, `--oauth-token`, optional `--base-url`, optional `--model`, optional model-selection flags, optional `--state-template-file`, optional `--config-dir`
-- Codex: `--api-key`, optional `--base-url`, optional `--org-id`, optional `--auth-json`
-- Gemini: `--api-key`, optional `--base-url`, optional `--google-api-key`, optional `--use-vertex-ai`, optional `--oauth-creds`
+Use the selected tool's credential-kind reference for supported credential flags.
 
 ## Guardrails
 
@@ -42,5 +39,6 @@ Supported tool-specific inputs:
 - Do not scan env vars, tool homes, or home directories to synthesize credential input unless the user explicitly asked for that narrower inspection.
 - Do not invent unsupported file flags for Claude vendor login files; the maintained lane is `--config-dir`.
 - Do not treat optional Claude state-template input as a credential-providing method.
-- Do not claim that adding one credential also updates any easy profile or explicit launch profile to use it.
+- Do not claim that adding one credential also updates any project profile or native launch dossier to use it.
 - Do not reinterpret `add` as `set` when the credential already exists.
+- Do not duplicate unsupported Claude/Codex/Gemini options; use the selected tool reference before choosing credential flags.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Operator Messaging"
+  short_description: "Clarify and dispatch operator messages to agents."
+  default_prompt: "Use $houmao-operator-messaging to clarify an operator message and dispatch it to one or more Houmao managed agents by prompt by default, or by mailbox when requested."

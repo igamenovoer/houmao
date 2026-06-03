@@ -25,7 +25,7 @@ def test_tool_for_provider_maps_supported_provider_ids() -> None:
     assert tool_for_provider("q_cli") == "q_cli"
 
 
-def test_resolve_effective_agent_def_dir_uses_workdir_default_when_env_missing(
+def test_resolve_effective_agent_def_dir_requires_project_when_env_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -33,9 +33,9 @@ def test_resolve_effective_agent_def_dir_uses_workdir_default_when_env_missing(
     workdir = (tmp_path / "workspace").resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    resolved = resolve_effective_agent_def_dir(working_directory=workdir)
-
-    assert resolved == (workdir / ".houmao" / "agents").resolve()
+    with pytest.raises(ValueError, match="No local Houmao project overlay"):
+        resolve_effective_agent_def_dir(working_directory=workdir)
+    assert not (workdir / ".houmao").exists()
 
 
 def test_resolve_effective_agent_def_dir_uses_discovered_project_overlay_when_present(

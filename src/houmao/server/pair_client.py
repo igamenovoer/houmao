@@ -103,14 +103,14 @@ class UnsupportedPairAuthorityError(PairAuthorityClientError):
         if houmao_service is None:
             detail = (
                 f"Target at {base_url} is not a supported Houmao pair authority. "
-                "Supported pair authorities are `houmao-server` and `houmao-passive-server`; "
-                "mixed usage with raw `cao-server` is unsupported."
+                "The maintained pair authority is `houmao-passive-server`; mixed usage with "
+                "raw `cao-server` or retired standalone `houmao-server` is unsupported."
             )
         else:
             detail = (
                 f"Target at {base_url} reported unsupported houmao_service={houmao_service!r}. "
-                "Supported pair authorities are `houmao-server` and `houmao-passive-server`; "
-                "mixed usage with raw `cao-server` is unsupported."
+                "The maintained pair authority is `houmao-passive-server`; mixed usage with "
+                "raw `cao-server` or retired standalone `houmao-server` is unsupported."
             )
         super().__init__(detail)
 
@@ -487,8 +487,6 @@ def resolve_pair_authority_client(
     except Exception as exc:  # pragma: no cover - transport-specific surface
         raise PairAuthorityConnectionError(base_url=base_url, cause=exc) from exc
 
-    if health.houmao_service == "houmao-server":
-        return PairAuthorityClientResolution(client=probe_client, health=health)
     if health.houmao_service == "houmao-passive-server":
         from houmao.passive_server.client import PassiveServerClient
 

@@ -99,7 +99,7 @@ from the source repo on branch:
 houmao/<agent-name>/main
 ```
 
-Apply the shared local-state symlink and tracked-submodule policies from `SKILL.md`.
+Apply the shared local-state symlink policy from [reference/local-state-links.md](reference/local-state-links.md) and tracked-submodule policy from [reference/submodules.md](reference/submodules.md).
 
 For `symlink`, create a symlink at the same path and warn that agents using the same symlink target share one mutable working tree.
 
@@ -163,19 +163,19 @@ For `plan`, include:
 - launch-profile cwd changes
 - optional memo-seed file paths
 
-## Execute Steps
+## Create Steps
 
-For `execute`:
+For `create`:
 
-1. Create or validate `ws-root` as a Git repo.
+1. Create or verify `ws-root` as a Git repo.
 2. Create `.houmao/` only when the workspace is also intended to be a Houmao project directory.
 3. Create tracked workspace metadata and per-agent KB directories.
 4. Add ignore rules for `.shared-repos/`, `shared-kb/`, `*/common-kb/`, and `*/repos/`.
 5. Create or attach local-only shared bare repos.
 6. Create per-agent `common-kb` worktrees.
 7. Materialize target repo bindings under each `repos/` path.
-8. Apply the shared local-state symlink policy from `SKILL.md`.
-9. Apply the shared tracked-submodule policy from `SKILL.md`.
+8. Apply the shared local-state symlink policy from [reference/local-state-links.md](reference/local-state-links.md).
+9. Apply the shared tracked-submodule policy from [reference/submodules.md](reference/submodules.md).
 10. Write or update `<ws-root>/workspace.md`.
 11. Update launch profiles to the planned cwd values.
 12. Optionally create per-agent memo seed Markdown and attach it to profiles.

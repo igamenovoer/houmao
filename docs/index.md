@@ -5,7 +5,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 | Who you are | Where to start |
 |---|---|
 | **Installed user** (`uv tool install houmao`) | Install system skills with `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet are available; use [`houmao-mgr system-skills install`](reference/cli/system-skills.md) for offline/package-local or customized installs. Then start your agent and invoke `houmao-touring` or ask `$houmao-touring help`. |
-| **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) — covers `agents join` and project-overlay build/launch with `pixi run` |
+| **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) - covers `agents self join` and project-overlay build/launch with `pixi run` |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
 ## Getting Started
@@ -13,8 +13,8 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
 - [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, recipes, launch profiles, and skills.
 - [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
-- [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional easy profiles, and instances.
-- [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — easy profiles, explicit launch profiles, and the precedence chain.
+- [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional project profiles, and instances.
+- [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — project profiles, native launch dossiers, and the precedence chain.
 - [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the `houmao-memory-mgr` skill.
 - [System Skills Overview](getting-started/system-skills-overview.md): Narrative tour of every packaged Houmao-owned system skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 - [Loop Authoring Guide](getting-started/loop-authoring.md): Choose `houmao-agent-loop-lite` for Markdown/direct-SQL loops or `houmao-agent-loop-pro` for schema-rich topology loops, then discover the graph tooling that supports pro generated execplan authoring.
@@ -23,17 +23,16 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 ### CLI Surfaces
 
-- [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, brains, and server control.
-- [houmao-server](reference/cli/houmao-server.md): HTTP server for session management and TUI tracking.
-- [houmao-passive-server](reference/cli/houmao-passive-server.md): Registry-driven stateless server — no legacy dependencies.
-- [houmao-mgr credentials](reference/cli/houmao-mgr.md#credentials-dedicated-credential-management): Dedicated top-level credential-management command family for Claude, Codex, and Gemini, with a matching `project credentials` wrapper.
+- [houmao-mgr](reference/cli/houmao-mgr.md): Primary management CLI for agents, projects, mailbox, system skills, internals, and local workflow control.
+- [houmao-passive-server](reference/cli/houmao-passive-server.md): Maintained registry-driven API server for discovery, observation, request submission, gateway proxying, mail proxying, and managed-headless agents.
 - [system-skills](reference/cli/system-skills.md): Install and inspect packaged Houmao-owned skill sets for resolved tool homes.
-- [agents gateway](reference/cli/agents-gateway.md): Gateway lifecycle and explicit live-gateway request commands.
-- [agents turn](reference/cli/agents-turn.md): Managed headless turn submission and inspection.
-- [agents mail](reference/cli/agents-mail.md): Managed-agent mailbox follow-up commands.
-- [agents mailbox](reference/cli/agents-mailbox.md): Late filesystem mailbox registration for local managed agents.
+- [agents gateway](reference/cli/agents-gateway.md): Scoped `agents single ... gateway` and `agents self gateway` lifecycle and request commands.
+- [agents external](reference/cli/agents-external.md): Local imports for remotely owned communication-only managed agents.
+- [agents turn](reference/cli/agents-turn.md): Scoped managed headless turn submission and inspection.
+- [agents mail](reference/cli/agents-mail.md): Scoped managed-agent mailbox follow-up commands.
+- [agents mailbox](reference/cli/agents-mailbox.md): Scoped late filesystem mailbox registration for local managed agents.
 - [admin cleanup](reference/cli/admin-cleanup.md): Registry and runtime maintenance commands.
-- [internals graph](reference/cli/internals.md): NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
+- [internals](reference/cli/internals.md): Native-agent internals plus NetworkX-backed graph helpers for pro loop execplan authoring, structural analysis, and packet validation.
 - [CLI Entrypoints](reference/cli.md): Module-level entry points and common runtime flags.
 
 ### Build Phase
@@ -46,7 +45,7 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 - [Launch Plan](reference/run-phase/launch-plan.md): Composing manifest + role into a backend-specific launch plan.
 - [Session Lifecycle](reference/run-phase/session-lifecycle.md): Start, resume, prompt, stop, and [relaunch](reference/run-phase/session-lifecycle.md#relaunch-sequence) sessions — including the 0.8.0 `--reuse-home fresh` launch mode that reuses an existing brain home for fast restarts without rebuilding.
 - [Degraded and Stale Active Recovery](reference/run-phase/degraded-stale-recovery.md): Probe-first dispatch and recovery paths for local tmux-backed managed agents whose registry record claims `active` but whose tmux session is broken.
-- [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and server-backed.
+- [Backends](reference/run-phase/backends.md): Backend model — local interactive, headless, and legacy/internal compatibility paths.
 - [Role Injection](reference/run-phase/role-injection.md): Per-backend role injection strategies.
 - [Managed Launch Prompt Header](reference/run-phase/managed-prompt-header.md): Houmao-owned prompt header with six independently controllable sections prepended to every managed launch by default — memo cue, content, per-section control, composition, opt-out flags, and stored launch-profile policy.
 
@@ -64,14 +63,14 @@ Houmao is a framework and CLI toolkit for building and running teams of CLI-base
 
 - [Claude Vendor Login Files](reference/claude-vendor-login-files.md): How to import Claude vendor login state, what each file means, and how to validate that lane locally.
 - [Release Publishing](reference/release-publishing.md): PyPI trusted publishing setup and the public release flow.
-- [Houmao Server Pair](reference/houmao_server_pair.md): Server + manager pair workflows.
+- [Passive Server API](reference/cli/houmao-passive-server.md): Maintained API-based coordination for running agents.
 - [Managed Agent API](reference/managed_agent_api.md): Direct agent control API surface.
 
 ## Developer Guides
 
 - [TUI Parsing](developer/tui-parsing/index.md): Shadow parser architecture, signal contracts, and maintenance.
 - [Terminal Recorder](developer/terminal-record/index.md): Recording internals and capture format.
-- [Houmao Server Internals](developer/houmao-server/index.md): Server-owned TUI tracking and service orchestration.
+- [Retired Server Internals](developer/houmao-server/index.md): Internal notes for retained old-server modules.
 
 ## Resources
 

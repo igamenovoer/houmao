@@ -39,6 +39,15 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller.manifest import load_session_manifest
+from houmao.agents.system_skills import (
+    PROFILE_SYSTEM_SKILL_POLICY_MODES,
+    SOURCE_SYSTEM_SKILL_POLICY_MODES,
+    SystemSkillError,
+    SystemSkillPolicyMode,
+    SystemSkillSelectionPolicy,
+    parse_system_skill_selection_policy,
+    system_skill_selection_policy_to_payload,
+)
 from houmao.project.catalog import (
     AuthProfileCatalogEntry,
     LaunchProfilePrivateSkillInput,
@@ -97,6 +106,7 @@ from .mailbox_support import (
     unregister_mailbox_at_root,
 )
 from .managed_agents import list_managed_agents, resolve_managed_agent_target, stop_managed_agent
+from .project_context import active_project_dir
 from .project_aware_wording import (
     describe_overlay_bootstrap,
     describe_overlay_discovery_mode,
@@ -112,7 +122,10 @@ def _ensure_project_roots() -> ProjectAwareLocalRoots:
     """Return ensured project-aware roots or raise one operator-facing error."""
 
     try:
-        roots = ensure_project_aware_local_roots(cwd=Path.cwd().resolve())
+        roots = ensure_project_aware_local_roots(
+            cwd=Path.cwd().resolve(),
+            project_dir=active_project_dir(),
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
@@ -135,7 +148,10 @@ def _resolve_existing_project_roots(
     """Return the selected roots for one non-creating project flow."""
 
     try:
-        roots = resolve_project_aware_local_roots(cwd=Path.cwd().resolve())
+        roots = resolve_project_aware_local_roots(
+            cwd=Path.cwd().resolve(),
+            project_dir=active_project_dir(),
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     if roots.project_overlay is None:
@@ -175,8 +191,8 @@ def _status_overlay_bootstrap_detail(roots: ProjectAwareLocalRoots) -> str:
 
     if roots.project_overlay is None:
         return (
-            "Project status used non-creating resolution and would bootstrap the selected overlay "
-            "during a stateful project command."
+            "Project status used read-only resolution. Stateful project commands require "
+            "`houmao-mgr project init` or an explicitly selected existing project overlay."
         )
     return describe_overlay_bootstrap(created_overlay=False, overlay_exists=True)
 
@@ -191,11 +207,20 @@ def _missing_selected_overlay_message(
     message = (
         "No Houmao project overlay is available at the selected overlay root "
         f"`{roots.overlay_root}`. This command uses non-creating resolution and did not "
-        "bootstrap it."
+        f"bootstrap it. Run `{_project_init_command_for_roots(roots)}` or select an existing "
+        "project overlay."
     )
     if fallback_label is not None:
         return f"{message} It did not fall back to the {fallback_label}."
     return message
+
+
+def _project_init_command_for_roots(roots: ProjectAwareLocalRoots) -> str:
+    """Return the matching project init command for a selected overlay root."""
+
+    if roots.overlay_root_source == "project_dir":
+        return f"houmao-mgr project --project-dir {roots.overlay_root.parent} init"
+    return "houmao-mgr project init"
 
 
 def _list_tool_setup_names(*, overlay: HoumaoProjectOverlay, tool: str) -> list[str]:
@@ -434,6 +459,7 @@ def _write_named_preset(
     prompt_mode: str | None,
     model_config: ModelConfig | None = None,
     env_records: dict[str, str] | None = None,
+    system_skills: dict[str, object] | None = None,
     overwrite: bool = False,
 ) -> Path:
     """Write one canonical project-local named preset."""
@@ -464,6 +490,8 @@ def _write_named_preset(
         payload["launch"]["model"] = model_payload
     if env_records:
         payload["launch"]["env_records"] = dict(env_records)
+    if system_skills:
+        payload["launch"]["system_skills"] = dict(system_skills)
     _write_yaml_mapping(preset_file, payload)
     return preset_file
 
@@ -558,7 +586,7 @@ def _validate_specialist_create_inputs(
     system_prompt: str | None,
     system_prompt_file: Path | None,
 ) -> str | None:
-    """Validate project easy specialist creation inputs."""
+    """Validate project specialist creation inputs."""
 
     if system_prompt is not None and system_prompt_file is not None:
         raise click.ClickException(
@@ -627,7 +655,7 @@ def _parse_specialist_env_records_or_click(
         return validate_persistent_env_records(
             parsed,
             auth_env_allowlist=adapter.auth_env_allowlist,
-            source="project easy specialist create --env-set",
+            source="project specialist create --env-set",
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -656,9 +684,9 @@ def _profile_lane_label(profile_lane: str) -> str:
     """Return one operator-facing launch-profile lane label."""
 
     if profile_lane == "easy_profile":
-        return "easy-profile"
+        return "profile"
     if profile_lane == "launch_profile":
-        return "launch-profile"
+        return "launch-dossier"
     return profile_lane
 
 
@@ -666,9 +694,9 @@ def _profile_lane_management_label(profile_lane: str) -> str:
     """Return one operator-facing lane-management label."""
 
     if profile_lane == "easy_profile":
-        return "easy profile"
+        return "project profile"
     if profile_lane == "launch_profile":
-        return "explicit launch-profile"
+        return "native launch dossier"
     return _profile_lane_label(profile_lane)
 
 
@@ -676,9 +704,9 @@ def _profile_lane_command_surface(profile_lane: str) -> str | None:
     """Return the maintained command surface for one profile lane."""
 
     if profile_lane == "easy_profile":
-        return "houmao-mgr project easy profile"
+        return "houmao-mgr project profile"
     if profile_lane == "launch_profile":
-        return "houmao-mgr project agents launch-profiles"
+        return "houmao-mgr internals native-agent launch-dossiers"
     return None
 
 
@@ -688,9 +716,9 @@ def _wrong_lane_launch_profile_message(*, name: str, profile_lane: str, action: 
     command_surface = _profile_lane_command_surface(profile_lane)
     if command_surface is None:
         lane_label = _profile_lane_label(profile_lane)
-        return f"Launch profile `{name}` is not an available `{lane_label}` definition."
+        return f"Profile `{name}` is not an available `{lane_label}` definition."
     return (
-        f"Launch profile `{name}` belongs to the {_profile_lane_management_label(profile_lane)} "
+        f"Profile `{name}` belongs to the {_profile_lane_management_label(profile_lane)} "
         f"lane; use `{command_surface} {action} --name {name}`."
     )
 
@@ -719,7 +747,7 @@ def _load_launch_profile_or_click(
             )
         lane_label = _profile_lane_label(expected_lane)
         raise click.ClickException(
-            f"Launch profile `{name}` is not an available `{lane_label}` definition."
+            f"Profile `{name}` is not an available `{lane_label}` definition."
         )
     return resolved
 
@@ -741,7 +769,7 @@ def _resolve_launch_profile_create_operation_or_click(
     if existing.profile_lane != profile_lane:
         lane_label = _profile_lane_label(profile_lane)
         raise click.ClickException(
-            f"Launch profile `{profile_name}` is not an available `{lane_label}` definition."
+            f"Profile `{profile_name}` is not an available `{lane_label}` definition."
         )
     confirm_destructive_action(
         prompt=(
@@ -750,10 +778,10 @@ def _resolve_launch_profile_create_operation_or_click(
         ),
         yes=yes,
         non_interactive_message=(
-            f"Launch profile `{profile_name}` already exists in `{overlay.catalog_path}`. "
+            f"Profile `{profile_name}` already exists in `{overlay.catalog_path}`. "
             "Rerun with `--yes` to replace it non-interactively."
         ),
-        cancelled_message="Launch profile replacement cancelled.",
+        cancelled_message="Profile replacement cancelled.",
     )
     return "replace"
 
@@ -1250,6 +1278,78 @@ def _normalize_repeated_names_or_click(
     return tuple(normalized)
 
 
+def _resolve_system_skill_policy_payload_or_click(
+    *,
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
+    allowed_modes: tuple[SystemSkillPolicyMode, ...],
+    default_mode: SystemSkillPolicyMode,
+    clear_allowed: bool,
+    source_label: str,
+) -> tuple[bool, dict[str, object]]:
+    """Resolve stored system-skill policy CLI inputs into a validated payload."""
+
+    has_selectors = bool(system_skill_sets or system_skills)
+    if clear_system_skills:
+        if not clear_allowed:
+            raise click.ClickException(
+                "`--clear-system-skills` requires an existing stored policy."
+            )
+        if no_system_skills or system_skills_mode is not None or has_selectors:
+            raise click.ClickException(
+                "`--clear-system-skills` cannot be combined with system-skill mode or selectors."
+            )
+        return True, {}
+
+    if no_system_skills:
+        if system_skills_mode is not None or has_selectors:
+            raise click.ClickException(
+                "`--no-system-skills` cannot be combined with system-skill mode or selectors."
+            )
+        system_skills_mode = "none"
+
+    if system_skills_mode is None and not has_selectors:
+        return False, {}
+
+    resolved_mode = system_skills_mode or "extend"
+    payload: dict[str, object] = {"mode": resolved_mode}
+    if system_skill_sets:
+        payload["sets"] = list(system_skill_sets)
+    if system_skills:
+        payload["skills"] = list(system_skills)
+    try:
+        policy = parse_system_skill_selection_policy(
+            payload,
+            allowed_modes=allowed_modes,
+            default_mode=default_mode,
+            source=source_label,
+        )
+    except SystemSkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return True, system_skill_selection_policy_to_payload(policy)
+
+
+def _resolve_launch_profile_system_skill_policy_or_click(
+    payload: object,
+    *,
+    source: str,
+) -> SystemSkillSelectionPolicy | None:
+    """Return one stored launch-profile system-skill policy or fail as Click error."""
+
+    try:
+        return parse_system_skill_selection_policy(
+            payload,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            source=source,
+        )
+    except SystemSkillError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _private_skill_cli_records_or_click(
     *,
     catalog: ProjectCatalog,
@@ -1326,6 +1426,11 @@ def _store_launch_profile_from_cli(
     reasoning_level: int | None,
     prompt_mode: str | None,
     env_set: tuple[str, ...],
+    system_skill_sets: tuple[str, ...],
+    system_skills: tuple[str, ...],
+    system_skills_mode: str | None,
+    no_system_skills: bool,
+    clear_system_skills: bool,
     add_registered_skill: tuple[str, ...],
     remove_registered_skill: tuple[str, ...],
     add_private_skill: tuple[Path, ...],
@@ -1380,7 +1485,7 @@ def _store_launch_profile_from_cli(
             pass
         else:
             raise click.ClickException(
-                f"Launch profile `{profile_name}` already exists in `{overlay.catalog_path}`."
+                f"Profile `{profile_name}` already exists in `{overlay.catalog_path}`."
             )
         current = None
     elif operation == "patch":
@@ -1472,6 +1577,19 @@ def _store_launch_profile_from_cli(
             else None
         )
     )
+    system_skill_policy_supplied, requested_system_skills_payload = (
+        _resolve_system_skill_policy_payload_or_click(
+            system_skill_sets=system_skill_sets,
+            system_skills=system_skills,
+            system_skills_mode=system_skills_mode,
+            no_system_skills=no_system_skills,
+            clear_system_skills=clear_system_skills,
+            allowed_modes=PROFILE_SYSTEM_SKILL_POLICY_MODES,
+            default_mode="inherit",
+            clear_allowed=operation == "patch",
+            source_label=f"{profile_name}:system_skills",
+        )
+    )
     resolved_model_input = _resolve_model_name_or_click(model) if model is not None else None
     resolved_managed_header_policy: ManagedHeaderPolicy | None
     requested_section_policy = _managed_header_section_policy_from_options(managed_header_section)
@@ -1495,6 +1613,9 @@ def _store_launch_profile_from_cli(
         resolved_prompt_mode = _optional_non_empty_value(prompt_mode)
         resolved_mailbox = mailbox_mapping
         resolved_env = env_mapping if env_mapping is not None else {}
+        resolved_system_skills_payload = (
+            requested_system_skills_payload if system_skill_policy_supplied else {}
+        )
         resolved_posture = _resolve_profile_posture_mapping(
             current=None,
             headless=headless,
@@ -1601,6 +1722,11 @@ def _store_launch_profile_from_cli(
             if clear_env
             else (env_mapping if env_mapping is not None else dict(current.entry.env_payload))
         )
+        resolved_system_skills_payload = (
+            requested_system_skills_payload
+            if system_skill_policy_supplied
+            else dict(current.entry.system_skills_payload)
+        )
         resolved_posture = _resolve_profile_posture_mapping(
             current=current.entry.posture_payload,
             headless=headless,
@@ -1700,6 +1826,7 @@ def _store_launch_profile_from_cli(
             clear_prompt_mode,
             bool(env_set),
             clear_env,
+            system_skill_policy_supplied,
             bool(add_registered_skill),
             bool(remove_registered_skill),
             bool(add_private_skill),
@@ -1754,6 +1881,7 @@ def _store_launch_profile_from_cli(
         env_mapping=resolved_env,
         mailbox_mapping=resolved_mailbox,
         posture_mapping=resolved_posture,
+        system_skills_mapping=resolved_system_skills_payload,
         relaunch_chat_session_mapping=resolved_relaunch_chat_session,
         managed_header_policy=resolved_managed_header_policy,
         managed_header_section_policy=resolved_managed_header_section_policy,
@@ -1807,6 +1935,9 @@ def _launch_profile_provenance_payload(resolved: Any) -> dict[str, Any]:
     skills_provenance = _launch_profile_skills_provenance_payload(resolved)
     if skills_provenance is not None:
         payload["skills"] = skills_provenance
+    system_skills_payload = getattr(resolved.entry, "system_skills_payload", {})
+    if system_skills_payload:
+        payload["system_skills"] = dict(system_skills_payload)
     relaunch_payload = launch_profile_relaunch_payload(resolved)
     if relaunch_payload:
         payload["relaunch"] = relaunch_payload
@@ -1843,7 +1974,7 @@ def _specialist_payload(
 ) -> dict[str, object]:
     """Return one structured specialist payload with generated canonical paths."""
 
-    return {
+    payload: dict[str, object] = {
         "name": metadata.name,
         "preset_name": metadata.preset_name,
         "tool": metadata.tool,
@@ -1867,6 +1998,10 @@ def _specialist_payload(
             "skills": [str(path) for path in metadata.resolved_skill_paths(overlay)],
         },
     }
+    raw_system_skills = metadata.launch_payload.get("system_skills")
+    if isinstance(raw_system_skills, dict):
+        payload["system_skills"] = dict(raw_system_skills)
+    return payload
 
 
 def _project_skill_payload(
@@ -1984,7 +2119,7 @@ def _instance_payload(
 
 
 def _instance_easy_profile_name(manifest_payload: dict[str, object]) -> str | None:
-    """Return the originating easy-profile name from one runtime manifest when available."""
+    """Return the originating profile name from one runtime manifest when available."""
 
     launch_profile = _instance_launch_profile_provenance(manifest_payload)
     if not isinstance(launch_profile, dict):
@@ -2333,6 +2468,9 @@ __all__ = [
     "GatewayCurrentExecutionMode",
     "GatewayTuiTrackingTimingOverridesV1",
     "load_session_manifest",
+    "PROFILE_SYSTEM_SKILL_POLICY_MODES",
+    "SOURCE_SYSTEM_SKILL_POLICY_MODES",
+    "SystemSkillSelectionPolicy",
     "AuthProfileCatalogEntry",
     "ProjectCatalog",
     "SpecialistMetadata",
@@ -2420,6 +2558,8 @@ __all__ = [
     "_import_skill_directories",
     "_parse_specialist_env_records_or_click",
     "_resolve_instance_env_set_or_click",
+    "_resolve_system_skill_policy_payload_or_click",
+    "_resolve_launch_profile_system_skill_policy_or_click",
     "_load_recipe_or_click",
     "_profile_lane_label",
     "_load_launch_profile_or_click",

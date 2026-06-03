@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 from typing import Any
 
 import pytest
@@ -355,6 +356,98 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
     assert plan.launch_policy_provenance is not None
     assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
     assert plan.redacted_payload()["launch_policy_provenance"]["selection_source"] == "registry"
+
+
+def test_build_launch_plan_local_interactive_codex_as_is_preserves_startup_state(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    home_path = tmp_path / "home"
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        launch_policy={"operator_prompt_mode": "as_is"},
+    )
+
+    role = load_role_package(tmp_path / "repo", "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="local_interactive",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.launch_policy_provenance is None
+    assert not (home_path / "config.toml").exists()
+
+
+def test_build_launch_plan_local_interactive_codex_unattended_pretrusts_project(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("OPENAI_API_KEY=sk-secret\n", encoding="utf-8")
+    repo = tmp_path / "repo"
+    _write(repo / "roles/r/system-prompt.md", "prompt")
+    (repo / ".git").mkdir()
+    workdir = repo / "src"
+    workdir.mkdir()
+    home_path = tmp_path / "home"
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "codex-cli 0.116.0", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+
+    manifest = _manifest(
+        tool="codex",
+        executable="codex",
+        home_env_var="CODEX_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=["OPENAI_API_KEY"],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+
+    role = load_role_package(repo, "r")
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="local_interactive",
+            working_directory=workdir,
+        )
+    )
+    payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
+
+    assert plan.launch_policy_provenance is not None
+    assert plan.launch_policy_provenance.selected_strategy_id == "codex-unattended-0.116.x"
+    assert payload["projects"][str(repo.resolve())]["trust_level"] == "trusted"
+    assert payload["notice"]["hide_full_access_warning"] is True
+    assert payload["tui"]["show_tooltips"] is False
 
 
 def test_build_launch_plan_applies_gemini_unattended_cli_ownership_and_settings_repair(
@@ -1249,10 +1342,8 @@ def test_build_launch_plan_rejects_codex_partial_streaming_tool_param(tmp_path: 
         )
 
 
-@pytest.mark.parametrize("backend", ["cao_rest", "houmao_server_rest"])
-def test_build_launch_plan_rejects_rest_backends_that_cannot_honor_overrides(
+def test_build_launch_plan_rejects_cao_backend_when_it_cannot_honor_overrides(
     tmp_path: Path,
-    backend: str,
 ) -> None:
     env_file = tmp_path / "vars.env"
     env_file.write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
@@ -1286,7 +1377,7 @@ def test_build_launch_plan_rejects_rest_backends_that_cannot_honor_overrides(
             LaunchPlanRequest(
                 brain_manifest=manifest,
                 role_package=role,
-                backend=backend,  # type: ignore[arg-type]
+                backend="cao_rest",
                 working_directory=tmp_path,
             )
         )

@@ -74,13 +74,13 @@ If the managed session is busy or not prompt-ready, the cycle is audited as `bus
 
 Recoverable degraded chat context is diagnostic, not a busy condition by itself. If the session is otherwise prompt-ready and queue admission passes, the notifier enqueues the normal current-context prompt work and does not send `/new`, `/clear`, or any other reset signal solely because degraded context is present. Clean-context notifier work is reported only when `context_error_policy=clear_context` matched a tool-owned degraded compaction diagnostic and the clean-context workflow actually completed.
 
-> **Degraded tmux session vs. degraded chat context.** The notifier's degraded-context handling addresses recoverable chat compaction and server errors visible in the TUI. A structurally broken tmux session (missing primary pane or entire session) is a separate failure mode handled by the managed-agent recovery system. When `agents stop` or `agents relaunch` targets an agent whose tmux authority is degraded or stale, the runtime probes tmux first and routes through recovery helpers rather than treating the condition as a notifier-level degraded context. See [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md).
+> **Degraded tmux session vs. degraded chat context.** The notifier's degraded-context handling addresses recoverable chat compaction and server errors visible in the TUI. A structurally broken tmux session (missing primary pane or entire session) is a separate failure mode handled by the managed-agent recovery system. When selected-agent `agents single ... stop` or `agents single ... relaunch` targets an agent whose tmux authority is degraded or stale, the runtime probes tmux first and routes through recovery helpers rather than treating the condition as a notifier-level degraded context. See [Degraded and Stale Active Recovery](../../run-phase/degraded-stale-recovery.md).
 
 For TUI-backed dispatch, the notifier also checks prompt-readiness reasons from the live TUI surface. For headless dispatch, it checks the active direct-turn or terminal-surface readiness state before enqueueing.
 
 ## Configuration
 
-The mail-notifier is managed through `houmao-mgr agents gateway mail-notifier`:
+The mail-notifier is managed through scoped `houmao-mgr agents single ... gateway mail-notifier` or `houmao-mgr agents self gateway mail-notifier` commands:
 
 | Command | Description |
 | --- | --- |
@@ -185,7 +185,7 @@ Current source behavior:
 ## See Also
 
 - [Notifier-Prompt-Driven Loop Runtime](notifier-prompt-driven-loops.md)
-- [agents gateway mail-notifier](../../cli/agents-gateway.md#mail-notifier)
+- [scoped agents gateway mail-notifier](../../cli/agents-gateway.md#mail-notifier)
 - [Gateway Mailbox Facade](mailbox-facade.md)
 - [Gateway Reminders](reminders.md)
 - [Agent Gateway Reference](../index.md)

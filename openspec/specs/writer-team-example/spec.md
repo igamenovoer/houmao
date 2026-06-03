@@ -32,15 +32,15 @@ The writer-team example SHALL provide role prompts for:
 - `character-designer`, the worker agent that creates or updates character profiles and relationship notes,
 - `story-reviewer`, the worker agent that reviews chapters for logic, causality, character plausibility, pacing, and worldbuilding consistency.
 
-The prompts SHALL be reusable as system-prompt files for `houmao-mgr project easy specialist create`.
+The prompts SHALL be reusable as system-prompt files for `houmao-mgr project specialist create`.
 
 #### Scenario: User creates specialists from prompt files
 
 - **WHEN** a user follows the example setup instructions
-- **THEN** each of the three prompt files can be passed to `houmao-mgr project easy specialist create`
+- **THEN** each of the three prompt files can be passed to `houmao-mgr project specialist create`
 - **AND THEN** the resulting specialists have distinct writer, character-designer, and reviewer responsibilities
 
-### Requirement: Writer-team setup uses supported project easy commands
+### Requirement: Writer-team setup uses supported project commands
 
 The writer-team README SHALL show how to materialize the example with supported `houmao-mgr` project/easy commands.
 
@@ -48,7 +48,7 @@ The setup instructions SHALL cover:
 
 - initializing a Houmao project in the example directory,
 - creating the three specialists from the prompt files,
-- creating reusable easy profiles for `alex-story`, `alex-char`, and `alex-review`,
+- creating reusable project profiles for `alex-story`, `alex-char`, and `alex-review`,
 - configuring filesystem mailbox defaults for the profiles,
 - launching the three agents from those profiles,
 - starting the loop by delivering a start charter to the master agent.

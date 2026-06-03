@@ -11,10 +11,10 @@ At minimum, the split SHALL preserve separate ownership for:
 
 - project root group registration and `init` / `status`
 - shared project command helpers
-- `project agents tools ...`
-- `project agents roles ...`, `project agents presets ...`, and `project agents recipes ...`
-- `project agents launch-profiles ...`
-- `project easy ...`
+- `internals native-agent tools ...`
+- `internals native-agent roles ...`, `project agents presets ...`, and `internals native-agent recipes ...`
+- `internals native-agent launch-dossiers ...`
+- `project ...`
 - `project mailbox ...`
 
 #### Scenario: Command families have focused module owners
