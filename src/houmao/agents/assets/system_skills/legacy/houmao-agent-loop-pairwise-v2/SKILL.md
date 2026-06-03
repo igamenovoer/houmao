@@ -162,7 +162,7 @@ Templates:
 
 Memory and plan material:
 - Route any agent memo, `houmao memo`, `houmao-memo.md`, or memo-linked `pages/` request that arises while planning, initializing, or starting a pairwise-v2 run to `houmao-memory-mgr`.
-- Route initialize or start managed-memory page and memo reads or writes to `houmao-memory-mgr` and its supported `houmao-mgr agents memory ...` surfaces.
+- Route initialize or start managed-memory page and memo reads or writes to `houmao-memory-mgr` and its supported scoped `houmao-mgr agents self memory ...` or `houmao-mgr agents single ... memory ...` surfaces.
 
 Messaging and mail:
 - Route `start`, `ping`, `pause`, `resume`, `recover_and_continue`, `stop`, and participant interrupts within `hard-kill` to `houmao-agent-messaging`.

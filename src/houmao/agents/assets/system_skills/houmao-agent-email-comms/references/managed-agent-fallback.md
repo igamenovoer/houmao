@@ -13,7 +13,7 @@ Use this surface when `houmao-mgr agents self mail resolve-live` returns `gatewa
 <chosen houmao-mgr launcher> agents self mail post --subject <subject> --body-content <body>
 <chosen houmao-mgr launcher> agents self mail reply --message-ref <message_ref> --body-content <body>
 <chosen houmao-mgr launcher> agents self mail mark --message-ref <message_ref> --read
-<chosen houmao-mgr launcher> agents self mail move --message-ref <message_ref> --box <box>
+<chosen houmao-mgr launcher> agents self mail move --message-ref <message_ref> --destination-box <box>
 <chosen houmao-mgr launcher> agents self mail archive --message-ref <message_ref>
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail status
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail list

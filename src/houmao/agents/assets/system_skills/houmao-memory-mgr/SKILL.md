@@ -50,9 +50,10 @@ Related skills and boundaries:
 This skill covers only Houmao-managed memo surfaces:
 
 - `help` (read-only meta operation)
-- `houmao-mgr agents memory path|status`
-- `houmao-mgr agents memory memo show|set|append`
-- `houmao-mgr agents memory tree|resolve|read|write|append|delete`
+- current-session live memory: `houmao-mgr agents self memory path|status`
+- current-session memo operations: `houmao-mgr agents self memory memo show|set|append`
+- current-session page operations: `houmao-mgr agents self memory tree|resolve|read|write|append|delete`
+- selected-agent live memory: `houmao-mgr agents single --agent-name <name> memory ...` or `houmao-mgr agents single --agent-id <id> memory ...`
 - launch dossier memo seeds on reusable birth-time profiles:
   - project profile lane: `houmao-mgr project profile create|get|set`
   - launch-dossier lane: `houmao-mgr internals native-agent launch-dossiers add|get|set`
@@ -68,7 +69,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 1. Determine the target kind before choosing an edit surface:
    - If the prompt or recent context clearly says the user is working with a reusable launch profile, project profile, profile defaults, birth-time config, future launches, or `--launch-profile`/`--profile`, update that launch profile's Houmao memo seed. Do not mutate any live agent memo for that request.
-   - Otherwise, treat the request as a live managed-agent memory request. If the request is about the current managed agent, prefer `HOUMAO_AGENT_MEMO_FILE` and `HOUMAO_AGENT_PAGES_DIR`. If it names another managed agent, use `houmao-mgr agents memory path --agent-name <name>` or `--agent-id <id>` to find the memo and pages paths.
+   - Otherwise, treat the request as a live managed-agent memory request. If the request is about the current managed agent, prefer `HOUMAO_AGENT_MEMO_FILE` and `HOUMAO_AGENT_PAGES_DIR`; when those are unavailable inside a managed session, use `houmao-mgr agents self memory path`. If it names another managed agent, use `houmao-mgr agents single --agent-name <name> memory path` or `houmao-mgr agents single --agent-id <id> memory path` to find the memo and pages paths.
 2. Choose one `houmao-mgr` launcher for this turn:
    - first use `command -v houmao-mgr` when available
    - otherwise use `uv tool run --from houmao houmao-mgr`
@@ -84,7 +85,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 5. Do not pass memo seed fields to `internals config-drafts generate`; config drafts are minimal profile authoring aids that accept only name/source/credential holes. Live memory commands remain direct skill guidance and are not profile config-draft commands.
 6. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
 7. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
-8. For a live managed-agent edit, read before editing. Use `agents memory memo show` for the fixed memo and `agents memory read --path <page>` for a page.
+8. For a live managed-agent edit, read before editing. Use `agents self memory memo show` or `agents single ... memory memo show` for the fixed memo, and `agents self memory read --path <page>` or `agents single ... memory read --path <page>` for a page.
 9. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions; for removals or rewrites, replace the full memo with `memo set` after preserving unrelated text.
 10. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
 11. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
@@ -106,7 +107,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Treat `houmao-memo.md` as free-form Markdown owned by the operator and agent.
 - Treat a launch dossier memo seed as birth-time configuration for future launches from that profile. It is not the same thing as a live session's current `houmao-memo.md`.
 - Treat `--memo-seed-text ''` as an intentional empty memo seed for future launches, not as a request to clear pages. Treat `--clear-memo-seed` as removal of stored seed configuration, not as a way to write an empty memo.
-- If prompt or context clearly points at a launch profile or project profile, do not run `houmao-mgr agents memory ...`; update the stored profile memo seed instead.
+- If prompt or context clearly points at a launch profile or project profile, do not run live `houmao-mgr agents self memory ...` or `houmao-mgr agents single ... memory ...` commands; update the stored profile memo seed instead.
 - Do not generate, refresh, sort, validate, or remove page indexes inside the memo unless the user asks for that exact content edit.
 - Do not use absolute page paths or `..`; page operations must stay inside the managed `pages/` directory.
 - For `--memo-seed-dir`, use only memo-shaped directories with supported top-level entries `houmao-memo.md` and `pages/`; do not use arbitrary directory trees as memo seeds.

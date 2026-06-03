@@ -107,5 +107,5 @@ If the selected specialist is known to use Gemini, the launch must be headless. 
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.
 - Do not add `--headless` by default for TUI-capable tools or because prompt mode is unattended.
-- Do not hand-author covered launch commands from Markdown skeletons when a command template supports the lane.
+- Do not invent alternate launch command shapes; use the direct scoped commands shown in this action and maintained project/profile guidance.
 - Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.

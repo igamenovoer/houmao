@@ -88,7 +88,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 5. Reuse that same chosen launcher for the selected instance-lifecycle action.
 6. For supported lifecycle command authoring, show and run direct maintained commands with only fields the user explicitly supplied or that were recovered from explicit recent context:
    - `project agents launch` for project-scoped birth from a specialist or project profile
-   - `agents join`
+   - `agents self join`
    - `agents global list`
    - `agents single ... stop`
    - `agents single ... relaunch`

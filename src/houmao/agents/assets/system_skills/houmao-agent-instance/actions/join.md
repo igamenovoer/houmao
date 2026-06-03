@@ -8,7 +8,7 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 2. Recover the join inputs from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the managed-agent name is still missing, ask the user in Markdown before proceeding.
 4. If the request is for headless join and the provider or `--launch-args` values are still missing, ask the user in Markdown for those missing fields before proceeding.
-5. Build the direct `agents join` command from explicit inputs only.
+5. Build the direct `agents self join` command from explicit inputs only.
 6. Run the direct command.
 7. Report the adopted managed-agent identity and resulting lifecycle state returned by the command.
 
@@ -17,8 +17,8 @@ Use this action only when the user wants Houmao to adopt one already-running sup
 Run the direct join command:
 
 ```bash
-<chosen houmao-mgr launcher> agents join --name <managed-agent-name> [--agent-id <agent-id>] [--workdir <dir>]
-<chosen houmao-mgr launcher> agents join --name <managed-agent-name> --headless --provider <provider> --launch-args <arg>
+<chosen houmao-mgr launcher> agents self join --agent-name <managed-agent-name> [--agent-id <agent-id>] [--workdir <dir>]
+<chosen houmao-mgr launcher> agents self join --agent-name <managed-agent-name> --headless --provider <provider> --launch-args <arg>
 ```
 
 Headless join requires:

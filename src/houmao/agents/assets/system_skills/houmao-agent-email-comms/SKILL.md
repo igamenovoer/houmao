@@ -109,4 +109,4 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not archive a message before the corresponding mailbox action and any required reply succeed.
 - Do not treat this ordinary communication skill as the whole notifier-round workflow when `houmao-process-emails-via-gateway` is available.
 - Do not present direct transport-local access as the first-choice path when a live shared gateway mailbox facade is available.
-- Do not hand-author supported `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` fallback commands from Markdown skeletons when a command template supports the surface.
+- Do not invent alternate fallback command shapes; use the direct scoped `houmao-mgr agents self mail ...` and `houmao-mgr agents single ... mail ...` commands shown in this skill package.

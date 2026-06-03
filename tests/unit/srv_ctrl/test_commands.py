@@ -585,6 +585,33 @@ def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
     assert "cao" not in result.output
 
 
+def test_agents_scoped_join_memory_and_mail_move_help_exposes_current_shapes() -> None:
+    runner = CliRunner()
+
+    self_join = runner.invoke(cli, ["agents", "self", "join", "--help"])
+    assert self_join.exit_code == 0, self_join.output
+    assert "--agent-name" in self_join.output
+    assert "--name " not in self_join.output
+
+    self_memory = runner.invoke(cli, ["agents", "self", "memory", "--help"])
+    assert self_memory.exit_code == 0, self_memory.output
+    assert "path" in self_memory.output
+    assert "memo" in self_memory.output
+
+    single_memory = runner.invoke(
+        cli,
+        ["agents", "single", "--agent-id", "agent-123", "memory", "--help"],
+    )
+    assert single_memory.exit_code == 0, single_memory.output
+    assert "path" in single_memory.output
+    assert "memo" in single_memory.output
+
+    mail_move = runner.invoke(cli, ["agents", "self", "mail", "move", "--help"])
+    assert mail_move.exit_code == 0, mail_move.output
+    assert "--destination-box" in mail_move.output
+    assert "--box" not in mail_move.output
+
+
 def test_top_level_mailbox_help_mentions_local_admin_surface() -> None:
     result = CliRunner().invoke(cli, ["mailbox", "--help"])
 

@@ -688,7 +688,9 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     assert "houmao-mgr agents single --agent-id <id> mailbox ..." in mailbox_mgr_skill
     assert "`--agent-name <name>`" in mailbox_mgr_skill
     assert "HOUMAO_AGENT_MEMO_FILE" in memory_mgr_skill
-    assert "houmao-mgr agents memory" in memory_mgr_skill
+    assert "houmao-mgr agents self memory" in memory_mgr_skill
+    assert "houmao-mgr agents single --agent-name <name> memory" in memory_mgr_skill
+    assert "houmao-mgr agents memory" not in memory_mgr_skill
 
 
 def test_build_brain_home_projects_claude_mailbox_skills_top_level(

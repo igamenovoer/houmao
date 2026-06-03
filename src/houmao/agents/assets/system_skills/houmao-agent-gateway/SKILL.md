@@ -151,5 +151,5 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not scrape live gateway env for shared mailbox work when `agents.self.mail.resolve-live` is the supported exact current-session `gateway.base_url` resolver.
 - Do not describe `/v1/reminders` as durable across gateway stop or restart.
 - Do not invent reminder surfaces beyond the supported `houmao-mgr agents single ... gateway reminders ...`, `houmao-mgr agents self gateway reminders ...`, `/houmao/agents/{agent_ref}/gateway/reminders...`, and direct `/v1/reminders` routes.
-- Do not hand-author supported gateway CLI commands from Markdown skeletons when a command template supports the surface.
+- Do not invent alternate gateway CLI shapes; use the direct scoped gateway commands shown in this skill package.
 - Do not restate transport-specific mailbox detail here; delegate that to the mailbox skill family.

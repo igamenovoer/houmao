@@ -160,7 +160,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
 - Do not hand-edit mailbox-root files when the maintained `houmao-mgr` surfaces already cover the task.
-- Do not hand-author supported mailbox CLI commands from Markdown skeletons when a command template supports the surface.
+- Do not invent alternate mailbox CLI shapes; use the direct mailbox, project mailbox, and scoped managed-agent mailbox commands shown in this skill package.
 - Do not use `mailbox cleanup` when the user asked to remove delivered email content while preserving accounts; use `mailbox clear-messages` or `project mailbox clear-messages` for all-account scope, and use `mailbox messages clear --address` or `project mailbox messages clear --address` for one selected account.
 - Do not recommend ad hoc recursive mailbox-root copying when the maintained export command covers the request.
 - Do not use deprecated `houmao-cli` or removed standalone CAO launcher workflows for mailbox administration.
