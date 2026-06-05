@@ -32,6 +32,7 @@ During the run:
 - passive mode attaches read-only for visual observation and does not claim exclusive input ownership
 - the sampling loop continuously appends exact pane content to `pane_snapshots.ndjson`
 - active mode degrades from `authoritative_managed` to `managed_only` if extra tmux clients attach and taint the run
+- if the human-facing cast recorder exits early, the controller records `visual_recording_exited` taint metadata and keeps pane-snapshot sampling until a stop request, duration gate, or hard capture failure
 
 Stop flow:
 
@@ -54,6 +55,7 @@ Human-facing artifacts:
 Replay-grade artifacts:
 
 - `pane_snapshots.ndjson`
+- derived snapshot streams such as `pane_snapshots_2fps.ndjson`, with `source_sample_id` mapping back to the high-rate stream
 - `input_events.ndjson` when `input_capture_level` is `authoritative_managed` or `managed_only`
 - `parser_observed.ndjson`
 - `state_observed.ndjson` using the official tracked-state vocabulary for diagnostics posture, `surface`, `turn`, and `last_turn`
@@ -62,6 +64,8 @@ Replay-grade artifacts:
 The most important downstream rule is simple: parser/state replay should use pane snapshots, not cast reconstruction.
 
 `terminal_record add-label` remains the primary repo-owned label-authoring surface. Replay-grade labels should target official tracked-state fields such as diagnostics posture, `surface_accepting_input`, `turn_phase`, `last_turn_result`, and `last_turn_source` rather than older readiness/completion names.
+
+Kimi TUI capture work uses this split directly: `session.cast` is useful for human review when present, but `pane_snapshots.ndjson` remains authoritative, and `terminal_record derive-stream` creates the low-rate validation stream from the high-rate source instead of replaying the live scenario again.
 
 ## Runtime Integration Points
 

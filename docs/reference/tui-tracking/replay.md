@@ -35,6 +35,8 @@ sequenceDiagram
 
 The replay engine converts raw TUI pane observations into structured tracked state. It serves two modes of operation: **offline replay** for analysis and validation of detector behavior against recorded sessions, and **live tracking** for real-time state inference during active agent sessions.
 
+The terminal recorder's `analyze` command feeds recorded pane snapshots through this replay engine. For Kimi Code captures, the recorder can analyze either the high-rate `pane_snapshots.ndjson` stream or a derived `pane_snapshots_2fps.ndjson` stream and then compare both outputs against the same labels through `source_sample_id` mapping.
+
 ## StreamStateReducer
 
 The `StreamStateReducer` processes a stream of `RecordedObservation` samples through a detector to produce `TrackedTimelineState` rows. It is the core state machine that:

@@ -561,9 +561,7 @@ def _parse_kimi_model_selection_arg_groups(args: list[str]) -> list[tuple[str, l
             continue
         matched_flag = _matched_cli_option_flag(arg, flags=_KIMI_MODEL_SELECTION_FLAGS)
         if matched_flag is None:
-            raise LaunchPlanError(
-                "Generated Kimi model-selection args may only contain `--model`."
-            )
+            raise LaunchPlanError("Generated Kimi model-selection args may only contain `--model`.")
         groups.append((matched_flag, [arg]))
         index += 1
     return groups

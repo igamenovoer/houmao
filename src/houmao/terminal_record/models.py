@@ -31,6 +31,7 @@ class TerminalRecordPaths:
     labels_path: Path
     parser_observed_path: Path
     state_observed_path: Path
+    derived_2fps_snapshots_path: Path
     cast_path: Path
     controller_log_path: Path
     asciinema_log_path: Path
@@ -49,6 +50,7 @@ class TerminalRecordPaths:
             labels_path=resolved / "labels.json",
             parser_observed_path=resolved / "parser_observed.ndjson",
             state_observed_path=resolved / "state_observed.ndjson",
+            derived_2fps_snapshots_path=resolved / "pane_snapshots_2fps.ndjson",
             cast_path=resolved / "session.cast",
             controller_log_path=resolved / "controller.log",
             asciinema_log_path=resolved / "asciinema.log",
@@ -86,6 +88,7 @@ class TerminalRecordManifest:
     started_at_utc: str
     stopped_at_utc: str | None
     stop_reason: str | None
+    duration_seconds: float | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return one JSON-serializable payload."""
@@ -137,6 +140,7 @@ class TerminalRecordManifest:
             started_at_utc=_require_string(payload.get("started_at_utc"), context="started_at_utc"),
             stopped_at_utc=_optional_string(payload.get("stopped_at_utc")),
             stop_reason=_optional_string(payload.get("stop_reason")),
+            duration_seconds=_optional_float(payload.get("duration_seconds")),
         )
 
 
@@ -196,6 +200,13 @@ class TerminalRecordPaneSnapshot:
     ts_utc: str
     target_pane_id: str
     output_text: str
+    target_pane_width: int | None = None
+    target_pane_height: int | None = None
+    capture_command: str = "tmux capture-pane -p -e -S -"
+    stream_kind: Literal["source", "derived"] = "source"
+    source_sample_id: str | None = None
+    source_elapsed_seconds: float | None = None
+    output_text_sha256: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """Return one JSON-serializable payload."""
@@ -231,6 +242,7 @@ class TerminalRecordLabel:
     sample_end_id: str | None
     expectations: dict[str, Any]
     note: str | None
+    evidence: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -269,6 +281,7 @@ class TerminalRecordLabels:
                     sample_end_id=_optional_string(item.get("sample_end_id")),
                     expectations=expectations,
                     note=_optional_string(item.get("note")),
+                    evidence=_optional_mapping(item.get("evidence")),
                 )
             )
         return cls(
@@ -390,6 +403,22 @@ def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _optional_float(value: Any) -> float | None:
+    """Return one optional float value."""
+
+    if value is None:
+        return None
+    return float(value)
+
+
+def _optional_mapping(value: Any) -> dict[str, Any]:
+    """Return one optional mapping value, defaulting to an empty object."""
+
+    if value is None:
+        return {}
+    return _require_mapping(value, context="optional mapping")
 
 
 def _require_mode(value: Any) -> RecorderMode:

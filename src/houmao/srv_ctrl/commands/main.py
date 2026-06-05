@@ -52,8 +52,7 @@ def _render_uncaught_exception(exc: Exception) -> click.ClickException:
         )
     else:
         message = (
-            "Unexpected internal error while running `houmao-mgr` "
-            f"(exception: {exception_name})."
+            f"Unexpected internal error while running `houmao-mgr` (exception: {exception_name})."
         )
     return click.ClickException(message)
 

@@ -15,11 +15,13 @@ flowchart TD
     VM["Version matching"]
     CCD["ClaudeCodeSignalDetectorV2_1_X"]
     CXD["CodexTuiSignalDetector"]
+    KMD["KimiCodeSignalDetectorV0_11_X"]
     BEST["Best detector for<br/>observed CLI version"]
 
     TOOL --> AID
     AID -->|"claude → claude_code"| CC --> CCD
     AID -->|"codex → codex_tui"| CX --> CXD
+    AID -->|"kimi → kimi_code"| KMD
     AID -->|"unrecognized"| OT --> DPR --> VM --> BEST
 ```
 
@@ -60,6 +62,11 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 - **`CodexTuiSignalDetector`** — Base Codex TUI signal detector.
 - **`CodexTuiSignalDetectorV0_116_X`** — Codex TUI signal detector targeting Codex CLI ≥ 0.116.x. Recognizes Codex's input prompt, status bar, streaming output indicators, and completion patterns.
 - **`CodexTrackedTurnSignalDetector`** — Tracked turn signal detector for Codex sessions. Builds on the TUI signal detector with additional turn-level tracking logic.
+
+### Kimi Code Detectors
+
+- **`KimiCodeSignalDetectorV0_11_X`** — Kimi Code detector targeting the observed `0.11.x` pi-tui surface. It recognizes the bordered editor prompt, typed draft posture, current-turn activity spinner/temporal growth, bounded approval panels, interruption notices, and footer model `thinking` metadata that must not imply activity by itself.
+- **`FallbackKimiCodeSignalDetector`** — Conservative Kimi fallback for unmatched versions.
 
 ### Fallback Detectors
 
@@ -104,6 +111,10 @@ Claude Code signal detection. Contains the versioned detector implementations, s
 ### `codex_tui/`
 
 Codex TUI signal detection with temporal hint logic. Includes versioned detectors, surface parsers for the Codex TUI layout, and temporal profiling that tracks output streaming velocity and idle patterns to distinguish between "still thinking" and "done."
+
+### `kimi_code/`
+
+Kimi Code signal detection for the pi-tui surface. The maintained profile is evidence-first: rules are backed by recorded Kimi sessions and source inspection under `extern/orphan/kimi-code`. It scopes activity to the current turn/live edge and treats approval detection as bounded panel structure, not a full exact string match.
 
 ### `unsupported_tool/`
 

@@ -24,15 +24,15 @@ def test_fake_kimi_stream_json_persists_session_and_resumes_by_exact_id(
     fake_kimi.parent.mkdir(parents=True)
     fake_kimi.write_text(
         "\n".join(
-                [
-                    "#!/usr/bin/env bash",
-                    'printf "ARGV" >> "$KIMI_ARG_LOG"',
-                    "for arg in \"$@\"; do",
-                    "  escaped=${arg//$'\\n'/\\\\n}",
-                    "  escaped=${escaped//$'\\t'/\\\\t}",
-                    '  printf "\\t%s" "$escaped" >> "$KIMI_ARG_LOG"',
-                    "done",
-                    'printf "\\n" >> "$KIMI_ARG_LOG"',
+            [
+                "#!/usr/bin/env bash",
+                'printf "ARGV" >> "$KIMI_ARG_LOG"',
+                'for arg in "$@"; do',
+                "  escaped=${arg//$'\\n'/\\\\n}",
+                "  escaped=${escaped//$'\\t'/\\\\t}",
+                '  printf "\\t%s" "$escaped" >> "$KIMI_ARG_LOG"',
+                "done",
+                'printf "\\n" >> "$KIMI_ARG_LOG"',
                 'echo \'{"role":"assistant","content":"ok"}\'',
                 (
                     'echo \'{"role":"meta","type":"session.resume_hint",'

@@ -13,6 +13,8 @@ from houmao.shared_tui_tracking.detectors import (
     FallbackClaudeDetector,
     FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
+    FallbackKimiCodeSignalDetector,
+    KimiCodeSignalDetectorV0_11_X,
 )
 
 
@@ -90,6 +92,20 @@ class DetectorProfileRegistry:
                     profile_factory=FallbackCodexTuiSignalDetector,
                 ),
                 DetectorProfileRegistration(
+                    app_id="kimi_code",
+                    detector_name="kimi_code",
+                    detector_version="0.11.x",
+                    minimum_supported_version=(0, 11, 0),
+                    profile_factory=KimiCodeSignalDetectorV0_11_X,
+                ),
+                DetectorProfileRegistration(
+                    app_id="kimi_code",
+                    detector_name="kimi_code",
+                    detector_version="fallback",
+                    minimum_supported_version=None,
+                    profile_factory=FallbackKimiCodeSignalDetector,
+                ),
+                DetectorProfileRegistration(
                     app_id="unsupported_tool",
                     detector_name="unsupported_tool",
                     detector_version="builtin",
@@ -131,6 +147,8 @@ def app_id_from_tool(*, tool: str) -> str:
         return "claude_code"
     if tool == "codex":
         return "codex_tui"
+    if tool == "kimi":
+        return "kimi_code"
     return "unsupported_tool"
 
 
