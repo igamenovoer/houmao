@@ -7587,3 +7587,114 @@ def test_gateway_mail_notifier_defers_while_busy_and_logs_the_skip(
         for row in busy_rows
     )
     assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+
+
+def test_gateway_mail_notifier_enqueues_when_claude_tracked_surface_is_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True, tool="claude")
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    message_id = _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    def _style_classified_suggestion_ready_state(
+        self: _FakeGatewayTrackingRuntime,
+    ) -> HoumaoTerminalStateResponse:
+        return _sample_gateway_tracked_state(self.m_identity)
+
+    monkeypatch.setattr(
+        _FakeGatewayTrackingRuntime,
+        "current_state",
+        _style_classified_suggestion_ready_state,
+    )
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+        runtime._run_notifier_cycle()
+        _wait_until(lambda: len(fake_client.submitted_prompts) >= 1, timeout_seconds=5.0)
+    finally:
+        runtime.shutdown()
+
+    assert _FakeGatewayTrackingRuntime.m_identities[0].tool == "claude"
+    prompt = fake_client.submitted_prompts[0][1]
+    assert message_id not in prompt
+    assert "You have mail in inbox." in prompt
+
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    enqueued_rows = [row for row in audit_rows if row.outcome == "enqueued"]
+    assert enqueued_rows
+    assert enqueued_rows[-1].unread_summary[0].message_ref == f"filesystem:{message_id}"
+    assert not any(row.outcome == "busy_skip" for row in audit_rows)
+
+
+def test_gateway_mail_notifier_defers_when_claude_tracked_surface_reports_draft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True, tool="claude")
+    manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
+    _install_fake_live_mailbox_projection(monkeypatch, manifest_path=manifest_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    _deliver_unread_mailbox_message(tmp_path)
+    fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.CaoRestClient",
+        lambda *args, **kwargs: fake_client,
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+
+    def _draft_state(self: _FakeGatewayTrackingRuntime) -> HoumaoTerminalStateResponse:
+        state = _sample_gateway_tracked_state(self.m_identity)
+        return state.model_copy(
+            update={
+                "surface": state.surface.model_copy(update={"editing_input": "yes"}),
+            }
+        )
+
+    monkeypatch.setattr(_FakeGatewayTrackingRuntime, "current_state", _draft_state)
+
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    runtime.start()
+    try:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60))
+        runtime._run_notifier_cycle()
+    finally:
+        runtime.shutdown()
+
+    assert _FakeGatewayTrackingRuntime.m_identities[0].tool == "claude"
+    assert fake_client.submitted_prompts == []
+
+    audit_rows = read_gateway_notifier_audit_records(paths.queue_path)
+    busy_rows = [row for row in audit_rows if row.outcome == "busy_skip"]
+    assert busy_rows
+    assert busy_rows[-1].detail is not None
+    assert "surface.editing_input='yes'" in busy_rows[-1].detail
+    assert not any(row.outcome == "enqueued" for row in audit_rows)
