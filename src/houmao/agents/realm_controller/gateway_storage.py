@@ -535,7 +535,12 @@ def _preserve_existing_headless_managed_metadata(
 ) -> GatewayAttachContractV1:
     """Preserve server-managed headless routing metadata across capability refresh."""
 
-    if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+    if attach_contract.backend not in {
+        "claude_headless",
+        "codex_headless",
+        "gemini_headless",
+        "kimi_headless",
+    }:
         return attach_contract
     if not paths.attach_path.is_file():
         return attach_contract

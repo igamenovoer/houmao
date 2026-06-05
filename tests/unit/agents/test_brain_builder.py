@@ -228,6 +228,77 @@ auth_projection:
     )
 
 
+def _seed_kimi_repo(agent_def_dir: Path) -> None:
+    _write(
+        agent_def_dir / "tools/kimi/adapter.yaml",
+        """
+schema_version: 1
+tool: kimi
+home_selector:
+  env_var: KIMI_CODE_HOME
+launch:
+  executable: kimi
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+auth_projection:
+  files_dir: files
+  file_mappings:
+    - source: config.toml
+      destination: config.toml
+      mode: copy
+      required: false
+    - source: credentials/kimi-code.json
+      destination: credentials/kimi-code.json
+      mode: copy
+      required: false
+  env:
+    source: env/vars.env
+    allowlist:
+      - KIMI_MODEL_NAME
+      - KIMI_MODEL_API_KEY
+      - KIMI_MODEL_PROVIDER_TYPE
+      - KIMI_MODEL_BASE_URL
+      - KIMI_CODE_BASE_URL
+      - KIMI_CODE_OAUTH_HOST
+      - KIMI_OAUTH_HOST
+      - KIMI_DISABLE_TELEMETRY
+""".strip()
+        + "\n",
+    )
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "tools/kimi/setups/default/README.md", "Kimi setup\n")
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/config.toml",
+        'default_model = "kimi-code/default"\n',
+    )
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/credentials/kimi-code.json",
+        '{"access_token": "secret"}\n',
+    )
+    _write(agent_def_dir / "tools/kimi/auth/oauth/env/vars.env", "\n")
+    _write(
+        agent_def_dir / "tools/kimi/auth/env-model/env/vars.env",
+        "\n".join(
+            [
+                "KIMI_MODEL_NAME=kimi-code/baseline",
+                "KIMI_MODEL_API_KEY=sk-kimi",
+                "KIMI_MODEL_BASE_URL=https://kimi.example.test",
+                "NOT_ALLOWLISTED=do-not-export",
+            ]
+        )
+        + "\n",
+    )
+
+
 def test_build_brain_home_projects_selected_components_and_manifest(
     tmp_path: Path,
 ) -> None:
@@ -1148,6 +1219,122 @@ def test_build_brain_home_gemini_preserves_explicit_api_key_and_base_url_with_oa
     assert "export GOOGLE_GEMINI_BASE_URL=https://gemini.example.test" in launch_script
     assert "GOOGLE_GENAI_USE_GCA=true" not in launch_script
     assert manifest["runtime"]["launch_contract"]["env_records"] == {}
+
+
+def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth",
+            home_id="kimi-home-oauth",
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert (result.home_path / "skills/skill-a").is_symlink()
+    assert (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
+    assert (result.home_path / "config.toml").read_text(encoding="utf-8") == (
+        'default_model = "kimi-code/default"\n'
+    )
+    assert (result.home_path / "credentials/kimi-code.json").read_text(encoding="utf-8") == (
+        '{"access_token": "secret"}\n'
+    )
+    assert "export KIMI_CODE_HOME=" in launch_script
+    assert "KIMI_MODEL_API_KEY" not in launch_script
+    projected_destinations = [
+        Path(item["destination"]).relative_to(result.home_path).as_posix()
+        for item in manifest["credentials"]["projected_files"]
+    ]
+    assert projected_destinations == [
+        "config.toml",
+        "credentials/kimi-code.json",
+    ]
+
+
+def test_build_brain_home_projects_kimi_oauth_model_selection_as_cli_args(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth",
+            home_id="kimi-home-oauth-model",
+            preset_model_config=ModelConfig(name="kimi-code/kimi-for-coding"),
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
+
+    assert "--launch-arg --model --launch-arg kimi-code/kimi-for-coding" in launch_script
+    assert model_selection["provider_cli_args"] == {
+        "tool": "kimi",
+        "args": ["--model", "kimi-code/kimi-for-coding"],
+    }
+    assert model_selection["native_projection"]["model"] == {
+        "surface": "cli_arg",
+        "arg": "--model",
+        "value": "kimi-code/kimi-for-coding",
+        "cli_args": ["--model", "kimi-code/kimi-for-coding"],
+    }
+
+
+def test_build_brain_home_projects_kimi_env_model_override_through_env(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="env-model",
+            home_id="kimi-home-env-model",
+            direct_model_config=ModelConfig(name="kimi-code/override"),
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest_text = result.manifest_path.read_text(encoding="utf-8")
+    manifest = yaml.safe_load(manifest_text)
+    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
+
+    assert "export KIMI_MODEL_NAME=kimi-code/override" in launch_script
+    assert "export KIMI_MODEL_API_KEY=sk-kimi" in launch_script
+    assert "export KIMI_MODEL_BASE_URL=https://kimi.example.test" in launch_script
+    assert "NOT_ALLOWLISTED" not in launch_script
+    assert "NOT_ALLOWLISTED" not in manifest_text
+    assert "sk-kimi" not in manifest_text
+    assert model_selection["provider_cli_args"] is None
+    assert model_selection["native_projection"]["model"] == {
+        "surface": "env",
+        "env_var": "KIMI_MODEL_NAME",
+        "value": "kimi-code/override",
+    }
 
 
 def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:

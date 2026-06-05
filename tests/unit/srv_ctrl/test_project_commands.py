@@ -3843,7 +3843,7 @@ def test_project_easy_instance_launch_rejects_gemini_without_headless(
     )
 
     assert result.exit_code != 0
-    assert "Gemini specialists are currently headless-only" in result.output
+    assert "Gemini and Kimi specialists are currently headless-only" in result.output
 
 
 def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:

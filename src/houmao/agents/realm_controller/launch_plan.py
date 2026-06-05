@@ -45,6 +45,7 @@ _CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
+_KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
 
 
 @dataclass(frozen=True)
@@ -132,7 +133,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 
     if request.backend == "codex_headless":
         metadata["codex_headless_cli_mode"] = "exec_json_resume"
-    if request.backend in {"claude_headless", "gemini_headless", "codex_headless"}:
+    if request.backend in {
+        "claude_headless",
+        "gemini_headless",
+        "codex_headless",
+        "kimi_headless",
+    }:
         metadata["headless_output_format"] = "stream-json"
         metadata["headless_display_style"] = "plain"
         metadata["headless_display_detail"] = "concise"
@@ -180,11 +186,16 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         backend=request.backend,
         launch_contract=launch_contract,
     )
-    if provider_model_selection_cli_args:
+    if tool == "claude" and provider_model_selection_cli_args:
         args, provider_model_selection_cli_args = _merge_claude_model_selection_cli_args(
             args=args,
             generated_args=provider_model_selection_cli_args,
             launch_contract=launch_contract,
+        )
+    if tool == "kimi" and provider_model_selection_cli_args:
+        args, provider_model_selection_cli_args = _merge_kimi_model_selection_cli_args(
+            args=args,
+            generated_args=provider_model_selection_cli_args,
         )
     args.extend(codex_cli_config_args)
     args.extend(provider_model_selection_cli_args)
@@ -286,7 +297,7 @@ def plan_role_injection(
             bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
-    if backend == "gemini_headless":
+    if backend in {"gemini_headless", "kimi_headless"}:
         return RoleInjectionPlan(
             method="bootstrap_message",
             role_name=role_name,
@@ -337,6 +348,8 @@ def backend_for_tool(
         return "claude_headless"
     if tool == "gemini":
         return "gemini_headless"
+    if tool == "kimi":
+        return "kimi_headless"
     raise LaunchPlanError(f"No default backend for tool {tool!r}")
 
 
@@ -426,7 +439,13 @@ def _provider_model_selection_cli_args_from_contract(
 ) -> list[str]:
     """Return generated provider CLI args from one model-selection contract."""
 
-    if tool != "claude" or backend not in {"local_interactive", "claude_headless"}:
+    if tool == "claude":
+        if backend not in {"local_interactive", "claude_headless"}:
+            return []
+    elif tool == "kimi":
+        if backend != "kimi_headless":
+            return []
+    else:
         return []
 
     model_selection = _optional_model_selection_contract(launch_contract)
@@ -452,7 +471,10 @@ def _provider_model_selection_cli_args_from_contract(
             "Manifest `runtime.launch_contract.model_selection.provider_cli_args.args` "
             "must be a list of strings."
         )
-    _parse_claude_model_selection_arg_groups(args)
+    if tool == "claude":
+        _parse_claude_model_selection_arg_groups(args)
+    else:
+        _parse_kimi_model_selection_arg_groups(args)
     return list(args)
 
 
@@ -522,6 +544,43 @@ def _parse_claude_model_selection_arg_groups(args: list[str]) -> list[tuple[str,
         groups.append((matched_flag, [arg]))
         index += 1
     return groups
+
+
+def _parse_kimi_model_selection_arg_groups(args: list[str]) -> list[tuple[str, list[str]]]:
+    """Parse generated Kimi model-selection args into option groups."""
+
+    groups: list[tuple[str, list[str]]] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--model":
+            if index + 1 >= len(args):
+                raise LaunchPlanError("Generated Kimi model-selection arg `--model` needs a value.")
+            groups.append((arg, [arg, args[index + 1]]))
+            index += 2
+            continue
+        matched_flag = _matched_cli_option_flag(arg, flags=_KIMI_MODEL_SELECTION_FLAGS)
+        if matched_flag is None:
+            raise LaunchPlanError(
+                "Generated Kimi model-selection args may only contain `--model`."
+            )
+        groups.append((matched_flag, [arg]))
+        index += 1
+    return groups
+
+
+def _merge_kimi_model_selection_cli_args(
+    *,
+    args: list[str],
+    generated_args: list[str],
+) -> tuple[list[str], list[str]]:
+    """Merge generated Kimi model-selection args with caller-provided args."""
+
+    _parse_kimi_model_selection_arg_groups(generated_args)
+    merged_args = list(args)
+    for flag in _KIMI_MODEL_SELECTION_FLAGS:
+        merged_args = _remove_cli_option_with_value(merged_args, flag=flag)
+    return merged_args, list(generated_args)
 
 
 def _resolved_model_selection_source(

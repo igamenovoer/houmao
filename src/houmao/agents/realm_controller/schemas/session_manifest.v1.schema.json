@@ -165,6 +165,7 @@
             "codex_app_server",
             "claude_headless",
             "gemini_headless",
+            "kimi_headless",
             "cao_rest"
           ],
           "title": "Backend",
@@ -279,6 +280,7 @@
         "codex_app_server",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest"
       ],
       "title": "Backend",

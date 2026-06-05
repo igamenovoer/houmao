@@ -12,6 +12,9 @@ from houmao.agents.realm_controller.agent_identity import (
 from houmao.agents.realm_controller.backends.gemini_headless import (
     GeminiHeadlessSession,
 )
+from houmao.agents.realm_controller.backends.kimi_headless import (
+    KimiHeadlessSession,
+)
 from houmao.agents.realm_controller.backends.claude_headless import (
     ClaudeHeadlessSession,
 )
@@ -64,6 +67,33 @@ def _sample_gemini_launch_plan(tmp_path: Path, *, executable: str | None = None)
     )
 
 
+def _sample_kimi_launch_plan(
+    tmp_path: Path,
+    *,
+    executable: str | None = None,
+    args: list[str] | None = None,
+) -> LaunchPlan:
+    resolved_executable = executable or str(_fake_tool_executable(tmp_path, "kimi"))
+    return LaunchPlan(
+        backend="kimi_headless",
+        tool="kimi",
+        executable=resolved_executable,
+        args=list(args or []),
+        working_directory=tmp_path,
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "kimi-home",
+        env={},
+        env_var_names=[],
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="gpu-kernel-coder",
+            prompt="role prompt",
+            bootstrap_message="bootstrap",
+        ),
+        metadata={},
+    )
+
+
 def _sample_claude_launch_plan(
     tmp_path: Path,
     *,
@@ -89,6 +119,231 @@ def _sample_claude_launch_plan(
         ),
         metadata={},
     )
+
+
+def test_kimi_headless_builds_new_turn_command_with_managed_skills_dir(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    session = KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-kimi",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="kimi-session-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert captured["command"] == [
+        str(tmp_path / "fake-bin" / "kimi"),
+        "--skills-dir",
+        str(tmp_path / "kimi-home" / "skills"),
+        "-p",
+        "bootstrap\n\nhello",
+        "--output-format",
+        "stream-json",
+    ]
+    assert "--auto" not in captured["command"]
+    assert "--yolo" not in captured["command"]
+    assert "--plan" not in captured["command"]
+
+
+def test_kimi_headless_builds_exact_resume_turn_command(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    session = KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            session_id="kimi-session-1",
+            turn_index=1,
+            role_bootstrap_applied=True,
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-kimi",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="kimi-session-1",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt("hello")
+
+    assert captured["command"] == [
+        str(tmp_path / "fake-bin" / "kimi"),
+        "--session",
+        "kimi-session-1",
+        "--skills-dir",
+        str(tmp_path / "kimi-home" / "skills"),
+        "-p",
+        "hello",
+        "--output-format",
+        "stream-json",
+    ]
+
+
+def test_kimi_headless_builds_latest_resume_turn_command_from_selector(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    session = KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-kimi",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="kimi-session-latest",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt(
+        "hello",
+        session_selection=HeadlessTurnSessionSelection(mode="tool_last_or_new"),
+    )
+
+    assert captured["command"] == [
+        str(tmp_path / "fake-bin" / "kimi"),
+        "--continue",
+        "--skills-dir",
+        str(tmp_path / "kimi-home" / "skills"),
+        "-p",
+        "hello",
+        "--output-format",
+        "stream-json",
+    ]
+
+
+def test_kimi_headless_execution_model_projects_model_arg_before_prompt(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    session = KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path, args=["--temperature", "0"]),
+        role_name="gpu-kernel-coder",
+        session_manifest_path=tmp_path / "session.json",
+        state=HeadlessSessionState(
+            working_directory=str(tmp_path),
+            tmux_session_name="HOUMAO-kimi",
+        ),
+    )
+
+    class _FakeRunner:
+        def run(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            command,
+            env,
+            cwd,
+            turn_index,
+            output_format,
+            tmux_session_name,
+            turn_artifacts_root,
+            **_kwargs,
+        ) -> HeadlessRunResult:
+            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
+            captured["command"] = list(command)
+            return HeadlessRunResult(
+                events=[],
+                stderr="",
+                returncode=0,
+                session_id="kimi-session-model",
+            )
+
+    session._runner = _FakeRunner()  # type: ignore[attr-defined]
+
+    session.send_prompt(
+        "hello",
+        execution_model=ModelConfig(name="kimi-code/kimi-for-coding"),
+    )
+
+    assert captured["command"] == [
+        str(tmp_path / "fake-bin" / "kimi"),
+        "--temperature",
+        "0",
+        "--model",
+        "kimi-code/kimi-for-coding",
+        "--skills-dir",
+        str(tmp_path / "kimi-home" / "skills"),
+        "-p",
+        "bootstrap\n\nhello",
+        "--output-format",
+        "stream-json",
+    ]
 
 
 def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:

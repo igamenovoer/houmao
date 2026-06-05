@@ -23,7 +23,7 @@ Provider subclasses refine `ui_context` and may add evidence fields:
 - `ClaudeSurfaceAssessment`
 - `CodexSurfaceAssessment`
 
-These are the only two TUI-tracked providers. Gemini is excluded by design — it runs on the `gemini_headless` backend only and does not produce TUI snapshots for shadow parsing.
+These are the only two TUI-tracked providers. Gemini and Kimi are excluded by design — they run on native headless backends and do not produce TUI snapshots for shadow parsing.
 
 ### `DialogProjection`
 

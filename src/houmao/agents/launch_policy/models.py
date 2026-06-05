@@ -17,6 +17,7 @@ LaunchSurface = Literal[
     "codex_app_server",
     "claude_headless",
     "gemini_headless",
+    "kimi_headless",
     "cao_rest",
 ]
 LaunchPolicySelectionSource = Literal["registry", "env_override"]

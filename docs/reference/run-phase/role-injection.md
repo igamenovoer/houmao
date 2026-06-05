@@ -1,6 +1,6 @@
 # Role Injection
 
-Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time. The input to role injection is the already-composed effective launch prompt, not just the raw contents of `roles/<role>/system-prompt.md`. For current managed launches, that effective prompt is rooted at `<houmao_system_prompt>` and may contain `<managed_header>`, `<prompt_body>`, `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` sections depending on what participated in the launch.
+Role injection determines how a role's system prompt is delivered to an agent session. Because each agent tool (Codex, Claude, Gemini, Kimi) accepts role-level instructions differently, the injection strategy is resolved per-backend at launch-plan composition time. The input to role injection is the already-composed effective launch prompt, not just the raw contents of `roles/<role>/system-prompt.md`. For current managed launches, that effective prompt is rooted at `<houmao_system_prompt>` and may contain `<managed_header>`, `<prompt_body>`, `<role_prompt>`, `<launch_profile_overlay>`, and `<launch_appendix>` sections depending on what participated in the launch.
 
 ## Injection decision tree
 
@@ -11,6 +11,7 @@ flowchart TD
     CX["codex_headless /<br/>codex_app_server"]
     CL["claude_headless"]
     GM["gemini_headless"]
+    KM["kimi_headless"]
     LI["local_interactive"]
     LEG["legacy/internal REST<br/>manifest rejection"]
 
@@ -22,6 +23,7 @@ flowchart TD
     BE -->|codex| CX --> NDI
     BE -->|claude| CL --> NAS
     BE -->|gemini| GM --> BM
+    BE -->|kimi| KM --> BM
     BE -->|local interactive| LI --> BM
     BE -->|legacy REST| LEG --> PB
 ```
@@ -69,6 +71,7 @@ The runtime does not ask providers to interpret those tags. Backends receive one
 | `codex_app_server` | `native_developer_instructions` | Same semantics as `codex_headless`, but applied to the `thread/start` request payload. |
 | `claude_headless` | `native_append_system_prompt` | When the effective launch prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty effective prompts skip both. |
 | `gemini_headless` | `bootstrap_message` | When the effective launch prompt is non-empty, Houmao sends it as a first-turn bootstrap message. Empty effective prompts skip bootstrap entirely. |
+| `kimi_headless` | `bootstrap_message` | When the effective launch prompt is non-empty, Houmao prepends it to the first Kimi prompt through the managed bootstrap message. Empty effective prompts skip bootstrap entirely. |
 | `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini uses bootstrap messaging. Empty effective prompts suppress those startup inputs regardless of tool. |
 | `cao_rest` | `cao_profile` | Legacy/internal: retained only for old manifests and explicit rejection paths. |
 | `houmao_server_rest` | `cao_profile` | Legacy/internal: retired old-server backend identity, rejected for new sessions. |
@@ -85,7 +88,7 @@ Role injection is intentionally backend-specific rather than using a single univ
 
 1. **Native injection is preferred** when available. Tools like Codex and Claude provide dedicated CLI flags for developer instructions and system prompts, respectively. Using these native mechanisms ensures the role prompt is handled by the tool's own context management, which is more reliable than conversational priming.
 
-2. **Bootstrap messages are the fallback.** When a tool does not expose a native injection flag (Gemini, local interactive), the role prompt is sent as the first conversational turn. This is effective but less cleanly separated from user content.
+2. **Bootstrap messages are the fallback.** When a tool does not expose a native injection flag for the maintained launch path (Gemini, Kimi, local interactive), the role prompt is sent as the first conversational turn. This is effective but less cleanly separated from user content.
 
 3. **Legacy backends are not public launch targets.** `cao_rest` and `houmao_server_rest` may still appear in old manifests or internal compatibility code, but new user-facing launches fail fast before relying on their profile mechanism.
 

@@ -26,12 +26,14 @@ _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL: dict[str, str] = {
     "codex": "CODEX_HOME",
     "copilot": "COPILOT_HOME",
     "gemini": "GEMINI_CLI_HOME",
+    "kimi": "KIMI_CODE_HOME",
 }
 _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL: dict[str, Path] = {
     "claude": Path(".claude"),
     "codex": Path(".codex"),
     "copilot": Path(".github"),
     "gemini": Path("."),
+    "kimi": Path(".kimi-code"),
 }
 
 
@@ -77,7 +79,7 @@ def list_system_skills_command() -> None:
 @click.option(
     "--tool",
     required=True,
-    help="Supported tool identifier (`claude`, `codex`, `copilot`, or `gemini`).",
+    help="Supported tool identifier (`claude`, `codex`, `copilot`, `gemini`, or `kimi`).",
 )
 @click.option(
     "--home",
@@ -126,7 +128,7 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
 @click.option(
     "--tool",
     required=True,
-    help="Supported tool identifier (`claude`, `codex`, `copilot`, or `gemini`).",
+    help="Supported tool identifier (`claude`, `codex`, `copilot`, `gemini`, or `kimi`).",
 )
 @click.option(
     "--home",
@@ -198,7 +200,7 @@ def install_system_skills_command(
 @click.option(
     "--tool",
     required=True,
-    help="Supported tool identifier (`claude`, `codex`, `copilot`, or `gemini`).",
+    help="Supported tool identifier (`claude`, `codex`, `copilot`, `gemini`, or `kimi`).",
 )
 @click.option(
     "--home",

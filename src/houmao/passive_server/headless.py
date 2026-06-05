@@ -62,7 +62,9 @@ from houmao.server.models import HoumaoHeadlessTurnEvent
 
 log = logging.getLogger(__name__)
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "gemini_headless"})
+_HEADLESS_BACKENDS = frozenset(
+    {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
+)
 
 
 def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
@@ -224,7 +226,7 @@ class HeadlessAgentService:
                 },
             )
         backend = cast(
-            Literal["claude_headless", "codex_headless", "gemini_headless"],
+            Literal["claude_headless", "codex_headless", "gemini_headless", "kimi_headless"],
             resolved_backend,
         )
 

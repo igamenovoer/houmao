@@ -20,6 +20,7 @@ BackendKind = Literal[
     "codex_app_server",
     "claude_headless",
     "gemini_headless",
+    "kimi_headless",
     "cao_rest",
     "houmao_server_rest",
 ]

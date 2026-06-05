@@ -12,6 +12,7 @@ BackendKind = Literal[
     "claude_headless",
     "codex_headless",
     "gemini_headless",
+    "kimi_headless",
     "codex_app_server",
     "cao_rest",
     "houmao_server_rest",
@@ -28,12 +29,14 @@ flowchart LR
     CH["ClaudeHeadlessSession<br/>claude -p per turn<br/>JSON streaming output<br/>--continue for resume"]
     CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
     GH["GeminiHeadlessSession<br/>gemini -p per turn<br/>--resume <session_id>"]
+    KH["KimiHeadlessSession<br/>kimi -p per turn<br/>--session <session_id>"]
     LEG["Legacy/internal backends<br/>cao_rest / houmao_server_rest<br/>rejected for new public launches"]
 
     LP -->|local_interactive| LI
     LP -->|claude_headless| CH
     LP -->|codex_headless<br/>codex_app_server| CX
     LP -->|gemini_headless| GH
+    LP -->|kimi_headless| KH
     LP -.->|legacy manifests only| LEG
 ```
 
@@ -94,6 +97,27 @@ Runs Gemini CLI in headless mode (`gemini -p`).
 - First-turn capture: verify the first `stream-json` Gemini turn emits a `session_id` and that Houmao persists that id into the managed session manifest.
 - Resume behavior: send a follow-up Gemini prompt from the same working directory and confirm Houmao launches `gemini -p --resume <persisted-session-id>`; changing the working directory should fail explicitly instead of silently retargeting another Gemini project store.
 
+### kimi_headless
+
+**Source:** `backends/kimi_headless.py`
+
+Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json`).
+
+- **Session class:** `KimiHeadlessSession` (extends `HeadlessInteractiveSession`)
+- **Auth lanes:** managed Kimi homes use `KIMI_CODE_HOME` and support OAuth material through projected `config.toml` plus `credentials/kimi-code.json`, or env-model material through allowlisted `KIMI_MODEL_*` values.
+- **Managed skills:** Houmao-owned Kimi skills project into top-level `skills`, and managed launches pass `--skills-dir <KIMI_CODE_HOME>/skills` so they do not depend on user-global skill discovery.
+- **Resume:** `--continue` asks Kimi to continue the latest stored session for the working directory; `--session <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
+- **Role injection:** bootstrap message sent as the first-turn prompt.
+- **Use case:** automated pipelines and non-interactive agent orchestration for Kimi Code.
+
+#### Kimi validation checklist
+
+- OAuth lane: create or import a Kimi auth bundle with `config.toml` and `credentials/kimi-code.json`, build or launch a managed Kimi home, and confirm `KIMI_CODE_HOME` points at that constructed home.
+- Env-model lane: create a Kimi auth bundle with `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`, build or launch a managed Kimi home, and confirm those env vars are exported without depending on user-global `~/.kimi-code`.
+- Skill projection: inspect the constructed home and confirm selected and Houmao-owned skills land under `skills/`.
+- First-turn capture: verify the first `stream-json` Kimi turn emits a `session.resume_hint` event and that Houmao persists its `session_id` into the managed session manifest.
+- Resume behavior: send a follow-up Kimi prompt from the same working directory and confirm Houmao launches `kimi --session <persisted-session-id> -p <prompt> --output-format stream-json`; changing the working directory should fail explicitly.
+
 ### codex_app_server
 
 **Source:** `backends/codex_app_server.py`
@@ -123,7 +147,7 @@ Legacy old-server-backed path. New runtime manifests with this backend are not s
 
 ## Headless backend base class
 
-The three headless backends (`claude_headless`, `codex_headless`, `gemini_headless`) share a common base class: `HeadlessInteractiveSession`.
+The maintained native headless backends (`claude_headless`, `codex_headless`, `gemini_headless`, `kimi_headless`) share a common base class: `HeadlessInteractiveSession`.
 
 This base class manages:
 
@@ -144,6 +168,7 @@ Tmux-backed relaunch accepts a relaunch-only chat-session selector. It does not 
 | Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
 | Claude Code | `claude --continue` | `claude --resume <session_id>` | `claude -p --continue <prompt>` | `claude -p --resume <session_id> <prompt>` |
 | Gemini CLI | `gemini --resume latest` | `gemini --resume <session_id>` | `gemini --resume latest -p <prompt>` | `gemini --resume <session_id> -p <prompt>` |
+| Kimi Code | n/a | n/a | `kimi --continue -p <prompt>` | `kimi --session <session_id> -p <prompt>` |
 
 When the relaunch selector is omitted, the runtime uses `new` and starts a fresh provider chat. When a local interactive relaunch resumes an existing provider chat, bootstrap-message role injection is not replayed into that chat.
 

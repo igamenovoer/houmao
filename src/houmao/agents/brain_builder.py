@@ -768,6 +768,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             else None
         ),
         launch_env_exports=projected_model_env_exports,
+        auth_env_values=env_values,
     )
     reasoning_projection = None
     if (
@@ -1092,6 +1093,18 @@ def _extract_native_model_config_baseline(
             model_name = _non_empty_str(model_payload.get("name"))
         return ModelConfig(name=model_name) if model_name is not None else None
 
+    if tool == "kimi":
+        env_model_name = _non_empty_str(auth_env_values.get("KIMI_MODEL_NAME"))
+        if env_model_name is not None:
+            return ModelConfig(name=env_model_name)
+        config_path = home_path / "config.toml"
+        try:
+            payload = load_toml_state(config_path, repair_invalid=True)
+        except Exception:
+            payload = {}
+        model_name = _non_empty_str(payload.get("default_model"))
+        return ModelConfig(name=model_name) if model_name is not None else None
+
     return None
 
 
@@ -1101,6 +1114,7 @@ def _project_model_name(
     home_path: Path,
     model_name: str | None,
     launch_env_exports: dict[str, str],
+    auth_env_values: dict[str, str],
 ) -> dict[str, Any] | None:
     """Project one resolved model name into the runtime home or launch env."""
 
@@ -1140,6 +1154,20 @@ def _project_model_name(
             "key_path": ["model", "name"],
             "value": model_name,
         }
+    if tool == "kimi":
+        if _has_non_empty_env_value(auth_env_values, "KIMI_MODEL_NAME"):
+            launch_env_exports["KIMI_MODEL_NAME"] = model_name
+            return {
+                "surface": "env",
+                "env_var": "KIMI_MODEL_NAME",
+                "value": model_name,
+            }
+        return {
+            "surface": "cli_arg",
+            "arg": "--model",
+            "value": model_name,
+            "cli_args": ["--model", model_name],
+        }
     raise BuildError(f"Unsupported model projection tool `{tool}`.")
 
 
@@ -1151,7 +1179,7 @@ def _provider_model_selection_cli_args(
 ) -> list[str]:
     """Return generated provider CLI args from model-selection projections."""
 
-    if tool != "claude":
+    if tool not in {"claude", "kimi"}:
         return []
     args: list[str] = []
     if model_projection is not None:

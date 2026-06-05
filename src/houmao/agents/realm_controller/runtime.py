@@ -79,6 +79,7 @@ from .backends.headless_base import (
     HeadlessSessionState,
     headless_backend_state_payload,
 )
+from .backends.kimi_headless import KimiHeadlessSession
 from .backends.headless_output import (
     HeadlessDisplayDetail,
     HeadlessDisplayStyle,
@@ -244,6 +245,7 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest",
     }
 )
@@ -253,6 +255,7 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
     "codex_headless",
     "claude_headless",
     "gemini_headless",
+    "kimi_headless",
     "cao_rest",
 )
 _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
@@ -261,6 +264,7 @@ _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }
 )
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
@@ -1840,6 +1844,34 @@ def _create_backend_session(
             ),
         )
 
+    if launch_plan.backend == "kimi_headless":
+        state = _resume_headless_state(
+            resume_state,
+            launch_plan=launch_plan,
+            stopped_revival=stopped_revival,
+        )
+        if (
+            state is not None
+            and Path(state.working_directory).resolve() != launch_plan.working_directory
+        ):
+            raise SessionManifestError(
+                "Kimi resume requires the same working directory as the persisted session"
+            )
+        return cast(
+            InteractiveSession,
+            KimiHeadlessSession(
+                launch_plan=launch_plan,
+                role_name=role_name,
+                session_manifest_path=_require_session_manifest_path(
+                    session_manifest_path,
+                    backend=launch_plan.backend,
+                ),
+                agent_def_dir=agent_def_dir,
+                state=state,
+                tmux_session_name=agent_identity,
+            ),
+        )
+
     if launch_plan.backend == "cao_rest":
         existing_state = _resume_cao_state(resume_state)
         configured_mode = configured_cao_parsing_mode(launch_plan)
@@ -2833,7 +2865,12 @@ def _launch_plan_with_headless_display_controls(
 ) -> LaunchPlan:
     """Return a launch plan with normalized headless display metadata."""
 
-    if launch_plan.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+    if launch_plan.backend not in {
+        "claude_headless",
+        "codex_headless",
+        "gemini_headless",
+        "kimi_headless",
+    }:
         return launch_plan
 
     updated_metadata = dict(launch_plan.metadata)
@@ -2854,6 +2891,7 @@ def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }
 
 
@@ -3179,7 +3217,7 @@ def _preserve_server_managed_headless_gateway_authority(
 ) -> dict[str, object]:
     """Preserve server-managed headless pair routing when runtime state omits it."""
 
-    if backend not in {"codex_headless", "claude_headless", "gemini_headless"}:
+    if backend not in {"codex_headless", "claude_headless", "gemini_headless", "kimi_headless"}:
         return payload
 
     raw_gateway_authority = payload.get("gateway_authority")

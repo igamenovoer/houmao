@@ -171,6 +171,7 @@ _PROVIDERS = frozenset(
         "claude_code",
         "codex",
         "gemini_cli",
+        "kimi",
     }
 )
 _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
@@ -215,6 +216,7 @@ _PROVIDER_BY_TOOL: dict[str, str] = {
     "claude": "claude_code",
     "codex": "codex",
     "gemini": "gemini_cli",
+    "kimi": "kimi",
 }
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
 
@@ -1588,7 +1590,7 @@ def launch_agents_command(
 @click.option(
     "--provider",
     default=None,
-    help="Provider identifier to adopt (`claude_code`, `codex`, or `gemini_cli`).",
+    help="Provider identifier to adopt (`claude_code`, `codex`, `gemini_cli`, or `kimi`).",
 )
 @click.option(
     "--launch-args",

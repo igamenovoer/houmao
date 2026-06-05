@@ -94,6 +94,7 @@ Protocol-required arguments are owned by the backend and **cannot** be overridde
 
 - `claude -p` (headless prompt mode)
 - `codex exec --json` (structured output)
+- `kimi -p --output-format stream-json --skills-dir <home>/skills` (headless prompt mode)
 - `--resume` / `--continue` (session continuation)
 
 Launch overrides apply only to non-protocol launch arguments and tool parameters. Attempting to override protocol-required arguments will result in a validation error during the build phase.

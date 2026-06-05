@@ -739,6 +739,99 @@ def test_gemini_resume_control_preserves_owned_settings_file_while_reapplying_cl
     assert settings_path.read_text(encoding="utf-8") == original_settings + "\n"
 
 
+def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="0.10.1")
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="kimi",
+            backend="kimi_headless",
+            executable="/opt/kimi/bin/kimi",
+            base_args=(
+                "--auto",
+                "--yolo",
+                "--plan",
+                "--session",
+                "session-1",
+                "-p",
+                "bad prompt",
+                "--output-format",
+                "text",
+                "--skills-dir",
+                "/tmp/global-skills",
+                "--model",
+                "kimi-code/kimi-for-coding",
+            ),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    assert result.args == ("--model", "kimi-code/kimi-for-coding")
+    assert result.provenance is not None
+    assert result.provenance.selected_strategy_id == "kimi-unattended-0.10.x"
+    assert result.strategy is not None
+    assert result.strategy.backends == ("kimi_headless",)
+    assert [action.kind for action in result.strategy.actions] == ["provider_hook.call"]
+
+
+def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="0.11.0")
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+
+    with pytest.raises(LaunchPolicyError, match="No compatible unattended launch strategy"):
+        apply_launch_policy(
+            LaunchPolicyRequest(
+                tool="kimi",
+                backend="kimi_headless",
+                executable="kimi",
+                base_args=(),
+                requested_operator_prompt_mode="unattended",
+                working_directory=tmp_path / "workspace",
+                home_path=home,
+                env={},
+            )
+        )
+
+
+def test_detect_tool_version_uses_absolute_executable_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_run(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        captured["command"] = list(command)
+        del check, capture_output, text
+        return subprocess.CompletedProcess(args=command, returncode=0, stdout="0.10.1", stderr="")
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_run,
+    )
+
+    detected_version = detect_tool_version(executable="/home/user/.kimi-code/bin/kimi")
+
+    assert captured["command"] == ["/home/user/.kimi-code/bin/kimi", "--version"]
+    assert detected_version.raw == "0.10.1"
+
+
 def test_supported_version_spec_uses_dependency_style_matching() -> None:
     spec = SupportedVersionSpec.parse(">=2.1.81")
 

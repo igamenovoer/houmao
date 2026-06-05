@@ -69,6 +69,7 @@ Supported tool-native home env vars:
 - Codex: `CODEX_HOME`
 - Copilot: `COPILOT_HOME`
 - Gemini: `GEMINI_CLI_HOME`
+- Kimi: `KIMI_CODE_HOME`
 
 Project-scoped default homes:
 
@@ -76,8 +77,11 @@ Project-scoped default homes:
 - Codex: `<cwd>/.codex`
 - Copilot: `<cwd>/.github`
 - Gemini: `<cwd>`
+- Kimi: `<cwd>/.kimi-code`
 
 Gemini is intentionally different from Claude and Codex. The effective Gemini home root is the project root, which means omitted-home Gemini installs land under `<cwd>/.gemini/skills/` while Gemini provider state remains under `<cwd>/.gemini/`.
+
+Kimi uses the same home-relative `skills/` projection as Claude and Codex. With the project default, omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`; managed Kimi launches pass that directory through `--skills-dir`.
 
 Copilot uses the same home-relative `skills/` projection as Claude and Codex, but its project-scoped default home is `<cwd>/.github`. That means omitted-home Copilot installs land under `<cwd>/.github/skills/`. To install the same Houmao-owned skills into a personal Copilot CLI home, pass an explicit home such as `--home ~/.copilot` or set `COPILOT_HOME`; no separate scope flag is required.
 

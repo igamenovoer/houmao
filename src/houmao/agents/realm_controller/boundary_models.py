@@ -38,6 +38,7 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest",
         "houmao_server_rest",
     }
@@ -665,11 +666,12 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             "codex_headless",
             "claude_headless",
             "gemini_headless",
+            "kimi_headless",
         }:
             if self.headless is None:
                 raise ValueError(
                     "headless is required for backend=codex_headless/"
-                    "claude_headless/gemini_headless"
+                    "claude_headless/gemini_headless/kimi_headless"
                 )
             if (
                 self.codex is not None
@@ -680,7 +682,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
                 raise ValueError(
                     "codex/local_interactive/cao/houmao_server must be omitted for "
                     "backend=codex_headless/"
-                    "claude_headless/gemini_headless"
+                    "claude_headless/gemini_headless/kimi_headless"
                 )
         elif self.backend == "local_interactive":
             if self.local_interactive is None:

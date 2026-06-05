@@ -123,7 +123,7 @@ Gemini-specific auth inputs now support two maintained lanes:
 - API-key lane: `--api-key` with optional `--base-url` to persist `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL`.
 - OAuth lane: `--gemini-oauth-creds /path/to/oauth_creds.json` to persist the Gemini CLI OAuth credential file. You can also combine this with the API-key lane in one specialist or auth bundle; Houmao preserves explicit API-key and endpoint settings instead of overwriting them.
 
-Gemini specialists now follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Gemini stays headless-only on the easy instance surface, so launch Gemini specialists with `houmao-mgr project agents launch --headless`.
+Gemini and Kimi specialists now follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Gemini and Kimi stay headless-only on the easy instance surface, so launch those specialists with `houmao-mgr project agents launch --headless`.
 
 Example Gemini specialist:
 
@@ -137,6 +137,11 @@ houmao-mgr project specialist create \
   --gemini-oauth-creds ./secrets/oauth_creds.json \
   --skill repo-map
 ```
+
+Kimi-specific auth inputs support OAuth import and env-model bundles:
+
+- OAuth lane: `--kimi-code-home ~/.kimi-code` imports `config.toml` and `credentials/kimi-code.json` from an existing logged-in Kimi home. You can also pass `--kimi-config-toml` and `--kimi-credential-json` directly.
+- Env-model lane: `--api-key` with optional `--base-url` persists `KIMI_MODEL_API_KEY` plus `KIMI_MODEL_BASE_URL`; use `--kimi-model-name` or launch-owned `--model` to supply `KIMI_MODEL_NAME`.
 
 Managed launch installs the catalog's `core` system-skill set by default. To store an explicit additive source policy for a utility skill, name a current catalog skill:
 
@@ -318,7 +323,7 @@ Key options:
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
 | `--mail-account-dir` | None | Optional private filesystem mailbox directory to symlink into the shared root. |
 
-Gemini specialists remain headless-only here. Use `--headless` when launching a Gemini specialist through `project agents launch`.
+Gemini and Kimi specialists remain headless-only here. Use `--headless` when launching either specialist through `project agents launch`.
 
 `--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, managed-agent memory, and mailbox defaults.
 

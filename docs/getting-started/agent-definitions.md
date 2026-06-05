@@ -124,6 +124,8 @@ For the shared conceptual model — easy versus explicit lanes, the precedence c
 
 The tool adapter defines how Houmao projects setup files, skills, and auth material into the runtime home, plus the tool-specific launch contract.
 
+Maintained starter tool families are `claude`, `codex`, `gemini`, and `kimi`. The Kimi adapter uses `KIMI_CODE_HOME`, launches `kimi`, projects selected skills into `skills`, copies OAuth material from `config.toml` and `credentials/kimi-code.json` when present, and allowlists Kimi env-model variables such as `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`.
+
 ### `tools/<tool>/setups/<setup>/`
 
 Secret-free setup bundles for one tool. The canonical file-backed payloads live under `.houmao/content/setups/`; the `.houmao/agents/tools/<tool>/setups/` tree is the compatibility projection that builders and runtime currently consume.

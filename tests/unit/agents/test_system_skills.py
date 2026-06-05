@@ -27,6 +27,7 @@ from houmao.agents.system_skills import (
     resolve_managed_system_skill_selection,
     resolve_system_skill_selection,
     sync_system_skills_for_home,
+    system_skills_destination_for_tool,
     system_skill_selection_policy_to_payload,
     uninstall_system_skills_for_home,
 )
@@ -139,6 +140,10 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.managed_launch_sets == (SYSTEM_SKILL_SET_CORE,)
     assert catalog.auto_install.managed_join_sets == (SYSTEM_SKILL_SET_CORE,)
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
+
+
+def test_system_skills_destination_supports_kimi_home_skills_root() -> None:
+    assert system_skills_destination_for_tool("kimi") == "skills"
 
 
 def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:

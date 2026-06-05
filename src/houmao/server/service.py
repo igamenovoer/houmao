@@ -807,7 +807,12 @@ class HoumaoServerService:
 
         try:
             resolved_backend = backend_for_tool(resolved_tool)
-            if resolved_backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+            if resolved_backend not in {
+                "claude_headless",
+                "codex_headless",
+                "gemini_headless",
+                "kimi_headless",
+            }:
                 raise HTTPException(
                     status_code=422,
                     detail=(
@@ -816,7 +821,7 @@ class HoumaoServerService:
                     ),
                 )
             resolved_headless_backend = cast(
-                Literal["claude_headless", "codex_headless", "gemini_headless"],
+                Literal["claude_headless", "codex_headless", "gemini_headless", "kimi_headless"],
                 resolved_backend,
             )
             controller = start_runtime_session(
@@ -3816,7 +3821,12 @@ class HoumaoServerService:
             payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
         except SessionManifestError:
             return
-        if payload.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if payload.backend not in {
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+            "kimi_headless",
+        }:
             return
         gateway_authority = (
             payload.gateway_authority.model_dump(mode="json")

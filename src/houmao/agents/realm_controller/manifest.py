@@ -151,6 +151,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         payload["headless"] = {
             "session_id": request.backend_state.get("session_id"),
@@ -350,6 +351,7 @@ def _resolve_manifest_identity(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         if tmux_session_name is None:
             tmux_session_name = _optional_non_empty_str(
@@ -450,6 +452,7 @@ def _build_manifest_interactive_section(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest",
         "houmao_server_rest",
     }:
@@ -462,7 +465,13 @@ def _build_manifest_interactive_section(
         "role_bootstrap_applied": (
             bool(request.backend_state.get("role_bootstrap_applied", False))
             if request.launch_plan.backend
-            in {"local_interactive", "codex_headless", "claude_headless", "gemini_headless"}
+            in {
+                "local_interactive",
+                "codex_headless",
+                "claude_headless",
+                "gemini_headless",
+                "kimi_headless",
+            }
             else None
         ),
         "terminal_id": _optional_non_empty_str(request.backend_state.get("terminal_id")),
@@ -513,6 +522,7 @@ def _build_manifest_gateway_authority(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest",
         "houmao_server_rest",
     }:

@@ -19,7 +19,7 @@ from houmao.agents.realm_controller.models import SessionEvent
 
 HeadlessDisplayStyle = Literal["plain", "json", "fancy"]
 HeadlessDisplayDetail = Literal["concise", "detail"]
-HeadlessProvider = Literal["claude", "codex", "gemini"]
+HeadlessProvider = Literal["claude", "codex", "gemini", "kimi"]
 
 CANONICAL_HEADLESS_EVENTS_ARTIFACT = "canonical-events.jsonl"
 """Artifact name for canonical normalized headless events."""
@@ -250,7 +250,9 @@ class CanonicalHeadlessEventParser:
             return self._consume_claude_payload(payload)
         if self.m_provider == "codex":
             return self._consume_codex_payload(payload)
-        return self._consume_gemini_payload(payload)
+        if self.m_provider == "gemini":
+            return self._consume_gemini_payload(payload)
+        return self._consume_kimi_payload(payload)
 
     def _consume_claude_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
         """Parse one Claude stream-json payload."""
@@ -806,6 +808,146 @@ class CanonicalHeadlessEventParser:
             )
         ]
 
+    def _consume_kimi_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
+        """Parse one Kimi Code stream-json payload."""
+
+        role = _optional_text(payload.get("role"))
+        payload_type = _optional_text(payload.get("type"))
+        session_id = _extract_session_id_from_payload(payload) or self.m_session_id
+
+        if role == "meta" and payload_type == "session.resume_hint":
+            resume_session_id = _optional_text(payload.get("session_id"))
+            if resume_session_id is not None:
+                self.m_session_id = resume_session_id
+            return [
+                self._event(
+                    kind="session",
+                    message=resume_session_id or "session resume hint",
+                    provider_event_type="session.resume_hint",
+                    session_id=resume_session_id,
+                    data={
+                        "session_id": resume_session_id,
+                        "command": _optional_text(payload.get("command")),
+                        "content": _optional_text(payload.get("content")),
+                    },
+                    raw_payload=dict(payload),
+                )
+            ]
+
+        if role == "assistant":
+            return self._consume_kimi_assistant(payload, session_id=session_id)
+
+        if role == "tool":
+            content = _optional_text(payload.get("content"))
+            result_summary = _single_line_summary(content, fallback="tool result")
+            return [
+                self._event(
+                    kind="action_result",
+                    message=result_summary,
+                    provider_event_type="tool",
+                    session_id=session_id,
+                    data={
+                        "action_id": _optional_text(payload.get("tool_call_id")),
+                        "action_kind": "tool_use",
+                        "status": "success",
+                        "result_summary": result_summary,
+                        "result_text": content,
+                    },
+                    raw_payload=dict(payload),
+                )
+            ]
+
+        provider_event_type = payload_type or role or "event"
+        if provider_event_type == "error":
+            return [
+                self._event(
+                    kind="diagnostic",
+                    message=_optional_text(payload.get("message")) or "error",
+                    provider_event_type=provider_event_type,
+                    session_id=session_id,
+                    data={
+                        "severity": "error",
+                        "text": _optional_text(payload.get("message")),
+                    },
+                    raw_payload=dict(payload),
+                )
+            ]
+        return [
+            self._event(
+                kind="passthrough",
+                message=provider_event_type,
+                provider_event_type=provider_event_type,
+                session_id=session_id,
+                data={"summary": provider_event_type},
+                raw_payload=dict(payload),
+            )
+        ]
+
+    def _consume_kimi_assistant(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        session_id: str | None,
+    ) -> list[CanonicalHeadlessEvent]:
+        """Parse one Kimi assistant payload."""
+
+        events: list[CanonicalHeadlessEvent] = []
+        content = _optional_text(payload.get("content"))
+        if content is not None:
+            events.append(
+                self._event(
+                    kind="assistant",
+                    message=content,
+                    provider_event_type="assistant.content",
+                    session_id=session_id,
+                    data={"text": content, "role": "assistant"},
+                    raw_payload=dict(payload),
+                )
+            )
+
+        tool_calls = payload.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            if events:
+                return events
+            return [
+                self._event(
+                    kind="passthrough",
+                    message="assistant",
+                    provider_event_type="assistant",
+                    session_id=session_id,
+                    data={"summary": "assistant without content"},
+                    raw_payload=dict(payload),
+                )
+            ]
+
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, Mapping):
+                continue
+            function_payload = _optional_mapping(tool_call.get("function")) or {}
+            action_id = _optional_text(tool_call.get("id"))
+            if action_id is not None:
+                self.m_seen_action_requests.add(action_id)
+            tool_name = _optional_text(function_payload.get("name")) or "tool"
+            arguments = _parse_json_string_or_value(function_payload.get("arguments"))
+            events.append(
+                self._event(
+                    kind="action_request",
+                    message=f"{tool_name} {_summarize_arguments(arguments)}".strip(),
+                    provider_event_type="assistant.tool_call",
+                    session_id=session_id,
+                    data={
+                        "action_id": action_id,
+                        "action_kind": "tool_use",
+                        "name": tool_name,
+                        "arguments": arguments,
+                        "arguments_summary": _summarize_arguments(arguments),
+                        "tool_call_type": _optional_text(tool_call.get("type")),
+                    },
+                    raw_payload=dict(tool_call),
+                )
+            )
+        return events
+
     def _event(
         self,
         *,
@@ -1024,6 +1166,8 @@ def resolve_headless_provider(
             return "codex"
         if lowered.startswith("gemini"):
             return "gemini"
+        if lowered.startswith("kimi"):
+            return "kimi"
     raise ValueError(
         f"Unsupported headless provider tool/backend: tool={tool!r}, backend={backend!r}"
     )
@@ -1822,4 +1966,20 @@ def _coerce_provider(value: str) -> HeadlessProvider:
         return "codex"
     if value == "gemini":
         return "gemini"
+    if value == "kimi":
+        return "kimi"
     raise ValueError(f"Unsupported canonical headless provider `{value}`.")
+
+
+def _parse_json_string_or_value(value: object) -> object:
+    """Parse a JSON-encoded string when possible and preserve raw value otherwise."""
+
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    if not stripped:
+        return value
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return value

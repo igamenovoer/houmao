@@ -794,6 +794,7 @@ class _LocalHeadlessGatewayAdapter:
             "claude_headless",
             "codex_headless",
             "gemini_headless",
+            "kimi_headless",
         }:
             raise GatewayError(
                 "Local tmux gateway adapter only supports native tmux-backed backends, got "
@@ -914,7 +915,12 @@ class _ServerManagedHeadlessGatewayAdapter:
         """Initialize the server-managed headless execution adapter."""
 
         self.m_attach_contract = attach_contract
-        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if attach_contract.backend not in {
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+            "kimi_headless",
+        }:
             raise GatewayError(
                 "Server-managed headless gateway adapter only supports native headless backends, "
                 f"got {attach_contract.backend!r}."
@@ -1082,6 +1088,7 @@ def _build_gateway_execution_adapter(
         "claude_headless",
         "codex_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         metadata = attach_contract.backend_metadata
         if (
@@ -1532,6 +1539,7 @@ class GatewayServiceRuntime:
             "claude_headless",
             "codex_headless",
             "gemini_headless",
+            "kimi_headless",
         }:
             raise HTTPException(
                 status_code=422,
@@ -1610,7 +1618,7 @@ class GatewayServiceRuntime:
                 )
             if (
                 self.m_attach_contract.backend
-                in {"claude_headless", "codex_headless", "gemini_headless"}
+                in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
                 and request_payload.kind == "submit_prompt"
                 and (
                     status.active_execution == "running"
@@ -2415,7 +2423,7 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
             return "tui"
-        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
             if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
@@ -2589,7 +2597,7 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
             return "tui"
-        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
             if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
@@ -3271,6 +3279,10 @@ class GatewayServiceRuntime:
                 ]
             )
         elif tool == "gemini":
+            lines.append(
+                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
+            )
+        elif tool == "kimi":
             lines.append(
                 f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )

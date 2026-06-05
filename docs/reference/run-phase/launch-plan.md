@@ -75,7 +75,7 @@ For the shared conceptual model that ties launch profiles to this run-phase comp
 | Field | Type | Description |
 |---|---|---|
 | `backend` | `BackendKind` | Target backend |
-| `tool` | `str` | Agent tool name (e.g., `"codex"`, `"claude"`, `"gemini"`) |
+| `tool` | `str` | Agent tool name (e.g., `"codex"`, `"claude"`, `"gemini"`, `"kimi"`) |
 | `executable` | `str` | Resolved executable path or command |
 | `args` | `list[str]` | Command-line arguments for the agent process |
 | `working_directory` | `Path` | Working directory for the agent process |
@@ -111,10 +111,11 @@ Returns the default backend for a given tool name.
 | `codex` | `codex_headless` |
 | `claude` | `claude_headless` |
 | `gemini` | `gemini_headless` |
+| `kimi` | `kimi_headless` |
 
 **Override behavior:**
 
-- When `prefer_local_interactive=True`, returns `local_interactive` for all tools. This routes the agent through a tmux-backed interactive session instead of the tool's native headless mode.
+- When `prefer_local_interactive=True`, returns `local_interactive` for Claude, Codex, and Gemini. Kimi currently has no maintained local-interactive backend and remains headless-only.
 - `prefer_cao=True` is legacy/internal compatibility input. New public operator workflows do not request standalone `cao_rest` launches.
 
 ## See also
