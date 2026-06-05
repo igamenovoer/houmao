@@ -13,4 +13,4 @@
 ## 3. Verification
 
 - [x] 3.1 Run the focused shared TUI tracking and gateway notifier tests that cover the new behavior.
-- [ ] 3.2 Run `pixi run test` or the broadest practical unit-test target before marking the change complete.
+- [x] 3.2 Run `pixi run test` or the broadest practical unit-test target before marking the change complete.

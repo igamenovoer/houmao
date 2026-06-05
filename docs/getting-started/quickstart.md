@@ -126,10 +126,13 @@ houmao-mgr project profile create \
   --specialist reviewer \
   --agent-name reviewer-1 \
   --workdir "$PWD" \
-  --prompt-mode unattended
+  --prompt-mode unattended \
+  --memo-seed-text "Remember that this repo prefers focused risk review."
 
 houmao-mgr project agents launch --profile reviewer-default
 ```
+
+Project profiles can store a memo seed for managed-agent memory at launch time. Use `--memo-seed-text` for inline memo content, `--memo-seed-file` for one memo file, or `--memo-seed-dir` for a directory containing `houmao-memo.md` and/or `pages/`; use `--clear-memo-seed` when patching a profile to remove the stored seed.
 
 Launch directly from a specialist when the launch context changes each time:
 
