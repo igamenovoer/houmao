@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 import tomllib
@@ -813,6 +814,10 @@ def _toml_value_literal(value: object) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise LaunchPolicyError(f"Unsupported TOML scalar value: {value!r}")
+        return repr(value)
     if isinstance(value, str):
         escaped = (
             value.replace("\\", "\\\\")
