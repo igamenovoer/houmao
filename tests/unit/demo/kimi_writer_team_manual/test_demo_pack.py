@@ -169,7 +169,7 @@ def test_driver_parser_accepts_manual_command_surface() -> None:
     assert parser.parse_args(["stop"]).command == "stop"
 
 
-def test_create_specialist_uses_kimi_as_is_and_core_system_skills(
+def test_create_specialist_uses_kimi_unattended_default_and_core_system_skills(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,14 +207,14 @@ def test_create_specialist_uses_kimi_as_is_and_core_system_skills(
     ]
     assert "--tool" in command
     assert "kimi" in command
-    assert "--no-unattended" in command
+    assert "--no-unattended" not in command
     assert "--system-skills-mode" in command
     assert "replace" in command
     assert "--system-skill-set" in command
     assert "core" in command
 
 
-def test_create_profile_uses_mailbox_and_as_is_prompt_mode(
+def test_create_profile_uses_mailbox_and_unattended_prompt_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,7 +241,7 @@ def test_create_profile_uses_mailbox_and_as_is_prompt_mode(
 
     command = captured["command"]
     assert "--prompt-mode" in command
-    assert "as_is" in command
+    assert "unattended" in command
     assert "--mail-transport" in command
     assert "filesystem" in command
     assert "--mail-root" in command
@@ -252,7 +252,7 @@ def test_create_profile_uses_mailbox_and_as_is_prompt_mode(
     assert "alex-story@houmao.localhost" in command
 
 
-def test_launch_agent_uses_profile_gateway_background_and_no_headless_flag(
+def test_launch_agent_uses_profile_headless_gateway_background(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -279,8 +279,8 @@ def test_launch_agent_uses_profile_gateway_background_and_no_headless_flag(
     command = captured["command"]
     assert "--profile" in command
     assert "alex-story" in command
+    assert "--headless" in command
     assert "--gateway-background" in command
-    assert "--headless" not in command
 
 
 def test_render_start_charter_replaces_run_id_and_chapter_count() -> None:

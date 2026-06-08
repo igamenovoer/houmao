@@ -97,5 +97,4 @@ Story artifacts should appear under:
 
 ## Notes
 
-This demo intentionally uses Kimi local-interactive TUI posture. Specialist creation stores `launch.prompt_mode: as_is`, project launch omits `--headless`, and each launch asks Houmao to keep the gateway in the background so notifier rounds can wake the agents while the Kimi TUIs remain attachable.
-
+This demo uses Kimi headless sessions with unattended prompt mode. Specialist creation keeps the easy unattended default, profile creation stores `launch.prompt_mode: unattended`, project launch passes `--headless`, and each launch asks Houmao to keep the gateway in the background so notifier rounds can wake the agents without stopping on permission prompts.

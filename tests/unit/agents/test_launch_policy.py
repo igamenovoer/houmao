@@ -809,7 +809,7 @@ def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.11.0")
+    _stub_version(monkeypatch, output="0.12.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
 

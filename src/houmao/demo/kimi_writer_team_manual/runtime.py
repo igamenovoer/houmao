@@ -443,7 +443,6 @@ def create_specialist(
                 credential_name,
                 "--system-prompt-file",
                 str(paths.project_dir / member.system_prompt_file),
-                "--no-unattended",
                 "--system-skills-mode",
                 "replace",
                 "--system-skill-set",
@@ -490,7 +489,7 @@ def create_profile(
                 "--auth",
                 credential_name,
                 "--prompt-mode",
-                "as_is",
+                "unattended",
                 "--mail-transport",
                 "filesystem",
                 "--mail-root",
@@ -522,7 +521,7 @@ def launch_agent(
     session_name: str,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    """Launch one Kimi TUI agent from its project profile."""
+    """Launch one Kimi unattended agent from its project profile."""
 
     stdout_path, stderr_path = paths.log_paths(f"launch-{member.agent_name}")
     payload = run_json_command(
@@ -537,6 +536,7 @@ def launch_agent(
                 member.agent_name,
                 "--session-name",
                 session_name,
+                "--headless",
                 "--gateway-background",
             ]
         ),
