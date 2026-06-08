@@ -92,6 +92,7 @@ site/
 
 .agent-automation/impl-branches/
 .agent-automation/merge-backups/
+.imsight-arts/impl-branches/
 .git/
 scripts/demo/mail-ping-pong-gateway-demo-pack/outputs/
 # Ignore .github/ except workflows
