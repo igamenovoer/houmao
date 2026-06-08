@@ -1020,14 +1020,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_specialist_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
     manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
     manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
+    manage_credentials_references = home_path / "skills/houmao-credential-mgr/references"
     memory_path = home_path / "skills/houmao-memory-mgr/SKILL.md"
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
     manage_agent_definition_actions = home_path / "skills/houmao-agent-definition/actions"
     manage_agent_definition_subskills = home_path / "skills/houmao-agent-definition/subskills"
-    manage_agent_definition_references = (
-        home_path / "skills/houmao-agent-definition/references/credentials"
-    )
     loop_pro_skill_path = home_path / "skills/houmao-agent-loop-pro/SKILL.md"
     loop_pro_authoring = home_path / "skills/houmao-agent-loop-pro/subskills/authoring"
     loop_pro_execution = home_path / "skills/houmao-agent-loop-pro/subskills/execution"
@@ -1302,9 +1300,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         definition_credential_routing
     )
     assert "no target: initialize/select a Houmao project" in definition_credential_routing
-    assert "references/credentials/claude-lookup.md" in easy_specialists
-    assert "references/credentials/codex-lookup.md" in easy_specialists
-    assert "references/credentials/gemini-lookup.md" in easy_specialists
+    assert "houmao-credential-mgr/references/claude-credential-kinds.md" in easy_specialists
+    assert "houmao-credential-mgr/references/codex-credential-kinds.md" in easy_specialists
+    assert "houmao-credential-mgr/references/gemini-credential-kinds.md" in easy_specialists
+    assert "houmao-credential-mgr/references/kimi-credential-kinds.md" in easy_specialists
     assert "--claude-oauth-token" in easy_specialists
     assert "--claude-config-dir" in easy_specialists
     assert "optional bootstrap state" in easy_specialists
@@ -1594,42 +1593,43 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert easy_profiles_path.is_file()
     assert easy_launch_path.is_file()
 
-    claude_reference_path = manage_agent_definition_references / "claude-lookup.md"
-    codex_reference_path = manage_agent_definition_references / "codex-lookup.md"
-    gemini_reference_path = manage_agent_definition_references / "gemini-lookup.md"
+    claude_reference_path = manage_credentials_references / "claude-credential-kinds.md"
+    codex_reference_path = manage_credentials_references / "codex-credential-kinds.md"
+    gemini_reference_path = manage_credentials_references / "gemini-credential-kinds.md"
+    kimi_reference_path = manage_credentials_references / "kimi-credential-kinds.md"
     assert claude_reference_path.is_file()
     assert codex_reference_path.is_file()
     assert gemini_reference_path.is_file()
+    assert kimi_reference_path.is_file()
 
     claude_reference = claude_reference_path.read_text(encoding="utf-8")
     codex_reference = codex_reference_path.read_text(encoding="utf-8")
     gemini_reference = gemini_reference_path.read_text(encoding="utf-8")
+    kimi_reference = kimi_reference_path.read_text(encoding="utf-8")
 
-    assert "CLAUDE_CONFIG_DIR" in claude_reference
-    assert "~/.claude" in claude_reference
-    assert "apiKeyHelper" in claude_reference
     assert "CLAUDE_CODE_OAUTH_TOKEN" in claude_reference
-    assert "--claude-oauth-token" in claude_reference
-    assert "--claude-config-dir" in claude_reference
+    assert "--oauth-token" in claude_reference
+    assert "--config-dir" in claude_reference
     assert ".credentials.json" in claude_reference
     assert "optional bootstrap state" in claude_reference
-    assert "not itself a credential-providing method" in claude_reference
-    assert (
-        "do not treat `.credentials.json` or `~/.claude.json` as directly importable specialist inputs"
-        not in claude_reference
-    )
+    assert "credential-providing method" in claude_reference
     assert deprecated_fixture_root not in claude_reference
 
-    assert "CODEX_HOME" in codex_reference
     assert "auth.json" in codex_reference
-    assert "requires_openai_auth = false" in codex_reference
-    assert 'wire_api = "responses"' in codex_reference
+    assert "--auth-json" in codex_reference
+    assert "Cached Login State" in codex_reference
     assert deprecated_fixture_root not in codex_reference
 
-    assert "GEMINI_CLI_HOME" in gemini_reference
     assert "oauth_creds.json" in gemini_reference
-    assert "GOOGLE_APPLICATION_CREDENTIALS" in gemini_reference
+    assert "--oauth-creds" in gemini_reference
+    assert "Vertex AI" in gemini_reference
     assert deprecated_fixture_root not in gemini_reference
+
+    assert "Existing Kimi Code Home" in kimi_reference
+    assert "--code-home" in kimi_reference
+    assert "config.toml" in kimi_reference
+    assert "credential-json" in kimi_reference
+    assert deprecated_fixture_root not in kimi_reference
 
 
 def test_uninstall_system_skills_for_home_removes_current_dirs_symlinks_and_files(

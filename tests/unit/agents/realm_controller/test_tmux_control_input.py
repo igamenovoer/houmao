@@ -149,6 +149,42 @@ def _make_kimi_local_interactive_session(tmp_path: Path) -> LocalInteractiveSess
     return session
 
 
+def _enable_kimi_auto_mode_refresh(session: LocalInteractiveSession) -> None:
+    session._plan.metadata["kimi_tui_auto_mode_refresh"] = {  # noqa: SLF001
+        "enabled": True,
+        "command": "/auto on",
+        "phase": "after_tui_ready_before_managed_prompts",
+        "operator_prompt_mode": "unattended",
+        "strategy_id": "kimi-tui-unattended-0.10.x",
+    }
+
+
+def _install_fake_local_interactive_launch_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    session: LocalInteractiveSession,
+    events: list[tuple[str, object]],
+) -> None:
+    session._prepare_tool_home = lambda: events.append(("prepare_home", None))  # type: ignore[method-assign]  # noqa: SLF001
+    session._require_tmux_session_name = lambda: "HOUMAO-kimi"  # type: ignore[method-assign]  # noqa: SLF001
+    session._uses_joined_surface = lambda: False  # type: ignore[method-assign]  # noqa: SLF001
+    session._prepare_primary_surface = lambda *, session_name: events.append(  # type: ignore[method-assign]  # noqa: SLF001
+        ("prepare_surface", session_name)
+    )
+    session._primary_tmux_pane_target = lambda: "HOUMAO-kimi:0.0"  # type: ignore[method-assign]  # noqa: SLF001
+    session._wait_for_provider_tui = lambda **_kwargs: events.append(  # type: ignore[method-assign]  # noqa: SLF001
+        ("ready", None)
+    )
+
+    def _fake_run_tmux(args: list[str]) -> SimpleNamespace:
+        events.append(("tmux", list(args)))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.run_tmux_shared",
+        _fake_run_tmux,
+    )
+
+
 def test_local_interactive_prepare_tool_home_seeds_claude_runtime_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -354,6 +390,100 @@ def test_kimi_local_interactive_send_prompt_uses_semantic_submit_path(
     assert loaded_buffers[0][1] == "print <[Enter]> literally"
     assert pasted_buffers == [("HOUMAO-kimi:0.0", loaded_buffers[0][0], True)]
     assert sent_sequences == ["<[Enter]>"]
+
+
+def test_kimi_unattended_startup_refresh_precedes_role_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_kimi_local_interactive_session(tmp_path)
+    session._state.role_bootstrap_applied = False  # noqa: SLF001
+    _enable_kimi_auto_mode_refresh(session)
+    events: list[tuple[str, object]] = []
+    _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
+    session._submit_semantic_prompt = lambda text: events.append(  # type: ignore[method-assign]  # noqa: SLF001
+        ("submit", text)
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.time.sleep",
+        lambda _seconds: None,
+    )
+
+    session._launch_provider_surface()  # noqa: SLF001
+    session._apply_startup_bootstrap()  # noqa: SLF001
+
+    assert [event for event in events if event[0] in {"ready", "submit"}] == [
+        ("ready", None),
+        ("submit", "/auto on"),
+        ("submit", "bootstrap"),
+    ]
+    assert session._state.role_bootstrap_applied is True  # noqa: SLF001
+
+
+def test_kimi_unattended_resumed_relaunch_refreshes_auto_mode_without_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_kimi_local_interactive_session(tmp_path)
+    session._state.role_bootstrap_applied = False  # noqa: SLF001
+    _enable_kimi_auto_mode_refresh(session)
+    events: list[tuple[str, object]] = []
+    _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
+    session._submit_semantic_prompt = lambda text: events.append(  # type: ignore[method-assign]  # noqa: SLF001
+        ("submit", text)
+    )
+
+    result = session.relaunch(
+        chat_session=RelaunchChatSessionSelection(mode="exact", session_id="kimi-session-1")
+    )
+
+    assert result.status == "ok"
+    assert [event for event in events if event[0] == "submit"] == [("submit", "/auto on")]
+    assert session._state.role_bootstrap_applied is True  # noqa: SLF001
+    tmux_event = next(event for event in events if event[0] == "tmux")
+    assert "--session kimi-session-1" in str(tmux_event[1])
+    assert "--auto" not in str(tmux_event[1])
+
+
+def test_kimi_unattended_auto_refresh_failure_blocks_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_kimi_local_interactive_session(tmp_path)
+    _enable_kimi_auto_mode_refresh(session)
+    events: list[tuple[str, object]] = []
+    _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
+
+    def _fail_submit(text: str) -> None:
+        assert text == "/auto on"
+        raise BackendExecutionError("tmux input refused")
+
+    session._submit_semantic_prompt = _fail_submit  # type: ignore[method-assign]  # noqa: SLF001
+
+    with pytest.raises(BackendExecutionError, match="Kimi unattended auto-mode setup failed"):
+        session._launch_provider_surface()  # noqa: SLF001
+
+
+def test_kimi_as_is_startup_does_not_send_auto_refresh_before_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_kimi_local_interactive_session(tmp_path)
+    session._state.role_bootstrap_applied = False  # noqa: SLF001
+    events: list[tuple[str, object]] = []
+    _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
+    session._submit_semantic_prompt = lambda text: events.append(  # type: ignore[method-assign]  # noqa: SLF001
+        ("submit", text)
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.time.sleep",
+        lambda _seconds: None,
+    )
+
+    session._launch_provider_surface()  # noqa: SLF001
+    session._apply_startup_bootstrap()  # noqa: SLF001
+
+    assert [event for event in events if event[0] == "submit"] == [("submit", "bootstrap")]
 
 
 def test_local_interactive_send_mail_prompt_observes_sentinel_result(

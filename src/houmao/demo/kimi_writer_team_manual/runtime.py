@@ -48,9 +48,8 @@ def uses_headless_backend(member: TeamMemberParameters) -> bool:
 def prompt_mode_for_member(member: TeamMemberParameters) -> str:
     """Return the launch prompt mode for one writer-team member."""
 
-    if uses_headless_backend(member):
-        return "unattended"
-    return "as_is"
+    del member
+    return "unattended"
 
 
 def build_demo_environment(
@@ -456,7 +455,7 @@ def create_specialist(
         "--system-prompt-file",
         str(paths.project_dir / member.system_prompt_file),
     ]
-    if not uses_headless_backend(member):
+    if prompt_mode_for_member(member) == "as_is":
         command.append("--no-unattended")
     command.extend(
         [

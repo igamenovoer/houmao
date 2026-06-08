@@ -903,6 +903,85 @@ def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
     assert plan.metadata["launch_overrides"]["backend_resolution"][
         "provider_model_selection_cli_args"
     ] == ["--model", "kimi-code/kimi-for-coding"]
+    assert "kimi_tui_auto_mode_refresh" not in plan.metadata
+
+
+def test_build_launch_plan_local_interactive_kimi_unattended_sets_auto_refresh_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    home_path = tmp_path / "home"
+    _write(
+        home_path / "config.toml",
+        'default_permission_mode = "manual"\nextra_skill_dirs = ["/project/skills"]\n',
+    )
+
+    def _fake_version(
+        command: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+    ) -> object:
+        del check, capture_output, text
+        return type(
+            "_Completed",
+            (),
+            {"stdout": "0.11.0", "stderr": "", "args": command},
+        )()
+
+    monkeypatch.setattr(
+        "houmao.agents.launch_policy.engine.subprocess.run",
+        _fake_version,
+    )
+
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=home_path,
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_args=["--auto", "--continue", "--model", "caller-model"],
+        launch_policy={"operator_prompt_mode": "unattended"},
+    )
+    manifest["runtime"]["launch_contract"]["model_selection"] = {
+        "resolved": {
+            "effective": {"name": "kimi-code/kimi-for-coding"},
+            "sources": {"name": "source_launch"},
+        },
+        "provider_cli_args": {
+            "tool": "kimi",
+            "args": ["--model", "kimi-code/kimi-for-coding"],
+        },
+    }
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="local_interactive",
+            working_directory=tmp_path,
+        )
+    )
+    payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
+
+    assert plan.args == ["--model", "kimi-code/kimi-for-coding"]
+    assert plan.launch_policy_provenance is not None
+    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-0.10.x"
+    assert plan.metadata["kimi_tui_auto_mode_refresh"] == {
+        "enabled": True,
+        "command": "/auto on",
+        "phase": "after_tui_ready_before_managed_prompts",
+        "operator_prompt_mode": "unattended",
+        "strategy_id": "kimi-tui-unattended-0.10.x",
+    }
+    assert payload["default_permission_mode"] == "auto"
+    assert payload["extra_skill_dirs"] == ["/project/skills"]
 
 
 def test_build_launch_plan_replaces_conflicting_claude_adapter_model_selection_args(

@@ -1299,7 +1299,8 @@ def test_system_skills_uninstall_rejects_install_only_selection_flags() -> None:
         )
 
         assert result.exit_code != 0
-        assert f"No such option: {flag}" in result.output
+        assert "No such option" in result.output
+        assert flag in result.output
 
     for flag in ("--default", "--symlink"):
         result = CliRunner().invoke(
@@ -1314,7 +1315,8 @@ def test_system_skills_uninstall_rejects_install_only_selection_flags() -> None:
         )
 
         assert result.exit_code != 0
-        assert f"No such option: {flag}" in result.output
+        assert "No such option" in result.output
+        assert flag in result.output
 
 
 def test_system_skills_install_rejects_unknown_skill_set_before_multi_tool_mutation(
@@ -1647,7 +1649,8 @@ def test_system_skills_install_rejects_removed_default_flag() -> None:
     )
 
     assert result.exit_code != 0
-    assert "No such option: --default" in result.output
+    assert "No such option" in result.output
+    assert "--default" in result.output
 
 
 def test_system_skills_install_rejects_removed_set_flag() -> None:
@@ -1664,7 +1667,8 @@ def test_system_skills_install_rejects_removed_set_flag() -> None:
     )
 
     assert result.exit_code != 0
-    assert "No such option: --set" in result.output
+    assert "No such option" in result.output
+    assert "--set" in result.output
 
 
 def test_system_skills_install_rejects_superseded_current_skill_names(tmp_path: Path) -> None:

@@ -62,6 +62,8 @@ Only persist `--headless` when the user explicitly asks for headless execution o
 
 Kimi-backed profiles are TUI/local-interactive preferred when headless posture is omitted. Gemini is the known project easy launch exception that requires headless.
 
+For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-question control. Do not store raw Kimi `--auto` or `--yolo` launch arguments to achieve unattended TUI behavior.
+
 ## Clear Fields
 
 `profile set` may clear:
@@ -106,5 +108,6 @@ Kimi-backed profiles are TUI/local-interactive preferred when headless posture i
 - Do not treat profile creation as launching or mutating a live managed agent.
 - Do not store `--headless` by default for TUI-capable tools.
 - Do not add `--prompt-mode`, `--headless`, or clear flags unless the user explicitly supplied those fields.
+- Do not add raw Kimi `--auto` or `--yolo` launch flags to profiles; use prompt mode for managed automation.
 - Do not preregister same-root ordinary per-agent mailbox addresses as the default precursor to mailbox-enabled project launch.
 - Do not pass hidden full-model defaults such as model, env, mailbox, memo seed, gateway, or prompt overlay fields to `project.profile` config drafts.

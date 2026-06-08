@@ -803,6 +803,115 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
     assert result.strategy is not None
     assert result.strategy.backends == ("kimi_headless",)
     assert [action.kind for action in result.strategy.actions] == ["provider_hook.call"]
+    assert not (home / "config.toml").exists()
+
+
+def test_kimi_raw_launch_unattended_sets_auto_config_and_strips_tui_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _stub_version(monkeypatch, output="0.11.0")
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+    (home / "config.toml").write_text(
+        """
+default_permission_mode = "manual"
+default_model = "kimi-code/kimi-for-coding"
+extra_skill_dirs = ["/opt/project-skills"]
+
+[providers."managed:kimi-code"]
+type = "moonshot"
+
+[telemetry]
+enabled = false
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="kimi",
+            backend="raw_launch",
+            executable="kimi",
+            base_args=(
+                "--auto",
+                "--yolo",
+                "-y",
+                "--plan",
+                "--continue",
+                "--session",
+                "session-1",
+                "-S=session-2",
+                "-r",
+                "session-3",
+                "--model",
+                "kimi-code/kimi-for-coding",
+                "--temperature",
+                "0",
+            ),
+            requested_operator_prompt_mode="unattended",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    payload = _load_toml(home / "config.toml")
+    assert result.args == (
+        "--model",
+        "kimi-code/kimi-for-coding",
+        "--temperature",
+        "0",
+    )
+    assert result.provenance is not None
+    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-0.10.x"
+    assert result.strategy is not None
+    assert result.strategy.backends == ("raw_launch",)
+    assert result.strategy.owned_paths[0].path == "config.toml"
+    assert result.strategy.owned_paths[0].keys == ("default_permission_mode",)
+    assert payload["default_permission_mode"] == "auto"
+    assert payload["default_model"] == "kimi-code/kimi-for-coding"
+    assert payload["extra_skill_dirs"] == ["/opt/project-skills"]
+    assert payload["providers"]["managed:kimi-code"]["type"] == "moonshot"
+    assert payload["telemetry"]["enabled"] is False
+
+
+def test_kimi_raw_launch_as_is_leaves_args_and_config_untouched(tmp_path: Path) -> None:
+    home = tmp_path / "kimi-home"
+    home.mkdir()
+    config_path = home / "config.toml"
+    original_config = 'default_permission_mode = "manual"\nextra_skill_dirs = ["/skills"]\n'
+    config_path.write_text(original_config, encoding="utf-8")
+
+    result = apply_launch_policy(
+        LaunchPolicyRequest(
+            tool="kimi",
+            backend="raw_launch",
+            executable="kimi",
+            base_args=("--auto", "--session", "session-1", "--model", "kimi-code"),
+            requested_operator_prompt_mode="as_is",
+            working_directory=tmp_path / "workspace",
+            home_path=home,
+            env={},
+        )
+    )
+
+    assert result.args == ("--auto", "--session", "session-1", "--model", "kimi-code")
+    assert result.provenance is None
+    assert result.strategy is None
+    assert config_path.read_text(encoding="utf-8") == original_config
+
+
+def test_kimi_registry_declares_separate_headless_and_tui_unattended_strategies() -> None:
+    documents = load_registry_documents(tool="kimi")
+
+    strategies = {strategy.strategy_id: strategy for strategy in documents[0].strategies}
+    assert strategies["kimi-unattended-0.10.x"].backends == ("kimi_headless",)
+    assert strategies["kimi-tui-unattended-0.10.x"].backends == ("raw_launch",)
+    assert [action.kind for action in strategies["kimi-tui-unattended-0.10.x"].actions] == [
+        "provider_hook.call",
+        "toml.set",
+    ]
 
 
 def test_kimi_unattended_strategy_fails_closed_for_unknown_version(

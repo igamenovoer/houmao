@@ -6,7 +6,7 @@ from contextlib import nullcontext
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Literal, Mapping, cast
+from typing import Any, Literal, Mapping
 
 import yaml
 
@@ -76,6 +76,7 @@ _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
         "codex.append_unattended_cli_overrides",
         "gemini.canonicalize_unattended_launch_inputs",
         "kimi.canonicalize_unattended_launch_inputs",
+        "kimi.canonicalize_unattended_tui_launch_inputs",
     }
 )
 
@@ -262,7 +263,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
         raise LaunchPolicyError(f"{source}.operator_prompt_mode must be `as_is` or `unattended`.")
-    operator_prompt_mode = cast(OperatorPromptMode, operator_prompt_mode_raw)
+    operator_prompt_mode = operator_prompt_mode_raw
 
     backends_payload = payload.get("backends")
     if not isinstance(backends_payload, list) or not backends_payload:
@@ -274,7 +275,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
             raise LaunchPolicyError(
                 f"{source}.backends contains unsupported backend `{backend_raw}`."
             )
-        parsed_backends.append(cast(LaunchSurface, backend_raw))
+        parsed_backends.append(backend_raw)
     backends = tuple(parsed_backends)
 
     supported_versions_raw = payload.get("supported_versions")
@@ -351,7 +352,7 @@ def _parse_evidence(*, item: object, source: str) -> StrategyEvidence:
     if kind_raw not in _EVIDENCE_KINDS:
         raise LaunchPolicyError(f"{source}.kind is unsupported: `{kind_raw}`.")
     return StrategyEvidence(
-        kind=cast(Literal["official_docs", "source_reference", "live_probe"], kind_raw),
+        kind=kind_raw,
         ref=_require_non_blank_str(item, "ref", source=source),
         note=_require_non_blank_str(item, "note", source=source),
     )
@@ -385,17 +386,7 @@ def _parse_action(*, item: object, source: str) -> LaunchPolicyAction:
     if not isinstance(params, dict):
         raise LaunchPolicyError(f"{source}.params must be a mapping.")
     return LaunchPolicyAction(
-        kind=cast(
-            Literal[
-                "cli_arg.ensure_present",
-                "cli_arg.ensure_absent",
-                "json.set",
-                "toml.set",
-                "validate.reject_conflicting_launch_args",
-                "provider_hook.call",
-            ],
-            kind_raw,
-        ),
+        kind=kind_raw,
         params=params,
     )
 

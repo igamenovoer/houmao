@@ -73,9 +73,7 @@ def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     specialists_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/specialists.md")
     profiles_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/profiles.md")
     launch_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/launch-instance.md")
-    fast_forward_text = _read(
-        AGENT_DEFINITION_ROOT / "subskills/easy/create-agent-fast-forward.md"
-    )
+    fast_forward_text = _read(AGENT_DEFINITION_ROOT / "subskills/easy/create-agent-fast-forward.md")
 
     stale_kimi_example = '"name":"general-kimi","tool":"claude"'
     assert stale_kimi_example not in skill_text
@@ -84,8 +82,14 @@ def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     assert '"name":"general-kimi","tool":"kimi"' in specialists_text
     assert "`--tool claude|codex|gemini|kimi`" in specialists_text
     assert "Kimi supports TUI/local-interactive launch" in launch_text
+    assert "unattended prompt mode is the supported managed no-question control" in launch_text
+    assert "Do not add raw Kimi `--auto` or `--yolo` launch flags" in launch_text
     assert "Kimi-backed profiles are TUI/local-interactive preferred" in profiles_text
+    assert "use `--prompt-mode unattended` as the managed no-question control" in profiles_text
     assert "Kimi is TUI/local-interactive capable" in fast_forward_text
+    assert "should not be replaced with raw `--auto` or `--yolo` launch flags" in (
+        fast_forward_text
+    )
 
     missing_links: list[str] = []
     for markdown_path in _markdown_files(AGENT_DEFINITION_ROOT):
@@ -110,3 +114,4 @@ def test_packaged_guidance_includes_kimi_touring_and_avoids_stale_headless_claim
     assert "Gemini and Kimi stay headless-only" not in all_packaged_markdown
     assert "Kimi specialists remain headless-only" not in all_packaged_markdown
     assert 'general-kimi","tool":"claude' not in all_packaged_markdown
+    assert "raw Kimi `--auto` or `--yolo` launch flags" in all_packaged_markdown

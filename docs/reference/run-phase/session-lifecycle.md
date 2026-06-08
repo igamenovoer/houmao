@@ -168,6 +168,8 @@ When a local interactive relaunch resumes an existing provider chat, the runtime
 
 Kimi Code TUI has one additional relaunch guard: resumed startup cannot combine `--continue` or `--session <session_id>` with `--yolo`, `--auto`, or `--plan`, while `--model <alias>` remains valid. Houmao rejects those Kimi resume conflicts before respawning the provider.
 
+For Kimi Code local-interactive sessions built with `operator_prompt_mode = unattended`, relaunch preserves the valid Kimi resume selector and refreshes Kimi auto permission mode after TUI readiness by submitting `/auto on` before any managed workload prompt. `as_is` Kimi TUI relaunch leaves the provider's approval behavior unchanged.
+
 ## Degraded and stale recovery
 
 When a managed agent's registry record claims `active` but the underlying tmux session is broken, selected-agent `agents single ... stop` and `agents single ... relaunch` route through dedicated recovery helpers instead of failing with a generic unusable-target error. The runtime probes tmux authority first, classifies the session as `healthy`, `degraded_missing_primary`, or `stale_missing_session`, and then dispatches to the appropriate recovery path.

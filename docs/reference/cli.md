@@ -44,6 +44,8 @@ Useful direct native-agent brain-build override:
 - `--operator-prompt-mode unattended` to request versioned unattended launch-policy resolution for the built brain
 - `--operator-prompt-mode as_is` to keep the provider startup posture unchanged; omitted mode now defaults to `unattended`
 
+For Kimi managed automation, use the Houmao prompt-mode contract: store or pass `launch.prompt_mode: unattended` through the project specialist/profile controls, or use `--operator-prompt-mode unattended` for direct native-agent builds. Houmao then selects the maintained Kimi no-question policy for the chosen backend. Do not use Kimi `--yolo` as a Houmao launch option, and do not require raw `--auto` launch overrides for ordinary managed Kimi TUI automation.
+
 The preferred operator/API surface is `houmao-mgr` for local workflows plus `houmao-passive-server` for API-based coordination.
 
 For pair-managed agents, the supported operator surface is the managed-agent command family on `houmao-mgr` and the matching `/houmao/agents/*` server routes. When an attached gateway is healthy, those same commands automatically gain richer live backing behavior such as gateway-owned admission, queueing, and live state projection without changing the public CLI shape.

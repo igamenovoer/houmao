@@ -45,7 +45,7 @@ Common specialist inputs:
 - `--credential <name>`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
-- `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference
+- `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference. For Kimi TUI automation, keep the default unattended prompt mode instead of adding raw Kimi permission flags.
 - `--model`
 - `--reasoning-level`
 - repeatable `--with-skill <dir>`
@@ -77,12 +77,12 @@ The supported modes are:
 - Auto Credentials Mode
 - No Discovery Mode
 
-Load only the selected tool reference when needed:
+Load only the selected tool credential-kind reference when needed:
 
-- Claude: [../../references/credentials/claude-lookup.md](../../references/credentials/claude-lookup.md) or [../../references/credentials/claude-kinds.md](../../references/credentials/claude-kinds.md)
-- Codex: [../../references/credentials/codex-lookup.md](../../references/credentials/codex-lookup.md) or [../../references/credentials/codex-kinds.md](../../references/credentials/codex-kinds.md)
-- Gemini: [../../references/credentials/gemini-lookup.md](../../references/credentials/gemini-lookup.md) or [../../references/credentials/gemini-kinds.md](../../references/credentials/gemini-kinds.md)
-- Kimi: [../../references/credentials/kimi-lookup.md](../../references/credentials/kimi-lookup.md) or [../../references/credentials/kimi-kinds.md](../../references/credentials/kimi-kinds.md)
+- Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
+- Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
+- Gemini: [../../../houmao-credential-mgr/references/gemini-credential-kinds.md](../../../houmao-credential-mgr/references/gemini-credential-kinds.md)
+- Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 For Claude vendor-login files, normalize reuse requests to `--claude-config-dir <claude-config-root>`. If the user points at `.credentials.json`, use its parent directory.
 
@@ -120,3 +120,4 @@ Common update and clear inputs:
 - Do not infer auth identity from `.houmao/` auth directory names.
 - Do not hand-author specialist config YAML skeletons; use `internals config-drafts generate` for supported minimal specialist config authoring.
 - Do not pass model, env, mailbox, prompt, skill, or credential material fields to `project.specialist` config drafts.
+- Do not add raw Kimi `--auto` or `--yolo` launch flags to specialists; use prompt mode for managed automation.

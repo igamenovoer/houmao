@@ -169,7 +169,7 @@ def test_driver_parser_accepts_manual_command_surface() -> None:
     assert parser.parse_args(["stop"]).command == "stop"
 
 
-def test_create_specialist_uses_kimi_tui_for_story_and_core_system_skills(
+def test_create_specialist_uses_kimi_tui_unattended_for_story_and_core_system_skills(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,7 +207,7 @@ def test_create_specialist_uses_kimi_tui_for_story_and_core_system_skills(
     ]
     assert "--tool" in command
     assert "kimi" in command
-    assert "--no-unattended" in command
+    assert "--no-unattended" not in command
     assert "--system-skills-mode" in command
     assert "replace" in command
     assert "--system-skill-set" in command
@@ -243,7 +243,7 @@ def test_create_specialist_uses_unattended_default_for_reviewer(
     assert "--no-unattended" not in command
 
 
-def test_create_profile_uses_mailbox_and_story_as_is_prompt_mode(
+def test_create_profile_uses_mailbox_and_story_unattended_prompt_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -270,7 +270,7 @@ def test_create_profile_uses_mailbox_and_story_as_is_prompt_mode(
 
     command = captured["command"]
     assert "--prompt-mode" in command
-    assert "as_is" in command
+    assert "unattended" in command
     assert "--mail-transport" in command
     assert "filesystem" in command
     assert "--mail-root" in command

@@ -37,7 +37,7 @@ BackendKind = Literal[
 
 The default and recommended backend. Launches agent CLI tools as tmux-backed interactive sessions via `LocalInteractiveSession`. This gives each agent a real terminal with full native UX, scrollback, and the ability to attach/detach at will.
 
-All local backends (codex, claude, gemini, and kimi headless modes) ultimately use the shared tmux runtime primitives.
+Maintained local-interactive tools include Claude Code, Codex, Gemini CLI, and Kimi Code. Kimi local-interactive unattended launch keeps the visible TUI but enters Kimi auto permission mode before managed prompts; Kimi `as_is` launch leaves provider approval behavior unchanged.
 
 ## Model Selection (Claude Code)
 
@@ -152,6 +152,8 @@ The role content comes from the role package (`roles/<role>/system-prompt.md`) i
 ## Versioned Unattended Launch Policy
 
 Unattended startup is a versioned launch policy resolved at launch time against the installed CLI version of the target tool. If the installed version does not match a known launch policy, the session fails closed rather than guessing a bootstrap strategy. This prevents silent behavioral drift when CLI tools update their interfaces.
+
+For Kimi Code, the versioned policy has separate headless and TUI contracts. Headless prompt mode owns `kimi -p` placement, while local-interactive TUI unattended uses Kimi auto permission mode through managed config and `/auto on` refresh rather than raw `--auto` or `--yolo` launch options.
 
 ## CLI Surface
 

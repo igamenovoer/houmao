@@ -21,6 +21,8 @@ When the user does not specify headless or TUI posture, prefer TUI/local-interac
 
 Only add a one-shot `--headless` flag when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from unattended prompt mode, gateway attachment, mailbox defaults, output rendering, or automation-oriented wording.
 
+For Kimi automation, rely on stored `launch.prompt_mode: unattended` or project/profile prompt-mode controls. Do not add raw Kimi `--auto` or `--yolo` launch arguments, and do not force `--headless` just because Kimi should run without approval prompts.
+
 ## Command Selection
 
 ### Project-Profile-Backed Managed Launch
@@ -94,6 +96,8 @@ Behavior note:
 
 If the selected specialist is known to use Gemini, the launch must be headless. Treat that as a selected-tool requirement, not as the default for omitted launch posture.
 
+If the selected specialist is known to use Kimi, unattended prompt mode is compatible with omitted `--headless`; Houmao will delegate to the maintained Kimi TUI no-question posture.
+
 ## Guardrails
 
 - Do not guess whether the source should be `project agents launch --specialist` or `project agents launch --profile`.
@@ -107,5 +111,6 @@ If the selected specialist is known to use Gemini, the launch must be headless. 
 - Do not reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
 - Do not treat prompt submission or gateway attach as part of launch completion for this skill.
 - Do not add `--headless` by default for TUI-capable tools or because prompt mode is unattended.
+- Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
 - Do not invent alternate launch command shapes; use the direct scoped commands shown in this action and maintained project/profile guidance.
 - Do not add a background gateway override unless the user explicitly asks for detached background gateway execution.

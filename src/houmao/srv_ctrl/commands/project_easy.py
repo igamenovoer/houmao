@@ -2019,6 +2019,16 @@ def launch_easy_instance_command(
             raise click.ClickException("`project agents launch --specialist` requires `--name`.")
         resolved_auth = _optional_non_empty_value(auth)
         working_directory = (workdir or Path.cwd()).resolve()
+        specialist_launch_payload = getattr(specialist_metadata, "launch_payload", {})
+        specialist_prompt_mode = (
+            specialist_launch_payload.get("prompt_mode")
+            if isinstance(specialist_launch_payload, dict)
+            else None
+        )
+        operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
+            specialist_prompt_mode,
+            source=f"project specialist `{getattr(specialist_metadata, 'name', specialist)}`",
+        )
 
     if specialist_metadata.tool == "gemini" and not resolved_headless:
         raise click.ClickException(

@@ -2,7 +2,7 @@
 
 Supported manual demo for a three-agent Kimi Code writing team.
 
-The pack copies [examples/writer-team](../../../examples/writer-team/) into `outputs/project/`, redirects Houmao project state into `outputs/overlay/`, imports operator-supplied Kimi credential material, creates three Kimi specialists and mailbox-enabled project profiles, launches three local-interactive Kimi TUI agents, enables gateway mail-notifier polling, and leaves the operator in control of the story run.
+The pack copies [examples/writer-team](../../../examples/writer-team/) into `outputs/project/`, redirects Houmao project state into `outputs/overlay/`, imports operator-supplied Kimi credential material, creates three Kimi specialists and mailbox-enabled project profiles, launches visible unattended Kimi TUI writer agents plus a headless unattended reviewer, enables gateway mail-notifier polling, and leaves the operator in control of the story run.
 
 ## Prerequisites
 
@@ -97,4 +97,4 @@ Story artifacts should appear under:
 
 ## Notes
 
-This demo uses a hybrid Kimi posture. `alex-story` and `alex-char` launch as local-interactive TUI agents with `launch.prompt_mode: as_is`; `alex-review` launches through Kimi headless with `launch.prompt_mode: unattended`. Each launch keeps the gateway in the background so notifier rounds can wake the agents, while only the reviewer avoids permission prompts through the headless backend.
+This demo uses a hybrid Kimi posture. `alex-story` and `alex-char` launch as local-interactive TUI agents with `launch.prompt_mode: unattended`, which puts the visible Kimi sessions in auto permission mode before managed prompts. `alex-review` still launches through Kimi headless with `launch.prompt_mode: unattended` as the separate review posture. Each launch keeps the gateway in the background so notifier rounds can wake the agents.

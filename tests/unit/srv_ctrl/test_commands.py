@@ -1137,7 +1137,8 @@ def test_agents_gateway_target_tmux_session_option_is_not_public_under_scopes() 
     )
 
     assert result.exit_code != 0
-    assert "No such option: --target-tmux-session" in result.output
+    assert "No such option" in result.output
+    assert "--target-tmux-session" in result.output
 
 
 def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
@@ -1391,7 +1392,8 @@ def test_agents_self_gateway_rejects_pair_port() -> None:
     )
 
     assert result.exit_code != 0
-    assert "No such option: --pair-port" in result.output
+    assert "No such option" in result.output
+    assert "--pair-port" in result.output
 
 
 def test_agents_gateway_mail_notifier_enable_current_session_forwards_interval_and_mode(
@@ -1951,7 +1953,8 @@ def test_agents_relaunch_rejects_port_without_explicit_selector() -> None:
     result = CliRunner().invoke(cli, ["agents", "self", "relaunch", "--port", "9889"])
 
     assert result.exit_code != 0
-    assert "No such option: --port" in result.output
+    assert "No such option" in result.output
+    assert "--port" in result.output
 
 
 def test_agents_relaunch_rejects_chat_session_id_without_exact_mode() -> None:

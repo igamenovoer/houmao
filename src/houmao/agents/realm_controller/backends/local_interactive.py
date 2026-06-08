@@ -47,6 +47,8 @@ _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "gemini": ("gemini",),
     "kimi": ("kimi-code", "kimi"),
 }
+_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY = "kimi_tui_auto_mode_refresh"
+_KIMI_TUI_AUTO_MODE_COMMAND = "/auto on"
 _KIMI_RESUME_CONFLICT_FLAGS = frozenset({"--auto", "--plan", "--yolo", "-y"})
 _POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
 _LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS = 10.0
@@ -369,6 +371,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             )
 
         self._wait_for_provider_tui(timeout_seconds=10.0, poll_interval_seconds=0.2)
+        self._apply_kimi_unattended_auto_mode_refresh()
 
     def _prepare_tool_home(self) -> None:
         """Apply tool-specific runtime-home bootstrap before launch."""
@@ -407,6 +410,18 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         time.sleep(0.2)
         self._submit_semantic_prompt(bootstrap)
         self._state.role_bootstrap_applied = True
+
+    def _apply_kimi_unattended_auto_mode_refresh(self) -> None:
+        """Refresh Kimi TUI auto permission mode when launch policy requires it."""
+
+        if not _plan_requires_kimi_unattended_auto_mode_refresh(self._plan):
+            return
+        try:
+            self._submit_semantic_prompt(_KIMI_TUI_AUTO_MODE_COMMAND)
+        except BackendExecutionError as exc:
+            raise BackendExecutionError(
+                f"Kimi unattended auto-mode setup failed while submitting `/auto on`: {exc}"
+            ) from exc
 
     def _submit_runtime_prompt(self, prompt: str) -> None:
         """Submit one runtime-owned prompt after any launch-time bootstrap."""
@@ -673,4 +688,23 @@ def _kimi_resume_conflict_flag(arg: str) -> bool:
 
     return arg in _KIMI_RESUME_CONFLICT_FLAGS or any(
         arg.startswith(f"{flag}=") for flag in _KIMI_RESUME_CONFLICT_FLAGS if flag.startswith("--")
+    )
+
+
+def _plan_requires_kimi_unattended_auto_mode_refresh(launch_plan: LaunchPlan) -> bool:
+    """Return whether one launch plan requires Kimi TUI auto-mode refresh."""
+
+    if launch_plan.backend != "local_interactive" or launch_plan.tool != "kimi":
+        return False
+    metadata = launch_plan.metadata.get(_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY)
+    if isinstance(metadata, dict):
+        return (
+            metadata.get("enabled") is True
+            and metadata.get("command") == _KIMI_TUI_AUTO_MODE_COMMAND
+        )
+    provenance = launch_plan.launch_policy_provenance
+    return (
+        provenance is not None
+        and provenance.requested_operator_prompt_mode == "unattended"
+        and provenance.selected_strategy_id.startswith("kimi-tui-unattended-")
     )

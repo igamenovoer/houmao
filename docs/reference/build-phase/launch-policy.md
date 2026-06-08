@@ -70,6 +70,7 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | Hook | Description |
 |---|---|
 | `kimi.canonicalize_unattended_launch_inputs` | Strips caller-supplied Kimi prompt-mode-owned args such as `-p`, `--prompt`, `--output-format`, `--session`, `--continue`, `--skills-dir`, `--auto`, `--yolo`, and `--plan` before the `kimi_headless` backend builds the final command. |
+| `kimi.canonicalize_unattended_tui_launch_inputs` | Strips caller-supplied Kimi TUI permission and session-startup flags such as `--session`, `--resume`, `--continue`, `--auto`, `--yolo`, and `--plan` before the `raw_launch` strategy applies the maintained TUI unattended posture. |
 
 Hooks run within a provider state mutation lock for thread-safe file access.
 
@@ -81,9 +82,14 @@ This ownership is authoritative for the unattended path. If adapter defaults, re
 
 ## Kimi Unattended Posture
 
-Maintained Kimi unattended startup is version-scoped to Kimi Code 0.10.x and applies to `kimi_headless`. Kimi prompt mode internally uses auto permission handling and rejects `--auto`, `--yolo`, and `--plan` when combined with `-p`, so the Kimi strategy removes those conflicting inputs instead of adding an approval flag.
+Maintained Kimi unattended startup is version-scoped to Kimi Code 0.10.x and has two backend contracts:
 
-The `kimi_headless` backend owns final prompt-mode command placement: exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value is placed immediately after `-p`, output format is `stream-json`, and managed skills are loaded with `--skills-dir <KIMI_CODE_HOME>/skills`.
+- `kimi_headless` owns prompt-mode command placement. Exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value is placed immediately after `-p`, output format is `stream-json`, and managed skills are loaded with `--skills-dir <KIMI_CODE_HOME>/skills`. Kimi prompt mode rejects `--auto`, `--yolo`, and `--plan` when combined with `-p`, so the strategy removes those conflicting inputs instead of adding an approval flag.
+- Kimi TUI launch uses the `raw_launch` launch-policy surface, which maps to the run-phase `local_interactive` backend. The strategy sets `default_permission_mode = "auto"` in the managed `config.toml` before provider start. The local-interactive runtime then submits Kimi's `/auto on` command after TUI readiness and before Houmao role bootstrap or workload prompts when unattended mode is active.
+
+The TUI strategy does not implement unattended mode by adding a persistent `--auto` launch argument. Kimi rejects `--auto`, `--yolo`, and `--plan` when startup also uses `--continue` or `--session <session_id>`, so Houmao preserves valid resume commands and refreshes auto mode inside the ready TUI. `as_is` Kimi TUI launches skip the config write and skip `/auto on`.
+
+Kimi auto permission mode is the provider-native no-question posture: normal tool approvals are automatic and `AskUserQuestion` requests are denied so the agent must decide and continue. It does not bypass explicit Kimi hard-deny policies or user-configured deny rules.
 
 ## Versioned Registry
 

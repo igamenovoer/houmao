@@ -133,7 +133,7 @@ def normalize_managed_header_section_name(
             f"{source} uses unsupported managed-header section {value!r}; expected one of "
             f"{expected}."
         )
-    return cast(ManagedHeaderSectionName, candidate)
+    return candidate
 
 
 def normalize_managed_header_section_policy(
@@ -152,7 +152,7 @@ def normalize_managed_header_section_policy(
             f"{source} uses unsupported managed-header section policy {value!r}; "
             f"expected {expected}."
         )
-    return cast(ManagedHeaderSectionPolicy, candidate)
+    return candidate
 
 
 def normalize_managed_header_section_policy_mapping(

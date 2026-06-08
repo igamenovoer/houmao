@@ -71,6 +71,9 @@ def run_provider_hook(
     if hook_id == "kimi.canonicalize_unattended_launch_inputs":
         _kimi_canonicalize_unattended_launch_inputs(args)
         return
+    if hook_id == "kimi.canonicalize_unattended_tui_launch_inputs":
+        _kimi_canonicalize_unattended_tui_launch_inputs(args)
+        return
     raise LaunchPolicyError(f"Unknown provider hook `{hook_id}`.")
 
 
@@ -446,6 +449,40 @@ def canonicalize_kimi_unattended_launch_args(args: list[str]) -> None:
     args[:] = canonicalized
 
 
+def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
+    """Strip caller overrides that target Kimi TUI unattended startup surfaces."""
+
+    flags_with_values = {
+        "-S",
+        "--session",
+        "-r",
+        "--resume",
+    }
+    scalar_flags = {"-C", "--continue", "--auto", "--yolo", "-y", "--plan"}
+    canonicalized: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        next_token = args[index + 1] if index + 1 < len(args) else None
+
+        if token in scalar_flags:
+            index += 1
+            continue
+        if any(token.startswith(f"{flag}=") for flag in flags_with_values):
+            index += 1
+            continue
+        if token in flags_with_values:
+            index += 1
+            if next_token is not None and not next_token.startswith("-"):
+                index += 1
+            continue
+
+        canonicalized.append(token)
+        index += 1
+
+    args[:] = canonicalized
+
+
 def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
     """Seed API-key approval state without storing the full key value."""
 
@@ -524,6 +561,14 @@ def _kimi_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
     if args is None:
         return
     canonicalize_kimi_unattended_launch_args(args)
+
+
+def _kimi_canonicalize_unattended_tui_launch_inputs(args: list[str] | None) -> None:
+    """Canonicalize caller launch args for the Kimi unattended TUI strategy."""
+
+    if args is None:
+        return
+    canonicalize_kimi_tui_unattended_launch_args(args)
 
 
 def _codex_validate_credential_readiness(request: LaunchPolicyRequest) -> None:
