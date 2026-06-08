@@ -10,9 +10,7 @@ from houmao.agents.realm_controller.backends.headless_output import CanonicalHea
 def _payloads(events: list[object]) -> list[dict[str, object]]:
     """Return JSON payloads from Pydantic AG-UI events."""
 
-    return [
-        event.model_dump(mode="json", by_alias=True, exclude_none=True) for event in events
-    ]  # type: ignore[attr-defined]
+    return [event.model_dump(mode="json", by_alias=True, exclude_none=True) for event in events]  # type: ignore[attr-defined]
 
 
 def test_mapper_maps_headless_assistant_text_sequence() -> None:

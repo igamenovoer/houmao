@@ -104,8 +104,6 @@ def _start_passive_server(
             "127.0.0.1",
             "--port",
             str(port),
-            "--runtime-root",
-            env["HOUMAO_GLOBAL_RUNTIME_DIR"],
         ],
         cwd=str(repo_root),
         env=env,

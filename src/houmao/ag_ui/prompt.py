@@ -42,7 +42,9 @@ def convert_run_agent_input(run_input: RunAgentInput) -> AgUiPromptConversion:
     _reject_unsupported_multimodal_messages(messages)
     primary_index = _latest_actionable_message_index(messages)
     if primary_index is None:
-        raise AgUiPromptConversionError("AG-UI run input must include a user message or tool result.")
+        raise AgUiPromptConversionError(
+            "AG-UI run input must include a user message or tool result."
+        )
 
     primary_message = messages[primary_index]
     primary_text = _message_text(primary_message).strip()

@@ -37,6 +37,7 @@ def _make_service(tmp_path: Path) -> PassiveServerService:
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=tmp_path,
+        registry_root=tmp_path / "registry",
     )
     return PassiveServerService(config=config)
 
@@ -218,7 +219,10 @@ class TestHeadlessLaunch:
             agent_id="published-alpha",
             registry_record=SimpleNamespace(agent_id="published-alpha"),
         )
-        published: list[object] = []
+        published: list[tuple[object, dict[str, str] | None]] = []
+
+        def fake_publish(record: object, *, env: dict[str, str] | None = None) -> None:
+            published.append((record, env))
 
         monkeypatch.setattr(
             "houmao.passive_server.headless.load_brain_manifest",
@@ -234,14 +238,14 @@ class TestHeadlessLaunch:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.publish_live_agent_record",
-            lambda record: published.append(record),
+            fake_publish,
         )
 
         response = svc.m_headless.launch(request)
 
         assert response.status == "ok"
         assert response.agent_name == "HOUMAO-alpha"
-        assert published == [controller.m_registry_record]
+        assert published == [(controller.m_registry_record, svc.m_config.registry_helper_env())]
         authority = svc.m_headless.m_store.read_authority(
             tracked_agent_id=response.tracked_agent_id
         )
@@ -398,7 +402,7 @@ class TestHeadlessLaunch:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.publish_live_agent_record",
-            lambda _record: None,
+            lambda _record, *, env=None: None,
         )
 
         response = svc.m_headless.launch(request)
@@ -494,6 +498,34 @@ class TestManagedHeadlessRouting:
         svc.m_headless.interrupt_managed.assert_called_once_with("tracked-alpha")
         svc.m_headless.stop_managed.assert_called_once_with("tracked-alpha")
 
+    def test_stop_managed_removes_registry_record_from_configured_root(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        svc = _make_service(tmp_path)
+        _seed_managed_handle(
+            svc,
+            tracked_agent_id="tracked-alpha",
+            agent_name="HOUMAO-alpha",
+            agent_id="published-alpha",
+        )
+        removed: list[tuple[str, dict[str, str] | None]] = []
+
+        monkeypatch.setattr(
+            "houmao.passive_server.headless.kill_tmux_session",
+            lambda **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            "houmao.passive_server.headless.remove_live_agent_record",
+            lambda agent_id, *, env=None: removed.append((agent_id, env)),
+        )
+
+        response = svc.m_headless.stop_managed("tracked-alpha")
+
+        assert response.status == "ok"
+        assert removed == [("published-alpha", svc.m_config.registry_helper_env())]
+
 
 class TestRestartResume:
     """Rebuild/resume behavior for persisted managed headless authorities."""
@@ -570,7 +602,7 @@ class TestRestartResume:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.publish_live_agent_record",
-            lambda _record: None,
+            lambda _record, *, env=None: None,
         )
 
         svc.m_headless.start()
@@ -606,7 +638,7 @@ class TestRestartResume:
                 updated_at_utc="2026-03-20T09:00:00+00:00",
             )
         )
-        removed: list[str] = []
+        removed: list[tuple[str, dict[str, str] | None]] = []
 
         monkeypatch.setattr(
             "houmao.passive_server.headless.tmux_session_exists",
@@ -618,14 +650,14 @@ class TestRestartResume:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.remove_live_agent_record",
-            lambda agent_id: removed.append(agent_id),
+            lambda agent_id, *, env=None: removed.append((agent_id, env)),
         )
 
         svc.m_headless.start()
 
         assert svc.m_headless._require_handle("tracked-alpha") is None
         assert svc.m_headless.m_store.read_authority(tracked_agent_id="tracked-alpha") is None
-        assert removed == ["published-custom"]
+        assert removed == [("published-custom", svc.m_config.registry_helper_env())]
 
 
 class TestTurnFinalization:

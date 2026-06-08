@@ -859,8 +859,7 @@ def test_system_skills_install_plain_reports_single_kimi_projected_skill_path_an
     assert install_result.exit_code == 0, install_result.output
     assert f"Home: {expected_home}" in install_result.output
     assert (
-        f"Projected path: {expected_home / 'skills/houmao-specialist-mgr'}"
-        in install_result.output
+        f"Projected path: {expected_home / 'skills/houmao-specialist-mgr'}" in install_result.output
     )
     assert "Projection mode: copy" in install_result.output
     assert "Kimi discovery: this command projects files only" in install_result.output
@@ -1469,10 +1468,7 @@ def test_system_skills_status_reports_kimi_env_redirect_home_and_note(tmp_path: 
 
     assert status_result.exit_code == 0, status_result.output
     assert f"Home: {home_path}" in status_result.output
-    assert (
-        "  - houmao-specialist-mgr (copy): skills/houmao-specialist-mgr"
-        in status_result.output
-    )
+    assert "  - houmao-specialist-mgr (copy): skills/houmao-specialist-mgr" in status_result.output
     assert "Kimi discovery: this command projects files only" in status_result.output
     assert "not arbitrary `KIMI_CODE_HOME/skills` automatically" in status_result.output
 

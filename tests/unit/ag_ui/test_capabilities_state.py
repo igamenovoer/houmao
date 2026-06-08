@@ -76,9 +76,10 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     assert houmao["features"]["openGenerativeUi"] is False
     assert houmao["features"]["multimodalInput"] is False
     assert houmao["agentLifecycleManagedByGui"] is False
-    assert "does not start, stop, restart, abort, interrupt, or shut down" in houmao[
-        "lifecycleBoundary"
-    ]
+    assert (
+        "does not start, stop, restart, abort, interrupt, or shut down"
+        in houmao["lifecycleBoundary"]
+    )
 
 
 def test_capabilities_report_headless_graphics_tool_metadata() -> None:

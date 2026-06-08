@@ -1417,7 +1417,9 @@ class GatewayServiceRuntime:
         except ValueError:
             return None
         manifest_path = Path(manifest_path_value).expanduser().resolve()
-        turn_dir = (manifest_path.parent / f"{manifest_path.stem}.turn-artifacts" / run_id).resolve()
+        turn_dir = (
+            manifest_path.parent / f"{manifest_path.stem}.turn-artifacts" / run_id
+        ).resolve()
         canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
         return AgUiHeadlessArtifactObservation(
             run_id=run_id,

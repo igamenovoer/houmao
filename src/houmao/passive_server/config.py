@@ -7,7 +7,11 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from houmao.project import resolve_project_aware_runtime_root
+from houmao.owned_paths import (
+    HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR,
+    resolve_registry_root,
+    resolve_runtime_root,
+)
 
 _DEFAULT_API_BASE_URL = "http://127.0.0.1:9891"
 
@@ -30,9 +34,8 @@ class PassiveServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     api_base_url: str = Field(default=_DEFAULT_API_BASE_URL)
-    runtime_root: Path = Field(
-        default_factory=lambda: resolve_project_aware_runtime_root(cwd=Path.cwd().resolve())
-    )
+    runtime_root: Path = Field(default_factory=resolve_runtime_root)
+    registry_root: Path = Field(default_factory=resolve_registry_root)
     discovery_poll_interval_seconds: float = Field(default=5.0, gt=0.0)
     observation_poll_interval_seconds: float = Field(default=2.0, ge=0.5)
 
@@ -46,7 +49,17 @@ class PassiveServerConfig(BaseModel):
     def _validate_runtime_root(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
+    @field_validator("registry_root")
+    @classmethod
+    def _validate_registry_root(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
+
     # -- derived properties --------------------------------------------------
+
+    def registry_helper_env(self) -> dict[str, str]:
+        """Return env overrides for shared-registry helper calls."""
+
+        return {HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(self.registry_root)}
 
     @property
     def public_host(self) -> str:

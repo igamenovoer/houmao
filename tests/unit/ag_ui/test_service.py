@@ -210,9 +210,7 @@ def test_service_rejects_invalid_forwarded_props_before_request_creation() -> No
     service = AgUiRunService(runtime=runtime)  # type: ignore[arg-type]
 
     with pytest.raises(HTTPException) as exc_info:
-        service.admit_run(
-            _run_input(forwardedProps={"houmao": {"chatSession": {"mode": "exact"}}})
-        )
+        service.admit_run(_run_input(forwardedProps={"houmao": {"chatSession": {"mode": "exact"}}}))
 
     assert exc_info.value.status_code == 422
     assert runtime.created_requests == []

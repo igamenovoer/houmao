@@ -63,6 +63,7 @@ def _make_client(tmp_path: object) -> TestClient:
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=Path(str(tmp_path)),
+        registry_root=Path(str(tmp_path)) / "registry",
     )
     svc = PassiveServerService(config=config)
     app = create_app(config=config, service=svc)
@@ -96,6 +97,7 @@ def test_passive_gateway_memory_routes_expose_resolve_without_reindex(tmp_path: 
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=Path(str(tmp_path)),
+        registry_root=Path(str(tmp_path)) / "registry",
     )
     svc = PassiveServerService(config=config)
     app = create_app(config=config, service=svc)
@@ -197,6 +199,7 @@ def _make_agent_client(tmp_path: object, agents: list[DiscoveredAgent]) -> TestC
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=Path(str(tmp_path)),
+        registry_root=Path(str(tmp_path)) / "registry",
     )
     svc = PassiveServerService(config=config)
     svc.m_discovery.m_index.replace({a.record.agent_id: a for a in agents})
@@ -1367,6 +1370,7 @@ def _make_agent_client_with_observer(
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=Path(str(tmp_path)),
+        registry_root=Path(str(tmp_path)) / "registry",
     )
     svc = PassiveServerService(config=config)
     svc.m_discovery.m_index.replace({a.record.agent_id: a for a in agents})
@@ -1402,6 +1406,7 @@ def _make_managed_headless_client(tmp_path: object) -> tuple[TestClient, str]:
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=Path(str(tmp_path)),
+        registry_root=Path(str(tmp_path)) / "registry",
     )
     svc = PassiveServerService(config=config)
 

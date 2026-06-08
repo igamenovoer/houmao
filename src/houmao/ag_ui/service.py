@@ -232,9 +232,7 @@ class AgUiRunService:
             return emitted_count, []
         mapped_events: list[BaseEvent] = []
         for sequence_index, event in enumerate(events[emitted_count:], start=emitted_count):
-            mapped_events.extend(
-                mapper.map_headless_event(event, sequence_index=sequence_index)
-            )
+            mapped_events.extend(mapper.map_headless_event(event, sequence_index=sequence_index))
         return len(events), mapped_events
 
 
@@ -259,4 +257,3 @@ def _run_finished_result(admitted_run: AgUiAdmittedRun, request_state: str) -> J
         "gatewayRequestState": request_state,
         "targetTransportFamily": admitted_run.target_transport_family,
     }
-

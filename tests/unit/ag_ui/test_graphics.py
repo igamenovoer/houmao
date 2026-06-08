@@ -27,15 +27,14 @@ def test_graphics_accepts_supported_safe_formats() -> None:
         {
             "title": "SVG",
             "format": "svg",
-            "content": "<svg viewBox=\"0 0 1 1\"><rect width=\"1\" height=\"1\" /></svg>",
+            "content": '<svg viewBox="0 0 1 1"><rect width="1" height="1" /></svg>',
         },
         {"title": "HTML", "format": "html_fragment", "content": "<div><strong>ok</strong></div>"},
         {"title": "Image URL", "format": "image_url", "contentUrl": "https://example.com/a.png"},
         {
             "title": "Image Data",
             "format": "image_data_uri",
-            "content": "data:image/png;base64,"
-            + base64.b64encode(b"png-bytes").decode("ascii"),
+            "content": "data:image/png;base64," + base64.b64encode(b"png-bytes").decode("ascii"),
         },
         {"title": "Chart", "format": "chart_json", "content": '{"type": "bar", "data": [1]}'},
     ]
@@ -57,8 +56,8 @@ def test_graphics_accepts_supported_safe_formats() -> None:
     [
         {"title": "Bad", "format": "pdf", "content": "x"},
         {"title": "Bad", "format": "svg", "content": "<svg><script>alert(1)</script></svg>"},
-        {"title": "Bad", "format": "html_fragment", "content": "<button onclick=\"x()\">x</button>"},
-        {"title": "Bad", "format": "html_fragment", "content": "<a href=\"javascript:x()\">x</a>"},
+        {"title": "Bad", "format": "html_fragment", "content": '<button onclick="x()">x</button>'},
+        {"title": "Bad", "format": "html_fragment", "content": '<a href="javascript:x()">x</a>'},
         {"title": "Bad", "format": "image_url", "contentUrl": "file:///tmp/a.png"},
         {
             "title": "Bad",
@@ -138,7 +137,7 @@ def test_mapper_attaches_graphics_tool_call_to_assistant_message() -> None:
     artifact = HoumaoGraphicArtifact(
         title="SVG",
         format="svg",
-        content="<svg viewBox=\"0 0 1 1\"></svg>",
+        content='<svg viewBox="0 0 1 1"></svg>',
     )
     mapper = AgUiEventMapper(thread_id="thread-1", run_id="run-1", emit_graphic_results=True)
 

@@ -905,6 +905,7 @@ class PassiveServerService:
             remove_live_agent_record(
                 agent_id,
                 generation_id=resolved.record.generation_id,
+                env=self.m_config.registry_helper_env(),
             )
         except Exception as exc:
             log.warning("Error clearing registry for %s: %s", agent_id, exc)

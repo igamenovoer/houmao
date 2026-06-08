@@ -37,6 +37,25 @@ def test_parameters_define_three_kimi_writer_team_members() -> None:
     )
 
 
+def test_team_members_use_reviewer_headless_others_tui_and_all_unattended() -> None:
+    parameters = _load_parameters()
+
+    assert {
+        member.agent_name: runtime.uses_headless_backend(member) for member in parameters.team
+    } == {
+        "alex-story": False,
+        "alex-char": False,
+        "alex-review": True,
+    }
+    assert {
+        member.agent_name: runtime.prompt_mode_for_member(member) for member in parameters.team
+    } == {
+        "alex-story": "unattended",
+        "alex-char": "unattended",
+        "alex-review": "unattended",
+    }
+
+
 def test_build_demo_layout_includes_project_overlay_and_runtime_roots(tmp_path: Path) -> None:
     paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
 
