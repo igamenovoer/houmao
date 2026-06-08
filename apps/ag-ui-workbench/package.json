@@ -1,0 +1,27 @@
+{
+  "name": "@houmao/ag-ui-workbench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "e2e": "bunx playwright test --config=playwright.config.ts"
+  },
+  "dependencies": {
+    "@ag-ui/core": "^0.0.55",
+    "@vitejs/plugin-react": "^5.0.0",
+    "dockview-react": "^6.6.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vite": "^6.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.8.0"
+  }
+}

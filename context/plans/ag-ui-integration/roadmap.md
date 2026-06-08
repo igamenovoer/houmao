@@ -11,7 +11,8 @@ Current status:
 - Milestone 1 is implemented for the live per-agent gateway attachment surface: `/v1/ag-ui/capabilities`, `/v1/ag-ui/connect`, `/v1/ag-ui/runs`, and explicit connection detachment are registered, with conservative state-snapshot connect semantics and lifecycle-detach behavior.
 - Milestone 2 is implemented in commit `f88b4873`: `/v1/ag-ui/runs` now admits one task through the existing gateway request queue, streams AG-UI SSE lifecycle/output events, maps headless canonical events and lower-fidelity TUI observations, validates `houmao_render_graphic` artifacts, and reports run/graphics capabilities when supported.
 - Milestone 3 is implemented in `add-ag-ui-e2e-smoke-and-demo`: AG-UI streams now emit safe diagnostics and active counts, deterministic gateway E2E covers run-id artifact lookup and graphics reconstruction, the supported headless gateway demo owns the live AG-UI text smoke command, the opt-in Bun Playwright browser fixture validates renderer behavior, docs cover direct gateway setup, and passive-server readiness tests define future SSE proxy expectations.
-- Remaining stage 1 work is compacted connect replay if needed. Stage 2 can now start from a concrete passive-server proxy contract.
+- Milestone 4 is implemented in `add-ag-ui-workbench-app`: `apps/ag-ui-workbench/` provides a standalone Bun/Vite React workbench outside the PyPI package, with a pinned operator pane, Dockview-based in-app agent panes, direct AG-UI client behavior, loopback development proxy, SVG `houmao_render_graphic` rendering, deterministic Playwright fake-server coverage, and documented Kimi Code headless live-validation guidance.
+- Remaining stage 1 work is compacted connect replay if needed and optional live validation against an already-running Kimi Code headless gateway when local credentials are available. Stage 2 can start from the concrete passive-server proxy contract and the workbench can later target passive-server agent URLs.
 
 ```mermaid
 flowchart LR
@@ -203,6 +204,47 @@ Done when:
 - [x] Stage 1 can be demonstrated without the passive server.
 - [x] The lifecycle boundary is documented and tested.
 - [x] The passive-server stage has a concrete integration target.
+
+## Milestone 4: Standalone AG-UI Workbench
+
+Goal: give Houmao developers a runnable GUI harness that can attach to multiple already-running Houmao agents, submit direct AG-UI runs, inspect raw protocol events, and verify generated graphics without shipping GUI assets in the Python distribution.
+
+Status: implemented by OpenSpec change `add-ag-ui-workbench-app`. The app is under `apps/ag-ui-workbench/` with its own Bun dependencies and lockfile. It keeps Dockview panes inside the browser page by disabling floating groups, omitting popout controls, and sanitizing restored layouts to drop floating or popout state.
+
+Deliverables:
+
+- Standalone `apps/ag-ui-workbench/` React/Vite app outside the Hatch wheel and sdist include rules.
+- Pinned operator pane that sends one AG-UI run to its configured operator target and does not fan out prompts to agent panes.
+- Dockview multi-pane workspace where each agent pane owns its target configuration, stream controller, reducer state, diagnostics, and cleanup path.
+- Direct AG-UI client for capabilities, connect, runs, detach, SSE parsing, raw-event preservation, pre-admission HTTP errors, streamed `RUN_ERROR`, state snapshots, activity/custom records, text messages, tool calls, and `houmao_render_graphic`.
+- App-local development proxy for AG-UI browser requests, with loopback targets allowed by default, explicit non-loopback rejection, upstream abort on browser disconnect, and streaming `text/event-stream` forwarding.
+- Deterministic Bun Playwright smoke with a fake AG-UI server that verifies operator submission, multi-pane isolation, in-app split movement, layout restore, SVG rendering, unsupported-format fallback, target-policy errors, and detach-without-interrupt semantics.
+- Documentation for Bun commands, direct gateway URL forms, future passive-server URL forms, lifecycle boundaries, persistence boundaries, and Kimi Code headless live validation.
+
+Todo:
+
+- [x] Keep the GUI under `apps/` and out of Python package includes.
+- [x] Add Bun scripts for development, typecheck, production build, and deterministic Playwright E2E.
+- [x] Use Dockview for in-page pane docking and split movement, with floating groups and popout windows unavailable.
+- [x] Add direct AG-UI client and event reducer code instead of depending on CopilotKit as the runtime path.
+- [x] Render supported SVG graphics from complete `houmao_render_graphic` tool-call sequences and show deterministic fallback for unsupported formats.
+- [x] Persist only layout and non-sensitive pane metadata; do not persist prompts, raw events, stream payloads, state snapshots, activity records, or graphics payloads.
+- [x] Add deterministic fake-server Playwright coverage.
+- [x] Document the Kimi Code headless live-validation lane using `tests/fixtures/auth-bundles/kimi/personal-a-default/` when local credentials are present.
+
+Verification test cases:
+
+- `bun run typecheck` in `apps/ag-ui-workbench/`: validate TypeScript app, proxy, and Playwright fixture types.
+- `bun run build` in `apps/ag-ui-workbench/`: validate production Vite output. The current build emits a chunk-size warning from bundled React/Dockview code but succeeds.
+- `bun run e2e` in `apps/ag-ui-workbench/`: start the workbench through Playwright, attach to a fake AG-UI server, and verify operator, multi-pane, graphics, detach, persistence, and target-policy behavior.
+- Optional live/manual check: run the workbench against an already-running Kimi Code headless Houmao agent gateway, preferably with `tests/fixtures/auth-bundles/kimi/personal-a-default/` when credentials are available. This check must attach or submit AG-UI runs through the gateway and must not start, stop, restart, shut down, or interrupt the Kimi headless agent.
+
+Done when:
+
+- [x] A developer can run a minimal AG-UI GUI harness from `apps/ag-ui-workbench/`.
+- [x] The GUI can test operator input and multiple docked agent panes without managing Houmao agent lifecycle.
+- [x] The deterministic browser smoke proves the direct protocol path without live credentials.
+- [x] The roadmap records Kimi Code headless as the opt-in live validation lane for this milestone.
 
 ## Cross-Milestone Todo
 
