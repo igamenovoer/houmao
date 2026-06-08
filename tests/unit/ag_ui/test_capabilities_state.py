@@ -69,7 +69,7 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     assert houmao["features"]["guiConnect"] is True
     assert houmao["features"]["textInputParsing"] is True
     assert houmao["features"]["stateSnapshots"] is True
-    assert houmao["features"]["taskRunSubmission"] is False
+    assert houmao["features"]["taskRunSubmission"] is True
     assert houmao["features"]["stateDeltas"] is False
     assert houmao["features"]["frontendToolExecution"] is False
     assert houmao["features"]["generatedGraphics"] is False
@@ -79,6 +79,21 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     assert "does not start, stop, restart, abort, interrupt, or shut down" in houmao[
         "lifecycleBoundary"
     ]
+
+
+def test_capabilities_report_headless_graphics_tool_metadata() -> None:
+    response = build_ag_ui_capabilities(_Runtime(_status(backend="codex_headless")))
+    dumped = response.model_dump(mode="json", by_alias=True)
+
+    assert dumped["houmao"]["features"]["taskRunSubmission"] is True
+    assert dumped["houmao"]["features"]["generatedGraphics"] is True
+    assert dumped["houmao"]["gateway"]["graphicsToolName"] == "houmao_render_graphic"
+    assert dumped["capabilities"]["tools"]["supported"] is True
+    assert dumped["capabilities"]["tools"]["items"][0]["name"] == "houmao_render_graphic"
+    assert dumped["capabilities"]["tools"]["clientProvided"] is False
+    assert dumped["capabilities"]["custom"]["houmao"]["graphics"]["toolName"] == (
+        "houmao_render_graphic"
+    )
 
 
 def test_state_snapshot_includes_connection_and_compact_gateway_status() -> None:

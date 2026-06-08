@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -12,9 +13,20 @@ from fastapi.testclient import TestClient
 
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.models import AgUiConnectInput
+from houmao.ag_ui.runtime import (
+    AgUiHeadlessArtifactObservation,
+    AgUiObservedRequestState,
+    AgUiTuiObservation,
+    ag_ui_target_transport_family_for_backend,
+)
 from houmao.ag_ui.routes import connect_event_stream, register_ag_ui_routes
-from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayAcceptedRequestV1,
+    GatewayRequestCreateV1,
+    GatewayStatusV1,
+)
 from houmao.agents.realm_controller.gateway_service import create_app
+from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
 
 
 def _status(**overrides: object) -> GatewayStatusV1:
@@ -69,6 +81,9 @@ class _SpyRuntime:
 
     status_payload: GatewayStatusV1 = field(default_factory=_status)
     diagnostics: list[dict[str, object]] = field(default_factory=list)
+    created_requests: list[GatewayRequestCreateV1] = field(default_factory=list)
+    request_states: list[AgUiObservedRequestState | None] = field(default_factory=list)
+    headless_events_path: Path | None = None
     prompt_submissions: int = 0
     queued_requests: int = 0
     stop_calls: int = 0
@@ -92,10 +107,57 @@ class _SpyRuntime:
 
         self.prompt_submissions += 1
 
-    def create_request(self, _payload: object) -> None:
+    def create_request(self, payload: GatewayRequestCreateV1) -> GatewayAcceptedRequestV1:
         """Detect queued gateway request creation."""
 
         self.queued_requests += 1
+        self.created_requests.append(payload)
+        return GatewayAcceptedRequestV1(
+            request_id="request-1",
+            request_kind=payload.kind,
+            state="accepted",
+            accepted_at_utc="2026-06-08T01:00:00Z",
+            queue_depth=1,
+            managed_agent_instance_epoch=1,
+        )
+
+    def ag_ui_request_state(self, request_id: str) -> AgUiObservedRequestState | None:
+        """Return configured observed request state."""
+
+        del request_id
+        if not self.request_states:
+            return None
+        if len(self.request_states) == 1:
+            return self.request_states[0]
+        return self.request_states.pop(0)
+
+    def ag_ui_target_transport_family(self) -> str:
+        """Return the configured target family from status backend."""
+
+        return ag_ui_target_transport_family_for_backend(str(self.status_payload.backend))
+
+    def ag_ui_headless_artifact(self, run_id: str) -> AgUiHeadlessArtifactObservation | None:
+        """Return configured headless artifact path."""
+
+        if self.headless_events_path is None:
+            return None
+        return AgUiHeadlessArtifactObservation(
+            run_id=run_id,
+            turn_dir=self.headless_events_path.parent,
+            canonical_events_path=self.headless_events_path,
+            provider="codex",
+            artifact_available=self.headless_events_path.is_file(),
+        )
+
+    def ag_ui_tui_observation(self) -> AgUiTuiObservation:
+        """Return a compact fake TUI observation."""
+
+        return AgUiTuiObservation(
+            available=True,
+            status={"backend": str(self.status_payload.backend), "turnPhase": "ready"},
+            activity="TUI ready",
+            final_text="final TUI answer",
+        )
 
     def stop(self) -> None:
         """Detect unsupported stop lifecycle calls."""
@@ -127,6 +189,15 @@ class _SpyRuntime:
 
         assert self.prompt_submissions == 0
         assert self.queued_requests == 0
+        assert self.stop_calls == 0
+        assert self.abort_calls == 0
+        assert self.interrupt_calls == 0
+        assert self.restart_calls == 0
+        assert self.shutdown_calls == 0
+
+    def assert_no_lifecycle_calls(self) -> None:
+        """Assert that AG-UI streaming did not manage the agent lifecycle."""
+
         assert self.stop_calls == 0
         assert self.abort_calls == 0
         assert self.interrupt_calls == 0
@@ -229,7 +300,7 @@ def test_capabilities_route_reports_conservative_support() -> None:
     assert body["capabilities"]["transport"]["streaming"] is True
     assert body["capabilities"]["state"]["snapshots"] is True
     assert body["capabilities"]["state"]["deltas"] is False
-    assert body["houmao"]["features"]["taskRunSubmission"] is False
+    assert body["houmao"]["features"]["taskRunSubmission"] is True
     assert body["houmao"]["features"]["generatedGraphics"] is False
     assert body["houmao"]["features"]["frontendToolExecution"] is False
     assert body["houmao"]["agentLifecycleManagedByGui"] is False
@@ -304,20 +375,187 @@ def test_disconnect_routes_remove_only_connection_bookkeeping() -> None:
     runtime.assert_no_work_or_lifecycle_calls()
 
 
-def test_runs_route_is_deterministically_unavailable_and_does_not_start_stream_or_work() -> None:
-    runtime = _SpyRuntime()
+def _completed_request_state(state: str = "completed") -> AgUiObservedRequestState:
+    """Return one terminal fake request state."""
+
+    return AgUiObservedRequestState(
+        request_id="request-1",
+        request_kind="submit_prompt",
+        state=state,
+        accepted_at_utc="2026-06-08T01:00:00Z",
+        finished_at_utc="2026-06-08T01:00:02Z",
+        error_detail="boom" if state == "failed" else None,
+    )
+
+
+def _sse_payloads(response_text: str) -> list[dict[str, object]]:
+    """Parse simple AG-UI SSE data frames from a response body."""
+
+    payloads: list[dict[str, object]] = []
+    for frame in response_text.split("\n\n"):
+        if not frame.startswith("data: "):
+            continue
+        payloads.append(json.loads(frame.removeprefix("data: ")))
+    return payloads
+
+
+def test_runs_route_streams_headless_lifecycle_text_and_finished_event(tmp_path: Path) -> None:
+    canonical_path = tmp_path / "canonical-events.jsonl"
+    canonical_event = CanonicalHeadlessEvent(
+        kind="assistant",
+        message="assistant",
+        turn_index=1,
+        provider="codex",
+        provider_event_type="assistant.text",
+        data={"text": "hello from canonical"},
+    )
+    canonical_path.write_text(
+        json.dumps(canonical_event.to_artifact_record(), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    runtime = _SpyRuntime(
+        status_payload=_status(backend="codex_headless"),
+        request_states=[_completed_request_state()],
+        headless_events_path=canonical_path,
+    )
     app = FastAPI()
-    register_ag_ui_routes(app, runtime=runtime)
+    register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
     client = TestClient(app)
 
     response = client.post("/v1/ag-ui/runs", json=_connect_payload())
 
-    assert response.status_code == 501
-    assert response.headers["content-type"].startswith("application/json")
-    assert response.json() == {
-        "status": "unavailable",
-        "code": "ag_ui_runs_unavailable",
-        "detail": "AG-UI task runs are not enabled for this Houmao gateway milestone.",
-    }
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    payloads = _sse_payloads(response.text)
+    assert [payload["type"] for payload in payloads] == [
+        "RUN_STARTED",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "RUN_FINISHED",
+    ]
+    assert payloads[0]["threadId"] == "thread-1"
+    assert payloads[0]["runId"] == "run-1"
+    assert payloads[2]["delta"] == "hello from canonical"
+    assert runtime.created_requests[0].payload.turn_id == "run-1"  # type: ignore[union-attr]
+    runtime.assert_no_lifecycle_calls()
+
+
+def test_runs_route_rejects_invalid_input_before_stream_or_work() -> None:
+    runtime = _SpyRuntime(status_payload=_status(backend="codex_headless"))
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
+    client = TestClient(app)
+
+    payload = _connect_payload(
+        messages=[
+            {
+                "id": "message-1",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "url", "value": "https://example.invalid/image.png"},
+                    }
+                ],
+            }
+        ]
+    )
+    response = client.post("/v1/ag-ui/runs", json=payload)
+
+    assert response.status_code == 422
     assert "RUN_STARTED" not in response.text
     runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_runs_route_rejects_busy_and_unavailable_targets_before_streaming() -> None:
+    cases = [
+        (_status(backend="codex_headless", active_execution="running"), 409),
+        (_status(backend="codex_headless", queue_depth=1), 409),
+        (_status(backend="codex_headless", request_admission="blocked_unavailable"), 503),
+    ]
+    for status_payload, status_code in cases:
+        runtime = _SpyRuntime(status_payload=status_payload)
+        app = FastAPI()
+        register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
+        client = TestClient(app)
+
+        response = client.post("/v1/ag-ui/runs", json=_connect_payload())
+
+        assert response.status_code == status_code
+        assert "RUN_STARTED" not in response.text
+        runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_runs_route_converts_post_admission_failure_to_run_error() -> None:
+    runtime = _SpyRuntime(
+        status_payload=_status(backend="codex_headless"),
+        request_states=[_completed_request_state("failed")],
+    )
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
+    client = TestClient(app)
+
+    response = client.post("/v1/ag-ui/runs", json=_connect_payload())
+
+    assert response.status_code == 200
+    payloads = _sse_payloads(response.text)
+    assert [payload["type"] for payload in payloads] == ["RUN_STARTED", "RUN_ERROR"]
+    assert payloads[1]["message"] == "boom"
+    runtime.assert_no_lifecycle_calls()
+
+
+def test_runs_route_streams_tui_activity_and_final_text_without_tool_calls() -> None:
+    runtime = _SpyRuntime(
+        status_payload=_status(backend="local_interactive"),
+        request_states=[_completed_request_state()],
+    )
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
+    client = TestClient(app)
+
+    response = client.post("/v1/ag-ui/runs", json=_connect_payload())
+
+    assert response.status_code == 200
+    payloads = _sse_payloads(response.text)
+    event_types = [payload["type"] for payload in payloads]
+    assert event_types == [
+        "RUN_STARTED",
+        "ACTIVITY_SNAPSHOT",
+        "ACTIVITY_SNAPSHOT",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "RUN_FINISHED",
+    ]
+    assert payloads[4]["delta"] == "final TUI answer"
+    assert "TOOL_CALL_START" not in set(event_types)
+    runtime.assert_no_lifecycle_calls()
+
+
+def test_run_stream_disconnect_detaches_without_lifecycle_calls() -> None:
+    async def _run() -> None:
+        from houmao.ag_ui.service import AgUiRunService
+
+        class _DisconnectAfterStart:
+            async def is_disconnected(self) -> bool:
+                return True
+
+        runtime = _SpyRuntime(status_payload=_status(backend="codex_headless"))
+        service = AgUiRunService(runtime=runtime, poll_interval_seconds=0)  # type: ignore[arg-type]
+        admitted = service.admit_run(AgUiConnectInput.model_validate(_connect_payload()))
+        stream = service.stream_run_events(admitted_run=admitted, request=_DisconnectAfterStart())
+
+        first_event = await anext(stream)
+        assert first_event.model_dump(mode="json", by_alias=True)["type"] == "RUN_STARTED"
+        try:
+            await anext(stream)
+        except StopAsyncIteration:
+            pass
+        else:  # pragma: no cover - defensive assertion
+            raise AssertionError("stream should stop after disconnect")
+
+        assert runtime.queued_requests == 1
+        runtime.assert_no_lifecycle_calls()
+
+    asyncio.run(_run())

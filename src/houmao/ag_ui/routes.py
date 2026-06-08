@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Protocol
 
+from ag_ui.core import RunAgentInput
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -15,13 +16,15 @@ from houmao.ag_ui.encoder import SSE_CONTENT_TYPE, encode_sse_comment, encode_ss
 from houmao.ag_ui.models import (
     AgUiConnectInput,
     AgUiDetachResponse,
-    AgUiRunsUnavailableResponse,
     AgUiStateSnapshotEvent,
     HoumaoAgUiCapabilitiesResponse,
 )
+from houmao.ag_ui.runtime import AgUiRuntimeObservationProtocol
+from houmao.ag_ui.service import AgUiAdmittedRun, AgUiRunService
 from houmao.ag_ui.state import build_houmao_state_snapshot
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+_DEFAULT_RUN_POLL_INTERVAL_SECONDS = 0.2
 
 
 class AgUiDisconnectProbe(Protocol):
@@ -59,12 +62,25 @@ async def connect_event_stream(
         registry.detach(record.connection_id)
 
 
+async def run_event_stream(
+    *,
+    service: AgUiRunService,
+    admitted_run: AgUiAdmittedRun,
+    request: AgUiDisconnectProbe,
+) -> AsyncIterator[str]:
+    """Yield encoded AG-UI SSE frames for one admitted run."""
+
+    async for event in service.stream_run_events(admitted_run=admitted_run, request=request):
+        yield encode_sse_event(event)
+
+
 def register_ag_ui_routes(
     app: FastAPI,
     *,
-    runtime: AgUiCapabilityRuntime,
+    runtime: AgUiCapabilityRuntime | AgUiRuntimeObservationProtocol,
     registry: AgUiConnectionRegistry | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+    run_poll_interval_seconds: float = _DEFAULT_RUN_POLL_INTERVAL_SECONDS,
 ) -> AgUiConnectionRegistry:
     """Register AG-UI attachment routes on one FastAPI app.
 
@@ -150,14 +166,24 @@ def register_ag_ui_routes(
 
     @router.post(
         "/runs",
-        response_model=AgUiRunsUnavailableResponse,
-        status_code=501,
     )
-    def _runs(request_payload: dict[str, object]) -> AgUiRunsUnavailableResponse:
-        """Reject AG-UI run submission until run streaming is implemented."""
+    async def _runs(request: Request, request_payload: RunAgentInput) -> StreamingResponse:
+        """Admit one AG-UI run and stream mapped Houmao output."""
 
-        del request_payload
-        return AgUiRunsUnavailableResponse()
+        service = AgUiRunService(
+            runtime=runtime,  # type: ignore[arg-type]
+            poll_interval_seconds=run_poll_interval_seconds,
+        )
+        admitted_run = service.admit_run(request_payload)
+        stream = run_event_stream(service=service, admitted_run=admitted_run, request=request)
+        return StreamingResponse(
+            stream,
+            media_type=SSE_CONTENT_TYPE,
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     app.include_router(router)
     return resolved_registry

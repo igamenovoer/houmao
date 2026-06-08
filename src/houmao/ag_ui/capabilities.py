@@ -14,15 +14,18 @@ from ag_ui.core import (
     MultimodalOutputCapabilities,
     OutputCapabilities,
     StateCapabilities,
+    Tool,
     ToolsCapabilities,
     TransportCapabilities,
 )
 
+from houmao.ag_ui.graphics import HOUMAO_RENDER_GRAPHIC_TOOL_NAME
 from houmao.ag_ui.models import (
     HoumaoAgUiCapabilitiesResponse,
     HoumaoAgUiFeatureSupport,
     HoumaoAgUiMetadata,
 )
+from houmao.ag_ui.runtime import ag_ui_target_transport_family_for_backend
 from houmao.ag_ui.state import GatewayStatusSnapshot, JsonObject
 
 
@@ -48,15 +51,18 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
     """
 
     status = runtime.status()
+    target_transport_family = ag_ui_target_transport_family_for_backend(str(status.backend))
+    task_run_submission = target_transport_family != "unknown"
+    generated_graphics = target_transport_family == "headless"
     features = HoumaoAgUiFeatureSupport(
         http_sse=True,
         gui_connect=True,
         text_input_parsing=True,
         state_snapshots=True,
-        task_run_submission=False,
+        task_run_submission=task_run_submission,
         state_deltas=False,
         frontend_tool_execution=False,
-        generated_graphics=False,
+        generated_graphics=generated_graphics,
         open_generative_ui=False,
         multimodal_input=False,
     )
@@ -65,8 +71,13 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
         "gateway": {
             "attachIdentity": status.attach_identity,
             "backend": str(status.backend),
+            "targetTransportFamily": target_transport_family,
             "activeExecution": str(status.active_execution),
             "requestAdmission": str(status.request_admission),
+        },
+        "graphics": {
+            "toolName": HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
+            "generatedGraphics": generated_graphics,
         },
         "lifecycle": {
             "agentLifecycleManagedByGui": False,
@@ -96,8 +107,37 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
             resumable=False,
         ),
         tools=ToolsCapabilities(
-            supported=False,
-            items=[],
+            supported=generated_graphics,
+            items=[
+                Tool(
+                    name=HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
+                    description="Render a validated Houmao graphics artifact.",
+                    parameters={
+                        "type": "object",
+                        "required": ["title", "format"],
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": ["string", "null"]},
+                            "format": {
+                                "type": "string",
+                                "enum": [
+                                    "svg",
+                                    "html_fragment",
+                                    "image_url",
+                                    "image_data_uri",
+                                    "chart_json",
+                                ],
+                            },
+                            "content": {},
+                            "contentUrl": {"type": ["string", "null"]},
+                            "altText": {"type": ["string", "null"]},
+                            "metadata": {"type": "object"},
+                        },
+                    },
+                )
+            ]
+            if generated_graphics
+            else [],
             parallel_calls=False,
             client_provided=False,
         ),
@@ -120,7 +160,7 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
                 file=False,
             ),
             output=MultimodalOutputCapabilities(
-                image=False,
+                image=generated_graphics,
                 audio=False,
             ),
         ),
@@ -152,7 +192,9 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
             gateway={
                 "attachIdentity": status.attach_identity,
                 "backend": str(status.backend),
+                "targetTransportFamily": target_transport_family,
                 "activeExecution": str(status.active_execution),
+                "graphicsToolName": HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
             },
         ),
     )
