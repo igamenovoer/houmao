@@ -32,23 +32,38 @@ The AG-UI namespace SHALL be served by the same live per-agent gateway runtime t
 
 ### Requirement: AG-UI capabilities report conservative attachment support
 
-The gateway SHALL provide `GET /v1/ag-ui/capabilities` so GUI clients can discover supported AG-UI behavior before connecting.
+The gateway SHALL provide `GET /v1/ag-ui/capabilities` so GUI clients can discover supported AG-UI behavior before connecting or starting a run.
 
-The capabilities response SHALL report HTTP SSE support, GUI connect support, text input parsing support, and state snapshot support as enabled.
+The capabilities response SHALL report HTTP SSE support, GUI connect support, text input parsing support, state snapshot support, and task-run submission as enabled when AG-UI run streaming is implemented for the live per-agent gateway.
 
-The capabilities response SHALL report task-run submission, state delta support, frontend tool execution, generated graphics, Open Generative UI, and multimodal input as disabled for this milestone.
+The capabilities response SHALL report generated graphics support as enabled only when `houmao_render_graphic` artifact validation and event mapping are available for the target.
+
+The capabilities response SHALL report state delta support, frontend tool execution, Open Generative UI, and unsupported multimodal input as disabled for this milestone.
 
 The capabilities response SHALL identify that GUI lifecycle does not manage the Houmao agent lifecycle.
 
-#### Scenario: Capabilities are conservative before run streaming exists
+#### Scenario: Capabilities report run streaming support
 
-- **WHEN** a caller requests `GET /v1/ag-ui/capabilities`
+- **WHEN** a caller requests `GET /v1/ag-ui/capabilities` after AG-UI run streaming is enabled
 - **THEN** the response reports HTTP SSE support as enabled
 - **AND THEN** the response reports GUI connect support as enabled
 - **AND THEN** the response reports state snapshot support as enabled
-- **AND THEN** the response reports task-run submission as disabled
-- **AND THEN** the response reports generated graphics as disabled
+- **AND THEN** the response reports task-run submission as enabled
+- **AND THEN** the response reports text input parsing as enabled
+
+#### Scenario: Capabilities report graphics support when enabled
+
+- **WHEN** a caller requests `GET /v1/ag-ui/capabilities` for a gateway target with `houmao_render_graphic` mapping enabled
+- **THEN** the response reports generated graphics as enabled
+- **AND THEN** the response identifies `houmao_render_graphic` in Houmao metadata or tool capability metadata
+
+#### Scenario: Capabilities remain conservative for unsupported features
+
+- **WHEN** a caller requests `GET /v1/ag-ui/capabilities`
+- **THEN** the response reports state delta support as disabled
 - **AND THEN** the response reports frontend tool execution as disabled
+- **AND THEN** the response reports Open Generative UI as disabled
+- **AND THEN** the response reports unsupported multimodal input as disabled
 
 #### Scenario: Capabilities state that GUI does not own agent lifecycle
 
@@ -160,23 +175,67 @@ Detaching a GUI connection SHALL NOT stop, abort, interrupt, restart, shut down,
 - **THEN** the gateway returns a deterministic not-found or already-detached response
 - **AND THEN** the gateway does not call any Houmao agent lifecycle control path
 
-### Requirement: AG-UI runs route reports task submission as unavailable
+### Requirement: Per-agent AG-UI streams expose safe diagnostics
+The live per-agent gateway SHALL emit safe diagnostics for AG-UI connect streams and run streams.
 
-`POST /v1/ag-ui/runs` SHALL be registered during this milestone, but it SHALL reject task-run submission with a deterministic error response until AG-UI run streaming is implemented.
+At minimum, AG-UI diagnostics SHALL cover connect creation, disconnect or detach, run admission, run stream start, run completion, stream client disconnect, and stream error outcomes.
 
-The runs route SHALL NOT open an AG-UI run stream, submit a prompt, create a gateway request, emit `RUN_STARTED`, or modify agent lifecycle state.
+AG-UI diagnostics SHALL include lifecycle identifiers and operational metadata such as connection id, thread id, run id, gateway request id, target transport family, terminal outcome, active connection count, active run count, duration, status code, and error category when available.
 
-#### Scenario: Runs route rejects task submission before run streaming exists
+AG-UI diagnostics SHALL NOT include prompt text, full AG-UI message content, mailbox content, memory content, raw terminal history, credentials, authorization headers, or unmanaged forwarded props.
 
-- **WHEN** a caller posts valid AG-UI run input to `POST /v1/ag-ui/runs`
-- **THEN** the gateway returns a deterministic error explaining that AG-UI task runs are not enabled
-- **AND THEN** the gateway does not submit a prompt
-- **AND THEN** the gateway does not create a queued gateway request
-- **AND THEN** the gateway does not emit `RUN_STARTED`
+#### Scenario: Run diagnostics record lifecycle without private payloads
+- **WHEN** an AG-UI run is admitted through `/v1/ag-ui/runs`
+- **THEN** the gateway records safe diagnostics for admission and stream completion
+- **AND THEN** the diagnostics include run id, gateway request id, target transport family, terminal outcome, and duration when available
+- **AND THEN** the diagnostics do not include the submitted prompt text, AG-UI message bodies, credentials, or unmanaged forwarded props
 
-#### Scenario: Runs route behavior matches capabilities
+#### Scenario: Connect diagnostics record attachment without submitting work
+- **WHEN** a GUI attaches through `/v1/ag-ui/connect` and later disconnects
+- **THEN** the gateway records safe diagnostics for connection creation and detachment
+- **AND THEN** the diagnostics include the connection id and active AG-UI connection count
+- **AND THEN** the diagnostics do not claim that a Houmao task run was started
 
-- **WHEN** a caller reads `GET /v1/ag-ui/capabilities`
-- **AND WHEN** the caller then posts to `POST /v1/ag-ui/runs`
-- **THEN** the disabled task-run capability matches the deterministic runs-route rejection
+### Requirement: Per-agent AG-UI diagnostics report active connection and run counts
+The live per-agent gateway SHALL maintain lightweight AG-UI diagnostic counts for active GUI connections and active AG-UI run streams.
+
+The counts SHALL reflect stream bookkeeping rather than the lifetime of the Houmao managed agent. A disconnected GUI stream SHALL decrement the relevant AG-UI count without stopping, restarting, shutting down, or interrupting the managed agent.
+
+#### Scenario: Active counts update across connect and run streams
+- **WHEN** one AG-UI connect stream and one AG-UI run stream are active
+- **THEN** the gateway diagnostics report one active AG-UI connection and one active AG-UI run
+- **AND WHEN** the connect stream and run stream close
+- **THEN** the gateway diagnostics return those AG-UI counts to zero
+- **AND THEN** the managed agent lifecycle remains unchanged by those stream closures
+
+#### Scenario: Counts recover after stream error
+- **WHEN** an AG-UI stream raises a mapping, encoding, or client-send error
+- **THEN** the gateway records a stream-error diagnostic
+- **AND THEN** the affected active AG-UI stream count is decremented during cleanup
+- **AND THEN** unrelated AG-UI streams continue to be counted accurately
+
+### Requirement: Per-agent AG-UI run streams emit deterministic terminal errors after admission
+After an AG-UI run has been admitted and `RUN_STARTED` has been emitted, the live per-agent gateway SHALL convert stream mapping, encoding, or runtime-observation failures into a deterministic AG-UI `RUN_ERROR` event when the client is still connected and the stream can still write.
+
+Pre-admission validation and availability failures SHALL remain HTTP errors and SHALL NOT emit `RUN_STARTED`.
+
+Client disconnects SHALL clean up stream bookkeeping and SHALL NOT require a `RUN_ERROR` event because the client has detached from the stream.
+
+#### Scenario: Mapping error after run start becomes RUN_ERROR
+- **WHEN** an AG-UI run stream has emitted `RUN_STARTED`
+- **AND WHEN** a mapping, encoding, or runtime-observation error occurs while the client is still connected
+- **THEN** the stream emits a `RUN_ERROR` event with a stable Houmao error code
+- **AND THEN** the gateway records a safe stream-error diagnostic with the error category
+- **AND THEN** the stream performs active-run cleanup
+
+#### Scenario: Pre-admission error remains an HTTP error
+- **WHEN** an invalid AG-UI input, busy target, or unavailable gateway target is rejected before run admission
+- **THEN** the gateway returns the appropriate HTTP error
+- **AND THEN** the response does not contain `RUN_STARTED`
+- **AND THEN** no active AG-UI run count is left behind
+
+#### Scenario: Client abort detaches without interrupting by default
+- **WHEN** an AG-UI client aborts the run stream after admission
+- **THEN** the gateway detaches the stream and performs active-run cleanup
+- **AND THEN** the gateway does not interrupt the underlying Houmao task unless an explicit abort policy opts into interruption
 
