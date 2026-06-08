@@ -169,7 +169,7 @@ def test_driver_parser_accepts_manual_command_surface() -> None:
     assert parser.parse_args(["stop"]).command == "stop"
 
 
-def test_create_specialist_uses_kimi_unattended_default_and_core_system_skills(
+def test_create_specialist_uses_kimi_tui_for_story_and_core_system_skills(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,14 +207,43 @@ def test_create_specialist_uses_kimi_unattended_default_and_core_system_skills(
     ]
     assert "--tool" in command
     assert "kimi" in command
-    assert "--no-unattended" not in command
+    assert "--no-unattended" in command
     assert "--system-skills-mode" in command
     assert "replace" in command
     assert "--system-skill-set" in command
     assert "core" in command
 
 
-def test_create_profile_uses_mailbox_and_unattended_prompt_mode(
+def test_create_specialist_uses_unattended_default_for_reviewer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.project_dir.mkdir(parents=True)
+    member = _load_parameters().member_by_agent_name("alex-review")
+    captured: dict[str, Any] = {}
+
+    def fake_run_json_command(command: list[str], **kwargs: object) -> dict[str, Any]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.create_specialist(
+        paths=paths,
+        env={},
+        member=member,
+        credential_name="writer-team-kimi",
+        setup_name="default",
+        timeout_seconds=30.0,
+    )
+
+    command = captured["command"]
+    assert "--no-unattended" not in command
+
+
+def test_create_profile_uses_mailbox_and_story_as_is_prompt_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,7 +270,7 @@ def test_create_profile_uses_mailbox_and_unattended_prompt_mode(
 
     command = captured["command"]
     assert "--prompt-mode" in command
-    assert "unattended" in command
+    assert "as_is" in command
     assert "--mail-transport" in command
     assert "filesystem" in command
     assert "--mail-root" in command
@@ -252,7 +281,37 @@ def test_create_profile_uses_mailbox_and_unattended_prompt_mode(
     assert "alex-story@houmao.localhost" in command
 
 
-def test_launch_agent_uses_profile_headless_gateway_background(
+def test_create_profile_uses_reviewer_unattended_prompt_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.project_dir.mkdir(parents=True)
+    member = _load_parameters().member_by_agent_name("alex-review")
+    captured: dict[str, Any] = {}
+
+    def fake_run_json_command(command: list[str], **kwargs: object) -> dict[str, Any]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.create_profile(
+        paths=paths,
+        env={},
+        member=member,
+        credential_name="writer-team-kimi",
+        notifier_appendix_text="process mail",
+        timeout_seconds=30.0,
+    )
+
+    command = captured["command"]
+    assert "--prompt-mode" in command
+    assert "unattended" in command
+
+
+def test_launch_agent_uses_tui_gateway_background_for_story(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -279,6 +338,37 @@ def test_launch_agent_uses_profile_headless_gateway_background(
     command = captured["command"]
     assert "--profile" in command
     assert "alex-story" in command
+    assert "--headless" not in command
+    assert "--gateway-background" in command
+
+
+def test_launch_agent_uses_headless_gateway_background_for_reviewer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
+    paths.project_dir.mkdir(parents=True)
+    member = _load_parameters().member_by_agent_name("alex-review")
+    captured: dict[str, Any] = {}
+
+    def fake_run_json_command(command: list[str], **kwargs: object) -> dict[str, Any]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
+
+    runtime.launch_agent(
+        paths=paths,
+        env={},
+        member=member,
+        session_name="kimi-writer-alex-review-demo",
+        timeout_seconds=30.0,
+    )
+
+    command = captured["command"]
+    assert "--profile" in command
+    assert "alex-review" in command
     assert "--headless" in command
     assert "--gateway-background" in command
 

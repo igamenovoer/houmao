@@ -39,6 +39,20 @@ def manager_cli_command(args: Sequence[str]) -> list[str]:
     return ["pixi", "run", "houmao-mgr", "--print-json", *args]
 
 
+def uses_headless_backend(member: TeamMemberParameters) -> bool:
+    """Return whether one writer-team member should launch through headless Kimi."""
+
+    return member.role == "review"
+
+
+def prompt_mode_for_member(member: TeamMemberParameters) -> str:
+    """Return the launch prompt mode for one writer-team member."""
+
+    if uses_headless_backend(member):
+        return "unattended"
+    return "as_is"
+
+
 def build_demo_environment(
     *,
     paths: DemoPaths,
@@ -427,29 +441,34 @@ def create_specialist(
     """Create or replace one Kimi writer-team specialist."""
 
     stdout_path, stderr_path = paths.log_paths(f"specialist-{member.agent_name}")
+    command = [
+        "project",
+        "specialist",
+        "create",
+        "--name",
+        member.specialist_name,
+        "--tool",
+        "kimi",
+        "--setup",
+        setup_name,
+        "--credential",
+        credential_name,
+        "--system-prompt-file",
+        str(paths.project_dir / member.system_prompt_file),
+    ]
+    if not uses_headless_backend(member):
+        command.append("--no-unattended")
+    command.extend(
+        [
+            "--system-skills-mode",
+            "replace",
+            "--system-skill-set",
+            "core",
+            "--yes",
+        ]
+    )
     payload = run_json_command(
-        manager_cli_command(
-            [
-                "project",
-                "specialist",
-                "create",
-                "--name",
-                member.specialist_name,
-                "--tool",
-                "kimi",
-                "--setup",
-                setup_name,
-                "--credential",
-                credential_name,
-                "--system-prompt-file",
-                str(paths.project_dir / member.system_prompt_file),
-                "--system-skills-mode",
-                "replace",
-                "--system-skill-set",
-                "core",
-                "--yes",
-            ]
-        ),
+        manager_cli_command(command),
         cwd=paths.project_dir,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
@@ -472,6 +491,7 @@ def create_profile(
     """Create or replace one mailbox-enabled Kimi project profile."""
 
     stdout_path, stderr_path = paths.log_paths(f"profile-{member.agent_name}")
+    prompt_mode = prompt_mode_for_member(member)
     payload = run_json_command(
         manager_cli_command(
             [
@@ -489,7 +509,7 @@ def create_profile(
                 "--auth",
                 credential_name,
                 "--prompt-mode",
-                "unattended",
+                prompt_mode,
                 "--mail-transport",
                 "filesystem",
                 "--mail-root",
@@ -521,25 +541,25 @@ def launch_agent(
     session_name: str,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    """Launch one Kimi unattended agent from its project profile."""
+    """Launch one Kimi agent from its project profile."""
 
     stdout_path, stderr_path = paths.log_paths(f"launch-{member.agent_name}")
+    command = [
+        "project",
+        "agents",
+        "launch",
+        "--profile",
+        member.profile_name,
+        "--name",
+        member.agent_name,
+        "--session-name",
+        session_name,
+    ]
+    if uses_headless_backend(member):
+        command.append("--headless")
+    command.append("--gateway-background")
     payload = run_json_command(
-        manager_cli_command(
-            [
-                "project",
-                "agents",
-                "launch",
-                "--profile",
-                member.profile_name,
-                "--name",
-                member.agent_name,
-                "--session-name",
-                session_name,
-                "--headless",
-                "--gateway-background",
-            ]
-        ),
+        manager_cli_command(command),
         cwd=paths.project_dir,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
