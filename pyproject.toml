@@ -101,7 +101,7 @@ addopts = "--import-mode=importlib"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
 
 [tool.pixi.pypi-dependencies]
 houmao = { path = ".", editable = true }
