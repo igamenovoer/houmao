@@ -37,6 +37,15 @@ Start here:
 - [Guide: shared-tui-tracking-demo-pack/README.md](shared-tui-tracking-demo-pack/README.md)
 - Runner: [shared-tui-tracking-demo-pack/run_demo.sh](shared-tui-tracking-demo-pack/run_demo.sh)
 
+### `kimi-writer-team-manual/`
+
+Supported manual project-local demo for three Kimi Code TUI agents using the writer-team specification from `examples/writer-team/`. The pack creates an isolated copied project under `outputs/project/`, redirects Houmao project state into `outputs/overlay/`, imports operator-supplied Kimi credentials, creates the `alex-story`, `alex-char`, and `alex-review` Kimi specialists/profiles, launches all three with gateway-backed mailbox notification, and leaves the operator to drive the story loop manually.
+
+Start here:
+
+- [Guide: kimi-writer-team-manual/README.md](kimi-writer-team-manual/README.md)
+- Runner: [kimi-writer-team-manual/run_demo.sh](kimi-writer-team-manual/run_demo.sh)
+
 ### `single-agent-mail-wakeup/`
 
 Supported project-local gateway wake-up demo for one `houmao-mgr project easy` TUI specialist. The pack keeps one canonical `outputs/` root, copies a tiny dummy project under `outputs/project/`, redirects Houmao overlay state into the sibling `outputs/overlay/` root through `HOUMAO_PROJECT_OVERLAY_DIR`, keeps runtime, jobs, and mailbox state under that overlay, imports the local Claude or Codex fixture auth bundle, launches one project-easy TUI instance, attaches a gateway, enables mail-notifier polling, injects one filesystem-backed operator message, and verifies artifact creation plus actor-scoped unread completion.

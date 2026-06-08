@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "demo_id": "kimi-writer-team-manual",
+  "story_source_dir": "examples/writer-team",
+  "start_charter_template": "scripts/demo/kimi-writer-team-manual/inputs/start-charter-template.md",
+  "credential_name": "writer-team-kimi",
+  "setup_name": "default",
+  "command_timeout_seconds": 180.0,
+  "ready_timeout_seconds": 180.0,
+  "notifier_interval_seconds": 5,
+  "default_chapter_count": 1,
+  "run_id_prefix": "kimi-writer-team",
+  "notifier_appendix_text": "Use the installed Houmao mailbox skills for this notification. Process one mailbox round, read only selected relevant mail, complete the requested work, reply to the sender with artifact paths or a concise result after success, archive processed mail, then stop and wait for the next notification.",
+  "operator": {
+    "principal_id": "HOUMAO-writer-team-operator",
+    "address": "writer-team-operator@houmao.localhost"
+  },
+  "team": [
+    {
+      "role": "story",
+      "specialist_name": "story-writer",
+      "profile_name": "alex-story",
+      "agent_name": "alex-story",
+      "system_prompt_file": "prompts/story-writer.md",
+      "mailbox_principal_id": "HOUMAO-alex-story",
+      "mailbox_address": "alex-story@houmao.localhost",
+      "session_name_prefix": "kimi-writer-alex-story"
+    },
+    {
+      "role": "character",
+      "specialist_name": "character-designer",
+      "profile_name": "alex-char",
+      "agent_name": "alex-char",
+      "system_prompt_file": "prompts/character-designer.md",
+      "mailbox_principal_id": "HOUMAO-alex-char",
+      "mailbox_address": "alex-char@houmao.localhost",
+      "session_name_prefix": "kimi-writer-alex-char"
+    },
+    {
+      "role": "review",
+      "specialist_name": "story-reviewer",
+      "profile_name": "alex-review",
+      "agent_name": "alex-review",
+      "system_prompt_file": "prompts/story-reviewer.md",
+      "mailbox_principal_id": "HOUMAO-alex-review",
+      "mailbox_address": "alex-review@houmao.localhost",
+      "session_name_prefix": "kimi-writer-alex-review"
+    }
+  ]
+}
+
