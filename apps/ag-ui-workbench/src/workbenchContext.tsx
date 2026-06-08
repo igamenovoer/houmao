@@ -1,12 +1,14 @@
 import { createContext, useContext } from "react";
 
+import { defaultTarget } from "./storage";
 import type { PaneRecord, WorkbenchStorage } from "./storage";
-import type { TargetConfig } from "./ag-ui/types";
+import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 
 export interface WorkbenchContextValue {
   storage: WorkbenchStorage;
   updateTarget: (paneId: string, target: TargetConfig) => void;
   removePaneRecord: (paneId: string) => void;
+  openAgentPicker: (request: AgentPickerRequest) => void;
 }
 
 const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
@@ -26,11 +28,7 @@ export function paneRecordOrDefault(storage: WorkbenchStorage, paneId: string, k
     storage.panes[paneId] ?? {
       paneId,
       kind,
-      target: {
-        label: kind === "operator" ? "Operator" : paneId.replace(/-/g, " "),
-        url: "",
-        threadId: kind === "operator" ? "operator-thread" : `${paneId}-thread`,
-      },
+      target: defaultTarget(paneId, kind),
     }
   );
 }

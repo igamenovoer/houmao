@@ -82,6 +82,63 @@ test("surfaces target policy errors before contacting a disallowed target", asyn
   await expect(page.getByTestId("errors-operator")).toContainText("target_policy_rejected");
 });
 
+test("lists discovered agents, retargets panes, opens new panes, and keeps manual fallback", async ({ page }) => {
+  await page.getByTestId("add-agent-pane").click();
+  await configurePane(page, "agent-1", "Manual", fakeServer.targetBase("manual"), "manual-thread");
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("manual-connect-evidence");
+
+  await page.getByTestId("choose-agent-agent-1").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await expect(page.getByTestId("agent-row-alpha")).toBeVisible();
+  await expect(page.getByTestId("agent-row-beta")).toBeVisible();
+  await page.getByTestId("agent-filter").fill("alpha");
+  await expect(page.getByTestId("agent-row-alpha")).toBeVisible();
+  await expect(page.getByTestId("agent-row-beta")).toBeHidden();
+  await page.getByTestId("agent-filter").fill("");
+  await page.getByTestId("agent-row-alpha").dblclick();
+
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
+  await expect(page.getByTestId("raw-agent-1")).not.toContainText("manual-connect-evidence");
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+
+  const savedDiscovered = await page.evaluate(() => window.__HMWB_TEST__!.storage());
+  expect(savedDiscovered.discovery.passiveServerUrl).toBe(fakeServer.passiveBase());
+  expect(savedDiscovered.panes["agent-1"].target.source).toMatchObject({
+    kind: "discovered",
+    agentId: "alpha",
+    agentName: "HOUMAO-alpha",
+  });
+  expect(JSON.stringify(savedDiscovered)).not.toContain("alpha-connect-evidence");
+
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("agent-row-beta").dblclick();
+  await expect(page.getByTestId("target-url-agent-2")).toHaveValue(fakeServer.targetBase("beta"));
+  await page.getByTestId("connect-agent-2").click();
+  await expect(page.getByTestId("raw-agent-2")).toContainText("beta-connect-evidence");
+  await expect(page.getByTestId("raw-agent-1")).not.toContainText("beta-connect-evidence");
+
+  await page.getByTestId("target-url-agent-1").fill(fakeServer.targetBase("manual"));
+  const savedManual = await page.evaluate(() => window.__HMWB_TEST__!.storage());
+  expect(savedManual.panes["agent-1"].target.source).toMatchObject({ kind: "manual" });
+
+  await page.getByTestId("choose-agent-agent-1").click();
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("select-agent-no-gateway").click();
+  await expect(page.getByTestId("picker-error")).toContainText("no gateway");
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("manual"));
+});
+
+test("surfaces target policy errors for disallowed passive-server discovery", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill("http://example.com");
+  await page.getByTestId("refresh-agents").click();
+  await expect(page.getByTestId("picker-error")).toContainText("target_policy_rejected");
+});
+
 async function configurePane(
   page: Page,
   paneId: string,

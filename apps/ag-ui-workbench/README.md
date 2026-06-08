@@ -36,11 +36,19 @@ http://127.0.0.1:8080/houmao/agents/<agent_ref>/ag-ui/runs
 
 Browser requests go through the app-local development proxy at `/__houmao_ag_ui_proxy`. The proxy allows loopback HTTP or HTTPS targets by default and rejects other hosts unless `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` lists an exact hostname or host:port value.
 
+## Agent Picker
+
+The toolbar `Agents` control opens a passive-server-backed list of discovered Houmao agents. The passive-server URL defaults to `http://127.0.0.1:9891`, matching the documented `houmao-passive-server serve` default. Click refresh to fetch `GET /houmao/agents`; rows show the discovered agent identity, tool, backend, tmux session, gateway availability, and mailbox availability.
+
+Double-clicking a resolved row from the toolbar opens a new docked agent pane. Opening the picker from a pane's target form defaults to retargeting that pane instead. The picker resolves a selected row through `GET /houmao/agents/<agent_ref>/gateway` and derives a direct gateway AG-UI URL such as `http://127.0.0.1:<gateway_port>/v1/ag-ui`.
+
+Manual AG-UI URL entry remains the fallback and is still useful for remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the Vite dev server.
+
 ## Lifecycle Boundary
 
 The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect attaches the pane to an existing AG-UI stream, run submits one AG-UI `RunAgentInput`, and disconnect or close means GUI stream detach. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream.
 
-The workbench persists Dockview layout, pane labels, target URLs, and thread IDs. It does not persist prompt text, raw events, stream payloads, state snapshots, activity records, or rendered graphics by default.
+The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, and selected discovered-agent identity metadata. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, raw events, stream payloads, state snapshots, activity records, tool-call payloads, or rendered graphics by default.
 
 ## Live Kimi Code Headless Check
 

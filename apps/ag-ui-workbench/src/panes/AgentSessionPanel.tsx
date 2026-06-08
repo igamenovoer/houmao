@@ -16,11 +16,12 @@ interface PanelParams {
 }
 
 export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
-  const { storage, updateTarget, removePaneRecord } = useWorkbench();
+  const { storage, updateTarget, removePaneRecord, openAgentPicker } = useWorkbench();
   const { paneId, kind } = props.params;
   const record = paneRecordOrDefault(storage, paneId, kind);
   const target = record.target;
-  const targetRef = useRef<TargetConfig>(target);
+  const activeTargetRef = useRef<TargetConfig>(target);
+  const resetTokenRef = useRef(record.resetToken ?? 0);
   const abortRef = useRef<AbortController | null>(null);
   const connectionIdRef = useRef<string | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
@@ -29,14 +30,34 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const [panelStatus, setPanelStatus] = useState(eventState.status);
 
   useEffect(() => {
-    targetRef.current = target;
     props.api.setTitle(target.label || (kind === "operator" ? "Operator" : paneId));
   }, [kind, paneId, props.api, target]);
 
   useEffect(() => {
+    const resetToken = record.resetToken ?? 0;
+    if (resetToken === resetTokenRef.current) {
+      return;
+    }
+    resetTokenRef.current = resetToken;
+    const detachTarget = activeTargetRef.current;
+    const connectionId = connectionIdRef.current;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    connectionIdRef.current = null;
+    activeTargetRef.current = target;
+    setCapabilities(null);
+    setEventState(initialPaneEventState());
+    setPanelStatus("empty");
+    setPrompt("");
+    void detachAgUi(detachTarget, connectionId).catch((error) => {
+      setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
+    });
+  }, [record.resetToken, target]);
+
+  useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      void detachAgUi(targetRef.current, connectionIdRef.current).catch(() => undefined);
+      void detachAgUi(activeTargetRef.current, connectionIdRef.current).catch(() => undefined);
     };
   }, []);
 
@@ -62,6 +83,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     await stopActiveStream(false);
     const controller = new AbortController();
     abortRef.current = controller;
+    activeTargetRef.current = target;
     setPanelStatus("connecting");
     const input = buildConnectInput({ paneId, threadId: target.threadId, paneKind: kind });
     void connectAgUi(
@@ -72,6 +94,9 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         onRaw: () => undefined,
         onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
         onEvent: (event, raw) => {
+          if (controller.signal.aborted) {
+            return;
+          }
           const connectionId = extractConnectionId(event);
           if (connectionId) {
             connectionIdRef.current = connectionId;
@@ -102,6 +127,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     setPrompt("");
     const controller = new AbortController();
     abortRef.current = controller;
+    activeTargetRef.current = target;
     setPanelStatus("running");
     const input = buildRunInput({ paneId, threadId: target.threadId, message: text, paneKind: kind });
     void runAgUi(
@@ -112,6 +138,9 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         onRaw: () => undefined,
         onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
         onEvent: (event, raw) => {
+          if (controller.signal.aborted) {
+            return;
+          }
           setEventState((current) => reduceAgUiEvent(current, event, raw));
         },
       },
@@ -149,10 +178,11 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const stopActiveStream = async (detach: boolean) => {
+    const detachTarget = activeTargetRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
     if (detach) {
-      await detachAgUi(targetRef.current, connectionIdRef.current).catch((error) => {
+      await detachAgUi(detachTarget, connectionIdRef.current).catch((error) => {
         setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
       });
       connectionIdRef.current = null;
@@ -201,7 +231,12 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         </div>
       </header>
 
-      <TargetForm paneId={paneId} target={target} onChange={setTarget} />
+      <TargetForm
+        paneId={paneId}
+        target={target}
+        onChange={setTarget}
+        onChooseAgent={() => openAgentPicker({ mode: "retarget", paneId })}
+      />
       <CapabilityBadges capabilities={capabilities} />
 
       <div className="composer">

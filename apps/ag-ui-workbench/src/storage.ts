@@ -8,26 +8,37 @@ export interface PaneRecord {
   paneId: string;
   kind: PaneKind;
   target: TargetConfig;
+  resetToken?: number;
+}
+
+export interface DiscoveryConfig {
+  passiveServerUrl: string;
 }
 
 export interface WorkbenchStorage {
+  discovery: DiscoveryConfig;
   layout?: unknown;
   panes: Record<string, PaneRecord>;
   nextAgentIndex: number;
 }
 
 const STORAGE_KEY = "houmao.agUiWorkbench.v1";
+const DEFAULT_PASSIVE_SERVER_URL = "http://127.0.0.1:9891";
 
 export function defaultTarget(paneId: string, kind: PaneKind): TargetConfig {
   return {
     label: kind === "operator" ? "Operator" : paneId.replace(/-/g, " "),
     url: "",
     threadId: kind === "operator" ? "operator-thread" : `${paneId}-thread`,
+    source: { kind: "manual" },
   };
 }
 
 export function defaultStorage(): WorkbenchStorage {
   return {
+    discovery: {
+      passiveServerUrl: DEFAULT_PASSIVE_SERVER_URL,
+    },
     panes: {
       operator: {
         paneId: "operator",
@@ -47,6 +58,7 @@ export function loadWorkbenchStorage(): WorkbenchStorage {
   try {
     const parsed = JSON.parse(raw) as Partial<WorkbenchStorage>;
     return {
+      discovery: sanitizeDiscoveryConfig(parsed.discovery),
       layout: sanitizeDockviewLayout(parsed.layout),
       panes: sanitizePaneRecords(parsed.panes),
       nextAgentIndex: typeof parsed.nextAgentIndex === "number" ? parsed.nextAgentIndex : 1,
@@ -89,9 +101,23 @@ function sanitizePaneRecords(value: unknown): Record<string, PaneRecord> {
       continue;
     }
     const target = sanitizeTarget(record.target, defaultTarget(paneId, kind));
-    records[paneId] = { paneId, kind, target };
+    const resetToken = typeof record.resetToken === "number" ? record.resetToken : undefined;
+    records[paneId] = { paneId, kind, target, resetToken };
   }
   return records;
+}
+
+function sanitizeDiscoveryConfig(value: unknown): DiscoveryConfig {
+  if (!value || typeof value !== "object") {
+    return defaultStorage().discovery;
+  }
+  const config = value as Partial<DiscoveryConfig>;
+  return {
+    passiveServerUrl:
+      typeof config.passiveServerUrl === "string" && config.passiveServerUrl.trim()
+        ? config.passiveServerUrl
+        : DEFAULT_PASSIVE_SERVER_URL,
+  };
 }
 
 function sanitizeTarget(value: unknown, fallback: TargetConfig): TargetConfig {
@@ -103,7 +129,38 @@ function sanitizeTarget(value: unknown, fallback: TargetConfig): TargetConfig {
     label: typeof target.label === "string" ? target.label : fallback.label,
     url: typeof target.url === "string" ? target.url : fallback.url,
     threadId: typeof target.threadId === "string" ? target.threadId : fallback.threadId,
+    source: sanitizeTargetSource(target.source),
   };
+}
+
+function sanitizeTargetSource(value: unknown): TargetConfig["source"] {
+  if (!value || typeof value !== "object") {
+    return { kind: "manual" };
+  }
+  const source = value as Partial<NonNullable<TargetConfig["source"]>>;
+  if (source.kind === "discovered") {
+    const agentId = stringField(source, "agentId");
+    const agentName = stringField(source, "agentName");
+    const passiveServerUrl = stringField(source, "passiveServerUrl");
+    if (!agentId || !agentName || !passiveServerUrl) {
+      return { kind: "manual" };
+    }
+    return {
+      kind: "discovered",
+      passiveServerUrl,
+      agentId,
+      agentName,
+      generationId: stringField(source, "generationId") || undefined,
+      tool: stringField(source, "tool") || undefined,
+      backend: stringField(source, "backend") || undefined,
+    };
+  }
+  return { kind: "manual" };
+}
+
+function stringField(value: object, key: string): string {
+  const record = value as Record<string, unknown>;
+  return typeof record[key] === "string" ? record[key] : "";
 }
 
 function dropFloatingState(value: unknown): unknown {

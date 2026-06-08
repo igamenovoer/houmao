@@ -12,7 +12,8 @@ Current status:
 - Milestone 2 is implemented in commit `f88b4873`: `/v1/ag-ui/runs` now admits one task through the existing gateway request queue, streams AG-UI SSE lifecycle/output events, maps headless canonical events and lower-fidelity TUI observations, validates `houmao_render_graphic` artifacts, and reports run/graphics capabilities when supported.
 - Milestone 3 is implemented in `add-ag-ui-e2e-smoke-and-demo`: AG-UI streams now emit safe diagnostics and active counts, deterministic gateway E2E covers run-id artifact lookup and graphics reconstruction, the supported headless gateway demo owns the live AG-UI text smoke command, the opt-in Bun Playwright browser fixture validates renderer behavior, docs cover direct gateway setup, and passive-server readiness tests define future SSE proxy expectations.
 - Milestone 4 is implemented in `add-ag-ui-workbench-app`: `apps/ag-ui-workbench/` provides a standalone Bun/Vite React workbench outside the PyPI package, with a pinned operator pane, Dockview-based in-app agent panes, direct AG-UI client behavior, loopback development proxy, SVG `houmao_render_graphic` rendering, deterministic Playwright fake-server coverage, and documented Kimi Code headless live-validation guidance.
-- Remaining stage 1 work is compacted connect replay if needed and optional live validation against an already-running Kimi Code headless gateway when local credentials are available. Stage 2 can start from the concrete passive-server proxy contract and the workbench can later target passive-server agent URLs.
+- Milestone 5 is implemented in `add-ag-ui-workbench-agent-picker`: the workbench can query a configured passive server for discovered Houmao agents, resolve selected agents through gateway status, retarget existing panes, open new docked panes, preserve manual gateway entry, and verify the picker flow through deterministic Playwright fake passive-server coverage.
+- Remaining stage 1 work is compacted connect replay if needed and optional live validation against an already-running Kimi Code headless gateway when local credentials are available. Stage 2 can start from the concrete passive-server proxy contract, including future passive-server AG-UI SSE routes for remote workbench targeting.
 
 ```mermaid
 flowchart LR
@@ -245,6 +246,46 @@ Done when:
 - [x] The GUI can test operator input and multiple docked agent panes without managing Houmao agent lifecycle.
 - [x] The deterministic browser smoke proves the direct protocol path without live credentials.
 - [x] The roadmap records Kimi Code headless as the opt-in live validation lane for this milestone.
+
+## Milestone 5: Passive-Server Agent Picker for the Workbench
+
+Goal: let testers select already-running Houmao agents from a passive-server discovery list instead of manually inspecting registry records or gateway ports before targeting a workbench pane.
+
+Status: implemented by OpenSpec change `add-ag-ui-workbench-agent-picker`. The first implementation still resolves selected agents to direct per-agent gateway URLs rather than adding passive-server AG-UI SSE proxy routes, so explicit manual URLs remain the remote and forwarded-gateway fallback.
+
+Deliverables:
+
+- Passive-server URL configuration in the workbench, defaulting to the documented loopback passive-server port.
+- Agent picker opened from the toolbar for new-pane creation and from target forms for pane retargeting.
+- `GET /houmao/agents` discovery, row filtering, gateway and mailbox availability badges, deterministic errors, and proxy-policy handling.
+- `GET /houmao/agents/{agent_ref}/gateway` resolution to direct `/v1/ag-ui` gateway URLs, including no-gateway and unresolved-coordinate errors.
+- Existing-pane retargeting that aborts and detaches GUI streams, clears old reduced AG-UI state, preserves Dockview placement, and does not call lifecycle or interrupt endpoints.
+- New discovered-agent panes with independent target metadata, thread IDs, connection IDs, and event state.
+- Manual AG-UI URL editing that switches target source metadata back to manual and remains first-class for remote or forwarded targets.
+- Deterministic Bun Playwright coverage with a fake passive server and separate fake gateway ports per discovered agent.
+
+Todo:
+
+- [x] Add passive-server discovery and gateway-resolution client code to the workbench.
+- [x] Persist only passive-server URL and selected target metadata, not discovered list responses, gateway status bodies, prompts, or stream events.
+- [x] Add a Dockview-safe picker UI with toolbar and pane-target-form entry points.
+- [x] Add picker-driven retarget and new-pane actions without introducing agent lifecycle controls.
+- [x] Extend the deterministic fake-server Playwright fixture for passive discovery and gateway status.
+- [x] Document the picker workflow, manual fallback, non-loopback allowlist, and PyPI package boundary.
+
+Verification test cases:
+
+- `bun run typecheck` in `apps/ag-ui-workbench/`: validate TypeScript app, picker, discovery client, fake passive server, and Playwright types.
+- `bun run build` in `apps/ag-ui-workbench/`: validate the Vite production build.
+- `bun run e2e` in `apps/ag-ui-workbench/`: verify agent listing, filtering, pane retargeting, new-pane creation, event isolation, manual URL fallback, unresolved gateway errors, and disallowed passive-server host errors.
+- `openspec validate add-ag-ui-workbench-agent-picker --strict`: validate the change artifacts.
+
+Done when:
+
+- [x] A tester can list discovered Houmao agents from the workbench.
+- [x] A tester can retarget an existing pane or open a new pane from the discovered-agent list.
+- [x] The GUI still supports explicit gateway URLs and does not manage Houmao agent lifecycle.
+- [x] Deterministic browser coverage proves the picker behavior without live credentials.
 
 ## Cross-Milestone Todo
 
