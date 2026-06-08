@@ -5,7 +5,7 @@ strategies:
     operator_prompt_mode: unattended
     backends:
       - kimi_headless
-    supported_versions: ">=0.10.0,<0.11.0"
+    supported_versions: ">=0.10.0,<0.12.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -24,7 +24,7 @@ strategies:
         note: Local Kimi source emits session.resume_hint meta events and resolves exact or latest prompt sessions by working directory.
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
-        note: Installed Kimi Code 0.10.1 successfully returned assistant, tool call, tool result, and resume-hint stream JSON in prompt mode.
+        note: Installed Kimi Code 0.11.0 still exposes -p, --output-format stream-json, and --skills-dir prompt-mode options matching the local source contract.
     owned_paths:
       - path: config.toml
         keys:

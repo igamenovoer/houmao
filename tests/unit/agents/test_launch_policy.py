@@ -739,6 +739,29 @@ def test_gemini_resume_control_preserves_owned_settings_file_while_reapplying_cl
     assert settings_path.read_text(encoding="utf-8") == original_settings + "\n"
 
 
+def test_toml_rewrite_preserves_float_scalars(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[loop_control]
+compaction_trigger_ratio = 0.85
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    provider_hooks.set_toml_key(
+        path=config_path,
+        key_path=("extra_skill_dirs",),
+        value=[str(tmp_path / "skills")],
+    )
+
+    payload = _load_toml(config_path)
+    loop_control = payload["loop_control"]
+    assert isinstance(loop_control, dict)
+    assert loop_control["compaction_trigger_ratio"] == 0.85
+    assert payload["extra_skill_dirs"] == [str(tmp_path / "skills")]
+
+
 def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -786,7 +809,7 @@ def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.11.0")
+    _stub_version(monkeypatch, output="0.12.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
 
