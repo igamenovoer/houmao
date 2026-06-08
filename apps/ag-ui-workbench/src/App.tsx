@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanel } from "dockview-react";
-import { Boxes, PanelBottom, Plus, Server } from "lucide-react";
+import { Boxes, PanelBottom, Plus, Server, Users } from "lucide-react";
 
 import { AgentSessionPanel } from "./panes/AgentSessionPanel";
-import type { TargetConfig } from "./ag-ui/types";
+import { AgentPicker } from "./panes/AgentPicker";
+import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 import {
   defaultTarget,
   loadWorkbenchStorage,
@@ -33,6 +34,7 @@ const components = {
 export default function App() {
   const [storage, setStorage] = useState(loadWorkbenchStorage);
   const [proxyStatus, setProxyStatus] = useState("checking");
+  const [pickerRequest, setPickerRequest] = useState<AgentPickerRequest | null>(null);
   const apiRef = useRef<DockviewApi | null>(null);
   const storageRef = useRef(storage);
 
@@ -49,12 +51,13 @@ export default function App() {
   const updateTarget = useCallback(
     (paneId: string, target: TargetConfig) => {
       const current = storageRef.current;
+      const existing = current.panes[paneId];
       persist({
         ...current,
         panes: {
           ...current.panes,
           [paneId]: {
-            ...(current.panes[paneId] ?? { paneId, kind: paneId === OPERATOR_PANEL_ID ? "operator" : "agent" }),
+            ...(existing ?? { paneId, kind: paneId === OPERATOR_PANEL_ID ? "operator" : "agent" }),
             target,
           },
         },
@@ -76,11 +79,26 @@ export default function App() {
     [persist],
   );
 
+  const updateDiscoveryUrl = useCallback(
+    (passiveServerUrl: string) => {
+      const current = storageRef.current;
+      persist({
+        ...current,
+        discovery: {
+          ...current.discovery,
+          passiveServerUrl,
+        },
+      });
+    },
+    [persist],
+  );
+
   const contextValue = useMemo(
     () => ({
       storage,
       updateTarget,
       removePaneRecord,
+      openAgentPicker: setPickerRequest,
     }),
     [removePaneRecord, storage, updateTarget],
   );
@@ -126,7 +144,7 @@ export default function App() {
     }
   };
 
-  const addAgentPane = () => {
+  const addAgentPane = (target?: TargetConfig) => {
     const api = apiRef.current;
     if (!api) {
       return;
@@ -140,7 +158,7 @@ export default function App() {
     const record: PaneRecord = {
       paneId,
       kind: "agent",
-      target: defaultTarget(paneId, "agent"),
+      target: target ?? defaultTarget(paneId, "agent"),
     };
     persist({
       ...current,
@@ -165,6 +183,27 @@ export default function App() {
     });
   };
 
+  const retargetPane = (paneId: string, target: TargetConfig) => {
+    const current = storageRef.current;
+    const existing = current.panes[paneId] ?? {
+      paneId,
+      kind: paneId === OPERATOR_PANEL_ID ? "operator" : "agent",
+      target: defaultTarget(paneId, paneId === OPERATOR_PANEL_ID ? "operator" : "agent"),
+    };
+    persist({
+      ...current,
+      panes: {
+        ...current.panes,
+        [paneId]: {
+          ...existing,
+          target,
+          resetToken: (existing.resetToken ?? 0) + 1,
+        },
+      },
+    });
+    apiRef.current?.getPanel(paneId)?.api.setTitle(target.label || paneId);
+  };
+
   return (
     <WorkbenchProvider value={contextValue}>
       <main className="app-shell" data-testid="app-shell">
@@ -184,7 +223,11 @@ export default function App() {
             <button title="Refresh proxy status" onClick={() => void refreshProxyStatus()}>
               <PanelBottom size={15} />
             </button>
-            <button className="primary" title="Add agent pane" data-testid="add-agent-pane" onClick={addAgentPane}>
+            <button title="Show discovered Houmao agents" data-testid="open-agent-picker" onClick={() => setPickerRequest({ mode: "new-pane" })}>
+              <Users size={15} />
+              Agents
+            </button>
+            <button className="primary" title="Add agent pane" data-testid="add-agent-pane" onClick={() => addAgentPane()}>
               <Plus size={16} />
               Agent Pane
             </button>
@@ -201,6 +244,15 @@ export default function App() {
             noPanelsOverlay="emptyGroup"
           />
         </section>
+        <AgentPicker
+          request={pickerRequest}
+          passiveServerUrl={storage.discovery.passiveServerUrl}
+          panes={storage.panes}
+          onPassiveServerUrlChange={updateDiscoveryUrl}
+          onCreatePane={addAgentPane}
+          onRetargetPane={retargetPane}
+          onClose={() => setPickerRequest(null)}
+        />
       </main>
     </WorkbenchProvider>
   );

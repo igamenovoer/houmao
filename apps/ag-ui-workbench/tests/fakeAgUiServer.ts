@@ -10,9 +10,17 @@ interface RecordedDetach {
   connectionId: string;
 }
 
+interface GatewayServerRecord {
+  server: Server;
+  port: number;
+}
+
+const GATEWAY_TARGETS = ["operator", "alpha", "beta", "manual"] as const;
+
 export class FakeAgUiServer {
-  private m_server: Server | null = null;
-  private m_port = 0;
+  private m_passiveServer: Server | null = null;
+  private m_passivePort = 0;
+  private readonly m_gateways = new Map<string, GatewayServerRecord>();
   private readonly m_openResponses = new Set<ServerResponse>();
 
   readonly runs: RecordedRun[] = [];
@@ -20,34 +28,103 @@ export class FakeAgUiServer {
   interruptRequests = 0;
 
   async start(): Promise<void> {
-    this.m_server = createServer((req, res) => {
-      void this.handle(req, res);
+    for (const target of GATEWAY_TARGETS) {
+      await this.startGateway(target);
+    }
+    this.m_passiveServer = createServer((req, res) => {
+      void this.handlePassiveRequest(req, res);
     });
     await new Promise<void>((resolve) => {
-      this.m_server!.listen(0, "127.0.0.1", resolve);
+      this.m_passiveServer!.listen(0, "127.0.0.1", resolve);
     });
-    const address = this.m_server.address();
+    const address = this.m_passiveServer.address();
     if (!address || typeof address === "string") {
-      throw new Error("Fake AG-UI server did not bind a TCP port.");
+      throw new Error("Fake passive server did not bind a TCP port.");
     }
-    this.m_port = address.port;
+    this.m_passivePort = address.port;
   }
 
   async stop(): Promise<void> {
     for (const response of this.m_openResponses) {
       response.end();
     }
-    await new Promise<void>((resolve) => this.m_server?.close(() => resolve()));
-    this.m_server = null;
+    await Promise.all(
+      [...this.m_gateways.values()].map(
+        (record) => new Promise<void>((resolve) => record.server.close(() => resolve())),
+      ),
+    );
+    this.m_gateways.clear();
+    await new Promise<void>((resolve) => this.m_passiveServer?.close(() => resolve()));
+    this.m_passiveServer = null;
+  }
+
+  passiveBase(): string {
+    return `http://127.0.0.1:${this.m_passivePort}`;
   }
 
   targetBase(target: string): string {
-    return `http://127.0.0.1:${this.m_port}/${target}/v1/ag-ui`;
+    const gateway = this.m_gateways.get(target);
+    if (!gateway) {
+      throw new Error(`Unknown fake AG-UI target ${target}.`);
+    }
+    return `http://127.0.0.1:${gateway.port}/v1/ag-ui`;
   }
 
-  private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async startGateway(target: string): Promise<void> {
+    const server = createServer((req, res) => {
+      void this.handleGatewayRequest(req, res, target);
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error(`Fake gateway ${target} did not bind a TCP port.`);
+    }
+    this.m_gateways.set(target, { server, port: address.port });
+  }
+
+  private async handlePassiveRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
-    const target = url.pathname.split("/").filter(Boolean)[0] ?? "unknown";
+    if (req.method === "GET" && url.pathname === "/houmao/agents") {
+      sendJson(res, 200, {
+        agents: [
+          discoveredAgent("alpha", this.m_gateways.get("alpha") !== undefined),
+          discoveredAgent("beta", this.m_gateways.get("beta") !== undefined),
+          discoveredAgent("no-gateway", false),
+        ],
+      });
+      return;
+    }
+
+    const gatewayMatch = /^\/houmao\/agents\/([^/]+)\/gateway$/.exec(url.pathname);
+    if (req.method === "GET" && gatewayMatch) {
+      const agentRef = decodeURIComponent(gatewayMatch[1]);
+      if (agentRef === "no-gateway") {
+        sendJson(res, 502, {
+          detail: "Managed agent does not have a live gateway attached.",
+        });
+        return;
+      }
+      const gateway = this.m_gateways.get(agentRef);
+      if (!gateway) {
+        sendJson(res, 404, { detail: "Agent not found." });
+        return;
+      }
+      sendJson(res, 200, {
+        status: "running",
+        gateway_host: "127.0.0.1",
+        gateway_port: gateway.port,
+        backend: "fake_headless",
+      });
+      return;
+    }
+
+    sendJson(res, 404, { detail: "Passive route not found." });
+  }
+
+  private async handleGatewayRequest(req: IncomingMessage, res: ServerResponse, target: string): Promise<void> {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     if (req.method === "GET" && url.pathname.endsWith("/capabilities")) {
       sendJson(res, 200, capabilities(target));
       return;
@@ -182,6 +259,23 @@ export class FakeAgUiServer {
     writeSse(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
   }
+}
+
+function discoveredAgent(agentId: string, hasGateway: boolean): unknown {
+  return {
+    agent_id: agentId,
+    agent_name: `HOUMAO-${agentId}`,
+    generation_id: `gen-${agentId}`,
+    tool: "kimi",
+    backend: "fake_headless",
+    tmux_session_name: `houmao-${agentId}`,
+    manifest_path: `/tmp/houmao/${agentId}/manifest.json`,
+    session_root: `/tmp/houmao/${agentId}`,
+    has_gateway: hasGateway,
+    has_mailbox: agentId !== "no-gateway",
+    published_at: "2026-06-08T00:00:00Z",
+    lease_expires_at: "2099-01-01T00:00:00Z",
+  };
 }
 
 function capabilities(target: string): unknown {
