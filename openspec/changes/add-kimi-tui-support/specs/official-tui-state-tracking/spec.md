@@ -7,6 +7,8 @@ The maintained Kimi process-name set SHALL include `kimi-code` and `kimi`.
 
 When captured pane text is available for a recognized Kimi TUI process, the parser-owned sidecar path SHALL produce a supported `HoumaoParsedSurface` rather than reporting `unsupported_tool` solely because the tool is Kimi.
 
+The Kimi parser-owned sidecar path SHALL wrap Kimi-specific visible-surface analysis directly and SHALL NOT instantiate the Claude/Codex `ShadowParserStack` for Kimi.
+
 The parser-owned Kimi surface SHALL remain sidecar evidence. Shared tracker reduction SHALL continue using raw captured snapshot text as its input.
 
 #### Scenario: Kimi process is recognized as supported
@@ -18,6 +20,11 @@ The parser-owned Kimi surface SHALL remain sidecar evidence. Shared tracker redu
 - **WHEN** a recognized Kimi TUI pane is captured successfully
 - **THEN** the official parser path returns a `HoumaoParsedSurface` with supported availability
 - **AND THEN** the shared tracker still receives the raw captured snapshot text for authoritative state reduction
+
+#### Scenario: Kimi parser bypasses Claude Codex shadow stack
+- **WHEN** the official parser adapter parses a recognized Kimi TUI pane
+- **THEN** it uses the Kimi visible-surface parser path
+- **AND THEN** it does not require `ShadowParserStack(tool="kimi")` to exist
 
 ### Requirement: Kimi Code parser maps visible surfaces to operator state
 The Kimi parser SHALL map visible Kimi TUI surfaces into the existing parser-owned operator state vocabulary.
@@ -33,6 +40,8 @@ The parser SHALL classify approval dialogs as operator-blocked and SHALL expose 
 
 The parser SHALL NOT classify Kimi footer model metadata as active-turn evidence by itself.
 
+The parser SHALL classify recognized startup or modal surfaces that block normal prompt entry as unavailable for managed prompt submission until the blocker clears.
+
 #### Scenario: Kimi ready surface maps to ready state
 - **WHEN** the captured Kimi pane shows a prompt-ready main chat surface with no current blocker
 - **THEN** the parsed surface reports an idle or ready business state and freeform input mode
@@ -46,4 +55,3 @@ The parser SHALL NOT classify Kimi footer model metadata as active-turn evidence
 - **WHEN** the captured Kimi pane shows footer text containing `thinking`
 - **AND WHEN** no current active response, tool-use, or progress surface is visible
 - **THEN** the parser does not report active business state solely from that footer text
-

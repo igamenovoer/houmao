@@ -7,6 +7,10 @@ Kimi TUI launch SHALL remain distinct from the `kimi_headless` backend. A reques
 
 The local interactive Kimi runtime SHALL preserve the existing tmux primary-surface contract, managed runtime home projection, launch-profile environment handling, gateway attachability, and managed-agent metadata publication used by other maintained local interactive providers.
 
+Kimi Code `local_interactive` role injection SHALL use a bootstrap-message turn rather than an unverified native TUI system prompt flag.
+
+Managed Kimi Code TUI launches SHALL project `KIMI_CODE_NO_AUTO_UPDATE=1` into the launched process environment so Kimi does not stop startup on an interactive update preflight.
+
 #### Scenario: Kimi local interactive launch starts the TUI
 - **WHEN** an operator launches a managed agent for tool `kimi` with local interactive posture
 - **THEN** the runtime starts the Kimi Code interactive TUI in the managed tmux primary surface
@@ -17,6 +21,31 @@ The local interactive Kimi runtime SHALL preserve the existing tmux primary-surf
 - **WHEN** an operator launches a managed agent for tool `kimi` with headless posture
 - **THEN** the runtime continues using backend `kimi_headless`
 - **AND THEN** the launch does not inherit Kimi TUI parser, prompt, or relaunch assumptions solely because both modes use the same provider CLI
+
+#### Scenario: Kimi TUI launch suppresses update preflight
+- **WHEN** Houmao starts a managed Kimi Code local interactive session
+- **THEN** the launched Kimi process environment includes `KIMI_CODE_NO_AUTO_UPDATE=1`
+- **AND THEN** Houmao does not depend on an interactive Kimi update prompt being absent by chance
+
+#### Scenario: Kimi TUI role injection uses bootstrap message
+- **WHEN** a managed Kimi Code local interactive launch has a role prompt
+- **THEN** Houmao plans bootstrap-message role injection for Kimi TUI
+- **AND THEN** it does not add an unverified Kimi TUI system-prompt CLI flag
+
+### Requirement: Kimi Code TUI launch does not project prompt-mode-only skills-dir arguments
+Houmao SHALL NOT add managed `--skills-dir` arguments to Kimi Code `local_interactive` launch commands until Kimi exposes a maintained TUI skills-dir startup mechanism.
+
+Kimi headless prompt-mode behavior SHALL remain free to use its existing managed skills-dir projection where supported.
+
+#### Scenario: Kimi TUI launch omits managed skills-dir args
+- **WHEN** Houmao prepares a local interactive Kimi launch with managed skills available
+- **THEN** the Kimi TUI launch command does not include managed `--skills-dir` arguments
+- **AND THEN** Kimi TUI startup is not treated as supporting prompt-mode-only skills-dir injection
+
+#### Scenario: Kimi headless skills-dir behavior remains distinct
+- **WHEN** Houmao prepares a Kimi headless prompt-mode launch
+- **THEN** existing Kimi headless skills-dir behavior is governed by the headless launch policy
+- **AND THEN** Kimi TUI support does not remove or rename that behavior
 
 ### Requirement: Kimi Code TUI control uses semantic prompt submission and Escape interruption
 For live Kimi Code `local_interactive` sessions, semantic prompt submission SHALL insert the prompt through the existing submit-aware tmux paste path and send the final submit action separately.
@@ -51,6 +80,12 @@ The Kimi TUI relaunch translation SHALL be:
 
 An exact Kimi relaunch selector SHALL require a non-empty provider-native session id.
 
+The runtime SHALL NOT use bare `kimi --session` for managed relaunch because that starts Kimi's interactive session picker.
+
+When Kimi TUI relaunch resumes a provider chat through `--continue` or `--session <session_id>`, the runtime SHALL reject the relaunch before provider start if the final startup arguments also contain `--yolo`, `--auto`, or `--plan`.
+
+Kimi TUI relaunch SHALL permit launch-owned `--model <alias>` arguments with `--continue` or `--session <session_id>`.
+
 #### Scenario: Kimi TUI relaunch starts a fresh chat by default
 - **WHEN** an operator relaunches a Kimi TUI managed session without a relaunch chat-session selector
 - **THEN** the runtime respawns Kimi Code without `--continue` or `--session`
@@ -65,6 +100,23 @@ An exact Kimi relaunch selector SHALL require a non-empty provider-native sessio
 - **WHEN** an operator relaunches a Kimi TUI managed session with relaunch chat-session mode `exact` and provider session id `session_abc`
 - **THEN** the runtime respawns Kimi Code with `--session session_abc`
 - **AND THEN** it rejects the relaunch if the exact selector has no provider session id
+
+#### Scenario: Kimi TUI relaunch avoids interactive picker
+- **WHEN** an operator relaunches a Kimi TUI managed session with relaunch chat-session mode `exact`
+- **THEN** the runtime requires the exact selector to contain a provider session id
+- **AND THEN** it never respawns Kimi Code with bare `--session`
+
+#### Scenario: Kimi TUI relaunch rejects permission-mode conflicts
+- **WHEN** a Kimi TUI managed session is relaunched with relaunch chat-session mode `tool_last_or_new`
+- **AND WHEN** the final launch arguments would combine `--continue` with `--auto`
+- **THEN** Houmao rejects the relaunch before respawning Kimi
+- **AND THEN** the error explains that Kimi cannot combine `--auto`, `--yolo`, or `--plan` with `--continue` or `--session`
+
+#### Scenario: Kimi TUI relaunch keeps model selection
+- **WHEN** a Kimi TUI managed session is relaunched with relaunch chat-session mode `exact` and provider session id `session_abc`
+- **AND WHEN** the launch-owned Kimi model is `kimi-code/kimi-for-coding`
+- **THEN** the runtime respawns Kimi Code with `--model kimi-code/kimi-for-coding --session session_abc`
+- **AND THEN** it does not reject the relaunch solely because `--model` is present
 
 ### Requirement: Kimi Code TUI exposes ready, active, and approval-blocked state
 The Kimi TUI support SHALL expose operator-facing state for prompt-ready surfaces, active response surfaces, and approval-blocked surfaces through the maintained TUI tracking APIs.
@@ -94,4 +146,3 @@ The system SHALL NOT treat footer model metadata such as a model name followed b
 - **WHEN** a captured Kimi TUI snapshot shows footer text containing `thinking`
 - **AND WHEN** the current Kimi surface has a submit-ready prompt and no current active-turn evidence
 - **THEN** the tracked state does not report an active turn solely from that footer text
-

@@ -7,6 +7,8 @@ The Kimi app profile SHALL convert raw Kimi TUI snapshot text into normalized sh
 
 The profile SHALL resolve observed Kimi versions through the same versioned profile selection contract used by other supported TUI apps.
 
+The maintained Kimi Code profile SHALL be source-backed by the captured Kimi `0.11.x` signal corpus. Additional Kimi version families SHALL only be marked maintained when labeled corpus evidence exists for those versions.
+
 #### Scenario: Kimi tool resolves to Kimi tracker app id
 - **WHEN** the shared tracker is constructed for tool `kimi`
 - **THEN** the tracker resolves the supported TUI app family as `kimi_code`
@@ -27,4 +29,3 @@ The profile SHALL resolve observed Kimi versions through the same versioned prof
 #### Scenario: Kimi footer thinking text is ignored as activity evidence
 - **WHEN** the Kimi profile receives a raw snapshot whose only thinking-like text is footer model metadata
 - **THEN** it does not emit active-turn evidence solely from that footer text
-

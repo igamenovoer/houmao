@@ -7,10 +7,13 @@ Houmao can already run Kimi Code in headless prompt mode, but Kimi's interactive
 - Add maintained Kimi Code support for the `local_interactive` backend.
 - Recognize live Kimi TUI processes, including the observed `kimi-code` process name.
 - Add Kimi provider-native relaunch mappings for latest-chat and exact-session continuation.
+- Validate Kimi relaunch argument combinations against Kimi's native TUI option conflicts.
 - Project launch-owned Kimi model overrides into TUI startup with `--model <alias>`.
+- Suppress Kimi's interactive update preflight for managed TUI launches with the supported Kimi environment switch.
 - Add Kimi visible-surface parsing for operator state, including ready, active, and approval-blocked surfaces.
 - Add a versioned Kimi TUI signal profile for shared tracker reduction from raw tmux snapshots.
 - Keep Kimi headless prompt-mode behavior separate from Kimi TUI behavior.
+- Keep managed `--skills-dir` projection scoped to Kimi headless prompt mode unless Kimi adds a maintained TUI skills-dir surface.
 - Document the Kimi TUI launch and relaunch posture in the run-phase reference.
 
 ## Capabilities
@@ -29,7 +32,7 @@ Houmao can already run Kimi Code in headless prompt mode, but Kimi's interactive
 
 ## Impact
 
-- Affected runtime code includes local interactive launch planning, tmux process inspection allowlists, prompt submission and interrupt paths, relaunch argument generation, and Kimi model-selection argument handling.
+- Affected runtime code includes local interactive launch planning, managed launch environment projection, tmux process inspection allowlists, prompt submission and interrupt paths, relaunch argument generation, relaunch conflict validation, and Kimi model-selection argument handling.
 - Affected tracking code includes the shared TUI profile registry, Kimi-specific detector profile, official parser adapter, server/gateway/passive observer diagnostics, and fixture-based parser/tracker tests.
 - Affected docs include run-phase backend and relaunch reference material.
 - No public Kimi headless backend rename or stored-data migration is intended.

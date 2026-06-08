@@ -5376,6 +5376,10 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         return runtime.delete_mail_notifier()
 
+    from houmao.ag_ui.routes import register_ag_ui_routes
+
+    register_ag_ui_routes(app, runtime=runtime)
+
     return app
 
 

@@ -104,10 +104,22 @@ Start a live watch dashboard for Codex:
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
 ```
 
+Start a live watch dashboard for Kimi Code:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool kimi
+```
+
 Enable recorder-backed live capture only when you want replay-debug artifacts from the same run:
 
 ```bash
 scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude --with-recorder
+```
+
+Kimi Code uses the same recorder-backed live path:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool kimi --with-recorder
 ```
 
 Use an alternate config file for live watch when you want different path roots, capture cadence, or sweep definitions:
@@ -165,6 +177,7 @@ Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run
 The normal launch posture is intentionally permissive, and the default live-watch path is intentionally lightweight:
 
 - The checked-in Claude and Codex interactive-watch recipes request `launch_policy.operator_prompt_mode: unattended`
+- The checked-in Kimi interactive-watch recipe requests `launch_policy.operator_prompt_mode: as_is`
 - Those checked-in recipes live under `inputs/agents/presets/interactive-watch-<tool>-default.yaml` and keep the tracked auth contract at `auth: default`
 - Live watch defaults to `live_watch_recorder_enabled = false`, so an ordinary interactive test does not start terminal-recorder
 - Use `--with-recorder` or a config/profile override only when you want retained replay-debug artifacts from that run
@@ -196,6 +209,11 @@ The first real authoring wave is intentionally narrow and uses concrete prompts 
 - Codex `codex_double_interrupt_then_close`: send one long-running prompt, wait for the active surface, run the scenario-owned `interrupt_turn` intent, send a second long-running prompt, interrupt again, then run the scenario-owned `close_tool` intent
 - Codex `codex_success_interrupt_success_complex`: mirror the Claude complex lifecycle with one initial short success, two long interrupted turns with visible ready-draft and active-draft holds, then one final short recovered success
 - Codex `codex_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
+- Kimi `kimi_explicit_success`: send `Reply with the single word READY and stop.`
+- Kimi `kimi_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for detector-owned active evidence, run the scenario-owned `interrupt_turn` intent, then wait for the interrupted-ready posture
+- Kimi `kimi_approval_reject`: ask Kimi to use a shell command with approval, wait for the approval surface, then reject it
+- Kimi `kimi_footer_thinking_ready`: send a short thinking prompt, wait for detector-owned active evidence, then keep the final ready surface visible
+- Kimi `kimi_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for detector-owned active evidence, then kill the tracked Kimi process
 
 Each case targets one critical transition family:
 
@@ -226,6 +244,7 @@ When authoring or replacing a canonical fixture:
 ```bash
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool claude
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool kimi
 ```
 
 2. Capture the real session into a temporary authoring root:
@@ -234,6 +253,19 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh start --tool codex
 bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
   --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/claude-interrupted-after-active.json \
   --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/claude/claude_interrupted_after_active/capture
+```
+
+For Kimi, prepare the local auth bundle first at `tests/fixtures/auth-bundles/kimi/personal-a-default/`. The demo intentionally does not commit this directory because it can contain live `config.toml`, `credentials/`, and `env/vars.env` material. A missing Kimi bundle fails during demo-local agent tree materialization, before tmux launch.
+
+```bash
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
+  --scenario scripts/demo/shared-tui-tracking-demo-pack/scenarios/kimi-interrupted-after-active.json \
+  --output-root tmp/demo/shared-tui-tracking-demo-pack/authoring/kimi/kimi_interrupted_after_active/capture
+
+bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
+  --fixture-root tmp/demo/shared-tui-tracking-demo-pack/authoring/kimi/kimi_interrupted_after_active/capture \
+  --tool kimi \
+  --settle-seconds 1.0
 ```
 
 3. Read `recording/pane_snapshots.ndjson` directly and author `recording/labels.json` over the full tracked field set:

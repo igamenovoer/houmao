@@ -763,6 +763,17 @@
             }
           ],
           "default": null
+        },
+        "kimi": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DemoToolConfigOverrideV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "DemoToolsConfigOverrideV1",
@@ -777,11 +788,15 @@
         },
         "codex": {
           "$ref": "#/$defs/DemoToolConfigV1"
+        },
+        "kimi": {
+          "$ref": "#/$defs/DemoToolConfigV1"
         }
       },
       "required": [
         "claude",
-        "codex"
+        "codex",
+        "kimi"
       ],
       "title": "DemoToolsConfigV1",
       "type": "object"
