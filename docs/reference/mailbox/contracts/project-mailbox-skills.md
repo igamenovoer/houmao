@@ -24,8 +24,9 @@ The skill destination directory differs by tool, but Houmao-owned mailbox skills
 | Claude | `skills/` (top-level) | No namespace — skills appear at top level as native SKILL.md projections. |
 | Codex | `skills/` | No namespace — Houmao-owned Codex skills live at top level. |
 | Gemini | `.gemini/skills/` | No namespace — Houmao-owned Gemini skills live at top level. |
+| Kimi | `skills/` | No namespace — Houmao-owned Kimi skills live at top level, and managed Kimi homes add the projected root to `extra_skill_dirs`. |
 
-Claude, Codex, and Gemini all receive mailbox skills as first-class top-level Houmao-owned skills because their maintained contracts rely on native skill discovery from the active skill destination. Gemini's upstream `.agents/skills/` path remains only an alias surface, but Houmao-owned projection now targets `.gemini/skills/`.
+Claude, Codex, Gemini, and Kimi all receive mailbox skills as first-class Houmao-owned skills because their maintained contracts rely on native skill discovery from the active skill destination. Gemini's upstream `.agents/skills/` path remains only an alias surface, but Houmao-owned projection now targets `.gemini/skills/`. Kimi managed homes use the ordinary `skills/` projection root and record that root in Kimi `extra_skill_dirs`.
 
 ## Maintained Contract
 
@@ -36,6 +37,7 @@ Ordinary mailbox prompting should use the installed native skill surface instead
 - Claude Code: invoke the installed skill through Claude's native skill surface, typically with `/houmao-...`.
 - Codex: invoke the installed skill through Codex's native skill surface, typically with `$houmao-...`.
 - Gemini: invoke the installed skill by name.
+- Kimi: invoke the installed skill by name.
 
 Maintained prompts should not tell agents to open copied `skills/.../SKILL.md` files from the worktree for ordinary mailbox rounds.
 

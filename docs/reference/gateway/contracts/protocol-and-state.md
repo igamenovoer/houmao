@@ -153,6 +153,12 @@ Current v1 routes:
 - `GET /v1/mail-notifier`
 - `PUT /v1/mail-notifier`
 - `DELETE /v1/mail-notifier`
+- `GET /v1/ag-ui/capabilities`
+- `POST /v1/ag-ui/connect`
+- `POST /v1/ag-ui/runs`
+- `DELETE /v1/ag-ui/connections/{connection_id}`
+
+The direct AG-UI routes are documented in [Gateway AG-UI Routes](../ag-ui.md). They attach GUI streams and submit AG-UI task runs to the existing gateway queue; they do not give the GUI managed-agent lifecycle ownership.
 
 ### `GET /health`
 

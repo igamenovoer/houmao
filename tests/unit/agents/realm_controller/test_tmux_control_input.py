@@ -10,6 +10,7 @@ import pytest
 from houmao.agents.realm_controller.backends.headless_base import HeadlessSessionState
 from houmao.agents.realm_controller.backends import local_interactive as local_interactive_module
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
+from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.mail_commands import MailPromptRequest, parse_mail_result
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxControlInputError,
@@ -114,6 +115,36 @@ def _make_local_interactive_session(tmp_path: Path) -> LocalInteractiveSession:
         role_bootstrap_applied=False,
         working_directory=str(tmp_path),
         tmux_session_name="HOUMAO-local",
+    )
+    return session
+
+
+def _make_kimi_local_interactive_session(tmp_path: Path) -> LocalInteractiveSession:
+    session = object.__new__(LocalInteractiveSession)
+    session.backend = "local_interactive"
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="kimi",
+        executable="kimi",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "kimi-home",
+        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="gpu-kernel-coder",
+            prompt="role prompt",
+            bootstrap_message="bootstrap",
+        ),
+        metadata={},
+    )
+    session._state = HeadlessSessionState(
+        turn_index=0,
+        role_bootstrap_applied=True,
+        working_directory=str(tmp_path),
+        tmux_session_name="HOUMAO-kimi",
     )
     return session
 
@@ -281,6 +312,48 @@ def test_local_interactive_send_prompt_uses_paste_buffer_and_separate_submit(
     assert session.state.turn_index == 1
     assert events[0].kind == "submitted"
     assert events[0].payload == {"tmux_session_name": "HOUMAO-local"}
+
+
+def test_kimi_local_interactive_send_prompt_uses_semantic_submit_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_kimi_local_interactive_session(tmp_path)
+    loaded_buffers: list[tuple[str, str]] = []
+    pasted_buffers: list[tuple[str, str, bool]] = []
+    sent_sequences: list[str] = []
+    enter_segments = (TmuxControlInputSegment(kind="special", value="Enter"),)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.load_tmux_buffer_shared",
+        lambda *, buffer_name, text: loaded_buffers.append((buffer_name, text)),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.paste_tmux_buffer_shared",
+        lambda *, target, buffer_name, bracketed_paste: pasted_buffers.append(
+            (target, buffer_name, bracketed_paste)
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.parse_tmux_control_input_shared",
+        lambda *, sequence, escape_special_keys=False: (
+            sent_sequences.append(sequence) or enter_segments
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.send_tmux_control_input_shared",
+        lambda *, target, segments: None,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.time.sleep",
+        lambda _seconds: None,
+    )
+
+    session.send_prompt("print <[Enter]> literally")
+
+    assert loaded_buffers[0][1] == "print <[Enter]> literally"
+    assert pasted_buffers == [("HOUMAO-kimi:0.0", loaded_buffers[0][0], True)]
+    assert sent_sequences == ["<[Enter]>"]
 
 
 def test_local_interactive_send_mail_prompt_observes_sentinel_result(
@@ -651,6 +724,34 @@ def test_local_interactive_interrupt_uses_escape(
     assert result.action == "interrupt"
 
 
+def test_kimi_local_interactive_interrupt_uses_escape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session = _make_kimi_local_interactive_session(tmp_path)
+    parse_calls: list[str] = []
+    sent_segments: list[tuple[str, tuple[TmuxControlInputSegment, ...]]] = []
+    escape_segments = (TmuxControlInputSegment(kind="special", value="Escape"),)
+
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.parse_tmux_control_input_shared",
+        lambda *, sequence, escape_special_keys=False: (
+            parse_calls.append(sequence) or escape_segments
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.backends.local_interactive.send_tmux_control_input_shared",
+        lambda *, target, segments: sent_segments.append((target, segments)),
+    )
+
+    result = session.interrupt()
+
+    assert parse_calls == ["<[Escape]>"]
+    assert sent_segments == [("HOUMAO-kimi:0.0", escape_segments)]
+    assert result.status == "ok"
+    assert result.action == "interrupt"
+
+
 def test_local_interactive_build_launch_command_skips_empty_developer_instructions(
     tmp_path: Path,
 ) -> None:
@@ -763,6 +864,18 @@ def test_local_interactive_build_launch_command_adds_codex_latest_resume_args(
             RelaunchChatSessionSelection(mode="exact", session_id="gemini-session-1"),
             ["--resume", "gemini-session-1"],
         ),
+        (
+            "kimi",
+            "kimi",
+            RelaunchChatSessionSelection(mode="tool_last_or_new"),
+            ["--continue"],
+        ),
+        (
+            "kimi",
+            "kimi",
+            RelaunchChatSessionSelection(mode="exact", session_id="kimi-session-1"),
+            ["--session", "kimi-session-1"],
+        ),
     ],
 )
 def test_local_interactive_build_launch_command_adds_resume_args_for_provider(
@@ -795,6 +908,94 @@ def test_local_interactive_build_launch_command_adds_resume_args_for_provider(
         executable,
         *expected_args,
     ]
+
+
+def test_kimi_local_interactive_relaunch_keeps_model_selection_with_exact_session(
+    tmp_path: Path,
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="kimi",
+        executable="kimi",
+        args=["--model", "kimi-code/kimi-for-coding"],
+        working_directory=tmp_path,
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "home",
+        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="gpu-kernel-coder",
+            prompt="",
+        ),
+        metadata={},
+    )
+
+    assert session._build_launch_command(  # noqa: SLF001
+        chat_session=RelaunchChatSessionSelection(mode="exact", session_id="session_abc")
+    ) == ["kimi", "--model", "kimi-code/kimi-for-coding", "--session", "session_abc"]
+
+
+def test_kimi_local_interactive_new_relaunch_uses_no_session_picker_args(tmp_path: Path) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="kimi",
+        executable="kimi",
+        args=[],
+        working_directory=tmp_path,
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "home",
+        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="gpu-kernel-coder",
+            prompt="",
+        ),
+        metadata={},
+    )
+
+    assert session._build_launch_command(  # noqa: SLF001
+        chat_session=RelaunchChatSessionSelection(mode="new")
+    ) == ["kimi"]
+
+
+@pytest.mark.parametrize("conflict_arg", ["--yolo", "--auto", "--plan"])
+@pytest.mark.parametrize(
+    "selection",
+    [
+        RelaunchChatSessionSelection(mode="tool_last_or_new"),
+        RelaunchChatSessionSelection(mode="exact", session_id="session_abc"),
+    ],
+)
+def test_kimi_local_interactive_relaunch_rejects_resume_permission_conflicts(
+    tmp_path: Path,
+    conflict_arg: str,
+    selection: RelaunchChatSessionSelection,
+) -> None:
+    session = object.__new__(LocalInteractiveSession)
+    session._plan = LaunchPlan(
+        backend="local_interactive",
+        tool="kimi",
+        executable="kimi",
+        args=[conflict_arg],
+        working_directory=tmp_path,
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "home",
+        env={"KIMI_CODE_NO_AUTO_UPDATE": "1"},
+        env_var_names=["KIMI_CODE_NO_AUTO_UPDATE"],
+        role_injection=RoleInjectionPlan(
+            method="bootstrap_message",
+            role_name="gpu-kernel-coder",
+            prompt="",
+        ),
+        metadata={},
+    )
+
+    with pytest.raises(BackendExecutionError, match="Unsupported Kimi TUI relaunch"):
+        session._build_launch_command(chat_session=selection)  # noqa: SLF001
 
 
 def test_local_interactive_relaunch_suppresses_bootstrap_when_resuming_chat(

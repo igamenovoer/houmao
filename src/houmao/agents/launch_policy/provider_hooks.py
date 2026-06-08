@@ -163,7 +163,7 @@ def set_toml_key(
     *,
     path: Path,
     key_path: tuple[str, ...],
-    value: str | bool | int,
+    value: str | bool | int | list[str],
     repair_invalid: bool = False,
 ) -> None:
     """Set one TOML key path using a minimal writer."""
@@ -807,7 +807,7 @@ def _toml_key_literal(value: str) -> str:
 
 
 def _toml_value_literal(value: object) -> str:
-    """Render one supported TOML scalar."""
+    """Render one supported TOML value."""
 
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -822,4 +822,6 @@ def _toml_value_literal(value: object) -> str:
             .replace("\t", "\\t")
         )
         return f'"{escaped}"'
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return "[" + ", ".join(_toml_value_literal(item) for item in value) + "]"
     raise LaunchPolicyError(f"Unsupported TOML scalar value: {value!r}")

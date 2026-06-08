@@ -1243,9 +1243,9 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
 
     assert (result.home_path / "skills/skill-a").is_symlink()
     assert (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
-    assert (result.home_path / "config.toml").read_text(encoding="utf-8") == (
-        'default_model = "kimi-code/default"\n'
-    )
+    config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    assert config_payload["default_model"] == "kimi-code/default"
+    assert config_payload["extra_skill_dirs"] == [str((result.home_path / "skills").resolve())]
     assert (result.home_path / "credentials/kimi-code.json").read_text(encoding="utf-8") == (
         '{"access_token": "secret"}\n'
     )
@@ -1259,6 +1259,68 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
         "config.toml",
         "credentials/kimi-code.json",
     ]
+    kimi_extra_skill_dirs = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "kimi_extra_skill_dirs"
+    ]
+    assert kimi_extra_skill_dirs["projected_skill_root"] == str(
+        (result.home_path / "skills").resolve()
+    )
+    assert kimi_extra_skill_dirs["added"] is True
+    assert kimi_extra_skill_dirs["value"] == [str((result.home_path / "skills").resolve())]
+
+
+def test_build_brain_home_preserves_kimi_extra_skill_dirs_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/config.toml",
+        "\n".join(
+            [
+                'default_model = "kimi-code/default"',
+                'extra_skill_dirs = ["/custom/skills"]',
+                "",
+                "[ui]",
+                'theme = "dark"',
+                "",
+            ]
+        ),
+    )
+
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=agent_def_dir / "tmp/agents-runtime",
+        tool="kimi",
+        skills=["skill-a"],
+        config_profile="default",
+        credential_profile="oauth",
+        home_id="kimi-home-extra-skill-dirs",
+    )
+    first_result = build_brain_home(request)
+    second_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=request.agent_def_dir,
+            runtime_root=request.runtime_root,
+            tool=request.tool,
+            skills=request.skills,
+            config_profile=request.config_profile,
+            credential_profile=request.credential_profile,
+            home_id=request.home_id,
+            reuse_home=True,
+        )
+    )
+
+    assert second_result.home_path == first_result.home_path
+    config_payload = tomllib.loads(
+        (second_result.home_path / "config.toml").read_text(encoding="utf-8")
+    )
+    managed_skill_root = str((second_result.home_path / "skills").resolve())
+    assert config_payload["default_model"] == "kimi-code/default"
+    assert config_payload["ui"]["theme"] == "dark"
+    assert config_payload["extra_skill_dirs"] == ["/custom/skills", managed_skill_root]
+    assert config_payload["extra_skill_dirs"].count(managed_skill_root) == 1
 
 
 def test_build_brain_home_projects_kimi_oauth_model_selection_as_cli_args(

@@ -11,6 +11,7 @@ import sys
 import time
 from typing import Any
 
+from .ag_ui_smoke import run_ag_ui_smoke
 from .mailbox import (
     DemoMailboxError,
     build_run_id,
@@ -105,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
             return _command_watch_gateway(args)
         if args.command == "notifier":
             return _command_notifier(args)
+        if args.command == "ag-ui-smoke":
+            return _command_ag_ui_smoke(args)
         if args.command == "inspect":
             return _command_inspect(args)
         if args.command == "verify":
@@ -155,6 +158,12 @@ def _build_parser() -> argparse.ArgumentParser:
     notifier_subparsers.add_parser("off")
     interval_parser = notifier_subparsers.add_parser("set-interval")
     interval_parser.add_argument("--seconds", type=int, required=True)
+
+    ag_ui_smoke_parser = subparsers.add_parser("ag-ui-smoke")
+    _add_common_arguments(ag_ui_smoke_parser)
+    ag_ui_smoke_parser.add_argument("--prompt", default=None)
+    ag_ui_smoke_parser.add_argument("--abort-after-run-start", action="store_true")
+    ag_ui_smoke_parser.add_argument("--timeout-seconds", type=float, default=180.0)
 
     inspect_parser = subparsers.add_parser("inspect")
     _add_common_arguments(inspect_parser)
@@ -728,6 +737,24 @@ def _command_notifier(args: argparse.Namespace) -> int:
     updated_state = state.model_copy(update={"notifier_interval_seconds": interval_seconds})
     save_demo_state(paths.state_path, updated_state)
     print(json.dumps(payload, indent=2))
+    return 0
+
+
+def _command_ag_ui_smoke(args: argparse.Namespace) -> int:
+    """Implement `ag-ui-smoke`."""
+
+    repo_root = _repo_root()
+    _load_parameters(args, repo_root=repo_root)
+    paths = _resolve_paths(args, repo_root=repo_root, tool=None)
+    state = _require_active_demo_state(paths)
+    result = run_ag_ui_smoke(
+        paths=paths,
+        state=state,
+        prompt=args.prompt,
+        abort_after_run_start=bool(args.abort_after_run_start),
+        timeout_seconds=float(args.timeout_seconds),
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 

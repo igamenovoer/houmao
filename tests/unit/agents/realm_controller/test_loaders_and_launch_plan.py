@@ -153,12 +153,20 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
         role_name="r",
         role_prompt="prompt",
     )
+    kimi_local = plan_role_injection(
+        backend="local_interactive",
+        tool="kimi",
+        role_name="r",
+        role_prompt="prompt",
+    )
 
     assert codex.method == "native_developer_instructions"
     assert claude.method == "native_append_system_prompt"
     assert gemini.method == "bootstrap_message"
     assert gemini.bootstrap_message is not None
     assert claude_local.method == "native_append_system_prompt"
+    assert kimi_local.method == "bootstrap_message"
+    assert kimi_local.bootstrap_message is not None
 
 
 def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
@@ -188,6 +196,7 @@ def test_backend_for_tool_defaults_to_codex_headless() -> None:
     assert backend_for_tool("codex") == "codex_headless"
     assert backend_for_tool("codex", prefer_cao=True) == "cao_rest"
     assert backend_for_tool("codex", prefer_local_interactive=True) == "local_interactive"
+    assert backend_for_tool("kimi", prefer_local_interactive=True) == "local_interactive"
 
 
 def test_build_launch_plan_uses_allowlisted_env_and_redacts_values(
@@ -848,6 +857,52 @@ def test_build_launch_plan_adds_claude_model_selection_cli_args(
     assert plan.metadata["launch_overrides"]["backend_resolution"][
         "provider_model_selection_cli_args"
     ] == ["--model", "sonnet", "--effort", "high"]
+
+
+def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / "vars.env"
+    env_file.write_text("\n", encoding="utf-8")
+    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
+    manifest = _manifest(
+        tool="kimi",
+        executable="kimi",
+        home_env_var="KIMI_CODE_HOME",
+        home_path=tmp_path / "home",
+        env_file=env_file,
+        allowlisted_env_vars=[],
+        launch_args=["--temperature", "0"],
+    )
+    manifest["runtime"]["launch_contract"]["model_selection"] = {
+        "resolved": {
+            "effective": {"name": "kimi-code/kimi-for-coding"},
+            "sources": {"name": "source_launch"},
+        },
+        "provider_cli_args": {
+            "tool": "kimi",
+            "args": ["--model", "kimi-code/kimi-for-coding"],
+        },
+    }
+    role = load_role_package(tmp_path / "repo", "r")
+
+    plan = build_launch_plan(
+        LaunchPlanRequest(
+            brain_manifest=manifest,
+            role_package=role,
+            backend="local_interactive",
+            working_directory=tmp_path,
+        )
+    )
+
+    assert plan.role_injection.method == "bootstrap_message"
+    assert plan.env["KIMI_CODE_NO_AUTO_UPDATE"] == "1"
+    assert "KIMI_CODE_NO_AUTO_UPDATE" in plan.env_var_names
+    assert plan.args == ["--temperature", "0", "--model", "kimi-code/kimi-for-coding"]
+    assert "--skills-dir" not in plan.args
+    assert plan.metadata["launch_overrides"]["backend_resolution"][
+        "provider_model_selection_cli_args"
+    ] == ["--model", "kimi-code/kimi-for-coding"]
 
 
 def test_build_launch_plan_replaces_conflicting_claude_adapter_model_selection_args(

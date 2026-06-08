@@ -12,6 +12,7 @@ from houmao.project import resolve_project_aware_runtime_root
 _DEFAULT_SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
+    "kimi": ("kimi-code", "kimi"),
 }
 
 

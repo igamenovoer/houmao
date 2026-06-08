@@ -72,7 +72,7 @@ The runtime does not ask providers to interpret those tags. Backends receive one
 | `claude_headless` | `native_append_system_prompt` | When the effective launch prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty effective prompts skip both. |
 | `gemini_headless` | `bootstrap_message` | When the effective launch prompt is non-empty, Houmao sends it as a first-turn bootstrap message. Empty effective prompts skip bootstrap entirely. |
 | `kimi_headless` | `bootstrap_message` | When the effective launch prompt is non-empty, Houmao prepends it to the first Kimi prompt through the managed bootstrap message. Empty effective prompts skip bootstrap entirely. |
-| `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini uses bootstrap messaging. Empty effective prompts suppress those startup inputs regardless of tool. |
+| `local_interactive` | tool-dependent | Codex uses native developer instructions, Claude uses native appended system prompt, and Gemini and Kimi use bootstrap messaging. Empty effective prompts suppress those startup inputs regardless of tool. |
 | `cao_rest` | `cao_profile` | Legacy/internal: retained only for old manifests and explicit rejection paths. |
 | `houmao_server_rest` | `cao_profile` | Legacy/internal: retired old-server backend identity, rejected for new sessions. |
 
@@ -88,7 +88,7 @@ Role injection is intentionally backend-specific rather than using a single univ
 
 1. **Native injection is preferred** when available. Tools like Codex and Claude provide dedicated CLI flags for developer instructions and system prompts, respectively. Using these native mechanisms ensures the role prompt is handled by the tool's own context management, which is more reliable than conversational priming.
 
-2. **Bootstrap messages are the fallback.** When a tool does not expose a native injection flag for the maintained launch path (Gemini, Kimi, local interactive), the role prompt is sent as the first conversational turn. This is effective but less cleanly separated from user content.
+2. **Bootstrap messages are the fallback.** When a tool does not expose a native injection flag for the maintained launch path (Gemini headless, Kimi headless, Gemini TUI, and Kimi TUI), the role prompt is sent as the first conversational turn. This is effective but less cleanly separated from user content.
 
 3. **Legacy backends are not public launch targets.** `cao_rest` and `houmao_server_rest` may still appear in old manifests or internal compatibility code, but new user-facing launches fail fast before relying on their profile mechanism.
 

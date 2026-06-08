@@ -46,6 +46,7 @@ _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
 _KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
+_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,9 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     persistent_env_records = _persistent_launch_env_records(launch_contract)
     env_values.update(persistent_env_records)
     env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
+    if request.backend == "local_interactive" and tool == "kimi":
+        env_values[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
+        env_var_names = sorted({*env_var_names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
 
     role_injection = plan_role_injection(
         backend=request.backend,
@@ -278,7 +282,7 @@ def plan_role_injection(
                 prompt=role_prompt,
                 bootstrap_message=_bootstrap_message(role_name, role_prompt),
             )
-        if tool == "gemini":
+        if tool in {"gemini", "kimi"}:
             return RoleInjectionPlan(
                 method="bootstrap_message",
                 role_name=role_name,
@@ -339,7 +343,7 @@ def backend_for_tool(
     if prefer_cao:
         return "cao_rest"
     if prefer_local_interactive:
-        if tool in {"codex", "claude", "gemini"}:
+        if tool in {"codex", "claude", "gemini", "kimi"}:
             return "local_interactive"
         raise LaunchPlanError(f"No local interactive backend for tool {tool!r}")
     if tool == "codex":
@@ -443,7 +447,7 @@ def _provider_model_selection_cli_args_from_contract(
         if backend not in {"local_interactive", "claude_headless"}:
             return []
     elif tool == "kimi":
-        if backend != "kimi_headless":
+        if backend not in {"local_interactive", "kimi_headless"}:
             return []
     else:
         return []

@@ -54,6 +54,7 @@ _DEFAULT_SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
     "gemini": ("gemini",),
+    "kimi": ("kimi-code", "kimi"),
 }
 
 _DEFAULT_RECENT_TRANSITION_LIMIT = 50

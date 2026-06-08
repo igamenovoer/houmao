@@ -9,6 +9,7 @@ Use this beginner branch when the user wants to reach one running managed agent 
    - `command -v claude`
    - `command -v codex`
    - `command -v gemini`
+   - `command -v kimi || command -v kimi-code`
 3. List the detected tool CLIs to the user without priority, without ordering that implies recommendation, and without marking any detected tool as the default or preferred tool. When more than one tool is detected, ask the user which one to use before proceeding.
 4. When the workspace has no project overlay, route project initialization through `houmao-project-mgr` first. Do not attempt specialist authoring before the overlay exists.
 5. Explain mailbox basics only at the beginner level: the project mailbox root is separate from per-agent mailbox accounts, and per-agent mailbox identity can often be owned by the later launch path.
@@ -29,9 +30,9 @@ Use this beginner branch when the user wants to reach one running managed agent 
 
 ## No Tool Detected
 
-When `command -v claude`, `command -v codex`, and `command -v gemini` all fail:
+When `command -v claude`, `command -v codex`, `command -v gemini`, and `command -v kimi || command -v kimi-code` all fail:
 
-- Explain that the packaged Houmao distribution currently ships tool adapters for `claude`, `codex`, and `gemini`.
+- Explain that the packaged Houmao distribution currently ships tool adapters for `claude`, `codex`, `gemini`, and `kimi`.
 - Name each supported tool CLI so the user can install whichever one they prefer.
 - Do not attempt to launch a managed agent in that turn.
 - Offer to resume the quickstart branch after the user installs one of the supported tool CLIs.

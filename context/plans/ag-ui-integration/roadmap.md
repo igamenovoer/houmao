@@ -6,6 +6,13 @@ This roadmap covers stage 1 of AG-UI integration: add AG-UI support to the live 
 
 The first user-facing milestone is CopilotKit graphics: a running Houmao agent can send task-specific generated graphics to a CopilotKit GUI through AG-UI events. The GUI connects to the agent; it does not manage the Houmao agent lifecycle.
 
+Current status:
+
+- Milestone 1 is implemented for the live per-agent gateway attachment surface: `/v1/ag-ui/capabilities`, `/v1/ag-ui/connect`, `/v1/ag-ui/runs`, and explicit connection detachment are registered, with conservative state-snapshot connect semantics and lifecycle-detach behavior.
+- Milestone 2 is implemented in commit `f88b4873`: `/v1/ag-ui/runs` now admits one task through the existing gateway request queue, streams AG-UI SSE lifecycle/output events, maps headless canonical events and lower-fidelity TUI observations, validates `houmao_render_graphic` artifacts, and reports run/graphics capabilities when supported.
+- Milestone 3 is implemented in `add-ag-ui-e2e-smoke-and-demo`: AG-UI streams now emit safe diagnostics and active counts, deterministic gateway E2E covers run-id artifact lookup and graphics reconstruction, the supported headless gateway demo owns the live AG-UI text smoke command, the opt-in Bun Playwright browser fixture validates renderer behavior, docs cover direct gateway setup, and passive-server readiness tests define future SSE proxy expectations.
+- Remaining stage 1 work is compacted connect replay if needed. Stage 2 can now start from a concrete passive-server proxy contract.
+
 ```mermaid
 flowchart LR
   CPK[CopilotKit GUI/runtime]
@@ -103,30 +110,30 @@ Deliverables:
 
 Todo:
 
-- [ ] Add `houmao.ag_ui.prompt` to convert AG-UI messages, state, context, `forwardedProps`, and `resume` into a Houmao prompt.
-- [ ] Use the latest user message or tool result as the primary prompt body.
-- [ ] Include prior messages, state, context, and resume data as structured prompt context.
-- [ ] Whitelist forwarded props that may map to Houmao execution settings.
-- [ ] Reject or explicitly degrade unsupported multimodal content.
-- [ ] Add `houmao.ag_ui.service` run orchestration on top of `GatewayServiceRuntime`.
-- [ ] Emit `RUN_STARTED` after the run is admitted.
-- [ ] Return HTTP errors before admission for invalid input, unavailable transport, and busy agent.
-- [ ] Emit `RUN_ERROR` for post-admission failures.
-- [ ] Ensure overlapping AG-UI runs for the same agent are rejected unless a later design adds queued streams.
-- [ ] Add tests for prompt conversion, admission errors, post-admission errors, and disconnect behavior during an active run.
-- [ ] Add `houmao.ag_ui.mapper` for headless event mapping.
-- [ ] Map assistant output to `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`, and `TEXT_MESSAGE_END`.
-- [ ] Map safe reasoning output to AG-UI reasoning events, or redact it when policy requires.
-- [ ] Map action requests to `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
-- [ ] Map action results to `TOOL_CALL_RESULT`.
-- [ ] Map progress and diagnostics to `ACTIVITY_SNAPSHOT` or `CUSTOM`.
-- [ ] Add TUI mapping for state snapshots, activity updates, and final text from the parsed terminal surface.
-- [ ] Add `houmao.ag_ui.graphics` with a typed artifact schema: `title`, `description`, `format`, `content`, `contentUrl`, `altText`, and `metadata`.
-- [ ] Support initial graphics formats: `svg`, `html_fragment`, `image_url`, `image_data_uri`, and `chart_json`.
-- [ ] Emit graphics as a complete `houmao_render_graphic` tool-call sequence.
-- [ ] Ensure the graphics tool call belongs to an assistant message so CopilotKit can render it from the message `toolCalls` list.
-- [ ] Add tests for every event mapping path and for the exact graphics event sequence.
-- [ ] Add a tiny CopilotKit renderer fixture or example using `useRenderTool({ name: "houmao_render_graphic" })`.
+- [x] Add `houmao.ag_ui.prompt` to convert AG-UI messages, state, context, `forwardedProps`, and `resume` into a Houmao prompt.
+- [x] Use the latest user message or tool result as the primary prompt body.
+- [x] Include prior messages, state, context, and resume data as structured prompt context.
+- [x] Whitelist forwarded props that may map to Houmao execution settings.
+- [x] Reject or explicitly degrade unsupported multimodal content.
+- [x] Add `houmao.ag_ui.service` run orchestration on top of `GatewayServiceRuntime`.
+- [x] Emit `RUN_STARTED` after the run is admitted.
+- [x] Return HTTP errors before admission for invalid input, unavailable transport, and busy agent.
+- [x] Emit `RUN_ERROR` for post-admission failures.
+- [x] Ensure overlapping AG-UI runs for the same agent are rejected unless a later design adds queued streams.
+- [x] Add tests for prompt conversion, admission errors, post-admission errors, and disconnect behavior during an active run.
+- [x] Add `houmao.ag_ui.mapper` for headless event mapping.
+- [x] Map assistant output to `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`, and `TEXT_MESSAGE_END`.
+- [x] Map safe reasoning output to AG-UI reasoning events, or redact it when policy requires.
+- [x] Map action requests to `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
+- [x] Map action results to `TOOL_CALL_RESULT`.
+- [x] Map progress and diagnostics to `ACTIVITY_SNAPSHOT` or `CUSTOM`.
+- [x] Add TUI mapping for state snapshots, activity updates, and final text from the parsed terminal surface.
+- [x] Add `houmao.ag_ui.graphics` with a typed artifact schema: `title`, `description`, `format`, `content`, `contentUrl`, `altText`, and `metadata`.
+- [x] Support initial graphics formats: `svg`, `html_fragment`, `image_url`, `image_data_uri`, and `chart_json`.
+- [x] Emit graphics as a complete `houmao_render_graphic` tool-call sequence.
+- [x] Ensure the graphics tool call belongs to an assistant message so CopilotKit can render it from the message `toolCalls` list.
+- [x] Add tests for every event mapping path and for the exact graphics event sequence.
+- [x] Add a tiny CopilotKit renderer fixture or example using `useRenderTool({ name: "houmao_render_graphic" })`.
 
 Verification test cases:
 
@@ -147,42 +154,45 @@ Verification test cases:
 
 Done when:
 
-- A GUI can submit one task to an existing Houmao agent through `/v1/ag-ui/runs`.
-- The endpoint behaves like a streaming AG-UI agent without bypassing Houmao's existing run controls.
-- A CopilotKit GUI can render a Houmao-generated graphic inline from an AG-UI run stream.
-- Text, lifecycle, and terminal events still behave correctly around the graphic.
+- [x] A GUI can submit one task to an existing Houmao agent through `/v1/ag-ui/runs`.
+- [x] The endpoint behaves like a streaming AG-UI agent without bypassing Houmao's existing run controls.
+- [x] A CopilotKit GUI can render a Houmao-generated graphic inline from an AG-UI run stream.
+- [x] Text, lifecycle, and terminal events still behave correctly around the graphic.
 
 ## Milestone 3: Hardening, Demo, and Passive-Server Readiness
 
 Goal: make the per-agent AG-UI path reliable enough to use as the basis for the passive-server facade.
 
+Status: implemented by OpenSpec change `add-ag-ui-e2e-smoke-and-demo`. The local workspace did not run the live managed-agent smoke because `tests/fixtures/auth-bundles/codex/yunwu-openai/` contains no usable credential files; the deterministic gateway E2E and optional browser smoke did run.
+
 Deliverables:
 
-- End-to-end CopilotKit demo or smoke test against the live per-agent gateway.
-- Clear logs and diagnostics for AG-UI runs and connections.
-- Documentation for per-agent gateway URLs and lifecycle semantics.
-- OpenSpec change artifacts ready for implementation tracking or archive.
+- Deterministic AG-UI gateway E2E against a live per-agent gateway app/runtime surface.
+- Safe diagnostics and active counts for AG-UI runs and connections.
+- Documentation for per-agent gateway URLs, CopilotKit-style setup, renderer expectations, known limits, and lifecycle semantics.
+- Manual live AG-UI text-smoke command in the supported single-agent headless gateway demo pack.
+- Opt-in Bun Playwright browser smoke for deterministic `houmao_render_graphic` rendering.
+- Passive-server readiness tests for future SSE proxy behavior.
 
 Todo:
 
-- [ ] Add structured logging for AG-UI connect, disconnect, run admission, run completion, and stream errors.
-- [ ] Add counters or lightweight diagnostics for active AG-UI connections and active AG-UI runs.
-- [ ] Add a manual CopilotKit demo configuration that points an `HttpAgent` at `/v1/ag-ui/runs`.
-- [ ] Add a custom CopilotKit-side connect bridge or runner spike if direct `/connect` attachment is needed for the demo.
-- [ ] Verify that CopilotKit stop detaches by default and does not interrupt the Houmao agent.
-- [ ] Document the per-agent gateway endpoints and example CopilotKit runtime setup.
-- [ ] Document known limits: lower-fidelity TUI streams, no frontend tool execution, no state deltas, conservative multimodal support.
-- [ ] Run focused unit tests for `houmao.ag_ui` and gateway route tests.
-- [ ] Run a manual end-to-end smoke test with a generated graphic.
-- [ ] Decide whether the next OpenSpec change should immediately cover stage 2 passive-server proxying.
+- [x] Add structured logging for AG-UI connect, disconnect, run admission, run completion, and stream errors.
+- [x] Add counters or lightweight diagnostics for active AG-UI connections and active AG-UI runs.
+- [x] Add a manual CopilotKit-style demo configuration that points an `HttpAgent` at `/v1/ag-ui/runs`.
+- [x] Decide that no custom connect bridge is needed for the first direct run demo.
+- [x] Verify client abort detaches by default and does not enqueue a Houmao interrupt.
+- [x] Document the per-agent gateway endpoints and example CopilotKit runtime setup.
+- [x] Document known limits: lower-fidelity TUI streams, no frontend tool execution, no state deltas, conservative multimodal support, deterministic graphics, and GUI-detach lifecycle behavior.
+- [x] Run focused unit tests for `houmao.ag_ui` and gateway route tests.
+- [x] Add deterministic generated-graphics E2E and opt-in browser smoke coverage.
+- [x] Define the next stage as passive-server AG-UI SSE proxying.
 
 Verification test cases:
 
 - `test_ag_ui_diagnostics_report_active_connections_and_runs`: create fake active connect and run streams, then assert gateway diagnostics report accurate AG-UI counts without exposing private state.
 - `test_stream_error_is_logged_and_terminal_event_is_emitted`: force an encoder or mapping error and assert the error is logged and the client receives a deterministic terminal event when the stream has already started.
-- `test_copilotkit_graphics_smoke_stream`: run a minimal fake task that emits a graphic and assert a CopilotKit-style event collector can reconstruct one assistant message and one `houmao_render_graphic` tool call.
+- `test_copilotkit_graphics_smoke_stream`: run a deterministic gateway task that emits a structured graphic artifact and assert a CopilotKit-style event collector can reconstruct one assistant message and one `houmao_render_graphic` tool call.
 - `test_stop_defaults_to_detach_not_interrupt`: simulate a CopilotKit stop or client abort and assert the connection is detached while the fake Houmao task is not interrupted.
-- `test_abort_policy_can_interrupt_when_enabled`: enable an explicit abort policy, abort a run stream, and assert one Houmao interrupt path is called exactly once.
 - `test_documented_curl_examples_match_routes`: exercise the documented per-agent gateway route examples against the FastAPI app or a route inventory helper to prevent docs drift.
 - `test_no_sensitive_state_in_snapshots`: generate a state snapshot from a runtime that includes memory, mailbox, terminal history, and credentials, then assert AG-UI state redacts or omits those fields.
 - `test_manual_demo_contract_fixture`: validate the demo fixture or example CopilotKit runtime configuration points to `/v1/ag-ui/runs`, registers `houmao_render_graphic`, and does not require passive-server routes.
@@ -190,9 +200,9 @@ Verification test cases:
 
 Done when:
 
-- Stage 1 can be demonstrated without the passive server.
-- The lifecycle boundary is documented and tested.
-- The passive-server stage has a concrete integration target.
+- [x] Stage 1 can be demonstrated without the passive server.
+- [x] The lifecycle boundary is documented and tested.
+- [x] The passive-server stage has a concrete integration target.
 
 ## Cross-Milestone Todo
 
@@ -205,7 +215,7 @@ Done when:
 
 ## Main Unknowns
 
-- Whether `ag-ui-protocol` should be a runtime dependency or whether Houmao should carry a minimal internal model set.
+- Resolved: Houmao uses `ag-ui-protocol>=0.1.19,<0.2` behind the `houmao.ag_ui` adapter boundary instead of vendoring minimal models for the first implementation.
 - Where Houmao should persist compacted AG-UI events for connect replay, if replay beyond current status is required in stage 1.
 - Whether CopilotKit can use its standard runtime plus `HttpAgent` for the first demo, or whether we need a small custom connect bridge immediately.
-- How Houmao agents should produce graphics artifacts: explicit structured output, a detected file/artifact convention, or a gateway-side task result adapter.
+- Resolved for the first graphics path: Houmao recognizes explicit structured canonical action or result payloads named `houmao_render_graphic`; Markdown scraping and file/artifact conventions remain future work.

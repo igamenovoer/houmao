@@ -26,7 +26,7 @@ Manage direct native-agent credentials under `tools/<tool>/auth/<name>/`.
 houmao-mgr internals native-agent credentials <tool> list|get|add|set|login|rename|remove --native-agent-root <dir>
 ```
 
-Supported tool lanes are `claude`, `codex`, and `gemini`. The per-tool credential input flags match the corresponding project credential surface, including `--auth-token`, `--oauth-token`, and `--config-dir` for Claude credential commands. Use `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials.
+Supported credential CRUD tool lanes are `claude`, `codex`, `gemini`, and `kimi`. The per-tool credential input flags match the corresponding project credential surface, including `--auth-token`, `--oauth-token`, and `--config-dir` for Claude credential commands and `--code-home`, `--config-toml`, `--credential-json`, `--model-name`, `--provider-type`, and related Kimi env-model flags for Kimi credential commands. The credential `login` helper is maintained for Claude, Codex, and Gemini only; Kimi credential work uses explicit `add` and `set` inputs. Use `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials.
 
 ### brain build
 
@@ -54,7 +54,7 @@ Supported draft ids are `project.specialist`, `project.profile`, and `internals.
 Examples:
 
 ```bash
-houmao-mgr internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+houmao-mgr internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
 houmao-mgr internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
 houmao-mgr internals config-drafts generate --id internals.native-agent.launch-dossier --intent '{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}'
 ```

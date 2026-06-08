@@ -1,0 +1,9 @@
+Welcome to Kimi Code
+
+Tips: type a message or use /help for commands.
+
+╭────────────────────────────────────────╮
+│ >                                      │
+╰────────────────────────────────────────╯
+Kimi-k2.6  /model: switch model
+context: 0.0%

@@ -427,6 +427,7 @@ def _render_system_skills_status_plain(payload: object) -> None:
             projected_relative_dir = str(record.get("projected_relative_dir", "")).strip()
             projected_path = f": {projected_relative_dir}" if projected_relative_dir else ""
             click.echo(f"  - {skill_name}{projection_suffix}{projected_path}")
+    _render_kimi_discovery_note_for_tool(payload.get("tool"))
 
 
 def _render_system_skills_install_plain(payload: object) -> None:
@@ -453,6 +454,7 @@ def _render_system_skills_install_plain(payload: object) -> None:
                 path_label="projected paths",
                 indent="      ",
             )
+            _render_kimi_discovery_note_for_tool(installation.get("tool"), indent="      ")
         projection_modes = {
             str(installation.get("projection_mode"))
             for installation in installations
@@ -475,6 +477,7 @@ def _render_system_skills_install_plain(payload: object) -> None:
     projection_mode = payload.get("projection_mode")
     if projection_mode is not None:
         click.echo(f"Projection mode: {projection_mode}")
+    _render_kimi_discovery_note_for_tool(payload.get("tool"))
     removed_retired_skills = _coerce_string_list(payload.get("removed_retired_skills"))
     if removed_retired_skills:
         click.echo("Removed retired projections:")
@@ -534,6 +537,7 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
                 path_label="absent retired paths",
                 indent="      ",
             )
+            _render_kimi_discovery_note_for_tool(uninstallation.get("tool"), indent="      ")
         return
 
     click.echo(f"Removed Houmao system skills from {payload.get('tool')}")
@@ -582,6 +586,19 @@ def _render_system_skills_uninstall_plain(payload: object) -> None:
             path_label="Absent retired paths",
             indent="",
         )
+    _render_kimi_discovery_note_for_tool(payload.get("tool"))
+
+
+def _render_kimi_discovery_note_for_tool(tool: object, *, indent: str = "") -> None:
+    """Render Kimi projection versus discovery caveat for user-facing output."""
+
+    if tool != "kimi":
+        return
+    click.echo(
+        f"{indent}Kimi discovery: this command projects files only; Kimi Code discovers "
+        "project `.kimi-code/skills` or configured `extra_skill_dirs`, not arbitrary "
+        "`KIMI_CODE_HOME/skills` automatically."
+    )
 
 
 def _render_projection_location_lines(

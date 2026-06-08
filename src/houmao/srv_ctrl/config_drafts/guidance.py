@@ -17,7 +17,7 @@ _COMMAND = "houmao-mgr internals config-drafts generate"
 _EXAMPLE_FIELDS: Mapping[str, Mapping[str, str]] = {
     "project.specialist": {
         "name": "general-kimi",
-        "tool": "claude",
+        "tool": "kimi",
         "credential": "kimi-coding",
     },
     "project.profile": {

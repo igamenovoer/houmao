@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from ag_ui.core import RunAgentInput
+from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from houmao.ag_ui.capabilities import AgUiCapabilityRuntime, build_ag_ui_capabilities
 from houmao.ag_ui.connection import AgUiConnectionRegistry
+from houmao.ag_ui.diagnostics import AgUiDiagnostics
 from houmao.ag_ui.encoder import SSE_CONTENT_TYPE, encode_sse_comment, encode_sse_event
 from houmao.ag_ui.models import (
     AgUiConnectInput,
@@ -40,11 +42,15 @@ async def connect_event_stream(
     registry: AgUiConnectionRegistry,
     connect_input: AgUiConnectInput,
     request: AgUiDisconnectProbe,
+    diagnostics: AgUiDiagnostics | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
 ) -> AsyncIterator[str]:
     """Yield the AG-UI connect stream for one GUI attachment."""
 
     record = registry.create_from_input(connect_input)
+    if diagnostics is not None:
+        diagnostics.connection_started(record)
+    detach_reason = "stream_closed"
     try:
         snapshot = build_houmao_state_snapshot(
             status=runtime.status(),
@@ -53,13 +59,26 @@ async def connect_event_stream(
         yield encode_sse_event(AgUiStateSnapshotEvent(snapshot=snapshot))
         while True:
             if await request.is_disconnected():
+                detach_reason = "client_disconnected"
                 break
             await asyncio.sleep(heartbeat_interval_seconds)
             if await request.is_disconnected():
+                detach_reason = "client_disconnected"
                 break
             yield encode_sse_comment("houmao ag-ui heartbeat")
+    except Exception as exc:
+        detach_reason = "stream_error"
+        if diagnostics is not None:
+            diagnostics.stream_error(
+                stream_kind="connect",
+                error_category=type(exc).__name__,
+                connection=record,
+            )
+        raise
     finally:
         registry.detach(record.connection_id)
+        if diagnostics is not None:
+            diagnostics.connection_detached(record, reason=detach_reason)
 
 
 async def run_event_stream(
@@ -67,11 +86,69 @@ async def run_event_stream(
     service: AgUiRunService,
     admitted_run: AgUiAdmittedRun,
     request: AgUiDisconnectProbe,
+    diagnostics: AgUiDiagnostics | None = None,
 ) -> AsyncIterator[str]:
     """Yield encoded AG-UI SSE frames for one admitted run."""
 
-    async for event in service.stream_run_events(admitted_run=admitted_run, request=request):
-        yield encode_sse_event(event)
+    if diagnostics is not None:
+        diagnostics.run_stream_started(admitted_run)
+    outcome = "detached"
+    try:
+        async for event in service.stream_run_events(admitted_run=admitted_run, request=request):
+            event_payload = _event_payload(event)
+            event_type = _event_type_from_payload(event_payload)
+            if event_type == "RUN_FINISHED":
+                outcome = "finished"
+            elif event_type == "RUN_ERROR":
+                outcome = "error"
+                code = event_payload.get("code")
+                if diagnostics is not None and code == "houmao_run_stream_failed":
+                    diagnostics.stream_error(
+                        stream_kind="run",
+                        error_category=str(code),
+                        admitted_run=admitted_run,
+                    )
+            try:
+                yield encode_sse_event(event)
+            except Exception as exc:
+                outcome = "error"
+                if diagnostics is not None:
+                    diagnostics.stream_error(
+                        stream_kind="run",
+                        error_category=type(exc).__name__,
+                        admitted_run=admitted_run,
+                    )
+                if await request.is_disconnected():
+                    if diagnostics is not None:
+                        diagnostics.run_client_disconnected(admitted_run)
+                    return
+                yield _encoded_run_error_frame(
+                    message="AG-UI run stream failed after admission.",
+                    code="houmao_run_stream_failed",
+                )
+                return
+        if outcome == "detached" and await request.is_disconnected():
+            if diagnostics is not None:
+                diagnostics.run_client_disconnected(admitted_run)
+    except Exception as exc:
+        outcome = "error"
+        if diagnostics is not None:
+            diagnostics.stream_error(
+                stream_kind="run",
+                error_category=type(exc).__name__,
+                admitted_run=admitted_run,
+            )
+        if not await request.is_disconnected():
+            yield _encoded_run_error_frame(
+                message="AG-UI run stream failed after admission.",
+                code="houmao_run_stream_failed",
+            )
+        else:
+            if diagnostics is not None:
+                diagnostics.run_client_disconnected(admitted_run)
+    finally:
+        if diagnostics is not None:
+            diagnostics.run_stream_completed(admitted_run, outcome=outcome)
 
 
 def register_ag_ui_routes(
@@ -108,6 +185,11 @@ def register_ag_ui_routes(
         except AttributeError:
             resolved_registry = AgUiConnectionRegistry()
     app.state.ag_ui_connection_registry = resolved_registry
+    try:
+        diagnostics = app.state.ag_ui_diagnostics
+    except AttributeError:
+        diagnostics = AgUiDiagnostics(runtime=runtime)
+    app.state.ag_ui_diagnostics = diagnostics
 
     router = APIRouter(prefix="/v1/ag-ui")
 
@@ -126,6 +208,7 @@ def register_ag_ui_routes(
             registry=resolved_registry,
             connect_input=request_payload,
             request=request,
+            diagnostics=diagnostics,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
         )
         return StreamingResponse(
@@ -146,6 +229,10 @@ def register_ag_ui_routes(
         """Detach one GUI connection without touching the Houmao agent lifecycle."""
 
         detached = resolved_registry.detach(connection_id)
+        diagnostics.explicit_disconnect(
+            connection_id=connection_id,
+            detached=detached is not None,
+        )
         if detached is None:
             response = AgUiDetachResponse(
                 status="not_found",
@@ -175,7 +262,13 @@ def register_ag_ui_routes(
             poll_interval_seconds=run_poll_interval_seconds,
         )
         admitted_run = service.admit_run(request_payload)
-        stream = run_event_stream(service=service, admitted_run=admitted_run, request=request)
+        diagnostics.run_admitted(admitted_run)
+        stream = run_event_stream(
+            service=service,
+            admitted_run=admitted_run,
+            request=request,
+            diagnostics=diagnostics,
+        )
         return StreamingResponse(
             stream,
             media_type=SSE_CONTENT_TYPE,
@@ -187,3 +280,28 @@ def register_ag_ui_routes(
 
     app.include_router(router)
     return resolved_registry
+
+
+def _event_payload(event: BaseEvent) -> dict[str, object]:
+    """Return one event payload for diagnostic type inspection."""
+
+    return event.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+def _event_type_from_payload(payload: dict[str, object]) -> str:
+    """Return the AG-UI event type without exposing event content."""
+
+    event_type = payload.get("type")
+    if isinstance(event_type, str):
+        return event_type
+    return "UNKNOWN"
+
+
+def _encoded_run_error_frame(*, message: str, code: str) -> str:
+    """Return a RUN_ERROR frame, falling back to raw JSON if model encoding fails."""
+
+    try:
+        return encode_sse_event(RunErrorEvent(message=message, code=code))
+    except Exception:
+        payload = {"type": "RUN_ERROR", "message": message, "code": code}
+        return f"data: {json.dumps(payload, sort_keys=True)}\n\n"

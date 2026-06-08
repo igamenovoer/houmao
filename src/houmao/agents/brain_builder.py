@@ -719,6 +719,16 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 "required": mapping.required,
             }
         )
+    kimi_extra_skill_dirs_projection = _ensure_kimi_extra_skill_dirs(
+        tool=request.tool,
+        home_path=home_path,
+        skill_destination_dir=skill_destination_dir,
+        has_projected_skills=bool(
+            request.skills
+            or request.private_skills
+            or system_skill_sync_result.resolved_skill_names
+        ),
+    )
 
     _validate_relative_path(adapter.auth_env_source, field="auth_projection.env.source")
     auth_env_file = auth_dir / adapter.auth_env_source
@@ -843,6 +853,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             }
             for private_skill in request.private_skills
         ]
+    if kimi_extra_skill_dirs_projection is not None:
+        construction_provenance["kimi_extra_skill_dirs"] = kimi_extra_skill_dirs_projection
     construction_provenance["system_skills"] = {
         "source_policy": system_skill_selection_policy_to_payload(
             request.source_system_skill_policy
@@ -990,6 +1002,47 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         launch_preview=launch_preview,
         manifest=manifest,
     )
+
+
+def _ensure_kimi_extra_skill_dirs(
+    *,
+    tool: str,
+    home_path: Path,
+    skill_destination_dir: Path,
+    has_projected_skills: bool,
+) -> dict[str, Any] | None:
+    """Ensure managed Kimi homes can discover Houmao-projected skills."""
+
+    if tool != "kimi" or not has_projected_skills:
+        return None
+
+    config_path = home_path / "config.toml"
+    payload = load_toml_state(config_path, repair_invalid=True)
+    raw_extra_skill_dirs = payload.get("extra_skill_dirs")
+    existing_dirs = (
+        [entry for entry in raw_extra_skill_dirs if isinstance(entry, str) and entry.strip()]
+        if isinstance(raw_extra_skill_dirs, list)
+        else []
+    )
+    projected_skill_root = str(skill_destination_dir.resolve())
+    next_dirs = list(existing_dirs)
+    added = projected_skill_root not in next_dirs
+    if added:
+        next_dirs.append(projected_skill_root)
+        set_toml_key(
+            path=config_path,
+            key_path=("extra_skill_dirs",),
+            value=next_dirs,
+            repair_invalid=True,
+        )
+
+    return {
+        "path": str(config_path),
+        "key_path": ["extra_skill_dirs"],
+        "projected_skill_root": projected_skill_root,
+        "added": added,
+        "value": next_dirs,
+    }
 
 
 def _derive_tool_launch_env_records(

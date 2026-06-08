@@ -46,13 +46,26 @@ flowchart LR
 
 **Source:** `backends/local_interactive.py`
 
-The primary backend for interactive agent sessions. The agent runs as a real interactive CLI process inside a tmux pane, preserving the tool's native user experience (colors, interactive prompts, streaming output).
+The primary backend for interactive agent sessions. The agent runs as a real interactive CLI process inside a tmux pane, preserving the tool's native user experience (colors, interactive prompts, streaming output). Maintained local interactive tools are Claude Code, Codex, Gemini CLI, and Kimi Code.
 
 - **Session class:** `LocalInteractiveSession`
-- **Prompt delivery:** via tmux paste-buffer, which simulates typing the prompt into the agent's stdin.
+- **Prompt delivery:** via tmux paste-buffer with bracketed paste and a separate final submit key.
 - **Relaunch continuation:** provider-native startup arguments are applied before respawning the TUI in tmux window `0`.
-- **Role injection:** bootstrap message sent as the first-turn prompt (see [Role Injection](role-injection.md)).
+- **Interrupt:** Escape is the primary interrupt/cancel key for maintained TUI providers, including Kimi Code.
+- **Role injection:** tool-dependent; see [Role Injection](role-injection.md).
 - **Use case:** development, debugging, and any workflow where direct interactive access to the agent is valuable.
+
+#### Kimi Code local interactive
+
+Kimi local interactive support starts the interactive `kimi` TUI under backend `local_interactive`; it does not reuse or rename `kimi_headless`.
+
+- **Process recognition:** live process inspection treats both `kimi-code` and `kimi` as supported Kimi TUI process names.
+- **Role injection:** Kimi TUI uses a bootstrap-message turn. Houmao does not add an unverified Kimi TUI system-prompt flag.
+- **Model selection:** launch-owned Kimi model selection is projected as `--model <alias>` for fresh and resumed Kimi TUI startup.
+- **Update suppression:** managed Kimi TUI launches set `KIMI_CODE_NO_AUTO_UPDATE=1` so startup does not stop on the interactive update preflight.
+- **Managed skills:** Houmao does not add managed `--skills-dir` arguments to Kimi TUI launches. The maintained `--skills-dir <KIMI_CODE_HOME>/skills` projection remains Kimi headless prompt-mode behavior.
+- **Relaunch continuation:** `tool_last_or_new` maps to `kimi --continue`; `exact` maps to `kimi --session <session_id>`. The runtime never uses bare `kimi --session` for managed relaunch because that opens Kimi's interactive picker.
+- **Resume conflicts:** resumed Kimi TUI startup cannot combine `--continue` or `--session <session_id>` with `--yolo`, `--auto`, or `--plan`. Houmao rejects that combination before provider start. `--model <alias>` remains allowed with resumed startup.
 
 ### claude_headless
 
@@ -168,7 +181,7 @@ Tmux-backed relaunch accepts a relaunch-only chat-session selector. It does not 
 | Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
 | Claude Code | `claude --continue` | `claude --resume <session_id>` | `claude -p --continue <prompt>` | `claude -p --resume <session_id> <prompt>` |
 | Gemini CLI | `gemini --resume latest` | `gemini --resume <session_id>` | `gemini --resume latest -p <prompt>` | `gemini --resume <session_id> -p <prompt>` |
-| Kimi Code | n/a | n/a | `kimi --continue -p <prompt>` | `kimi --session <session_id> -p <prompt>` |
+| Kimi Code | `kimi --continue` | `kimi --session <session_id>` | `kimi --continue -p <prompt>` | `kimi --session <session_id> -p <prompt>` |
 
 When the relaunch selector is omitted, the runtime uses `new` and starts a fresh provider chat. When a local interactive relaunch resumes an existing provider chat, bootstrap-message role injection is not replayed into that chat.
 

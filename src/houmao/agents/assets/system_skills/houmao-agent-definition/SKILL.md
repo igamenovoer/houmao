@@ -93,7 +93,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
    - `project.profile`
    - `internals.native-agent.launch-dossier`
 8. Generate config drafts only with the required fields for the selected draft id. The JSON intent must be an object with a top-level `fields` mapping; do not pass flat top-level draft fields.
-   - `project.specialist`: `{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}`
+   - `project.specialist`: `{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}`
    - `project.profile`: `{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}`
    - `internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native","recipe":"reviewer-codex","credential":"reviewer-creds"}}`
    - `<chosen houmao-mgr launcher> internals config-drafts generate --id <draft-id> --intent '{"fields":{...}}'`

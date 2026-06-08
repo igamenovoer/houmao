@@ -1,46 +1,32 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
 from houmao.shared_tui_tracking.apps.kimi_code.profile import analyze_kimi_surface
 
 
-_KIMI_READY_WITH_FOOTER_THINKING = (
-    "╭────────────────────────────────────────╮\n"
-    "│ >                                      │\n"
-    "╰────────────────────────────────────────╯\n"
-    "Kimi-k2.6 thinking  /model: switch model\n"
-    "context: 0.0%\n"
+_FIXTURE_ROOT = (
+    Path(__file__).resolve().parents[2] / "fixtures" / "shared_tui_tracking" / "kimi_code"
 )
+
+
+def _fixture(name: str) -> str:
+    """Return one recorded Kimi visible-surface fixture."""
+
+    return (_FIXTURE_ROOT / name).read_text(encoding="utf-8")
+
+
+_KIMI_READY_WITH_FOOTER_THINKING = _fixture("footer_thinking_ready_prompt.txt")
 _KIMI_DRAFT = (
     "╭────────────────────────────────────────╮\n"
     "│ > summarize the current status         │\n"
     "╰────────────────────────────────────────╯\n"
 )
-_KIMI_ACTIVE = (
-    "User asked a question\n"
-    "⠋ working...\n"
-    "╭────────────────────────────────────────╮\n"
-    "│ >                                      │\n"
-    "╰────────────────────────────────────────╯\n"
-)
-_KIMI_APPROVAL = (
-    "────────────────────────────────────────\n"
-    "  ▶ Run this command?\n"
-    "\n"
-    "  cwd: /tmp/project\n"
-    "  $ pwd\n"
-    "\n"
-    "  ▶ 1. Approve once\n"
-    "    2. Approve for this session\n"
-    "    3. Reject\n"
-    "    4. Reject with feedback\n"
-    "────────────────────────────────────────\n"
-    "╭────────────────────────────────────────╮\n"
-    "│ >                                      │\n"
-    "╰────────────────────────────────────────╯\n"
-)
+_KIMI_ACTIVE = _fixture("active_response.txt")
+_KIMI_APPROVAL = _fixture("command_approval.txt")
 
 
 def _kimi_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
@@ -113,3 +99,29 @@ def test_kimi_approval_panel_marks_operator_blocked_active_turn() -> None:
     assert state.surface_accepting_input == "no"
     assert state.surface_ready_posture == "no"
     assert "approval_panel" in state.active_reasons
+
+
+def test_kimi_completed_response_fixture_marks_ready_success_candidate() -> None:
+    scheduler = TestScheduler()
+    session = _kimi_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_fixture("completed_response.txt"))
+    state = session.current_state()
+
+    assert state.turn_phase == "ready"
+    assert state.surface_accepting_input == "yes"
+    assert state.surface_ready_posture == "yes"
+
+
+def test_kimi_rejected_command_fixture_is_ready_not_known_failure() -> None:
+    scheduler = TestScheduler()
+    session = _kimi_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_fixture("rejected_command.txt"))
+    state = session.current_state()
+
+    assert state.turn_phase == "ready"
+    assert state.surface_accepting_input == "yes"
+    assert state.last_turn_result == "none"

@@ -50,9 +50,11 @@ Load only the selected tool's page:
 - Claude lookup: [../../references/credentials/claude-lookup.md](../../references/credentials/claude-lookup.md)
 - Codex lookup: [../../references/credentials/codex-lookup.md](../../references/credentials/codex-lookup.md)
 - Gemini lookup: [../../references/credentials/gemini-lookup.md](../../references/credentials/gemini-lookup.md)
+- Kimi lookup: [../../references/credentials/kimi-lookup.md](../../references/credentials/kimi-lookup.md)
 - Claude kinds menu: [../../references/credentials/claude-kinds.md](../../references/credentials/claude-kinds.md)
 - Codex kinds menu: [../../references/credentials/codex-kinds.md](../../references/credentials/codex-kinds.md)
 - Gemini kinds menu: [../../references/credentials/gemini-kinds.md](../../references/credentials/gemini-kinds.md)
+- Kimi kinds menu: [../../references/credentials/kimi-kinds.md](../../references/credentials/kimi-kinds.md)
 
 ## Guardrails
 

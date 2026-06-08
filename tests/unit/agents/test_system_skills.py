@@ -1267,7 +1267,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert '`internals.native-agent.launch-dossier`: `{"fields":{"name":"reviewer-native"' in (
         manage_agent_definition_skill
     )
-    assert '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}' in (
+    assert '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}' in (
         easy_specialists
     )
     assert (

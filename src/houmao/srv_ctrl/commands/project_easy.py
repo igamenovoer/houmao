@@ -2020,9 +2020,9 @@ def launch_easy_instance_command(
         resolved_auth = _optional_non_empty_value(auth)
         working_directory = (workdir or Path.cwd()).resolve()
 
-    if specialist_metadata.tool in {"gemini", "kimi"} and not resolved_headless:
+    if specialist_metadata.tool == "gemini" and not resolved_headless:
         raise click.ClickException(
-            "Gemini and Kimi specialists are currently headless-only. Use `--headless`."
+            "Gemini specialists are currently headless-only. Use `--headless`."
         )
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")

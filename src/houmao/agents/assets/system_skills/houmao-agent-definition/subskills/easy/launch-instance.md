@@ -53,6 +53,7 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
 - When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool supports it.
 - Add `--headless` only when the user explicitly asks for headless execution, when an existing selected profile stores headless posture, or when the selected tool/lane requires headless.
+- Kimi supports TUI/local-interactive launch here when headless is omitted; Gemini is the selected-tool exception that requires `--headless`.
 - `--prompt-mode unattended` and other stored automation defaults do not imply headless launch.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.
 - Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.

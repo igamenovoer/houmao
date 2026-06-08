@@ -45,7 +45,9 @@ _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
     "gemini": ("gemini",),
+    "kimi": ("kimi-code", "kimi"),
 }
+_KIMI_RESUME_CONFLICT_FLAGS = frozenset({"--auto", "--plan", "--yolo", "-y"})
 _POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
 _LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS = 10.0
 _LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS = 0.5
@@ -81,6 +83,11 @@ def _tui_relaunch_chat_session_args(
             return ["--resume", "latest"]
         assert selection.session_id is not None
         return ["--resume", selection.session_id]
+    if tool == "kimi":
+        if selection.mode == "tool_last_or_new":
+            return ["--continue"]
+        assert selection.session_id is not None
+        return ["--session", selection.session_id]
     raise BackendExecutionError(
         f"Chat-session continuation is unsupported for local interactive tool {tool!r}."
     )
@@ -385,9 +392,12 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             and self._plan.role_injection.prompt
         ):
             command.extend(["--append-system-prompt", self._plan.role_injection.prompt])
-        command.extend(
-            _tui_relaunch_chat_session_args(tool=self._plan.tool, selection=chat_session)
+        relaunch_args = _tui_relaunch_chat_session_args(
+            tool=self._plan.tool,
+            selection=chat_session,
         )
+        command.extend(relaunch_args)
+        _validate_kimi_tui_relaunch_args(tool=self._plan.tool, command=command)
         return command
 
     def _apply_startup_bootstrap(self) -> None:
@@ -632,3 +642,35 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         except TmuxCommandError:
             return
         self._state.tmux_session_name = None
+
+
+def _validate_kimi_tui_relaunch_args(*, tool: str, command: list[str]) -> None:
+    """Reject Kimi TUI resume startup combinations that Kimi rejects natively."""
+
+    if tool != "kimi":
+        return
+    if not _args_include_kimi_resume_selector(command):
+        return
+    conflict = next((arg for arg in command if _kimi_resume_conflict_flag(arg)), None)
+    if conflict is None:
+        return
+    raise BackendExecutionError(
+        "Unsupported Kimi TUI relaunch arguments: Kimi cannot combine "
+        "`--continue` or `--session <session_id>` with `--auto`, `--yolo`, or `--plan`."
+    )
+
+
+def _args_include_kimi_resume_selector(args: list[str]) -> bool:
+    """Return whether Kimi startup args resume a provider-native chat."""
+
+    return any(
+        arg == "--continue" or arg == "--session" or arg.startswith("--session=") for arg in args
+    )
+
+
+def _kimi_resume_conflict_flag(arg: str) -> bool:
+    """Return whether one Kimi arg conflicts with resumed TUI startup."""
+
+    return arg in _KIMI_RESUME_CONFLICT_FLAGS or any(
+        arg.startswith(f"{flag}=") for flag in _KIMI_RESUME_CONFLICT_FLAGS if flag.startswith("--")
+    )

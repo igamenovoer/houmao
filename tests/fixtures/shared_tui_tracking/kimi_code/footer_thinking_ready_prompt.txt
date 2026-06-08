@@ -1,0 +1,8 @@
+Assistant:
+I am ready for the next task.
+
+╭────────────────────────────────────────╮
+│ >                                      │
+╰────────────────────────────────────────╯
+Kimi-k2.6 thinking  /model: switch model
+context: 0.0%

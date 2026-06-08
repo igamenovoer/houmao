@@ -115,7 +115,7 @@ Returns the default backend for a given tool name.
 
 **Override behavior:**
 
-- When `prefer_local_interactive=True`, returns `local_interactive` for Claude, Codex, and Gemini. Kimi currently has no maintained local-interactive backend and remains headless-only.
+- When `prefer_local_interactive=True`, returns `local_interactive` for Claude, Codex, Gemini, and Kimi. Kimi local interactive starts the Kimi Code TUI and remains distinct from the `kimi_headless` prompt-mode backend.
 - `prefer_cao=True` is legacy/internal compatibility input. New public operator workflows do not request standalone `cao_rest` launches.
 
 ## See also

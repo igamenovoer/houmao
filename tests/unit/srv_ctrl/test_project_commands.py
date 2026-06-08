@@ -3764,7 +3764,7 @@ def test_project_easy_specialist_create_persists_non_default_setup(
     assert specialist_payload["generated"]["preset"].endswith("/researcher-codex-yunwu-openai.yaml")
 
 
-@pytest.mark.parametrize("tool_name", ["claude", "codex", "gemini"])
+@pytest.mark.parametrize("tool_name", ["claude", "codex", "gemini", "kimi"])
 def test_project_easy_specialist_create_persists_default_setup_for_supported_tools(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3843,7 +3843,208 @@ def test_project_easy_instance_launch_rejects_gemini_without_headless(
     )
 
     assert result.exit_code != 0
-    assert "Gemini and Kimi specialists are currently headless-only" in result.output
+    assert "Gemini specialists are currently headless-only" in result.output
+
+
+def test_project_easy_instance_launch_allows_kimi_without_headless(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "specialist",
+            "create",
+            "--name",
+            "kimi-reviewer",
+            "--tool",
+            "kimi",
+            "--system-prompt",
+            "You are a Kimi reviewer.",
+            "--api-key",
+            "sk-kimi",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    captured: dict[str, object] = {}
+
+    def _fake_launch(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            agent_identity=kwargs["agent_name"],
+            agent_id="agent-123",
+            tmux_session_name="HOUMAO-kimi-reviewer-1",
+            manifest_path=(tmp_path / "manifest.json").resolve(),
+        )
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        _fake_launch,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch",
+            "--specialist",
+            "kimi-reviewer",
+            "--name",
+            "kimi-reviewer-1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["provider"] == "kimi"
+    assert captured["headless"] is False
+    assert captured["agents"] == str(
+        repo_root / ".houmao" / "agents" / "presets" / "kimi-reviewer-kimi-default.yaml"
+    )
+
+
+def test_project_easy_instance_launch_preserves_explicit_kimi_headless(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    create_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "specialist",
+            "create",
+            "--name",
+            "kimi-reviewer",
+            "--tool",
+            "kimi",
+            "--api-key",
+            "sk-kimi",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="HOUMAO-kimi-reviewer-1",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(
+        cli,
+        [
+            "project",
+            "agents",
+            "launch",
+            "--specialist",
+            "kimi-reviewer",
+            "--name",
+            "kimi-reviewer-1",
+            "--headless",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["provider"] == "kimi"
+    assert captured["headless"] is True
+
+
+def test_project_easy_instance_launch_allows_kimi_profile_without_headless(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    repo_root = (tmp_path / "repo").resolve()
+    repo_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repo_root)
+
+    assert runner.invoke(cli, ["project", "init"]).exit_code == 0
+    assert (
+        runner.invoke(
+            cli,
+            [
+                "project",
+                "specialist",
+                "create",
+                "--name",
+                "kimi-reviewer",
+                "--tool",
+                "kimi",
+                "--api-key",
+                "sk-kimi",
+            ],
+        ).exit_code
+        == 0
+    )
+    profile_result = runner.invoke(
+        cli,
+        [
+            "project",
+            "profile",
+            "create",
+            "--name",
+            "kimi-profile",
+            "--specialist",
+            "kimi-reviewer",
+            "--agent-name",
+            "kimi-profile-agent",
+        ],
+    )
+    assert profile_result.exit_code == 0, profile_result.output
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or SimpleNamespace(
+                agent_identity=kwargs["agent_name"],
+                agent_id="agent-123",
+                tmux_session_name="HOUMAO-kimi-profile-agent",
+                manifest_path=(tmp_path / "manifest.json").resolve(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        lambda **kwargs: None,
+    )
+
+    result = runner.invoke(cli, ["project", "agents", "launch", "--profile", "kimi-profile"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["provider"] == "kimi"
+    assert captured["agent_name"] == "kimi-profile-agent"
+    assert captured["headless"] is False
 
 
 def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:

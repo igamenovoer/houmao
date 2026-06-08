@@ -178,6 +178,7 @@ _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
     "gemini": ("gemini",),
+    "kimi": ("kimi-code", "kimi"),
 }
 _RELAUNCH_CHAT_SESSION_MODES: tuple[str, ...] = ("new", "tool_last_or_new", "exact")
 

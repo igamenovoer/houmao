@@ -335,7 +335,7 @@ def test_config_drafts_cli_list_generate_json_and_blockers() -> None:
 def test_config_drafts_cli_flat_intent_reports_fields_wrapper() -> None:
     result = _config_draft_generate_result(
         "project.specialist",
-        '{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}',
+        '{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}',
     )
 
     assert result.exit_code != 0
@@ -351,7 +351,7 @@ def test_config_drafts_cli_flat_intent_reports_fields_wrapper() -> None:
         result.output,
         draft_id="project.specialist",
         example_payload=(
-            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+            '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
         ),
     )
 
@@ -369,9 +369,9 @@ def test_config_drafts_cli_shape_and_parse_failures_include_fix_guides() -> None
         (
             "project.specialist",
             '{"fields":{"name":"reviewer","tool":"openai","credential":"reviewer-creds"}}',
-            "Field `tool` must be one of: claude, codex, gemini",
+            "Field `tool` must be one of: claude, codex, gemini, kimi",
             "fields.name, fields.tool, fields.credential",
-            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}',
+            '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}',
         ),
         (
             "project.profile",
@@ -411,11 +411,11 @@ def test_config_drafts_cli_valid_generation_stays_unchanged_for_registered_draft
     cases = (
         (
             "project.specialist",
-            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}',
+            '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}',
             {
                 "config_kind": "project.specialist",
                 "name": "general-kimi",
-                "tool": "claude",
+                "tool": "kimi",
                 "credential": {"name": "kimi-coding"},
                 "setup": "default",
                 "launch": {"prompt_mode": "unattended"},
@@ -468,7 +468,7 @@ def test_config_drafts_cli_fix_guide_omits_secret_values() -> None:
         result.output,
         draft_id="project.specialist",
         example_payload=(
-            '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+            '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
         ),
     )
 
@@ -494,7 +494,7 @@ def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     assert "project.specialist" in specialists
     assert "project.profile" in profiles
     assert "internals.native-agent.launch-dossier" in launch_dossiers
-    assert '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}' in (
+    assert '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}' in (
         specialists
     )
     assert (

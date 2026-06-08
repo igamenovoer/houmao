@@ -60,6 +60,8 @@ When the user does not specify headless or TUI posture, omit `--headless`. An pr
 
 Only persist `--headless` when the user explicitly asks for headless execution or the selected tool/lane is known to require headless. Do not infer headless from `--prompt-mode unattended`, mailbox defaults, gateway defaults, model defaults, or automation-oriented wording.
 
+Kimi-backed profiles are TUI/local-interactive preferred when headless posture is omitted. Gemini is the known project easy launch exception that requires headless.
+
 ## Clear Fields
 
 `profile set` may clear:

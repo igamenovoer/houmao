@@ -10,13 +10,14 @@ Use this action only when the user wants to create one new credential.
    - Claude: `references/claude-credential-kinds.md`
    - Codex: `references/codex-credential-kinds.md`
    - Gemini: `references/gemini-credential-kinds.md`
+   - Kimi: `references/kimi-credential-kinds.md`
 4. Build the direct command: `project credentials <tool> add` for the project lane or `internals native-agent credentials <tool> add` for the direct native-agent lane.
 5. Run the direct command only after required inputs are explicit and conflicts are resolved.
 6. Report the created credential name, written env vars, and written auth-file paths returned by the command.
 
 ## Required Inputs
 
-- `tool`: one of `claude`, `codex`, or `gemini`
+- `tool`: one of `claude`, `codex`, `gemini`, or `kimi`
 - `name`
 - a resolved target
 - enough supported credential input for the selected tool
@@ -41,4 +42,4 @@ Use the selected tool's credential-kind reference for supported credential flags
 - Do not treat optional Claude state-template input as a credential-providing method.
 - Do not claim that adding one credential also updates any project profile or native launch dossier to use it.
 - Do not reinterpret `add` as `set` when the credential already exists.
-- Do not duplicate unsupported Claude/Codex/Gemini options; use the selected tool reference before choosing credential flags.
+- Do not duplicate unsupported Claude/Codex/Gemini/Kimi options; use the selected tool reference before choosing credential flags.

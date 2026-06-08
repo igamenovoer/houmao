@@ -8,7 +8,7 @@ This reference is self-contained. It does not depend on any file outside the pac
 
 - **Project overlay** — the `.houmao/` directory that holds a Houmao project's specialists, credentials, mailbox, memory, catalog, and configuration. A workspace becomes a Houmao project once that overlay is created. Owning skill: `houmao-project-mgr`.
 - **Recipe** — a reusable build-phase bundle of role prompt, tool adapter, skills, and setup or authentication assets. Recipes drive the build phase that produces a managed agent's runtime home. Owning skill: `houmao-agent-definition`.
-- **Tool adapter** — the per-tool contract that tells Houmao how to build and launch one CLI agent family (for example `claude`, `codex`, `gemini`). Owning skill: `houmao-agent-definition`.
+- **Tool adapter** — the per-tool contract that tells Houmao how to build and launch one CLI agent family (for example `claude`, `codex`, `gemini`, or `kimi`). Owning skill: `houmao-agent-definition`.
 
 ## Agents, Specialists, Profiles, Launches
 

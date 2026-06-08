@@ -67,7 +67,7 @@ Key options:
 | Option | Default | Description |
 |---|---|---|
 | `--name` | Required | Specialist name. Used as the role name and default auth display name. |
-| `--tool` | Required | Tool lane: `claude`, `codex`, or `gemini`. |
+| `--tool` | Required | Tool lane: `claude`, `codex`, `gemini`, or `kimi`. |
 | `--system-prompt` / `--system-prompt-file` | None | Inline prompt text or path to a prompt markdown file. |
 | `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
 | `--api-key` | None | API key for the selected tool. |
@@ -123,7 +123,7 @@ Gemini-specific auth inputs now support two maintained lanes:
 - API-key lane: `--api-key` with optional `--base-url` to persist `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL`.
 - OAuth lane: `--gemini-oauth-creds /path/to/oauth_creds.json` to persist the Gemini CLI OAuth credential file. You can also combine this with the API-key lane in one specialist or auth bundle; Houmao preserves explicit API-key and endpoint settings instead of overwriting them.
 
-Gemini and Kimi specialists now follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Gemini and Kimi stay headless-only on the easy instance surface, so launch those specialists with `houmao-mgr project agents launch --headless`.
+Gemini and Kimi specialists follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Gemini remains the easy instance required-headless exception, so launch Gemini specialists with `houmao-mgr project agents launch --headless`. Kimi specialists can use the TUI/local-interactive path when headless posture is omitted, and still honor explicit `--headless` for prompt-mode launch.
 
 Example Gemini specialist:
 
@@ -323,7 +323,7 @@ Key options:
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
 | `--mail-account-dir` | None | Optional private filesystem mailbox directory to symlink into the shared root. |
 
-Gemini and Kimi specialists remain headless-only here. Use `--headless` when launching either specialist through `project agents launch`.
+Gemini specialists remain headless-only here. Kimi specialists and Kimi-backed profiles can launch through the TUI/local-interactive path when `--headless` is omitted, and still honor explicit `--headless` for prompt-mode launch.
 
 `--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, managed-agent memory, and mailbox defaults.
 

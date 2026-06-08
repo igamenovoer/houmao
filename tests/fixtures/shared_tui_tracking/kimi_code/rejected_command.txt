@@ -1,0 +1,10 @@
+User: inspect the current directory
+
+Run this command? rejected by user.
+The command was not executed.
+
+╭────────────────────────────────────────╮
+│ >                                      │
+╰────────────────────────────────────────╯
+Kimi-k2.6  /model: switch model
+context: 0.1%

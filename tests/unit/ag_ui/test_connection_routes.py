@@ -5,13 +5,16 @@ import json
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
+import houmao.ag_ui.routes as ag_ui_routes
 from houmao.ag_ui.connection import AgUiConnectionRegistry
+from houmao.ag_ui.diagnostics import AgUiDiagnostics
 from houmao.ag_ui.models import AgUiConnectInput
 from houmao.ag_ui.runtime import (
     AgUiHeadlessArtifactObservation,
@@ -19,7 +22,7 @@ from houmao.ag_ui.runtime import (
     AgUiTuiObservation,
     ag_ui_target_transport_family_for_backend,
 )
-from houmao.ag_ui.routes import connect_event_stream, register_ag_ui_routes
+from houmao.ag_ui.routes import connect_event_stream, register_ag_ui_routes, run_event_stream
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayRequestCreateV1,
@@ -246,9 +249,7 @@ def test_connect_stream_initial_snapshot_and_client_close_detaches_only_connecti
     async def _run() -> None:
         runtime = _SpyRuntime()
         registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
-        connect_input = AgUiConnectInput.model_validate(
-            _connect_payload(lastSeenEventId="event-1")
-        )
+        connect_input = AgUiConnectInput.model_validate(_connect_payload(lastSeenEventId="event-1"))
         stream = connect_event_stream(
             runtime=runtime,
             registry=registry,
@@ -267,6 +268,47 @@ def test_connect_stream_initial_snapshot_and_client_close_detaches_only_connecti
 
         await stream.aclose()
         assert registry.get("agui-1") is None
+        runtime.assert_no_work_or_lifecycle_calls()
+
+    asyncio.run(_run())
+
+
+def test_connect_stream_records_safe_diagnostics_and_active_counts() -> None:
+    async def _run() -> None:
+        runtime = _SpyRuntime()
+        diagnostics = AgUiDiagnostics(runtime=runtime)
+        registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
+        connect_input = AgUiConnectInput.model_validate(_connect_payload(lastSeenEventId="event-1"))
+        stream = connect_event_stream(
+            runtime=runtime,
+            registry=registry,
+            connect_input=connect_input,
+            request=_DisconnectProbe(),
+            diagnostics=diagnostics,
+            heartbeat_interval_seconds=0.01,
+        )
+
+        assert diagnostics.active_counts() == {
+            "activeAgUiConnections": 0,
+            "activeAgUiRuns": 0,
+        }
+        await anext(stream)
+        assert diagnostics.active_counts() == {
+            "activeAgUiConnections": 1,
+            "activeAgUiRuns": 0,
+        }
+        await stream.aclose()
+
+        assert diagnostics.active_counts() == {
+            "activeAgUiConnections": 0,
+            "activeAgUiRuns": 0,
+        }
+        event_names = [str(entry["event"]) for entry in runtime.diagnostics]
+        assert "gateway.ag_ui_connection_started" in event_names
+        assert "gateway.ag_ui_connection_detached" in event_names
+        rendered = json.dumps(runtime.diagnostics, sort_keys=True)
+        assert "Bearer secret" not in rendered
+        assert "hello" not in rendered
         runtime.assert_no_work_or_lifecycle_calls()
 
     asyncio.run(_run())
@@ -361,6 +403,12 @@ def test_disconnect_routes_remove_only_connection_bookkeeping() -> None:
         "detached": True,
         "detail": "AG-UI connection detached. Houmao agent lifecycle was not modified.",
     }
+    explicit_disconnect = [
+        entry
+        for entry in runtime.diagnostics
+        if entry["event"] == "gateway.ag_ui_connection_explicit_disconnect"
+    ][0]
+    assert explicit_disconnect["fields"]["detached"] is True  # type: ignore[index]
     assert registry.get("agui-1") is None
     runtime.assert_no_work_or_lifecycle_calls()
 
@@ -372,6 +420,12 @@ def test_disconnect_routes_remove_only_connection_bookkeeping() -> None:
         "detached": False,
         "detail": "AG-UI connection is unknown or already detached.",
     }
+    missing_disconnect = [
+        entry
+        for entry in runtime.diagnostics
+        if entry["event"] == "gateway.ag_ui_connection_explicit_disconnect"
+    ][1]
+    assert missing_disconnect["fields"]["detached"] is False  # type: ignore[index]
     runtime.assert_no_work_or_lifecycle_calls()
 
 
@@ -438,6 +492,18 @@ def test_runs_route_streams_headless_lifecycle_text_and_finished_event(tmp_path:
     assert payloads[0]["runId"] == "run-1"
     assert payloads[2]["delta"] == "hello from canonical"
     assert runtime.created_requests[0].payload.turn_id == "run-1"  # type: ignore[union-attr]
+    diagnostics = app.state.ag_ui_diagnostics
+    assert diagnostics.active_counts() == {
+        "activeAgUiConnections": 0,
+        "activeAgUiRuns": 0,
+    }
+    event_names = [str(entry["event"]) for entry in runtime.diagnostics]
+    assert "gateway.ag_ui_run_admitted" in event_names
+    assert "gateway.ag_ui_run_stream_started" in event_names
+    assert "gateway.ag_ui_run_stream_completed" in event_names
+    rendered_diagnostics = json.dumps(runtime.diagnostics, sort_keys=True)
+    assert "hello" not in rendered_diagnostics
+    assert "Bearer secret" not in rendered_diagnostics
     runtime.assert_no_lifecycle_calls()
 
 
@@ -465,6 +531,10 @@ def test_runs_route_rejects_invalid_input_before_stream_or_work() -> None:
 
     assert response.status_code == 422
     assert "RUN_STARTED" not in response.text
+    assert app.state.ag_ui_diagnostics.active_counts() == {
+        "activeAgUiConnections": 0,
+        "activeAgUiRuns": 0,
+    }
     runtime.assert_no_work_or_lifecycle_calls()
 
 
@@ -484,6 +554,10 @@ def test_runs_route_rejects_busy_and_unavailable_targets_before_streaming() -> N
 
         assert response.status_code == status_code
         assert "RUN_STARTED" not in response.text
+        assert app.state.ag_ui_diagnostics.active_counts() == {
+            "activeAgUiConnections": 0,
+            "activeAgUiRuns": 0,
+        }
         runtime.assert_no_work_or_lifecycle_calls()
 
 
@@ -502,6 +576,10 @@ def test_runs_route_converts_post_admission_failure_to_run_error() -> None:
     payloads = _sse_payloads(response.text)
     assert [payload["type"] for payload in payloads] == ["RUN_STARTED", "RUN_ERROR"]
     assert payloads[1]["message"] == "boom"
+    assert app.state.ag_ui_diagnostics.active_counts() == {
+        "activeAgUiConnections": 0,
+        "activeAgUiRuns": 0,
+    }
     runtime.assert_no_lifecycle_calls()
 
 
@@ -559,3 +637,98 @@ def test_run_stream_disconnect_detaches_without_lifecycle_calls() -> None:
         runtime.assert_no_lifecycle_calls()
 
     asyncio.run(_run())
+
+
+def test_run_stream_client_abort_records_detach_and_cleans_active_count() -> None:
+    async def _run() -> None:
+        from houmao.ag_ui.service import AgUiRunService
+
+        class _DisconnectAfterStart:
+            async def is_disconnected(self) -> bool:
+                return True
+
+        runtime = _SpyRuntime(status_payload=_status(backend="codex_headless"))
+        diagnostics = AgUiDiagnostics(runtime=runtime)
+        service = AgUiRunService(runtime=runtime, poll_interval_seconds=0)  # type: ignore[arg-type]
+        admitted = service.admit_run(AgUiConnectInput.model_validate(_connect_payload()))
+        stream = run_event_stream(
+            service=service,
+            admitted_run=admitted,
+            request=_DisconnectAfterStart(),
+            diagnostics=diagnostics,
+        )
+
+        first_frame = await anext(stream)
+        assert json.loads(first_frame.removeprefix("data: ").removesuffix("\n\n"))["type"] == (
+            "RUN_STARTED"
+        )
+        try:
+            await anext(stream)
+        except StopAsyncIteration:
+            pass
+        else:  # pragma: no cover - defensive assertion
+            raise AssertionError("stream should stop after disconnect")
+
+        assert diagnostics.active_counts() == {
+            "activeAgUiConnections": 0,
+            "activeAgUiRuns": 0,
+        }
+        event_names = [str(entry["event"]) for entry in runtime.diagnostics]
+        assert "gateway.ag_ui_run_client_disconnected" in event_names
+        assert "gateway.ag_ui_run_stream_completed" in event_names
+        runtime.assert_no_lifecycle_calls()
+
+    asyncio.run(_run())
+
+
+def test_run_stream_encoder_error_emits_run_error_and_cleans_active_count(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    canonical_path = tmp_path / "canonical-events.jsonl"
+    canonical_event = CanonicalHeadlessEvent(
+        kind="assistant",
+        message="assistant",
+        turn_index=1,
+        provider="codex",
+        provider_event_type="assistant.text",
+        data={"text": "hello from canonical"},
+    )
+    canonical_path.write_text(
+        json.dumps(canonical_event.to_artifact_record(), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    runtime = _SpyRuntime(
+        status_payload=_status(backend="codex_headless"),
+        request_states=[_completed_request_state()],
+        headless_events_path=canonical_path,
+    )
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
+    original_encode = ag_ui_routes.encode_sse_event
+
+    def _flaky_encode(event: object) -> str:
+        payload = event.model_dump(mode="json", by_alias=True, exclude_none=True)  # type: ignore[attr-defined]
+        if payload["type"] == "RUN_STARTED":
+            return original_encode(event)  # type: ignore[arg-type]
+        raise RuntimeError("encoder boom")
+
+    monkeypatch.setattr(ag_ui_routes, "encode_sse_event", _flaky_encode)
+    client = TestClient(app)
+
+    response = client.post("/v1/ag-ui/runs", json=_connect_payload())
+
+    assert response.status_code == 200
+    payloads = _sse_payloads(response.text)
+    assert [payload["type"] for payload in payloads] == ["RUN_STARTED", "RUN_ERROR"]
+    assert payloads[1]["code"] == "houmao_run_stream_failed"
+    assert app.state.ag_ui_diagnostics.active_counts() == {
+        "activeAgUiConnections": 0,
+        "activeAgUiRuns": 0,
+    }
+    stream_errors = [
+        entry for entry in runtime.diagnostics if entry["event"] == "gateway.ag_ui_stream_error"
+    ]
+    assert stream_errors
+    assert stream_errors[0]["fields"]["errorCategory"] == "RuntimeError"  # type: ignore[index]
+    runtime.assert_no_lifecycle_calls()
