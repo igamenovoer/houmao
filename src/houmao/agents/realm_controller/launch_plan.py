@@ -5,8 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, Final, Literal, cast
 
+from houmao.agents.auto_skills import (
+    AUTO_SKILL_SYSTEM_PROMPT,
+    AUTO_SKILL_SYSTEM_PROMPT_REASON,
+    ensure_auto_skill_provider_discovery,
+    project_auto_skills_for_home,
+    prompt_sha256,
+)
 from houmao.agents.launch_policy import apply_launch_policy
 from houmao.agents.launch_policy.models import (
     LaunchPolicyApplicationKind,
@@ -14,6 +21,7 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyError,
     LaunchPolicyRequest,
     OperatorPromptMode,
+    LaunchPolicyStrategy,
 )
 from houmao.agents.launch_overrides import (
     LaunchDefaults,
@@ -103,13 +111,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         env_values[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
         env_var_names = sorted({*env_var_names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
 
-    role_injection = plan_role_injection(
-        backend=request.backend,
-        tool=tool,
-        role_name=request.role_package.role_name,
-        role_prompt=request.role_package.system_prompt,
-    )
-
     metadata: dict[str, Any] = {
         "env_source_file": str(env_source),
         "selected_env_vars": selected_env_names,
@@ -182,6 +183,23 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         raise LaunchPlanError(str(exc)) from exc
 
     args = list(launch_policy_result.args)
+    role_injection = plan_role_injection(
+        backend=request.backend,
+        tool=tool,
+        role_name=request.role_package.role_name,
+        role_prompt=request.role_package.system_prompt,
+        strategy=launch_policy_result.strategy,
+    )
+    auto_skill_projection = _ensure_role_injection_auto_skills(
+        tool=tool,
+        home_path=home_path,
+        role_injection=role_injection,
+    )
+    if auto_skill_projection is not None:
+        metadata["auto_skills"] = auto_skill_projection["projection"]
+        discovery_payload = auto_skill_projection.get("provider_discovery")
+        if discovery_payload is not None:
+            metadata["auto_skill_provider_discovery"] = discovery_payload
     codex_cli_config_args = _codex_cli_config_args_from_contract(
         tool=tool,
         backend=request.backend,
@@ -252,12 +270,44 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     )
 
 
+def _ensure_role_injection_auto_skills(
+    *,
+    tool: str,
+    home_path: Path,
+    role_injection: RoleInjectionPlan,
+) -> dict[str, Any] | None:
+    """Project auto skills required by the selected role-injection method."""
+
+    if role_injection.method != "auto_skill_system_prompt":
+        return None
+
+    projection = project_auto_skills_for_home(
+        tool=tool,
+        home_path=home_path,
+        skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
+        reason=AUTO_SKILL_SYSTEM_PROMPT_REASON,
+        prompt_reference="launch_plan.role_injection.prompt",
+        prompt_sha256=prompt_sha256(role_injection.prompt),
+    )
+    discovery = ensure_auto_skill_provider_discovery(
+        tool=tool,
+        home_path=home_path,
+        destination_root=projection.destination_root,
+        has_projected_auto_skills=bool(projection.projected_relative_dirs),
+    )
+    payload: dict[str, Any] = {"projection": projection.to_payload()}
+    if discovery is not None:
+        payload["provider_discovery"] = discovery
+    return payload
+
+
 def plan_role_injection(
     *,
     backend: BackendKind,
     tool: str | None = None,
     role_name: str,
     role_prompt: str,
+    strategy: LaunchPolicyStrategy | None = None,
 ) -> RoleInjectionPlan:
     """Create role-injection strategy for a backend.
 
@@ -275,6 +325,114 @@ def plan_role_injection(
     RoleInjectionPlan
         Backend-specific role plan.
     """
+
+    if strategy is not None:
+        return _plan_role_injection_from_strategy(
+            backend=backend,
+            tool=tool,
+            role_name=role_name,
+            role_prompt=role_prompt,
+            strategy=strategy,
+        )
+
+    return _plan_legacy_role_injection(
+        backend=backend,
+        tool=tool,
+        role_name=role_name,
+        role_prompt=role_prompt,
+    )
+
+
+def _plan_role_injection_from_strategy(
+    *,
+    backend: BackendKind,
+    tool: str | None,
+    role_name: str,
+    role_prompt: str,
+    strategy: LaunchPolicyStrategy,
+) -> RoleInjectionPlan:
+    """Create a role-injection plan from launch-policy capability metadata."""
+
+    if backend in {"cao_rest", "houmao_server_rest"}:
+        return RoleInjectionPlan(
+            method="cao_profile",
+            role_name=role_name,
+            prompt=role_prompt,
+        )
+
+    capabilities = strategy.system_prompt_bootstrap
+    if capabilities.native_system_prompt:
+        method = _native_role_injection_method(backend=backend, tool=tool)
+        if method is None:
+            raise LaunchPlanError(
+                "Launch policy declares native system-prompt support, but Houmao has no "
+                f"native role-injection method for backend={backend!r}, tool={tool!r}."
+            )
+        return RoleInjectionPlan(
+            method=method,
+            role_name=role_name,
+            prompt=role_prompt,
+            bootstrap_message=(
+                _bootstrap_message(role_name, role_prompt)
+                if method == "native_append_system_prompt"
+                else None
+            ),
+        )
+
+    if capabilities.startup_visible_skill_metadata:
+        if not capabilities.provider_skills:
+            raise LaunchPlanError(
+                "Launch policy declares startup-visible skill metadata without provider "
+                f"skill support for backend={backend!r}, tool={tool!r}."
+            )
+        return RoleInjectionPlan(
+            method="auto_skill_system_prompt",
+            role_name=role_name,
+            prompt=role_prompt,
+            bootstrap_message=None,
+        )
+
+    if role_prompt.strip():
+        raise LaunchPlanError(
+            "No supported system-prompt injection method exists for "
+            f"backend={backend!r}, tool={tool!r}, strategy={strategy.strategy_id!r}: "
+            "native_system_prompt=false and startup_visible_skill_metadata=false."
+        )
+
+    return RoleInjectionPlan(
+        method="bootstrap_message",
+        role_name=role_name,
+        prompt=role_prompt,
+        bootstrap_message="",
+    )
+
+
+def _native_role_injection_method(
+    *,
+    backend: BackendKind,
+    tool: str | None,
+) -> Literal["native_developer_instructions", "native_append_system_prompt"] | None:
+    """Return the maintained native role-injection method for one backend/tool pair."""
+
+    if backend in {"codex_app_server", "codex_headless"}:
+        return "native_developer_instructions"
+    if backend == "local_interactive" and tool == "codex":
+        return "native_developer_instructions"
+    if backend == "claude_headless":
+        return "native_append_system_prompt"
+    if backend == "local_interactive" and tool == "claude":
+        return "native_append_system_prompt"
+    return None
+
+
+def _plan_legacy_role_injection(
+    *,
+    backend: BackendKind,
+    tool: str | None,
+    role_name: str,
+    role_prompt: str,
+) -> RoleInjectionPlan:
+    """Create the pre-policy role-injection plan for direct helper callers."""
 
     if backend in {"codex_app_server", "codex_headless"}:
         return RoleInjectionPlan(

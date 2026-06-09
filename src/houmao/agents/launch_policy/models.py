@@ -153,6 +153,26 @@ class MinimalInputContract:
 
 
 @dataclass(frozen=True)
+class SystemPromptBootstrapCapabilities:
+    """Declared provider capability for managed system-prompt bootstrap."""
+
+    native_system_prompt: bool
+    provider_skills: bool
+    startup_visible_skill_metadata: bool
+    evidence: tuple[StrategyEvidence, ...] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-serializable payload."""
+
+        return {
+            "native_system_prompt": self.native_system_prompt,
+            "provider_skills": self.provider_skills,
+            "startup_visible_skill_metadata": self.startup_visible_skill_metadata,
+            "evidence": [item.to_payload() for item in self.evidence],
+        }
+
+
+@dataclass(frozen=True)
 class OwnedPathSpec:
     """Runtime-owned path and logical subpaths for one strategy."""
 
@@ -189,6 +209,7 @@ class LaunchPolicyStrategy:
     backends: tuple[LaunchSurface, ...]
     supported_versions: SupportedVersionSpec
     minimal_inputs: MinimalInputContract
+    system_prompt_bootstrap: SystemPromptBootstrapCapabilities
     evidence: tuple[StrategyEvidence, ...]
     owned_paths: tuple[OwnedPathSpec, ...]
     actions: tuple[LaunchPolicyAction, ...]
@@ -202,6 +223,7 @@ class LaunchPolicyStrategy:
             "backends": list(self.backends),
             "supported_versions": self.supported_versions.to_payload(),
             "minimal_inputs": self.minimal_inputs.to_payload(),
+            "system_prompt_bootstrap": self.system_prompt_bootstrap.to_payload(),
             "evidence": [item.to_payload() for item in self.evidence],
             "owned_paths": [item.to_payload() for item in self.owned_paths],
         }

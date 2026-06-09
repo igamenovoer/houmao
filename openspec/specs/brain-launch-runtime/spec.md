@@ -3223,3 +3223,96 @@ The internal direct build command SHALL preserve the existing build behavior for
 - **WHEN** an operator wants to start a managed agent from a project profile
 - **THEN** the maintained ordinary path is `houmao-mgr project agents launch`
 - **AND THEN** the operator does not need to run direct brain-build plumbing manually
+
+### Requirement: Brain construction projects required managed auto skills
+When a launch plan selects an auto-skill based role injection method, brain construction SHALL project the required packaged auto skills into the managed home before provider start.
+
+Auto-skill projection SHALL use the same provider-visible skill destination root as ordinary managed skill projection for that tool, such as `skills/` for Kimi and `.gemini/skills/` for Gemini.
+
+Auto-skill projection SHALL be independent from project skill selection, profile-private skill projection, and managed system-skill selection.
+
+Auto-skill projection SHALL be counted as projected skill content for provider setup that needs a skill root registration, including Kimi `extra_skill_dirs`.
+
+Brain construction SHALL record auto-skill provenance including selected auto-skill names, the selection reason, projected relative directories, and the destination root.
+
+#### Scenario: Kimi home registers skill root when only auto skill is projected
+- **WHEN** brain construction builds a Kimi managed home whose only projected skill is `houmao-auto-system-prompt`
+- **THEN** the managed home contains the projected skill under the Kimi-visible skill root
+- **AND THEN** Kimi configuration registers that projected skill root for discovery
+- **AND THEN** construction provenance records the auto-skill selection and projected relative directory
+
+#### Scenario: Disabled system-skill policy does not suppress required auto skill
+- **WHEN** managed launch resolves a system-skill policy that installs no system skills
+- **AND WHEN** the role injection method requires `houmao-auto-system-prompt`
+- **THEN** brain construction still projects `houmao-auto-system-prompt`
+- **AND THEN** construction provenance distinguishes the auto-skill projection from the empty system-skill selection
+
+### Requirement: Runtime supports auto-skill system-prompt role injection
+The runtime SHALL support a role injection method that stores the effective Houmao system prompt for self-service retrieval and uses `houmao-auto-system-prompt` as the provider bootstrap path.
+
+For this method, runtime startup SHALL NOT send the effective Houmao system prompt as an ordinary chat bootstrap message.
+
+Runtime manifests SHALL describe the method as auto-skill based and SHALL record the prompt reference or hash needed for diagnostics without claiming the provider has applied the prompt solely because the skill was projected.
+
+#### Scenario: Auto-skill role injection does not send chat bootstrap
+- **WHEN** a Kimi managed launch resolves auto-skill system-prompt injection
+- **THEN** the launch plan does not include a chat bootstrap message containing the effective Houmao system prompt
+- **AND THEN** the managed home includes `houmao-auto-system-prompt`
+- **AND THEN** the effective prompt remains available to `houmao-mgr agents self system-prompt show --format text`
+
+#### Scenario: Manifest records projected but not applied
+- **WHEN** a managed launch projects `houmao-auto-system-prompt`
+- **THEN** the runtime or construction manifest records that the auto skill was projected
+- **AND THEN** the manifest does not report the system prompt as applied unless a supported observable signal proves the provider loaded it
+
+### Requirement: Runtime rejects unsupported system-prompt fallback cases
+When a managed agent requires an effective role or system prompt, runtime planning SHALL fail clearly if the selected tool has neither native system-prompt support nor startup-visible skill metadata support.
+
+The runtime SHALL NOT silently fall back to memo-only injection or ordinary chat bootstrap for such tools.
+
+#### Scenario: Tool without native prompt or startup-visible skills fails
+- **WHEN** a managed launch requires a role/system prompt
+- **AND WHEN** the selected tool capability metadata declares no native system-prompt support and no startup-visible skill metadata support
+- **THEN** launch planning fails with a diagnostic that names the unsupported system-prompt injection path
+- **AND THEN** no provider process is started with a best-effort memo or chat-only fallback
+
+### Requirement: Kimi unattended local-interactive launch runs in automatic no-question mode
+When a Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`, the runtime SHALL start the provider in Kimi auto permission mode before submitting any Houmao role bootstrap, mailbox notification, or workload prompt.
+
+For fresh Kimi TUI sessions, the runtime SHALL rely on the launch-policy-owned managed runtime-home config value `default_permission_mode = "auto"` as the provider-native fresh-session default.
+
+For resumed Kimi TUI sessions or existing provider sessions whose stored permission may not be auto, the runtime SHALL refresh Kimi permission mode by issuing the provider-native `/auto on` TUI command before managed prompts are submitted.
+
+Kimi unattended local-interactive launch SHALL NOT add `--auto`, `--yolo`, or `--plan` to Kimi TUI startup commands that include `--continue` or `--session <session_id>`.
+
+If the runtime cannot force or refresh Kimi auto mode for an unattended local-interactive launch, the launch or relaunch SHALL fail clearly rather than proceeding in manual approval mode.
+
+When a Kimi Code local-interactive launch resolves `operator_prompt_mode = as_is`, the runtime SHALL NOT force Kimi auto permission mode and SHALL leave provider approval behavior to the launched Kimi session.
+
+#### Scenario: Fresh unattended Kimi TUI launch starts in auto mode
+- **WHEN** a managed Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`
+- **AND WHEN** no provider-native session resume selector is used
+- **THEN** the launch policy writes `default_permission_mode = "auto"` in the managed Kimi runtime home before provider start
+- **AND THEN** the runtime does not submit the Houmao role bootstrap or workload prompt until the TUI startup path is expected to be in auto mode
+
+#### Scenario: Resumed unattended Kimi TUI launch refreshes auto mode
+- **WHEN** a managed Kimi Code local-interactive relaunch resolves `operator_prompt_mode = unattended`
+- **AND WHEN** the relaunch resumes provider history with `--continue` or `--session <session_id>`
+- **THEN** the runtime does not add `--auto` to the Kimi startup command
+- **AND THEN** after Kimi TUI readiness, the runtime issues `/auto on` before any managed workload prompt
+
+#### Scenario: Auto refresh failure blocks unattended launch
+- **WHEN** a managed Kimi Code local-interactive launch resolves `operator_prompt_mode = unattended`
+- **AND WHEN** the runtime cannot submit or confirm the startup auto-mode refresh required for that launch path
+- **THEN** the launch or relaunch fails with a diagnostic that names Kimi unattended auto-mode setup
+- **AND THEN** the runtime does not continue into a manual approval posture
+
+#### Scenario: As-is Kimi TUI remains manual when provider chooses manual
+- **WHEN** a managed Kimi Code local-interactive launch resolves `operator_prompt_mode = as_is`
+- **THEN** the runtime does not write `default_permission_mode = "auto"` as launch-policy-owned state
+- **AND THEN** the runtime does not issue `/auto on` before managed prompts
+
+#### Scenario: Kimi auto mode is no-question but not hard-deny bypass
+- **WHEN** Kimi unattended local-interactive launch has entered Kimi auto permission mode
+- **THEN** Kimi tool approval prompts and `AskUserQuestion` requests do not require operator input during normal agent work
+- **AND THEN** Kimi may still block work through explicit provider hard-deny policies or user-configured deny rules

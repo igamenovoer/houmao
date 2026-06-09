@@ -400,6 +400,23 @@ class SessionManifestInteractiveSectionV1(_StrictBoundaryModel):
         return value
 
 
+class SessionManifestSystemPromptSectionV1(_StrictBoundaryModel):
+    """Read-only effective Houmao system prompt persisted for self retrieval."""
+
+    format: Literal["text"] = "text"
+    role_name: str
+    text: str
+    sha256: str
+    source: str
+
+    @field_validator("role_name", "sha256", "source")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value
+
+
 class JoinedLaunchEnvBindingLiteralV1(_StrictBoundaryModel):
     """Literal joined-session launch env binding."""
 
@@ -558,6 +575,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     gateway_authority: SessionManifestGatewayAuthorityV1 | None = None
     launch_plan: LaunchPlanPayloadV1
     launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
+    system_prompt: SessionManifestSystemPromptSectionV1 | None = None
     backend_state: JsonObject
     codex: CodexSectionV1 | None = None
     headless: HeadlessSectionV1 | None = None

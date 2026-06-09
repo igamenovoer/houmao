@@ -287,12 +287,16 @@ The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be re
 
 - when to use passive-server as the maintained server API surface,
 - the registry-driven discovery and observation model,
+- passive-server as a global service over the shared registry rather than a Houmao project-bound command,
 - the route families and capabilities available through the passive-server REST API,
 - operational guidance for starting, configuring, and using passive-server in distributed agent coordination setups,
 - the `serve` command with all current options,
+- runtime-root and registry-root resolution, including `--runtime-root`, `--registry-root`, `HOUMAO_GLOBAL_RUNTIME_DIR`, `HOUMAO_GLOBAL_REGISTRY_DIR`, and global defaults,
 - which `houmao-mgr` commands can target passive-server through supported pair-authority options.
 
 The page SHALL NOT instruct users to choose standalone `houmao-server` as a maintained alternative.
+
+The page SHALL NOT state that a Houmao project overlay is required to start `houmao-passive-server serve`.
 
 #### Scenario: Reader understands when to use passive-server
 - **WHEN** a reader opens the `houmao-passive-server` reference
@@ -303,6 +307,11 @@ The page SHALL NOT instruct users to choose standalone `houmao-server` as a main
 - **WHEN** a reader needs to integrate with the passive-server
 - **THEN** the page documents the available REST routes and their response contracts
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
+
+#### Scenario: Reader understands global-service root configuration
+- **WHEN** a reader opens the `houmao-passive-server` reference
+- **THEN** the page explains that `houmao-passive-server serve` can start without a Houmao project overlay
+- **AND THEN** the page explains how to use `--registry-root` or `HOUMAO_GLOBAL_REGISTRY_DIR` when CI or tests need an isolated shared registry
 
 ### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
 The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both maintained credential-management surfaces and the easy-specialist surface:
@@ -1419,3 +1428,19 @@ CLI reference material for project and internal credential commands SHALL includ
 - **THEN** Kimi appears in credential CRUD coverage with Kimi-specific credential flags
 - **AND THEN** Kimi is not shown in login-helper examples or login-helper support tables unless the CLI implements a maintained Kimi login helper
 
+### Requirement: CLI reference points Kimi automation at unattended prompt mode
+The CLI reference SHALL document `launch.prompt_mode: unattended` and the corresponding project/profile prompt-mode flags as the supported Houmao-facing way to run Kimi Code without permission dialogs or user questions.
+
+The CLI reference SHALL NOT present Kimi `--yolo` as a current Houmao launch option for achieving unattended behavior.
+
+The CLI reference MAY mention Kimi provider-native `--auto` only as implementation background or low-level provider behavior, not as the recommended Houmao managed launch control.
+
+#### Scenario: Reader finds supported Kimi no-question launch control
+- **WHEN** a reader looks up how to run a Kimi managed agent automatically
+- **THEN** the CLI reference points them to `launch.prompt_mode: unattended` or the matching project/profile prompt-mode CLI controls
+- **AND THEN** it does not instruct them to pass `--yolo`
+
+#### Scenario: Reader does not need raw Kimi flags for managed launch
+- **WHEN** a reader looks up Kimi project specialist or project profile launch options
+- **THEN** the reference describes prompt mode as the managed automation control
+- **AND THEN** it does not require raw launch overrides with Kimi `--auto` for ordinary managed unattended launch

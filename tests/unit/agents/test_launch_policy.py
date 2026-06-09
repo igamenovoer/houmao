@@ -570,6 +570,36 @@ def test_gemini_registry_declares_owned_startup_surfaces_and_actions() -> None:
     ]
 
 
+def test_kimi_registry_declares_startup_visible_auto_skill_bootstrap() -> None:
+    documents = load_registry_documents(tool="kimi")
+
+    assert len(documents) == 1
+    assert {strategy.strategy_id for strategy in documents[0].strategies} == {
+        "kimi-unattended-0.10.x",
+        "kimi-tui-unattended-0.10.x",
+    }
+    for strategy in documents[0].strategies:
+        capabilities = strategy.system_prompt_bootstrap
+        assert capabilities.native_system_prompt is False
+        assert capabilities.provider_skills is True
+        assert capabilities.startup_visible_skill_metadata is True
+        assert capabilities.evidence
+        assert any("skill" in item.note.lower() for item in capabilities.evidence)
+        assert strategy.to_metadata_payload()["system_prompt_bootstrap"] == (
+            capabilities.to_payload()
+        )
+
+
+@pytest.mark.parametrize("tool", ["claude", "codex"])
+def test_native_prompt_registries_declare_native_bootstrap(tool: str) -> None:
+    documents = load_registry_documents(tool=tool)
+
+    assert len(documents) == 1
+    for strategy in documents[0].strategies:
+        assert strategy.system_prompt_bootstrap.native_system_prompt is True
+        assert strategy.system_prompt_bootstrap.startup_visible_skill_metadata is False
+
+
 def test_gemini_unattended_strategy_applies_full_permission_launch_args_for_fresh_oauth_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

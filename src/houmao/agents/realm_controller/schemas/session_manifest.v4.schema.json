@@ -538,6 +538,7 @@
           "enum": [
             "native_developer_instructions",
             "native_append_system_prompt",
+            "auto_skill_system_prompt",
             "bootstrap_message",
             "cao_profile"
           ],
@@ -1110,6 +1111,42 @@
       "title": "SessionManifestRuntimeSectionV1",
       "type": "object"
     },
+    "SessionManifestSystemPromptSectionV1": {
+      "additionalProperties": false,
+      "description": "Read-only effective Houmao system prompt persisted for self retrieval.",
+      "properties": {
+        "format": {
+          "const": "text",
+          "default": "text",
+          "title": "Format",
+          "type": "string"
+        },
+        "role_name": {
+          "title": "Role Name",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role_name",
+        "text",
+        "sha256",
+        "source"
+      ],
+      "title": "SessionManifestSystemPromptSectionV1",
+      "type": "object"
+    },
     "SessionManifestTmuxSectionV1": {
       "additionalProperties": false,
       "description": "Normalized tmux session authority for one managed surface.",
@@ -1325,6 +1362,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/LaunchPolicyProvenanceV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "system_prompt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SessionManifestSystemPromptSectionV1"
         },
         {
           "type": "null"

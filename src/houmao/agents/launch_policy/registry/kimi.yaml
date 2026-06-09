@@ -15,6 +15,14 @@ strategies:
         - This strategy declares Kimi prompt-mode startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
         - Kimi prompt mode internally uses auto permission handling and rejects --auto, --yolo, and --plan when combined with -p.
         - Houmao owns prompt placement, output format, session selectors, and managed --skills-dir injection for kimi_headless turns.
+    system_prompt_bootstrap:
+      native_system_prompt: false
+      provider_skills: true
+      startup_visible_skill_metadata: true
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/kimi-code/packages/agent-core/src/skill/registry.ts
+          note: Kimi startup prompt lists discovered skill metadata, which gives Houmao auto skills a startup-visible trigger channel.
     evidence:
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
@@ -54,6 +62,14 @@ strategies:
         - This strategy declares Kimi TUI startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
         - Kimi TUI unattended launch uses default_permission_mode = auto plus a runtime /auto on refresh, not a persistent --auto launch flag.
         - Houmao owns low-level Kimi permission and provider-session startup flags for unattended local-interactive launch; relaunch policy appends --continue or --session only when needed.
+    system_prompt_bootstrap:
+      native_system_prompt: false
+      provider_skills: true
+      startup_visible_skill_metadata: true
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/kimi-code/packages/agent-core/src/skill/registry.ts
+          note: Kimi startup prompt lists discovered skill metadata, which gives Houmao auto skills a startup-visible trigger channel.
     evidence:
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts

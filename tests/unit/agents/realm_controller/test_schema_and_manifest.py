@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -177,6 +178,13 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["launch_plan"]["launch_policy_provenance"]["detected_tool_version"] == (
         "2.1.81"
     )
+    assert loaded.payload["system_prompt"] == {
+        "format": "text",
+        "role_name": "gpu-kernel-coder",
+        "text": "Be precise",
+        "sha256": hashlib.sha256("Be precise".encode("utf-8")).hexdigest(),
+        "source": "launch_plan.role_injection.prompt",
+    }
     assert "secret" not in path.read_text(encoding="utf-8")
 
 

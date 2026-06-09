@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+import hashlib
 from typing import Any
 
 from pydantic import ValidationError
@@ -137,6 +138,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
             if request.launch_plan.launch_policy_provenance is not None
             else None
         ),
+        "system_prompt": _build_manifest_system_prompt_section(request=request),
         "backend_state": dict(request.backend_state),
     }
 
@@ -224,6 +226,22 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         payload,
         context="session_manifest.v4 validation failed",
     ).model_dump(mode="json")
+
+
+def _build_manifest_system_prompt_section(
+    *,
+    request: SessionManifestRequest,
+) -> dict[str, str]:
+    """Build the read-only effective system-prompt manifest section."""
+
+    prompt = request.launch_plan.role_injection.prompt
+    return {
+        "format": "text",
+        "role_name": request.launch_plan.role_injection.role_name,
+        "text": prompt,
+        "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "source": "launch_plan.role_injection.prompt",
+    }
 
 
 def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManifestHandle:

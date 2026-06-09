@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ from typing import Any, Literal, cast
 import click
 
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
+from houmao.agents.auto_skills import AUTO_SKILL_SYSTEM_PROMPT
 from houmao.agents.brain_builder import BuildRequest, PrivateSkillProjection, build_brain_home
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.managed_launch_force import (
@@ -693,6 +695,18 @@ def _coerce_private_skill_projections(
     return tuple(projections)
 
 
+def _required_managed_launch_auto_skill_names(
+    *,
+    tool: str,
+    role_prompt: str,
+) -> tuple[str, ...]:
+    """Return auto skills required by managed launch for one effective prompt."""
+
+    if tool == "kimi" and role_prompt.strip():
+        return (AUTO_SKILL_SYSTEM_PROMPT,)
+    return ()
+
+
 def _with_launch_profile_skill_provenance(
     *,
     launch_profile_provenance: dict[str, Any] | None,
@@ -893,6 +907,11 @@ def launch_managed_agent_locally(
             memo_file=str(memory.memo_file),
             managed_header_section_decisions=managed_header_section_decisions,
         )
+        resolved_backend = backend_for_tool(
+            target.tool,
+            prefer_local_interactive=not headless,
+        )
+        resolved_backend_name = resolved_backend
         build_result = build_brain_home(
             BuildRequest(
                 agent_def_dir=target.agent_def_dir,
@@ -925,6 +944,10 @@ def launch_managed_agent_locally(
                 ),
                 reuse_home=reuse_home,
                 role_prompt_override=prompt_payload.prompt,
+                required_auto_skill_names=_required_managed_launch_auto_skill_names(
+                    tool=target.preset.tool,
+                    role_prompt=prompt_payload.prompt,
+                ),
                 managed_prompt_header=managed_prompt_header_metadata(
                     decision=managed_header_decision,
                     identity=managed_launch_identity,
@@ -934,11 +957,6 @@ def launch_managed_agent_locally(
                 launch_profile_provenance=effective_launch_profile_provenance,
             )
         )
-        resolved_backend = backend_for_tool(
-            target.tool,
-            prefer_local_interactive=not headless,
-        )
-        resolved_backend_name = resolved_backend
         default_tmux_session_name = (
             predecessor_context.last_tmux_session_name
             if reuse_home and session_name is None and predecessor_context is not None
@@ -1212,6 +1230,46 @@ def self_interrupt_agent_command() -> None:
 
     target = resolve_current_session_managed_agent_target()
     emit(interrupt_managed_agent(target))
+
+
+@agents_self_group.group(name="system-prompt")
+def self_system_prompt_group() -> None:
+    """Read-only effective system-prompt commands for the current managed session."""
+
+
+@self_system_prompt_group.command(name="show")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text"]),
+    default="text",
+    show_default=True,
+    help="Output format. Only text is currently supported.",
+)
+@click.option("--agent-id", default=None, hidden=True)
+@click.option("--agent-name", default=None, hidden=True)
+def self_system_prompt_show_command(
+    output_format: str,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Print the current managed session's effective Houmao system prompt."""
+
+    if agent_id is not None or agent_name is not None:
+        raise click.ClickException(
+            "`agents self system-prompt show` targets only the current managed session; "
+            "explicit `--agent-id` and `--agent-name` selectors are not supported under "
+            "`agents self`."
+        )
+    if output_format != "text":
+        raise click.ClickException("Only `--format text` is supported.")
+
+    session_name = _require_current_tmux_session_name()
+    resolution = _resolve_current_session_manifest(session_name=session_name)
+    prompt_text = _load_effective_system_prompt_text_from_manifest(
+        manifest_path=resolution.manifest_path
+    )
+    click.echo(prompt_text, nl=False)
 
 
 @agents_self_group.command(name="relaunch")
@@ -1882,6 +1940,33 @@ def relaunch_agent_command(
         else relaunch_managed_agent(target)
     )
     emit(response)
+
+
+def _load_effective_system_prompt_text_from_manifest(*, manifest_path: Path) -> str:
+    """Load the effective system prompt from one validated session manifest."""
+
+    handle = load_session_manifest(manifest_path)
+    system_prompt = handle.payload.get("system_prompt")
+    if not isinstance(system_prompt, dict):
+        raise click.ClickException(
+            "Current managed session is missing effective system-prompt state. "
+            "Relaunch or rebuild the managed agent with a current Houmao runtime."
+        )
+    prompt_text = system_prompt.get("text")
+    if not isinstance(prompt_text, str):
+        raise click.ClickException(
+            "Current managed session has invalid effective system-prompt state: "
+            "`system_prompt.text` is missing."
+        )
+    expected_sha256 = system_prompt.get("sha256")
+    if isinstance(expected_sha256, str) and expected_sha256.strip():
+        actual_sha256 = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+        if actual_sha256 != expected_sha256:
+            raise click.ClickException(
+                "Current managed session has invalid effective system-prompt state: "
+                "`system_prompt.sha256` does not match `system_prompt.text`."
+            )
+    return prompt_text
 
 
 def _require_single_scope_context() -> ManagedAgentScopeContext:
