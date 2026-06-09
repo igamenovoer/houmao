@@ -26,6 +26,8 @@ declare global {
   interface Window {
     __HMWB_TEST__?: {
       storage: () => WorkbenchStorage;
+      closePane: (paneId: string) => boolean;
+      panelIds: () => string[];
     };
   }
 }
@@ -44,6 +46,15 @@ export default function App() {
 
   window.__HMWB_TEST__ = {
     storage: storageSnapshotForTests,
+    closePane: (paneId: string) => {
+      const panel = apiRef.current?.getPanel(paneId);
+      if (!panel) {
+        return false;
+      }
+      panel.api.close();
+      return true;
+    },
+    panelIds: () => apiRef.current?.panels.map((panel) => panel.api.id) ?? [],
   };
 
   const persist = useCallback((next: WorkbenchStorage) => {
@@ -147,15 +158,16 @@ export default function App() {
       event.api.onDidLayoutChange(saveLayout);
       event.api.onDidRemovePanel((panel) => {
         if (panel.api.id === OPERATOR_PANEL_ID) {
-          queueMicrotask(() => ensureOperatorPanel(event.api));
+          queueMicrotask(() => ensureOperatorPanelIfEmpty(event.api));
           return;
         }
         removePaneRecord(panel.api.id);
+        queueMicrotask(() => ensureOperatorPanelIfEmpty(event.api));
       });
       if (storage.layout) {
         event.api.fromJSON(sanitizeDockviewLayout(storage.layout)!, { reuseExistingPanels: false });
       }
-      ensureOperatorPanel(event.api);
+      ensureOperatorPanelIfEmpty(event.api);
       void refreshProxyStatus();
     },
     [removePaneRecord, saveLayout, storage.layout],
@@ -342,4 +354,11 @@ function ensureOperatorPanel(api: DockviewApi): IDockviewPanel {
       kind: "operator",
     },
   });
+}
+
+function ensureOperatorPanelIfEmpty(api: DockviewApi): IDockviewPanel | undefined {
+  if (api.totalPanels > 0) {
+    return api.getPanel(OPERATOR_PANEL_ID);
+  }
+  return ensureOperatorPanel(api);
 }

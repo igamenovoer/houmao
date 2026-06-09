@@ -84,6 +84,48 @@ test("validates operator, docked multi-pane isolation, graphics, detach, and per
   expect(JSON.stringify(savedAfterReload.layout)).not.toContain("popoutGroups");
 });
 
+test("respects closing operator pane while preserving other panes and operator metadata", async ({ page }) => {
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await configurePane(
+    page,
+    "operator",
+    "Custom Operator",
+    fakeServer.targetBase("operator"),
+    "operator-thread-custom",
+  );
+  await page.getByTestId("add-agent-pane").click();
+  await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
+
+  const closed = await page.evaluate(() => window.__HMWB_TEST__!.closePane("operator"));
+  expect(closed).toBeTruthy();
+  await expect.poll(() => panelIds(page)).toEqual(["agent-1"]);
+  await expect(page.getByTestId("panel-operator")).toHaveCount(0);
+  await expect(page.getByTestId("panel-agent-1")).toBeVisible();
+
+  await expect
+    .poll(() => page.evaluate(() => JSON.stringify(window.__HMWB_TEST__!.storage().layout ?? {})))
+    .not.toContain("operator");
+  const savedBeforeReload = await page.evaluate(() => window.__HMWB_TEST__!.storage());
+  expect(savedBeforeReload.panes.operator.target).toMatchObject({
+    label: "Custom Operator",
+    url: fakeServer.targetBase("operator"),
+    threadId: "operator-thread-custom",
+  });
+
+  await page.reload();
+  await expect.poll(() => panelIds(page)).toEqual(["agent-1"]);
+  await expect(page.getByTestId("panel-operator")).toHaveCount(0);
+  await expect(page.getByTestId("panel-agent-1")).toBeVisible();
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
+  await expect(page.getByTestId("thread-id-agent-1")).toHaveValue("alpha-thread");
+  const savedAfterReload = await page.evaluate(() => window.__HMWB_TEST__!.storage());
+  expect(savedAfterReload.panes.operator.target).toMatchObject({
+    label: "Custom Operator",
+    url: fakeServer.targetBase("operator"),
+    threadId: "operator-thread-custom",
+  });
+});
+
 test("surfaces target policy errors before contacting a disallowed target", async ({ page }) => {
   await configurePane(page, "operator", "Operator", "http://example.com/v1/ag-ui", "operator-thread");
   await page.getByTestId("capabilities-operator").click();
@@ -416,4 +458,8 @@ async function debugAgentConnectionCount(page: Page, agentId: string): Promise<n
     agents: Array<{ agentId: string; connectionCount: number }>;
   };
   return body.agents.find((agent) => agent.agentId === agentId)?.connectionCount ?? 0;
+}
+
+async function panelIds(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__HMWB_TEST__!.panelIds().sort());
 }
