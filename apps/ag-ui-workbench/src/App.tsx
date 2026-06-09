@@ -1,17 +1,20 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanel } from "dockview-react";
-import { Boxes, PanelBottom, Plus, Server, Users } from "lucide-react";
+import { Boxes, Bug, PanelBottom, Plus, Server, Users } from "lucide-react";
 
 import { AgentSessionPanel } from "./panes/AgentSessionPanel";
 import { AgentPicker } from "./panes/AgentPicker";
+import { DebugAgentPanel } from "./panes/DebugAgentPanel";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 import {
+  defaultDebugAgentConfig,
   defaultTarget,
   loadWorkbenchStorage,
   sanitizeDockviewLayout,
   saveWorkbenchStorage,
   storageSnapshotForTests,
+  type DebugAgentConfig,
   type PaneRecord,
   type WorkbenchStorage,
 } from "./storage";
@@ -29,6 +32,7 @@ declare global {
 
 const components = {
   session: AgentSessionPanel,
+  debugAgent: DebugAgentPanel,
 };
 
 export default function App() {
@@ -59,6 +63,27 @@ export default function App() {
           [paneId]: {
             ...(existing ?? { paneId, kind: paneId === OPERATOR_PANEL_ID ? "operator" : "agent" }),
             target,
+          },
+        },
+      });
+    },
+    [persist],
+  );
+
+  const updateDebugAgent = useCallback(
+    (paneId: string, debugAgent: DebugAgentConfig) => {
+      const current = storageRef.current;
+      const existing = current.panes[paneId];
+      if (existing?.kind !== "debug-agent") {
+        return;
+      }
+      persist({
+        ...current,
+        panes: {
+          ...current.panes,
+          [paneId]: {
+            ...existing,
+            debugAgent,
           },
         },
       });
@@ -97,10 +122,11 @@ export default function App() {
     () => ({
       storage,
       updateTarget,
+      updateDebugAgent,
       removePaneRecord,
       openAgentPicker: setPickerRequest,
     }),
-    [removePaneRecord, storage, updateTarget],
+    [removePaneRecord, storage, updateDebugAgent, updateTarget],
   );
 
   const saveLayout = useCallback(() => {
@@ -183,6 +209,46 @@ export default function App() {
     });
   };
 
+  const addDebugAgentPane = () => {
+    const api = apiRef.current;
+    if (!api) {
+      return;
+    }
+    const current = storageRef.current;
+    let index = current.nextDebugAgentIndex;
+    while (current.panes[`debug-agent-${index}`] || api.getPanel(`debug-agent-${index}`)) {
+      index += 1;
+    }
+    const paneId = `debug-agent-${index}`;
+    const debugAgent = defaultDebugAgentConfig(paneId);
+    const record: PaneRecord = {
+      paneId,
+      kind: "debug-agent",
+      target: defaultTarget(paneId, "debug-agent"),
+      debugAgent,
+    };
+    persist({
+      ...current,
+      panes: {
+        ...current.panes,
+        [paneId]: record,
+      },
+      nextDebugAgentIndex: index + 1,
+    });
+    api.addPanel({
+      id: paneId,
+      component: "debugAgent",
+      title: record.target.label,
+      params: {
+        paneId,
+      },
+      position: {
+        referencePanel: OPERATOR_PANEL_ID,
+        direction: "right",
+      },
+    });
+  };
+
   const retargetPane = (paneId: string, target: TargetConfig) => {
     const current = storageRef.current;
     const existing = current.panes[paneId] ?? {
@@ -226,6 +292,10 @@ export default function App() {
             <button title="Show discovered Houmao agents" data-testid="open-agent-picker" onClick={() => setPickerRequest({ mode: "new-pane" })}>
               <Users size={15} />
               Agents
+            </button>
+            <button title="Open debug agent pane" data-testid="add-debug-agent-pane" onClick={addDebugAgentPane}>
+              <Bug size={15} />
+              Debug Agent
             </button>
             <button className="primary" title="Add agent pane" data-testid="add-agent-pane" onClick={() => addAgentPane()}>
               <Plus size={16} />

@@ -542,6 +542,145 @@ pre {
   min-height: 24px;
 }
 
+.debug-agent-panel {
+  min-width: 520px;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 10px;
+  overflow: hidden;
+  background: #1a1915;
+}
+
+.debug-agent-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(330px, 0.88fr) minmax(430px, 1.12fr);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.debug-sender,
+.debug-display {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #3c3c35;
+  border-radius: 6px;
+  background: #20201c;
+}
+
+.debug-sender {
+  display: grid;
+  grid-template-rows: auto auto minmax(210px, 1fr) auto auto auto;
+  gap: 9px;
+  overflow: auto;
+  padding: 9px;
+}
+
+.debug-display {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.debug-display .pane-body {
+  flex: 1 1 auto;
+}
+
+.debug-endpoints,
+.debug-controls {
+  display: grid;
+  gap: 7px;
+}
+
+.debug-endpoints {
+  grid-template-columns: minmax(170px, 1fr) minmax(130px, 0.55fr);
+}
+
+.debug-controls {
+  grid-template-columns: minmax(135px, 0.5fr) minmax(180px, 0.78fr);
+  align-items: end;
+}
+
+.debug-endpoints label,
+.debug-controls label {
+  min-width: 0;
+}
+
+.debug-endpoints span,
+.debug-controls span {
+  display: block;
+  margin-bottom: 4px;
+  color: #b9b2a3;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.debug-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #cbc3b3;
+  font-size: 12px;
+}
+
+.debug-toggle input {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.debug-toggle span {
+  margin: 0;
+  text-transform: none;
+}
+
+.debug-editor {
+  min-height: 220px;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.debug-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.debug-curl {
+  border-top: 1px solid #37372f;
+  padding-top: 7px;
+}
+
+.debug-curl summary {
+  cursor: pointer;
+  color: #d8cfbf;
+  font-size: 12px;
+}
+
+.debug-curl textarea {
+  min-height: 72px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.debug-response {
+  border-top: 1px solid #37372f;
+  padding-top: 7px;
+}
+
+.debug-response h3 {
+  margin: 0 0 5px;
+  color: #d8cfbf;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
 .picker-backdrop {
   position: fixed;
   inset: 0;
@@ -716,6 +855,9 @@ button:disabled {
   .pane-header,
   .composer,
   .pane-body,
+  .debug-agent-grid,
+  .debug-endpoints,
+  .debug-controls,
   .target-form,
   .picker-controls,
   .agent-row,

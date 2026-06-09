@@ -124,7 +124,7 @@ export function buildRunInput({
   paneId: string;
   threadId: string;
   message: string;
-  paneKind: "operator" | "agent";
+  paneKind: "operator" | "agent" | "debug-agent";
 }): RunAgentInput {
   const runId = `run-${paneId}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   return {
@@ -160,7 +160,7 @@ export function buildConnectInput({
 }: {
   paneId: string;
   threadId: string;
-  paneKind: "operator" | "agent";
+  paneKind: "operator" | "agent" | "debug-agent";
 }): RunAgentInput & { lastSeenEventId?: string } {
   const runId = `connect-${paneId}-${Date.now()}`;
   return {

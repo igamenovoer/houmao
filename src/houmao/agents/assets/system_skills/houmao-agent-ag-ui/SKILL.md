@@ -120,7 +120,11 @@ houmao-mgr agents single --agent-id <agent-id> gateway ag-ui publish --input eve
 houmao-mgr agents single --agent-name <agent-name> gateway ag-ui publish --input events.json --thread-id <thread-id>
 ```
 
-Use `--run-id` when targeting one run stream, `--connection-id` when targeting one GUI connection, or both `--thread-id` and `--run-id` when the user supplied both. Do not guess routing ids. If no routing id is known, ask for it or inspect the current GUI connection state through maintained gateway surfaces.
+For the Houmao AG-UI workbench, prefer `--thread-id <thread-id>` by itself unless the user explicitly asks to target one exact active run or connection. A pane-level connect stream and an active run stream both receive thread-only publishes for the same thread. Adding `--run-id` narrows delivery to a stream with that exact run id, so a guessed, newly generated, stale, or copied-but-wrong run id will usually produce `delivered_count: 0` and the GUI will render nothing.
+
+Use `--run-id` only when targeting one known active run stream. Use `--connection-id` only when targeting one known active GUI connection. Do not guess routing ids. If no routing id is known, ask for it or inspect the current GUI connection state through maintained gateway surfaces.
+
+Check the publish response. `delivered_count` greater than zero means matching live GUI/run streams received the events. `delivered_count: 0` means no matching live stream was subscribed at publish time. The gateway reports `replay: "none"` and does not queue accepted `/events` batches for future GUI connections.
 
 This command intentionally has no `--endpoint` option. For third-party endpoints, generate the event batch with `internals ag-ui events render`, validate it, then use that endpoint's documented delivery method.
 
@@ -165,6 +169,8 @@ houmao-mgr internals ag-ui components validate houmao.table --input payload.json
 houmao-mgr internals ag-ui events render houmao.table --input payload.json > events.json
 houmao-mgr agents self gateway ag-ui publish --input events.json --thread-id <thread-id>
 ```
+
+After publishing, report the response accurately. Do not say the GUI will receive a future replay when `delivered_count` is zero.
 
 ## Safety
 

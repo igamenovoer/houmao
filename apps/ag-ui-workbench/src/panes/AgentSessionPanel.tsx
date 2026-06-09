@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
-import { Activity, Braces, Cable, CircleStop, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
+import { Cable, CircleStop, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 
 import { buildConnectInput, buildRunInput, connectAgUi, detachAgUi, fetchCapabilities, runAgUi, AgUiHttpError } from "../ag-ui/client";
-import { ToolCallRenderer } from "../ag-ui/componentRenderers";
 import { extractConnectionId, initialPaneEventState, reduceAgUiEvent, reduceHttpError, reduceParseError } from "../ag-ui/reducer";
 import type { CapabilitiesResponse, TargetConfig } from "../ag-ui/types";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
+import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
 import { CapabilityBadges } from "./CapabilityBadges";
 import { TargetForm } from "./TargetForm";
 
@@ -248,55 +248,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         </button>
       </div>
 
-      {latestErrors.length > 0 ? (
-        <div className="error-stack" data-testid={`errors-${paneId}`}>
-          {latestErrors.map((error, index) => (
-            <div key={`${error}-${index}`}>{error}</div>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="pane-body">
-        <section className="surface" data-testid={`transcript-${paneId}`}>
-          <h3>
-            <Activity size={14} />
-            Transcript
-          </h3>
-          {eventState.transcript.length === 0 ? <p className="empty">No messages</p> : null}
-          {eventState.transcript.map((message) => (
-            <article key={message.id} className="message">
-              <span>{message.role}</span>
-              <p>{message.content}</p>
-            </article>
-          ))}
-          {eventState.toolCalls.map((toolCall) => (
-            <ToolCallRenderer key={toolCall.id} toolCall={toolCall} paneId={paneId} />
-          ))}
-        </section>
-
-        <section className="surface diagnostics">
-          <h3>
-            <Braces size={14} />
-            Diagnostics
-          </h3>
-          <details open>
-            <summary>State</summary>
-            <pre data-testid={`state-${paneId}`}>{formatJson(eventState.stateSnapshot)}</pre>
-          </details>
-          <details>
-            <summary>Activity</summary>
-            <pre>{formatJson(eventState.activity)}</pre>
-          </details>
-          <details>
-            <summary>Tool Calls</summary>
-            <pre>{formatJson(eventState.toolCalls)}</pre>
-          </details>
-          <details>
-            <summary>Raw</summary>
-            <pre data-testid={`raw-${paneId}`}>{formatJson(eventState.raw.map((entry) => entry.event ?? entry.parseError ?? entry.data))}</pre>
-          </details>
-        </section>
-      </div>
+      <AgUiDisplaySurface paneId={paneId} eventState={eventState} latestErrors={latestErrors} />
       {kind === "agent" ? (
         <button className="danger-link" title="Remove pane" onClick={() => void closePane()}>
           <Trash2 size={13} />
@@ -312,11 +264,4 @@ function requestErrorMessage(error: unknown): string {
     return error.body || error.message;
   }
   return error instanceof Error ? error.message : "AG-UI request failed.";
-}
-
-function formatJson(value: unknown): string {
-  if (typeof value === "undefined") {
-    return "{}";
-  }
-  return JSON.stringify(value, null, 2);
 }

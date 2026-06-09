@@ -44,11 +44,53 @@ Double-clicking a resolved row from the toolbar opens a new docked agent pane. O
 
 Manual AG-UI URL entry remains the fallback and is still useful for remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the Vite dev server.
 
+## Debug Agent
+
+The toolbar `Debug Agent` control opens a local protocol playground. It does not create a managed Houmao agent, tmux session, passive-server registry record, gateway sidecar, mailbox, or credential binding. The pane has a white-box sender on the left and a normal AG-UI display on the right. The display connects through the same AG-UI client, SSE parser, reducer, diagnostics, and typed component renderers used by ordinary workbench panes.
+
+The debug relay runs in the Vite host process on the same host and port as the workbench. Its route family is local development/test surface only:
+
+```text
+GET    /__houmao_debug_agents/status
+GET    /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/capabilities
+POST   /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/connect
+POST   /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/runs
+POST   /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/events
+DELETE /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/connections/<connection_id>
+POST   /__houmao_debug_agents/<debug_agent_id>/components/<component_name>
+```
+
+Open a Debug Agent pane first, then copy the visible endpoint or curl command from the sender. A raw AG-UI event batch can be posted from an external shell like this:
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events' \
+  -H 'content-type: application/json' \
+  --data '{"threadId":"debug-agent-1-thread","events":[{"type":"TOOL_CALL_START","toolCallId":"bar-1","toolCallName":"houmao.chart.bar","parentMessageId":"debug-message"},{"type":"TOOL_CALL_ARGS","toolCallId":"bar-1","delta":"{\"schemaVersion\":1,\"title\":\"Curl Bar Chart\",\"data\":[{\"label\":\"A\",\"value\":8},{\"label\":\"B\",\"value\":13}]}"},{"type":"TOOL_CALL_END","toolCallId":"bar-1"}]}'
+```
+
+The typed component convenience route validates application-layer payloads and wraps them into standard `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END` events before publishing:
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/components/houmao.chart.bar' \
+  -H 'content-type: application/json' \
+  --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":1,"title":"Curl Component Bar","data":[{"label":"North","value":42},{"label":"South","value":28}]}}'
+```
+
+Replay is enabled by default for debug use. If a valid batch is posted before the display connects, the relay stores it in a bounded per-thread buffer and later replays it to the matching display connection. Publish responses identify this as `replay: "debug_thread_buffer"` and report `storedCount`. This intentionally differs from the live gateway. To reproduce gateway-like live-only behavior, turn off the pane replay checkbox or include `"replay": false`; the response reports `replay: "none"`, `storedCount: 0`, and a later display connection will not receive the earlier batch.
+
+Troubleshooting checks:
+
+- `deliveredCount = 0`: no active display stream matched the posted `threadId`, `runId`, or `connectionId`, or the display was disconnected when a live-only batch was posted.
+- Display connected but nothing rendered: confirm the event batch contains a complete tool-call sequence and that `TOOL_CALL_ARGS.delta` is a JSON string for a supported Houmao component.
+- Validation error: inspect `code`, `detail`, and `path` in the publish response; invalid batches are rejected before delivery.
+- Wrong host URL: external callers must reach the workbench host and port. The debug relay is served by Vite; it is not available if the workbench dev server is stopped.
+- Unknown component: use one of `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard`.
+
 ## Lifecycle Boundary
 
 The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect attaches the pane to an existing AG-UI stream, run submits one AG-UI `RunAgentInput`, and disconnect or close means GUI stream detach. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream.
 
-The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, and selected discovered-agent identity metadata. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, raw events, stream payloads, state snapshots, activity records, tool-call payloads, or rendered graphics by default.
+The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, Debug Agent IDs, Debug Agent replay setting, and selected discovered-agent identity metadata. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, raw events, stream payloads, state snapshots, activity records, tool-call payloads, typed component request bodies, curl-posted event batches, credentials, authorization headers, or rendered graphics by default.
 
 ## Typed Components
 

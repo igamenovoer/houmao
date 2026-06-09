@@ -1,12 +1,13 @@
 import { createContext, useContext } from "react";
 
-import { defaultTarget } from "./storage";
-import type { PaneRecord, WorkbenchStorage } from "./storage";
+import { defaultDebugAgentConfig, defaultTarget } from "./storage";
+import type { DebugAgentConfig, PaneRecord, WorkbenchStorage } from "./storage";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 
 export interface WorkbenchContextValue {
   storage: WorkbenchStorage;
   updateTarget: (paneId: string, target: TargetConfig) => void;
+  updateDebugAgent: (paneId: string, debugAgent: DebugAgentConfig) => void;
   removePaneRecord: (paneId: string) => void;
   openAgentPicker: (request: AgentPickerRequest) => void;
 }
@@ -29,6 +30,7 @@ export function paneRecordOrDefault(storage: WorkbenchStorage, paneId: string, k
       paneId,
       kind,
       target: defaultTarget(paneId, kind),
+      debugAgent: kind === "debug-agent" ? defaultDebugAgentConfig(paneId) : undefined,
     }
   );
 }

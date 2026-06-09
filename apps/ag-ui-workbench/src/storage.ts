@@ -2,13 +2,19 @@ import type { SerializedDockview } from "dockview-react";
 
 import type { TargetConfig } from "./ag-ui/types";
 
-export type PaneKind = "operator" | "agent";
+export type PaneKind = "operator" | "agent" | "debug-agent";
+
+export interface DebugAgentConfig {
+  debugAgentId: string;
+  replayEnabled: boolean;
+}
 
 export interface PaneRecord {
   paneId: string;
   kind: PaneKind;
   target: TargetConfig;
   resetToken?: number;
+  debugAgent?: DebugAgentConfig;
 }
 
 export interface DiscoveryConfig {
@@ -20,17 +26,34 @@ export interface WorkbenchStorage {
   layout?: unknown;
   panes: Record<string, PaneRecord>;
   nextAgentIndex: number;
+  nextDebugAgentIndex: number;
 }
 
 const STORAGE_KEY = "houmao.agUiWorkbench.v1";
 const DEFAULT_PASSIVE_SERVER_URL = "http://127.0.0.1:9891";
 
 export function defaultTarget(paneId: string, kind: PaneKind): TargetConfig {
+  if (kind === "debug-agent") {
+    const debugAgentId = defaultDebugAgentConfig(paneId).debugAgentId;
+    return {
+      label: debugAgentId.replace(/-/g, " "),
+      url: debugAgentUrl(debugAgentId),
+      threadId: `${debugAgentId}-thread`,
+      source: { kind: "manual" },
+    };
+  }
   return {
     label: kind === "operator" ? "Operator" : paneId.replace(/-/g, " "),
     url: "",
     threadId: kind === "operator" ? "operator-thread" : `${paneId}-thread`,
     source: { kind: "manual" },
+  };
+}
+
+export function defaultDebugAgentConfig(paneId: string): DebugAgentConfig {
+  return {
+    debugAgentId: paneId.startsWith("debug-agent-") ? paneId : "debug-agent-1",
+    replayEnabled: true,
   };
 }
 
@@ -47,6 +70,7 @@ export function defaultStorage(): WorkbenchStorage {
       },
     },
     nextAgentIndex: 1,
+    nextDebugAgentIndex: 1,
   };
 }
 
@@ -62,6 +86,8 @@ export function loadWorkbenchStorage(): WorkbenchStorage {
       layout: sanitizeDockviewLayout(parsed.layout),
       panes: sanitizePaneRecords(parsed.panes),
       nextAgentIndex: typeof parsed.nextAgentIndex === "number" ? parsed.nextAgentIndex : 1,
+      nextDebugAgentIndex:
+        typeof parsed.nextDebugAgentIndex === "number" ? parsed.nextDebugAgentIndex : 1,
     };
   } catch {
     return defaultStorage();
@@ -96,13 +122,21 @@ function sanitizePaneRecords(value: unknown): Record<string, PaneRecord> {
   }
   const records: Record<string, PaneRecord> = { ...defaults };
   for (const [paneId, record] of Object.entries(value as Record<string, Partial<PaneRecord>>)) {
-    const kind = record.kind === "agent" ? "agent" : record.kind === "operator" ? "operator" : undefined;
+    const kind =
+      record.kind === "agent"
+        ? "agent"
+        : record.kind === "operator"
+          ? "operator"
+          : record.kind === "debug-agent"
+            ? "debug-agent"
+            : undefined;
     if (!kind) {
       continue;
     }
     const target = sanitizeTarget(record.target, defaultTarget(paneId, kind));
     const resetToken = typeof record.resetToken === "number" ? record.resetToken : undefined;
-    records[paneId] = { paneId, kind, target, resetToken };
+    const debugAgent = kind === "debug-agent" ? sanitizeDebugAgent(record.debugAgent, paneId) : undefined;
+    records[paneId] = { paneId, kind, target, resetToken, debugAgent };
   }
   return records;
 }
@@ -156,6 +190,37 @@ function sanitizeTargetSource(value: unknown): TargetConfig["source"] {
     };
   }
   return { kind: "manual" };
+}
+
+function sanitizeDebugAgent(value: unknown, paneId: string): DebugAgentConfig {
+  const fallback = defaultDebugAgentConfig(paneId);
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+  const config = value as Partial<DebugAgentConfig>;
+  const debugAgentId =
+    typeof config.debugAgentId === "string" && safeDebugAgentId(config.debugAgentId)
+      ? config.debugAgentId
+      : fallback.debugAgentId;
+  return {
+    debugAgentId,
+    replayEnabled:
+      typeof config.replayEnabled === "boolean" ? config.replayEnabled : fallback.replayEnabled,
+  };
+}
+
+function safeDebugAgentId(value: string): boolean {
+  return /^debug-agent-[a-z0-9_.-]+$/.test(value);
+}
+
+export function debugAgentUrl(debugAgentId: string): string {
+  return `${debugAgentRelayBaseUrl(debugAgentId)}/v1/ag-ui`;
+}
+
+export function debugAgentRelayBaseUrl(debugAgentId: string): string {
+  const origin =
+    typeof window === "undefined" ? "http://127.0.0.1:5177" : window.location.origin;
+  return `${origin}/__houmao_debug_agents/${encodeURIComponent(debugAgentId)}`;
 }
 
 function stringField(value: object, key: string): string {
