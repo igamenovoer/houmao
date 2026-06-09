@@ -24,15 +24,16 @@ Auto skills SHALL NOT be part of the Houmao system-skill catalog, user-installab
 ### Requirement: Auto system prompt skill defines trigger metadata and workflow body
 The system SHALL package an auto skill named `houmao-auto-system-prompt`.
 
-The skill metadata SHALL describe only when the provider should read the skill: at chat-session start, after context compaction, after resume or relaunch, and before first substantive task work when the Houmao system prompt is not confirmed loaded.
+The skill metadata SHALL describe that the skill loads the effective Houmao system prompt and SHALL use explicit `MUST` language requiring the provider to invoke or read the skill before doing anything else: at chat start, after context compaction, after resume or relaunch, and before first substantive task work when the Houmao system prompt is not confirmed loaded. The startup-visible description SHALL keep the immediate `MUST invoke/read this skill before doing anything else` trigger inside the provider's model-visible skill-listing summary.
 
 The skill body SHALL contain a `## Workflow` section that tells the provider to run `houmao-mgr agents self system-prompt show --format text`, read the full returned prompt, treat it as the standing Houmao system prompt for the chat session, repeat the workflow after context compaction or resume, and fail closed if the command cannot load the prompt.
 
-The skill body SHALL NOT tell the provider to read `houmao-memo.md`, inspect runtime manifests directly, or mutate memory as part of loading the system prompt.
+The skill body SHALL stay focused on loading the effective Houmao system prompt through the self-service CLI workflow.
 
-#### Scenario: Skill metadata is trigger-only
+#### Scenario: Skill metadata gives startup-visible trigger without workflow
 - **WHEN** a maintainer opens `houmao-auto-system-prompt/SKILL.md`
-- **THEN** the frontmatter `description` and `whenToUse` fields describe when to read the skill
+- **THEN** the frontmatter `description` and `whenToUse` fields state that the provider MUST invoke or read the skill before doing anything else at chat start
+- **AND THEN** those fields prohibit planning, answering, inspecting files, or processing tasks before the skill has loaded
 - **AND THEN** those fields do not contain the full prompt-loading command workflow
 
 #### Scenario: Skill workflow loads the prompt through Houmao CLI
