@@ -1,6 +1,6 @@
 # Houmao Docs
 
-Houmao is a framework and CLI toolkit for building and running teams of CLI-based AI agents (`claude`, `codex`, `gemini`, `kimi`) as real tmux-backed processes — each with its own isolated disk state, native TUI or maintained headless lane, and gateway sidecar. Houmao also supports `copilot` as a system-skill install target. This site covers the full reference, getting-started guides, and developer internals for installed users, with additional material for contributors.
+Houmao is a framework and CLI toolkit for building and running teams of CLI-based AI agents (`claude`, `codex`, `kimi`, `gemini`) as real tmux-backed processes — each with its own isolated disk state, native TUI or maintained headless lane, and gateway sidecar. Houmao also supports `copilot` as a system-skill install target. This site covers the full reference, getting-started guides, and developer internals for installed users, with additional material for contributors.
 
 | Who you are | Where to start |
 |---|---|

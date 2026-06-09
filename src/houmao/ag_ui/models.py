@@ -81,10 +81,33 @@ class AgUiRunsUnavailableResponse(_HoumaoAgUiModel):
     detail: str = "AG-UI task runs are not enabled for this Houmao gateway milestone."
 
 
+class AgUiEventPublishRequest(_HoumaoAgUiModel):
+    """Request body for publishing already-standard AG-UI events to one gateway."""
+
+    thread_id: str | None = None
+    run_id: str | None = None
+    connection_id: str | None = None
+    events: list[dict[str, Any]]
+
+
+class AgUiEventPublishResponse(_HoumaoAgUiModel):
+    """Response body for a published AG-UI event batch."""
+
+    status: Literal["accepted"] = "accepted"
+    accepted_count: int
+    delivered_count: int
+    replay: Literal["none"] = "none"
+    thread_id: str | None = None
+    run_id: str | None = None
+    connection_id: str | None = None
+
+
 __all__ = [
     "AgUiAgentCapabilities",
     "AgUiConnectInput",
     "AgUiDetachResponse",
+    "AgUiEventPublishRequest",
+    "AgUiEventPublishResponse",
     "AgUiEventType",
     "AgUiRunsUnavailableResponse",
     "AgUiStateSnapshotEvent",

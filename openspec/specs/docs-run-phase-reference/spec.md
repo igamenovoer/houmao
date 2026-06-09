@@ -158,13 +158,17 @@ The run-phase reference SHALL document provider-native chat continuation during 
 
 The session-lifecycle reference SHALL explain that relaunch reuses the managed session home and tmux window `0`, while the optional relaunch chat-session selector controls whether the provider starts fresh or resumes provider-native history.
 
-The backend reference SHALL include the provider-native startup mapping for Codex, Claude Code, Gemini CLI, and Kimi Code for local interactive relaunch paths and for each provider's maintained native headless relaunch path.
+The backend reference SHALL include the provider-native startup mapping for Claude Code, Codex, Kimi Code, and Gemini CLI for local interactive relaunch paths and for each provider's maintained native headless relaunch path.
 
 The backend reference SHALL document that Kimi Code TUI resumed startup cannot combine `--continue` or `--session <session_id>` with `--yolo`, `--auto`, or `--plan`, and that `--model <alias>` remains valid with resumed startup.
 
 The backend or launch reference SHALL document that managed `--skills-dir` projection remains Kimi headless prompt-mode behavior and is not claimed for Kimi TUI launch.
 
 The backend or launch reference SHALL document that managed Kimi TUI launches suppress the interactive update preflight by setting `KIMI_CODE_NO_AUTO_UPDATE=1`.
+
+Run-phase reference pages SHALL present Kimi Code before Gemini in neutral provider lists while preserving backend-specific accuracy. Run-phase diagrams or compact examples that list only three providers SHALL include Claude, Codex, and Kimi.
+
+Run-phase references that explain Kimi role injection SHALL warn that Kimi Code 0.11.0 does not expose a native system-prompt flag. The warning SHALL state that Kimi role delivery can rely on bootstrap or managed auto-skill workflows, and that Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not confirmed the prompt.
 
 The launch-profile guide or linked run-phase documentation SHALL explain that launch-profile relaunch chat-session policy applies only to later relaunch of instances created from that profile and does not resume provider history on first launch.
 
@@ -180,7 +184,7 @@ The launch-profile guide or linked run-phase documentation SHALL explain that la
 
 #### Scenario: Reader sees provider mapping table
 - **WHEN** a reader needs to verify provider behavior for relaunch continuation
-- **THEN** the backend reference includes the Codex, Claude Code, Gemini CLI, and Kimi Code native command forms for maintained TUI and headless latest/exact continuation paths
+- **THEN** the backend reference includes the Claude Code, Codex, Kimi Code, and Gemini CLI native command forms for maintained TUI and headless latest/exact continuation paths
 
 #### Scenario: Reader sees Kimi-specific launch constraints
 - **WHEN** a reader opens the Kimi Code local interactive backend reference
@@ -210,3 +214,9 @@ The reference SHALL distinguish Kimi `as_is` TUI launch from unattended TUI laun
 - **WHEN** a reader compares Kimi launch prompt modes in run-phase documentation
 - **THEN** `as_is` is described as preserving provider approval behavior
 - **AND THEN** `unattended` is described as the maintained no-question mode
+
+#### Scenario: Reader sees Kimi native system-prompt gap
+
+- **WHEN** a reader opens the Kimi role-injection or backend reference
+- **THEN** the docs state that Kimi Code 0.11.0 lacks a native system-prompt flag
+- **AND THEN** the docs state that `houmao-auto-system-prompt` may require manual invocation before substantive Kimi chat begins when automatic loading has not happened

@@ -5,14 +5,14 @@ Project docs: [https://igamenovoer.github.io/houmao/](https://igamenovoer.github
 
 ## What It Is
 
-`Houmao` builds and runs teams of CLI-based AI agents. Launch-capable agents use real provider CLIs such as `claude`, `codex`, and `gemini`; `copilot` is also supported as a system-skill installation target. Each managed agent is a real process with its own tmux session, disk state, memory, native TUI or headless turn evidence, optional gateway sidecar, and mailbox identity. You define reusable **specialists**, launch them as managed agents, and coordinate them through prompts, gateways, mailboxes, and structured loop plans.
+`Houmao` builds and runs teams of CLI-based AI agents. Launch-capable agents use real provider CLIs such as `claude`, `codex`, and `kimi`; `gemini` is also supported, and `copilot` is supported as a system-skill installation target. Each managed agent is a real process with its own tmux session, disk state, memory, native TUI or headless turn evidence, optional gateway sidecar, and mailbox identity. You define reusable **specialists**, launch them as managed agents, and coordinate them through prompts, gateways, mailboxes, and structured loop plans.
 
 > **Name Origin:** `Houmao` (猴毛, "monkey hair") is inspired by the classic tale *Journey to the West*. Just as Sun Wukong (The Monkey King) plucks strands of his magical hair to create independent, capable clones of himself, this framework allows you to multiply your capabilities by spinning up numerous autonomous helpers.
 
 ## Why This Design
 
 - **Use agents like teammates.** A specialist is a named role with tool, credentials, skills, and launch defaults. A managed agent is that specialist alive in a real CLI session.
-- **Let your CLI agent operate the system.** Install Houmao skills into Claude, Codex, Gemini, or Copilot, then ask that agent to create specialists, launch agents, inspect state, send prompts, manage gateways, and run loops.
+- **Let your CLI agent operate the system.** Install Houmao skills into Claude, Codex, Kimi, Gemini, or Copilot, then ask that agent to create specialists, launch agents, inspect state, send prompts, manage gateways, and run loops.
 - **Avoid central fragile orchestration.** Agents coordinate through per-agent gateways and shared mailboxes instead of one in-process object graph.
 - **Keep full provider capability.** Houmao does not replace the underlying CLI; it gives you lifecycle, memory, gateway, mailbox, and team-control structure around it.
 - **Scale from one helper to generated teams.** Start with one reviewer, add a second specialist, then hand a complex plan to `houmao-agent-loop-pro` and let the system prepare and run the team.
@@ -26,9 +26,9 @@ flowchart TB
     GW1["Gateway"]
     GW2["Gateway"]
     GW3["Gateway"]
-    A1["reviewer<br/>claude or codex<br/>tmux/headless"]
-    A2["builder<br/>claude or codex<br/>tmux/headless"]
-    A3["planner<br/>gemini or claude<br/>tmux/headless"]
+    A1["reviewer<br/>claude<br/>tmux/headless"]
+    A2["builder<br/>codex<br/>tmux/headless"]
+    A3["planner<br/>kimi<br/>tmux/headless"]
     MB[("Mailbox")]
     FS[(".houmao project overlay<br/>specialists, profiles,<br/>memory, credentials")]
 
@@ -60,7 +60,7 @@ npx skills add igamenovoer/tool-skills/houmao
 Use Houmao's installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need customization such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,gemini
+houmao-mgr system-skills install --tool claude,codex,kimi
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
@@ -73,6 +73,8 @@ $houmao-touring start a guided tour
 ```
 
 The tour walks through beginner setup, intermediate live operation, and advanced coordination. For exact install flags and home-resolution behavior, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) and [System Skills CLI reference](docs/reference/cli/system-skills.md).
+
+> **Kimi Code system-prompt note:** Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but if Kimi has not confirmed the Houmao system prompt is loaded, invoke `houmao-auto-system-prompt` manually before substantive chat begins.
 
 ## Agent-Driven Examples
 
@@ -144,7 +146,7 @@ For the full current loop-authoring workflow, see the [Loop Authoring Guide](doc
 - **Project-local specialist teams:** define reusable specialists with different roles and tools, then launch them into the same project with shared mailbox and gateway posture.
 - **Parallel review and build flows:** run a builder and reviewer side by side on the same repository while your user agent coordinates prompts and inspections.
 - **Research or writing teams:** create non-coding specialists for outlining, drafting, critique, synthesis, and artifact production.
-- **Bring your own provider mix:** combine Claude, Codex, and Gemini agents while keeping the workflow and Houmao control surfaces stable.
+- **Bring your own provider mix:** combine Claude, Codex, and Kimi agents while keeping the workflow and Houmao control surfaces stable.
 
 ## System Skills: Agent Self-Management
 

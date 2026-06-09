@@ -517,7 +517,7 @@ At minimum, each single-tool uninstall result SHALL report removed skill names, 
 - **AND THEN** it removes current catalog-known Houmao system-skill projection paths from that home
 
 #### Scenario: Uninstall supports comma-separated multi-tool homes
-- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini` from `/workspace/repo`
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool claude,codex,kimi,gemini,copilot` from `/workspace/repo`
 - **AND WHEN** no tool-native home env vars are set
 - **AND WHEN** no `--home` is supplied
 - **THEN** the command resolves `/workspace/repo/.claude`, `/workspace/repo/.codex`, `/workspace/repo/.github`, and `/workspace/repo` as the target homes
@@ -730,4 +730,3 @@ Manual `system-skills install --tool kimi` SHALL remain a projection command and
 - **AND WHEN** `/tmp/kimi-home/skills/houmao-agent-definition/` exists
 - **THEN** the command removes the current catalog-known Houmao-owned Kimi skill projection paths under `/tmp/kimi-home/skills/`
 - **AND THEN** it leaves unrelated user skills, parent skill roots, and Kimi config files in place
-

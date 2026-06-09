@@ -13,7 +13,7 @@ The canonical event artifact SHALL contain Houmao semantic events derived from t
 Unknown or unsupported provider event shapes SHALL be preserved as canonical passthrough events rather than causing the turn to fail solely because one event could not be classified.
 
 #### Scenario: One turn writes both raw and canonical artifacts
-- **WHEN** a managed Claude, Codex, Gemini, or Kimi headless turn produces machine-readable stdout
+- **WHEN** a managed Claude, Codex, Kimi, or Gemini headless turn produces machine-readable stdout
 - **THEN** the runtime writes the raw provider stdout artifact for that turn unchanged
 - **AND THEN** it also writes a separate canonical normalized event artifact for that same turn
 
@@ -101,7 +101,7 @@ The system MAY adapt transport-specific framing such as top-level CLI envelope s
 - **AND THEN** neither surface falls back to raw provider JSON solely because it uses a different caller path
 
 ### Requirement: Canonical headless events normalize session identity and common execution semantics across providers
-The canonical headless event model SHALL normalize provider-specific machine-readable output into shared Houmao execution semantics across Claude, Codex, Gemini, and Kimi.
+The canonical headless event model SHALL normalize provider-specific machine-readable output into shared Houmao execution semantics across Claude, Codex, Kimi, and Gemini.
 
 At minimum, the canonical model SHALL support normalized session identity, assistant output progression, tool lifecycle progression, completion semantics, and provider provenance.
 

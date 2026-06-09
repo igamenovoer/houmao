@@ -10,6 +10,7 @@ import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_ALL,
     SYSTEM_SKILL_SET_CORE,
+    SYSTEM_SKILL_AGENT_AG_UI,
     SYSTEM_SKILL_OPERATOR_MESSAGING,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     PROFILE_SYSTEM_SKILL_POLICY_MODES,
@@ -51,6 +52,7 @@ CORE_SYSTEM_SKILLS = (
     SYSTEM_SKILL_OPERATOR_MESSAGING,
     "houmao-agent-messaging",
     "houmao-agent-gateway",
+    SYSTEM_SKILL_AGENT_AG_UI,
 )
 ALL_SYSTEM_SKILLS = CORE_SYSTEM_SKILLS
 
@@ -104,6 +106,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         SYSTEM_SKILL_OPERATOR_MESSAGING,
         "houmao-agent-messaging",
         "houmao-agent-gateway",
+        SYSTEM_SKILL_AGENT_AG_UI,
     )
     assert "Canonical pre-launch agent-definition skill" in (
         catalog.skills["houmao-agent-definition"].description or ""
@@ -117,6 +120,9 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert "Compatibility wrapper" in (catalog.skills["houmao-specialist-mgr"].description or "")
     assert "Manual operator messaging skill" in (
         catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
+    )
+    assert "AG-UI component authoring" in (
+        catalog.skills[SYSTEM_SKILL_AGENT_AG_UI].description or ""
     )
     assert catalog.retired_skill_names == (
         "houmao-agent-loop-pairwise",
@@ -144,6 +150,20 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
 
 def test_system_skills_destination_supports_kimi_home_skills_root() -> None:
     assert system_skills_destination_for_tool("kimi") == "skills"
+
+
+def test_agent_ag_ui_packaged_asset_contract() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_AGENT_AG_UI)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "name: houmao-agent-ag-ui" in skill_text
+    assert "Typed Houmao components are an application-layer protocol" in skill_text
+    assert "houmao-mgr internals ag-ui components list" in skill_text
+    assert "houmao-mgr internals ag-ui events render" in skill_text
+    assert "houmao-mgr agents self gateway ag-ui publish" in skill_text
+    assert "This command intentionally has no `--endpoint` option" in skill_text
+    assert "Do not include credentials, tokens, cookies" in skill_text
+    assert "Do not use raw unsanitized HTML" in skill_text
 
 
 def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:

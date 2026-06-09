@@ -3,9 +3,9 @@ import type { IDockviewPanelProps } from "dockview-react";
 import { Activity, Braces, Cable, CircleStop, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 
 import { buildConnectInput, buildRunInput, connectAgUi, detachAgUi, fetchCapabilities, runAgUi, AgUiHttpError } from "../ag-ui/client";
+import { ToolCallRenderer } from "../ag-ui/componentRenderers";
 import { extractConnectionId, initialPaneEventState, reduceAgUiEvent, reduceHttpError, reduceParseError } from "../ag-ui/reducer";
 import type { CapabilitiesResponse, TargetConfig } from "../ag-ui/types";
-import { GraphicView } from "../ag-ui/graphics";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 import { CapabilityBadges } from "./CapabilityBadges";
 import { TargetForm } from "./TargetForm";
@@ -195,10 +195,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const visibleStatus = panelStatus === "empty" ? eventState.status : panelStatus;
-  const graphics = eventState.toolCalls.flatMap((toolCall) => (toolCall.graphic ? [toolCall.graphic] : []));
-  const unsupportedGraphics = eventState.toolCalls.flatMap((toolCall) =>
-    toolCall.unsupportedGraphicFormat ? [toolCall.unsupportedGraphicFormat] : [],
-  );
 
   return (
     <section className="session-panel" data-testid={`panel-${paneId}`}>
@@ -273,13 +269,8 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
               <p>{message.content}</p>
             </article>
           ))}
-          {graphics.map((graphic) => (
-            <GraphicView key={`${graphic.title}-${String(graphic.content).slice(0, 12)}`} artifact={graphic} paneId={paneId} />
-          ))}
-          {unsupportedGraphics.map((format) => (
-            <div className="graphic-fallback" data-testid={`unsupported-graphic-${paneId}`} key={format}>
-              Unsupported graphic format: {format}
-            </div>
+          {eventState.toolCalls.map((toolCall) => (
+            <ToolCallRenderer key={toolCall.id} toolCall={toolCall} paneId={paneId} />
           ))}
         </section>
 

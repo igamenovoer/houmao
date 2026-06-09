@@ -1,6 +1,6 @@
 # Quickstart
 
-Houmao is designed to be driven from the CLI agent you already use. You talk to Claude Code, Codex, Gemini, or another supported agent surface; that agent reads Houmao system skills; the skills guide it through maintained `houmao-mgr` commands; Houmao then creates, adopts, prompts, inspects, and stops managed agents.
+Houmao is designed to be driven from the CLI agent you already use. You talk to Claude Code, Codex, Kimi, Gemini, or another supported agent surface; that agent reads Houmao system skills; the skills guide it through maintained `houmao-mgr` commands; Houmao then creates, adopts, prompts, inspects, and stops managed agents.
 
 ```text
 you -> your CLI agent -> Houmao system skills -> houmao-mgr -> managed agents
@@ -23,9 +23,11 @@ npx skills add igamenovoer/tool-skills/houmao
 Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need explicit projection behavior such as named sets, subset skills, explicit homes, symlink/copy mode, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,copilot,gemini,kimi
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
 ```
+
+Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but if Kimi has not confirmed the Houmao system prompt is loaded, invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins.
 
 From a source checkout, run Python-based Houmao commands through Pixi. Installed-user examples such as `houmao-mgr project status` become `pixi run houmao-mgr project status`. Source checkout setup is:
 
@@ -203,7 +205,7 @@ sequenceDiagram
     participant Gateway as Gateway artifacts
     participant Reg as Shared registry
     Op->>Tmux: start session window 0 pane 0
-    Tmux->>Provider: run claude, codex, or gemini
+    Tmux->>Provider: run claude, codex, or kimi
     Op->>CLI: join --agent-name research
     CLI->>RT: inspect current tmux authority
     RT->>RT: write manifest and managed-agent memory root

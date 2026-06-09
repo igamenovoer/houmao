@@ -200,6 +200,64 @@ class AgUiDiagnostics:
             dedup_key=f"ag-ui-stream-error:{stream_kind}:{error_category}",
         )
 
+    def events_publish_accepted(
+        self,
+        *,
+        thread_id: str | None,
+        run_id: str | None,
+        connection_id: str | None,
+        accepted_count: int,
+        delivered_count: int,
+    ) -> None:
+        """Record one accepted agent-authored AG-UI event publish batch."""
+
+        fields = {
+            **self._publish_route_fields(
+                thread_id=thread_id,
+                run_id=run_id,
+                connection_id=connection_id,
+            ),
+            **self.active_counts(),
+            "acceptedCount": accepted_count,
+            "deliveredCount": delivered_count,
+            "subscriberOutcome": "delivered" if delivered_count > 0 else "no_subscribers",
+            "replay": "none",
+        }
+        self._emit(
+            level="info" if delivered_count > 0 else "warning",
+            event="gateway.ag_ui_events_publish_accepted",
+            fields=fields,
+        )
+
+    def events_publish_rejected(
+        self,
+        *,
+        thread_id: str | None,
+        run_id: str | None,
+        connection_id: str | None,
+        event_count: int | None,
+        rejection_reason: str,
+    ) -> None:
+        """Record one rejected AG-UI event publish attempt without payload contents."""
+
+        fields: dict[str, object] = {
+            **self._publish_route_fields(
+                thread_id=thread_id,
+                run_id=run_id,
+                connection_id=connection_id,
+            ),
+            **self.active_counts(),
+            "rejectionReason": rejection_reason,
+        }
+        if event_count is not None:
+            fields["eventCount"] = event_count
+        self._emit(
+            level="warning",
+            event="gateway.ag_ui_events_publish_rejected",
+            fields=fields,
+            dedup_key=f"ag-ui-events-publish-rejected:{rejection_reason}",
+        )
+
     def _counts_locked(self) -> dict[str, int]:
         """Return counts while the caller holds the lock."""
 
@@ -248,6 +306,24 @@ class AgUiDiagnostics:
         }
         if admitted_run.run_input.parent_run_id is not None:
             fields["parentRunId"] = admitted_run.run_input.parent_run_id
+        return fields
+
+    def _publish_route_fields(
+        self,
+        *,
+        thread_id: str | None,
+        run_id: str | None,
+        connection_id: str | None,
+    ) -> dict[str, object]:
+        """Return safe route fields for an agent-authored AG-UI publish batch."""
+
+        fields: dict[str, object] = {}
+        if thread_id is not None:
+            fields["threadId"] = thread_id
+        if run_id is not None:
+            fields["runId"] = run_id
+        if connection_id is not None:
+            fields["connectionId"] = connection_id
         return fields
 
 

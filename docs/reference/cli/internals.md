@@ -26,7 +26,7 @@ Manage direct native-agent credentials under `tools/<tool>/auth/<name>/`.
 houmao-mgr internals native-agent credentials <tool> list|get|add|set|login|rename|remove --native-agent-root <dir>
 ```
 
-Supported credential CRUD tool lanes are `claude`, `codex`, `gemini`, and `kimi`. The per-tool credential input flags match the corresponding project credential surface, including `--auth-token`, `--oauth-token`, and `--config-dir` for Claude credential commands and `--code-home`, `--config-toml`, `--credential-json`, `--model-name`, `--provider-type`, and related Kimi env-model flags for Kimi credential commands. The credential `login` helper is maintained for Claude, Codex, and Gemini only; Kimi credential work uses explicit `add` and `set` inputs. Use `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials.
+Supported credential CRUD tool lanes are `claude`, `codex`, `kimi`, and `gemini`. The per-tool credential input flags match the corresponding project credential surface, including `--auth-token`, `--oauth-token`, and `--config-dir` for Claude credential commands and `--code-home`, `--config-toml`, `--credential-json`, `--model-name`, `--provider-type`, and related Kimi env-model flags for Kimi credential commands. The credential `login` helper is maintained for Claude, Codex, and Gemini only; Kimi credential work uses explicit `add` and `set` inputs. Use `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials.
 
 ### brain build
 

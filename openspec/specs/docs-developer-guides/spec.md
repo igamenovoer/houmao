@@ -9,7 +9,9 @@ Define the documentation requirements for Houmao developer guides.
 
 The `developer/tui-parsing/` guide SHALL be rewritten to describe the runtime-owned TUI parsing stack in terms of current abstractions: `StreamStateReducer`, detector profiles from `DetectorProfileRegistry`, signal contracts per tool, and the `shared_tui_tracking` package. All references to "CAO transport surface" or "CAO terminal" as primary framing SHALL be replaced with the actual execution contexts (tmux panes for `local_interactive`, process stdout for headless).
 
-The guide SHALL explicitly state that Gemini is intentionally unsupported for TUI tracking. The index page SHALL include a note after the reading-order table explaining that Gemini uses a headless-only architecture and does not have a TUI parser. The shared-contracts page SHALL note that the provider subclasses (`ClaudeSurfaceAssessment`, `CodexSurfaceAssessment`) cover only the two TUI-tracked providers and that Gemini is excluded by design.
+The guide SHALL explicitly state that Claude Code, Codex, and Kimi Code have maintained local-interactive TUI tracking coverage. The architecture page's compact provider-parser or detector-profile diagrams SHALL include Kimi when they list three maintained TUI providers.
+
+The guide SHALL explicitly state that Gemini is lower-priority for TUI parsing because maintained Gemini integration is headless-oriented for TUI tracking documentation. The index page SHALL include a provider note explaining that Claude, Codex, and Kimi have maintained local-interactive TUI tracking profiles while Gemini remains outside the maintained TUI tracking path by default. The shared-contracts page SHALL note that legacy `ShadowParserStack` provider subclasses cover Claude and Codex, while Kimi uses a dedicated shared-tracker detector profile rather than routing through that legacy parser stack.
 
 #### Scenario: Architecture page describes actual execution contexts
 
@@ -21,11 +23,17 @@ The guide SHALL explicitly state that Gemini is intentionally unsupported for TU
 - **WHEN** a reader opens `developer/tui-parsing/maintenance.md`
 - **THEN** maintenance procedures reference `shared_tui_tracking/` detectors and `shared_tui_tracking/apps/` for per-tool signal profiles
 
-#### Scenario: Reader understands why Gemini has no TUI parser
+#### Scenario: Reader sees Kimi as maintained TUI tracking coverage
 
 - **WHEN** a reader checks the TUI parsing index page
-- **THEN** the page includes a note explaining that Gemini is headless-only by design and does not have a TUI parser
-- **AND THEN** the shared-contracts page confirms that provider subclasses cover Claude and Codex only
+- **THEN** the page presents Claude Code, Codex, and Kimi Code as maintained local-interactive TUI tracking coverage
+- **AND THEN** Kimi does not appear only as an unsupported-tool fallback or future note
+
+#### Scenario: Reader understands Gemini TUI tracking posture
+
+- **WHEN** a reader checks the TUI parsing index page
+- **THEN** the page explains that Gemini remains outside the maintained TUI tracking path by default
+- **AND THEN** the shared-contracts page distinguishes Claude and Codex legacy parser subclasses from Kimi's dedicated shared-tracker detector profile
 
 ### Requirement: Terminal record developer guide updated
 

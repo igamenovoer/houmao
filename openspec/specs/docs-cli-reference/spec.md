@@ -590,7 +590,7 @@ That coverage SHALL explain that single-tool JSON output keeps the scalar instal
 #### Scenario: Reader sees comma-separated multi-tool install syntax
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page documents that `system-skills install --tool` accepts comma-separated supported tools
-- **AND THEN** it shows an example such as `houmao-mgr system-skills install --tool claude,codex,copilot,gemini`
+- **AND THEN** it shows an example such as `houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot`
 
 #### Scenario: Reader sees explicit skill-set flag naming
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
@@ -1119,7 +1119,7 @@ That page SHALL document:
 
 #### Scenario: Reader sees Copilot in system-skills home resolution
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page lists Copilot alongside Claude, Codex, and Gemini in the supported tool-home resolution coverage
+- **THEN** the page lists Copilot alongside Claude, Codex, Kimi, and Gemini in the supported tool-home resolution coverage
 - **AND THEN** it identifies `COPILOT_HOME` and `<cwd>/.github` as Copilot's env and project-default home inputs
 
 #### Scenario: Reader understands Copilot projection paths
@@ -1150,7 +1150,7 @@ When the reference documents `--clear-memo-seed`, it SHALL distinguish removing 
 - **AND THEN** it does not state that pages are cleared for memo-only seeds
 
 ### Requirement: CLI reference documents system-skills uninstall
-The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Copilot, and Gemini homes.
+The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Kimi, Gemini, and Copilot homes.
 
 That coverage SHALL state that `system-skills uninstall` requires `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
 

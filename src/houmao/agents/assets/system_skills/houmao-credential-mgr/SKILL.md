@@ -99,7 +99,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
    - project lane: `project credentials <tool> <verb>`
    - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
-   - supported CRUD tools: `claude`, `codex`, `gemini`, `kimi`
+   - supported CRUD tools: `claude`, `codex`, `kimi`, `gemini`
    - supported login-helper tools: `claude`, `codex`, `gemini`
    - supported CRUD verbs: `add`, `set`, `list`, `get`, `rename`, `remove`
    - supported login-helper verb: `login`

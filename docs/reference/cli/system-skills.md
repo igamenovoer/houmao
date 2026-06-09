@@ -1,6 +1,6 @@
 # system-skills
 
-`houmao-mgr system-skills` is the operator-facing surface for installing, removing, and inspecting the current Houmao-owned `houmao-*` skills in resolved Claude, Codex, Copilot, Gemini, or Kimi homes.
+`houmao-mgr system-skills` is the operator-facing surface for installing, removing, and inspecting the current Houmao-owned `houmao-*` skills in resolved Claude, Codex, Kimi, Gemini, or Copilot homes.
 
 > **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
@@ -67,17 +67,17 @@ Supported tool-native home env vars:
 
 - Claude: `CLAUDE_CONFIG_DIR`
 - Codex: `CODEX_HOME`
-- Copilot: `COPILOT_HOME`
-- Gemini: `GEMINI_CLI_HOME`
 - Kimi: `KIMI_CODE_HOME`
+- Gemini: `GEMINI_CLI_HOME`
+- Copilot: `COPILOT_HOME`
 
 Project-scoped default homes:
 
 - Claude: `<cwd>/.claude`
 - Codex: `<cwd>/.codex`
-- Copilot: `<cwd>/.github`
-- Gemini: `<cwd>`
 - Kimi: `<cwd>/.kimi-code`
+- Gemini: `<cwd>`
+- Copilot: `<cwd>/.github`
 
 Gemini is intentionally different from Claude and Codex. The effective Gemini home root is the project root, which means omitted-home Gemini installs land under `<cwd>/.gemini/skills/` while Gemini provider state remains under `<cwd>/.gemini/`.
 
@@ -149,9 +149,9 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 | --- | --- | --- |
 | `claude` | `skills/` | `skills/houmao-agent-email-comms/SKILL.md` |
 | `codex` | `skills/` | `skills/houmao-agent-messaging/SKILL.md` |
-| `copilot` | `skills/` | `.github/skills/houmao-agent-messaging/SKILL.md` for the project default, or `~/.copilot/skills/houmao-agent-messaging/SKILL.md` with `--home ~/.copilot` |
-| `gemini` | `.gemini/skills/` | `.gemini/skills/houmao-agent-email-comms/SKILL.md` |
 | `kimi` | `skills/` | `.kimi-code/skills/houmao-agent-email-comms/SKILL.md` for the project default, or `<KIMI_CODE_HOME>/skills/houmao-agent-email-comms/SKILL.md` with env redirection |
+| `gemini` | `.gemini/skills/` | `.gemini/skills/houmao-agent-email-comms/SKILL.md` |
+| `copilot` | `skills/` | `.github/skills/houmao-agent-messaging/SKILL.md` for the project default, or `~/.copilot/skills/houmao-agent-messaging/SKILL.md` with `--home ~/.copilot` |
 
 That means Houmao-owned skills stay grouped by reserved skill names and closed named sets rather than by family-specific path segments.
 
@@ -159,7 +159,7 @@ That means Houmao-owned skills stay grouped by reserved skill names and closed n
 
 Plain `install`, `status`, and `uninstall` output distinguishes the effective tool home from the skill projection location. The effective home is the root used for tool-home resolution and later status/uninstall targeting. The projection location is where Houmao-owned skill directories actually appear under that home.
 
-For Claude, Codex, Copilot, and Kimi, the projection root is usually `<effective-home>/skills/`. For Gemini, the effective home may be the project root while the projection root is `<effective-home>/.gemini/skills/`. For example, if omitted-home Gemini resolution chooses `/workspace/repo`, the installed Houmao-owned Gemini skill files live under `/workspace/repo/.gemini/skills/`.
+For Claude, Codex, Kimi, and Copilot, the projection root is usually `<effective-home>/skills/`. For Gemini, the effective home may be the project root while the projection root is `<effective-home>/.gemini/skills/`. For example, if omitted-home Gemini resolution chooses `/workspace/repo`, the installed Houmao-owned Gemini skill files live under `/workspace/repo/.gemini/skills/`.
 
 Kimi plain output also prints a discovery caveat. It reports where files were projected, but it does not claim that an arbitrary explicit Kimi home's `skills/` directory is automatically visible to Kimi Code unless that home's `config.toml` includes the path in `extra_skill_dirs`.
 
@@ -239,7 +239,7 @@ Use `install` when you want the current Houmao-owned skill surface in a resolved
 
 ```bash
 pixi run houmao-mgr system-skills install --tool codex
-pixi run houmao-mgr system-skills install --tool claude,codex,copilot,gemini,kimi
+pixi run houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set all
@@ -302,7 +302,7 @@ Use `uninstall` when you want to remove the current Houmao-owned skill surface f
 ```bash
 pixi run houmao-mgr system-skills uninstall --tool codex
 pixi run houmao-mgr system-skills uninstall --tool codex --home ~/.codex
-pixi run houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini,kimi
+pixi run houmao-mgr system-skills uninstall --tool claude,codex,kimi,gemini,copilot
 pixi run houmao-mgr system-skills uninstall --tool copilot --home ~/.copilot
 pixi run houmao-mgr system-skills uninstall --tool gemini
 pixi run houmao-mgr system-skills uninstall --tool kimi
@@ -362,7 +362,7 @@ CLI-default installation expands `all`, which installs every packaged Houmao sys
 
 Use `system-skills` when:
 
-- you want to prepare an external Claude, Codex, Copilot, Gemini, or Kimi home before using `houmao-mgr`
+- you want to prepare an external Claude, Codex, Kimi, Gemini, or Copilot home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
 - you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, operator message clarification/dispatch, messaging/control, gateway-management, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 

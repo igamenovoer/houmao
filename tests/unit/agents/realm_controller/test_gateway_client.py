@@ -7,6 +7,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 
+from houmao.ag_ui.models import AgUiEventPublishRequest
 from houmao.agents.realm_controller.gateway_client import (
     GATEWAY_RESPECT_PROXY_ENV_VAR,
     GatewayClient,
@@ -56,6 +57,37 @@ class _ProxyHealthHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         payload = {"protocol_version": "v1", "status": "ok"}
+        self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+    def log_message(self, format: str, *args: object) -> None:
+        """Suppress noisy test-server logs."""
+
+
+class _AgUiEventsHandler(BaseHTTPRequestHandler):
+    """Capture one AG-UI publish request and return a valid response."""
+
+    request_path: str | None = None
+    request_payload: dict[str, object] | None = None
+
+    def do_POST(self) -> None:
+        """Capture the AG-UI publish request."""
+
+        self.__class__.request_path = self.path
+        length = int(self.headers.get("Content-Length", "0"))
+        self.__class__.request_payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        if self.path != "/v1/ag-ui/events":
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        payload = {
+            "status": "accepted",
+            "acceptedCount": 1,
+            "deliveredCount": 0,
+            "replay": "none",
+            "threadId": "thread-1",
+        }
         self.wfile.write(json.dumps(payload).encode("utf-8"))
 
     def log_message(self, format: str, *args: object) -> None:
@@ -134,3 +166,49 @@ def test_gateway_client_proxy_opt_in_uses_environment_proxy(
     assert health.status == "ok"
     assert health.protocol_version == "v1"
     assert _ProxyHealthHandler.paths == ["http://127.0.0.1:9/health"]
+
+
+def test_gateway_client_posts_ag_ui_events_with_aliases() -> None:
+    """Gateway AG-UI publish uses the live gateway route and camel-case JSON."""
+
+    _AgUiEventsHandler.request_path = None
+    _AgUiEventsHandler.request_payload = None
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _AgUiEventsHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = GatewayClient(
+            endpoint=GatewayEndpoint(host="127.0.0.1", port=server.server_port),
+            timeout_seconds=0.5,
+        )
+
+        response = client.publish_ag_ui_events(
+            AgUiEventPublishRequest(
+                thread_id="thread-1",
+                events=[
+                    {
+                        "type": "TEXT_MESSAGE_START",
+                        "messageId": "message-1",
+                        "role": "assistant",
+                    }
+                ],
+            )
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=2.0)
+        server.server_close()
+
+    assert response.status == "accepted"
+    assert response.accepted_count == 1
+    assert _AgUiEventsHandler.request_path == "/v1/ag-ui/events"
+    assert _AgUiEventsHandler.request_payload == {
+        "threadId": "thread-1",
+        "events": [
+            {
+                "type": "TEXT_MESSAGE_START",
+                "messageId": "message-1",
+                "role": "assistant",
+            }
+        ],
+    }

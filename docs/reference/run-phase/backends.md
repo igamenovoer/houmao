@@ -46,7 +46,7 @@ flowchart LR
 
 **Source:** `backends/local_interactive.py`
 
-The primary backend for interactive agent sessions. The agent runs as a real interactive CLI process inside a tmux pane, preserving the tool's native user experience (colors, interactive prompts, streaming output). Maintained local interactive tools are Claude Code, Codex, Gemini CLI, and Kimi Code.
+The primary backend for interactive agent sessions. The agent runs as a real interactive CLI process inside a tmux pane, preserving the tool's native user experience (colors, interactive prompts, streaming output). Maintained local interactive tools are Claude Code, Codex, Kimi Code, and Gemini CLI.
 
 - **Session class:** `LocalInteractiveSession`
 - **Prompt delivery:** via tmux paste-buffer with bracketed paste and a separate final submit key.
@@ -60,7 +60,7 @@ The primary backend for interactive agent sessions. The agent runs as a real int
 Kimi local interactive support starts the interactive `kimi` TUI under backend `local_interactive`; it does not reuse or rename `kimi_headless`.
 
 - **Process recognition:** live process inspection treats both `kimi-code` and `kimi` as supported Kimi TUI process names.
-- **Role injection:** Kimi TUI uses a bootstrap-message turn. Houmao does not add an unverified Kimi TUI system-prompt flag.
+- **Role injection:** Kimi TUI uses bootstrap-message or managed auto-skill system-prompt workflows. Houmao does not add an unverified Kimi TUI system-prompt flag.
 - **Model selection:** launch-owned Kimi model selection is projected as `--model <alias>` for fresh and resumed Kimi TUI startup.
 - **Update suppression:** managed Kimi TUI launches set `KIMI_CODE_NO_AUTO_UPDATE=1` so startup does not stop on the interactive update preflight.
 - **Managed skills:** Houmao does not add managed `--skills-dir` arguments to Kimi TUI launches. The maintained `--skills-dir <KIMI_CODE_HOME>/skills` projection remains Kimi headless prompt-mode behavior.
@@ -121,8 +121,10 @@ Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json
 - **Auth lanes:** managed Kimi homes use `KIMI_CODE_HOME` and support OAuth material through projected `config.toml` plus `credentials/kimi-code.json`, or env-model material through allowlisted `KIMI_MODEL_*` values.
 - **Managed skills:** Houmao-owned Kimi skills project into top-level `skills`, and managed launches pass `--skills-dir <KIMI_CODE_HOME>/skills` so they do not depend on user-global skill discovery.
 - **Resume:** `--continue` asks Kimi to continue the latest stored session for the working directory; `--session <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
-- **Role injection:** bootstrap message sent as the first-turn prompt.
+- **Role injection:** bootstrap-message or managed auto-skill system-prompt workflow, depending on the resolved launch policy.
 - **Use case:** automated pipelines and non-interactive agent orchestration for Kimi Code.
+
+Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not loaded the Houmao system prompt.
 
 #### Kimi validation checklist
 
@@ -162,7 +164,7 @@ Legacy old-server-backed path. New runtime manifests with this backend are not s
 
 ## Headless backend base class
 
-The maintained native headless backends (`claude_headless`, `codex_headless`, `gemini_headless`, `kimi_headless`) share a common base class: `HeadlessInteractiveSession`.
+The maintained native headless backends (`claude_headless`, `codex_headless`, `kimi_headless`, `gemini_headless`) share a common base class: `HeadlessInteractiveSession`.
 
 This base class manages:
 
@@ -180,10 +182,10 @@ Tmux-backed relaunch accepts a relaunch-only chat-session selector. It does not 
 
 | Tool | Local interactive latest | Local interactive exact | Native headless latest | Native headless exact |
 | --- | --- | --- | --- | --- |
-| Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
 | Claude Code | `claude --continue` | `claude --resume <session_id>` | `claude -p --continue <prompt>` | `claude -p --resume <session_id> <prompt>` |
-| Gemini CLI | `gemini --resume latest` | `gemini --resume <session_id>` | `gemini --resume latest -p <prompt>` | `gemini --resume <session_id> -p <prompt>` |
+| Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
 | Kimi Code | `kimi --continue` | `kimi --session <session_id>` | `kimi --continue -p <prompt>` | `kimi --session <session_id> -p <prompt>` |
+| Gemini CLI | `gemini --resume latest` | `gemini --resume <session_id>` | `gemini --resume latest -p <prompt>` | `gemini --resume <session_id> -p <prompt>` |
 
 When the relaunch selector is omitted, the runtime uses `new` and starts a fresh provider chat. When a local interactive relaunch resumes an existing provider chat, bootstrap-message role injection is not replayed into that chat.
 

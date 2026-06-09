@@ -50,6 +50,21 @@ The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Co
 
 The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, and selected discovered-agent identity metadata. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, raw events, stream payloads, state snapshots, activity records, tool-call payloads, or rendered graphics by default.
 
+## Typed Components
+
+Houmao typed components are application-layer payloads carried over standard AG-UI tool-call events. Agents should generate those events with `houmao-mgr internals ag-ui events render` rather than hand-writing raw AG-UI JSON.
+
+The renderer registry recognizes these Houmao component names:
+
+- `houmao.chart.bar`
+- `houmao.chart.line`
+- `houmao.chart.pie`
+- `houmao.table`
+- `houmao.metric_grid`
+- `houmao.dashboard`
+
+Charts render through Recharts. Tables, metric grids, and dashboards render as React components with typed payload validation. The compatibility `houmao_render_graphic` path remains available for sanitized SVG graphics. Unknown Houmao component names and invalid payloads render explicit fallback records, and the raw tool-call arguments remain visible in diagnostics. Typed component renderers do not inject raw HTML or raw SVG.
+
 ## Live Kimi Code Headless Check
 
 For live/manual validation of this change, use a Kimi Code headless Houmao agent through an already-running per-agent gateway. When fixture credentials are present, prefer `tests/fixtures/auth-bundles/kimi/personal-a-default/`.
@@ -60,4 +75,4 @@ The deterministic Playwright fake-server smoke remains the required automated te
 
 ## Known Limits
 
-The first workbench version is a protocol harness, not an operator scheduler. It does not execute frontend tools, send multimodal input, manage credentials, export event logs, or use CopilotKit as its runtime path. Generated graphics render through complete `houmao_render_graphic` tool-call sequences, with SVG supported in the deterministic browser smoke and unsupported formats shown as explicit fallback records.
+The first workbench version is a protocol harness, not an operator scheduler. It does not execute frontend tools, send multimodal input, manage credentials, export event logs, or use CopilotKit as its runtime path. Houmao typed components and generated graphics render through complete AG-UI tool-call sequences, with unsupported or invalid payloads shown as explicit fallback records.

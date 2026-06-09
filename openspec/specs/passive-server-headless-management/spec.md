@@ -24,7 +24,7 @@ The endpoint SHALL reject invalid launch inputs with HTTP 422, call `start_runti
 - **AND THEN** the response body explains the validation failure
 
 #### Scenario: Unsupported backend returns 422
-- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `gemini_headless`, or `kimi_headless`
+- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `kimi_headless`, or `gemini_headless`
 - **THEN** the response status code is 422
 
 #### Scenario: Successful Kimi headless launch

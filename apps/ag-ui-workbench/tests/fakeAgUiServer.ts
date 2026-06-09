@@ -227,6 +227,64 @@ export class FakeAgUiServer {
         }),
       });
       writeSse(res, { type: "TOOL_CALL_END", toolCallId: "alpha-graphic-tool" });
+      writeSse(res, {
+        type: "TOOL_CALL_START",
+        toolCallId: "alpha-dashboard-tool",
+        toolCallName: "houmao.dashboard",
+        parentMessageId: messageId,
+      });
+      writeSse(res, {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: "alpha-dashboard-tool",
+        delta: JSON.stringify({
+          schemaVersion: 1,
+          title: "Alpha Dashboard",
+          children: [
+            {
+              component: "houmao.metric_grid",
+              width: "full",
+              props: {
+                schemaVersion: 1,
+                title: "Alpha Metrics",
+                metrics: [
+                  { label: "Pass rate", value: "98%", delta: "+4%", trend: "up" },
+                  { label: "Open blockers", value: 1, delta: "-2", trend: "down" },
+                ],
+              },
+            },
+            {
+              component: "houmao.chart.bar",
+              width: "half",
+              props: {
+                schemaVersion: 1,
+                title: "Alpha Counts",
+                data: [
+                  { label: "Done", value: 18 },
+                  { label: "Review", value: 4 },
+                  { label: "Blocked", value: 1 },
+                ],
+              },
+            },
+            {
+              component: "houmao.table",
+              width: "half",
+              props: {
+                schemaVersion: 1,
+                title: "Alpha Table",
+                columns: [
+                  { key: "name", label: "Name" },
+                  { key: "count", label: "Count", kind: "number", align: "right" },
+                ],
+                rows: [
+                  { name: "Alpha count", count: 18 },
+                  { name: "Review", count: 4 },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "alpha-dashboard-tool" });
     }
     if (target === "beta") {
       writeSse(res, {
@@ -245,6 +303,30 @@ export class FakeAgUiServer {
         }),
       });
       writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-graphic-tool" });
+      writeSse(res, {
+        type: "TOOL_CALL_START",
+        toolCallId: "beta-invalid-chart",
+        toolCallName: "houmao.chart.bar",
+        parentMessageId: messageId,
+      });
+      writeSse(res, {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: "beta-invalid-chart",
+        delta: JSON.stringify({ schemaVersion: 1, title: "Broken Chart", data: [] }),
+      });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-invalid-chart" });
+      writeSse(res, {
+        type: "TOOL_CALL_START",
+        toolCallId: "beta-unknown-component",
+        toolCallName: "houmao.chart.scatter",
+        parentMessageId: messageId,
+      });
+      writeSse(res, {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: "beta-unknown-component",
+        delta: JSON.stringify({ marker: "beta unknown raw marker" }),
+      });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-unknown-component" });
     }
     writeSse(res, {
       type: "STATE_SNAPSHOT",
@@ -296,7 +378,13 @@ function capabilities(target: string): unknown {
       tools: {
         supported: true,
         clientProvided: false,
-        items: [{ name: "houmao_render_graphic" }],
+        items: [
+          { name: "houmao_render_graphic" },
+          { name: "houmao.chart.bar" },
+          { name: "houmao.table" },
+          { name: "houmao.metric_grid" },
+          { name: "houmao.dashboard" },
+        ],
       },
       multimodal: {
         input: { image: false },

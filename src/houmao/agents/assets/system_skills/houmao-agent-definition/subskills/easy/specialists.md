@@ -41,7 +41,7 @@ For `set`, keep the maintained patch command explicit and include only the user-
 Common specialist inputs:
 
 - `--name`
-- `--tool claude|codex|gemini|kimi`
+- `--tool claude|codex|kimi|gemini`
 - `--credential <name>`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`

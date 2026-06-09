@@ -1,4 +1,4 @@
-import type { AgUiEvent, GraphicArtifact, JsonObject, RawTimelineEntry } from "./types";
+import type { AgUiEvent, JsonObject, RawTimelineEntry } from "./types";
 
 export type PaneRunStatus = "empty" | "connecting" | "connected" | "running" | "finished" | "error" | "disconnected";
 
@@ -16,8 +16,6 @@ export interface ToolCallRecord {
   argsText: string;
   result?: string;
   complete: boolean;
-  graphic?: GraphicArtifact;
-  unsupportedGraphicFormat?: string;
 }
 
 export interface ActivityRecord {
@@ -276,38 +274,8 @@ function finishToolCall(state: PaneEventState, event: AgUiEvent): PaneEventState
   const id = stringValue(event.toolCallId, "tool");
   return {
     ...state,
-    toolCalls: state.toolCalls.map((toolCall) => {
-      if (toolCall.id !== id) {
-        return toolCall;
-      }
-      const graphic = parseGraphic(toolCall);
-      return {
-        ...toolCall,
-        complete: true,
-        graphic: graphic.supported,
-        unsupportedGraphicFormat: graphic.unsupportedFormat,
-      };
-    }),
+    toolCalls: state.toolCalls.map((toolCall) => (toolCall.id === id ? { ...toolCall, complete: true } : toolCall)),
   };
-}
-
-function parseGraphic(toolCall: ToolCallRecord): { supported?: GraphicArtifact; unsupportedFormat?: string } {
-  if (toolCall.name !== "houmao_render_graphic") {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(toolCall.argsText) as unknown;
-    if (!isRecord(parsed)) {
-      return { unsupportedFormat: "invalid_payload" };
-    }
-    const artifact = parsed as unknown as GraphicArtifact;
-    if (artifact.format === "svg") {
-      return { supported: artifact };
-    }
-    return { unsupportedFormat: stringValue(artifact.format, "missing_format") };
-  } catch {
-    return { unsupportedFormat: "invalid_json" };
-  }
 }
 
 function eventMessage(event: AgUiEvent, fallback: string): string {

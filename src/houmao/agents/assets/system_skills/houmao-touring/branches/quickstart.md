@@ -30,9 +30,9 @@ Use this beginner branch when the user wants to reach one running managed agent 
 
 ## No Tool Detected
 
-When `command -v claude`, `command -v codex`, `command -v gemini`, and `command -v kimi || command -v kimi-code` all fail:
+When `command -v claude`, `command -v codex`, `command -v kimi || command -v kimi-code`, and `command -v gemini` all fail:
 
-- Explain that the packaged Houmao distribution currently ships tool adapters for `claude`, `codex`, `gemini`, and `kimi`.
+- Explain that the packaged Houmao distribution currently ships tool adapters for `claude`, `codex`, `kimi`, and `gemini`.
 - Name each supported tool CLI so the user can install whichever one they prefer.
 - Do not attempt to launch a managed agent in that turn.
 - Offer to resume the quickstart branch after the user installs one of the supported tool CLIs.

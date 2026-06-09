@@ -20,7 +20,7 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 1. `houmao-mgr mailbox ...` manages the filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents single ... mailbox ...` or `houmao-mgr agents self mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents single ... mail ...` or `houmao-mgr agents self mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
-4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into resolved Claude, Codex, Gemini, or Kimi homes when you need those skills outside a Houmao-managed launch or join flow.
+4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into resolved Claude, Codex, Kimi, or Gemini homes when you need those skills outside a Houmao-managed launch or join flow.
 
 Managed launch and managed join now resolve their default Houmao-owned mailbox skill installation from the packaged system-skill catalog before runtime prompts rely on those skills. The visible mailbox skill surface stays tool-native and flat: Claude, Codex, and Kimi use top-level `skills/houmao-.../` directories, while Gemini uses top-level `.gemini/skills/houmao-.../` directories. Scoped mail `resolve-live` remains the supported current-mailbox discovery path for later work.
 

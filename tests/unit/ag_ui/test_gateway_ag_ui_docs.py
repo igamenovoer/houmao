@@ -23,6 +23,7 @@ def test_documented_ag_ui_routes_match_gateway_route_inventory() -> None:
     expected_routes = {
         ("GET", "/v1/ag-ui/capabilities"),
         ("POST", "/v1/ag-ui/connect"),
+        ("POST", "/v1/ag-ui/events"),
         ("POST", "/v1/ag-ui/runs"),
         ("DELETE", "/v1/ag-ui/connections/{connection_id}"),
     }

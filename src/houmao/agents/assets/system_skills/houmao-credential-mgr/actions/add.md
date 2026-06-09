@@ -17,7 +17,7 @@ Use this action only when the user wants to create one new credential.
 
 ## Required Inputs
 
-- `tool`: one of `claude`, `codex`, `gemini`, or `kimi`
+- `tool`: one of `claude`, `codex`, `kimi`, or `gemini`
 - `name`
 - a resolved target
 - enough supported credential input for the selected tool

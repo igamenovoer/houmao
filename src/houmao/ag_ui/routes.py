@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import json
 from collections.abc import AsyncIterator
 from typing import Protocol
@@ -11,13 +12,23 @@ from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from houmao.ag_ui.authoring import (
+    AgUiEventPayload,
+    HoumaoAgUiValidationError,
+    parse_ag_ui_event_payloads,
+    validate_ag_ui_event_sequence,
+    validation_error_payload,
+)
 from houmao.ag_ui.capabilities import AgUiCapabilityRuntime, build_ag_ui_capabilities
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.diagnostics import AgUiDiagnostics
 from houmao.ag_ui.encoder import SSE_CONTENT_TYPE, encode_sse_comment, encode_sse_event
+from houmao.ag_ui.event_hub import AgUiEventHub, AgUiEventSubscription
 from houmao.ag_ui.models import (
     AgUiConnectInput,
     AgUiDetachResponse,
+    AgUiEventPublishRequest,
+    AgUiEventPublishResponse,
     AgUiStateSnapshotEvent,
     HoumaoAgUiCapabilitiesResponse,
 )
@@ -43,11 +54,13 @@ async def connect_event_stream(
     connect_input: AgUiConnectInput,
     request: AgUiDisconnectProbe,
     diagnostics: AgUiDiagnostics | None = None,
+    event_hub: AgUiEventHub | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
 ) -> AsyncIterator[str]:
     """Yield the AG-UI connect stream for one GUI attachment."""
 
     record = registry.create_from_input(connect_input)
+    subscription = event_hub.subscribe_connection(record) if event_hub is not None else None
     if diagnostics is not None:
         diagnostics.connection_started(record)
     detach_reason = "stream_closed"
@@ -61,11 +74,25 @@ async def connect_event_stream(
             if await request.is_disconnected():
                 detach_reason = "client_disconnected"
                 break
-            await asyncio.sleep(heartbeat_interval_seconds)
-            if await request.is_disconnected():
-                detach_reason = "client_disconnected"
-                break
-            yield encode_sse_comment("houmao ag-ui heartbeat")
+            if subscription is None:
+                await asyncio.sleep(heartbeat_interval_seconds)
+                if await request.is_disconnected():
+                    detach_reason = "client_disconnected"
+                    break
+                yield encode_sse_comment("houmao ag-ui heartbeat")
+                continue
+            try:
+                event = await asyncio.wait_for(
+                    subscription.queue.get(),
+                    timeout=heartbeat_interval_seconds,
+                )
+            except TimeoutError:
+                if await request.is_disconnected():
+                    detach_reason = "client_disconnected"
+                    break
+                yield encode_sse_comment("houmao ag-ui heartbeat")
+                continue
+            yield encode_sse_event(event)
     except Exception as exc:
         detach_reason = "stream_error"
         if diagnostics is not None:
@@ -76,6 +103,8 @@ async def connect_event_stream(
             )
         raise
     finally:
+        if subscription is not None and event_hub is not None:
+            event_hub.unsubscribe(subscription.subscription_id)
         registry.detach(record.connection_id)
         if diagnostics is not None:
             diagnostics.connection_detached(record, reason=detach_reason)
@@ -87,14 +116,33 @@ async def run_event_stream(
     admitted_run: AgUiAdmittedRun,
     request: AgUiDisconnectProbe,
     diagnostics: AgUiDiagnostics | None = None,
+    event_hub: AgUiEventHub | None = None,
 ) -> AsyncIterator[str]:
     """Yield encoded AG-UI SSE frames for one admitted run."""
 
     if diagnostics is not None:
         diagnostics.run_stream_started(admitted_run)
     outcome = "detached"
+    subscription = (
+        event_hub.subscribe(
+            thread_id=admitted_run.run_input.thread_id,
+            run_id=admitted_run.run_input.run_id,
+        )
+        if event_hub is not None
+        else None
+    )
     try:
-        async for event in service.stream_run_events(admitted_run=admitted_run, request=request):
+        event_source = (
+            service.stream_run_events(admitted_run=admitted_run, request=request)
+            if subscription is None
+            else _merged_run_events(
+                service=service,
+                admitted_run=admitted_run,
+                request=request,
+                subscription=subscription,
+            )
+        )
+        async for event in event_source:
             event_payload = _event_payload(event)
             event_type = _event_type_from_payload(event_payload)
             if event_type == "RUN_FINISHED":
@@ -147,6 +195,8 @@ async def run_event_stream(
             if diagnostics is not None:
                 diagnostics.run_client_disconnected(admitted_run)
     finally:
+        if subscription is not None and event_hub is not None:
+            event_hub.unsubscribe(subscription.subscription_id)
         if diagnostics is not None:
             diagnostics.run_stream_completed(admitted_run, outcome=outcome)
 
@@ -156,6 +206,7 @@ def register_ag_ui_routes(
     *,
     runtime: AgUiCapabilityRuntime | AgUiRuntimeObservationProtocol,
     registry: AgUiConnectionRegistry | None = None,
+    event_hub: AgUiEventHub | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     run_poll_interval_seconds: float = _DEFAULT_RUN_POLL_INTERVAL_SECONDS,
 ) -> AgUiConnectionRegistry:
@@ -185,6 +236,13 @@ def register_ag_ui_routes(
         except AttributeError:
             resolved_registry = AgUiConnectionRegistry()
     app.state.ag_ui_connection_registry = resolved_registry
+    resolved_event_hub = event_hub
+    if resolved_event_hub is None:
+        try:
+            resolved_event_hub = app.state.ag_ui_event_hub
+        except AttributeError:
+            resolved_event_hub = AgUiEventHub()
+    app.state.ag_ui_event_hub = resolved_event_hub
     try:
         diagnostics = app.state.ag_ui_diagnostics
     except AttributeError:
@@ -209,6 +267,7 @@ def register_ag_ui_routes(
             connect_input=request_payload,
             request=request,
             diagnostics=diagnostics,
+            event_hub=resolved_event_hub,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
         )
         return StreamingResponse(
@@ -268,6 +327,7 @@ def register_ag_ui_routes(
             admitted_run=admitted_run,
             request=request,
             diagnostics=diagnostics,
+            event_hub=resolved_event_hub,
         )
         return StreamingResponse(
             stream,
@@ -278,8 +338,155 @@ def register_ag_ui_routes(
             },
         )
 
+    @router.post(
+        "/events",
+        response_model=AgUiEventPublishResponse,
+        response_model_exclude_none=True,
+    )
+    async def _events(
+        request_payload: AgUiEventPublishRequest,
+    ) -> AgUiEventPublishResponse | JSONResponse:
+        """Accept already-standard AG-UI events and fan them out to matching streams."""
+
+        try:
+            normalized_events = validate_ag_ui_event_sequence(request_payload.events)
+            _validate_publish_routing(
+                events=normalized_events,
+                thread_id=request_payload.thread_id,
+                run_id=request_payload.run_id,
+                connection_id=request_payload.connection_id,
+            )
+            parsed_events = parse_ag_ui_event_payloads(normalized_events)
+        except HoumaoAgUiValidationError as exc:
+            diagnostics.events_publish_rejected(
+                thread_id=request_payload.thread_id,
+                run_id=request_payload.run_id,
+                connection_id=request_payload.connection_id,
+                event_count=(
+                    len(request_payload.events)
+                    if isinstance(request_payload.events, list)
+                    else None
+                ),
+                rejection_reason=_publish_rejection_reason(exc),
+            )
+            return JSONResponse(
+                status_code=422,
+                content=validation_error_payload(exc),
+            )
+
+        delivered_count = resolved_event_hub.publish(
+            parsed_events,
+            thread_id=request_payload.thread_id,
+            run_id=request_payload.run_id,
+            connection_id=request_payload.connection_id,
+        )
+        diagnostics.events_publish_accepted(
+            thread_id=request_payload.thread_id,
+            run_id=request_payload.run_id,
+            connection_id=request_payload.connection_id,
+            accepted_count=len(parsed_events),
+            delivered_count=delivered_count,
+        )
+        return AgUiEventPublishResponse(
+            accepted_count=len(parsed_events),
+            delivered_count=delivered_count,
+            thread_id=request_payload.thread_id,
+            run_id=request_payload.run_id,
+            connection_id=request_payload.connection_id,
+        )
+
     app.include_router(router)
     return resolved_registry
+
+
+async def _merged_run_events(
+    *,
+    service: AgUiRunService,
+    admitted_run: AgUiAdmittedRun,
+    request: AgUiDisconnectProbe,
+    subscription: AgUiEventSubscription,
+) -> AsyncIterator[BaseEvent]:
+    """Yield service events and matching agent-published events until the run ends."""
+
+    source = service.stream_run_events(admitted_run=admitted_run, request=request)
+    source_task: asyncio.Task[BaseEvent] = asyncio.create_task(_next_stream_event(source))
+    published_task: asyncio.Task[BaseEvent] = asyncio.create_task(subscription.queue.get())
+    try:
+        while True:
+            done, _pending = await asyncio.wait(
+                {source_task, published_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if source_task in done:
+                try:
+                    yield source_task.result()
+                except StopAsyncIteration:
+                    return
+                source_task = asyncio.create_task(_next_stream_event(source))
+            if published_task in done:
+                yield published_task.result()
+                published_task = asyncio.create_task(subscription.queue.get())
+    finally:
+        for task in (source_task, published_task):
+            task.cancel()
+        source_close = getattr(source, "aclose", None)
+        if callable(source_close):
+            with suppress(Exception):
+                await source_close()
+
+
+async def _next_stream_event(source: AsyncIterator[BaseEvent]) -> BaseEvent:
+    """Return the next event from one async iterator."""
+
+    return await anext(source)
+
+
+def _validate_publish_routing(
+    *,
+    events: list[AgUiEventPayload],
+    thread_id: str | None,
+    run_id: str | None,
+    connection_id: str | None,
+) -> None:
+    """Validate explicit gateway fanout routing metadata for one publish batch."""
+
+    if not events:
+        raise HoumaoAgUiValidationError(
+            "AG-UI publish requires at least one event.",
+            repair_hint="Render a component first or provide a non-empty AG-UI event batch.",
+        )
+    if thread_id is None and run_id is None and connection_id is None:
+        raise HoumaoAgUiValidationError(
+            "AG-UI publish requires `threadId`, `runId`, or `connectionId` routing.",
+            repair_hint="Pass --thread-id, --run-id, or --connection-id to the publish command.",
+        )
+    for index, event in enumerate(events):
+        event_thread_id = event.get("threadId")
+        if thread_id is not None and event_thread_id is not None and event_thread_id != thread_id:
+            raise HoumaoAgUiValidationError(
+                "AG-UI event thread routing conflicts with the publish route.",
+                event_index=index,
+                field_paths=["threadId"],
+            )
+        event_run_id = event.get("runId")
+        if run_id is not None and event_run_id is not None and event_run_id != run_id:
+            raise HoumaoAgUiValidationError(
+                "AG-UI event run routing conflicts with the publish route.",
+                event_index=index,
+                field_paths=["runId"],
+            )
+
+
+def _publish_rejection_reason(exc: HoumaoAgUiValidationError) -> str:
+    """Return a compact diagnostic category for a publish rejection."""
+
+    if exc.event_index is not None:
+        return "invalid_event"
+    if "batch" in str(exc).lower():
+        return "invalid_batch"
+    if "routing" in str(exc).lower():
+        return "invalid_routing"
+    return "invalid_request"
 
 
 def _event_payload(event: BaseEvent) -> dict[str, object]:

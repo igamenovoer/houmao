@@ -2890,7 +2890,7 @@ The provider-native headless translation on the next prompt SHALL be:
 When local interactive relaunch resumes an existing provider chat, runtime SHALL NOT submit a bootstrap-message role injection as a chat turn during relaunch.
 
 #### Scenario: TUI relaunch resumes the provider latest chat
-- **WHEN** an operator relaunches a Codex, Claude Code, Gemini CLI, or Kimi Code local interactive managed session with relaunch chat-session mode `tool_last_or_new`
+- **WHEN** an operator relaunches a Claude Code, Codex, Kimi Code, or Gemini CLI local interactive managed session with relaunch chat-session mode `tool_last_or_new`
 - **THEN** the runtime respawns the provider TUI on tmux window `0` using that provider's native latest-chat continuation startup args
 - **AND THEN** it does not route through build-time `houmao-mgr agents launch`
 

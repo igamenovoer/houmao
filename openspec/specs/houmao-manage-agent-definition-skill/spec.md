@@ -351,7 +351,7 @@ When guidance creates or edits Kimi-backed project profiles, omitted headless/TU
 
 The skill SHALL keep Gemini as the known required-headless exception for project easy launch. The skill SHALL NOT describe Kimi as required-headless on the project easy launch surface.
 
-The skill SHALL provide resolvable credential-reference links for Claude, Codex, Gemini, and Kimi credential selection guidance. Those links MAY point to local references within `houmao-agent-definition` or to packaged `houmao-credential-mgr` references, but installed skill content SHALL NOT contain broken relative links for credential references.
+The skill SHALL provide resolvable credential-reference links for Claude, Codex, Kimi, and Gemini credential selection guidance. Those links MAY point to local references within `houmao-agent-definition` or to packaged `houmao-credential-mgr` references, but installed skill content SHALL NOT contain broken relative links for credential references.
 
 #### Scenario: Kimi specialist authoring uses Kimi as the selected tool
 
@@ -381,7 +381,6 @@ The skill SHALL provide resolvable credential-reference links for Claude, Codex,
 
 #### Scenario: Credential reference links are resolvable
 
-- **WHEN** an installed `houmao-agent-definition` page links to credential reference material for Claude, Codex, Gemini, or Kimi
+- **WHEN** an installed `houmao-agent-definition` page links to credential reference material for Claude, Codex, Kimi, or Gemini
 - **THEN** the referenced Markdown file exists in the installed skill tree or is a valid packaged relative link
 - **AND THEN** the linked reference explains how to select or create credentials without directing the agent to hand-edit credential files
-

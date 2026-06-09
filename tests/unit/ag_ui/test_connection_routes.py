@@ -13,8 +13,10 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 import houmao.ag_ui.routes as ag_ui_routes
+from houmao.ag_ui.authoring import parse_ag_ui_event_payloads, render_component_events
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.diagnostics import AgUiDiagnostics
+from houmao.ag_ui.event_hub import AgUiEventHub
 from houmao.ag_ui.models import AgUiConnectInput
 from houmao.ag_ui.runtime import (
     AgUiHeadlessArtifactObservation,
@@ -324,6 +326,7 @@ def test_create_app_registers_ag_ui_routes_and_preserves_existing_status_route()
 
     assert ("/v1/ag-ui/capabilities", frozenset({"GET"})) in inventory
     assert ("/v1/ag-ui/connect", frozenset({"POST"})) in inventory
+    assert ("/v1/ag-ui/events", frozenset({"POST"})) in inventory
     assert ("/v1/ag-ui/runs", frozenset({"POST"})) in inventory
     assert ("/v1/ag-ui/connections/{connection_id}", frozenset({"DELETE"})) in inventory
     assert ("/v1/status", frozenset({"GET"})) in inventory
@@ -451,6 +454,219 @@ def _sse_payloads(response_text: str) -> list[dict[str, object]]:
             continue
         payloads.append(json.loads(frame.removeprefix("data: ")))
     return payloads
+
+
+def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = render_component_events(
+        component="houmao.chart.bar",
+        payload={
+            "schemaVersion": 1,
+            "title": "Revenue",
+            "data": [{"label": "Q1", "value": 12}],
+        },
+    )
+
+    response = client.post(
+        "/v1/ag-ui/events",
+        json={"threadId": "thread-1", "runId": "run-1", "events": events},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "accepted",
+        "acceptedCount": 3,
+        "deliveredCount": 0,
+        "replay": "none",
+        "threadId": "thread-1",
+        "runId": "run-1",
+    }
+    accepted = [
+        entry
+        for entry in runtime.diagnostics
+        if entry["event"] == "gateway.ag_ui_events_publish_accepted"
+    ]
+    assert accepted
+    assert accepted[0]["fields"]["subscriberOutcome"] == "no_subscribers"  # type: ignore[index]
+    runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_events_route_rejects_malformed_batch_without_logging_payload() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/ag-ui/events",
+        json={
+            "threadId": "thread-1",
+            "events": [{"type": "TOOL_CALL_ARGS", "toolCallId": "tool-1", "delta": "secret"}],
+        },
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["ok"] is False
+    assert body["eventIndex"] == 0
+    rejected = [
+        entry
+        for entry in runtime.diagnostics
+        if entry["event"] == "gateway.ag_ui_events_publish_rejected"
+    ]
+    assert rejected
+    rendered = json.dumps(runtime.diagnostics, sort_keys=True)
+    assert "secret" not in rendered
+    runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_events_route_rejects_oversized_batch_with_safe_diagnostic() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = [
+        {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": f"message-{index}",
+            "role": "assistant",
+        }
+        for index in range(101)
+    ]
+
+    response = client.post(
+        "/v1/ag-ui/events",
+        json={"threadId": "thread-1", "events": events},
+    )
+
+    assert response.status_code == 422
+    assert "above the limit" in response.json()["message"]
+    rejected = [
+        entry
+        for entry in runtime.diagnostics
+        if entry["event"] == "gateway.ag_ui_events_publish_rejected"
+    ]
+    assert rejected
+    assert rejected[0]["fields"]["eventCount"] == 101  # type: ignore[index]
+    assert rejected[0]["fields"]["rejectionReason"] == "invalid_batch"  # type: ignore[index]
+    runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_events_route_accepts_opaque_houmao_component_payload() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = [
+        {
+            "type": "TOOL_CALL_START",
+            "toolCallId": "tool-1",
+            "toolCallName": "houmao.chart.bar",
+            "parentMessageId": "message-1",
+        },
+        {
+            "type": "TOOL_CALL_ARGS",
+            "toolCallId": "tool-1",
+            "delta": json.dumps({"schemaVersion": 999, "title": "", "data": []}),
+        },
+        {"type": "TOOL_CALL_END", "toolCallId": "tool-1"},
+    ]
+
+    response = client.post(
+        "/v1/ag-ui/events",
+        json={"threadId": "thread-1", "events": events},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["acceptedCount"] == 3
+    runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_connect_stream_receives_published_events_from_matching_hub() -> None:
+    async def _run() -> None:
+        runtime = _SpyRuntime()
+        registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
+        event_hub = AgUiEventHub(id_factory=lambda: "sub-1")
+        connect_input = AgUiConnectInput.model_validate(_connect_payload())
+        stream = connect_event_stream(
+            runtime=runtime,
+            registry=registry,
+            connect_input=connect_input,
+            request=_DisconnectProbe(),
+            event_hub=event_hub,
+            heartbeat_interval_seconds=10.0,
+        )
+
+        await anext(stream)
+        events = render_component_events(
+            component="houmao.metric_grid",
+            payload={"schemaVersion": 1, "metrics": [{"label": "Pass", "value": "98%"}]},
+        )
+        delivered = event_hub.publish(
+            parse_ag_ui_event_payloads(events),
+            thread_id="thread-1",
+            run_id="run-1",
+            connection_id=None,
+        )
+        next_frame = await anext(stream)
+        await stream.aclose()
+
+        assert delivered == 3
+        payload = json.loads(next_frame.removeprefix("data: ").removesuffix("\n\n"))
+        assert payload["type"] == "TOOL_CALL_START"
+        assert payload["toolCallName"] == "houmao.metric_grid"
+        runtime.assert_no_work_or_lifecycle_calls()
+
+    asyncio.run(_run())
+
+
+def test_run_stream_receives_published_events_from_matching_hub() -> None:
+    async def _run() -> None:
+        from houmao.ag_ui.service import AgUiRunService
+
+        runtime = _SpyRuntime(status_payload=_status(backend="codex_headless"))
+        event_hub = AgUiEventHub(id_factory=lambda: "sub-1")
+        service = AgUiRunService(runtime=runtime, poll_interval_seconds=10.0)  # type: ignore[arg-type]
+        admitted = service.admit_run(AgUiConnectInput.model_validate(_connect_payload()))
+        stream = run_event_stream(
+            service=service,
+            admitted_run=admitted,
+            request=_DisconnectProbe(),
+            event_hub=event_hub,
+        )
+
+        first_frame = await anext(stream)
+        events = render_component_events(
+            component="houmao.table",
+            payload={
+                "schemaVersion": 1,
+                "columns": [{"key": "name", "label": "Name"}],
+                "rows": [{"name": "alpha"}],
+            },
+        )
+        delivered = event_hub.publish(
+            parse_ag_ui_event_payloads(events),
+            thread_id="thread-1",
+            run_id="run-1",
+            connection_id=None,
+        )
+        next_frame = await anext(stream)
+        await stream.aclose()
+
+        assert json.loads(first_frame.removeprefix("data: ").removesuffix("\n\n"))["type"] == (
+            "RUN_STARTED"
+        )
+        assert delivered == 3
+        payload = json.loads(next_frame.removeprefix("data: ").removesuffix("\n\n"))
+        assert payload["type"] == "TOOL_CALL_START"
+        assert payload["toolCallName"] == "houmao.table"
+        assert runtime.queued_requests == 1
+        runtime.assert_no_lifecycle_calls()
+
+    asyncio.run(_run())
 
 
 def test_runs_route_streams_headless_lifecycle_text_and_finished_event(tmp_path: Path) -> None:

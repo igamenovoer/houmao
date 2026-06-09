@@ -75,7 +75,7 @@ For the shared conceptual model that ties launch profiles to this run-phase comp
 | Field | Type | Description |
 |---|---|---|
 | `backend` | `BackendKind` | Target backend |
-| `tool` | `str` | Agent tool name (e.g., `"codex"`, `"claude"`, `"gemini"`, `"kimi"`) |
+| `tool` | `str` | Agent tool name (e.g., `"claude"`, `"codex"`, `"kimi"`, `"gemini"`) |
 | `executable` | `str` | Resolved executable path or command |
 | `args` | `list[str]` | Command-line arguments for the agent process |
 | `working_directory` | `Path` | Working directory for the agent process |
@@ -112,14 +112,14 @@ Returns the default backend for a given tool name.
 
 | Tool | Default Backend |
 |---|---|
-| `codex` | `codex_headless` |
 | `claude` | `claude_headless` |
-| `gemini` | `gemini_headless` |
+| `codex` | `codex_headless` |
 | `kimi` | `kimi_headless` |
+| `gemini` | `gemini_headless` |
 
 **Override behavior:**
 
-- When `prefer_local_interactive=True`, returns `local_interactive` for Claude, Codex, Gemini, and Kimi. Kimi local interactive starts the Kimi Code TUI and remains distinct from the `kimi_headless` prompt-mode backend.
+- When `prefer_local_interactive=True`, returns `local_interactive` for Claude, Codex, Kimi, and Gemini. Kimi local interactive starts the Kimi Code TUI and remains distinct from the `kimi_headless` prompt-mode backend.
 - `prefer_cao=True` is legacy/internal compatibility input. New public operator workflows do not request standalone `cao_rest` launches.
 
 ## See also

@@ -124,7 +124,7 @@ The quickstart SHALL:
 - show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet access are available,
 - show the Houmao-owned `houmao-mgr system-skills install --tool <tool>[,<tool>...]` path for offline, installed-package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup needs,
 - include a from-source note that source checkout commands use `pixi run houmao-mgr ...` while installed users use `houmao-mgr ...`,
-- instruct the reader to start Claude Code, Codex, Gemini, or another supported CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
+- instruct the reader to start Claude Code, Codex, Kimi, Gemini, or another supported CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
 - include a first useful agent-mediated prompt that asks the user's CLI agent to create or select a specialist, prepare a reusable project profile when useful, launch a managed agent, send an initial prompt, inspect the result, and stop or leave the agent running according to the user's instruction,
 - explain the resulting concepts in user-facing terms: project overlay, specialist, project profile, managed agent, gateway, messaging, inspection, memory, mailbox, and loop follow-up,
 - state that manual command examples are the underlying machinery the agent may run, manual fallback for debugging, or source-developer reference rather than the primary first-run path,
@@ -134,6 +134,10 @@ The quickstart SHALL:
 - use current supported command surfaces such as `houmao-mgr project init`, `houmao-mgr project specialist ...`, `houmao-mgr project profile ...`, `houmao-mgr project agents launch|stop`, `houmao-mgr agents single ...`, `houmao-mgr agents self ...`, and `houmao-mgr system-skills ...`,
 - avoid presenting retired or removed surfaces such as `houmao-cli`, standalone `houmao-server`, standalone CAO launcher workflows, `agents terminate`, or manual `.agentsys` setup as current first-run guidance,
 - link to `docs/getting-started/system-skills-overview.md`, `docs/getting-started/easy-specialists.md`, `docs/getting-started/launch-profiles.md`, `docs/getting-started/managed-memory-dirs.md`, gateway and mailbox references when those concepts appear, and `docs/reference/cli/houmao-mgr.md` or dedicated CLI reference pages for flag-level details.
+
+The getting-started overview and quickstart SHALL present Kimi Code as a primary supported provider alongside Claude and Codex. Neutral provider lists SHALL order maintained launch-capable providers as Claude, Codex, Kimi, then Gemini; compact three-provider examples and diagrams SHALL use Claude, Codex, and Kimi.
+
+Getting-started docs that introduce Kimi Code SHALL include a Kimi Code 0.11.0 warning that this version does not expose a native system-prompt flag. The warning SHALL tell readers to invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins when the Houmao system prompt has not been confirmed loaded.
 
 #### Scenario: Quickstart starts with the agent-driven path
 

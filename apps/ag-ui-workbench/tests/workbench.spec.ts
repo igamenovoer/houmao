@@ -50,10 +50,18 @@ test("validates operator, docked multi-pane isolation, graphics, detach, and per
   await expect(page.getByTestId("graphic-agent-1")).toContainText("Alpha SVG Graphic");
   await expect(page.getByTestId("graphic-agent-1")).toContainText("Alpha graphic alt text");
   await expect(page.getByTestId("graphic-agent-1").locator("svg")).toContainText("alpha svg content");
+  await expect(page.getByTestId("transcript-agent-1")).toContainText("Alpha Dashboard");
+  await expect(page.getByTestId("component-dashboard-agent-1")).toBeVisible();
+  await expect(page.getByTestId("component-metric-grid-agent-1")).toContainText("Pass rate");
+  await expect(page.getByTestId("component-chart-agent-1").first()).toBeVisible();
+  await expect(page.getByTestId("component-table-agent-1")).toContainText("Alpha count");
 
   await page.getByTestId("prompt-agent-2").fill("render unsupported graphic");
   await page.getByTestId("run-agent-2").click();
   await expect(page.getByTestId("unsupported-graphic-agent-2")).toContainText("Unsupported graphic format: iframe");
+  await expect(page.getByTestId("invalid-component-agent-2")).toContainText("data must be a non-empty array");
+  await expect(page.getByTestId("unknown-component-agent-2")).toContainText("houmao.chart.scatter");
+  await expect(page.getByTestId("unknown-component-agent-2")).toContainText("beta unknown raw marker");
 
   await page.getByTestId("disconnect-agent-1").click();
   await page.getByTestId("disconnect-agent-2").click();

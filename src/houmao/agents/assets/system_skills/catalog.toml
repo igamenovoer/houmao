@@ -81,6 +81,10 @@ description = "Managed agent communication and control skill."
 asset_subpath = "houmao-agent-gateway"
 description = "Managed agent gateway lifecycle and gateway-only control skill."
 
+[skills.houmao-agent-ag-ui]
+asset_subpath = "houmao-agent-ag-ui"
+description = "Managed agent AG-UI component authoring, event rendering, and Houmao gateway publishing skill."
+
 [sets.core]
 description = "Closed core control and automation system-skill set."
 skills = [
@@ -102,6 +106,7 @@ skills = [
   "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
+  "houmao-agent-ag-ui",
 ]
 
 [sets.all]
@@ -125,6 +130,7 @@ skills = [
   "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
+  "houmao-agent-ag-ui",
 ]
 
 [auto_install]

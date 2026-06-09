@@ -82,7 +82,7 @@ This ownership is authoritative for the unattended path. If adapter defaults, re
 
 ## Kimi Unattended Posture
 
-Maintained Kimi unattended startup is version-scoped to Kimi Code 0.10.x and has two backend contracts:
+Maintained Kimi unattended startup is version-scoped to Kimi Code 0.11.0 and has two backend contracts:
 
 - `kimi_headless` owns prompt-mode command placement. Exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value is placed immediately after `-p`, output format is `stream-json`, and managed skills are loaded with `--skills-dir <KIMI_CODE_HOME>/skills`. Kimi prompt mode rejects `--auto`, `--yolo`, and `--plan` when combined with `-p`, so the strategy removes those conflicting inputs instead of adding an approval flag.
 - Kimi TUI launch uses the `raw_launch` launch-policy surface, which maps to the run-phase `local_interactive` backend. The strategy sets `default_permission_mode = "auto"` in the managed `config.toml` before provider start. The local-interactive runtime then submits Kimi's `/auto on` command after TUI readiness and before Houmao role bootstrap or workload prompts when unattended mode is active.
@@ -90,6 +90,8 @@ Maintained Kimi unattended startup is version-scoped to Kimi Code 0.10.x and has
 The TUI strategy does not implement unattended mode by adding a persistent `--auto` launch argument. Kimi rejects `--auto`, `--yolo`, and `--plan` when startup also uses `--continue` or `--session <session_id>`, so Houmao preserves valid resume commands and refreshes auto mode inside the ready TUI. `as_is` Kimi TUI launches skip the config write and skip `/auto on`.
 
 Kimi auto permission mode is the provider-native no-question posture: normal tool approvals are automatic and `AskUserQuestion` requests are denied so the agent must decide and continue. It does not bypass explicit Kimi hard-deny policies or user-configured deny rules.
+
+Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao can project `houmao-auto-system-prompt` into managed Kimi homes and make the skill reachable through Kimi skill configuration, but users may need to invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins when automatic skill startup has not loaded the Houmao system prompt.
 
 ## Versioned Registry
 

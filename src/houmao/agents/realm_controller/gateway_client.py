@@ -10,6 +10,7 @@ from urllib import error, request
 
 from pydantic import BaseModel, ValidationError
 
+from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -431,6 +432,22 @@ class GatewayClient:
             "/v1/control/send-keys",
             GatewayControlInputResultV1,
             body=payload.model_dump(mode="json"),
+        )
+
+    def publish_ag_ui_events(
+        self,
+        payload: AgUiEventPublishRequest,
+    ) -> AgUiEventPublishResponse:
+        """Call `POST /v1/ag-ui/events`."""
+
+        return self._request_model(
+            "POST",
+            "/v1/ag-ui/events",
+            AgUiEventPublishResponse,
+            body=cast(
+                GatewayJsonObject,
+                payload.model_dump(mode="json", by_alias=True, exclude_none=True),
+            ),
         )
 
     def get_headless_control_state(self) -> GatewayHeadlessControlStateV1:

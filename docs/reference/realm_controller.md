@@ -37,7 +37,7 @@ BackendKind = Literal[
 
 The default and recommended backend. Launches agent CLI tools as tmux-backed interactive sessions via `LocalInteractiveSession`. This gives each agent a real terminal with full native UX, scrollback, and the ability to attach/detach at will.
 
-Maintained local-interactive tools include Claude Code, Codex, Gemini CLI, and Kimi Code. Kimi local-interactive unattended launch keeps the visible TUI but enters Kimi auto permission mode before managed prompts; Kimi `as_is` launch leaves provider approval behavior unchanged.
+Maintained local-interactive tools include Claude Code, Codex, Kimi Code, and Gemini CLI. Kimi local-interactive unattended launch keeps the visible TUI but enters Kimi auto permission mode before managed prompts; Kimi `as_is` launch leaves provider approval behavior unchanged.
 
 ## Model Selection (Claude Code)
 
@@ -79,7 +79,7 @@ Runs `kimi -p <prompt> --output-format stream-json` for non-interactive promptâ€
 | Field | Description |
 |---|---|
 | `backend` | Target `BackendKind` |
-| `tool` | Agent CLI tool name (e.g., `codex`, `claude`, `gemini`, `kimi`) |
+| `tool` | Agent CLI tool name (e.g., `claude`, `codex`, `kimi`, `gemini`) |
 | `executable` | Resolved path to the tool binary |
 | `args` | CLI arguments for the tool |
 | `working_directory` | Working directory for the agent process |
@@ -90,7 +90,7 @@ Runs `kimi -p <prompt> --output-format stream-json` for non-interactive promptâ€
 | `metadata` | Freeform metadata passed through to the session |
 | `mailbox` | Optional mailbox binding for inter-agent messaging |
 
-Launch overrides from recipes and direct builds are intentionally limited to secret-free settings. Protocol-required arguments such as `claude -p`, `gemini -p`, `kimi -p`, `codex exec --json`, `resume`, and `app-server` stay backend-owned and are not exposed as overrides.
+Launch overrides from recipes and direct builds are intentionally limited to secret-free settings. Protocol-required arguments such as `claude -p`, `codex exec --json`, `kimi -p`, `gemini -p`, `resume`, and `app-server` stay backend-owned and are not exposed as overrides.
 
 ## Session Lifecycle
 
