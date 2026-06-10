@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
-import { Cable, CircleStop, Eye, EyeOff, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
+import { Cable, CircleStop, Eraser, Eye, EyeOff, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 
 import { buildConnectInput, buildRunInput, connectAgUi, detachAgUi, fetchCapabilities, runAgUi, AgUiHttpError } from "../ag-ui/client";
 import { AgentAddressUnavailableError, resolveTargetConfigForConnect } from "../ag-ui/discovery";
@@ -38,6 +38,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const stoppedRef = useRef(false);
+  const displaySurfaceRef = useRef<HTMLElement | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [eventState, setEventState] = useState(initialPaneEventState);
   const [prompt, setPrompt] = useState("");
@@ -143,7 +144,12 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     abortRef.current = controller;
     activeTargetRef.current = target;
     setPanelStatus("running");
-    const input = buildRunInput({ paneId, threadId: target.threadId, message: text, paneKind: kind });
+    const input = buildRunInput({
+      paneId,
+      threadId: target.threadId,
+      message: text,
+      canvasSize: measureCanvasSize(displaySurfaceRef.current),
+    });
     void runAgUi(
       target,
       input,
@@ -180,6 +186,20 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     }
     await stopActiveStream(true);
     setPanelStatus("disconnected");
+  };
+
+  const clearCanvas = async () => {
+    setEventState(initialPaneEventState());
+    if (!targetWatchKey || !watchedRecord) {
+      return;
+    }
+    try {
+      await clearWatchedTargetCache(targetWatchKey);
+    } catch (error) {
+      setEventState((current) =>
+        reduceHttpError(current, `Clear canvas failed: ${requestErrorMessage(error)}`),
+      );
+    }
   };
 
   const closePane = async () => {
@@ -234,7 +254,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
       const input = buildConnectInput({
         paneId,
         threadId: resolvedTarget.threadId,
-        paneKind: kind,
       });
       await connectAgUi(
         resolvedTarget,
@@ -335,6 +354,9 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
           </button>
           {kind === "agent" ? (
             <>
+              <button title="Clear canvas" data-testid={`clear-canvas-${paneId}`} onClick={() => void clearCanvas()}>
+                <Eraser size={15} />
+              </button>
               <button title="Move to right split" data-testid={`split-right-${paneId}`} onClick={moveRight}>
                 <PanelRightOpen size={15} />
               </button>
@@ -357,10 +379,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         <div className="watch-strip" data-testid={`watch-strip-${paneId}`}>
           <span>Watched</span>
           <span>{watchedRuntime?.status ?? "connecting"}</span>
-          <button title="Clear target cache" data-testid={`clear-cache-${paneId}`} onClick={() => void clearWatchedTargetCache(targetWatchKey)}>
-            <Trash2 size={13} />
-            Cache
-          </button>
         </div>
       ) : null}
 
@@ -377,7 +395,12 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         </button>
       </div>
 
-      <AgUiDisplaySurface paneId={paneId} eventState={displayEventState} latestErrors={latestErrors} />
+      <AgUiDisplaySurface
+        paneId={paneId}
+        eventState={displayEventState}
+        latestErrors={latestErrors}
+        transcriptSurfaceRef={displaySurfaceRef}
+      />
       {kind === "agent" ? (
         <button className="danger-link" title="Remove pane" onClick={() => void closePane()}>
           <Trash2 size={13} />
@@ -396,6 +419,19 @@ function requestErrorMessage(error: unknown): string {
     return error.body || error.message;
   }
   return error instanceof Error ? error.message : "AG-UI request failed.";
+}
+
+function measureCanvasSize(element: HTMLElement | null): { w: number; h: number } | null {
+  if (!element) {
+    return null;
+  }
+  const rect = element.getBoundingClientRect();
+  const w = Math.round(rect.width);
+  const h = Math.round(rect.height);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return null;
+  }
+  return { w, h };
 }
 
 function sameTarget(left: TargetConfig, right: TargetConfig): boolean {

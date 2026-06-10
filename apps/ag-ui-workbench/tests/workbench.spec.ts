@@ -20,6 +20,55 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
 });
 
+test("submits minimal run and connect request bodies", async ({ page }) => {
+  const proxyRequests = collectProxyPostBodies(page);
+
+  await configurePane(page, "operator", "Operator", fakeServer.targetBase("operator"), "operator-thread");
+  await page.getByTestId("connect-operator").click();
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "operator").length).toBe(1);
+  expectMinimalConnectBody(fakeServer.connects.find((connect) => connect.target === "operator")!.body);
+
+  await page.getByTestId("prompt-operator").fill("operator canvas prompt");
+  const operatorSurface = await measuredSurfaceSize(page, "operator");
+  await page.getByTestId("run-operator").click();
+  await expect(page.getByTestId("transcript-operator")).toContainText("operator-only-run-evidence");
+  const operatorRun = fakeServer.runs.find((run) => run.target === "operator");
+  expect(operatorRun).toBeTruthy();
+  expectMinimalRunBody(operatorRun!.body, {
+    threadId: "operator-thread",
+    message: "operator canvas prompt",
+    canvasSize: operatorSurface,
+  });
+
+  await page.getByTestId("add-agent-pane").click();
+  await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  const agentConnect = fakeServer.connects.find((connect) => connect.target === "alpha");
+  expect(agentConnect).toBeTruthy();
+  expectMinimalConnectBody(agentConnect!.body);
+
+  await page.getByTestId("prompt-agent-1").fill("agent canvas prompt");
+  const agentSurface = await measuredSurfaceSize(page, "agent-1");
+  await page.getByTestId("run-agent-1").click();
+  await expect(page.getByTestId("transcript-agent-1")).toContainText("alpha-run-evidence");
+  const agentRun = fakeServer.runs.find((run) => run.target === "alpha");
+  expect(agentRun).toBeTruthy();
+  expectMinimalRunBody(agentRun!.body, {
+    threadId: "alpha-thread",
+    message: "agent canvas prompt",
+    canvasSize: agentSurface,
+  });
+
+  await page.getByTestId("add-debug-agent-pane").click();
+  await expect(page.getByTestId("status-debug-agent-1")).toContainText("connected");
+  const debugConnect = proxyRequests.find(
+    (request) => request.target?.includes("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/connect"),
+  );
+  expect(debugConnect).toBeTruthy();
+  expectMinimalConnectBody(expectRecord(debugConnect!.body), { allowReplayFlag: true });
+});
+
 test("validates operator, docked multi-pane isolation, graphics, detach, and persistence", async ({ page, context }) => {
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("proxy-status")).toContainText("loopback proxy ready");
@@ -56,6 +105,24 @@ test("validates operator, docked multi-pane isolation, graphics, detach, and per
   await expect(page.getByTestId("component-metric-grid-agent-1")).toContainText("Pass rate");
   await expect(page.getByTestId("component-chart-agent-1").first()).toBeVisible();
   await expect(page.getByTestId("component-table-agent-1")).toContainText("Alpha count");
+
+  await page.getByTestId("prompt-agent-1").fill("prompt survives clear");
+  const detachesBeforeClear = fakeServer.detaches.length;
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await expect(page.getByTestId("graphic-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("component-dashboard-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("transcript-agent-1")).not.toContainText("alpha-run-evidence");
+  await expect(page.getByTestId("raw-agent-1")).not.toContainText("alpha-connect-evidence");
+  await expect(page.getByTestId("prompt-agent-1")).toHaveValue("prompt survives clear");
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
+  await expect(page.getByTestId("status-agent-1")).toContainText("connected");
+  expect(fakeServer.detaches).toHaveLength(detachesBeforeClear);
+  expect(fakeServer.interruptRequests).toBe(0);
+
+  await page.getByTestId("prompt-agent-1").fill("render alpha graphic after clear");
+  await page.getByTestId("run-agent-1").click();
+  await expect(page.getByTestId("transcript-agent-1")).toContainText("alpha-run-evidence");
+  await expect(page.getByTestId("graphic-agent-1")).toContainText("Alpha SVG Graphic");
 
   await page.getByTestId("prompt-agent-2").fill("render unsupported graphic");
   await page.getByTestId("run-agent-2").click();
@@ -267,6 +334,61 @@ test("watched target keeps external chart in client cache after pane close and r
   await expect(page.getByTestId("component-chart-agent-2").first().locator("svg")).toBeVisible();
 });
 
+test("clear canvas clears watched cache without detaching and accepts future live events", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("agent-row-alpha").dblclick();
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("watch-strip-agent-1")).toContainText("Watched");
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+
+  const staleResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: barToolCallEvents("watched-clear-stale-chart", "Watched Clear Stale Chart"),
+    },
+  });
+  expect(staleResponse.ok()).toBeTruthy();
+  expect((await staleResponse.json()) as { deliveredCount: number }).toMatchObject({
+    deliveredCount: 3,
+  });
+  await expect(page.getByTestId("component-agent-1")).toContainText("Watched Clear Stale Chart");
+  await expect(page.getByTestId("component-chart-agent-1").first().locator("svg")).toBeVisible();
+
+  const detachesBeforeClear = fakeServer.detaches.length;
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await expect(page.getByTestId("component-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("raw-agent-1")).not.toContainText("alpha-connect-evidence");
+  await expect(page.getByTestId("status-agent-1")).toContainText("connected");
+  expect(fakeServer.detaches).toHaveLength(detachesBeforeClear);
+  expect(fakeServer.interruptRequests).toBe(0);
+
+  await page.getByTestId("close-agent-1").click();
+  await expect(page.getByTestId("panel-agent-1")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__HMWB_TEST__!.watchedTargetKeys().length)).toBe(1);
+
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("refresh-agents").click();
+  await expect(page.getByTestId("watch-state-alpha")).toContainText("connected");
+  await page.getByTestId("open-watched-agent-alpha").click();
+  await expect(page.getByTestId("panel-agent-2")).toBeVisible();
+  await expect(page.getByTestId("transcript-agent-2")).not.toContainText("Watched Clear Stale Chart");
+
+  const freshResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: barToolCallEvents("watched-clear-fresh-chart", "Watched Clear Fresh Chart"),
+    },
+  });
+  expect(freshResponse.ok()).toBeTruthy();
+  expect((await freshResponse.json()) as { deliveredCount: number }).toMatchObject({
+    deliveredCount: 3,
+  });
+  await expect(page.getByTestId("component-agent-2")).toContainText("Watched Clear Fresh Chart");
+  await expect(page.getByTestId("component-chart-agent-2").first().locator("svg")).toBeVisible();
+});
+
 test("events published while unwatched are live-only and not recovered later", async ({ page }) => {
   const publishResponse = await page.request.post(`${fakeServer.targetBase("beta")}/events`, {
     data: {
@@ -474,6 +596,108 @@ async function configurePane(
   await page.getByTestId(`target-label-${paneId}`).fill(label);
   await page.getByTestId(`target-url-${paneId}`).fill(url);
   await page.getByTestId(`thread-id-${paneId}`).fill(threadId);
+}
+
+interface ExpectedRunBody {
+  threadId: string;
+  message: string;
+  canvasSize: { w: number; h: number };
+}
+
+interface RecordedProxyRequest {
+  target: string | null;
+  body: unknown;
+}
+
+function collectProxyPostBodies(page: Page): RecordedProxyRequest[] {
+  const requests: RecordedProxyRequest[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "POST" || !request.url().includes("/__houmao_ag_ui_proxy?")) {
+      return;
+    }
+    const target = new URL(request.url()).searchParams.get("target");
+    let body: unknown;
+    try {
+      body = request.postDataJSON();
+    } catch {
+      body = request.postData();
+    }
+    requests.push({ target, body });
+  });
+  return requests;
+}
+
+async function measuredSurfaceSize(page: Page, paneId: string): Promise<{ w: number; h: number }> {
+  const box = await page.getByTestId(`transcript-${paneId}`).boundingBox();
+  expect(box).toBeTruthy();
+  const w = Math.round(box!.width);
+  const h = Math.round(box!.height);
+  expect(w).toBeGreaterThan(0);
+  expect(h).toBeGreaterThan(0);
+  return { w, h };
+}
+
+function expectMinimalRunBody(body: unknown, expected: ExpectedRunBody): void {
+  const record = expectRecord(body);
+  expect(record.threadId).toBe(expected.threadId);
+  expect(typeof record.runId).toBe("string");
+  expect(record.state).toEqual({});
+  expect(record.forwardedProps).toEqual({});
+  expect(record.tools).toEqual([]);
+  expect(record.context).toEqual([
+    {
+      description: "houmao.canvas_size_px.v1",
+      value: JSON.stringify({
+        widthPx: expected.canvasSize.w,
+        heightPx: expected.canvasSize.h,
+      }),
+    },
+  ]);
+  const messages = Array.isArray(record.messages) ? record.messages : [];
+  expect(messages).toHaveLength(1);
+  const message = expectRecord(messages[0]);
+  expect(message.role).toBe("user");
+  expect(message.content).toBe(expected.message);
+  expect(JSON.stringify(record.state)).not.toContain("pane");
+  expect(JSON.stringify(record.forwardedProps)).not.toContain("pane");
+  expect(JSON.stringify(record.context)).not.toContain("agentId");
+}
+
+function expectMinimalConnectBody(
+  body: Record<string, unknown>,
+  options: { allowReplayFlag?: boolean } = {},
+): void {
+  expect(typeof body.threadId).toBe("string");
+  expect(typeof body.runId).toBe("string");
+  expect(body.state).toEqual({});
+  expect(body.context).toEqual([]);
+  expect(body.tools).toEqual([]);
+  expect(body.forwardedProps).toEqual({});
+  expect(body.messages).toEqual([]);
+  const allowedKeys = new Set([
+    "threadId",
+    "runId",
+    "state",
+    "messages",
+    "tools",
+    "context",
+    "forwardedProps",
+  ]);
+  if (options.allowReplayFlag) {
+    allowedKeys.add("replay");
+  }
+  for (const key of Object.keys(body)) {
+    expect(allowedKeys.has(key), `unexpected connect body key ${key}`).toBeTruthy();
+  }
+  expect(JSON.stringify(body.state)).not.toContain("pane");
+  expect(JSON.stringify(body.forwardedProps)).not.toContain("source");
+}
+
+function expectRecord(value: unknown): Record<string, unknown> {
+  expect(typeof value).toBe("object");
+  expect(value).not.toBeNull();
+  expect(Array.isArray(value)).toBeFalsy();
+  return value as Record<string, unknown>;
 }
 
 function barToolCallEvents(toolCallId: string, title: string): Array<Record<string, unknown>> {

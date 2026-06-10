@@ -228,15 +228,8 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
     activeTargetRef.current = target;
     setPanelStatus("connecting");
     const input = {
-      ...buildConnectInput({ paneId, threadId: target.threadId, paneKind: "debug-agent" }),
+      ...buildConnectInput({ paneId, threadId: target.threadId }),
       replay: debugAgent.replayEnabled,
-      forwardedProps: {
-        source: "houmao-ag-ui-workbench",
-        paneId,
-        paneKind: "debug-agent",
-        attachOnly: true,
-        replay: debugAgent.replayEnabled,
-      },
     };
     void connectAgUi(
       target,

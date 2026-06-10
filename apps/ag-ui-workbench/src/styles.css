@@ -344,12 +344,6 @@ textarea {
   font-weight: 700;
 }
 
-.watch-strip button {
-  margin-left: auto;
-  min-height: 24px;
-  padding: 2px 7px;
-}
-
 .message p {
   margin: 3px 0 0;
   white-space: pre-wrap;

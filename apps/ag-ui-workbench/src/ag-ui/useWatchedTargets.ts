@@ -149,7 +149,6 @@ export function useWatchedTargets({
         const input = buildConnectInput({
           paneId: key,
           threadId: resolvedTarget.threadId,
-          paneKind: "agent",
         });
         await connectAgUi(
           resolvedTarget,

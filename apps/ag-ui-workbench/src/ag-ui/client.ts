@@ -2,6 +2,11 @@ import type { CapabilitiesResponse, RunAgentInput, TargetConfig, RawTimelineEntr
 import { detachUrl, normalizeAgUiTarget, proxiedTargetUrl } from "./target";
 import { SseParser } from "./sse";
 
+export interface CanvasSize {
+  w: number;
+  h: number;
+}
+
 export class AgUiHttpError extends Error {
   constructor(
     readonly status: number,
@@ -119,23 +124,18 @@ export function buildRunInput({
   paneId,
   threadId,
   message,
-  paneKind,
+  canvasSize,
 }: {
   paneId: string;
   threadId: string;
   message: string;
-  paneKind: "operator" | "agent" | "debug-agent";
+  canvasSize?: CanvasSize | null;
 }): RunAgentInput {
   const runId = `run-${paneId}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   return {
     threadId,
     runId,
-    state: {
-      houmaoWorkbench: {
-        paneId,
-        paneKind,
-      },
-    },
+    state: {},
     messages: [
       {
         id: `msg-${runId}`,
@@ -144,42 +144,43 @@ export function buildRunInput({
       },
     ],
     tools: [],
-    context: [],
-    forwardedProps: {
-      source: "houmao-ag-ui-workbench",
-      paneId,
-      paneKind,
-    },
+    context: canvasContext(canvasSize),
+    forwardedProps: {},
   };
 }
 
 export function buildConnectInput({
   paneId,
   threadId,
-  paneKind,
 }: {
   paneId: string;
   threadId: string;
-  paneKind: "operator" | "agent" | "debug-agent";
 }): RunAgentInput {
   const runId = `connect-${paneId}-${Date.now()}`;
   return {
     threadId,
     runId,
-    state: {
-      houmaoWorkbench: {
-        paneId,
-        paneKind,
-      },
-    },
+    state: {},
     messages: [],
     tools: [],
     context: [],
-    forwardedProps: {
-      source: "houmao-ag-ui-workbench",
-      paneId,
-      paneKind,
-      attachOnly: true,
-    },
+    forwardedProps: {},
   };
+}
+
+export function canvasContext(canvasSize: CanvasSize | null | undefined): RunAgentInput["context"] {
+  if (!canvasSize) {
+    return [];
+  }
+  const w = Math.round(canvasSize.w);
+  const h = Math.round(canvasSize.h);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+    return [];
+  }
+  return [
+    {
+      description: "houmao.canvas_size_px.v1",
+      value: JSON.stringify({ widthPx: w, heightPx: h }),
+    },
+  ];
 }

@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import { Activity, Braces } from "lucide-react";
 
 import { ToolCallRenderer } from "../ag-ui/componentRenderers";
@@ -7,9 +8,15 @@ interface AgUiDisplaySurfaceProps {
   paneId: string;
   eventState: PaneEventState;
   latestErrors: string[];
+  transcriptSurfaceRef?: RefObject<HTMLElement | null>;
 }
 
-export function AgUiDisplaySurface({ paneId, eventState, latestErrors }: AgUiDisplaySurfaceProps) {
+export function AgUiDisplaySurface({
+  paneId,
+  eventState,
+  latestErrors,
+  transcriptSurfaceRef,
+}: AgUiDisplaySurfaceProps) {
   return (
     <>
       {latestErrors.length > 0 ? (
@@ -21,7 +28,7 @@ export function AgUiDisplaySurface({ paneId, eventState, latestErrors }: AgUiDis
       ) : null}
 
       <div className="pane-body">
-        <section className="surface" data-testid={`transcript-${paneId}`}>
+        <section className="surface" data-testid={`transcript-${paneId}`} ref={transcriptSurfaceRef}>
           <h3>
             <Activity size={14} />
             Transcript
