@@ -262,7 +262,7 @@ def test_connect_stream_initial_snapshot_and_client_close_detaches_only_connecti
 
         first_frame = await anext(stream)
         assert first_frame.startswith("data: ")
-        payload = json.loads(first_frame.removeprefix("data: ").removesuffix("\n\n"))
+        payload = _sse_frame_payload(first_frame)
         assert payload["type"] == "STATE_SNAPSHOT"
         assert payload["snapshot"]["houmao"]["connection"]["connectionId"] == "agui-1"
         assert payload["snapshot"]["houmao"]["connection"]["lastSeenEventId"] == "event-1"
@@ -378,7 +378,7 @@ def test_connect_route_returns_sse_state_snapshot_and_does_not_submit_work() -> 
         first_frame = await anext(response.body_iterator)
         if isinstance(first_frame, bytes):
             first_frame = first_frame.decode("utf-8")
-        payload = json.loads(first_frame.removeprefix("data: ").removesuffix("\n\n"))
+        payload = _sse_frame_payload(first_frame)
         await response.body_iterator.aclose()
 
         assert payload["type"] == "STATE_SNAPSHOT"
@@ -450,10 +450,30 @@ def _sse_payloads(response_text: str) -> list[dict[str, object]]:
 
     payloads: list[dict[str, object]] = []
     for frame in response_text.split("\n\n"):
-        if not frame.startswith("data: "):
+        if "data: " not in frame:
             continue
-        payloads.append(json.loads(frame.removeprefix("data: ")))
+        payloads.append(_sse_frame_payload(frame))
     return payloads
+
+
+def _sse_frame_payload(frame: str) -> dict[str, object]:
+    """Return the JSON payload from one SSE frame."""
+
+    for line in frame.splitlines():
+        if line.startswith("data: "):
+            payload = json.loads(line.removeprefix("data: "))
+            assert isinstance(payload, dict)
+            return payload
+    raise AssertionError(f"SSE frame has no data line: {frame!r}")
+
+
+def _sse_frame_id(frame: str) -> str | None:
+    """Return the optional id from one SSE frame."""
+
+    for line in frame.splitlines():
+        if line.startswith("id: "):
+            return line.removeprefix("id: ")
+    return None
 
 
 def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
@@ -479,8 +499,9 @@ def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
     assert response.json() == {
         "status": "accepted",
         "acceptedCount": 3,
+        "storedCount": 3,
         "deliveredCount": 0,
-        "replay": "none",
+        "replay": "event_log_since_cursor",
         "threadId": "thread-1",
         "runId": "run-1",
     }
@@ -605,7 +626,7 @@ def test_connect_stream_receives_published_events_from_matching_hub() -> None:
             component="houmao.metric_grid",
             payload={"schemaVersion": 1, "metrics": [{"label": "Pass", "value": "98%"}]},
         )
-        delivered = event_hub.publish(
+        publish_result = event_hub.publish(
             parse_ag_ui_event_payloads(events),
             thread_id="thread-1",
             run_id="run-1",
@@ -614,13 +635,111 @@ def test_connect_stream_receives_published_events_from_matching_hub() -> None:
         next_frame = await anext(stream)
         await stream.aclose()
 
-        assert delivered == 3
-        payload = json.loads(next_frame.removeprefix("data: ").removesuffix("\n\n"))
+        assert publish_result.delivered_count == 3
+        assert publish_result.stored_count == 3
+        assert _sse_frame_id(next_frame) is not None
+        payload = _sse_frame_payload(next_frame)
         assert payload["type"] == "TOOL_CALL_START"
         assert payload["toolCallName"] == "houmao.metric_grid"
         runtime.assert_no_work_or_lifecycle_calls()
 
     asyncio.run(_run())
+
+
+def test_connect_stream_replays_retained_events_after_valid_cursor() -> None:
+    async def _run() -> None:
+        runtime = _SpyRuntime()
+        registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
+        event_hub = AgUiEventHub(agent_identity="agent-1", id_factory=lambda: "sub-1")
+        events = render_component_events(
+            component="houmao.metric_grid",
+            payload={"schemaVersion": 1, "metrics": [{"label": "Pass", "value": "98%"}]},
+        )
+        publish_result = event_hub.publish(
+            parse_ag_ui_event_payloads(events),
+            thread_id="thread-1",
+            run_id="run-1",
+            connection_id=None,
+        )
+        retained = event_hub.replay_after(thread_id="thread-1", last_seen_event_id=None)
+        assert publish_result.stored_count == 3
+        assert len(retained.events) == 3
+        assert retained.events[0].event_id is not None
+
+        connect_input = AgUiConnectInput.model_validate(
+            _connect_payload(lastSeenEventId=retained.events[0].event_id)
+        )
+        stream = connect_event_stream(
+            runtime=runtime,
+            registry=registry,
+            connect_input=connect_input,
+            request=_DisconnectProbe(),
+            event_hub=event_hub,
+            heartbeat_interval_seconds=10.0,
+        )
+
+        snapshot_frame = await anext(stream)
+        replay_frame = await anext(stream)
+        await stream.aclose()
+
+        assert _sse_frame_payload(snapshot_frame)["type"] == "STATE_SNAPSHOT"
+        assert _sse_frame_id(replay_frame) == retained.events[1].event_id
+        assert _sse_frame_payload(replay_frame)["type"] == "TOOL_CALL_ARGS"
+        runtime.assert_no_work_or_lifecycle_calls()
+
+    asyncio.run(_run())
+
+
+def test_connect_stream_bad_cursor_falls_back_to_snapshot_without_replay() -> None:
+    event_hub = AgUiEventHub(agent_identity="agent-1")
+    events = render_component_events(
+        component="houmao.metric_grid",
+        payload={"schemaVersion": 1, "metrics": [{"label": "Pass", "value": "98%"}]},
+    )
+    event_hub.publish(
+        parse_ag_ui_event_payloads(events),
+        thread_id="thread-1",
+        run_id="run-1",
+        connection_id=None,
+    )
+
+    replay = event_hub.replay_after(thread_id="thread-1", last_seen_event_id="missing")
+
+    assert replay.status == "cursor_not_found"
+    assert replay.events == ()
+
+
+def test_event_hub_persists_retained_log_for_gateway_restart(tmp_path: Path) -> None:
+    event_log_path = tmp_path / "gateway" / "ag_ui_events.jsonl"
+    events = render_component_events(
+        component="houmao.table",
+        payload={
+            "schemaVersion": 1,
+            "columns": [{"key": "name", "label": "Name"}],
+            "rows": [{"name": "alpha"}],
+        },
+    )
+    first_hub = AgUiEventHub(agent_identity="agent-1", event_log_path=event_log_path)
+    first_result = first_hub.publish(
+        parse_ag_ui_event_payloads(events),
+        thread_id="thread-1",
+        run_id="run-1",
+        connection_id=None,
+    )
+    first_replay = first_hub.replay_after(thread_id="thread-1", last_seen_event_id=None)
+
+    second_hub = AgUiEventHub(agent_identity="agent-1", event_log_path=event_log_path)
+    second_replay = second_hub.replay_after(thread_id="thread-1", last_seen_event_id=None)
+
+    assert first_result.stored_count == 3
+    assert event_log_path.is_file()
+    assert [event.event_id for event in second_replay.events] == [
+        event.event_id for event in first_replay.events
+    ]
+    assert (
+        second_replay.events[0].event.model_dump(mode="json", by_alias=True)["type"]
+        == "TOOL_CALL_START"
+    )
 
 
 def test_run_stream_receives_published_events_from_matching_hub() -> None:
@@ -647,7 +766,7 @@ def test_run_stream_receives_published_events_from_matching_hub() -> None:
                 "rows": [{"name": "alpha"}],
             },
         )
-        delivered = event_hub.publish(
+        publish_result = event_hub.publish(
             parse_ag_ui_event_payloads(events),
             thread_id="thread-1",
             run_id="run-1",
@@ -656,11 +775,13 @@ def test_run_stream_receives_published_events_from_matching_hub() -> None:
         next_frame = await anext(stream)
         await stream.aclose()
 
-        assert json.loads(first_frame.removeprefix("data: ").removesuffix("\n\n"))["type"] == (
+        assert _sse_frame_payload(first_frame)["type"] == (
             "RUN_STARTED"
         )
-        assert delivered == 3
-        payload = json.loads(next_frame.removeprefix("data: ").removesuffix("\n\n"))
+        assert publish_result.delivered_count == 3
+        assert publish_result.stored_count == 3
+        assert _sse_frame_id(next_frame) is not None
+        payload = _sse_frame_payload(next_frame)
         assert payload["type"] == "TOOL_CALL_START"
         assert payload["toolCallName"] == "houmao.table"
         assert runtime.queued_requests == 1
@@ -875,7 +996,7 @@ def test_run_stream_client_abort_records_detach_and_cleans_active_count() -> Non
         )
 
         first_frame = await anext(stream)
-        assert json.loads(first_frame.removeprefix("data: ").removesuffix("\n\n"))["type"] == (
+        assert _sse_frame_payload(first_frame)["type"] == (
             "RUN_STARTED"
         )
         try:
@@ -923,10 +1044,10 @@ def test_run_stream_encoder_error_emits_run_error_and_cleans_active_count(
     register_ag_ui_routes(app, runtime=runtime, run_poll_interval_seconds=0)
     original_encode = ag_ui_routes.encode_sse_event
 
-    def _flaky_encode(event: object) -> str:
+    def _flaky_encode(event: object, *, event_id: str | None = None) -> str:
         payload = event.model_dump(mode="json", by_alias=True, exclude_none=True)  # type: ignore[attr-defined]
         if payload["type"] == "RUN_STARTED":
-            return original_encode(event)  # type: ignore[arg-type]
+            return original_encode(event, event_id=event_id)  # type: ignore[arg-type]
         raise RuntimeError("encoder boom")
 
     monkeypatch.setattr(ag_ui_routes, "encode_sse_event", _flaky_encode)

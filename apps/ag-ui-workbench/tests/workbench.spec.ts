@@ -178,8 +178,16 @@ test("lists discovered agents, retargets panes, opens new panes, and keeps manua
   await page.getByTestId("choose-agent-agent-1").click();
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("select-agent-no-gateway").click();
-  await expect(page.getByTestId("picker-error")).toContainText("no gateway");
-  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("manual"));
+  await expect(page.getByTestId("agent-picker")).toHaveCount(0);
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue("");
+  const savedWaiting = await page.evaluate(() => window.__HMWB_TEST__!.storage());
+  expect(savedWaiting.panes["agent-1"].target.source).toMatchObject({
+    kind: "discovered",
+    agentId: "no-gateway",
+    addressStatus: "live_without_gateway",
+  });
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("status-agent-1")).toContainText("waiting");
 });
 
 test("surfaces target policy errors for disallowed passive-server discovery", async ({ page }) => {
@@ -187,6 +195,32 @@ test("surfaces target policy errors for disallowed passive-server discovery", as
   await page.getByTestId("passive-server-url").fill("http://example.com");
   await page.getByTestId("refresh-agents").click();
   await expect(page.getByTestId("picker-error")).toContainText("target_policy_rejected");
+});
+
+test("reconnects discovered pane through passive resolution after gateway restart", async ({ page }) => {
+  await page.getByTestId("add-agent-pane").click();
+  await page.getByTestId("choose-agent-agent-1").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("agent-row-alpha").dblclick();
+
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  const firstGatewayUrl = await page.getByTestId("target-url-agent-1").inputValue();
+
+  await fakeServer.restartGateway("alpha");
+
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-reconnect-evidence", {
+    timeout: 15000,
+  });
+  await expect
+    .poll(() => page.getByTestId("target-url-agent-1").inputValue())
+    .not.toBe(firstGatewayUrl);
+  expect(
+    fakeServer.connects.some(
+      (connect) => connect.target === "alpha" && connect.body.lastSeenEventId === "alpha-event-1",
+    ),
+  ).toBeTruthy();
 });
 
 test("debug agent receives external AG-UI events and renders chart proof", async ({ page }) => {

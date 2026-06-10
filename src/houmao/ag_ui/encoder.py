@@ -15,16 +15,20 @@ class AgUiSseEncoder:
 
         return SSE_CONTENT_TYPE
 
-    def encode(self, event: BaseEvent) -> str:
+    def encode(self, event: BaseEvent, *, event_id: str | None = None) -> str:
         """Return one AG-UI SSE data frame for an event."""
 
-        return encode_sse_event(event)
+        return encode_sse_event(event, event_id=event_id)
 
 
-def encode_sse_event(event: BaseEvent) -> str:
-    """Encode one AG-UI event as `data: <camelCase-json>\\n\\n`."""
+def encode_sse_event(event: BaseEvent, *, event_id: str | None = None) -> str:
+    """Encode one AG-UI event as a server-sent-event frame."""
 
-    return f"data: {event.model_dump_json(by_alias=True, exclude_none=True)}\n\n"
+    data_line = f"data: {event.model_dump_json(by_alias=True, exclude_none=True)}"
+    if event_id is None:
+        return f"{data_line}\n\n"
+    safe_event_id = event_id.replace("\r", " ").replace("\n", " ")
+    return f"id: {safe_event_id}\n{data_line}\n\n"
 
 
 def encode_sse_comment(comment: str) -> str:

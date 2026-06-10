@@ -1,9 +1,12 @@
 import { proxiedTargetUrl } from "./target";
 import type {
+  AgentAddressResolvedAgent,
   DiscoveredAgentListResponse,
   DiscoveredAgentSummary,
   GatewayStatusSubset,
+  PassiveAgentAddressResolveResponse,
   ResolvedDiscoveredTarget,
+  TargetConfig,
 } from "./types";
 
 export class DiscoveryHttpError extends Error {
@@ -15,6 +18,15 @@ export class DiscoveryHttpError extends Error {
     this.name = "DiscoveryHttpError";
     this.status = status;
     this.body = body;
+  }
+}
+
+export class AgentAddressUnavailableError extends Error {
+  constructor(
+    readonly address: PassiveAgentAddressResolveResponse,
+  ) {
+    super(address.detail || "Agent gateway is not currently available.");
+    this.name = "AgentAddressUnavailableError";
   }
 }
 
@@ -32,47 +44,96 @@ export async function resolveDiscoveredAgentTarget(
   agent: DiscoveredAgentSummary,
   signal?: AbortSignal,
 ): Promise<ResolvedDiscoveredTarget> {
-  if (!agent.has_gateway) {
-    throw new DiscoveryHttpError(
-      `${agent.agent_name} has no gateway attached.`,
-      502,
-      `${agent.agent_name} has no gateway attached.`,
-    );
+  return resolveAgentAddressTarget(passiveServerUrl, agent.agent_id, signal, {
+    agent,
+  });
+}
+
+export async function resolveStoredDiscoveredTarget(
+  target: TargetConfig,
+  signal?: AbortSignal,
+): Promise<ResolvedDiscoveredTarget> {
+  const source = target.source;
+  if (source?.kind !== "discovered") {
+    throw new Error("Target is not a discovered Houmao agent.");
   }
+  return resolveAgentAddressTarget(
+    source.passiveServerUrl,
+    source.agentRef || source.agentId || source.agentName,
+    signal,
+    {
+      threadId: target.threadId,
+      label: target.label,
+      source,
+    },
+  );
+}
+
+export async function resolveTargetConfigForConnect(
+  target: TargetConfig,
+  signal?: AbortSignal,
+): Promise<TargetConfig> {
+  if (target.source?.kind !== "discovered") {
+    return target;
+  }
+  const resolved = await resolveStoredDiscoveredTarget(target, signal);
+  if (resolved.address.status !== "live_with_gateway") {
+    throw new AgentAddressUnavailableError(resolved.address);
+  }
+  return resolved.target;
+}
+
+export async function resolveAgentAddressTarget(
+  passiveServerUrl: string,
+  agentRef: string,
+  signal?: AbortSignal,
+  context: {
+    agent?: DiscoveredAgentSummary;
+    source?: Extract<TargetConfig["source"], { kind: "discovered" }>;
+    threadId?: string;
+    label?: string;
+  } = {},
+): Promise<ResolvedDiscoveredTarget> {
   const base = normalizePassiveServerBase(passiveServerUrl);
-  const gatewayStatus = await fetchJson<GatewayStatusSubset>(
-    routeUrl(base, `/houmao/agents/${encodeURIComponent(agent.agent_id)}/gateway`),
+  const address = await fetchJson<PassiveAgentAddressResolveResponse>(
+    routeUrl(base, `/houmao/agents/${encodeURIComponent(agentRef)}/resolve`),
     signal,
   );
-  const gatewayHost = typeof gatewayStatus.gateway_host === "string" ? gatewayStatus.gateway_host : "";
-  const gatewayPort = typeof gatewayStatus.gateway_port === "number" ? gatewayStatus.gateway_port : 0;
-  if (!gatewayHost || !Number.isInteger(gatewayPort) || gatewayPort <= 0) {
+  if (address.status === "unknown" || address.status === "ambiguous") {
     throw new DiscoveryHttpError(
-      `${agent.agent_name} gateway coordinates are unavailable.`,
-      502,
-      `${agent.agent_name} gateway coordinates are unavailable.`,
+      address.detail || `Agent address resolution failed for ${agentRef}.`,
+      address.status === "ambiguous" ? 409 : 404,
+      address.detail || address.status,
     );
   }
-  const targetHost = browserReachableGatewayHost(gatewayHost, base);
-  const targetUrl = new URL("http://127.0.0.1");
-  targetUrl.hostname = targetHost;
-  targetUrl.port = String(gatewayPort);
-  targetUrl.pathname = "/v1/ag-ui";
+  const agent = agentFromAddress(address, context.agent);
+  const gateway = address.gateway ?? null;
+  const targetUrl = gateway ? gatewayUrlForAddress(gateway.host, gateway.port, base) : "";
+  const source = context.source;
   return {
     agent,
-    gatewayStatus,
+    address,
+    gatewayStatus: gateway
+      ? {
+          gateway_host: gateway.host,
+          gateway_port: gateway.port,
+          protocol_version: gateway.protocolVersion,
+        }
+      : undefined,
     target: {
-      label: agent.agent_name || agent.agent_id,
-      url: targetUrl.toString(),
-      threadId: threadIdForAgent(agent),
+      label: context.label || agent.agent_name || agent.agent_id,
+      url: targetUrl,
+      threadId: context.threadId || threadIdForAgent(agent),
       source: {
         kind: "discovered",
         passiveServerUrl: base.toString(),
         agentId: agent.agent_id,
         agentName: agent.agent_name,
-        generationId: agent.generation_id,
-        tool: agent.tool,
-        backend: agent.backend,
+        agentRef,
+        generationId: agent.generation_id || source?.generationId,
+        tool: agent.tool || source?.tool,
+        backend: agent.backend || source?.backend,
+        addressStatus: address.status,
       },
     },
   };
@@ -83,6 +144,9 @@ export function normalizePassiveServerUrlValue(value: string): string {
 }
 
 export function discoveryErrorMessage(error: unknown): string {
+  if (error instanceof AgentAddressUnavailableError) {
+    return error.address.detail || error.message;
+  }
   if (error instanceof DiscoveryHttpError) {
     return error.body || error.message;
   }
@@ -171,6 +235,18 @@ function errorBodyText(body: string): string {
   return body.slice(0, 240);
 }
 
+function gatewayUrlForAddress(gatewayHost: string, gatewayPort: number, passiveServerUrl: URL): string {
+  if (!gatewayHost || !Number.isInteger(gatewayPort) || gatewayPort <= 0) {
+    return "";
+  }
+  const targetHost = browserReachableGatewayHost(gatewayHost, passiveServerUrl);
+  const targetUrl = new URL("http://127.0.0.1");
+  targetUrl.hostname = targetHost;
+  targetUrl.port = String(gatewayPort);
+  targetUrl.pathname = "/v1/ag-ui";
+  return targetUrl.toString();
+}
+
 function browserReachableGatewayHost(gatewayHost: string, passiveServerUrl: URL): string {
   const normalized = gatewayHost.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
   if (normalized === "0.0.0.0" || normalized === "::" || normalized === "") {
@@ -180,7 +256,20 @@ function browserReachableGatewayHost(gatewayHost: string, passiveServerUrl: URL)
   return gatewayHost;
 }
 
-function threadIdForAgent(agent: DiscoveredAgentSummary): string {
+function agentFromAddress(
+  address: PassiveAgentAddressResolveResponse,
+  fallback?: DiscoveredAgentSummary,
+): AgentAddressResolvedAgent {
+  return {
+    agent_id: address.agentId || fallback?.agent_id || address.agentRef,
+    agent_name: address.agentName || fallback?.agent_name || address.agentRef,
+    generation_id: address.generationId || fallback?.generation_id,
+    tool: address.tool || fallback?.tool,
+    backend: address.backend || fallback?.backend,
+  };
+}
+
+function threadIdForAgent(agent: AgentAddressResolvedAgent | DiscoveredAgentSummary): string {
   const base = safeToken(agent.agent_id || agent.agent_name || "agent");
   return `${base}-thread`;
 }

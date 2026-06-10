@@ -17,9 +17,11 @@ export interface DiscoveredTargetSource {
   passiveServerUrl: string;
   agentId: string;
   agentName: string;
+  agentRef?: string;
   generationId?: string;
   tool?: string;
   backend?: string;
+  addressStatus?: AgentAddressResolveStatus;
 }
 
 export interface TargetConfig {
@@ -47,6 +49,7 @@ export interface RawTimelineEntry {
   id: string;
   receivedAt: string;
   raw: string;
+  sseEventId?: string;
   data?: string;
   event?: AgUiEvent;
   parseError?: string;
@@ -102,6 +105,7 @@ export interface CapabilitiesResponse {
     gateway?: JsonObject;
     lifecycleBoundary?: string;
     agentLifecycleManagedByGui?: boolean;
+    replaySupport?: string;
   };
 }
 
@@ -142,8 +146,58 @@ export interface GatewayStatusSubset {
 
 export interface ResolvedDiscoveredTarget {
   target: TargetConfig;
-  agent: DiscoveredAgentSummary;
-  gatewayStatus: GatewayStatusSubset;
+  agent: AgentAddressResolvedAgent;
+  gatewayStatus?: GatewayStatusSubset;
+  address: PassiveAgentAddressResolveResponse;
+}
+
+export type AgentAddressResolveStatus =
+  | "unknown"
+  | "ambiguous"
+  | "offline"
+  | "live_without_gateway"
+  | "live_with_gateway";
+
+export interface PassiveAgentGatewayAddress {
+  host: string;
+  port: number;
+  protocolVersion: string;
+}
+
+export interface AgentAddressResolvedAgent {
+  agent_id: string;
+  agent_name: string;
+  generation_id?: string;
+  tool?: string;
+  backend?: string;
+}
+
+export interface PassiveAgentAddressCandidate {
+  agent_id: string;
+  agent_name: string;
+  lifecycle_state: string;
+  relaunchable: boolean;
+  tool: string;
+  backend: string;
+  manifest_path: string;
+  session_root?: string | null;
+}
+
+export interface PassiveAgentAddressResolveResponse {
+  status: AgentAddressResolveStatus;
+  detail: string;
+  agentRef: string;
+  agentId?: string | null;
+  agentName?: string | null;
+  generationId?: string | null;
+  lifecycleState?: string | null;
+  relaunchable?: boolean | null;
+  tool?: string | null;
+  backend?: string | null;
+  manifestPath?: string | null;
+  sessionRoot?: string | null;
+  gateway?: PassiveAgentGatewayAddress | null;
+  candidates?: PassiveAgentAddressCandidate[];
 }
 
 export type AgentPickerRequest =

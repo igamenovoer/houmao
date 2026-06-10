@@ -6,6 +6,7 @@ import asyncio
 from contextlib import suppress
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Protocol
 
 from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
@@ -23,7 +24,7 @@ from houmao.ag_ui.capabilities import AgUiCapabilityRuntime, build_ag_ui_capabil
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.diagnostics import AgUiDiagnostics
 from houmao.ag_ui.encoder import SSE_CONTENT_TYPE, encode_sse_comment, encode_sse_event
-from houmao.ag_ui.event_hub import AgUiEventHub, AgUiEventSubscription
+from houmao.ag_ui.event_hub import AgUiEventHub, AgUiEventSubscription, AgUiQueuedEvent
 from houmao.ag_ui.models import (
     AgUiConnectInput,
     AgUiDetachResponse,
@@ -70,6 +71,13 @@ async def connect_event_stream(
             connection=record,
         )
         yield encode_sse_event(AgUiStateSnapshotEvent(snapshot=snapshot))
+        if event_hub is not None:
+            replay = event_hub.replay_after(
+                thread_id=record.thread_id,
+                last_seen_event_id=record.last_seen_event_id,
+            )
+            for queued_event in replay.events:
+                yield encode_sse_event(queued_event.event, event_id=queued_event.event_id)
         while True:
             if await request.is_disconnected():
                 detach_reason = "client_disconnected"
@@ -82,7 +90,7 @@ async def connect_event_stream(
                 yield encode_sse_comment("houmao ag-ui heartbeat")
                 continue
             try:
-                event = await asyncio.wait_for(
+                queued_event = await asyncio.wait_for(
                     subscription.queue.get(),
                     timeout=heartbeat_interval_seconds,
                 )
@@ -92,7 +100,7 @@ async def connect_event_stream(
                     break
                 yield encode_sse_comment("houmao ag-ui heartbeat")
                 continue
-            yield encode_sse_event(event)
+            yield encode_sse_event(queued_event.event, event_id=queued_event.event_id)
     except Exception as exc:
         detach_reason = "stream_error"
         if diagnostics is not None:
@@ -142,7 +150,8 @@ async def run_event_stream(
                 subscription=subscription,
             )
         )
-        async for event in event_source:
+        async for stream_item in event_source:
+            event, event_id = _stream_item_event(stream_item)
             event_payload = _event_payload(event)
             event_type = _event_type_from_payload(event_payload)
             if event_type == "RUN_FINISHED":
@@ -157,7 +166,7 @@ async def run_event_stream(
                         admitted_run=admitted_run,
                     )
             try:
-                yield encode_sse_event(event)
+                yield encode_sse_event(event, event_id=event_id)
             except Exception as exc:
                 outcome = "error"
                 if diagnostics is not None:
@@ -207,6 +216,7 @@ def register_ag_ui_routes(
     runtime: AgUiCapabilityRuntime | AgUiRuntimeObservationProtocol,
     registry: AgUiConnectionRegistry | None = None,
     event_hub: AgUiEventHub | None = None,
+    event_log_path: Path | None = None,
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     run_poll_interval_seconds: float = _DEFAULT_RUN_POLL_INTERVAL_SECONDS,
 ) -> AgUiConnectionRegistry:
@@ -241,7 +251,10 @@ def register_ag_ui_routes(
         try:
             resolved_event_hub = app.state.ag_ui_event_hub
         except AttributeError:
-            resolved_event_hub = AgUiEventHub()
+            resolved_event_hub = AgUiEventHub(
+                agent_identity=_runtime_agent_identity(runtime),
+                event_log_path=event_log_path,
+            )
     app.state.ag_ui_event_hub = resolved_event_hub
     try:
         diagnostics = app.state.ag_ui_diagnostics
@@ -255,7 +268,7 @@ def register_ag_ui_routes(
     def _capabilities() -> HoumaoAgUiCapabilitiesResponse:
         """Serve conservative AG-UI capability discovery."""
 
-        return build_ag_ui_capabilities(runtime)
+        return build_ag_ui_capabilities(runtime, replay_enabled=resolved_event_hub.replay_enabled)
 
     @router.post("/connect")
     async def _connect(request: Request, request_payload: AgUiConnectInput) -> StreamingResponse:
@@ -374,9 +387,12 @@ def register_ag_ui_routes(
                 content=validation_error_payload(exc),
             )
 
-        delivered_count = resolved_event_hub.publish(
+        effective_thread_id = request_payload.thread_id or _single_event_thread_id(
+            normalized_events
+        )
+        publish_result = resolved_event_hub.publish(
             parsed_events,
-            thread_id=request_payload.thread_id,
+            thread_id=effective_thread_id,
             run_id=request_payload.run_id,
             connection_id=request_payload.connection_id,
         )
@@ -384,12 +400,16 @@ def register_ag_ui_routes(
             thread_id=request_payload.thread_id,
             run_id=request_payload.run_id,
             connection_id=request_payload.connection_id,
-            accepted_count=len(parsed_events),
-            delivered_count=delivered_count,
+            accepted_count=publish_result.accepted_count,
+            stored_count=publish_result.stored_count,
+            delivered_count=publish_result.delivered_count,
+            replay=publish_result.replay,
         )
         return AgUiEventPublishResponse(
-            accepted_count=len(parsed_events),
-            delivered_count=delivered_count,
+            accepted_count=publish_result.accepted_count,
+            stored_count=publish_result.stored_count,
+            delivered_count=publish_result.delivered_count,
+            replay=publish_result.replay,
             thread_id=request_payload.thread_id,
             run_id=request_payload.run_id,
             connection_id=request_payload.connection_id,
@@ -405,12 +425,12 @@ async def _merged_run_events(
     admitted_run: AgUiAdmittedRun,
     request: AgUiDisconnectProbe,
     subscription: AgUiEventSubscription,
-) -> AsyncIterator[BaseEvent]:
+) -> AsyncIterator[BaseEvent | AgUiQueuedEvent]:
     """Yield service events and matching agent-published events until the run ends."""
 
     source = service.stream_run_events(admitted_run=admitted_run, request=request)
     source_task: asyncio.Task[BaseEvent] = asyncio.create_task(_next_stream_event(source))
-    published_task: asyncio.Task[BaseEvent] = asyncio.create_task(subscription.queue.get())
+    published_task: asyncio.Task[AgUiQueuedEvent] = asyncio.create_task(subscription.queue.get())
     try:
         while True:
             done, _pending = await asyncio.wait(
@@ -439,6 +459,43 @@ async def _next_stream_event(source: AsyncIterator[BaseEvent]) -> BaseEvent:
     """Return the next event from one async iterator."""
 
     return await anext(source)
+
+
+def _stream_item_event(item: BaseEvent | AgUiQueuedEvent) -> tuple[BaseEvent, str | None]:
+    """Return the event payload and optional SSE id from a stream item."""
+
+    if isinstance(item, AgUiQueuedEvent):
+        return item.event, item.event_id
+    return item, None
+
+
+def _single_event_thread_id(events: list[AgUiEventPayload]) -> str | None:
+    """Return one shared event-level thread id, if every present value agrees."""
+
+    thread_ids = {
+        thread_id
+        for event in events
+        if isinstance((thread_id := event.get("threadId")), str) and thread_id.strip()
+    }
+    if len(thread_ids) == 1:
+        return next(iter(thread_ids))
+    return None
+
+
+def _runtime_agent_identity(
+    runtime: AgUiCapabilityRuntime | AgUiRuntimeObservationProtocol,
+) -> str:
+    """Return a safe runtime identity for replay event ids."""
+
+    try:
+        status = runtime.status()
+    except Exception:
+        return "gateway"
+    attach_identity = getattr(status, "attach_identity", None)
+    if attach_identity is None:
+        return "gateway"
+    text = str(attach_identity).strip()
+    return text or "gateway"
 
 
 def _validate_publish_routing(

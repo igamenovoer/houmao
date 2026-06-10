@@ -82,6 +82,20 @@ def test_sse_encoder_uses_text_event_stream_frames_and_omits_null_fields() -> No
     assert "raw_event" not in payload
 
 
+def test_sse_encoder_can_include_event_id() -> None:
+    event = BaseEvent(type=AgUiEventType.RAW, raw_event={"ok": True})
+
+    encoded = encode_sse_event(event, event_id="event-1")
+
+    lines = encoded.splitlines()
+    assert lines[0] == "id: event-1"
+    assert lines[1].startswith("data: ")
+    assert json.loads(lines[1].removeprefix("data: ")) == {
+        "type": "RAW",
+        "rawEvent": {"ok": True},
+    }
+
+
 def test_state_snapshot_sse_frame_contains_camel_case_nested_houmao_state() -> None:
     event = AgUiStateSnapshotEvent(
         snapshot={

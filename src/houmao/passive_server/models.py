@@ -85,6 +85,52 @@ class DiscoveredAgentConflictResponse(_PassiveModel):
     agent_ids: list[str]
 
 
+class PassiveAgentGatewayAddress(_PassiveModel):
+    """Volatile current gateway coordinates for an agent-address resolution."""
+
+    host: str
+    port: int
+    protocol_version: str
+
+
+class PassiveAgentAddressCandidate(_PassiveModel):
+    """Safe identity metadata for an ambiguous known-agent address match."""
+
+    agent_id: str
+    agent_name: str
+    lifecycle_state: str
+    relaunchable: bool
+    tool: str
+    backend: str
+    manifest_path: str
+    session_root: str | None = None
+
+
+class PassiveAgentAddressResolveResponse(_PassiveModel):
+    """Response for agent-address AG-UI attachment resolution."""
+
+    status: Literal[
+        "unknown",
+        "ambiguous",
+        "offline",
+        "live_without_gateway",
+        "live_with_gateway",
+    ]
+    detail: str
+    agent_ref: str
+    agent_id: str | None = None
+    agent_name: str | None = None
+    generation_id: str | None = None
+    lifecycle_state: str | None = None
+    relaunchable: bool | None = None
+    tool: str | None = None
+    backend: str | None = None
+    manifest_path: str | None = None
+    session_root: str | None = None
+    gateway: PassiveAgentGatewayAddress | None = None
+    candidates: list[PassiveAgentAddressCandidate] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Agent TUI observation response models
 # ---------------------------------------------------------------------------

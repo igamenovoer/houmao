@@ -157,10 +157,12 @@ export function buildConnectInput({
   paneId,
   threadId,
   paneKind,
+  lastSeenEventId,
 }: {
   paneId: string;
   threadId: string;
   paneKind: "operator" | "agent" | "debug-agent";
+  lastSeenEventId?: string | null;
 }): RunAgentInput & { lastSeenEventId?: string } {
   const runId = `connect-${paneId}-${Date.now()}`;
   return {
@@ -181,5 +183,6 @@ export function buildConnectInput({
       paneKind,
       attachOnly: true,
     },
+    lastSeenEventId: lastSeenEventId || undefined,
   };
 }

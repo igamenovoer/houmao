@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from ag_ui.core import (
     AgentCapabilities,
@@ -36,7 +36,11 @@ class AgUiCapabilityRuntime(Protocol):
         """Return the current gateway status snapshot."""
 
 
-def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabilitiesResponse:
+def build_ag_ui_capabilities(
+    runtime: AgUiCapabilityRuntime,
+    *,
+    replay_enabled: bool = True,
+) -> HoumaoAgUiCapabilitiesResponse:
     """Return conservative AG-UI capabilities for one live Houmao gateway.
 
     Parameters
@@ -54,6 +58,9 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
     target_transport_family = ag_ui_target_transport_family_for_backend(str(status.backend))
     task_run_submission = target_transport_family != "unknown"
     generated_graphics = target_transport_family == "headless"
+    replay_support: Literal["current_snapshot_only", "event_log_since_cursor"] = (
+        "event_log_since_cursor" if replay_enabled else "current_snapshot_only"
+    )
     features = HoumaoAgUiFeatureSupport(
         http_sse=True,
         gui_connect=True,
@@ -86,7 +93,7 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
                 "interrupt, and shutdown."
             ),
         },
-        "replaySupport": "current_snapshot_only",
+        "replaySupport": replay_support,
     }
 
     capabilities = AgentCapabilities(
@@ -104,7 +111,7 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
             websocket=False,
             http_binary=False,
             push_notifications=False,
-            resumable=False,
+            resumable=replay_enabled,
         ),
         tools=ToolsCapabilities(
             supported=generated_graphics,
@@ -186,7 +193,7 @@ def build_ag_ui_capabilities(runtime: AgUiCapabilityRuntime) -> HoumaoAgUiCapabi
                 "GUI attachment does not start, stop, restart, abort, interrupt, or shut down "
                 "the Houmao agent."
             ),
-            replay_support="current_snapshot_only",
+            replay_support=replay_support,
             connect_stream_keepalive="sse_comment_heartbeat",
             features=features,
             gateway={

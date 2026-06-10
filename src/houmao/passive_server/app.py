@@ -58,6 +58,7 @@ from houmao.passive_server.models import (
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
+    PassiveAgentAddressResolveResponse,
     PassiveAgentActionResponse,
     PassiveCurrentInstance,
     PassiveHeadlessLaunchRequest,
@@ -142,6 +143,10 @@ def create_app(
                 content=result.model_dump(mode="json"),
             )
         return result
+
+    @app.get("/houmao/agents/{agent_ref}/resolve")
+    def resolve_agent_address(agent_ref: str) -> PassiveAgentAddressResolveResponse:
+        return resolved_service.resolve_agent_address(agent_ref)
 
     # -- gateway proxy routes -------------------------------------------------
 

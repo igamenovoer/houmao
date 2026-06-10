@@ -40,9 +40,18 @@ Browser requests go through the app-local development proxy at `/__houmao_ag_ui_
 
 The toolbar `Agents` control opens a passive-server-backed list of discovered Houmao agents. The passive-server URL defaults to `http://127.0.0.1:9891`, matching the documented `houmao-passive-server serve` default. Click refresh to fetch `GET /houmao/agents`; rows show the discovered agent identity, tool, backend, tmux session, gateway availability, and mailbox availability.
 
-Double-clicking a resolved row from the toolbar opens a new docked agent pane. Opening the picker from a pane's target form defaults to retargeting that pane instead. The picker resolves a selected row through `GET /houmao/agents/<agent_ref>/gateway` and derives a direct gateway AG-UI URL such as `http://127.0.0.1:<gateway_port>/v1/ag-ui`.
+Double-clicking a row from the toolbar opens a new docked agent pane. Opening the picker from a pane's target form defaults to retargeting that pane instead. The picker resolves a selected row through `GET /houmao/agents/<agent_ref>/resolve`. The pane stores the durable agent address (`agentId`, `agentName`, and passive-server URL) and treats the displayed AG-UI URL as the latest resolved gateway coordinate.
 
-Manual AG-UI URL entry remains the fallback and is still useful for remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the Vite dev server.
+If the agent is known but currently has no gateway, the pane can still be targeted. Press Connect and the pane enters an offline or waiting state, resolves through the passive server with capped backoff, and attaches when a live gateway appears. If a connected discovered-agent stream ends, the pane resolves the same agent address again instead of reusing a stale port. Manual AG-UI URL entry remains the direct fallback for low-level tests, third-party endpoints, remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. Manual targets do not silently switch into agent-address reconnect mode.
+
+For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the Vite dev server.
+
+Validation flows:
+
+- GUI first: select a known offline agent, press Connect, then start the agent gateway; the pane should move from offline or waiting to connected.
+- Agent first: select a live discovered agent; the pane resolves the current gateway URL and connects directly.
+- Gateway restart: keep the discovered-agent pane targeted at the same agent; when the stream closes, the pane resolves the current gateway coordinates again and reconnects.
+- Manual direct URL: enter the AG-UI URL by hand; the pane uses that exact URL and reports ordinary request errors if the endpoint goes away.
 
 ## Debug Agent
 

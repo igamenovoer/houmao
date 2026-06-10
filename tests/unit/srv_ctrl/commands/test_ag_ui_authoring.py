@@ -263,7 +263,9 @@ def test_gateway_ag_ui_publish_validates_path_input_and_posts(
         calls.append({"target": target, "request": request_model})
         return AgUiEventPublishResponse(
             accepted_count=3,
+            stored_count=3,
             delivered_count=0,
+            replay="event_log_since_cursor",
             thread_id="thread-1",
         )
 
@@ -292,6 +294,7 @@ def test_gateway_ag_ui_publish_validates_path_input_and_posts(
     assert len(getattr(request_model, "events")) == 3
     payload = json.loads(result.output)
     assert payload["accepted_count"] == 3
+    assert payload["stored_count"] == 3
     assert payload["delivered_count"] == 0
 
 

@@ -51,7 +51,7 @@ class HoumaoAgUiMetadata(_HoumaoAgUiModel):
     schema_version: int = Field(default=1)
     agent_lifecycle_managed_by_gui: bool
     lifecycle_boundary: str
-    replay_support: Literal["current_snapshot_only"]
+    replay_support: Literal["current_snapshot_only", "event_log_since_cursor"]
     connect_stream_keepalive: Literal["sse_comment_heartbeat"]
     features: HoumaoAgUiFeatureSupport
     gateway: dict[str, Any]
@@ -95,8 +95,9 @@ class AgUiEventPublishResponse(_HoumaoAgUiModel):
 
     status: Literal["accepted"] = "accepted"
     accepted_count: int
+    stored_count: int = 0
     delivered_count: int
-    replay: Literal["none"] = "none"
+    replay: Literal["none", "event_log_since_cursor"] = "none"
     thread_id: str | None = None
     run_id: str | None = None
     connection_id: str | None = None

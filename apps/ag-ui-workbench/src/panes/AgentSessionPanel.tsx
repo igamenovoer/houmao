@@ -3,7 +3,8 @@ import type { IDockviewPanelProps } from "dockview-react";
 import { Cable, CircleStop, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 
 import { buildConnectInput, buildRunInput, connectAgUi, detachAgUi, fetchCapabilities, runAgUi, AgUiHttpError } from "../ag-ui/client";
-import { extractConnectionId, initialPaneEventState, reduceAgUiEvent, reduceHttpError, reduceParseError } from "../ag-ui/reducer";
+import { AgentAddressUnavailableError, resolveTargetConfigForConnect } from "../ag-ui/discovery";
+import { extractConnectionId, initialPaneEventState, reduceAgUiEvent, reduceHttpError, reduceParseError, type PaneRunStatus } from "../ag-ui/reducer";
 import type { CapabilitiesResponse, TargetConfig } from "../ag-ui/types";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
@@ -24,6 +25,12 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const resetTokenRef = useRef(record.resetToken ?? 0);
   const abortRef = useRef<AbortController | null>(null);
   const connectionIdRef = useRef<string | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const stoppedRef = useRef(false);
+  const latestEventIdRef = useRef<string | null>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const threadRef = useRef(target.threadId);
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [eventState, setEventState] = useState(initialPaneEventState);
   const [prompt, setPrompt] = useState("");
@@ -41,9 +48,12 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     resetTokenRef.current = resetToken;
     const detachTarget = activeTargetRef.current;
     const connectionId = connectionIdRef.current;
+    clearReconnectTimer();
+    stoppedRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
     connectionIdRef.current = null;
+    resetReplayCursor(target.threadId);
     activeTargetRef.current = target;
     setCapabilities(null);
     setEventState(initialPaneEventState());
@@ -56,6 +66,8 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 
   useEffect(() => {
     return () => {
+      clearReconnectTimer();
+      stoppedRef.current = true;
       abortRef.current?.abort();
       void detachAgUi(activeTargetRef.current, connectionIdRef.current).catch(() => undefined);
     };
@@ -64,6 +76,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const latestErrors = useMemo(() => eventState.errors.slice(-3), [eventState.errors]);
 
   const setTarget = (nextTarget: TargetConfig) => {
+    resetReplayCursor(nextTarget.threadId);
     updateTarget(paneId, nextTarget);
   };
 
@@ -71,7 +84,12 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     const controller = new AbortController();
     setPanelStatus("connecting");
     try {
-      const response = await fetchCapabilities(target, controller.signal);
+      const resolvedTarget = await resolveTargetConfigForConnect(target, controller.signal);
+      if (!sameTarget(target, resolvedTarget)) {
+        activeTargetRef.current = resolvedTarget;
+        updateTarget(paneId, resolvedTarget);
+      }
+      const response = await fetchCapabilities(resolvedTarget, controller.signal);
       setCapabilities(response);
       setPanelStatus("connected");
     } catch (error) {
@@ -81,41 +99,11 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 
   const connect = async () => {
     await stopActiveStream(false);
-    const controller = new AbortController();
-    abortRef.current = controller;
+    stoppedRef.current = false;
+    reconnectAttemptRef.current = 0;
     activeTargetRef.current = target;
-    setPanelStatus("connecting");
-    const input = buildConnectInput({ paneId, threadId: target.threadId, paneKind: kind });
-    void connectAgUi(
-      target,
-      input,
-      {
-        onOpen: () => setPanelStatus("connected"),
-        onRaw: () => undefined,
-        onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
-        onEvent: (event, raw) => {
-          if (controller.signal.aborted) {
-            return;
-          }
-          const connectionId = extractConnectionId(event);
-          if (connectionId) {
-            connectionIdRef.current = connectionId;
-          }
-          setEventState((current) => reduceAgUiEvent(current, event, raw));
-        },
-      },
-      controller.signal,
-    )
-      .then(() => {
-        if (!controller.signal.aborted) {
-          setPanelStatus("disconnected");
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          showRequestError(error);
-        }
-      });
+    syncReplayThread(target.threadId);
+    void connectAttempt();
   };
 
   const run = async () => {
@@ -128,6 +116,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     const controller = new AbortController();
     abortRef.current = controller;
     activeTargetRef.current = target;
+    syncReplayThread(target.threadId);
     setPanelStatus("running");
     const input = buildRunInput({ paneId, threadId: target.threadId, message: text, paneKind: kind });
     void runAgUi(
@@ -139,6 +128,9 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
         onEvent: (event, raw) => {
           if (controller.signal.aborted) {
+            return;
+          }
+          if (!acceptReplayEvent(raw.sseEventId)) {
             return;
           }
           setEventState((current) => reduceAgUiEvent(current, event, raw));
@@ -179,6 +171,8 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 
   const stopActiveStream = async (detach: boolean) => {
     const detachTarget = activeTargetRef.current;
+    stoppedRef.current = true;
+    clearReconnectTimer();
     abortRef.current?.abort();
     abortRef.current = null;
     if (detach) {
@@ -192,6 +186,131 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const showRequestError = (error: unknown) => {
     setPanelStatus("error");
     setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
+  };
+
+  const connectAttempt = async () => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const baseTarget = activeTargetRef.current;
+    setPanelStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
+    try {
+      const resolvedTarget = await resolveTargetConfigForConnect(baseTarget, controller.signal);
+      if (controller.signal.aborted || stoppedRef.current) {
+        return;
+      }
+      activeTargetRef.current = resolvedTarget;
+      syncReplayThread(resolvedTarget.threadId);
+      if (!sameTarget(baseTarget, resolvedTarget)) {
+        updateTarget(paneId, resolvedTarget);
+      }
+      const input = buildConnectInput({
+        paneId,
+        threadId: resolvedTarget.threadId,
+        paneKind: kind,
+        lastSeenEventId: latestEventIdRef.current,
+      });
+      await connectAgUi(
+        resolvedTarget,
+        input,
+        {
+          onOpen: () => {
+            reconnectAttemptRef.current = 0;
+            setPanelStatus("connected");
+          },
+          onRaw: () => undefined,
+          onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
+          onEvent: (event, raw) => {
+            if (controller.signal.aborted) {
+              return;
+            }
+            if (!acceptReplayEvent(raw.sseEventId)) {
+              return;
+            }
+            const connectionId = extractConnectionId(event);
+            if (connectionId) {
+              connectionIdRef.current = connectionId;
+            }
+            setEventState((current) => reduceAgUiEvent(current, event, raw));
+          },
+        },
+        controller.signal,
+      );
+      if (!controller.signal.aborted && !stoppedRef.current) {
+        connectionIdRef.current = null;
+        if (resolvedTarget.source?.kind === "discovered") {
+          scheduleReconnect("reconnecting");
+        } else {
+          setPanelStatus("disconnected");
+        }
+      }
+    } catch (error) {
+      if (controller.signal.aborted || stoppedRef.current) {
+        return;
+      }
+      if (baseTarget.source?.kind === "discovered") {
+        const status = retryStatusForError(error);
+        if (!(error instanceof AgentAddressUnavailableError)) {
+          setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
+        }
+        scheduleReconnect(status);
+        return;
+      }
+      showRequestError(error);
+    }
+  };
+
+  const scheduleReconnect = (status: PaneRunStatus) => {
+    if (stoppedRef.current) {
+      return;
+    }
+    reconnectAttemptRef.current += 1;
+    setPanelStatus(status);
+    const delayMs = Math.min(10000, 500 * 2 ** Math.min(reconnectAttemptRef.current, 5));
+    clearReconnectTimer();
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      void connectAttempt();
+    }, delayMs);
+  };
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
+  };
+
+  const syncReplayThread = (threadId: string) => {
+    if (threadRef.current === threadId) {
+      return;
+    }
+    resetReplayCursor(threadId);
+  };
+
+  const resetReplayCursor = (threadId: string) => {
+    threadRef.current = threadId;
+    latestEventIdRef.current = null;
+    seenEventIdsRef.current = new Set();
+  };
+
+  const acceptReplayEvent = (eventId: string | undefined) => {
+    if (!eventId) {
+      return true;
+    }
+    if (seenEventIdsRef.current.has(eventId)) {
+      return false;
+    }
+    seenEventIdsRef.current.add(eventId);
+    latestEventIdRef.current = eventId;
+    return true;
+  };
+
+  const retryStatusForError = (error: unknown): PaneRunStatus => {
+    if (error instanceof AgentAddressUnavailableError) {
+      return error.address.status === "offline" ? "offline" : "waiting";
+    }
+    return "reconnecting";
   };
 
   const visibleStatus = panelStatus === "empty" ? eventState.status : panelStatus;
@@ -260,8 +379,21 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 }
 
 function requestErrorMessage(error: unknown): string {
+  if (error instanceof AgentAddressUnavailableError) {
+    return error.address.detail || error.message;
+  }
   if (error instanceof AgUiHttpError) {
     return error.body || error.message;
   }
   return error instanceof Error ? error.message : "AG-UI request failed.";
+}
+
+function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
+  return (
+    left.label === right.label &&
+    left.url === right.url &&
+    left.threadId === right.threadId &&
+    JSON.stringify(left.source ?? { kind: "manual" }) ===
+      JSON.stringify(right.source ?? { kind: "manual" })
+  );
 }

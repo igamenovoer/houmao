@@ -10,6 +10,11 @@ interface RecordedDetach {
   connectionId: string;
 }
 
+interface RecordedConnect {
+  target: string;
+  body: Record<string, unknown>;
+}
+
 interface GatewayServerRecord {
   server: Server;
   port: number;
@@ -21,10 +26,11 @@ export class FakeAgUiServer {
   private m_passiveServer: Server | null = null;
   private m_passivePort = 0;
   private readonly m_gateways = new Map<string, GatewayServerRecord>();
-  private readonly m_openResponses = new Set<ServerResponse>();
+  private readonly m_openResponses = new Map<ServerResponse, string>();
 
   readonly runs: RecordedRun[] = [];
   readonly detaches: RecordedDetach[] = [];
+  readonly connects: RecordedConnect[] = [];
   interruptRequests = 0;
 
   async start(): Promise<void> {
@@ -45,7 +51,7 @@ export class FakeAgUiServer {
   }
 
   async stop(): Promise<void> {
-    for (const response of this.m_openResponses) {
+    for (const response of this.m_openResponses.keys()) {
       response.end();
     }
     await Promise.all(
@@ -56,6 +62,11 @@ export class FakeAgUiServer {
     this.m_gateways.clear();
     await new Promise<void>((resolve) => this.m_passiveServer?.close(() => resolve()));
     this.m_passiveServer = null;
+  }
+
+  async restartGateway(target: string): Promise<void> {
+    await this.stopGateway(target);
+    await this.startGateway(target);
   }
 
   passiveBase(): string {
@@ -84,6 +95,21 @@ export class FakeAgUiServer {
     this.m_gateways.set(target, { server, port: address.port });
   }
 
+  private async stopGateway(target: string): Promise<void> {
+    for (const [response, responseTarget] of [...this.m_openResponses.entries()]) {
+      if (responseTarget === target) {
+        response.end();
+        this.m_openResponses.delete(response);
+      }
+    }
+    const gateway = this.m_gateways.get(target);
+    if (!gateway) {
+      return;
+    }
+    this.m_gateways.delete(target);
+    await new Promise<void>((resolve) => gateway.server.close(() => resolve()));
+  }
+
   private async handlePassiveRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     if (req.method === "GET" && url.pathname === "/houmao/agents") {
@@ -93,6 +119,46 @@ export class FakeAgUiServer {
           discoveredAgent("beta", this.m_gateways.get("beta") !== undefined),
           discoveredAgent("no-gateway", false),
         ],
+      });
+      return;
+    }
+
+    const resolveMatch = /^\/houmao\/agents\/([^/]+)\/resolve$/.exec(url.pathname);
+    if (req.method === "GET" && resolveMatch) {
+      const agentRef = decodeURIComponent(resolveMatch[1]);
+      if (!["alpha", "beta", "no-gateway"].includes(agentRef)) {
+        sendJson(res, 200, {
+          status: "unknown",
+          detail: `Agent not found: ${agentRef}`,
+          agentRef,
+        });
+        return;
+      }
+      const gateway = this.m_gateways.get(agentRef);
+      const agent = discoveredAgent(agentRef, gateway !== undefined) as Record<string, unknown>;
+      sendJson(res, 200, {
+        status: gateway ? "live_with_gateway" : "live_without_gateway",
+        detail: gateway
+          ? "Agent is live and current gateway coordinates are available."
+          : "Agent is live but has no current gateway coordinates.",
+        agentRef,
+        agentId: agent.agent_id,
+        agentName: agent.agent_name,
+        generationId: agent.generation_id,
+        lifecycleState: gateway ? "active" : "stopped",
+        relaunchable: true,
+        tool: agent.tool,
+        backend: agent.backend,
+        manifestPath: agent.manifest_path,
+        sessionRoot: agent.session_root,
+        gateway: gateway
+          ? {
+              host: "127.0.0.1",
+              port: gateway.port,
+              protocolVersion: "v1",
+            }
+          : null,
+        candidates: [],
       });
       return;
     }
@@ -130,7 +196,10 @@ export class FakeAgUiServer {
       return;
     }
     if (req.method === "POST" && url.pathname.endsWith("/connect")) {
-      this.handleConnect(req, res, target);
+      const body = await readJson(req);
+      const bodyRecord = isRecord(body) ? body : {};
+      this.connects.push({ target, body: bodyRecord });
+      this.handleConnect(res, target, bodyRecord);
       return;
     }
     if (req.method === "POST" && url.pathname.endsWith("/runs")) {
@@ -156,9 +225,9 @@ export class FakeAgUiServer {
     sendJson(res, 404, { code: "not_found" });
   }
 
-  private handleConnect(req: IncomingMessage, res: ServerResponse, target: string): void {
-    this.m_openResponses.add(res);
-    req.on("close", () => {
+  private handleConnect(res: ServerResponse, target: string, body: Record<string, unknown>): void {
+    this.m_openResponses.set(res, target);
+    res.on("close", () => {
       this.m_openResponses.delete(res);
     });
     res.writeHead(200, {
@@ -182,14 +251,20 @@ export class FakeAgUiServer {
         },
       },
     });
+    const lastSeenEventId = typeof body.lastSeenEventId === "string" ? body.lastSeenEventId : "";
+    const activityEventId = lastSeenEventId === `${target}-event-1` ? `${target}-event-2` : `${target}-event-1`;
+    const activityMarker =
+      activityEventId === `${target}-event-2`
+        ? `${target}-reconnect-evidence`
+        : `${target}-connect-evidence`;
     writeSse(res, {
       type: "ACTIVITY_SNAPSHOT",
       messageId: `${target}-activity`,
       activityType: "fake-connect",
       content: {
-        marker: `${target}-connect-evidence`,
+        marker: activityMarker,
       },
-    });
+    }, activityEventId);
   }
 
   private handleRun(res: ServerResponse, target: string, body: unknown): void {
@@ -410,7 +485,10 @@ function capabilities(target: string): unknown {
   };
 }
 
-function writeSse(res: ServerResponse, event: unknown): void {
+function writeSse(res: ServerResponse, event: unknown, eventId?: string): void {
+  if (eventId) {
+    res.write(`id: ${eventId}\n`);
+  }
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
@@ -435,4 +513,8 @@ function stringField(value: unknown, key: string, fallback: string): string {
     return (value as Record<string, string>)[key];
   }
   return fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

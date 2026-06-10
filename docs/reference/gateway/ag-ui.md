@@ -65,7 +65,16 @@ curl \
   }'
 ```
 
-Route metadata must include at least one of `threadId`, `runId`, or `connectionId`. Publishing with `connectionId` targets one GUI connection. Publishing with `threadId`, `runId`, or both fans out to active streams whose route metadata matches. The gateway does not replay accepted batches to future streams; the response reports `"replay": "none"` and a `deliveredCount`.
+Route metadata must include at least one of `threadId`, `runId`, or `connectionId`. Publishing with `connectionId` targets one GUI connection. Publishing with `threadId`, `runId`, or both fans out to active streams whose route metadata matches. Thread-scoped publishes are also stored in a bounded gateway-owned replay log when replay is enabled.
+
+The publish response reports:
+
+- `acceptedCount`: events accepted after standard AG-UI validation.
+- `storedCount`: events retained for resumable thread replay.
+- `deliveredCount`: immediate live stream deliveries.
+- `replay`: `event_log_since_cursor` when retained thread replay was recorded, otherwise `none`.
+
+`deliveredCount: 0` no longer always means the GUI missed the events permanently. If `storedCount > 0`, a reconnecting GUI pane can receive retained events later.
 
 The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gateway validates standard AG-UI event shapes, batch limits, route conflicts, and locally checkable tool-call ordering. It does not inspect Houmao component schemas or payload semantics. Generate Houmao typed component events with `houmao-mgr internals ag-ui events render`, and publish them with `houmao-mgr agents self gateway ag-ui publish` or `houmao-mgr agents single ... gateway ag-ui publish`.
 
@@ -76,6 +85,8 @@ curl "$GATEWAY_URL/v1/ag-ui/capabilities"
 ```
 
 Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. It does not report state deltas, frontend tool execution, or Open Generative UI support.
+
+When the gateway has replay retention enabled, capabilities report `transport.resumable: true` and Houmao `replaySupport: "event_log_since_cursor"`. Replayed SSE frames carry an `id:` line. A GUI can send the last applied id as `lastSeenEventId` in `POST /v1/ag-ui/connect`; the gateway emits a fresh `STATE_SNAPSHOT`, replays retained events after that cursor when available, and then attaches live fanout. If the cursor is missing, expired, malformed, or from another thread, the gateway still emits the snapshot and live stream but does not claim a complete replay.
 
 ## HttpAgent Setup
 
@@ -141,11 +152,13 @@ This browser smoke uses a deterministic AG-UI graphics stream and verifies visib
 
 - TUI targets stream lower-fidelity status and final text, not headless canonical event detail.
 - Frontend tool execution is not implemented; declared AG-UI tools are prompt context, not provider-native tool bindings.
-- State deltas and connect replay beyond the current state snapshot remain future work.
+- State deltas remain future work; resumable connect replay is bounded by the gateway-owned per-thread event log.
 - Multimodal input support is conservative and may reject unsupported content before admission.
 - The first graphics smoke is deterministic and fixture-backed because live models are not required to choose `houmao_render_graphic`.
 - Closing a GUI stream detaches the AG-UI subscription by default and does not interrupt the underlying Houmao task.
 
 ## Passive-Server Readiness
 
-Stage 2 will add stable passive-server AG-UI routes. Until then, GUI clients should use the live gateway URL above. The readiness test in `tests/integration/ag_ui/test_passive_server_readiness.py` defines the stream-preservation contract for the future facade: preserve upstream status behavior, `text/event-stream` content type, and AG-UI SSE bytes.
+The passive server exposes agent discovery and address resolution for GUI target selection. Use `GET /houmao/agents/{agent_ref}/resolve` to distinguish unknown, ambiguous, known/offline, live-without-gateway, and live-with-gateway states. The GUI should treat `agent_id` or an unambiguous `agent_name` as the durable target and treat gateway host/port as volatile live coordinates.
+
+Stable passive-server AG-UI proxy routes remain future work. The readiness test in `tests/integration/ag_ui/test_passive_server_readiness.py` defines the stream-preservation contract for that future facade: preserve upstream status behavior, `text/event-stream` content type, and AG-UI SSE bytes.

@@ -59,6 +59,8 @@ Reuse the same launcher for discovery, validation, rendering, and publishing in 
 
 Do not ask the gateway to validate Houmao component semantics. Do not assume that another AG-UI endpoint accepts Houmao gateway route fields, auth, content type, or stream semantics.
 
+Agent identity is the durable address. A gateway host and port are live transport coordinates that can disappear or change when the agent or gateway restarts. The Houmao workbench stores the selected `agent_id` or unambiguous `agent_name`, resolves the current gateway through the passive server, and reconnects when a matching gateway appears. Do not tell a user that a copied gateway URL is the stable identity of an agent.
+
 ## Discover Schemas
 
 List supported components:
@@ -124,7 +126,13 @@ For the Houmao AG-UI workbench, prefer `--thread-id <thread-id>` by itself unles
 
 Use `--run-id` only when targeting one known active run stream. Use `--connection-id` only when targeting one known active GUI connection. Do not guess routing ids. If no routing id is known, ask for it or inspect the current GUI connection state through maintained gateway surfaces.
 
-Check the publish response. `delivered_count` greater than zero means matching live GUI/run streams received the events. `delivered_count: 0` means no matching live stream was subscribed at publish time. The gateway reports `replay: "none"` and does not queue accepted `/events` batches for future GUI connections.
+Check the publish response:
+
+- `accepted_count` is the number of standard AG-UI events accepted by the gateway after validation.
+- `stored_count` is the number of accepted events retained for resumable thread replay.
+- `delivered_count` is the number of live stream deliveries made immediately.
+
+`delivered_count > 0` means matching live GUI/run streams received the events immediately. `delivered_count: 0` with `stored_count > 0` means the gateway accepted and retained the thread-scoped events; a resumable GUI connection can receive them later by reconnecting with `lastSeenEventId`. `delivered_count: 0` with `stored_count: 0` means no matching live stream received the events and no replay retention was recorded. Do not describe a publish as visible in the GUI unless `delivered_count > 0` or the user confirms that a resumable pane later replayed it.
 
 This command intentionally has no `--endpoint` option. For third-party endpoints, generate the event batch with `internals ag-ui events render`, validate it, then use that endpoint's documented delivery method.
 
@@ -170,7 +178,7 @@ houmao-mgr internals ag-ui events render houmao.table --input payload.json > eve
 houmao-mgr agents self gateway ag-ui publish --input events.json --thread-id <thread-id>
 ```
 
-After publishing, report the response accurately. Do not say the GUI will receive a future replay when `delivered_count` is zero.
+After publishing, report the response accurately. If `stored_count > 0`, say the batch was stored for resumable replay. If `stored_count` is zero, say only that it was accepted or delivered according to the counts returned.
 
 ## Safety
 

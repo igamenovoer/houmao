@@ -15,7 +15,9 @@ from houmao.owned_mutation import remove_tree_or_path
 from houmao.owned_paths import resolve_registry_root
 
 from houmao.agents.realm_controller.agent_identity import (
+    normalize_agent_identity_name,
     normalize_managed_agent_id,
+    normalize_managed_agent_name,
     normalize_user_managed_agent_name,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
@@ -290,6 +292,48 @@ def resolve_managed_agent_records_by_name(
         env=env,
         include=lambda record: True,
     )
+
+
+def resolve_known_managed_agent_records(
+    agent_identity: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> tuple[ManagedAgentRegistryRecordV3, ...]:
+    """Resolve known managed-agent records by authoritative id or friendly name.
+
+    This helper deliberately ignores live-gateway presence and lease freshness.
+    It is for stable agent-address resolution; callers that need a current live
+    target must overlay live-discovery or active-record checks separately.
+    """
+
+    try:
+        direct_record = load_managed_agent_record_by_agent_id(agent_identity, env=env)
+    except SessionManifestError:
+        direct_record = None
+    if direct_record is not None:
+        return (direct_record,)
+
+    candidate_names: set[str] = set()
+    try:
+        candidate_names.add(normalize_managed_agent_name(agent_identity))
+    except SessionManifestError:
+        pass
+    try:
+        normalized_identity = normalize_agent_identity_name(agent_identity)
+        candidate_names.add(normalized_identity.canonical_name)
+        candidate_names.add(normalized_identity.name_portion)
+    except SessionManifestError:
+        pass
+
+    matches: dict[str, ManagedAgentRegistryRecordV3] = {}
+    for candidate_name in sorted(candidate_names):
+        try:
+            records = resolve_managed_agent_records_by_name(candidate_name, env=env)
+        except SessionManifestError:
+            continue
+        for record in records:
+            matches[record.agent_id] = record
+    return tuple(matches[agent_id] for agent_id in sorted(matches))
 
 
 def resolve_active_managed_agent_records_by_name(

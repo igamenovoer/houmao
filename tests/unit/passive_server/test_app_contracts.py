@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -245,6 +246,16 @@ def _agent(
     return DiscoveredAgent(record=record, summary=_summary_from_record(record))
 
 
+def _write_known_agent_record(tmp_path: object, record: object) -> None:
+    """Write one registry record into the passive-server test registry root."""
+
+    payload = record.model_dump(mode="json")  # type: ignore[attr-defined]
+    agent_id = str(payload["agent_id"])
+    record_dir = Path(str(tmp_path)) / "registry" / "live_agents" / agent_id
+    record_dir.mkdir(parents=True, exist_ok=True)
+    (record_dir / "record.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Agent listing endpoint
 # ---------------------------------------------------------------------------
@@ -333,6 +344,72 @@ class TestResolveAgentEndpoint:
         body = resp.json()
         assert "agent_ids" in body
         assert set(body["agent_ids"]) == {"abc123", "def456"}
+
+
+class TestResolveAgentAddressEndpoint:
+    """GET /houmao/agents/{agent_ref}/resolve."""
+
+    def test_known_offline_agent_returns_200(self, tmp_path: object) -> None:
+        _write_known_agent_record(
+            tmp_path,
+            _make_record(agent_id="abc123", agent_name="HOUMAO-alpha", session_name="s1"),
+        )
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.get("/houmao/agents/abc123/resolve")
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["status"] == "offline"
+        assert body["agent_id"] == "abc123"
+        assert body["agent_name"] == "HOUMAO-alpha"
+        assert body["gateway"] is None
+
+    def test_known_name_ambiguity_returns_candidates(self, tmp_path: object) -> None:
+        _write_known_agent_record(
+            tmp_path,
+            _make_record(agent_id="abc123", agent_name="HOUMAO-alpha", session_name="s1"),
+        )
+        _write_known_agent_record(
+            tmp_path,
+            _make_record(agent_id="def456", agent_name="HOUMAO-alpha", session_name="s2"),
+        )
+        client = _make_agent_client(tmp_path, [])
+        with client:
+            resp = client.get("/houmao/agents/alpha/resolve")
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["status"] == "ambiguous"
+        assert {candidate["agent_id"] for candidate in body["candidates"]} == {
+            "abc123",
+            "def456",
+        }
+
+    def test_live_agent_without_gateway_returns_state(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent(agent_id="abc123")])
+        with client:
+            resp = client.get("/houmao/agents/abc123/resolve")
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["status"] == "live_without_gateway"
+        assert body["agent_id"] == "abc123"
+        assert body["gateway"] is None
+
+    def test_live_agent_with_gateway_returns_coordinates(self, tmp_path: object) -> None:
+        client = _make_agent_client(
+            tmp_path,
+            [_agent_with_gateway(agent_id="abc123", gateway_host="127.0.0.1", gateway_port=9901)],
+        )
+        with client:
+            resp = client.get("/houmao/agents/abc123/resolve")
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["status"] == "live_with_gateway"
+        assert body["agent_id"] == "abc123"
+        assert body["gateway"] == {
+            "host": "127.0.0.1",
+            "port": 9901,
+            "protocol_version": "v1",
+        }
 
 
 # ---------------------------------------------------------------------------

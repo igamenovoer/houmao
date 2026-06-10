@@ -1,6 +1,6 @@
 import type { SerializedDockview } from "dockview-react";
 
-import type { TargetConfig } from "./ag-ui/types";
+import type { AgentAddressResolveStatus, TargetConfig } from "./ag-ui/types";
 
 export type PaneKind = "operator" | "agent" | "debug-agent";
 
@@ -184,12 +184,27 @@ function sanitizeTargetSource(value: unknown): TargetConfig["source"] {
       passiveServerUrl,
       agentId,
       agentName,
+      agentRef: stringField(source, "agentRef") || agentId,
       generationId: stringField(source, "generationId") || undefined,
       tool: stringField(source, "tool") || undefined,
       backend: stringField(source, "backend") || undefined,
+      addressStatus: safeAddressStatus(stringField(source, "addressStatus")),
     };
   }
   return { kind: "manual" };
+}
+
+function safeAddressStatus(value: string): AgentAddressResolveStatus | undefined {
+  if (
+    value === "unknown" ||
+    value === "ambiguous" ||
+    value === "offline" ||
+    value === "live_without_gateway" ||
+    value === "live_with_gateway"
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 function sanitizeDebugAgent(value: unknown, paneId: string): DebugAgentConfig {

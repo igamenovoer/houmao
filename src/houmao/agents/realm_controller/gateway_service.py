@@ -5541,7 +5541,15 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
     from houmao.ag_ui.routes import register_ag_ui_routes
 
-    register_ag_ui_routes(app, runtime=runtime)
+    runtime_paths = getattr(runtime, "m_paths", None)
+    ag_ui_event_log_path = (
+        runtime_paths.gateway_root / "ag_ui_events.jsonl" if runtime_paths is not None else None
+    )
+    register_ag_ui_routes(
+        app,
+        runtime=runtime,
+        event_log_path=ag_ui_event_log_path,
+    )
 
     return app
 

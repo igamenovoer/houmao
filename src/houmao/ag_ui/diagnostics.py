@@ -207,7 +207,9 @@ class AgUiDiagnostics:
         run_id: str | None,
         connection_id: str | None,
         accepted_count: int,
+        stored_count: int,
         delivered_count: int,
+        replay: str,
     ) -> None:
         """Record one accepted agent-authored AG-UI event publish batch."""
 
@@ -219,9 +221,10 @@ class AgUiDiagnostics:
             ),
             **self.active_counts(),
             "acceptedCount": accepted_count,
+            "storedCount": stored_count,
             "deliveredCount": delivered_count,
             "subscriberOutcome": "delivered" if delivered_count > 0 else "no_subscribers",
-            "replay": "none",
+            "replay": replay,
         }
         self._emit(
             level="info" if delivered_count > 0 else "warning",

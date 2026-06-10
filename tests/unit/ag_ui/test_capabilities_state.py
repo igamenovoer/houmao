@@ -54,7 +54,7 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     assert capabilities["transport"]["streaming"] is True
     assert capabilities["transport"]["websocket"] is False
     assert capabilities["transport"]["httpBinary"] is False
-    assert capabilities["transport"]["resumable"] is False
+    assert capabilities["transport"]["resumable"] is True
     assert capabilities["state"]["snapshots"] is True
     assert capabilities["state"]["deltas"] is False
     assert capabilities["tools"]["supported"] is False
@@ -62,7 +62,7 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     assert capabilities["multimodal"]["input"]["image"] is False
     assert capabilities["multimodal"]["input"]["file"] is False
     assert capabilities["multimodal"]["output"]["image"] is False
-    assert capabilities["custom"]["houmao"]["replaySupport"] == "current_snapshot_only"
+    assert capabilities["custom"]["houmao"]["replaySupport"] == "event_log_since_cursor"
 
     houmao = dumped["houmao"]
     assert houmao["features"]["httpSse"] is True
@@ -80,6 +80,16 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
         "does not start, stop, restart, abort, interrupt, or shut down"
         in houmao["lifecycleBoundary"]
     )
+    assert houmao["replaySupport"] == "event_log_since_cursor"
+
+
+def test_capabilities_can_report_snapshot_only_when_replay_is_disabled() -> None:
+    response = build_ag_ui_capabilities(_Runtime(_status()), replay_enabled=False)
+    dumped = response.model_dump(mode="json", by_alias=True)
+
+    assert dumped["capabilities"]["transport"]["resumable"] is False
+    assert dumped["capabilities"]["custom"]["houmao"]["replaySupport"] == "current_snapshot_only"
+    assert dumped["houmao"]["replaySupport"] == "current_snapshot_only"
 
 
 def test_capabilities_report_headless_graphics_tool_metadata() -> None:

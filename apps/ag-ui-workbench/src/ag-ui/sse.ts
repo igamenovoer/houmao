@@ -41,11 +41,15 @@ export class SseParser {
     const dataLines = lines
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).replace(/^ /, ""));
+    const eventId = lines
+      .filter((line) => line.startsWith("id:"))
+      .map((line) => line.slice(3).replace(/^ /, ""))
+      .find((value) => value.trim());
     if (dataLines.length === 0) {
       return;
     }
     const data = dataLines.join("\n");
-    const raw = this.rawEntry(frame, data);
+    const raw = this.rawEntry(frame, data, eventId);
     try {
       const parsed = JSON.parse(data) as unknown;
       if (!isAgUiEvent(parsed)) {
@@ -64,12 +68,13 @@ export class SseParser {
     }
   }
 
-  private rawEntry(raw: string, data: string): RawTimelineEntry {
+  private rawEntry(raw: string, data: string, eventId: string | undefined): RawTimelineEntry {
     this.m_counter += 1;
     return {
       id: `raw-${Date.now()}-${this.m_counter}`,
       receivedAt: new Date().toISOString(),
       raw,
+      sseEventId: eventId,
       data,
     };
   }

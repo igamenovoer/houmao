@@ -208,8 +208,15 @@ textarea {
 }
 
 .status-dot.connecting,
-.status-dot.running {
+.status-dot.running,
+.status-dot.waiting,
+.status-dot.reconnecting {
   background: #d1a542;
+}
+
+.status-dot.offline,
+.status-dot.disconnected {
+  background: #8e8678;
 }
 
 .status-dot.error {

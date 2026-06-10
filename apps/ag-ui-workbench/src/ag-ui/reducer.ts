@@ -1,6 +1,16 @@
 import type { AgUiEvent, JsonObject, RawTimelineEntry } from "./types";
 
-export type PaneRunStatus = "empty" | "connecting" | "connected" | "running" | "finished" | "error" | "disconnected";
+export type PaneRunStatus =
+  | "empty"
+  | "connecting"
+  | "waiting"
+  | "offline"
+  | "reconnecting"
+  | "connected"
+  | "running"
+  | "finished"
+  | "error"
+  | "disconnected";
 
 export interface TranscriptMessage {
   id: string;
