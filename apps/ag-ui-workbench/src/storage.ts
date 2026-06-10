@@ -4,11 +4,17 @@ import type { AgentAddressResolveStatus, TargetConfig } from "./ag-ui/types";
 import type { WatchedTargetRecord } from "./ag-ui/watchedTargets";
 import { watchedTargetKey } from "./ag-ui/watchedTargets";
 
-export type PaneKind = "operator" | "agent" | "debug-agent";
+export type PaneKind = "agent" | "debug-agent" | "tmux";
 
 export interface DebugAgentConfig {
   debugAgentId: string;
   replayEnabled: boolean;
+}
+
+export interface TmuxTabConfig {
+  sessionName?: string;
+  mode: "read-write" | "read-only";
+  houmaoOnly: boolean;
 }
 
 export interface PaneRecord {
@@ -17,6 +23,7 @@ export interface PaneRecord {
   target: TargetConfig;
   resetToken?: number;
   debugAgent?: DebugAgentConfig;
+  tmux?: TmuxTabConfig;
 }
 
 export interface DiscoveryConfig {
@@ -28,8 +35,10 @@ export interface WorkbenchStorage {
   layout?: unknown;
   panes: Record<string, PaneRecord>;
   watchedTargets: Record<string, WatchedTargetRecord>;
+  operatorPaneId?: string;
   nextAgentIndex: number;
   nextDebugAgentIndex: number;
+  nextTmuxIndex: number;
 }
 
 const STORAGE_KEY = "houmao.agUiWorkbench.v1";
@@ -46,9 +55,9 @@ export function defaultTarget(paneId: string, kind: PaneKind): TargetConfig {
     };
   }
   return {
-    label: kind === "operator" ? "Operator" : paneId.replace(/-/g, " "),
+    label: paneId.replace(/-/g, " "),
     url: "",
-    threadId: kind === "operator" ? "operator-thread" : `${paneId}-thread`,
+    threadId: `${paneId}-thread`,
     source: { kind: "manual" },
   };
 }
@@ -60,21 +69,23 @@ export function defaultDebugAgentConfig(paneId: string): DebugAgentConfig {
   };
 }
 
+export function defaultTmuxTabConfig(): TmuxTabConfig {
+  return {
+    mode: "read-write",
+    houmaoOnly: true,
+  };
+}
+
 export function defaultStorage(): WorkbenchStorage {
   return {
     discovery: {
       passiveServerUrl: DEFAULT_PASSIVE_SERVER_URL,
     },
-    panes: {
-      operator: {
-        paneId: "operator",
-        kind: "operator",
-        target: defaultTarget("operator", "operator"),
-      },
-    },
+    panes: {},
     watchedTargets: {},
     nextAgentIndex: 1,
     nextDebugAgentIndex: 1,
+    nextTmuxIndex: 1,
   };
 }
 
@@ -85,14 +96,20 @@ export function loadWorkbenchStorage(): WorkbenchStorage {
   }
   try {
     const parsed = JSON.parse(raw) as Partial<WorkbenchStorage>;
+    const panes = sanitizePaneRecords(parsed.panes);
     return {
       discovery: sanitizeDiscoveryConfig(parsed.discovery),
       layout: sanitizeDockviewLayout(parsed.layout),
-      panes: sanitizePaneRecords(parsed.panes),
+      panes,
       watchedTargets: sanitizeWatchedTargetRecords(parsed.watchedTargets),
+      operatorPaneId: validOperatorPaneId(
+        typeof parsed.operatorPaneId === "string" ? parsed.operatorPaneId : undefined,
+        panes,
+      ),
       nextAgentIndex: typeof parsed.nextAgentIndex === "number" ? parsed.nextAgentIndex : 1,
       nextDebugAgentIndex:
         typeof parsed.nextDebugAgentIndex === "number" ? parsed.nextDebugAgentIndex : 1,
+      nextTmuxIndex: typeof parsed.nextTmuxIndex === "number" ? parsed.nextTmuxIndex : 1,
     };
   } catch {
     return defaultStorage();
@@ -105,7 +122,9 @@ export function saveWorkbenchStorage(storage: WorkbenchStorage): void {
     JSON.stringify({
       ...storage,
       layout: sanitizeDockviewLayout(storage.layout),
+      panes: sanitizePaneRecords(storage.panes),
       watchedTargets: sanitizeWatchedTargetRecords(storage.watchedTargets),
+      operatorPaneId: validOperatorPaneId(storage.operatorPaneId, storage.panes),
     }),
   );
 }
@@ -114,7 +133,8 @@ export function sanitizeDockviewLayout(layout: unknown): SerializedDockview | un
   if (!layout || typeof layout !== "object") {
     return undefined;
   }
-  return dropFloatingState(layout) as SerializedDockview;
+  const sanitized = dropFloatingState(layout);
+  return sanitized && typeof sanitized === "object" ? (sanitized as SerializedDockview) : undefined;
 }
 
 export function storageSnapshotForTests(): WorkbenchStorage {
@@ -122,27 +142,27 @@ export function storageSnapshotForTests(): WorkbenchStorage {
 }
 
 function sanitizePaneRecords(value: unknown): Record<string, PaneRecord> {
-  const defaults = defaultStorage().panes;
   if (!value || typeof value !== "object") {
-    return defaults;
+    return {};
   }
-  const records: Record<string, PaneRecord> = { ...defaults };
+  const records: Record<string, PaneRecord> = {};
   for (const [paneId, record] of Object.entries(value as Record<string, Partial<PaneRecord>>)) {
     const kind =
       record.kind === "agent"
         ? "agent"
-        : record.kind === "operator"
-          ? "operator"
-          : record.kind === "debug-agent"
+        : record.kind === "debug-agent"
             ? "debug-agent"
-            : undefined;
+            : record.kind === "tmux"
+              ? "tmux"
+              : undefined;
     if (!kind) {
       continue;
     }
     const target = sanitizeTarget(record.target, defaultTarget(paneId, kind));
     const resetToken = typeof record.resetToken === "number" ? record.resetToken : undefined;
     const debugAgent = kind === "debug-agent" ? sanitizeDebugAgent(record.debugAgent, paneId) : undefined;
-    records[paneId] = { paneId, kind, target, resetToken, debugAgent };
+    const tmux = kind === "tmux" ? sanitizeTmuxTabConfig(record.tmux) : undefined;
+    records[paneId] = { paneId, kind, target, resetToken, debugAgent, tmux };
   }
   return records;
 }
@@ -257,6 +277,23 @@ function sanitizeDebugAgent(value: unknown, paneId: string): DebugAgentConfig {
   };
 }
 
+function sanitizeTmuxTabConfig(value: unknown): TmuxTabConfig {
+  const fallback = defaultTmuxTabConfig();
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+  const config = value as Partial<TmuxTabConfig>;
+  const sessionName =
+    typeof config.sessionName === "string" && config.sessionName.trim()
+      ? config.sessionName.trim()
+      : undefined;
+  return {
+    sessionName,
+    mode: config.mode === "read-only" ? "read-only" : "read-write",
+    houmaoOnly: typeof config.houmaoOnly === "boolean" ? config.houmaoOnly : fallback.houmaoOnly,
+  };
+}
+
 function safeDebugAgentId(value: string): boolean {
   return /^debug-agent-[a-z0-9_.-]+$/.test(value);
 }
@@ -278,17 +315,52 @@ function stringField(value: object, key: string): string {
 
 function dropFloatingState(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(dropFloatingState);
+    return value.map(dropFloatingState).filter((entry) => entry !== null);
   }
   if (!value || typeof value !== "object") {
     return value;
+  }
+  if (isLegacyOperatorPanel(value)) {
+    return null;
   }
   const sanitized: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (key === "floatingGroups" || key === "popoutGroups") {
       continue;
     }
-    sanitized[key] = dropFloatingState(entry);
+    const next = dropFloatingState(entry);
+    if (next !== null) {
+      sanitized[key] = next;
+    }
   }
   return sanitized;
+}
+
+function isLegacyOperatorPanel(value: object): boolean {
+  const record = value as Record<string, unknown>;
+  if (record.id === "operator") {
+    return true;
+  }
+  if (record.component === "operator") {
+    return true;
+  }
+  const params = record.params;
+  if (!params || typeof params !== "object") {
+    return false;
+  }
+  return (params as Record<string, unknown>).kind === "operator";
+}
+
+function validOperatorPaneId(
+  paneId: string | undefined,
+  panes: Record<string, PaneRecord>,
+): string | undefined {
+  if (!paneId) {
+    return undefined;
+  }
+  const pane = panes[paneId];
+  if (pane?.kind !== "agent" || pane.target.source?.kind !== "discovered") {
+    return undefined;
+  }
+  return paneId;
 }

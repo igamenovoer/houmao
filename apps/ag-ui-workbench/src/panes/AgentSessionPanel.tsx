@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
-import { Cable, CircleStop, Eraser, Eye, EyeOff, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
+import { BadgeCheck, Eraser, Eye, EyeOff, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 
-import { buildConnectInput, buildRunInput, connectAgUi, detachAgUi, fetchCapabilities, runAgUi, AgUiHttpError } from "../ag-ui/client";
+import {
+  AgUiHttpError,
+  bindLastAgUiThread,
+  buildConnectInput,
+  buildRunInput,
+  clearLastAgUiThread,
+  connectAgUi,
+  detachAgUi,
+  fetchCapabilities,
+  runAgUi,
+} from "../ag-ui/client";
 import { AgentAddressUnavailableError, resolveTargetConfigForConnect } from "../ag-ui/discovery";
 import { extractConnectionId, initialPaneEventState, reduceAgUiEvent, reduceHttpError, reduceParseError, type PaneEventState, type PaneRunStatus } from "../ag-ui/reducer";
 import type { CapabilitiesResponse, TargetConfig } from "../ag-ui/types";
@@ -14,7 +24,7 @@ import { TargetForm } from "./TargetForm";
 
 interface PanelParams {
   paneId: string;
-  kind: "operator" | "agent";
+  kind: "agent";
 }
 
 export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
@@ -23,6 +33,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     watchedTargetRuntimes,
     updateTarget,
     removePaneRecord,
+    setOperatorPaneId,
     watchTarget,
     unwatchTarget,
     clearWatchedTargetCache,
@@ -44,8 +55,8 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const [prompt, setPrompt] = useState("");
   const [panelStatus, setPanelStatus] = useState(eventState.status);
   const targetWatchKey = useMemo(
-    () => (kind === "agent" ? watchedTargetKey(target) : null),
-    [kind, target],
+    () => watchedTargetKey(target),
+    [target],
   );
   const watchedRecord = targetWatchKey ? storage.watchedTargets[targetWatchKey] : undefined;
   const watchedRuntime = targetWatchKey ? watchedTargetRuntimes[targetWatchKey] : undefined;
@@ -55,15 +66,15 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   );
 
   useEffect(() => {
-    props.api.setTitle(target.label || (kind === "operator" ? "Operator" : paneId));
-  }, [kind, paneId, props.api, target]);
+    props.api.setTitle(target.label || paneId);
+  }, [paneId, props.api, target]);
 
   useEffect(() => {
-    if (kind !== "agent" || !watchedRuntime || sameTarget(target, watchedRuntime.target)) {
+    if (!watchedRuntime || sameTarget(target, watchedRuntime.target)) {
       return;
     }
     updateTarget(paneId, watchedRuntime.target);
-  }, [kind, paneId, target, updateTarget, watchedRuntime]);
+  }, [paneId, target, updateTarget, watchedRuntime]);
 
   useEffect(() => {
     const resetToken = record.resetToken ?? 0;
@@ -100,6 +111,14 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const latestErrors = useMemo(() => displayEventState.errors.slice(-3), [displayEventState.errors]);
 
   const setTarget = (nextTarget: TargetConfig) => {
+    if (target.source?.kind === "discovered" && !sameTarget(target, nextTarget)) {
+      void clearLastAgUiThread(target).catch(() => undefined);
+    }
+    if (nextTarget.source?.kind === "discovered" && nextTarget.url && nextTarget.threadId) {
+      void bindLastAgUiThread(nextTarget, nextTarget.threadId, "gui_view_change").catch(
+        () => undefined,
+      );
+    }
     updateTarget(paneId, nextTarget);
   };
 
@@ -121,16 +140,11 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const connect = async () => {
-    if (kind === "agent") {
-      const key = watchTarget(target);
-      setPanelStatus(watchedTargetRuntimes[key]?.status ?? "connecting");
-      return;
+    if (target.source?.kind === "discovered" && target.url && target.threadId) {
+      void bindLastAgUiThread(target, target.threadId, "gui_connect").catch(() => undefined);
     }
-    await stopActiveStream(false);
-    stoppedRef.current = false;
-    reconnectAttemptRef.current = 0;
-    activeTargetRef.current = target;
-    void connectAttempt();
+    const key = watchTarget(target);
+    setPanelStatus(watchedTargetRuntimes[key]?.status ?? "connecting");
   };
 
   const run = async () => {
@@ -203,6 +217,9 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const closePane = async () => {
+    if (target.source?.kind === "discovered" && target.url) {
+      void clearLastAgUiThread(target).catch(() => undefined);
+    }
     if (!watchedRecord) {
       await stopActiveStream(true);
     }
@@ -211,11 +228,19 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const moveRight = () => {
-    const operator = props.containerApi.getPanel("operator");
+    const operator = props.containerApi.panels.find((panel) => panel.api.id !== paneId);
     props.api.moveTo({
       group: operator?.api.group ?? props.api.group,
       position: "right",
     });
+  };
+
+  const toggleOperatorMarker = () => {
+    if (storage.operatorPaneId === paneId) {
+      setOperatorPaneId(undefined);
+      return;
+    }
+    setOperatorPaneId(paneId);
   };
 
   const stopActiveStream = async (detach: boolean) => {
@@ -333,6 +358,8 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 
   const visibleStatus =
     watchedRuntime?.status ?? (panelStatus === "empty" ? displayEventState.status : panelStatus);
+  const isDiscoveredAgent = target.source?.kind === "discovered";
+  const isOperatorPane = storage.operatorPaneId === paneId;
 
   return (
     <section className="session-panel" data-testid={`panel-${paneId}`}>
@@ -347,26 +374,36 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
             <RefreshCw size={15} />
           </button>
           <button title="Connect" data-testid={`connect-${paneId}`} onClick={() => void connect()}>
-            {kind === "agent" ? <Eye size={15} /> : <Cable size={15} />}
+            <Eye size={15} />
           </button>
           <button title="Disconnect" data-testid={`disconnect-${paneId}`} onClick={() => void disconnect()}>
-            {kind === "agent" ? <EyeOff size={15} /> : <CircleStop size={15} />}
+            <EyeOff size={15} />
           </button>
-          {kind === "agent" ? (
-            <>
-              <button title="Clear canvas" data-testid={`clear-canvas-${paneId}`} onClick={() => void clearCanvas()}>
-                <Eraser size={15} />
-              </button>
-              <button title="Move to right split" data-testid={`split-right-${paneId}`} onClick={moveRight}>
-                <PanelRightOpen size={15} />
-              </button>
-              <button title="Close pane" data-testid={`close-${paneId}`} onClick={() => void closePane()}>
-                <X size={15} />
-              </button>
-            </>
-          ) : null}
+          <button title="Clear canvas" data-testid={`clear-canvas-${paneId}`} onClick={() => void clearCanvas()}>
+            <Eraser size={15} />
+          </button>
+          <button
+            title={isOperatorPane ? "Clear operator marker" : "Mark as operator pane"}
+            data-testid={`mark-operator-${paneId}`}
+            disabled={!isDiscoveredAgent}
+            onClick={toggleOperatorMarker}
+          >
+            <BadgeCheck size={15} />
+          </button>
+          <button title="Move to right split" data-testid={`split-right-${paneId}`} onClick={moveRight}>
+            <PanelRightOpen size={15} />
+          </button>
+          <button title="Close pane" data-testid={`close-${paneId}`} onClick={() => void closePane()}>
+            <X size={15} />
+          </button>
         </div>
       </header>
+
+      {isOperatorPane ? (
+        <div className="operator-marker" data-testid={`operator-marker-${paneId}`}>
+          Operator
+        </div>
+      ) : null}
 
       <TargetForm
         paneId={paneId}
@@ -386,7 +423,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         <textarea
           data-testid={`prompt-${paneId}`}
           value={prompt}
-          placeholder={kind === "operator" ? "Operator prompt" : "Pane prompt"}
+          placeholder="Pane prompt"
           onChange={(event) => setPrompt(event.target.value)}
         />
         <button className="run-button" title="Submit AG-UI run" data-testid={`run-${paneId}`} onClick={() => void run()}>
@@ -401,12 +438,10 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         latestErrors={latestErrors}
         transcriptSurfaceRef={displaySurfaceRef}
       />
-      {kind === "agent" ? (
-        <button className="danger-link" title="Remove pane" onClick={() => void closePane()}>
-          <Trash2 size={13} />
-          Remove
-        </button>
-      ) : null}
+      <button className="danger-link" title="Remove pane" onClick={() => void closePane()}>
+        <Trash2 size={13} />
+        Remove
+      </button>
     </section>
   );
 }

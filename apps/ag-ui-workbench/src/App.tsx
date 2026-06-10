@@ -1,16 +1,19 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanel } from "dockview-react";
-import { Boxes, Bug, PanelBottom, Plus, Server, Users } from "lucide-react";
+import { Boxes, Bug, PanelBottom, Plus, Server, TerminalSquare, Users } from "lucide-react";
 
 import { AgentSessionPanel } from "./panes/AgentSessionPanel";
 import { AgentPicker } from "./panes/AgentPicker";
 import { DebugAgentPanel } from "./panes/DebugAgentPanel";
+import { TmuxTabPanel } from "./panes/TmuxTabPanel";
+import { bindLastAgUiThread, clearLastAgUiThread } from "./ag-ui/client";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 import { useWatchedTargets } from "./ag-ui/useWatchedTargets";
 import { createWatchedTargetRecord, updateWatchedTargetRecord } from "./ag-ui/watchedTargets";
 import {
   defaultDebugAgentConfig,
+  defaultTmuxTabConfig,
   defaultTarget,
   loadWorkbenchStorage,
   sanitizeDockviewLayout,
@@ -18,11 +21,10 @@ import {
   storageSnapshotForTests,
   type DebugAgentConfig,
   type PaneRecord,
+  type TmuxTabConfig,
   type WorkbenchStorage,
 } from "./storage";
 import { WorkbenchProvider } from "./workbenchContext";
-
-const OPERATOR_PANEL_ID = "operator";
 
 declare global {
   interface Window {
@@ -38,6 +40,7 @@ declare global {
 const components = {
   session: AgentSessionPanel,
   debugAgent: DebugAgentPanel,
+  tmux: TmuxTabPanel,
 };
 
 export default function App() {
@@ -94,12 +97,23 @@ export default function App() {
     (paneId: string, target: TargetConfig) => {
       const current = storageRef.current;
       const existing = current.panes[paneId];
+      if (existing?.target.source?.kind === "discovered" && !sameTarget(existing.target, target)) {
+        void clearLastAgUiThread(existing.target).catch(() => undefined);
+      }
+      if (target.source?.kind === "discovered" && target.url && target.threadId) {
+        void bindLastAgUiThread(target, target.threadId, "gui_view_change").catch(() => undefined);
+      }
+      const nextOperatorPaneId =
+        current.operatorPaneId === paneId && target.source?.kind !== "discovered"
+          ? undefined
+          : current.operatorPaneId;
       persist({
         ...current,
+        operatorPaneId: nextOperatorPaneId,
         panes: {
           ...current.panes,
           [paneId]: {
-            ...(existing ?? { paneId, kind: paneId === OPERATOR_PANEL_ID ? "operator" : "agent" }),
+            ...(existing ?? { paneId, kind: "agent" as const }),
             target,
           },
         },
@@ -129,15 +143,53 @@ export default function App() {
     [persist],
   );
 
-  const removePaneRecord = useCallback(
-    (paneId: string) => {
-      if (paneId === OPERATOR_PANEL_ID) {
+  const updateTmuxTab = useCallback(
+    (paneId: string, tmux: TmuxTabConfig) => {
+      const current = storageRef.current;
+      const existing = current.panes[paneId];
+      if (existing?.kind !== "tmux") {
         return;
       }
+      persist({
+        ...current,
+        panes: {
+          ...current.panes,
+          [paneId]: {
+            ...existing,
+            tmux,
+          },
+        },
+      });
+    },
+    [persist],
+  );
+
+  const removePaneRecord = useCallback(
+    (paneId: string) => {
       const current = storageRef.current;
       const nextPanes = { ...current.panes };
       delete nextPanes[paneId];
-      persist({ ...current, panes: nextPanes });
+      persist({
+        ...current,
+        panes: nextPanes,
+        operatorPaneId: current.operatorPaneId === paneId ? undefined : current.operatorPaneId,
+      });
+    },
+    [persist],
+  );
+
+  const setOperatorPaneId = useCallback(
+    (paneId: string | undefined) => {
+      const current = storageRef.current;
+      if (!paneId) {
+        persist({ ...current, operatorPaneId: undefined });
+        return;
+      }
+      const pane = current.panes[paneId];
+      if (pane?.kind !== "agent" || pane.target.source?.kind !== "discovered") {
+        return;
+      }
+      persist({ ...current, operatorPaneId: paneId });
     },
     [persist],
   );
@@ -195,7 +247,9 @@ export default function App() {
       watchedTargetRuntimes: watchedTargets.runtimes,
       updateTarget,
       updateDebugAgent,
+      updateTmuxTab,
       removePaneRecord,
+      setOperatorPaneId,
       watchTarget,
       unwatchTarget,
       clearWatchedTargetCache: watchedTargets.clearTargetCache,
@@ -204,10 +258,12 @@ export default function App() {
     }),
     [
       removePaneRecord,
+      setOperatorPaneId,
       storage,
       unwatchTarget,
       updateDebugAgent,
       updateTarget,
+      updateTmuxTab,
       watchTarget,
       watchedTargets.clearAllCaches,
       watchedTargets.clearTargetCache,
@@ -232,17 +288,11 @@ export default function App() {
       apiRef.current = event.api;
       event.api.onDidLayoutChange(saveLayout);
       event.api.onDidRemovePanel((panel) => {
-        if (panel.api.id === OPERATOR_PANEL_ID) {
-          queueMicrotask(() => ensureOperatorPanelIfEmpty(event.api));
-          return;
-        }
         removePaneRecord(panel.api.id);
-        queueMicrotask(() => ensureOperatorPanelIfEmpty(event.api));
       });
       if (storage.layout) {
         event.api.fromJSON(sanitizeDockviewLayout(storage.layout)!, { reuseExistingPanels: false });
       }
-      ensureOperatorPanelIfEmpty(event.api);
       void refreshProxyStatus();
     },
     [removePaneRecord, saveLayout, storage.layout],
@@ -273,6 +323,11 @@ export default function App() {
       kind: "agent",
       target: target ?? defaultTarget(paneId, "agent"),
     };
+    if (record.target.source?.kind === "discovered" && record.target.url && record.target.threadId) {
+      void bindLastAgUiThread(record.target, record.target.threadId, "gui_view_change").catch(
+        () => undefined,
+      );
+    }
     persist({
       ...current,
       panes: {
@@ -289,10 +344,7 @@ export default function App() {
         paneId,
         kind: "agent",
       },
-      position: {
-        referencePanel: OPERATOR_PANEL_ID,
-        direction: "right",
-      },
+      position: dockRightPosition(api),
     });
   };
 
@@ -329,10 +381,44 @@ export default function App() {
       params: {
         paneId,
       },
-      position: {
-        referencePanel: OPERATOR_PANEL_ID,
-        direction: "right",
+      position: dockRightPosition(api),
+    });
+  };
+
+  const addTmuxPane = () => {
+    const api = apiRef.current;
+    if (!api) {
+      return;
+    }
+    const current = storageRef.current;
+    let index = current.nextTmuxIndex;
+    while (current.panes[`tmux-${index}`] || api.getPanel(`tmux-${index}`)) {
+      index += 1;
+    }
+    const paneId = `tmux-${index}`;
+    const tmux = defaultTmuxTabConfig();
+    const record: PaneRecord = {
+      paneId,
+      kind: "tmux",
+      target: defaultTarget(paneId, "tmux"),
+      tmux,
+    };
+    persist({
+      ...current,
+      panes: {
+        ...current.panes,
+        [paneId]: record,
       },
+      nextTmuxIndex: index + 1,
+    });
+    api.addPanel({
+      id: paneId,
+      component: "tmux",
+      title: `tmux ${index}`,
+      params: {
+        paneId,
+      },
+      position: dockRightPosition(api),
     });
   };
 
@@ -340,11 +426,22 @@ export default function App() {
     const current = storageRef.current;
     const existing = current.panes[paneId] ?? {
       paneId,
-      kind: paneId === OPERATOR_PANEL_ID ? "operator" : "agent",
-      target: defaultTarget(paneId, paneId === OPERATOR_PANEL_ID ? "operator" : "agent"),
+      kind: "agent" as const,
+      target: defaultTarget(paneId, "agent"),
     };
+    if (existing.target.source?.kind === "discovered" && !sameTarget(existing.target, target)) {
+      void clearLastAgUiThread(existing.target).catch(() => undefined);
+    }
+    if (target.source?.kind === "discovered" && target.url && target.threadId) {
+      void bindLastAgUiThread(target, target.threadId, "gui_view_change").catch(() => undefined);
+    }
+    const nextOperatorPaneId =
+      current.operatorPaneId === paneId && target.source?.kind !== "discovered"
+        ? undefined
+        : current.operatorPaneId;
     persist({
       ...current,
+      operatorPaneId: nextOperatorPaneId,
       panes: {
         ...current.panes,
         [paneId]: {
@@ -392,6 +489,10 @@ export default function App() {
               <Bug size={15} />
               Debug Agent
             </button>
+            <button title="Open tmux tab" data-testid="add-tmux-pane" onClick={addTmuxPane}>
+              <TerminalSquare size={15} />
+              tmux
+            </button>
             <button className="primary" title="Add agent pane" data-testid="add-agent-pane" onClick={() => addAgentPane()}>
               <Plus size={16} />
               Agent Pane
@@ -428,25 +529,27 @@ export default function App() {
   );
 }
 
-function ensureOperatorPanel(api: DockviewApi): IDockviewPanel {
-  const existing = api.getPanel(OPERATOR_PANEL_ID);
-  if (existing) {
-    return existing;
-  }
-  return api.addPanel({
-    id: OPERATOR_PANEL_ID,
-    component: "session",
-    title: "Operator",
-    params: {
-      paneId: OPERATOR_PANEL_ID,
-      kind: "operator",
-    },
-  });
+function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
+  return (
+    left.label === right.label &&
+    left.url === right.url &&
+    left.threadId === right.threadId &&
+    JSON.stringify(left.source ?? { kind: "manual" }) ===
+      JSON.stringify(right.source ?? { kind: "manual" })
+  );
 }
 
-function ensureOperatorPanelIfEmpty(api: DockviewApi): IDockviewPanel | undefined {
-  if (api.totalPanels > 0) {
-    return api.getPanel(OPERATOR_PANEL_ID);
-  }
-  return ensureOperatorPanel(api);
+function dockRightPosition(api: DockviewApi):
+  | {
+      referencePanel: IDockviewPanel;
+      direction: "right";
+    }
+  | undefined {
+  const referencePanel = api.panels[api.panels.length - 1];
+  return referencePanel
+    ? {
+        referencePanel,
+        direction: "right",
+      }
+    : undefined;
 }

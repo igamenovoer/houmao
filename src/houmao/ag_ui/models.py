@@ -102,6 +102,38 @@ class AgUiEventPublishResponse(_HoumaoAgUiModel):
     thread_id: str | None = None
     run_id: str | None = None
     connection_id: str | None = None
+    destination_kind: Literal[
+        "message",
+        "event",
+        "connection",
+        "last_sent",
+        "last_bound",
+        "default_sink",
+    ] | None = None
+    warnings: list[str] | None = None
+
+
+class AgUiThreadDestinationResponse(_HoumaoAgUiModel):
+    """One gateway AG-UI destination fallback state slot."""
+
+    status: Literal["empty", "bound", "sent"]
+    thread_id: str | None = None
+    updated_at_utc: str | None = None
+    source: str | None = None
+
+
+class AgUiDestinationBindingsResponse(_HoumaoAgUiModel):
+    """Gateway-local AG-UI destination fallback state."""
+
+    last_bound_thread: AgUiThreadDestinationResponse
+    last_sent_thread: AgUiThreadDestinationResponse
+
+
+class AgUiSetLastBoundThreadRequest(_HoumaoAgUiModel):
+    """Request body for binding the current foreground GUI thread."""
+
+    thread_id: str
+    source: Literal["gui_connect", "gui_view_change", "manual"] = "manual"
 
 
 __all__ = [
@@ -110,9 +142,12 @@ __all__ = [
     "AgUiDetachResponse",
     "AgUiEventPublishRequest",
     "AgUiEventPublishResponse",
+    "AgUiDestinationBindingsResponse",
+    "AgUiSetLastBoundThreadRequest",
     "AgUiEventType",
     "AgUiRunsUnavailableResponse",
     "AgUiStateSnapshotEvent",
+    "AgUiThreadDestinationResponse",
     "HoumaoAgUiCapabilitiesResponse",
     "HoumaoAgUiFeatureSupport",
     "HoumaoAgUiMetadata",

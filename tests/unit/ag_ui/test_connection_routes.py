@@ -327,6 +327,10 @@ def test_create_app_registers_ag_ui_routes_and_preserves_existing_status_route()
     assert ("/v1/ag-ui/capabilities", frozenset({"GET"})) in inventory
     assert ("/v1/ag-ui/connect", frozenset({"POST"})) in inventory
     assert ("/v1/ag-ui/events", frozenset({"POST"})) in inventory
+    assert ("/v1/ag-ui/bindings", frozenset({"GET"})) in inventory
+    assert ("/v1/ag-ui/bindings/last-thread", frozenset({"GET"})) in inventory
+    assert ("/v1/ag-ui/bindings/last-thread", frozenset({"PUT"})) in inventory
+    assert ("/v1/ag-ui/bindings/last-thread", frozenset({"DELETE"})) in inventory
     assert ("/v1/ag-ui/runs", frozenset({"POST"})) in inventory
     assert ("/v1/ag-ui/connections/{connection_id}", frozenset({"DELETE"})) in inventory
     assert ("/v1/status", frozenset({"GET"})) in inventory
@@ -512,6 +516,230 @@ def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
     ]
     assert accepted
     assert accepted[0]["fields"]["subscriberOutcome"] == "no_subscribers"  # type: ignore[index]
+    runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_destination_bindings_start_empty_set_and_clear_bound_thread() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = render_component_events(
+        component="houmao.chart.bar",
+        payload={
+            "schemaVersion": 1,
+            "title": "Revenue",
+            "data": [{"label": "Q1", "value": 12}],
+        },
+    )
+
+    assert client.get("/v1/ag-ui/bindings").json() == {
+        "lastBoundThread": {"status": "empty"},
+        "lastSentThread": {"status": "empty"},
+    }
+
+    blank = client.put(
+        "/v1/ag-ui/bindings/last-thread",
+        json={"threadId": "   ", "source": "gui_view_change"},
+    )
+    assert blank.status_code == 422
+
+    bound = client.put(
+        "/v1/ag-ui/bindings/last-thread",
+        json={"threadId": " thread-bound ", "source": "gui_view_change"},
+    )
+    assert bound.status_code == 200
+    assert bound.json()["threadId"] == "thread-bound"
+    assert bound.json()["source"] == "gui_view_change"
+
+    blank_after_bound = client.put(
+        "/v1/ag-ui/bindings/last-thread",
+        json={"threadId": "", "source": "gui_connect"},
+    )
+    assert blank_after_bound.status_code == 422
+    assert client.get("/v1/ag-ui/bindings/last-thread").json()["threadId"] == "thread-bound"
+
+    sent = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
+    assert sent.status_code == 200
+    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"]["threadId"] == "thread-sent"
+
+    cleared = client.delete("/v1/ag-ui/bindings/last-thread")
+    assert cleared.status_code == 200
+    assert cleared.json() == {"status": "empty"}
+    state = client.get("/v1/ag-ui/bindings").json()
+    assert state["lastBoundThread"] == {"status": "empty"}
+    assert state["lastSentThread"]["threadId"] == "thread-sent"
+
+
+def test_events_route_uses_last_sent_before_last_bound_and_refreshes_last_sent() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = render_component_events(
+        component="houmao.chart.bar",
+        payload={
+            "schemaVersion": 1,
+            "title": "Revenue",
+            "data": [{"label": "Q1", "value": 12}],
+        },
+    )
+
+    explicit = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
+    assert explicit.status_code == 200
+    sent_state = client.get("/v1/ag-ui/bindings").json()["lastSentThread"]
+    assert sent_state["threadId"] == "thread-sent"
+    assert sent_state["source"] == "explicit"
+    assert sent_state["updatedAtUtc"]
+
+    bind = client.put(
+        "/v1/ag-ui/bindings/last-thread",
+        json={"threadId": "thread-bound", "source": "gui_view_change"},
+    )
+    assert bind.status_code == 200
+
+    fallback = client.post("/v1/ag-ui/events", json={"events": events})
+    assert fallback.status_code == 200
+    assert fallback.json()["threadId"] == "thread-sent"
+    assert fallback.json()["destinationKind"] == "last_sent"
+    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"]["threadId"] == "thread-sent"
+
+
+def test_events_route_uses_message_connection_and_event_destination_precedence() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
+    record = registry.create(thread_id="thread-connection", run_id="run-connection")
+    register_ag_ui_routes(app, runtime=runtime, registry=registry)
+    client = TestClient(app)
+    events = render_component_events(
+        component="houmao.chart.bar",
+        payload={
+            "schemaVersion": 1,
+            "title": "Revenue",
+            "data": [{"label": "Q1", "value": 12}],
+        },
+    )
+
+    initial_sent = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
+    assert initial_sent.status_code == 200
+    bind = client.put(
+        "/v1/ag-ui/bindings/last-thread",
+        json={"threadId": "thread-bound", "source": "gui_view_change"},
+    )
+    assert bind.status_code == 200
+
+    explicit = client.post("/v1/ag-ui/events", json={"threadId": "thread-explicit", "events": events})
+    assert explicit.status_code == 200
+    explicit_body = explicit.json()
+    assert explicit_body["threadId"] == "thread-explicit"
+    assert "destinationKind" not in explicit_body
+    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"][
+        "threadId"
+    ] == "thread-explicit"
+
+    connection = client.post(
+        "/v1/ag-ui/events",
+        json={"connectionId": record.connection_id, "events": events},
+    )
+    assert connection.status_code == 200
+    assert connection.json()["destinationKind"] == "connection"
+    assert connection.json()["threadId"] == "thread-connection"
+    state_after_connection = client.get("/v1/ag-ui/bindings").json()["lastSentThread"]
+    assert state_after_connection["threadId"] == "thread-connection"
+    assert state_after_connection["source"] == "connection"
+
+    event_routed_events = [
+        {**event, "threadId": "thread-event"}
+        for event in render_component_events(
+            component="houmao.chart.bar",
+            payload={
+                "schemaVersion": 1,
+                "title": "Revenue",
+                "data": [{"label": "Q1", "value": 12}],
+            },
+        )
+    ]
+    event_routed = client.post("/v1/ag-ui/events", json={"events": event_routed_events})
+    assert event_routed.status_code == 200
+    assert event_routed.json()["destinationKind"] == "event"
+    assert event_routed.json()["threadId"] == "thread-event"
+    state_after_event = client.get("/v1/ag-ui/bindings").json()["lastSentThread"]
+    assert state_after_event["threadId"] == "thread-event"
+    assert state_after_event["source"] == "event"
+    runtime.assert_no_work_or_lifecycle_calls()
+
+
+def test_events_route_uses_bound_thread_when_no_sent_thread_exists() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = render_component_events(
+        component="houmao.chart.bar",
+        payload={
+            "schemaVersion": 1,
+            "title": "Revenue",
+            "data": [{"label": "Q1", "value": 12}],
+        },
+    )
+
+    bind = client.put(
+        "/v1/ag-ui/bindings/last-thread",
+        json={"threadId": "thread-bound", "source": "gui_view_change"},
+    )
+    assert bind.status_code == 200
+
+    fallback = client.post("/v1/ag-ui/events", json={"events": events})
+    assert fallback.status_code == 200
+    assert fallback.json() == {
+        "status": "accepted",
+        "acceptedCount": 3,
+        "storedCount": 0,
+        "deliveredCount": 0,
+        "replay": "none",
+        "threadId": "thread-bound",
+        "destinationKind": "last_bound",
+    }
+    state = client.get("/v1/ag-ui/bindings").json()
+    assert state["lastSentThread"]["threadId"] == "thread-bound"
+    assert state["lastSentThread"]["source"] == "last_bound"
+
+
+def test_events_route_uses_default_sink_when_no_destination_exists() -> None:
+    runtime = _SpyRuntime()
+    app = FastAPI()
+    register_ag_ui_routes(app, runtime=runtime)
+    client = TestClient(app)
+    events = render_component_events(
+        component="houmao.chart.bar",
+        payload={
+            "schemaVersion": 1,
+            "title": "Revenue",
+            "data": [{"label": "Q1", "value": 12}],
+        },
+    )
+
+    response = client.post("/v1/ag-ui/events", json={"events": events})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "accepted",
+        "acceptedCount": 3,
+        "storedCount": 0,
+        "deliveredCount": 0,
+        "replay": "none",
+        "destinationKind": "default_sink",
+        "warnings": ["default_sink_due_to_no_destination"],
+    }
+    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"] == {"status": "empty"}
+    default_sink = [
+        entry
+        for entry in runtime.diagnostics
+        if entry["event"] == "gateway.ag_ui_events_publish_default_sink"
+    ]
+    assert default_sink
+    assert default_sink[0]["fields"]["subscriberOutcome"] == "default_sink"  # type: ignore[index]
     runtime.assert_no_work_or_lifecycle_calls()
 
 

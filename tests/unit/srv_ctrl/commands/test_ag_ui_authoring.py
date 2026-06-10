@@ -299,6 +299,102 @@ def test_gateway_ag_ui_publish_validates_path_input_and_posts(
     assert payload["replay"] == "none"
 
 
+def test_gateway_ag_ui_publish_allows_omitted_route_and_reports_sink_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = CliRunner()
+    events = render_component_events(component="houmao.chart.bar", payload=_bar_payload())
+    events_path = _write_json(tmp_path / "events.json", events)
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        gateway_commands, "_resolve_gateway_command_target", lambda **_kwargs: object()
+    )
+
+    def _fake_publish(target: object, *, request_model: object) -> AgUiEventPublishResponse:
+        calls.append({"target": target, "request": request_model})
+        return AgUiEventPublishResponse(
+            accepted_count=3,
+            stored_count=0,
+            delivered_count=0,
+            replay="none",
+            destination_kind="default_sink",
+            warnings=["default_sink_due_to_no_destination"],
+        )
+
+    monkeypatch.setattr(gateway_commands, "gateway_ag_ui_publish", _fake_publish)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "self",
+            "gateway",
+            "ag-ui",
+            "publish",
+            "--input",
+            str(events_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    request_model = calls[0]["request"]
+    assert getattr(request_model, "thread_id") is None
+    assert getattr(request_model, "run_id") is None
+    assert getattr(request_model, "connection_id") is None
+    payload = json.loads(result.output)
+    assert payload["destination_kind"] == "default_sink"
+    assert payload["warnings"] == ["default_sink_due_to_no_destination"]
+    assert payload["delivered_count"] == 0
+
+
+def test_gateway_ag_ui_publish_plain_output_reports_zero_delivery_without_visibility_claim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = CliRunner()
+    events = render_component_events(component="houmao.chart.bar", payload=_bar_payload())
+    events_path = _write_json(tmp_path / "events.json", events)
+
+    monkeypatch.setattr(
+        gateway_commands, "_resolve_gateway_command_target", lambda **_kwargs: object()
+    )
+
+    def _fake_publish(_target: object, *, request_model: object) -> AgUiEventPublishResponse:
+        assert getattr(request_model, "thread_id") is None
+        return AgUiEventPublishResponse(
+            accepted_count=3,
+            stored_count=0,
+            delivered_count=0,
+            replay="none",
+            destination_kind="last_bound",
+        )
+
+    monkeypatch.setattr(gateway_commands, "gateway_ag_ui_publish", _fake_publish)
+
+    result = runner.invoke(
+        cli,
+        [
+            "agents",
+            "self",
+            "gateway",
+            "ag-ui",
+            "publish",
+            "--input",
+            str(events_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "delivered_count" in result.output
+    assert "0" in result.output
+    assert "visible" not in result.output.lower()
+    assert "displayed" not in result.output.lower()
+
+
 def test_gateway_ag_ui_publish_rejects_empty_batch_before_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

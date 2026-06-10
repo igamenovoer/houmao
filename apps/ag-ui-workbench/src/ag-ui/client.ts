@@ -75,6 +75,38 @@ export async function detachAgUi(config: TargetConfig, connectionId: string | nu
   }
 }
 
+export async function bindLastAgUiThread(
+  config: TargetConfig,
+  threadId: string,
+  source: "gui_connect" | "gui_view_change" | "manual" = "gui_view_change",
+): Promise<void> {
+  const target = normalizeAgUiTarget(config);
+  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/bindings/last-thread`), {
+    method: "PUT",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ threadId, source }),
+  });
+  if (!response.ok) {
+    throw new AgUiHttpError(response.status, response.statusText, await response.text());
+  }
+}
+
+export async function clearLastAgUiThread(config: TargetConfig): Promise<void> {
+  const target = normalizeAgUiTarget(config);
+  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/bindings/last-thread`), {
+    method: "DELETE",
+    headers: {
+      accept: "application/json",
+    },
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new AgUiHttpError(response.status, response.statusText, await response.text());
+  }
+}
+
 async function streamAgUi(
   endpointUrl: string,
   method: "POST",

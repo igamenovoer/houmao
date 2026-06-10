@@ -11,7 +11,7 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   webServer: {
-    command: "bun run dev --host 127.0.0.1 --port 5178",
+    command: "HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE=1 bun run dev --host 127.0.0.1 --port 5178",
     url: "http://127.0.0.1:5178",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

@@ -261,6 +261,29 @@ class AgUiDiagnostics:
             dedup_key=f"ag-ui-events-publish-rejected:{rejection_reason}",
         )
 
+    def events_publish_default_sink(
+        self,
+        *,
+        accepted_count: int,
+        reason: str,
+    ) -> None:
+        """Record one valid publish batch sent to the internal default sink."""
+
+        self._emit(
+            level="warning",
+            event="gateway.ag_ui_events_publish_default_sink",
+            fields={
+                **self.active_counts(),
+                "acceptedCount": accepted_count,
+                "storedCount": 0,
+                "deliveredCount": 0,
+                "subscriberOutcome": "default_sink",
+                "reason": reason,
+                "replay": "none",
+            },
+            dedup_key=f"ag-ui-events-publish-default-sink:{reason}",
+        )
+
     def _counts_locked(self) -> dict[str, int]:
         """Return counts while the caller holds the lock."""
 

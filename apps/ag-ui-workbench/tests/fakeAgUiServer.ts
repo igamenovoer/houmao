@@ -15,6 +15,12 @@ interface RecordedConnect {
   body: Record<string, unknown>;
 }
 
+interface RecordedBinding {
+  target: string;
+  threadId: string;
+  source: string;
+}
+
 interface GatewayServerRecord {
   server: Server;
   port: number;
@@ -36,6 +42,8 @@ export class FakeAgUiServer {
   readonly runs: RecordedRun[] = [];
   readonly detaches: RecordedDetach[] = [];
   readonly connects: RecordedConnect[] = [];
+  readonly bindingUpdates: RecordedBinding[] = [];
+  readonly bindingClears: string[] = [];
   interruptRequests = 0;
 
   async start(): Promise<void> {
@@ -90,6 +98,8 @@ export class FakeAgUiServer {
     this.runs.length = 0;
     this.detaches.length = 0;
     this.connects.length = 0;
+    this.bindingUpdates.length = 0;
+    this.bindingClears.length = 0;
     this.interruptRequests = 0;
   }
 
@@ -217,6 +227,36 @@ export class FakeAgUiServer {
     if (req.method === "POST" && url.pathname.endsWith("/events")) {
       const body = await readJson(req);
       this.handlePublishedEvents(res, target, body);
+      return;
+    }
+    if (req.method === "GET" && url.pathname.endsWith("/bindings")) {
+      sendJson(res, 200, {
+        lastBoundThread: { status: "empty" },
+        lastSentThread: { status: "empty" },
+      });
+      return;
+    }
+    if (req.method === "PUT" && url.pathname.endsWith("/bindings/last-thread")) {
+      const body = await readJson(req);
+      const bodyRecord = isRecord(body) ? body : {};
+      const threadId = stringField(bodyRecord, "threadId", "");
+      const source = stringField(bodyRecord, "source", "manual");
+      if (!threadId.trim()) {
+        sendJson(res, 422, { code: "ag_ui_last_bound_thread_invalid" });
+        return;
+      }
+      this.bindingUpdates.push({ target, threadId: threadId.trim(), source });
+      sendJson(res, 200, {
+        status: "bound",
+        threadId: threadId.trim(),
+        source,
+        updatedAtUtc: "2026-06-10T00:00:00Z",
+      });
+      return;
+    }
+    if (req.method === "DELETE" && url.pathname.endsWith("/bindings/last-thread")) {
+      this.bindingClears.push(target);
+      sendJson(res, 200, { status: "empty" });
       return;
     }
     if (req.method === "POST" && url.pathname.endsWith("/runs")) {

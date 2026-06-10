@@ -6,8 +6,9 @@ import asyncio
 from contextlib import suppress
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
 from fastapi import APIRouter, FastAPI, Request
@@ -23,14 +24,22 @@ from houmao.ag_ui.authoring import (
 from houmao.ag_ui.capabilities import AgUiCapabilityRuntime, build_ag_ui_capabilities
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.diagnostics import AgUiDiagnostics
+from houmao.ag_ui.destination import (
+    AgUiDestinationState,
+    AgUiLastSentSource,
+    AgUiThreadDestination,
+)
 from houmao.ag_ui.encoder import SSE_CONTENT_TYPE, encode_sse_comment, encode_sse_event
 from houmao.ag_ui.event_hub import AgUiEventHub, AgUiEventSubscription, AgUiQueuedEvent
 from houmao.ag_ui.models import (
     AgUiConnectInput,
     AgUiDetachResponse,
+    AgUiDestinationBindingsResponse,
     AgUiEventPublishRequest,
     AgUiEventPublishResponse,
+    AgUiSetLastBoundThreadRequest,
     AgUiStateSnapshotEvent,
+    AgUiThreadDestinationResponse,
     HoumaoAgUiCapabilitiesResponse,
 )
 from houmao.ag_ui.runtime import AgUiRuntimeObservationProtocol
@@ -39,6 +48,17 @@ from houmao.ag_ui.state import build_houmao_state_snapshot
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _DEFAULT_RUN_POLL_INTERVAL_SECONDS = 0.2
+
+
+@dataclass(frozen=True)
+class _ResolvedPublishDestination:
+    """Resolved destination for one AG-UI publish request."""
+
+    kind: Literal["message", "event", "connection", "last_sent", "last_bound", "default_sink"]
+    thread_id: str | None
+    run_id: str | None
+    connection_id: str | None
+    last_sent_source: AgUiLastSentSource
 
 
 class AgUiDisconnectProbe(Protocol):
@@ -254,6 +274,11 @@ def register_ag_ui_routes(
     except AttributeError:
         diagnostics = AgUiDiagnostics(runtime=runtime)
     app.state.ag_ui_diagnostics = diagnostics
+    try:
+        destination_state = app.state.ag_ui_destination_state
+    except AttributeError:
+        destination_state = AgUiDestinationState()
+    app.state.ag_ui_destination_state = destination_state
 
     router = APIRouter(prefix="/v1/ag-ui")
 
@@ -380,19 +405,40 @@ def register_ag_ui_routes(
                 content=validation_error_payload(exc),
             )
 
-        effective_thread_id = request_payload.thread_id or _single_event_thread_id(
-            normalized_events
+        destination = _resolve_publish_destination(
+            normalized_events=normalized_events,
+            request_payload=request_payload,
+            registry=resolved_registry,
+            destination_state=destination_state,
         )
+        if destination.kind == "default_sink":
+            diagnostics.events_publish_default_sink(
+                accepted_count=len(parsed_events),
+                reason="no_destination",
+            )
+            return AgUiEventPublishResponse(
+                accepted_count=len(parsed_events),
+                stored_count=0,
+                delivered_count=0,
+                replay="none",
+                destination_kind="default_sink",
+                warnings=["default_sink_due_to_no_destination"],
+            )
         publish_result = resolved_event_hub.publish(
             parsed_events,
-            thread_id=effective_thread_id,
-            run_id=request_payload.run_id,
-            connection_id=request_payload.connection_id,
+            thread_id=destination.thread_id,
+            run_id=destination.run_id,
+            connection_id=destination.connection_id,
         )
+        if destination.thread_id is not None:
+            destination_state.set_last_sent_thread(
+                destination.thread_id,
+                source=destination.last_sent_source,
+            )
         diagnostics.events_publish_accepted(
-            thread_id=request_payload.thread_id,
-            run_id=request_payload.run_id,
-            connection_id=request_payload.connection_id,
+            thread_id=destination.thread_id,
+            run_id=destination.run_id,
+            connection_id=destination.connection_id,
             accepted_count=publish_result.accepted_count,
             stored_count=publish_result.stored_count,
             delivered_count=publish_result.delivered_count,
@@ -403,10 +449,67 @@ def register_ag_ui_routes(
             stored_count=publish_result.stored_count,
             delivered_count=publish_result.delivered_count,
             replay=publish_result.replay,
-            thread_id=request_payload.thread_id,
-            run_id=request_payload.run_id,
-            connection_id=request_payload.connection_id,
+            thread_id=destination.thread_id,
+            run_id=destination.run_id,
+            connection_id=destination.connection_id,
+            destination_kind=None if destination.kind == "message" else destination.kind,
         )
+
+    @router.get(
+        "/bindings",
+        response_model=AgUiDestinationBindingsResponse,
+        response_model_exclude_none=True,
+    )
+    def _bindings() -> AgUiDestinationBindingsResponse:
+        """Return gateway-local AG-UI destination fallback state."""
+
+        return _destination_bindings_response(destination_state)
+
+    @router.get(
+        "/bindings/last-thread",
+        response_model=AgUiThreadDestinationResponse,
+        response_model_exclude_none=True,
+    )
+    def _last_bound_thread() -> AgUiThreadDestinationResponse:
+        """Return the current GUI-bound AG-UI thread."""
+
+        return _thread_destination_response(destination_state.last_bound_thread)
+
+    @router.put(
+        "/bindings/last-thread",
+        response_model=AgUiThreadDestinationResponse,
+        response_model_exclude_none=True,
+    )
+    def _set_last_bound_thread(
+        request_payload: AgUiSetLastBoundThreadRequest,
+    ) -> AgUiThreadDestinationResponse | JSONResponse:
+        """Set the current foreground GUI-bound AG-UI thread."""
+
+        try:
+            state = destination_state.set_last_bound_thread(
+                request_payload.thread_id,
+                source=request_payload.source,
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "ok": False,
+                    "code": "ag_ui_last_bound_thread_invalid",
+                    "message": str(exc),
+                },
+            )
+        return _thread_destination_response(state)
+
+    @router.delete(
+        "/bindings/last-thread",
+        response_model=AgUiThreadDestinationResponse,
+        response_model_exclude_none=True,
+    )
+    def _clear_last_bound_thread() -> AgUiThreadDestinationResponse:
+        """Clear the current foreground GUI-bound AG-UI thread."""
+
+        return _thread_destination_response(destination_state.clear_last_bound_thread())
 
     app.include_router(router)
     return resolved_registry
@@ -475,6 +578,96 @@ def _single_event_thread_id(events: list[AgUiEventPayload]) -> str | None:
     return None
 
 
+def _resolve_publish_destination(
+    *,
+    normalized_events: list[AgUiEventPayload],
+    request_payload: AgUiEventPublishRequest,
+    registry: AgUiConnectionRegistry,
+    destination_state: AgUiDestinationState,
+) -> _ResolvedPublishDestination:
+    """Resolve the destination for one validated publish request."""
+
+    if request_payload.connection_id is not None:
+        record = registry.get(request_payload.connection_id)
+        return _ResolvedPublishDestination(
+            kind="connection",
+            thread_id=record.thread_id if record is not None else None,
+            run_id=record.run_id if record is not None else request_payload.run_id,
+            connection_id=request_payload.connection_id,
+            last_sent_source="connection",
+        )
+    if request_payload.thread_id is not None or request_payload.run_id is not None:
+        return _ResolvedPublishDestination(
+            kind="message",
+            thread_id=request_payload.thread_id,
+            run_id=request_payload.run_id,
+            connection_id=None,
+            last_sent_source="explicit",
+        )
+    event_thread_id = _single_event_thread_id(normalized_events)
+    if event_thread_id is not None:
+        return _ResolvedPublishDestination(
+            kind="event",
+            thread_id=event_thread_id,
+            run_id=None,
+            connection_id=None,
+            last_sent_source="event",
+        )
+    last_bound, last_sent = destination_state.snapshot()
+    if last_sent.thread_id is not None:
+        return _ResolvedPublishDestination(
+            kind="last_sent",
+            thread_id=last_sent.thread_id,
+            run_id=None,
+            connection_id=None,
+            last_sent_source="last_sent",
+        )
+    if last_bound.thread_id is not None:
+        return _ResolvedPublishDestination(
+            kind="last_bound",
+            thread_id=last_bound.thread_id,
+            run_id=None,
+            connection_id=None,
+            last_sent_source="last_bound",
+        )
+    return _ResolvedPublishDestination(
+        kind="default_sink",
+        thread_id=None,
+        run_id=None,
+        connection_id=None,
+        last_sent_source="explicit",
+    )
+
+
+def _destination_bindings_response(
+    state: AgUiDestinationState,
+) -> AgUiDestinationBindingsResponse:
+    """Return a serializable destination fallback state response."""
+
+    last_bound, last_sent = state.snapshot()
+    return AgUiDestinationBindingsResponse(
+        last_bound_thread=_thread_destination_response(last_bound),
+        last_sent_thread=_thread_destination_response(last_sent),
+    )
+
+
+def _thread_destination_response(
+    state: AgUiThreadDestination,
+) -> AgUiThreadDestinationResponse:
+    """Return a serializable destination state slot response."""
+
+    return AgUiThreadDestinationResponse(
+        status=state.status,
+        thread_id=state.thread_id,
+        updated_at_utc=(
+            state.updated_at_utc.isoformat().replace("+00:00", "Z")
+            if state.updated_at_utc is not None
+            else None
+        ),
+        source=state.source,
+    )
+
+
 def _runtime_agent_identity(
     runtime: AgUiCapabilityRuntime | AgUiRuntimeObservationProtocol,
 ) -> str:
@@ -505,10 +698,16 @@ def _validate_publish_routing(
             "AG-UI publish requires at least one event.",
             repair_hint="Render a component first or provide a non-empty AG-UI event batch.",
         )
-    if thread_id is None and run_id is None and connection_id is None:
+    event_thread_ids = {
+        event_thread_id
+        for event in events
+        if isinstance((event_thread_id := event.get("threadId")), str)
+        and event_thread_id.strip()
+    }
+    if thread_id is None and connection_id is None and len(event_thread_ids) > 1:
         raise HoumaoAgUiValidationError(
-            "AG-UI publish requires `threadId`, `runId`, or `connectionId` routing.",
-            repair_hint="Pass --thread-id, --run-id, or --connection-id to the publish command.",
+            "AG-UI event batch has multiple event-level thread ids.",
+            repair_hint="Publish one thread at a time or pass an explicit --thread-id route.",
         )
     for index, event in enumerate(events):
         event_thread_id = event.get("threadId")

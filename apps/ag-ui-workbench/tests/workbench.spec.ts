@@ -23,15 +23,19 @@ test.beforeEach(async ({ page }) => {
 test("submits minimal run and connect request bodies", async ({ page }) => {
   const proxyRequests = collectProxyPostBodies(page);
 
-  await configurePane(page, "operator", "Operator", fakeServer.targetBase("operator"), "operator-thread");
-  await page.getByTestId("connect-operator").click();
+  await expect(page.getByTestId("panel-operator")).toHaveCount(0);
+  await expect.poll(() => panelIds(page)).toEqual([]);
+
+  await page.getByTestId("add-agent-pane").click();
+  await configurePane(page, "agent-1", "Manual Operator", fakeServer.targetBase("operator"), "operator-thread");
+  await page.getByTestId("connect-agent-1").click();
   await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "operator").length).toBe(1);
   expectMinimalConnectBody(fakeServer.connects.find((connect) => connect.target === "operator")!.body);
 
-  await page.getByTestId("prompt-operator").fill("operator canvas prompt");
-  const operatorSurface = await measuredSurfaceSize(page, "operator");
-  await page.getByTestId("run-operator").click();
-  await expect(page.getByTestId("transcript-operator")).toContainText("operator-only-run-evidence");
+  await page.getByTestId("prompt-agent-1").fill("operator canvas prompt");
+  const operatorSurface = await measuredSurfaceSize(page, "agent-1");
+  await page.getByTestId("run-agent-1").click();
+  await expect(page.getByTestId("transcript-agent-1")).toContainText("operator-only-run-evidence");
   const operatorRun = fakeServer.runs.find((run) => run.target === "operator");
   expect(operatorRun).toBeTruthy();
   expectMinimalRunBody(operatorRun!.body, {
@@ -41,17 +45,17 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
   });
 
   await page.getByTestId("add-agent-pane").click();
-  await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
-  await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await configurePane(page, "agent-2", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
+  await page.getByTestId("connect-agent-2").click();
+  await expect(page.getByTestId("raw-agent-2")).toContainText("alpha-connect-evidence");
   const agentConnect = fakeServer.connects.find((connect) => connect.target === "alpha");
   expect(agentConnect).toBeTruthy();
   expectMinimalConnectBody(agentConnect!.body);
 
-  await page.getByTestId("prompt-agent-1").fill("agent canvas prompt");
-  const agentSurface = await measuredSurfaceSize(page, "agent-1");
-  await page.getByTestId("run-agent-1").click();
-  await expect(page.getByTestId("transcript-agent-1")).toContainText("alpha-run-evidence");
+  await page.getByTestId("prompt-agent-2").fill("agent canvas prompt");
+  const agentSurface = await measuredSurfaceSize(page, "agent-2");
+  await page.getByTestId("run-agent-2").click();
+  await expect(page.getByTestId("transcript-agent-2")).toContainText("alpha-run-evidence");
   const agentRun = fakeServer.runs.find((run) => run.target === "alpha");
   expect(agentRun).toBeTruthy();
   expectMinimalRunBody(agentRun!.body, {
@@ -69,17 +73,9 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
   expectMinimalConnectBody(expectRecord(debugConnect!.body), { allowReplayFlag: true });
 });
 
-test("validates operator, docked multi-pane isolation, graphics, detach, and persistence", async ({ page, context }) => {
+test("validates docked multi-pane isolation, graphics, detach, and persistence", async ({ page, context }) => {
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("proxy-status")).toContainText("loopback proxy ready");
-
-  await configurePane(page, "operator", "Operator", fakeServer.targetBase("operator"), "operator-thread");
-  await page.getByTestId("prompt-operator").fill("operator prompt");
-  await page.getByTestId("run-operator").click();
-  await expect(page.getByTestId("transcript-operator")).toContainText("operator-only-run-evidence");
-  expect(fakeServer.runs.filter((run) => run.target === "operator")).toHaveLength(1);
-  expect(fakeServer.runs.filter((run) => run.target === "alpha")).toHaveLength(0);
-  expect(fakeServer.runs.filter((run) => run.target === "beta")).toHaveLength(0);
 
   await page.getByTestId("add-agent-pane").click();
   await page.getByTestId("add-agent-pane").click();
@@ -152,52 +148,90 @@ test("validates operator, docked multi-pane isolation, graphics, detach, and per
   expect(JSON.stringify(savedAfterReload.layout)).not.toContain("popoutGroups");
 });
 
-test("respects closing operator pane while preserving other panes and operator metadata", async ({ page }) => {
+test("supports agent-pane operator marking without restoring the legacy operator pane", async ({ page }) => {
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  await configurePane(
-    page,
-    "operator",
-    "Custom Operator",
-    fakeServer.targetBase("operator"),
-    "operator-thread-custom",
-  );
-  await page.getByTestId("add-agent-pane").click();
-  await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
-
-  const closed = await page.evaluate(() => window.__HMWB_TEST__!.closePane("operator"));
-  expect(closed).toBeTruthy();
-  await expect.poll(() => panelIds(page)).toEqual(["agent-1"]);
   await expect(page.getByTestId("panel-operator")).toHaveCount(0);
-  await expect(page.getByTestId("panel-agent-1")).toBeVisible();
+  await expect.poll(() => panelIds(page)).toEqual([]);
 
-  await expect
-    .poll(() => page.evaluate(() => JSON.stringify(window.__HMWB_TEST__!.storage().layout ?? {})))
-    .not.toContain("operator");
-  const savedBeforeReload = await page.evaluate(() => window.__HMWB_TEST__!.storage());
-  expect(savedBeforeReload.panes.operator.target).toMatchObject({
-    label: "Custom Operator",
-    url: fakeServer.targetBase("operator"),
-    threadId: "operator-thread-custom",
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      "houmao.agUiWorkbench.v1",
+      JSON.stringify({
+        discovery: { passiveServerUrl: "http://127.0.0.1:9891" },
+        panes: {
+          operator: {
+            paneId: "operator",
+            kind: "operator",
+            target: {
+              label: "Legacy Operator",
+              url: "http://127.0.0.1:9/v1/ag-ui",
+              threadId: "legacy-thread",
+              source: { kind: "manual" },
+            },
+          },
+        },
+        watchedTargets: {},
+        nextAgentIndex: 1,
+        nextDebugAgentIndex: 1,
+        nextTmuxIndex: 1,
+      }),
+    );
   });
-
   await page.reload();
-  await expect.poll(() => panelIds(page)).toEqual(["agent-1"]);
+  await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("panel-operator")).toHaveCount(0);
-  await expect(page.getByTestId("panel-agent-1")).toBeVisible();
+  await expect.poll(() => panelIds(page)).toEqual([]);
+  expect(await page.evaluate(() => window.__HMWB_TEST__!.storage().panes.operator)).toBeUndefined();
+
+  await page.getByTestId("add-agent-pane").click();
+  await expect(page.getByTestId("mark-operator-agent-1")).toBeDisabled();
+
+  await page.getByTestId("choose-agent-agent-1").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("select-agent-alpha").click();
   await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
-  await expect(page.getByTestId("thread-id-agent-1")).toHaveValue("alpha-thread");
-  const savedAfterReload = await page.evaluate(() => window.__HMWB_TEST__!.storage());
-  expect(savedAfterReload.panes.operator.target).toMatchObject({
-    label: "Custom Operator",
-    url: fakeServer.targetBase("operator"),
-    threadId: "operator-thread-custom",
+  await expect(page.getByTestId("mark-operator-agent-1")).toBeEnabled();
+
+  await page.getByTestId("mark-operator-agent-1").click();
+  await expect(page.getByTestId("operator-marker-agent-1")).toContainText("Operator");
+  expect(await page.evaluate(() => window.__HMWB_TEST__!.storage().operatorPaneId)).toBe("agent-1");
+
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  const connect = fakeServer.connects.find((entry) => entry.target === "alpha");
+  expect(connect).toBeTruthy();
+  expectMinimalConnectBody(connect!.body);
+
+  await page.getByTestId("prompt-agent-1").fill("operator marked request stays minimal");
+  const surface = await measuredSurfaceSize(page, "agent-1");
+  await page.getByTestId("run-agent-1").click();
+  await expect(page.getByTestId("transcript-agent-1")).toContainText("alpha-run-evidence");
+  const run = fakeServer.runs.find((entry) => entry.target === "alpha");
+  expect(run).toBeTruthy();
+  expectMinimalRunBody(run!.body, {
+    threadId: "alpha-thread",
+    message: "operator marked request stays minimal",
+    canvasSize: surface,
   });
+
+  await page.getByTestId("target-url-agent-1").fill(fakeServer.targetBase("manual"));
+  await expect(page.getByTestId("operator-marker-agent-1")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__HMWB_TEST__!.storage().operatorPaneId)).toBeUndefined();
+
+  await page.getByTestId("close-agent-1").click();
+  await expect.poll(() => panelIds(page)).toEqual([]);
+  await expect(page.getByTestId("panel-operator")).toHaveCount(0);
+  await page.reload();
+  await expect.poll(() => panelIds(page)).toEqual([]);
+  await expect(page.getByTestId("panel-operator")).toHaveCount(0);
 });
 
 test("surfaces target policy errors before contacting a disallowed target", async ({ page }) => {
-  await configurePane(page, "operator", "Operator", "http://example.com/v1/ag-ui", "operator-thread");
-  await page.getByTestId("capabilities-operator").click();
-  await expect(page.getByTestId("errors-operator")).toContainText("target_policy_rejected");
+  await page.getByTestId("add-agent-pane").click();
+  await configurePane(page, "agent-1", "Manual", "http://example.com/v1/ag-ui", "agent-thread");
+  await page.getByTestId("capabilities-agent-1").click();
+  await expect(page.getByTestId("errors-agent-1")).toContainText("target_policy_rejected");
 });
 
 test("lists discovered agents, retargets panes, opens new panes, and keeps manual fallback", async ({ page }) => {
@@ -256,6 +290,99 @@ test("lists discovered agents, retargets panes, opens new panes, and keeps manua
   });
   await page.getByTestId("connect-agent-1").click();
   await expect(page.getByTestId("status-agent-1")).toContainText("waiting");
+});
+
+test("binds last-bound thread only for foreground discovered agent panes", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("select-agent-alpha").click();
+
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
+  await expect
+    .poll(() => fakeServer.bindingUpdates.filter((update) => update.target === "alpha"))
+    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_view_change" });
+
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await expect
+    .poll(() => fakeServer.bindingUpdates.filter((update) => update.target === "alpha"))
+    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_connect" });
+
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("watch-agent-beta").click();
+  await expect.poll(() => fakeServer.connects.some((connect) => connect.target === "beta")).toBeTruthy();
+  expect(fakeServer.bindingUpdates.some((update) => update.target === "beta")).toBeFalsy();
+  await page.getByTestId("close-agent-picker").click();
+  await expect(page.getByTestId("agent-picker")).toHaveCount(0);
+
+  await page.getByTestId("close-agent-1").click();
+  await expect(page.getByTestId("panel-agent-1")).toHaveCount(0);
+  await expect.poll(() => fakeServer.bindingClears).toContain("alpha");
+  expect(fakeServer.bindingClears).not.toContain("beta");
+});
+
+test("opens tmux tab, filters sessions, attaches, rejects read-only input, and avoids persistence", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("close-agent-picker").click();
+
+  await page.getByTestId("add-tmux-pane").click();
+  await expect(page.getByTestId("panel-tmux-1")).toBeVisible();
+  await expect(page.getByTestId("tmux-status-tmux-1")).toContainText("ready");
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toBeVisible();
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toContainText("HOUMAO-alpha");
+  await expect(page.getByTestId("tmux-session-utility-shell")).toBeHidden();
+
+  await page.getByTestId("tmux-search-tmux-1").fill("gen-alpha");
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toBeVisible();
+  await page.getByTestId("tmux-search-tmux-1").fill("utility");
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toBeHidden();
+  await expect(page.getByTestId("tmux-empty-tmux-1")).toContainText("No tmux sessions match");
+
+  await page.getByTestId("tmux-houmao-only-tmux-1").uncheck();
+  await expect(page.getByTestId("tmux-session-utility-shell")).toBeVisible();
+  await page.getByTestId("tmux-search-tmux-1").fill("");
+
+  await page.getByTestId("tmux-session-houmao-alpha").click();
+  await expect(page.getByTestId("tmux-terminal-tmux-1")).toContainText("fixture attached houmao-alpha");
+  await page.getByTestId("tmux-terminal-tmux-1").click();
+  await page.keyboard.type("rw-fixture-input");
+  await expect(page.getByTestId("tmux-terminal-tmux-1")).toContainText("fixture input");
+
+  await page.getByTestId("tmux-detach-tmux-1").click();
+  await page.getByTestId("tmux-read-only-tmux-1").check();
+  await page.getByTestId("tmux-session-houmao-alpha").click();
+  await expect(page.getByTestId("tmux-read-only-state-tmux-1")).toContainText("read only");
+  await expect(page.getByTestId("tmux-terminal-tmux-1")).toContainText("fixture attached houmao-alpha");
+  await page.getByTestId("tmux-terminal-tmux-1").click();
+  await page.keyboard.type("blocked-fixture-input");
+  await expect(page.getByTestId("tmux-terminal-tmux-1")).not.toContainText("blocked-fixture-input");
+  expect(await readOnlyTmuxSocketRejectsInput(page)).toBeTruthy();
+
+  const persistenceBeforeClose = await browserPersistenceText(page);
+  expect(persistenceBeforeClose).not.toContain("fixture attached");
+  expect(persistenceBeforeClose).not.toContain("rw-fixture-input");
+  expect(persistenceBeforeClose).not.toContain("blocked-fixture-input");
+
+  await page.getByTestId("close-tmux-1").click();
+  await expect(page.getByTestId("panel-tmux-1")).toHaveCount(0);
+  const sessions = (await (await page.request.get("/__houmao_tmux/sessions")).json()) as {
+    sessions: Array<{ sessionName: string }>;
+  };
+  expect(sessions.sessions.some((session) => session.sessionName === "houmao-alpha")).toBeTruthy();
+  expect(fakeServer.detaches).toHaveLength(0);
+  expect(fakeServer.interruptRequests).toBe(0);
+
+  const persistenceAfterClose = await browserPersistenceText(page);
+  expect(persistenceAfterClose).not.toContain("fixture attached");
+  expect(persistenceAfterClose).not.toContain("fixture input");
+  expect(persistenceAfterClose).not.toContain("Authorization");
+  expect(persistenceAfterClose).not.toContain("Bearer");
+  expect(JSON.stringify(await page.evaluate(() => window.__HMWB_TEST__!.storage().layout ?? {}))).not.toContain(
+    "floatingGroups",
+  );
 });
 
 test("surfaces target policy errors for disallowed passive-server discovery", async ({ page }) => {
@@ -786,6 +913,63 @@ async function debugAgentConnectionCount(page: Page, agentId: string): Promise<n
     agents: Array<{ agentId: string; connectionCount: number }>;
   };
   return body.agents.find((agent) => agent.agentId === agentId)?.connectionCount ?? 0;
+}
+
+async function readOnlyTmuxSocketRejectsInput(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const url = new URL("/__houmao_tmux/attach", window.location.href);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(url.toString());
+        const timer = window.setTimeout(() => {
+          socket.close();
+          resolve(false);
+        }, 1500);
+        const finish = (result: boolean) => {
+          window.clearTimeout(timer);
+          socket.close();
+          resolve(result);
+        };
+        socket.addEventListener("open", () => {
+          socket.send(
+            JSON.stringify({
+              type: "attach",
+              sessionName: "houmao-alpha",
+              mode: "read-only",
+              cols: 80,
+              rows: 24,
+            }),
+          );
+        });
+        socket.addEventListener("message", (event) => {
+          const data = String(event.data);
+          if (data.includes('"type":"attached"')) {
+            socket.send(JSON.stringify({ type: "input", data: "crafted-read-only-input" }));
+            return;
+          }
+          if (data.includes("tmux_read_only")) {
+            finish(true);
+          }
+        });
+        socket.addEventListener("error", () => finish(false));
+      }),
+  );
+}
+
+async function browserPersistenceText(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const localStorageText = Object.entries(window.localStorage)
+      .map(([key, value]) => `${key}:${value}`)
+      .join("\n");
+    const indexedDbWithDatabases = window.indexedDB as IDBFactory & {
+      databases?: () => Promise<Array<{ name?: string }>>;
+    };
+    const databaseNames = indexedDbWithDatabases.databases
+      ? (await indexedDbWithDatabases.databases()).map((database) => database.name ?? "")
+      : [];
+    return [localStorageText, databaseNames.join("\n")].join("\n");
+  });
 }
 
 async function panelIds(page: Page): Promise<string[]> {

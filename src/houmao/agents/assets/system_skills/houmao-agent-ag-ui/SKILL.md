@@ -114,17 +114,26 @@ Publish only to the Houmao gateway through the scoped gateway command family.
 Current agent:
 
 ```bash
-houmao-mgr agents self gateway ag-ui publish --input events.json --thread-id <thread-id>
+houmao-mgr agents self gateway ag-ui publish --input events.json
 ```
 
 Selected agent:
 
 ```bash
-houmao-mgr agents single --agent-id <agent-id> gateway ag-ui publish --input events.json --thread-id <thread-id>
-houmao-mgr agents single --agent-name <agent-name> gateway ag-ui publish --input events.json --thread-id <thread-id>
+houmao-mgr agents single --agent-id <agent-id> gateway ag-ui publish --input events.json
+houmao-mgr agents single --agent-name <agent-name> gateway ag-ui publish --input events.json
 ```
 
-For the Houmao AG-UI workbench, prefer `--thread-id <thread-id>` by itself unless the user explicitly asks to target one exact active run or connection. A pane-level connect stream and an active run stream both receive thread-only publishes for the same thread. Adding `--run-id` narrows delivery to a stream with that exact run id, so a guessed, newly generated, stale, or copied-but-wrong run id will usually produce `delivered_count: 0` and the GUI will render nothing.
+For the Houmao AG-UI workbench, a tmux-controlled agent often lacks GUI-appended canvas or thread context. In that case, omit explicit routing and let the gateway resolve the destination. The gateway order is:
+
+1. Destination specified in the publish request or rendered event batch.
+2. Gateway `last-sent-thread`.
+3. Gateway `last-bound-thread`, maintained by the foreground workbench pane.
+4. Houmao default sink.
+
+The default sink is gateway-defined and is not an agent-visible thread name. Do not invent or target a sink thread id.
+
+Use `--thread-id <thread-id>` by itself when the user or environment gives a known destination thread. A pane-level connect stream and an active run stream both receive thread-only publishes for the same thread. Adding `--run-id` narrows delivery to a stream with that exact run id, so a guessed, newly generated, stale, or copied-but-wrong run id will usually produce `delivered_count: 0` and the GUI will render nothing.
 
 Use `--run-id` only when targeting one known active run stream. Use `--connection-id` only when targeting one known active GUI connection. Do not guess routing ids. If no routing id is known, ask for it or inspect the current GUI connection state through maintained gateway surfaces.
 
@@ -133,8 +142,11 @@ Check the publish response:
 - `accepted_count` is the number of standard AG-UI events accepted by the gateway after validation.
 - `stored_count` is normally `0` for Houmao gateway GUI-event publish because the gateway does not retain missed events for replay.
 - `delivered_count` is the number of live stream deliveries made immediately.
+- `warnings` may include `default_sink_due_to_no_destination` when the gateway accepted the batch but had no message-specified, last-sent, or last-bound thread destination.
 
 `delivered_count > 0` means matching live GUI/run streams received the events immediately. `delivered_count: 0` with `stored_count: 0` means no matching live stream received the events and the Houmao gateway did not retain them for later replay. Do not describe a publish as visible in the GUI unless `delivered_count > 0` or the user confirms that the GUI received it through another path.
+
+If the response warns `default_sink_due_to_no_destination`, report that the gateway accepted the events but sent them to the internal default sink because no GUI destination was available. Do not claim that the GUI displayed the message.
 
 If the user expected a chart to appear but `delivered_count` is zero, ask the user to open or watch the intended workbench target and publish the event batch again after a listener is connected.
 
@@ -179,10 +191,10 @@ Render and publish:
 ```bash
 houmao-mgr internals ag-ui components validate houmao.table --input payload.json
 houmao-mgr internals ag-ui events render houmao.table --input payload.json > events.json
-houmao-mgr agents self gateway ag-ui publish --input events.json --thread-id <thread-id>
+houmao-mgr agents self gateway ag-ui publish --input events.json
 ```
 
-After publishing, report the response accurately. If `delivered_count > 0`, say the gateway delivered the batch to live stream subscribers. If `delivered_count` is zero, say only that the gateway accepted the batch and no live GUI stream received it.
+After publishing, report the response accurately. If `delivered_count > 0`, say the gateway delivered the batch to live stream subscribers. If the response includes `default_sink_due_to_no_destination`, say that no GUI destination was available and the gateway used the internal sink. If `delivered_count` is zero without that warning, say only that the gateway accepted the batch and no live GUI stream received it.
 
 ## Safety
 

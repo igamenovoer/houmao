@@ -1441,21 +1441,13 @@ def _publish_request_model(
     run_id: str | None,
     connection_id: str | None,
 ) -> AgUiEventPublishRequest:
-    """Build one gateway publish request after validating required routing options."""
+    """Build one gateway publish request after validating optional routing options."""
 
     normalized_thread_id = _normalize_optional_route_id("--thread-id", thread_id)
     normalized_run_id = _normalize_optional_route_id("--run-id", run_id)
     normalized_connection_id = _normalize_optional_route_id("--connection-id", connection_id)
     if not events:
         raise ValueError("AG-UI publish requires at least one event.")
-    if (
-        normalized_thread_id is None
-        and normalized_run_id is None
-        and normalized_connection_id is None
-    ):
-        raise ValueError(
-            "AG-UI publish requires at least one of --thread-id, --run-id, or --connection-id."
-        )
     return AgUiEventPublishRequest(
         thread_id=normalized_thread_id,
         run_id=normalized_run_id,

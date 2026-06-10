@@ -57,6 +57,32 @@ Validation flows:
 - Gateway restart: keep the discovered-agent pane targeted at the same agent; when the stream closes, the pane resolves the current gateway coordinates again and reconnects.
 - Manual direct URL: enter the AG-UI URL by hand; the pane uses that exact URL and reports ordinary request errors if the endpoint goes away.
 
+## Operator Workflows
+
+The workbench no longer creates a dedicated Operator tab. To act as an operator, either open a `tmux` tab and directly control a TUI session, or mark one discovered Houmao agent pane as the operator pane for orientation.
+
+The operator marker is UI metadata only. It does not change AG-UI request bodies, gateway routing, watched-target behavior, prompt delivery, event caching, tmux attachment, or managed-agent lifecycle behavior. Only panes that target a discovered Houmao agent can be marked as operator. If the marked pane closes or is retargeted away from a discovered Houmao agent, the marker is cleared.
+
+## Tmux Tabs
+
+The toolbar `tmux` control opens a docked tmux tab. The tab talks to the Vite host process through the local bridge:
+
+```text
+GET /__houmao_tmux/status
+GET /__houmao_tmux/sessions
+WS  /__houmao_tmux/attach
+```
+
+The host running the workbench dev server must have `tmux` available. If tmux is unavailable or has no sessions, the picker shows a deterministic empty or unavailable state instead of crashing the app.
+
+The tmux picker lists local tmux sessions with session name, window count, attached state, and created time. It joins that list with passive-server agent discovery by matching `tmux_session_name`, supports Fuse-powered search across tmux and Houmao metadata, and can filter to Houmao-managed agent sessions.
+
+Attachment is read-write by default. Enable Read only before attaching to start `tmux attach-session -r`; the browser terminal also suppresses stdin, and the host bridge rejects crafted input messages for read-only sockets.
+
+Closing or detaching a tmux tab closes only that browser attachment and kills only the `tmux attach-session` process created for the tab. It does not kill the tmux session, detach unrelated tmux clients, mutate shared-registry records, or send AG-UI detach, stop, restart, shutdown, interrupt, or memory-clear requests.
+
+The workbench persists the tmux tab layout and non-sensitive tab configuration such as selected session name, read-only mode, and Houmao-only filter. It does not persist tmux terminal output, terminal input, scrollback, WebSocket payloads, credentials, cookies, bearer tokens, authorization headers, mailbox content, memory content, or local file contents.
+
 ## Debug Agent
 
 The toolbar `Debug Agent` control opens a local protocol playground. It does not create a managed Houmao agent, tmux session, passive-server registry record, gateway sidecar, mailbox, or credential binding. The pane has a white-box sender on the left and a normal AG-UI display on the right. The display connects through the same AG-UI client, SSE parser, reducer, diagnostics, and typed component renderers used by ordinary workbench panes.
@@ -101,9 +127,13 @@ Troubleshooting checks:
 
 ## Lifecycle Boundary
 
-The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect on an agent pane marks the target watched and attaches a background AG-UI stream. Run submits one AG-UI `RunAgentInput`. Disconnect or Unwatch detaches the watched stream. Closing a watched pane does not detach the stream. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream.
+The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect on an agent pane marks the target watched and attaches a background AG-UI stream. Run submits one AG-UI `RunAgentInput`. Disconnect or Unwatch detaches the watched stream. Closing a watched pane does not detach the stream. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream. Tmux tab attachment is separate from AG-UI lifecycle and managed-agent lifecycle.
 
-The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, Debug Agent IDs, Debug Agent replay setting, watched-target metadata, and selected discovered-agent identity metadata in localStorage. It stores received AG-UI stream events for watched targets in an IndexedDB client cache with bounded per-target retention. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, AG-UI request bodies, forwarded props, typed component request bodies, curl-posted event batches, credentials, authorization headers, mailbox content, memory content, or raw terminal content.
+When a discovered Houmao agent pane becomes the foreground viewed target or is retargeted to a viewed thread, the workbench sets the gateway's Houmao extension `last-bound-thread`. Background watchers, hidden panes, passive reconnects, and client-cache listeners do not update that binding. When the bound pane closes or is retargeted away, the workbench clears the binding on a best-effort basis. The gateway owns `last-sent-thread`; workbench binding calls do not set or clear it.
+
+For tmux-controlled agents that publish AG-UI messages without prompt-provided routing, the gateway destination order is: message-specified destination, `last-sent-thread`, `last-bound-thread`, then a Houmao-defined default sink. Both thread states are volatile and process-local. The default sink is not agent-addressable; the current gateway behavior logs safe routing metadata, performs no GUI fanout, and returns a warning such as `default_sink_due_to_no_destination`.
+
+The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, operator marker, Debug Agent IDs, Debug Agent replay setting, watched-target metadata, selected discovered-agent identity metadata, and tmux tab configuration in localStorage. It stores received AG-UI stream events for watched targets in an IndexedDB client cache with bounded per-target retention. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, AG-UI request bodies, forwarded props, typed component request bodies, curl-posted event batches, credentials, authorization headers, mailbox content, memory content, tmux terminal output, tmux terminal input, terminal scrollback, or raw terminal content.
 
 ## Typed Components
 
