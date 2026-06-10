@@ -457,7 +457,7 @@ def send_keys_gateway_command(
 
 @gateway_group.group(name="ag-ui")
 def gateway_ag_ui_group() -> None:
-    """Publish already-standard AG-UI events through the live Houmao gateway."""
+    """Publish already-standard AG-UI events through live-only Houmao gateway fanout."""
 
 
 @gateway_ag_ui_group.command(name="publish")
@@ -487,7 +487,7 @@ def publish_gateway_ag_ui_command(
     agent_id: str | None,
     agent_name: str | None,
 ) -> None:
-    """Validate and publish a standard AG-UI event batch to one Houmao gateway."""
+    """Validate and publish a standard AG-UI event batch to live Houmao gateway streams."""
 
     try:
         events_payload = _read_json_document(input_path)

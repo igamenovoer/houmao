@@ -46,15 +46,16 @@ class HoumaoAgUiFeatureSupport(_HoumaoAgUiModel):
 
 
 class HoumaoAgUiMetadata(_HoumaoAgUiModel):
-    """Houmao-specific lifecycle and replay metadata for AG-UI clients."""
+    """Houmao-specific lifecycle and delivery metadata for AG-UI clients."""
 
     schema_version: int = Field(default=1)
     agent_lifecycle_managed_by_gui: bool
     lifecycle_boundary: str
-    replay_support: Literal["current_snapshot_only", "event_log_since_cursor"]
+    replay_support: Literal["current_snapshot_only"]
     connect_stream_keepalive: Literal["sse_comment_heartbeat"]
     features: HoumaoAgUiFeatureSupport
     gateway: dict[str, Any]
+    published_events: dict[str, Any] = Field(default_factory=dict)
 
 
 class HoumaoAgUiCapabilitiesResponse(_HoumaoAgUiModel):
@@ -97,7 +98,7 @@ class AgUiEventPublishResponse(_HoumaoAgUiModel):
     accepted_count: int
     stored_count: int = 0
     delivered_count: int
-    replay: Literal["none", "event_log_since_cursor"] = "none"
+    replay: Literal["none"] = "none"
     thread_id: str | None = None
     run_id: str | None = None
     connection_id: str | None = None

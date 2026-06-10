@@ -2,13 +2,19 @@ import { createContext, useContext } from "react";
 
 import { defaultDebugAgentConfig, defaultTarget } from "./storage";
 import type { DebugAgentConfig, PaneRecord, WorkbenchStorage } from "./storage";
+import type { WatchedTargetRuntime } from "./ag-ui/useWatchedTargets";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 
 export interface WorkbenchContextValue {
   storage: WorkbenchStorage;
+  watchedTargetRuntimes: Record<string, WatchedTargetRuntime>;
   updateTarget: (paneId: string, target: TargetConfig) => void;
   updateDebugAgent: (paneId: string, debugAgent: DebugAgentConfig) => void;
   removePaneRecord: (paneId: string) => void;
+  watchTarget: (target: TargetConfig) => string;
+  unwatchTarget: (key: string) => void;
+  clearWatchedTargetCache: (key: string) => Promise<void>;
+  clearAllWatchedTargetCaches: () => Promise<void>;
   openAgentPicker: (request: AgentPickerRequest) => void;
 }
 

@@ -271,8 +271,7 @@ class PassiveServerService:
                         ),
                         agent_ref=agent_ref,
                         candidates=[
-                            _address_candidate_from_record(agent.record)
-                            for agent in live_by_name
+                            _address_candidate_from_record(agent.record) for agent in live_by_name
                         ],
                     )
                 if len(live_by_name) == 1:

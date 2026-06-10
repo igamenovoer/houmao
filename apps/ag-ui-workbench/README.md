@@ -40,9 +40,13 @@ Browser requests go through the app-local development proxy at `/__houmao_ag_ui_
 
 The toolbar `Agents` control opens a passive-server-backed list of discovered Houmao agents. The passive-server URL defaults to `http://127.0.0.1:9891`, matching the documented `houmao-passive-server serve` default. Click refresh to fetch `GET /houmao/agents`; rows show the discovered agent identity, tool, backend, tmux session, gateway availability, and mailbox availability.
 
-Double-clicking a row from the toolbar opens a new docked agent pane. Opening the picker from a pane's target form defaults to retargeting that pane instead. The picker resolves a selected row through `GET /houmao/agents/<agent_ref>/resolve`. The pane stores the durable agent address (`agentId`, `agentName`, and passive-server URL) and treats the displayed AG-UI URL as the latest resolved gateway coordinate.
+Double-clicking a row from the toolbar opens a new docked agent pane. Opening the picker from a pane's target form defaults to retargeting that pane instead. The picker also exposes Watch, Unwatch, and Open actions. Watch records interest in an agent/thread and starts a background AG-UI connect stream without requiring a visible pane. Open creates a pane for a watched target and renders events that this browser already received.
 
-If the agent is known but currently has no gateway, the pane can still be targeted. Press Connect and the pane enters an offline or waiting state, resolves through the passive server with capped backoff, and attaches when a live gateway appears. If a connected discovered-agent stream ends, the pane resolves the same agent address again instead of reusing a stale port. Manual AG-UI URL entry remains the direct fallback for low-level tests, third-party endpoints, remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. Manual targets do not silently switch into agent-address reconnect mode.
+The picker resolves a selected row through `GET /houmao/agents/<agent_ref>/resolve`. The pane stores the durable agent address (`agentId`, `agentName`, and passive-server URL) and treats the displayed AG-UI URL as the latest resolved gateway coordinate.
+
+If the agent is known but currently has no gateway, the pane can still be targeted. Press Connect to watch it; the watcher enters an offline or waiting state, resolves through the passive server with capped backoff, and attaches when a live gateway appears. If a connected discovered-agent stream ends, the watcher resolves the same agent address again instead of reusing a stale port. Manual AG-UI URL entry remains the direct fallback for low-level tests, third-party endpoints, remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. Manual targets do not silently switch into agent-address reconnect mode.
+
+Closing a pane removes only the presentation surface when the target is watched. The background listener keeps running until Unwatch or Disconnect is used. Events published while no watcher is connected are lost for this browser because the Houmao gateway does not retain published GUI events.
 
 For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the Vite dev server.
 
@@ -85,7 +89,7 @@ curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/comp
   --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":1,"title":"Curl Component Bar","data":[{"label":"North","value":42},{"label":"South","value":28}]}}'
 ```
 
-Replay is enabled by default for debug use. If a valid batch is posted before the display connects, the relay stores it in a bounded per-thread buffer and later replays it to the matching display connection. Publish responses identify this as `replay: "debug_thread_buffer"` and report `storedCount`. This intentionally differs from the live gateway. To reproduce gateway-like live-only behavior, turn off the pane replay checkbox or include `"replay": false`; the response reports `replay: "none"`, `storedCount: 0`, and a later display connection will not receive the earlier batch.
+Replay is enabled by default for lab-only debug use. If a valid batch is posted before the display connects, the relay stores it in a bounded per-thread buffer and later replays it to the matching display connection. Publish responses identify this as `replay: "debug_thread_buffer"` and report `storedCount`. This intentionally differs from the live gateway. To reproduce gateway-like live-only behavior, turn off the pane replay checkbox or include `"replay": false`; the response reports `replay: "none"`, `storedCount: 0`, and a later display connection will not receive the earlier batch.
 
 Troubleshooting checks:
 
@@ -97,9 +101,9 @@ Troubleshooting checks:
 
 ## Lifecycle Boundary
 
-The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect attaches the pane to an existing AG-UI stream, run submits one AG-UI `RunAgentInput`, and disconnect or close means GUI stream detach. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream.
+The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect on an agent pane marks the target watched and attaches a background AG-UI stream. Run submits one AG-UI `RunAgentInput`. Disconnect or Unwatch detaches the watched stream. Closing a watched pane does not detach the stream. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream.
 
-The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, Debug Agent IDs, Debug Agent replay setting, and selected discovered-agent identity metadata. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, raw events, stream payloads, state snapshots, activity records, tool-call payloads, typed component request bodies, curl-posted event batches, credentials, authorization headers, or rendered graphics by default.
+The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, Debug Agent IDs, Debug Agent replay setting, watched-target metadata, and selected discovered-agent identity metadata in localStorage. It stores received AG-UI stream events for watched targets in an IndexedDB client cache with bounded per-target retention. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, AG-UI request bodies, forwarded props, typed component request bodies, curl-posted event batches, credentials, authorization headers, mailbox content, memory content, or raw terminal content.
 
 ## Typed Components
 

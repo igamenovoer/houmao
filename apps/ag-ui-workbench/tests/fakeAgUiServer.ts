@@ -20,13 +20,18 @@ interface GatewayServerRecord {
   port: number;
 }
 
+interface OpenGatewayResponse {
+  target: string;
+  threadId: string;
+}
+
 const GATEWAY_TARGETS = ["operator", "alpha", "beta", "manual"] as const;
 
 export class FakeAgUiServer {
   private m_passiveServer: Server | null = null;
   private m_passivePort = 0;
   private readonly m_gateways = new Map<string, GatewayServerRecord>();
-  private readonly m_openResponses = new Map<ServerResponse, string>();
+  private readonly m_openResponses = new Map<ServerResponse, OpenGatewayResponse>();
 
   readonly runs: RecordedRun[] = [];
   readonly detaches: RecordedDetach[] = [];
@@ -81,6 +86,13 @@ export class FakeAgUiServer {
     return `http://127.0.0.1:${gateway.port}/v1/ag-ui`;
   }
 
+  resetRecords(): void {
+    this.runs.length = 0;
+    this.detaches.length = 0;
+    this.connects.length = 0;
+    this.interruptRequests = 0;
+  }
+
   private async startGateway(target: string): Promise<void> {
     const server = createServer((req, res) => {
       void this.handleGatewayRequest(req, res, target);
@@ -96,8 +108,8 @@ export class FakeAgUiServer {
   }
 
   private async stopGateway(target: string): Promise<void> {
-    for (const [response, responseTarget] of [...this.m_openResponses.entries()]) {
-      if (responseTarget === target) {
+    for (const [response, openResponse] of [...this.m_openResponses.entries()]) {
+      if (openResponse.target === target) {
         response.end();
         this.m_openResponses.delete(response);
       }
@@ -202,6 +214,11 @@ export class FakeAgUiServer {
       this.handleConnect(res, target, bodyRecord);
       return;
     }
+    if (req.method === "POST" && url.pathname.endsWith("/events")) {
+      const body = await readJson(req);
+      this.handlePublishedEvents(res, target, body);
+      return;
+    }
     if (req.method === "POST" && url.pathname.endsWith("/runs")) {
       const body = await readJson(req);
       this.runs.push({ target, body });
@@ -226,7 +243,10 @@ export class FakeAgUiServer {
   }
 
   private handleConnect(res: ServerResponse, target: string, body: Record<string, unknown>): void {
-    this.m_openResponses.set(res, target);
+    this.m_openResponses.set(res, {
+      target,
+      threadId: stringField(body, "threadId", `${target}-thread`),
+    });
     res.on("close", () => {
       this.m_openResponses.delete(res);
     });
@@ -251,12 +271,10 @@ export class FakeAgUiServer {
         },
       },
     });
-    const lastSeenEventId = typeof body.lastSeenEventId === "string" ? body.lastSeenEventId : "";
-    const activityEventId = lastSeenEventId === `${target}-event-1` ? `${target}-event-2` : `${target}-event-1`;
+    const connectCount = this.connects.filter((connect) => connect.target === target).length;
+    const activityEventId = `${target}-event-${connectCount}`;
     const activityMarker =
-      activityEventId === `${target}-event-2`
-        ? `${target}-reconnect-evidence`
-        : `${target}-connect-evidence`;
+      connectCount > 1 ? `${target}-reconnect-evidence` : `${target}-connect-evidence`;
     writeSse(res, {
       type: "ACTIVITY_SNAPSHOT",
       messageId: `${target}-activity`,
@@ -265,6 +283,32 @@ export class FakeAgUiServer {
         marker: activityMarker,
       },
     }, activityEventId);
+  }
+
+  private handlePublishedEvents(res: ServerResponse, target: string, body: unknown): void {
+    const bodyRecord = isRecord(body) ? body : {};
+    const threadId = stringField(bodyRecord, "threadId", `${target}-thread`);
+    const events = Array.isArray(bodyRecord.events)
+      ? bodyRecord.events.filter((event): event is Record<string, unknown> => isRecord(event))
+      : [];
+    let deliveredCount = 0;
+    for (const [response, openResponse] of this.m_openResponses.entries()) {
+      if (openResponse.target !== target || openResponse.threadId !== threadId) {
+        continue;
+      }
+      for (const event of events) {
+        writeSse(response, event);
+        deliveredCount += 1;
+      }
+    }
+    sendJson(res, 200, {
+      status: "accepted",
+      acceptedCount: events.length,
+      storedCount: 0,
+      deliveredCount,
+      replay: "none",
+      threadId,
+    });
   }
 
   private handleRun(res: ServerResponse, target: string, body: unknown): void {

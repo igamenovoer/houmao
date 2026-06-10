@@ -39,7 +39,7 @@ class AgUiCapabilityRuntime(Protocol):
 def build_ag_ui_capabilities(
     runtime: AgUiCapabilityRuntime,
     *,
-    replay_enabled: bool = True,
+    replay_enabled: bool = False,
 ) -> HoumaoAgUiCapabilitiesResponse:
     """Return conservative AG-UI capabilities for one live Houmao gateway.
 
@@ -54,13 +54,12 @@ def build_ag_ui_capabilities(
         Standard AG-UI capability categories plus Houmao lifecycle metadata.
     """
 
+    del replay_enabled
     status = runtime.status()
     target_transport_family = ag_ui_target_transport_family_for_backend(str(status.backend))
     task_run_submission = target_transport_family != "unknown"
     generated_graphics = target_transport_family == "headless"
-    replay_support: Literal["current_snapshot_only", "event_log_since_cursor"] = (
-        "event_log_since_cursor" if replay_enabled else "current_snapshot_only"
-    )
+    replay_support: Literal["current_snapshot_only"] = "current_snapshot_only"
     features = HoumaoAgUiFeatureSupport(
         http_sse=True,
         gui_connect=True,
@@ -94,6 +93,12 @@ def build_ag_ui_capabilities(
             ),
         },
         "replaySupport": replay_support,
+        "publishedEvents": {
+            "delivery": "live_only_fanout",
+            "storedCount": 0,
+            "cacheOwner": "client",
+            "missedEventRecovery": "none",
+        },
     }
 
     capabilities = AgentCapabilities(
@@ -111,7 +116,7 @@ def build_ag_ui_capabilities(
             websocket=False,
             http_binary=False,
             push_notifications=False,
-            resumable=replay_enabled,
+            resumable=False,
         ),
         tools=ToolsCapabilities(
             supported=generated_graphics,
@@ -202,6 +207,12 @@ def build_ag_ui_capabilities(
                 "targetTransportFamily": target_transport_family,
                 "activeExecution": str(status.active_execution),
                 "graphicsToolName": HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
+            },
+            published_events={
+                "delivery": "live_only_fanout",
+                "storedCount": 0,
+                "cacheOwner": "client",
+                "missedEventRecovery": "none",
             },
         ),
     )

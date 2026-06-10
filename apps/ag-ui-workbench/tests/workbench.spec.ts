@@ -14,6 +14,7 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  fakeServer.resetRecords();
   await page.goto("/");
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
@@ -218,9 +219,78 @@ test("reconnects discovered pane through passive resolution after gateway restar
     .not.toBe(firstGatewayUrl);
   expect(
     fakeServer.connects.some(
-      (connect) => connect.target === "alpha" && connect.body.lastSeenEventId === "alpha-event-1",
+      (connect) => connect.target === "alpha" && connect.body.lastSeenEventId === undefined,
     ),
   ).toBeTruthy();
+});
+
+test("watched target keeps external chart in client cache after pane close and reopen", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("agent-row-alpha").dblclick();
+
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("watch-strip-agent-1")).toContainText("Watched");
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+
+  const publishResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: barToolCallEvents("watched-cache-chart", "Watched Cache Chart"),
+    },
+  });
+  expect(publishResponse.ok()).toBeTruthy();
+  const publishBody = (await publishResponse.json()) as {
+    deliveredCount: number;
+    storedCount: number;
+    replay: string;
+  };
+  expect(publishBody.deliveredCount).toBe(3);
+  expect(publishBody.storedCount).toBe(0);
+  expect(publishBody.replay).toBe("none");
+
+  await expect(page.getByTestId("component-agent-1")).toContainText("Watched Cache Chart");
+  await expect(page.getByTestId("component-chart-agent-1").first().locator("svg")).toBeVisible();
+
+  await page.getByTestId("close-agent-1").click();
+  await expect(page.getByTestId("panel-agent-1")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__HMWB_TEST__!.watchedTargetKeys().length)).toBe(1);
+
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("refresh-agents").click();
+  await expect(page.getByTestId("watch-state-alpha")).toContainText("connected");
+  await page.getByTestId("open-watched-agent-alpha").click();
+
+  await expect(page.getByTestId("panel-agent-2")).toBeVisible();
+  await expect(page.getByTestId("component-agent-2")).toContainText("Watched Cache Chart");
+  await expect(page.getByTestId("component-chart-agent-2").first().locator("svg")).toBeVisible();
+});
+
+test("events published while unwatched are live-only and not recovered later", async ({ page }) => {
+  const publishResponse = await page.request.post(`${fakeServer.targetBase("beta")}/events`, {
+    data: {
+      threadId: "beta-thread",
+      events: barToolCallEvents("missed-live-chart", "Missed Live-Only Chart"),
+    },
+  });
+  expect(publishResponse.ok()).toBeTruthy();
+  const publishBody = (await publishResponse.json()) as {
+    deliveredCount: number;
+    storedCount: number;
+    replay: string;
+  };
+  expect(publishBody.deliveredCount).toBe(0);
+  expect(publishBody.storedCount).toBe(0);
+  expect(publishBody.replay).toBe("none");
+
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("agent-row-beta").dblclick();
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("beta-connect-evidence");
+  await expect(page.getByTestId("transcript-agent-1")).not.toContainText("Missed Live-Only Chart");
 });
 
 test("debug agent receives external AG-UI events and renders chart proof", async ({ page }) => {

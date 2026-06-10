@@ -499,9 +499,9 @@ def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
     assert response.json() == {
         "status": "accepted",
         "acceptedCount": 3,
-        "storedCount": 3,
+        "storedCount": 0,
         "deliveredCount": 0,
-        "replay": "event_log_since_cursor",
+        "replay": "none",
         "threadId": "thread-1",
         "runId": "run-1",
     }
@@ -636,8 +636,8 @@ def test_connect_stream_receives_published_events_from_matching_hub() -> None:
         await stream.aclose()
 
         assert publish_result.delivered_count == 3
-        assert publish_result.stored_count == 3
-        assert _sse_frame_id(next_frame) is not None
+        assert publish_result.stored_count == 0
+        assert _sse_frame_id(next_frame) is None
         payload = _sse_frame_payload(next_frame)
         assert payload["type"] == "TOOL_CALL_START"
         assert payload["toolCallName"] == "houmao.metric_grid"
@@ -646,7 +646,7 @@ def test_connect_stream_receives_published_events_from_matching_hub() -> None:
     asyncio.run(_run())
 
 
-def test_connect_stream_replays_retained_events_after_valid_cursor() -> None:
+def test_connect_stream_does_not_replay_retained_events_after_cursor() -> None:
     async def _run() -> None:
         runtime = _SpyRuntime()
         registry = AgUiConnectionRegistry(id_factory=lambda: "agui-1")
@@ -661,13 +661,13 @@ def test_connect_stream_replays_retained_events_after_valid_cursor() -> None:
             run_id="run-1",
             connection_id=None,
         )
-        retained = event_hub.replay_after(thread_id="thread-1", last_seen_event_id=None)
-        assert publish_result.stored_count == 3
-        assert len(retained.events) == 3
-        assert retained.events[0].event_id is not None
+        replay = event_hub.replay_after(thread_id="thread-1", last_seen_event_id=None)
+        assert publish_result.stored_count == 0
+        assert replay.status == "not_replayable"
+        assert replay.events == ()
 
         connect_input = AgUiConnectInput.model_validate(
-            _connect_payload(lastSeenEventId=retained.events[0].event_id)
+            _connect_payload(lastSeenEventId="houmao-agui.v1.old.thread.1")
         )
         stream = connect_event_stream(
             runtime=runtime,
@@ -679,18 +679,15 @@ def test_connect_stream_replays_retained_events_after_valid_cursor() -> None:
         )
 
         snapshot_frame = await anext(stream)
-        replay_frame = await anext(stream)
         await stream.aclose()
 
         assert _sse_frame_payload(snapshot_frame)["type"] == "STATE_SNAPSHOT"
-        assert _sse_frame_id(replay_frame) == retained.events[1].event_id
-        assert _sse_frame_payload(replay_frame)["type"] == "TOOL_CALL_ARGS"
         runtime.assert_no_work_or_lifecycle_calls()
 
     asyncio.run(_run())
 
 
-def test_connect_stream_bad_cursor_falls_back_to_snapshot_without_replay() -> None:
+def test_event_hub_reports_replay_not_available() -> None:
     event_hub = AgUiEventHub(agent_identity="agent-1")
     events = render_component_events(
         component="houmao.metric_grid",
@@ -705,11 +702,11 @@ def test_connect_stream_bad_cursor_falls_back_to_snapshot_without_replay() -> No
 
     replay = event_hub.replay_after(thread_id="thread-1", last_seen_event_id="missing")
 
-    assert replay.status == "cursor_not_found"
+    assert replay.status == "not_replayable"
     assert replay.events == ()
 
 
-def test_event_hub_persists_retained_log_for_gateway_restart(tmp_path: Path) -> None:
+def test_event_hub_does_not_persist_retained_log_for_gateway_restart(tmp_path: Path) -> None:
     event_log_path = tmp_path / "gateway" / "ag_ui_events.jsonl"
     events = render_component_events(
         component="houmao.table",
@@ -731,15 +728,12 @@ def test_event_hub_persists_retained_log_for_gateway_restart(tmp_path: Path) -> 
     second_hub = AgUiEventHub(agent_identity="agent-1", event_log_path=event_log_path)
     second_replay = second_hub.replay_after(thread_id="thread-1", last_seen_event_id=None)
 
-    assert first_result.stored_count == 3
-    assert event_log_path.is_file()
-    assert [event.event_id for event in second_replay.events] == [
-        event.event_id for event in first_replay.events
-    ]
-    assert (
-        second_replay.events[0].event.model_dump(mode="json", by_alias=True)["type"]
-        == "TOOL_CALL_START"
-    )
+    assert first_result.stored_count == 0
+    assert not event_log_path.exists()
+    assert first_replay.status == "not_replayable"
+    assert first_replay.events == ()
+    assert second_replay.status == "not_replayable"
+    assert second_replay.events == ()
 
 
 def test_run_stream_receives_published_events_from_matching_hub() -> None:
@@ -775,12 +769,10 @@ def test_run_stream_receives_published_events_from_matching_hub() -> None:
         next_frame = await anext(stream)
         await stream.aclose()
 
-        assert _sse_frame_payload(first_frame)["type"] == (
-            "RUN_STARTED"
-        )
+        assert _sse_frame_payload(first_frame)["type"] == ("RUN_STARTED")
         assert publish_result.delivered_count == 3
-        assert publish_result.stored_count == 3
-        assert _sse_frame_id(next_frame) is not None
+        assert publish_result.stored_count == 0
+        assert _sse_frame_id(next_frame) is None
         payload = _sse_frame_payload(next_frame)
         assert payload["type"] == "TOOL_CALL_START"
         assert payload["toolCallName"] == "houmao.table"
@@ -996,9 +988,7 @@ def test_run_stream_client_abort_records_detach_and_cleans_active_count() -> Non
         )
 
         first_frame = await anext(stream)
-        assert _sse_frame_payload(first_frame)["type"] == (
-            "RUN_STARTED"
-        )
+        assert _sse_frame_payload(first_frame)["type"] == ("RUN_STARTED")
         try:
             await anext(stream)
         except StopAsyncIteration:

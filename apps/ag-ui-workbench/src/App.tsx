@@ -7,6 +7,8 @@ import { AgentSessionPanel } from "./panes/AgentSessionPanel";
 import { AgentPicker } from "./panes/AgentPicker";
 import { DebugAgentPanel } from "./panes/DebugAgentPanel";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
+import { useWatchedTargets } from "./ag-ui/useWatchedTargets";
+import { createWatchedTargetRecord, updateWatchedTargetRecord } from "./ag-ui/watchedTargets";
 import {
   defaultDebugAgentConfig,
   defaultTarget,
@@ -28,6 +30,7 @@ declare global {
       storage: () => WorkbenchStorage;
       closePane: (paneId: string) => boolean;
       panelIds: () => string[];
+      watchedTargetKeys: () => string[];
     };
   }
 }
@@ -55,6 +58,7 @@ export default function App() {
       return true;
     },
     panelIds: () => apiRef.current?.panels.map((panel) => panel.api.id) ?? [],
+    watchedTargetKeys: () => Object.keys(storageRef.current.watchedTargets).sort(),
   };
 
   const persist = useCallback((next: WorkbenchStorage) => {
@@ -62,6 +66,29 @@ export default function App() {
     saveWorkbenchStorage(next);
     setStorage(next);
   }, []);
+
+  const updateWatchedTarget = useCallback(
+    (key: string, target: TargetConfig) => {
+      const current = storageRef.current;
+      const existing = current.watchedTargets[key];
+      if (!existing) {
+        return;
+      }
+      persist({
+        ...current,
+        watchedTargets: {
+          ...current.watchedTargets,
+          [key]: updateWatchedTargetRecord(existing, target),
+        },
+      });
+    },
+    [persist],
+  );
+
+  const watchedTargets = useWatchedTargets({
+    watchedTargets: storage.watchedTargets,
+    onResolvedTarget: updateWatchedTarget,
+  });
 
   const updateTarget = useCallback(
     (paneId: string, target: TargetConfig) => {
@@ -129,15 +156,63 @@ export default function App() {
     [persist],
   );
 
+  const watchTarget = useCallback(
+    (target: TargetConfig): string => {
+      const record = createWatchedTargetRecord(target);
+      const current = storageRef.current;
+      const existing = current.watchedTargets[record.key];
+      persist({
+        ...current,
+        watchedTargets: {
+          ...current.watchedTargets,
+          [record.key]: existing ? updateWatchedTargetRecord(existing, target) : record,
+        },
+      });
+      return record.key;
+    },
+    [persist],
+  );
+
+  const unwatchTarget = useCallback(
+    (key: string) => {
+      const current = storageRef.current;
+      if (!current.watchedTargets[key]) {
+        return;
+      }
+      const nextWatchedTargets = { ...current.watchedTargets };
+      delete nextWatchedTargets[key];
+      persist({
+        ...current,
+        watchedTargets: nextWatchedTargets,
+      });
+    },
+    [persist],
+  );
+
   const contextValue = useMemo(
     () => ({
       storage,
+      watchedTargetRuntimes: watchedTargets.runtimes,
       updateTarget,
       updateDebugAgent,
       removePaneRecord,
+      watchTarget,
+      unwatchTarget,
+      clearWatchedTargetCache: watchedTargets.clearTargetCache,
+      clearAllWatchedTargetCaches: watchedTargets.clearAllCaches,
       openAgentPicker: setPickerRequest,
     }),
-    [removePaneRecord, storage, updateDebugAgent, updateTarget],
+    [
+      removePaneRecord,
+      storage,
+      unwatchTarget,
+      updateDebugAgent,
+      updateTarget,
+      watchTarget,
+      watchedTargets.clearAllCaches,
+      watchedTargets.clearTargetCache,
+      watchedTargets.runtimes,
+    ],
   );
 
   const saveLayout = useCallback(() => {
@@ -282,6 +357,14 @@ export default function App() {
     apiRef.current?.getPanel(paneId)?.api.setTitle(target.label || paneId);
   };
 
+  const openPaneForWatchedTarget = (key: string) => {
+    const record = storageRef.current.watchedTargets[key];
+    if (!record) {
+      return;
+    }
+    addAgentPane(record.target);
+  };
+
   return (
     <WorkbenchProvider value={contextValue}>
       <main className="app-shell" data-testid="app-shell">
@@ -330,9 +413,14 @@ export default function App() {
           request={pickerRequest}
           passiveServerUrl={storage.discovery.passiveServerUrl}
           panes={storage.panes}
+          watchedTargets={storage.watchedTargets}
+          watchedTargetRuntimes={watchedTargets.runtimes}
           onPassiveServerUrlChange={updateDiscoveryUrl}
           onCreatePane={addAgentPane}
           onRetargetPane={retargetPane}
+          onWatchTarget={watchTarget}
+          onUnwatchTarget={unwatchTarget}
+          onOpenWatchedTarget={openPaneForWatchedTarget}
           onClose={() => setPickerRequest(null)}
         />
       </main>

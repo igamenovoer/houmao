@@ -46,7 +46,7 @@ export async function runAgUi(
 
 export async function connectAgUi(
   config: TargetConfig,
-  input: RunAgentInput & { lastSeenEventId?: string },
+  input: RunAgentInput,
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -157,13 +157,11 @@ export function buildConnectInput({
   paneId,
   threadId,
   paneKind,
-  lastSeenEventId,
 }: {
   paneId: string;
   threadId: string;
   paneKind: "operator" | "agent" | "debug-agent";
-  lastSeenEventId?: string | null;
-}): RunAgentInput & { lastSeenEventId?: string } {
+}): RunAgentInput {
   const runId = `connect-${paneId}-${Date.now()}`;
   return {
     threadId,
@@ -183,6 +181,5 @@ export function buildConnectInput({
       paneKind,
       attachOnly: true,
     },
-    lastSeenEventId: lastSeenEventId || undefined,
   };
 }

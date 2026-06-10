@@ -71,13 +71,6 @@ async def connect_event_stream(
             connection=record,
         )
         yield encode_sse_event(AgUiStateSnapshotEvent(snapshot=snapshot))
-        if event_hub is not None:
-            replay = event_hub.replay_after(
-                thread_id=record.thread_id,
-                last_seen_event_id=record.last_seen_event_id,
-            )
-            for queued_event in replay.events:
-                yield encode_sse_event(queued_event.event, event_id=queued_event.event_id)
         while True:
             if await request.is_disconnected():
                 detach_reason = "client_disconnected"
@@ -485,7 +478,7 @@ def _single_event_thread_id(events: list[AgUiEventPayload]) -> str | None:
 def _runtime_agent_identity(
     runtime: AgUiCapabilityRuntime | AgUiRuntimeObservationProtocol,
 ) -> str:
-    """Return a safe runtime identity for replay event ids."""
+    """Return a safe runtime identity for route-owned helper metadata."""
 
     try:
         status = runtime.status()

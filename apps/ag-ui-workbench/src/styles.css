@@ -326,6 +326,30 @@ textarea {
   font-size: 11px;
 }
 
+.watch-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border: 1px solid #454940;
+  border-radius: 6px;
+  background: #22231e;
+  padding: 4px 7px;
+  color: #d8d1c2;
+  font-size: 12px;
+}
+
+.watch-strip span:first-child {
+  color: #9fbd79;
+  font-weight: 700;
+}
+
+.watch-strip button {
+  margin-left: auto;
+  min-height: 24px;
+  padding: 2px 7px;
+}
+
 .message p {
   margin: 3px 0 0;
   white-space: pre-wrap;

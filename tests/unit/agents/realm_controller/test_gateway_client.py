@@ -84,9 +84,9 @@ class _AgUiEventsHandler(BaseHTTPRequestHandler):
         payload = {
             "status": "accepted",
             "acceptedCount": 1,
-            "storedCount": 1,
+            "storedCount": 0,
             "deliveredCount": 0,
-            "replay": "event_log_since_cursor",
+            "replay": "none",
             "threadId": "thread-1",
         }
         self.wfile.write(json.dumps(payload).encode("utf-8"))
@@ -202,8 +202,9 @@ def test_gateway_client_posts_ag_ui_events_with_aliases() -> None:
 
     assert response.status == "accepted"
     assert response.accepted_count == 1
-    assert response.stored_count == 1
-    assert response.replay == "event_log_since_cursor"
+    assert response.stored_count == 0
+    assert response.delivered_count == 0
+    assert response.replay == "none"
     assert _AgUiEventsHandler.request_path == "/v1/ag-ui/events"
     assert _AgUiEventsHandler.request_payload == {
         "threadId": "thread-1",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Plus, RefreshCw, Search, Target, Users, X } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, PanelRightOpen, Plus, RefreshCw, Search, Target, Users, X } from "lucide-react";
 
 import {
   agentRowTestId,
@@ -8,15 +8,22 @@ import {
   resolveDiscoveredAgentTarget,
 } from "../ag-ui/discovery";
 import type { AgentPickerRequest, DiscoveredAgentSummary, TargetConfig } from "../ag-ui/types";
+import type { WatchedTargetRuntime } from "../ag-ui/useWatchedTargets";
+import type { WatchedTargetRecord } from "../ag-ui/watchedTargets";
 import type { PaneRecord } from "../storage";
 
 interface AgentPickerProps {
   request: AgentPickerRequest | null;
   passiveServerUrl: string;
   panes: Record<string, PaneRecord>;
+  watchedTargets: Record<string, WatchedTargetRecord>;
+  watchedTargetRuntimes: Record<string, WatchedTargetRuntime>;
   onPassiveServerUrlChange: (url: string) => void;
   onCreatePane: (target: TargetConfig) => void;
   onRetargetPane: (paneId: string, target: TargetConfig) => void;
+  onWatchTarget: (target: TargetConfig) => string;
+  onUnwatchTarget: (key: string) => void;
+  onOpenWatchedTarget: (key: string) => void;
   onClose: () => void;
 }
 
@@ -26,9 +33,14 @@ export function AgentPicker({
   request,
   passiveServerUrl,
   panes,
+  watchedTargets,
+  watchedTargetRuntimes,
   onPassiveServerUrlChange,
   onCreatePane,
   onRetargetPane,
+  onWatchTarget,
+  onUnwatchTarget,
+  onOpenWatchedTarget,
   onClose,
 }: AgentPickerProps) {
   const [agents, setAgents] = useState<DiscoveredAgentSummary[]>([]);
@@ -108,6 +120,19 @@ export function AgentPicker({
         onCreatePane(resolved.target);
       }
       onClose();
+    } catch (resolveError) {
+      setError(discoveryErrorMessage(resolveError));
+    } finally {
+      setResolvingAgentId(null);
+    }
+  }
+
+  async function watchAgent(agent: DiscoveredAgentSummary) {
+    setResolvingAgentId(agent.agent_id);
+    setError("");
+    try {
+      const resolved = await resolveDiscoveredAgentTarget(passiveServerUrl, agent);
+      onWatchTarget(resolved.target);
     } catch (resolveError) {
       setError(discoveryErrorMessage(resolveError));
     } finally {
@@ -198,6 +223,8 @@ export function AgentPicker({
           {!loading && filteredAgents.length === 0 ? <div className="agent-empty">No agents</div> : null}
           {filteredAgents.map((agent) => {
             const rowBusy = resolvingAgentId === agent.agent_id;
+            const watchedKey = watchedKeyForAgent(watchedTargets, agent);
+            const watchStatus = watchedKey ? watchedTargetRuntimes[watchedKey]?.status || "watched" : "unwatched";
             return (
               <article
                 className={`agent-row ${agent.has_gateway ? "" : "agent-row-muted"}`}
@@ -221,7 +248,42 @@ export function AgentPicker({
                   <span className={agent.has_mailbox ? "badge-ok" : "badge-off"}>
                     {agent.has_mailbox ? "mailbox" : "no mailbox"}
                   </span>
+                  <span className={watchedKey ? "badge-ok" : "badge-off"} data-testid={`watch-state-${agent.agent_id}`}>
+                    {watchStatus}
+                  </span>
                 </div>
+                {watchedKey ? (
+                  <>
+                    <button
+                      title={`Open watched ${agent.agent_name}`}
+                      data-testid={`open-watched-agent-${agent.agent_id}`}
+                      disabled={rowBusy}
+                      onClick={() => onOpenWatchedTarget(watchedKey)}
+                    >
+                      <PanelRightOpen size={14} />
+                      Open
+                    </button>
+                    <button
+                      title={`Unwatch ${agent.agent_name}`}
+                      data-testid={`unwatch-agent-${agent.agent_id}`}
+                      disabled={rowBusy}
+                      onClick={() => onUnwatchTarget(watchedKey)}
+                    >
+                      <EyeOff size={14} />
+                      Unwatch
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    title={`Watch ${agent.agent_name}`}
+                    data-testid={`watch-agent-${agent.agent_id}`}
+                    disabled={rowBusy}
+                    onClick={() => void watchAgent(agent)}
+                  >
+                    <Eye size={14} />
+                    {rowBusy ? "Resolving" : "Watch"}
+                  </button>
+                )}
                 <button
                   title={`${defaultActionLabel} ${agent.agent_name}`}
                   data-testid={`select-agent-${agent.agent_id}`}
@@ -238,4 +300,20 @@ export function AgentPicker({
       </section>
     </div>
   );
+}
+
+function watchedKeyForAgent(
+  watchedTargets: Record<string, WatchedTargetRecord>,
+  agent: DiscoveredAgentSummary,
+): string | null {
+  for (const [key, record] of Object.entries(watchedTargets)) {
+    const source = record.target.source;
+    if (source?.kind !== "discovered") {
+      continue;
+    }
+    if (source.agentId === agent.agent_id) {
+      return key;
+    }
+  }
+  return null;
 }

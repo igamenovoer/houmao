@@ -65,16 +65,16 @@ curl \
   }'
 ```
 
-Route metadata must include at least one of `threadId`, `runId`, or `connectionId`. Publishing with `connectionId` targets one GUI connection. Publishing with `threadId`, `runId`, or both fans out to active streams whose route metadata matches. Thread-scoped publishes are also stored in a bounded gateway-owned replay log when replay is enabled.
+Route metadata must include at least one of `threadId`, `runId`, or `connectionId`. Publishing with `connectionId` targets one GUI connection. Publishing with `threadId`, `runId`, or both fans out to active streams whose route metadata matches. Published GUI events are live-only: the gateway does not store accepted batches for later replay.
 
 The publish response reports:
 
 - `acceptedCount`: events accepted after standard AG-UI validation.
-- `storedCount`: events retained for resumable thread replay.
+- `storedCount`: always `0` for Houmao gateway GUI-event publish.
 - `deliveredCount`: immediate live stream deliveries.
-- `replay`: `event_log_since_cursor` when retained thread replay was recorded, otherwise `none`.
+- `replay`: `none`.
 
-`deliveredCount: 0` no longer always means the GUI missed the events permanently. If `storedCount > 0`, a reconnecting GUI pane can receive retained events later.
+`deliveredCount: 0` means no matching live GUI stream received the events. A later GUI connection will not recover that missed batch from the gateway. A GUI that needs durable display history must keep a listener connected for the interested target and cache events client-side.
 
 The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gateway validates standard AG-UI event shapes, batch limits, route conflicts, and locally checkable tool-call ordering. It does not inspect Houmao component schemas or payload semantics. Generate Houmao typed component events with `houmao-mgr internals ag-ui events render`, and publish them with `houmao-mgr agents self gateway ag-ui publish` or `houmao-mgr agents single ... gateway ag-ui publish`.
 
@@ -84,9 +84,9 @@ The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gate
 curl "$GATEWAY_URL/v1/ag-ui/capabilities"
 ```
 
-Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. It does not report state deltas, frontend tool execution, or Open Generative UI support.
+Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. It does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
 
-When the gateway has replay retention enabled, capabilities report `transport.resumable: true` and Houmao `replaySupport: "event_log_since_cursor"`. Replayed SSE frames carry an `id:` line. A GUI can send the last applied id as `lastSeenEventId` in `POST /v1/ag-ui/connect`; the gateway emits a fresh `STATE_SNAPSHOT`, replays retained events after that cursor when available, and then attaches live fanout. If the cursor is missing, expired, malformed, or from another thread, the gateway still emits the snapshot and live stream but does not claim a complete replay.
+Capabilities report `transport.resumable: false` and Houmao `replaySupport: "current_snapshot_only"` for published GUI events. `POST /v1/ag-ui/connect` emits a fresh `STATE_SNAPSHOT` and then future live fanout events. Clients should not send browser cache cursors as `lastSeenEventId` expecting the gateway to recover missed published events.
 
 ## HttpAgent Setup
 
@@ -152,7 +152,7 @@ This browser smoke uses a deterministic AG-UI graphics stream and verifies visib
 
 - TUI targets stream lower-fidelity status and final text, not headless canonical event detail.
 - Frontend tool execution is not implemented; declared AG-UI tools are prompt context, not provider-native tool bindings.
-- State deltas remain future work; resumable connect replay is bounded by the gateway-owned per-thread event log.
+- State deltas remain future work; published GUI events are not replayed by the gateway.
 - Multimodal input support is conservative and may reject unsupported content before admission.
 - The first graphics smoke is deterministic and fixture-backed because live models are not required to choose `houmao_render_graphic`.
 - Closing a GUI stream detaches the AG-UI subscription by default and does not interrupt the underlying Houmao task.

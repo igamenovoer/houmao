@@ -1,6 +1,8 @@
 import type { SerializedDockview } from "dockview-react";
 
 import type { AgentAddressResolveStatus, TargetConfig } from "./ag-ui/types";
+import type { WatchedTargetRecord } from "./ag-ui/watchedTargets";
+import { watchedTargetKey } from "./ag-ui/watchedTargets";
 
 export type PaneKind = "operator" | "agent" | "debug-agent";
 
@@ -25,6 +27,7 @@ export interface WorkbenchStorage {
   discovery: DiscoveryConfig;
   layout?: unknown;
   panes: Record<string, PaneRecord>;
+  watchedTargets: Record<string, WatchedTargetRecord>;
   nextAgentIndex: number;
   nextDebugAgentIndex: number;
 }
@@ -69,6 +72,7 @@ export function defaultStorage(): WorkbenchStorage {
         target: defaultTarget("operator", "operator"),
       },
     },
+    watchedTargets: {},
     nextAgentIndex: 1,
     nextDebugAgentIndex: 1,
   };
@@ -85,6 +89,7 @@ export function loadWorkbenchStorage(): WorkbenchStorage {
       discovery: sanitizeDiscoveryConfig(parsed.discovery),
       layout: sanitizeDockviewLayout(parsed.layout),
       panes: sanitizePaneRecords(parsed.panes),
+      watchedTargets: sanitizeWatchedTargetRecords(parsed.watchedTargets),
       nextAgentIndex: typeof parsed.nextAgentIndex === "number" ? parsed.nextAgentIndex : 1,
       nextDebugAgentIndex:
         typeof parsed.nextDebugAgentIndex === "number" ? parsed.nextDebugAgentIndex : 1,
@@ -100,6 +105,7 @@ export function saveWorkbenchStorage(storage: WorkbenchStorage): void {
     JSON.stringify({
       ...storage,
       layout: sanitizeDockviewLayout(storage.layout),
+      watchedTargets: sanitizeWatchedTargetRecords(storage.watchedTargets),
     }),
   );
 }
@@ -137,6 +143,33 @@ function sanitizePaneRecords(value: unknown): Record<string, PaneRecord> {
     const resetToken = typeof record.resetToken === "number" ? record.resetToken : undefined;
     const debugAgent = kind === "debug-agent" ? sanitizeDebugAgent(record.debugAgent, paneId) : undefined;
     records[paneId] = { paneId, kind, target, resetToken, debugAgent };
+  }
+  return records;
+}
+
+function sanitizeWatchedTargetRecords(value: unknown): Record<string, WatchedTargetRecord> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  const records: Record<string, WatchedTargetRecord> = {};
+  for (const [storedKey, record] of Object.entries(
+    value as Record<string, Partial<WatchedTargetRecord>>,
+  )) {
+    const fallbackTarget = defaultTarget("watched-target", "agent");
+    const target = sanitizeTarget(record.target, fallbackTarget);
+    if (!target.threadId) {
+      continue;
+    }
+    const key = watchedTargetKey(target);
+    if (storedKey !== key && !key) {
+      continue;
+    }
+    records[key] = {
+      key,
+      target,
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString(),
+      updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : new Date().toISOString(),
+    };
   }
   return records;
 }
