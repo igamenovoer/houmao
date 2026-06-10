@@ -17,7 +17,13 @@ The repository SHALL provide a standalone AG-UI workbench application under `app
 - **AND THEN** the command does not require entering `pixi shell`
 
 ### Requirement: Operator input panel
-The workbench SHALL provide a pinned operator input panel that connects to one configured Houmao operator agent through AG-UI run and connection semantics.
+The workbench SHALL provide an operator input panel that connects to one configured Houmao operator agent through AG-UI run and connection semantics.
+
+The workbench SHALL create the operator panel by default when a fresh or otherwise empty workbench opens.
+
+The workbench SHALL respect an explicit user close of the operator panel when other docked panes remain available, and SHALL NOT immediately re-create the operator panel after that close.
+
+Closing the operator panel SHALL NOT erase the persisted operator target configuration.
 
 #### Scenario: Operator target can be configured
 - **WHEN** a developer opens the operator panel
@@ -33,8 +39,26 @@ The workbench SHALL provide a pinned operator input panel that connects to one c
 - **THEN** only the configured operator target receives the submitted AG-UI run
 - **AND THEN** other panes continue only their own configured connections and runs
 
+#### Scenario: Fresh workbench opens with operator panel
+- **WHEN** a developer opens a fresh workbench with no saved docked layout
+- **THEN** the workbench creates the operator panel
+- **AND THEN** the operator panel uses the persisted or default operator target configuration
+
+#### Scenario: Closing operator pane is respected while other panes remain
+- **WHEN** a developer has at least one agent or Debug Agent pane open
+- **AND WHEN** the developer closes the operator pane
+- **THEN** the workbench does not immediately re-create the operator pane
+- **AND THEN** the remaining panes stay open and usable
+
+#### Scenario: Operator close does not erase target metadata
+- **WHEN** a developer configures the operator target and then closes the operator pane while another pane remains open
+- **THEN** the persisted workbench state retains the operator target metadata
+- **AND THEN** the persisted layout does not force the operator pane to reappear on reload
+
 ### Requirement: Docked multi-agent panes
-The workbench SHALL use a dockable pane layout where each agent pane can be added, removed, moved within the main workbench, and configured independently for one running Houmao agent.
+The workbench SHALL use a dockable pane layout where each agent pane can be added, removed, moved within the main workbench, and configured independently for one running Houmao agent or watched AG-UI target.
+
+Agent panes SHALL be presentation surfaces for target event state. They SHALL NOT be the only ownership boundary for a watched target's background AG-UI listener.
 
 #### Scenario: User can add multiple panes
 - **WHEN** a developer clicks the add-pane control
@@ -50,18 +74,28 @@ The workbench SHALL use a dockable pane layout where each agent pane can be adde
 - **THEN** the workbench does not create Dockview floating groups
 - **AND THEN** the workbench does not create Dockview popout windows or require a `popout.html` page
 
-#### Scenario: Each pane connects independently
-- **WHEN** two panes are configured with different AG-UI targets and both are connected
-- **THEN** each pane opens its own AG-UI connection stream or run stream
-- **AND THEN** events received by one pane do not appear in the other pane's transcript, state view, or raw event list
+#### Scenario: Each pane presents its selected target independently
+- **WHEN** two panes are configured with different AG-UI targets and both targets have event state
+- **THEN** each pane presents only the cached and live events for its own target
+- **AND THEN** events received by one target do not appear in the other pane's transcript, state view, or raw event list
 
-#### Scenario: Pane close detaches GUI stream
-- **WHEN** a connected pane is closed
-- **THEN** the workbench aborts that pane's active browser stream and performs explicit AG-UI connection cleanup when a connection id is available
+#### Scenario: Pane close does not stop watched target listener
+- **WHEN** a pane presenting a watched target is closed
+- **THEN** the workbench removes that pane from the docked layout
+- **AND THEN** the watched target listener remains active when the target is still marked watched
+- **AND THEN** the workbench does not send any Houmao lifecycle stop, restart, shutdown, or interrupt request
+
+#### Scenario: Explicit unwatch disconnects listener without controlling agent
+- **WHEN** a tester explicitly unwatches or disconnects a watched target
+- **THEN** the workbench aborts that target's active browser stream and performs explicit AG-UI connection cleanup when a connection id is available
 - **AND THEN** the workbench does not send any Houmao lifecycle stop, restart, shutdown, or interrupt request
 
 ### Requirement: Direct AG-UI client and event reduction
 The workbench SHALL include direct AG-UI client behavior for Houmao capabilities, connect, run, detach, SSE parsing, stream abort, raw event recording, and reduced display state.
+
+For watched targets, the workbench SHALL route connect-stream events through the watched-target cache and reducer rather than storing them only in pane-local state.
+
+Visible panes SHALL render the reduced state for their selected target from cached events plus live watcher updates.
 
 #### Scenario: Capabilities are fetched before interaction
 - **WHEN** a pane target is configured
@@ -69,13 +103,18 @@ The workbench SHALL include direct AG-UI client behavior for Houmao capabilities
 - **AND THEN** the pane displays whether HTTP SSE, text input, state snapshots, generated graphics, frontend tool execution, state deltas, and multimodal input are reported as supported
 
 #### Scenario: Connect attaches without prompt submission
-- **WHEN** a user connects a pane without submitting a prompt
+- **WHEN** a user connects or watches a target without submitting a prompt
 - **THEN** the workbench sends an AG-UI connect request rather than a run request
-- **AND THEN** the pane records state snapshot, activity, custom, text, and error events received from that connection stream
+- **AND THEN** the target records state snapshot, activity, custom, text, tool-call, and error events received from that connection stream
 
 #### Scenario: Run stream is reduced into visible state
 - **WHEN** a run stream emits `RUN_STARTED`, text message events, state snapshot events, activity events, tool call events, custom events, and `RUN_FINISHED`
 - **THEN** the pane shows run status, transcript messages, state snapshot content, activity/custom records, tool-call records, and the raw event timeline
+
+#### Scenario: Cached connect stream is reduced into visible state
+- **WHEN** a watched connect stream receives state snapshot events, activity events, tool call events, custom events, and errors
+- **THEN** the workbench stores those events in the client cache
+- **AND THEN** any pane for that target renders the reduced display state from those cached events
 
 #### Scenario: Run error remains visible
 - **WHEN** a target returns a pre-admission HTTP error or an admitted stream emits `RUN_ERROR`
@@ -109,16 +148,28 @@ The workbench SHALL provide a local development proxy for browser-to-Houmao AG-U
 - **THEN** the proxy aborts the upstream request and releases stream resources
 
 ### Requirement: Workbench persistence boundary
-The workbench SHALL persist only layout and non-sensitive configuration by default.
+The workbench SHALL persist layout and non-sensitive configuration in localStorage or an equivalent browser configuration store.
+
+The workbench SHALL persist AG-UI stream events only in the client-owned event cache for watched targets.
+
+The workbench SHALL NOT store stream content in localStorage by default.
+
+The workbench SHALL NOT persist discovered-agent list responses, gateway-status response bodies, prompt text, AG-UI request bodies, forwarded props, mailbox content, memory content, raw terminal content, credentials, cookies, bearer tokens, or authorization headers.
 
 #### Scenario: Layout and target metadata persist
-- **WHEN** a developer creates panes, moves them, assigns labels, and configures target URLs
-- **THEN** the workbench can restore the pane layout and target metadata after a browser reload
+- **WHEN** a developer creates panes, moves them, assigns labels, configures target URLs, and watches targets
+- **THEN** the workbench can restore the pane layout, target metadata, and watched-target metadata after a browser reload
 - **AND THEN** restored layout state contains only docked grid groups, not floating groups or popout groups
 
-#### Scenario: Stream content is not persisted by default
-- **WHEN** a pane receives prompts, messages, raw events, state snapshots, activity records, or graphics payloads
-- **THEN** the workbench does not persist those stream contents to local storage by default
+#### Scenario: Watched stream content persists only in client event cache
+- **WHEN** a watched target receives messages, raw events, state snapshots, activity records, or graphics payloads
+- **THEN** the workbench stores those received stream events in the client-owned event cache
+- **AND THEN** the workbench does not store those stream contents in localStorage
+
+#### Scenario: Unwatched pane stream content is not persisted by default
+- **WHEN** an unwatched pane receives prompts, messages, raw events, state snapshots, activity records, or graphics payloads
+- **THEN** the workbench does not persist those stream contents to localStorage by default
+- **AND THEN** the workbench persists them in the client event cache only after the target is watched
 
 ### Requirement: Deterministic browser E2E coverage
 The repository SHALL include deterministic browser E2E coverage for the workbench using Bun-global Playwright and a fake AG-UI server or route fixture.
@@ -131,6 +182,24 @@ The repository SHALL include deterministic browser E2E coverage for the workbenc
 - **WHEN** the deterministic fixture emits a `houmao_render_graphic` sequence and the test closes or disconnects a pane
 - **THEN** the test verifies visible graphic evidence
 - **AND THEN** the test verifies the browser-side detach or abort path without expecting a Houmao interrupt request
+
+### Requirement: Workbench tests cover operator close persistence
+The repository SHALL include deterministic browser coverage for operator pane close behavior.
+
+The coverage SHALL verify that closing the operator pane while another pane exists does not trigger automatic operator pane re-creation.
+
+The coverage SHALL verify that the closed operator visual pane remains absent after reload while other panes and non-sensitive persisted metadata remain valid.
+
+#### Scenario: E2E closes operator without respawn
+- **WHEN** the workbench E2E suite opens another pane and closes the operator pane
+- **THEN** the test verifies that the operator panel remains absent
+- **AND THEN** the test verifies that the other pane remains visible
+
+#### Scenario: E2E reload preserves operator absence
+- **WHEN** the operator pane was explicitly closed while another pane remained open
+- **AND WHEN** the workbench reloads
+- **THEN** the test verifies that the operator pane is not restored by layout persistence
+- **AND THEN** the test verifies that persisted operator target metadata is not erased
 
 ### Requirement: Kimi Code headless live validation guidance
 The workbench documentation SHALL describe how to perform live/manual validation for this change with a Kimi Code headless Houmao agent while keeping deterministic fake-server E2E as the required automated test path.
@@ -236,30 +305,6 @@ The reconnect loop SHALL NOT send Houmao lifecycle start, stop, restart, shutdow
 - **WHEN** a discovered-agent pane enters reconnecting state
 - **THEN** the workbench performs only passive-server resolution and AG-UI connect attempts
 - **AND THEN** it does not send start, stop, restart, shutdown, interrupt, launch, or prompt-control requests
-
-### Requirement: Workbench reconnect uses event cursors when supported
-The workbench SHALL track the latest applied SSE event id for each pane and thread when the AG-UI stream provides event ids.
-
-When reconnecting to a gateway whose capabilities indicate resumable replay, the workbench SHALL send the latest applied event id as `lastSeenEventId` in the AG-UI connect input.
-
-The workbench SHALL tolerate at-least-once replay by ignoring already applied SSE event ids when possible and by keeping existing AG-UI reducer behavior safe for duplicate payloads.
-
-When replay is unavailable or cursor recovery fails, the pane SHALL still process the fresh `STATE_SNAPSHOT` and later live events.
-
-#### Scenario: Reconnect sends last seen event id
-- **WHEN** a pane receives an AG-UI event frame with SSE id `abc123:thread-1:42`
-- **AND WHEN** the pane reconnects to a gateway that advertises resumable replay
-- **THEN** the connect request includes `lastSeenEventId = "abc123:thread-1:42"`
-
-#### Scenario: Duplicate replay does not duplicate visible state
-- **WHEN** a reconnect stream replays an event whose SSE id was already applied
-- **THEN** the workbench ignores the duplicate frame when the id is known
-- **AND THEN** the pane continues processing later replayed or live events
-
-#### Scenario: Snapshot fallback remains usable
-- **WHEN** a reconnect request cannot be replayed from the saved cursor
-- **THEN** the pane processes the gateway's current `STATE_SNAPSHOT`
-- **AND THEN** the pane remains connected for future live events
 
 ### Requirement: Manual direct AG-UI targets remain explicit and non-reconnecting by agent address
 For manual targets, the workbench SHALL continue to use the configured label, AG-UI URL, and thread id directly.

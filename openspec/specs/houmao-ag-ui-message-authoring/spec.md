@@ -96,6 +96,12 @@ For third-party AG-UI-compatible endpoints, `houmao-mgr` SHALL provide generated
 
 The publish helper SHALL fail before network submission when the input is not a valid AG-UI event sequence.
 
+The publish helper SHALL report the Houmao gateway publish response, including accepted, stored, and delivered counts when the gateway returns them.
+
+The publish helper SHALL identify Houmao gateway GUI-event publishing as live-only when `stored_count = 0` and replay support is absent.
+
+The publish helper SHALL NOT claim durable delivery or GUI visibility when the gateway reports `delivered_count = 0`.
+
 #### Scenario: Publish rejects typed payload before rendering
 - **WHEN** an agent passes a raw `houmao.chart.bar` component payload to the publish helper as the event input
 - **THEN** the command exits non-zero before contacting the Houmao gateway
@@ -106,6 +112,11 @@ The publish helper SHALL fail before network submission when the input is not a 
 - **THEN** the publish helper validates the events
 - **AND THEN** it sends the events to the Houmao gateway AG-UI ingestion route
 - **AND THEN** it reports the gateway response status without logging credential material
+
+#### Scenario: Publish reports live-only no-subscriber result
+- **WHEN** the Houmao gateway accepts a valid AG-UI event batch but no GUI stream receives it
+- **THEN** the publish helper reports `accepted_count > 0`, `stored_count = 0`, and `delivered_count = 0`
+- **AND THEN** it does not describe the message as visible in the GUI
 
 #### Scenario: Third-party endpoint delivery stops at generated events
 - **WHEN** an agent needs to send generated AG-UI events to a non-Houmao endpoint

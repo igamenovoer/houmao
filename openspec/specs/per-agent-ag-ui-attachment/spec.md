@@ -38,11 +38,13 @@ The capabilities response SHALL report HTTP SSE support, GUI connect support, te
 
 The capabilities response SHALL report generated graphics support as enabled only when `houmao_render_graphic` artifact validation and event mapping are available for the target.
 
-The capabilities response SHALL report resumable transport support as enabled only when the gateway can accept `lastSeenEventId` and replay retained AG-UI events after that cursor for the requested thread.
+The capabilities response SHALL report resumable transport support as disabled for Houmao-published GUI events because the gateway does not replay retained `/v1/ag-ui/events` batches.
 
 The capabilities response SHALL report state delta support, frontend tool execution, Open Generative UI, and unsupported multimodal input as disabled for this milestone.
 
 The capabilities response SHALL identify that GUI lifecycle does not manage the Houmao agent lifecycle.
+
+The Houmao metadata SHALL identify published-event delivery as live-only fanout with client-owned caching responsibility.
 
 #### Scenario: Capabilities report run streaming support
 
@@ -59,12 +61,11 @@ The capabilities response SHALL identify that GUI lifecycle does not manage the 
 - **THEN** the response reports generated graphics as enabled
 - **AND THEN** the response identifies `houmao_render_graphic` in Houmao metadata or tool capability metadata
 
-#### Scenario: Capabilities report resumable support only after replay is available
+#### Scenario: Capabilities report published-event delivery as non-resumable
 
 - **WHEN** a caller requests `GET /v1/ag-ui/capabilities`
-- **AND WHEN** the gateway has bounded retained-event replay available for AG-UI connect streams
-- **THEN** the response reports resumable transport support as enabled
-- **AND THEN** Houmao metadata identifies replay support as event-log replay since cursor
+- **THEN** the response reports resumable transport support as disabled for Houmao-published GUI events
+- **AND THEN** Houmao metadata identifies `/v1/ag-ui/events` delivery as live-only fanout without gateway replay
 
 #### Scenario: Capabilities remain conservative for unsupported features
 
@@ -109,7 +110,7 @@ The connect stream SHALL emit an initial AG-UI `STATE_SNAPSHOT` describing sanit
 
 The connect handler SHALL NOT submit a prompt, create a gateway request, start a task run, stop the agent, interrupt the agent, restart the agent, or shut down the agent.
 
-The connect handler SHALL accept an optional `lastSeenEventId` field. When retained replay is available for the requested thread and the cursor is valid, the connect stream SHALL replay retained AG-UI events after that cursor before continuing with live events. When retained replay is unavailable or the cursor cannot be honored, the connect stream SHALL still emit the current sanitized state snapshot and continue with live events without claiming complete historical recovery.
+The connect handler MAY accept an optional `lastSeenEventId` field for request compatibility, but SHALL NOT treat it as a replay cursor for Houmao-published GUI events. The connect stream SHALL emit the current sanitized state snapshot and continue with future live events.
 
 #### Scenario: Connect emits a state snapshot
 
@@ -125,15 +126,14 @@ The connect handler SHALL accept an optional `lastSeenEventId` field. When retai
 - **AND THEN** the gateway does not create a queued gateway request
 - **AND THEN** the gateway does not emit `RUN_STARTED`
 
-#### Scenario: Connect replays retained events after cursor
+#### Scenario: Connect does not replay after cursor
 
 - **WHEN** a caller posts valid AG-UI connect input with `lastSeenEventId`
-- **AND WHEN** the gateway retains events after that cursor for the requested thread
 - **THEN** the connect stream emits the current sanitized state snapshot
-- **AND THEN** it emits retained AG-UI events after the cursor in event-id order
-- **AND THEN** it continues streaming live matching events
+- **AND THEN** it does not replay retained published AG-UI events after that cursor
+- **AND THEN** it continues streaming future live matching events
 
-#### Scenario: Connect falls back when cursor cannot be honored
+#### Scenario: Connect remains usable when cursor cannot be honored
 
 - **WHEN** a caller posts valid AG-UI connect input with an expired, unknown, malformed, or mismatched `lastSeenEventId`
 - **THEN** the gateway emits at least the current sanitized state snapshot
@@ -288,31 +288,41 @@ The ingestion route SHALL NOT submit a Houmao prompt, create a gateway request, 
 ### Requirement: Published AG-UI events are broadcast to matching streams
 The gateway SHALL broadcast accepted published AG-UI events to active AG-UI connect or run streams whose routing metadata matches the submitted batch.
 
-The gateway SHALL preserve the submitted AG-UI event payloads except for safe metadata needed for replay, diagnostics, or stream framing.
+The gateway SHALL preserve the submitted AG-UI event payloads except for safe metadata needed for diagnostics or stream framing.
 
 The gateway SHALL expose deterministic behavior when no matching stream is connected.
 
 The gateway SHALL keep published-event stream bookkeeping separate from the Houmao task-run lifecycle.
+
+The gateway SHALL NOT store accepted published events for delivery to future streams.
 
 #### Scenario: Connected GUI receives published events
 - **WHEN** a GUI has an active AG-UI connect stream for a thread
 - **AND WHEN** a caller publishes a valid AG-UI event batch for that thread
 - **THEN** the connect stream emits the accepted events in submission order
 
-#### Scenario: No active GUI still accepts or rejects deterministically
+#### Scenario: No active GUI loses accepted live-only events
 - **WHEN** no GUI stream matches the submitted routing metadata
 - **AND WHEN** a caller publishes a valid AG-UI event batch
 - **THEN** the gateway responds deterministically with accepted-but-not-delivered or an explicit no-subscriber status
+- **AND THEN** the response reports no stored replay events
 - **AND THEN** the response does not imply that a Houmao task run was started
 
-### Requirement: Published AG-UI events use bounded replay and safe diagnostics
-The gateway SHALL maintain bounded replay bookkeeping for accepted published AG-UI events when replay is enabled for the target route.
+### Requirement: Published AG-UI events use live-only fanout and safe diagnostics
+The gateway SHALL treat accepted `/v1/ag-ui/events` batches as live-only fanout events.
 
-The gateway SHALL bound event count, event size, total batch size, and replay retention.
+The gateway SHALL NOT retain accepted published events for later gateway replay.
+
+The gateway SHALL bound event count, event size, and total batch size before broadcast.
 
 Gateway diagnostics for published events SHALL include safe operational metadata such as route, status code, event count, thread id, run id, delivery count, and validation error locations.
 
 Gateway diagnostics SHALL NOT include full tool-call argument payloads, message contents, credentials, authorization headers, cookies, or raw request-body dumps by default.
+
+#### Scenario: Accepted events are not retained by the gateway
+- **WHEN** a caller publishes a valid AG-UI event batch
+- **THEN** the gateway validates and fanouts the accepted events to currently matching streams
+- **AND THEN** the gateway does not write those events to retained replay storage
 
 #### Scenario: Oversized event batch is rejected before broadcast
 - **WHEN** a caller submits an AG-UI event batch larger than the configured limit
@@ -324,40 +334,45 @@ Gateway diagnostics SHALL NOT include full tool-call argument payloads, message 
 - **THEN** gateway diagnostics record safe counts and routing metadata
 - **AND THEN** gateway diagnostics do not record the full chart data
 
-### Requirement: AG-UI SSE frames carry durable event identifiers for replayable events
-Replayable AG-UI SSE data frames SHALL include an SSE `id` field that is stable within the gateway's retained event log.
+### Requirement: Published AG-UI event streams do not expose gateway replay cursors
+The gateway SHALL NOT advertise SSE event ids from `/v1/ag-ui/events` delivery as durable gateway replay cursors.
 
-The event id SHALL identify the agent, thread, and monotonically ordered event position or an equivalent stable cursor that lets a later `lastSeenEventId` request resume after a known event.
+The gateway MAY include best-effort SSE frame ids for connected streams when useful for client-side diagnostics or local deduplication.
+
+Any best-effort SSE frame id SHALL NOT imply that the gateway can replay missed published events.
 
 The AG-UI event JSON payload SHALL remain a standard AG-UI event object and SHALL NOT require Houmao-specific cursor fields inside the event body.
 
-#### Scenario: Published event frame includes SSE id
+#### Scenario: Published event frame has no replay promise
 - **WHEN** a caller publishes a valid AG-UI event batch for thread `thread-1`
 - **AND WHEN** a matching GUI connect stream receives the batch
-- **THEN** each replayable SSE data frame includes an `id` field
-- **AND THEN** the `data` field remains a standard AG-UI event JSON object
+- **THEN** the stream emits standard AG-UI event JSON payloads
+- **AND THEN** any SSE frame id is documented as non-replayable diagnostic metadata
 
-#### Scenario: Cursor identifies replay position
-- **WHEN** a GUI records the SSE id for a received event
-- **AND WHEN** the GUI reconnects with that value as `lastSeenEventId`
-- **THEN** the gateway can determine which retained events come after the cursor for the same thread
+#### Scenario: Reconnect cannot request missed published events
+- **WHEN** a GUI reconnects after missing published AG-UI events
+- **THEN** the gateway does not use an SSE id to recover those missed published events
+- **AND THEN** the stream remains usable for future live events
 
 ### Requirement: Published AG-UI event responses distinguish accepted, stored, and delivered counts
 The `/v1/ag-ui/events` response SHALL report the number of accepted events, the number of events stored for bounded replay, and the number of live stream deliveries.
 
-When a valid event batch is stored but no live stream currently matches, the response SHALL make that state visible with `stored_count > 0` and `delivered_count = 0`.
+For Houmao gateway live-only published GUI events, the response SHALL report `stored_count = 0`.
 
-When the gateway cannot store events for replay, it SHALL report `stored_count = 0` and SHALL NOT advertise resumable replay support for those events.
+When no live stream currently matches a valid event batch, the response SHALL make that state visible with `accepted_count > 0`, `stored_count = 0`, and `delivered_count = 0`.
 
-#### Scenario: Valid batch stores without live subscriber
+When a valid event batch reaches matching live streams, the response SHALL report `delivered_count` as the number of live stream deliveries performed at publish time.
+
+The gateway SHALL NOT advertise resumable replay support for Houmao-published GUI events.
+
+#### Scenario: Valid batch has no live subscriber
 - **WHEN** no GUI stream matches a valid published AG-UI event batch
-- **AND WHEN** the gateway has replay storage enabled for the target thread
 - **THEN** the publish response reports the batch as accepted
-- **AND THEN** the response reports a positive stored count
-- **AND THEN** the response reports zero live deliveries
+- **AND THEN** the response reports `stored_count = 0`
+- **AND THEN** the response reports `delivered_count = 0`
 
-#### Scenario: Live subscriber receives stored batch
+#### Scenario: Live subscriber receives accepted batch
 - **WHEN** a GUI stream matches a valid published AG-UI event batch
-- **AND WHEN** the gateway has replay storage enabled for the target thread
-- **THEN** the publish response reports accepted, stored, and delivered counts
+- **THEN** the publish response reports the batch as accepted
+- **AND THEN** the response reports `stored_count = 0`
 - **AND THEN** the matching stream receives the accepted events
