@@ -127,11 +127,12 @@ houmao-mgr agents single --agent-name <agent-name> gateway ag-ui publish --input
 For the Houmao AG-UI workbench, a tmux-controlled agent often lacks GUI-appended canvas or thread context. In that case, omit explicit routing and let the gateway resolve the destination. The gateway order is:
 
 1. Destination specified in the publish request or rendered event batch.
-2. Gateway `last-sent-thread`.
-3. Gateway `last-bound-thread`, maintained by the foreground workbench pane.
-4. Houmao default sink.
+2. Gateway `active-thread`, set by the workbench active-thread control or by an eligible pane connect action.
+3. Houmao default sink.
 
 The default sink is gateway-defined and is not an agent-visible thread name. Do not invent or target a sink thread id.
+
+Gateway `last-sent-thread` is bookkeeping only. It records the last concrete non-sink publish destination, but the gateway does not use it as fallback routing when a later publish omits routing.
 
 Use `--thread-id <thread-id>` by itself when the user or environment gives a known destination thread. A pane-level connect stream and an active run stream both receive thread-only publishes for the same thread. Adding `--run-id` narrows delivery to a stream with that exact run id, so a guessed, newly generated, stale, or copied-but-wrong run id will usually produce `delivered_count: 0` and the GUI will render nothing.
 
@@ -142,13 +143,13 @@ Check the publish response:
 - `accepted_count` is the number of standard AG-UI events accepted by the gateway after validation.
 - `stored_count` is normally `0` for Houmao gateway GUI-event publish because the gateway does not retain missed events for replay.
 - `delivered_count` is the number of live stream deliveries made immediately.
-- `warnings` may include `default_sink_due_to_no_destination` when the gateway accepted the batch but had no message-specified, last-sent, or last-bound thread destination.
+- `warnings` may include `default_sink_due_to_no_destination` when the gateway accepted the batch but had no message-specified or active-thread destination.
 
 `delivered_count > 0` means matching live GUI/run streams received the events immediately. `delivered_count: 0` with `stored_count: 0` means no matching live stream received the events and the Houmao gateway did not retain them for later replay. Do not describe a publish as visible in the GUI unless `delivered_count > 0` or the user confirms that the GUI received it through another path.
 
 If the response warns `default_sink_due_to_no_destination`, report that the gateway accepted the events but sent them to the internal default sink because no GUI destination was available. Do not claim that the GUI displayed the message.
 
-If the user expected a chart to appear but `delivered_count` is zero, ask the user to open or watch the intended workbench target and publish the event batch again after a listener is connected.
+If the user expected a chart to appear but `delivered_count` is zero, ask the user to open or watch the intended workbench target, mark the pane active when relying on omitted routing, and publish the event batch again after a listener is connected.
 
 This command intentionally has no `--endpoint` option. For third-party endpoints, generate the event batch with `internals ag-ui events render`, validate it, then use that endpoint's documented delivery method.
 

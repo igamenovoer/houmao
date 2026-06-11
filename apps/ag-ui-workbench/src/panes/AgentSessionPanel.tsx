@@ -1,22 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
-import { BadgeCheck, Eraser, Eye, EyeOff, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
+import { BadgeCheck, Crosshair, Eraser, Eye, EyeOff, PanelRightOpen, Play, RefreshCw, Trash2, X } from "lucide-react";
 
-import {
-  AgUiHttpError,
-  bindLastAgUiThread,
-  buildConnectInput,
-  buildRunInput,
-  clearLastAgUiThread,
-  connectAgUi,
-  detachAgUi,
-  fetchCapabilities,
-  runAgUi,
-} from "../ag-ui/client";
-import { AgentAddressUnavailableError, resolveTargetConfigForConnect } from "../ag-ui/discovery";
-import { extractConnectionId, initialPaneEventState, reduceAgUiEvent, reduceHttpError, reduceParseError, type PaneEventState, type PaneRunStatus } from "../ag-ui/reducer";
-import type { CapabilitiesResponse, TargetConfig } from "../ag-ui/types";
+import { initialPaneEventState, type PaneEventState } from "../ag-ui/reducer";
+import type { TargetConfig } from "../ag-ui/types";
 import { watchedTargetKey } from "../ag-ui/watchedTargets";
+import type { WorkbenchRuntimeAction } from "../runtime/actions";
+import { useRuntimeDispatch, useRuntimeSelector } from "../runtime/react";
+import { gatewayKeyForTarget, selectPaneActiveThreadView, selectPaneAgUiRuntime } from "../runtime/selectors";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
 import { CapabilityBadges } from "./CapabilityBadges";
@@ -42,32 +33,66 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId, kind } = props.params;
   const record = paneRecordOrDefault(storage, paneId, kind);
   const target = record.target;
-  const activeTargetRef = useRef<TargetConfig>(target);
+  const runtimeDispatch = useRuntimeDispatch();
   const resetTokenRef = useRef(record.resetToken ?? 0);
-  const abortRef = useRef<AbortController | null>(null);
-  const connectionIdRef = useRef<string | null>(null);
-  const reconnectTimerRef = useRef<number | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const stoppedRef = useRef(false);
   const displaySurfaceRef = useRef<HTMLElement | null>(null);
-  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
-  const [eventState, setEventState] = useState(initialPaneEventState);
   const [prompt, setPrompt] = useState("");
-  const [panelStatus, setPanelStatus] = useState(eventState.status);
+  const emptyPaneEventState = useMemo(() => initialPaneEventState(), []);
+  const paneRuntime = useRuntimeSelector((state) => selectPaneAgUiRuntime(state, paneId));
+  const paneEventState = paneRuntime?.eventState ?? emptyPaneEventState;
+  const capabilities = paneRuntime?.capabilities ?? null;
   const targetWatchKey = useMemo(
     () => watchedTargetKey(target),
     [target],
   );
   const watchedRecord = targetWatchKey ? storage.watchedTargets[targetWatchKey] : undefined;
   const watchedRuntime = targetWatchKey ? watchedTargetRuntimes[targetWatchKey] : undefined;
+  const activeThreadView = useRuntimeSelector((state) => selectPaneActiveThreadView(state, target));
+  const activeGatewayKey = useMemo(() => gatewayKeyForTarget(target), [target]);
   const displayEventState = useMemo(
-    () => (watchedRuntime ? mergeEventStates(watchedRuntime.eventState, eventState) : eventState),
-    [eventState, watchedRuntime],
+    () => (watchedRuntime ? mergeEventStates(watchedRuntime.eventState, paneEventState) : paneEventState),
+    [paneEventState, watchedRuntime],
   );
 
   useEffect(() => {
     props.api.setTitle(target.label || paneId);
   }, [paneId, props.api, target]);
+
+  useEffect(() => {
+    runtimeDispatch({
+      type: "pane/targetChanged",
+      paneId,
+      target,
+    });
+  }, [paneId, runtimeDispatch, target]);
+
+  useEffect(() => {
+    return () => {
+      runtimeDispatch({
+        type: "pane/disposed",
+        paneId,
+      });
+    };
+  }, [paneId, runtimeDispatch]);
+
+  useEffect(() => {
+    if (!activeThreadView.isEligible || !activeGatewayKey) {
+      return;
+    }
+    runtimeDispatch({
+      type: "activeThread/registerInterest",
+      paneId,
+      gatewayKey: activeGatewayKey,
+      target,
+    });
+    return () => {
+      runtimeDispatch({
+        type: "activeThread/unregisterInterest",
+        paneId,
+        gatewayKey: activeGatewayKey,
+      });
+    };
+  }, [activeGatewayKey, activeThreadView.isEligible, paneId, runtimeDispatch, target]);
 
   useEffect(() => {
     if (!watchedRuntime || sameTarget(target, watchedRuntime.target)) {
@@ -82,147 +107,115 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
       return;
     }
     resetTokenRef.current = resetToken;
-    const detachTarget = activeTargetRef.current;
-    const connectionId = connectionIdRef.current;
-    clearReconnectTimer();
-    stoppedRef.current = true;
-    abortRef.current?.abort();
-    abortRef.current = null;
-    connectionIdRef.current = null;
-    activeTargetRef.current = target;
-    setCapabilities(null);
-    setEventState(initialPaneEventState());
-    setPanelStatus("empty");
     setPrompt("");
-    void detachAgUi(detachTarget, connectionId).catch((error) => {
-      setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
+    runtimeDispatch({
+      type: "agUi/cancelRequested",
+      paneId,
+      detach: true,
     });
-  }, [record.resetToken, target]);
-
-  useEffect(() => {
-    return () => {
-      clearReconnectTimer();
-      stoppedRef.current = true;
-      abortRef.current?.abort();
-      void detachAgUi(activeTargetRef.current, connectionIdRef.current).catch(() => undefined);
-    };
-  }, []);
+    runtimeDispatch({
+      type: "agUi/clearPaneStateRequested",
+      paneId,
+    });
+  }, [paneId, record.resetToken, runtimeDispatch]);
 
   const latestErrors = useMemo(() => displayEventState.errors.slice(-3), [displayEventState.errors]);
 
   const setTarget = (nextTarget: TargetConfig) => {
     if (target.source?.kind === "discovered" && !sameTarget(target, nextTarget)) {
-      void clearLastAgUiThread(target).catch(() => undefined);
-    }
-    if (nextTarget.source?.kind === "discovered" && nextTarget.url && nextTarget.threadId) {
-      void bindLastAgUiThread(nextTarget, nextTarget.threadId, "gui_view_change").catch(
-        () => undefined,
-      );
+      clearActiveThreadSelection(runtimeDispatch, paneId, target);
     }
     updateTarget(paneId, nextTarget);
   };
 
-  const refreshCapabilities = async () => {
-    const controller = new AbortController();
-    setPanelStatus("connecting");
-    try {
-      const resolvedTarget = await resolveTargetConfigForConnect(target, controller.signal);
-      if (!sameTarget(target, resolvedTarget)) {
-        activeTargetRef.current = resolvedTarget;
-        updateTarget(paneId, resolvedTarget);
-      }
-      const response = await fetchCapabilities(resolvedTarget, controller.signal);
-      setCapabilities(response);
-      setPanelStatus("connected");
-    } catch (error) {
-      showRequestError(error);
-    }
+  const refreshCapabilities = () => {
+    runtimeDispatch({
+      type: "agUi/capabilitiesRequested",
+      paneId,
+      target,
+    });
   };
 
   const connect = async () => {
-    if (target.source?.kind === "discovered" && target.url && target.threadId) {
-      void bindLastAgUiThread(target, target.threadId, "gui_connect").catch(() => undefined);
+    if (activeThreadView.isEligible && activeGatewayKey && target.threadId) {
+      runtimeDispatch({
+        type: "activeThread/setRequested",
+        paneId,
+        gatewayKey: activeGatewayKey,
+        target,
+        threadId: target.threadId,
+        source: "gui_connect",
+      });
     }
     const key = watchTarget(target);
-    setPanelStatus(watchedTargetRuntimes[key]?.status ?? "connecting");
+    runtimeDispatch({
+      type: "pane/targetChanged",
+      paneId,
+      target: watchedTargetRuntimes[key]?.target ?? target,
+    });
   };
 
-  const run = async () => {
+  const run = () => {
     const text = prompt.trim();
     if (!text) {
       return;
     }
-    await stopActiveStream(false);
     setPrompt("");
-    const controller = new AbortController();
-    abortRef.current = controller;
-    activeTargetRef.current = target;
-    setPanelStatus("running");
-    const input = buildRunInput({
+    runtimeDispatch({
+      type: "agUi/runRequested",
       paneId,
-      threadId: target.threadId,
       message: text,
+      target,
       canvasSize: measureCanvasSize(displaySurfaceRef.current),
     });
-    void runAgUi(
-      target,
-      input,
-      {
-        onOpen: () => setPanelStatus("running"),
-        onRaw: () => undefined,
-        onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
-        onEvent: (event, raw) => {
-          if (controller.signal.aborted) {
-            return;
-          }
-          setEventState((current) => reduceAgUiEvent(current, event, raw));
-        },
-      },
-      controller.signal,
-    )
-      .then(() => {
-        if (!controller.signal.aborted) {
-          setPanelStatus("finished");
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          showRequestError(error);
-        }
-      });
   };
 
-  const disconnect = async () => {
+  const disconnect = () => {
     if (targetWatchKey && watchedRecord) {
       unwatchTarget(targetWatchKey);
-      setPanelStatus("disconnected");
       return;
     }
-    await stopActiveStream(true);
-    setPanelStatus("disconnected");
+    runtimeDispatch({
+      type: "agUi/cancelRequested",
+      paneId,
+      detach: true,
+    });
   };
 
   const clearCanvas = async () => {
-    setEventState(initialPaneEventState());
+    runtimeDispatch({
+      type: "agUi/clearPaneStateRequested",
+      paneId,
+    });
     if (!targetWatchKey || !watchedRecord) {
       return;
     }
     try {
       await clearWatchedTargetCache(targetWatchKey);
     } catch (error) {
-      setEventState((current) =>
-        reduceHttpError(current, `Clear canvas failed: ${requestErrorMessage(error)}`),
-      );
+      runtimeDispatch({
+        type: "agUi/requestFailed",
+        paneId,
+        target,
+        error: `Clear canvas failed: ${requestErrorMessage(error)}`,
+        receivedAt: new Date().toISOString(),
+      });
     }
   };
 
-  const closePane = async () => {
-    if (target.source?.kind === "discovered" && target.url) {
-      void clearLastAgUiThread(target).catch(() => undefined);
-    }
+  const closePane = () => {
+    clearActiveThreadSelection(runtimeDispatch, paneId, target);
     if (!watchedRecord) {
-      await stopActiveStream(true);
+      runtimeDispatch({
+        type: "agUi/cancelRequested",
+        paneId,
+        detach: true,
+      });
     }
+    runtimeDispatch({
+      type: "pane/disposed",
+      paneId,
+    });
     removePaneRecord(paneId);
     props.api.close();
   };
@@ -243,123 +236,27 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     setOperatorPaneId(paneId);
   };
 
-  const stopActiveStream = async (detach: boolean) => {
-    const detachTarget = activeTargetRef.current;
-    stoppedRef.current = true;
-    clearReconnectTimer();
-    abortRef.current?.abort();
-    abortRef.current = null;
-    if (detach) {
-      await detachAgUi(detachTarget, connectionIdRef.current).catch((error) => {
-        setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
-      });
-      connectionIdRef.current = null;
-    }
-  };
-
-  const showRequestError = (error: unknown) => {
-    setPanelStatus("error");
-    setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
-  };
-
-  const connectAttempt = async () => {
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const baseTarget = activeTargetRef.current;
-    setPanelStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
-    try {
-      const resolvedTarget = await resolveTargetConfigForConnect(baseTarget, controller.signal);
-      if (controller.signal.aborted || stoppedRef.current) {
-        return;
-      }
-      activeTargetRef.current = resolvedTarget;
-      if (!sameTarget(baseTarget, resolvedTarget)) {
-        updateTarget(paneId, resolvedTarget);
-      }
-      const input = buildConnectInput({
-        paneId,
-        threadId: resolvedTarget.threadId,
-      });
-      await connectAgUi(
-        resolvedTarget,
-        input,
-        {
-          onOpen: () => {
-            reconnectAttemptRef.current = 0;
-            setPanelStatus("connected");
-          },
-          onRaw: () => undefined,
-          onParseError: (raw) => setEventState((current) => reduceParseError(current, raw)),
-          onEvent: (event, raw) => {
-            if (controller.signal.aborted) {
-              return;
-            }
-            const connectionId = extractConnectionId(event);
-            if (connectionId) {
-              connectionIdRef.current = connectionId;
-            }
-            setEventState((current) => reduceAgUiEvent(current, event, raw));
-          },
-        },
-        controller.signal,
-      );
-      if (!controller.signal.aborted && !stoppedRef.current) {
-        connectionIdRef.current = null;
-        if (resolvedTarget.source?.kind === "discovered") {
-          scheduleReconnect("reconnecting");
-        } else {
-          setPanelStatus("disconnected");
-        }
-      }
-    } catch (error) {
-      if (controller.signal.aborted || stoppedRef.current) {
-        return;
-      }
-      if (baseTarget.source?.kind === "discovered") {
-        const status = retryStatusForError(error);
-        if (!(error instanceof AgentAddressUnavailableError)) {
-          setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
-        }
-        scheduleReconnect(status);
-        return;
-      }
-      showRequestError(error);
-    }
-  };
-
-  const scheduleReconnect = (status: PaneRunStatus) => {
-    if (stoppedRef.current) {
+  const markActiveThread = () => {
+    if (!activeThreadView.isEligible || !activeGatewayKey || !target.threadId) {
       return;
     }
-    reconnectAttemptRef.current += 1;
-    setPanelStatus(status);
-    const delayMs = Math.min(10000, 500 * 2 ** Math.min(reconnectAttemptRef.current, 5));
-    clearReconnectTimer();
-    reconnectTimerRef.current = window.setTimeout(() => {
-      reconnectTimerRef.current = null;
-      void connectAttempt();
-    }, delayMs);
-  };
-
-  const clearReconnectTimer = () => {
-    if (reconnectTimerRef.current === null) {
-      return;
-    }
-    window.clearTimeout(reconnectTimerRef.current);
-    reconnectTimerRef.current = null;
-  };
-
-  const retryStatusForError = (error: unknown): PaneRunStatus => {
-    if (error instanceof AgentAddressUnavailableError) {
-      return error.address.status === "offline" ? "offline" : "waiting";
-    }
-    return "reconnecting";
+    runtimeDispatch({
+      type: "activeThread/setRequested",
+      paneId,
+      gatewayKey: activeGatewayKey,
+      target,
+      threadId: target.threadId,
+      source: "gui_button",
+    });
   };
 
   const visibleStatus =
-    watchedRuntime?.status ?? (panelStatus === "empty" ? displayEventState.status : panelStatus);
+    watchedRuntime?.status ?? (paneRuntime?.status === "empty" ? displayEventState.status : paneRuntime?.status ?? "empty");
   const isDiscoveredAgent = target.source?.kind === "discovered";
   const isOperatorPane = storage.operatorPaneId === paneId;
+  const activeThreadButtonClass = activeThreadView.isActive
+    ? "active-thread-button active"
+    : "active-thread-button";
 
   return (
     <section className="session-panel" data-testid={`panel-${paneId}`}>
@@ -383,6 +280,19 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
             <Eraser size={15} />
           </button>
           <button
+            className={activeThreadButtonClass}
+            title={
+              activeThreadView.isActive
+                ? "Active AG-UI default thread"
+                : "Mark as active AG-UI default thread"
+            }
+            data-testid={`mark-active-thread-${paneId}`}
+            disabled={!activeThreadView.isEligible}
+            onClick={markActiveThread}
+          >
+            <Crosshair size={15} />
+          </button>
+          <button
             title={isOperatorPane ? "Clear operator marker" : "Mark as operator pane"}
             data-testid={`mark-operator-${paneId}`}
             disabled={!isDiscoveredAgent}
@@ -402,6 +312,16 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
       {isOperatorPane ? (
         <div className="operator-marker" data-testid={`operator-marker-${paneId}`}>
           Operator
+        </div>
+      ) : null}
+      {activeThreadView.isEligible ? (
+        <div
+          className={`active-thread-marker ${activeThreadView.isActive ? "active" : "idle"}`}
+          data-testid={`active-thread-marker-${paneId}`}
+          title={activeThreadView.error ?? undefined}
+        >
+          <span>{activeThreadView.isActive ? "Active thread" : "Inactive thread"}</span>
+          <span>{activeThreadView.status}</span>
         </div>
       ) : null}
 
@@ -447,12 +367,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 }
 
 function requestErrorMessage(error: unknown): string {
-  if (error instanceof AgentAddressUnavailableError) {
-    return error.address.detail || error.message;
-  }
-  if (error instanceof AgUiHttpError) {
-    return error.body || error.message;
-  }
   return error instanceof Error ? error.message : "AG-UI request failed.";
 }
 
@@ -467,6 +381,24 @@ function measureCanvasSize(element: HTMLElement | null): { w: number; h: number 
     return null;
   }
   return { w, h };
+}
+
+function clearActiveThreadSelection(
+  dispatch: (action: WorkbenchRuntimeAction) => void,
+  paneId: string,
+  target: TargetConfig,
+): void {
+  const gatewayKey = gatewayKeyForTarget(target);
+  if (!gatewayKey || !target.threadId) {
+    return;
+  }
+  dispatch({
+    type: "activeThread/clearRequested",
+    paneId,
+    gatewayKey,
+    target,
+    expectedThreadId: target.threadId,
+  });
 }
 
 function sameTarget(left: TargetConfig, right: TargetConfig): boolean {

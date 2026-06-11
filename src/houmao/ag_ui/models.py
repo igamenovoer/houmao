@@ -106,8 +106,7 @@ class AgUiEventPublishResponse(_HoumaoAgUiModel):
         "message",
         "event",
         "connection",
-        "last_sent",
-        "last_bound",
+        "active_thread",
         "default_sink",
     ] | None = None
     warnings: list[str] | None = None
@@ -116,24 +115,24 @@ class AgUiEventPublishResponse(_HoumaoAgUiModel):
 class AgUiThreadDestinationResponse(_HoumaoAgUiModel):
     """One gateway AG-UI destination fallback state slot."""
 
-    status: Literal["empty", "bound", "sent"]
+    status: Literal["empty", "active", "sent"]
     thread_id: str | None = None
     updated_at_utc: str | None = None
     source: str | None = None
 
 
-class AgUiDestinationBindingsResponse(_HoumaoAgUiModel):
+class AgUiDestinationStateResponse(_HoumaoAgUiModel):
     """Gateway-local AG-UI destination fallback state."""
 
-    last_bound_thread: AgUiThreadDestinationResponse
+    active_thread: AgUiThreadDestinationResponse
     last_sent_thread: AgUiThreadDestinationResponse
 
 
-class AgUiSetLastBoundThreadRequest(_HoumaoAgUiModel):
-    """Request body for binding the current foreground GUI thread."""
+class AgUiSetActiveThreadRequest(_HoumaoAgUiModel):
+    """Request body for setting the current active GUI thread."""
 
     thread_id: str
-    source: Literal["gui_connect", "gui_view_change", "manual"] = "manual"
+    source: Literal["gui_button", "gui_connect", "manual"] = "manual"
 
 
 __all__ = [
@@ -142,8 +141,8 @@ __all__ = [
     "AgUiDetachResponse",
     "AgUiEventPublishRequest",
     "AgUiEventPublishResponse",
-    "AgUiDestinationBindingsResponse",
-    "AgUiSetLastBoundThreadRequest",
+    "AgUiDestinationStateResponse",
+    "AgUiSetActiveThreadRequest",
     "AgUiEventType",
     "AgUiRunsUnavailableResponse",
     "AgUiStateSnapshotEvent",

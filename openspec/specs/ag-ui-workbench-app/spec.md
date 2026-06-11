@@ -16,45 +16,6 @@ The repository SHALL provide a standalone AG-UI workbench application under `app
 - **THEN** the documented command starts the local workbench development server
 - **AND THEN** the command does not require entering `pixi shell`
 
-### Requirement: Operator input panel
-The workbench SHALL provide an operator input panel that connects to one configured Houmao operator agent through AG-UI run and connection semantics.
-
-The workbench SHALL create the operator panel by default when a fresh or otherwise empty workbench opens.
-
-The workbench SHALL respect an explicit user close of the operator panel when other docked panes remain available, and SHALL NOT immediately re-create the operator panel after that close.
-
-Closing the operator panel SHALL NOT erase the persisted operator target configuration.
-
-#### Scenario: Operator target can be configured
-- **WHEN** a developer opens the operator panel
-- **THEN** the panel allows configuring a label, AG-UI base URL or run URL, and thread identifier for the operator Houmao agent
-
-#### Scenario: Operator prompt submits one AG-UI run
-- **WHEN** the operator panel is connected and the user submits a text prompt
-- **THEN** the workbench sends one AG-UI `RunAgentInput` request to the configured operator target
-- **AND THEN** the request includes a stable `threadId`, generated `runId`, text user message, empty tools list unless tools are explicitly supported, context array, state object, and forwarded props object
-
-#### Scenario: Operator input does not fan out by default
-- **WHEN** multiple agent panes are open and the user submits text through the operator panel
-- **THEN** only the configured operator target receives the submitted AG-UI run
-- **AND THEN** other panes continue only their own configured connections and runs
-
-#### Scenario: Fresh workbench opens with operator panel
-- **WHEN** a developer opens a fresh workbench with no saved docked layout
-- **THEN** the workbench creates the operator panel
-- **AND THEN** the operator panel uses the persisted or default operator target configuration
-
-#### Scenario: Closing operator pane is respected while other panes remain
-- **WHEN** a developer has at least one agent or Debug Agent pane open
-- **AND WHEN** the developer closes the operator pane
-- **THEN** the workbench does not immediately re-create the operator pane
-- **AND THEN** the remaining panes stay open and usable
-
-#### Scenario: Operator close does not erase target metadata
-- **WHEN** a developer configures the operator target and then closes the operator pane while another pane remains open
-- **THEN** the persisted workbench state retains the operator target metadata
-- **AND THEN** the persisted layout does not force the operator pane to reappear on reload
-
 ### Requirement: Docked multi-agent panes
 The workbench SHALL use a dockable pane layout where each agent pane can be added, removed, moved within the main workbench, and configured independently for one running Houmao agent or watched AG-UI target.
 
@@ -121,7 +82,7 @@ Visible panes SHALL render the reduced state for their selected target from cach
 - **THEN** the pane displays the error status and records enough raw event or response detail for debugging without crashing the workbench
 
 ### Requirement: Workbench run requests minimize agent-visible metadata
-For normal operator and agent pane prompt submissions, the workbench SHALL submit AG-UI `RunAgentInput` requests with only protocol-required routing fields, the user message, an empty tools array, an empty state object, an empty forwarded props object, and at most one compact canvas context entry.
+For normal agent pane prompt submissions, including operator-designated panes, the workbench SHALL submit AG-UI `RunAgentInput` requests with only protocol-required routing fields, the user message, an empty tools array, an empty state object, an empty forwarded props object, and at most one compact canvas context entry.
 
 When a positive visible graphics surface size is available, the workbench SHALL include one context entry with `description` equal to `houmao.canvas_size_px.v1` and `value` equal to a compact JSON string containing integer `widthPx` and `heightPx` fields in CSS pixels.
 
@@ -132,24 +93,24 @@ The workbench SHALL NOT duplicate pane id, pane kind, source labels, component s
 The workbench MAY still use `forwardedProps.houmao` for explicit gateway-recognized runtime controls when a future caller intentionally requests those controls.
 
 #### Scenario: Prompt run includes only compact canvas context
-- **WHEN** an operator or agent pane submits a text prompt and the visible graphics surface measures 640 by 520 CSS pixels
+- **WHEN** an agent pane submits a text prompt and the visible graphics surface measures 640 by 520 CSS pixels
 - **THEN** the submitted `RunAgentInput.context` contains exactly one Houmao presentation entry
 - **AND THEN** that entry has `description` equal to `houmao.canvas_size_px.v1`
 - **AND THEN** that entry has `value` equal to `{"widthPx":640,"heightPx":520}` or an equivalent compact JSON string with those integer fields
 
 #### Scenario: Prompt run omits redundant pane metadata
-- **WHEN** an operator or agent pane submits a normal text prompt
+- **WHEN** an agent pane submits a normal text prompt
 - **THEN** the submitted `RunAgentInput.state` is an empty object
 - **AND THEN** the submitted `RunAgentInput.forwardedProps` is an empty object
 - **AND THEN** the submitted request does not include pane id, pane kind, source label, agent identity, thread id duplicate, or run id duplicate outside the standard AG-UI routing fields
 
 #### Scenario: Prompt run keeps typed graphics out of declared tools
-- **WHEN** an operator or agent pane submits a normal text prompt intended to produce Houmao typed graphics
+- **WHEN** an agent pane submits a normal text prompt intended to produce Houmao typed graphics
 - **THEN** the submitted `RunAgentInput.tools` is an empty array
 - **AND THEN** the request does not declare `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard` as frontend tools
 
 #### Scenario: Missing surface size omits canvas context
-- **WHEN** an operator or agent pane submits a text prompt before a positive visible graphics surface size can be measured
+- **WHEN** an agent pane submits a text prompt before a positive visible graphics surface size can be measured
 - **THEN** the submitted `RunAgentInput.context` does not include `houmao.canvas_size_px.v1`
 - **AND THEN** the workbench does not send guessed width or height values
 
@@ -244,32 +205,14 @@ The workbench SHALL NOT persist discovered-agent list responses, gateway-status 
 ### Requirement: Deterministic browser E2E coverage
 The repository SHALL include deterministic browser E2E coverage for the workbench using Bun-global Playwright and a fake AG-UI server or route fixture.
 
-#### Scenario: E2E validates operator and multi-pane flow
+#### Scenario: E2E validates multi-pane flow
 - **WHEN** the workbench E2E smoke runs against a deterministic AG-UI fixture
-- **THEN** it configures the operator panel, adds at least two agent panes, moves a pane into an in-app split, connects panes independently, submits at least one run, and verifies visible transcript or status evidence for each target
+- **THEN** it adds at least two agent panes, moves a pane into an in-app split, connects panes independently, submits at least one run, and verifies visible transcript or status evidence for each target
 
 #### Scenario: E2E validates graphics and detach behavior
 - **WHEN** the deterministic fixture emits a `houmao_render_graphic` sequence and the test closes or disconnects a pane
 - **THEN** the test verifies visible graphic evidence
 - **AND THEN** the test verifies the browser-side detach or abort path without expecting a Houmao interrupt request
-
-### Requirement: Workbench tests cover operator close persistence
-The repository SHALL include deterministic browser coverage for operator pane close behavior.
-
-The coverage SHALL verify that closing the operator pane while another pane exists does not trigger automatic operator pane re-creation.
-
-The coverage SHALL verify that the closed operator visual pane remains absent after reload while other panes and non-sensitive persisted metadata remain valid.
-
-#### Scenario: E2E closes operator without respawn
-- **WHEN** the workbench E2E suite opens another pane and closes the operator pane
-- **THEN** the test verifies that the operator panel remains absent
-- **AND THEN** the test verifies that the other pane remains visible
-
-#### Scenario: E2E reload preserves operator absence
-- **WHEN** the operator pane was explicitly closed while another pane remained open
-- **AND WHEN** the workbench reloads
-- **THEN** the test verifies that the operator pane is not restored by layout persistence
-- **AND THEN** the test verifies that persisted operator target metadata is not erased
 
 ### Requirement: Kimi Code headless live validation guidance
 The workbench documentation SHALL describe how to perform live/manual validation for this change with a Kimi Code headless Houmao agent while keeping deterministic fake-server E2E as the required automated test path.
@@ -392,3 +335,349 @@ Manual targets MAY retry the same configured URL after transient stream failures
 - **WHEN** a manual target stream fails
 - **THEN** the workbench does not infer an agent id from the URL
 - **AND THEN** it does not scan or resolve the registry for a replacement gateway
+
+### Requirement: Workbench has no dedicated operator tab
+The workbench SHALL NOT create a dedicated `operator` pane by default.
+
+The workbench SHALL NOT treat `operator` as a first-class pane kind for new panes.
+
+An empty workbench MAY show the normal empty workspace state until the user opens an agent pane, Debug Agent pane, or tmux tab.
+
+Legacy persisted `operator` pane records SHALL NOT force the dedicated Operator tab to reappear.
+
+#### Scenario: Fresh workbench does not create operator tab
+- **WHEN** a developer opens a fresh workbench with no saved docked layout
+- **THEN** the workbench does not create an Operator tab
+- **AND THEN** the developer can open agent, Debug Agent, or tmux tabs from explicit workbench controls
+
+#### Scenario: Empty workspace does not recreate operator tab
+- **WHEN** a developer closes the last visible pane in the workbench
+- **THEN** the workbench does not automatically create an Operator tab
+- **AND THEN** the workbench remains usable through explicit tab-opening controls
+
+#### Scenario: Legacy operator pane does not reappear
+- **WHEN** localStorage contains a legacy persisted operator pane record
+- **AND WHEN** the workbench loads the saved state
+- **THEN** the workbench does not force a dedicated Operator tab to appear
+
+### Requirement: Operator role is an agent-pane designation
+The workbench SHALL allow the user to designate at most one ordinary Houmao agent pane as the operator pane.
+
+The operator designation SHALL be UI metadata only.
+
+The operator designation SHALL NOT change AG-UI request bodies, target resolution, watched-target behavior, gateway routing, prompt delivery, event caching, tmux attachment, or managed-agent lifecycle behavior.
+
+Only panes targeting a discovered Houmao agent SHALL be eligible for the operator designation.
+
+If the designated pane is closed or retargeted away from a discovered Houmao agent, the workbench SHALL clear the operator designation.
+
+#### Scenario: User marks a Houmao agent pane as operator
+- **WHEN** a developer has an ordinary agent pane targeting a discovered Houmao agent
+- **AND WHEN** the developer activates the operator-designation control for that pane
+- **THEN** the workbench marks that pane as the operator pane
+- **AND THEN** no other pane is marked as operator
+
+#### Scenario: Operator marker does not change AG-UI requests
+- **WHEN** an operator-marked agent pane submits an AG-UI run or opens an AG-UI connect stream
+- **THEN** the workbench sends the same protocol-minimal request shape used by an ordinary agent pane
+- **AND THEN** the request does not include an operator role, operator flag, pane kind, or operator-specific forwarded props
+
+#### Scenario: Operator marker clears when pane becomes ineligible
+- **WHEN** a pane is marked as operator
+- **AND WHEN** the pane is closed or retargeted to a manual or non-discovered target
+- **THEN** the workbench clears the operator designation
+
+### Requirement: Workbench supports docked tmux tabs
+The workbench SHALL provide a docked `tmux` pane kind for direct attachment to local tmux sessions.
+
+Tmux tabs SHALL use the same Dockview workspace as agent and Debug Agent panes.
+
+Tmux tabs SHALL be distinct from AG-UI panes and SHALL NOT send AG-UI connect, run, detach, stop, restart, shutdown, interrupt, or agent-memory-clear requests as part of tmux attachment.
+
+#### Scenario: User can open a tmux tab
+- **WHEN** a developer activates the workbench control for opening a tmux tab
+- **THEN** the workbench creates a docked pane with kind `tmux`
+- **AND THEN** the pane shows a tmux session picker when no session is attached
+
+#### Scenario: Tmux tab stays inside docked workspace
+- **WHEN** a developer moves a tmux tab within the workbench
+- **THEN** the pane can be moved into an in-app tab group or split
+- **AND THEN** the pane remains inside the main workbench browser page without Dockview floating groups or popout windows
+
+#### Scenario: Tmux tab does not use AG-UI lifecycle
+- **WHEN** a developer opens, attaches, detaches, or closes a tmux tab
+- **THEN** the workbench does not send AG-UI run, AG-UI detach, Houmao stop, Houmao restart, Houmao shutdown, Houmao interrupt, or agent-memory-clear requests
+
+### Requirement: Workbench lists and searches tmux sessions
+The workbench SHALL provide a local tmux session picker for tmux tabs.
+
+The picker SHALL list local tmux sessions available to the host running the workbench development server.
+
+The picker SHALL support quick fuzzy search using Fuse.js.
+
+The searchable fields SHALL include tmux session name and matched Houmao agent metadata when available, including agent name, agent id, tool, backend, and generation id.
+
+The picker SHALL provide a checkbox filter that shows only tmux sessions matched to Houmao managed agents.
+
+#### Scenario: Picker lists local tmux sessions
+- **WHEN** tmux is available and the host has local tmux sessions
+- **THEN** the tmux picker displays those sessions with at least session name, window count, attached status, and created time
+
+#### Scenario: Picker degrades when tmux is unavailable
+- **WHEN** tmux is unavailable on the host running the workbench development server
+- **THEN** the tmux picker shows a deterministic unavailable or empty state
+- **AND THEN** the workbench does not crash
+
+#### Scenario: Search matches tmux and Houmao fields
+- **WHEN** a developer enters a search query matching a session name or matched Houmao agent metadata
+- **THEN** the tmux picker filters the visible sessions using Fuse.js fuzzy search
+- **AND THEN** non-matching sessions are hidden while the query is active
+
+#### Scenario: Houmao-only filter hides non-agent sessions
+- **WHEN** the tmux picker has the Houmao-only checkbox enabled
+- **THEN** the picker shows only tmux sessions whose session name matches a discovered Houmao agent `tmux_session_name`
+- **AND THEN** tmux sessions without a matched Houmao agent are hidden
+
+#### Scenario: Houmao-only filter handles discovery outage
+- **WHEN** passive-server agent discovery is unavailable
+- **AND WHEN** the Houmao-only checkbox is enabled
+- **THEN** the picker shows a deterministic no-matched-Houmao-sessions or discovery-error state
+- **AND THEN** disabling the checkbox still allows raw tmux sessions to be listed when tmux itself is available
+
+### Requirement: Tmux tabs attach read-write or read-only
+Tmux tabs SHALL attach to one selected local tmux session.
+
+Read-write attachment SHALL be the default mode.
+
+Read-only attachment SHALL be available through an explicit checkbox or equivalent binary control before attachment.
+
+Read-only mode SHALL be enforced by both the browser terminal and the host tmux bridge.
+
+#### Scenario: Default attachment is read-write
+- **WHEN** a developer selects a tmux session and attaches without enabling read-only mode
+- **THEN** the tmux tab attaches in read-write mode
+- **AND THEN** keyboard input in the terminal is forwarded to the attached tmux session
+
+#### Scenario: Read-only attachment does not forward input
+- **WHEN** a developer enables read-only mode and attaches to a tmux session
+- **THEN** the tmux tab displays terminal output from the session
+- **AND THEN** keyboard input is not forwarded to the attached tmux session
+- **AND THEN** crafted browser input messages for that read-only attachment are rejected or ignored by the host tmux bridge
+
+#### Scenario: Attachment failure is visible
+- **WHEN** the selected tmux session disappears before or during attachment
+- **THEN** the tmux tab shows a deterministic attachment error
+- **AND THEN** the rest of the workbench remains usable
+
+### Requirement: Tmux tab close is browser-detach only
+Closing or disconnecting a tmux tab SHALL close only the browser attachment to the tmux session.
+
+The host tmux bridge SHALL clean up the spawned browser-client attach process for that tab.
+
+Closing or disconnecting a tmux tab SHALL NOT kill the tmux session, detach unrelated tmux clients, mutate the shared registry, or control the managed Houmao agent lifecycle.
+
+#### Scenario: Closing tab keeps tmux session alive
+- **WHEN** a developer closes a tmux tab attached to a tmux session
+- **THEN** the workbench closes the tab's browser attachment
+- **AND THEN** the underlying tmux session remains alive
+
+#### Scenario: Closing tab does not detach other clients
+- **WHEN** a tmux session has another tmux client outside the workbench
+- **AND WHEN** a developer closes the workbench tmux tab for that session
+- **THEN** the other tmux client remains attached
+
+#### Scenario: Closing Houmao agent tmux tab does not control agent
+- **WHEN** a tmux tab is attached to a tmux session matched to a Houmao managed agent
+- **AND WHEN** the developer closes or disconnects the tmux tab
+- **THEN** the workbench does not stop, restart, shut down, interrupt, or clear memory for the matched Houmao agent
+- **AND THEN** the workbench does not mutate the agent's shared-registry record
+
+### Requirement: Tmux terminal content is not persisted
+The workbench SHALL persist tmux tab layout and non-sensitive tmux tab configuration in the same browser configuration boundary as other pane metadata.
+
+The workbench SHALL NOT persist raw tmux terminal output, terminal input, terminal scrollback, WebSocket payloads, credentials, cookies, bearer tokens, or authorization headers in localStorage or IndexedDB.
+
+Restored tmux tab metadata MAY remember the selected session name and attachment mode, but restored visible terminal scrollback SHALL start from a fresh attachment stream.
+
+#### Scenario: Tmux pane metadata can persist
+- **WHEN** a developer creates a tmux tab, selects a session, chooses an attachment mode, and reloads the workbench
+- **THEN** the workbench may restore the docked tmux pane and non-sensitive selected-session metadata
+- **AND THEN** restored layout state contains only docked grid groups, not floating groups or popout groups
+
+#### Scenario: Terminal bytes are not stored in browser persistence
+- **WHEN** a tmux tab receives terminal output or forwards read-write terminal input
+- **THEN** the workbench does not write that terminal content to localStorage
+- **AND THEN** the workbench does not write that terminal content to the AG-UI client event cache
+
+#### Scenario: Reload starts with fresh terminal evidence
+- **WHEN** a tmux tab is restored after page reload
+- **THEN** the restored visible terminal scrollback is not replayed from browser persistence
+- **AND THEN** any visible terminal content comes from a new live attachment stream after attachment
+
+### Requirement: Workbench tests cover tmux tabs
+The repository SHALL include deterministic browser coverage for tmux tab behavior.
+
+The coverage SHALL verify tmux session listing, Fuse-powered search, Houmao-only filtering, read-write attachment, read-only input suppression, close lifecycle boundaries, and persistence boundaries.
+
+#### Scenario: E2E validates tmux picker
+- **WHEN** the workbench E2E suite runs with a deterministic tmux bridge fixture
+- **THEN** the test verifies that the tmux picker lists sessions
+- **AND THEN** the test verifies search and Houmao-only filtering behavior
+
+#### Scenario: E2E validates read-only and read-write attachment
+- **WHEN** the workbench E2E suite attaches tmux tabs in read-write and read-only modes
+- **THEN** the read-write tab forwards terminal input to the fixture
+- **AND THEN** the read-only tab suppresses or rejects terminal input
+
+#### Scenario: E2E validates close and persistence boundaries
+- **WHEN** the workbench E2E suite closes an attached tmux tab
+- **THEN** the test verifies the fixture tmux session remains alive
+- **AND THEN** the test verifies no lifecycle-control request was sent
+- **AND THEN** the test verifies browser persistence does not contain terminal content
+
+#### Scenario: E2E validates no dedicated operator tab
+- **WHEN** the workbench E2E suite opens a fresh workbench
+- **THEN** the test verifies no dedicated Operator tab is created by default
+- **AND THEN** the test verifies a Houmao agent pane can be marked as operator without changing AG-UI request bodies
+
+### Requirement: Agent panes expose explicit active-thread controls
+The workbench SHALL provide an active-thread control on each eligible Houmao agent pane.
+
+The control SHALL be eligible only when the pane targets a discovered Houmao agent gateway that supports the Houmao active-thread extension.
+
+The active-thread control SHALL show an inactive gray state when the pane's thread is not the gateway active thread.
+
+The active-thread control SHALL show an active green state when the pane's thread matches the gateway active thread.
+
+The active-thread control SHALL show a deterministic unavailable or error state when the workbench cannot read active-thread status from the gateway.
+
+Activating the control from an inactive eligible pane SHALL set the gateway active-thread to that pane's current thread id.
+
+#### Scenario: User marks a pane as active thread
+- **WHEN** a developer has an eligible Houmao agent pane whose active-thread control is gray
+- **AND WHEN** the developer activates the control
+- **THEN** the workbench sends the gateway an active-thread update for that pane's current thread id
+- **AND THEN** the pane's control becomes green after the gateway reports that thread as active
+
+#### Scenario: Active marker moves between panes
+- **WHEN** two eligible panes target the same gateway with different thread ids
+- **AND WHEN** the developer marks the second pane active
+- **THEN** the second pane shows the active green state
+- **AND THEN** the first pane shows the inactive gray state after the next active-thread status update
+
+### Requirement: Connect marks eligible pane active automatically
+When a user connects an eligible discovered Houmao agent pane, the workbench SHALL set that pane's current thread as the gateway active-thread with source `gui_connect`.
+
+Background watchers, passive reconnects, hidden panes, and client event-cache listeners SHALL NOT set active-thread merely because they open or reopen an AG-UI stream.
+
+#### Scenario: Connect auto-activates pane thread
+- **WHEN** a developer clicks Connect on an eligible discovered Houmao agent pane
+- **THEN** the workbench sets the gateway active-thread to that pane's current thread id
+- **AND THEN** the normal AG-UI connect request remains metadata-minimal
+
+#### Scenario: Background watcher does not steal active thread
+- **WHEN** one pane is active for a gateway
+- **AND WHEN** a watched target for another thread on the same gateway reconnects in the background
+- **THEN** the gateway active-thread remains the foreground pane's active thread
+
+### Requirement: Active-thread status is polled and reflected in pane UI
+The workbench SHALL poll each interested gateway's active-thread status periodically.
+
+The default poll interval SHALL be 1 second.
+
+The workbench SHALL update eligible pane active-thread presentation from the polled gateway state.
+
+The polling implementation SHALL be shared per gateway rather than duplicated per pane.
+
+#### Scenario: External active-thread change updates pane controls
+- **WHEN** an external caller changes the gateway active-thread
+- **THEN** the workbench reflects the new active-thread state in eligible pane controls after the next poll
+
+#### Scenario: Poll failure is visible without disconnecting pane stream
+- **WHEN** active-thread polling fails for a gateway
+- **THEN** panes for that gateway show a deterministic unavailable or error state for active-thread
+- **AND THEN** existing AG-UI streams for those panes remain connected unless they fail independently
+
+### Requirement: Inactive panes still render explicitly addressed AG-UI events
+The workbench SHALL treat active-thread as a default destination marker only.
+
+Inactive panes SHALL continue to receive, reduce, cache when watched, and render AG-UI events that are explicitly addressed to their target thread.
+
+Inactive panes SHALL NOT be hidden, disconnected, cleared, or prevented from rendering merely because another pane is active.
+
+#### Scenario: Inactive pane renders explicit publish
+- **WHEN** pane alpha is the active thread for a gateway
+- **AND WHEN** pane beta is connected to the same gateway with thread id `beta-thread`
+- **AND WHEN** an agent publishes AG-UI events with explicit `threadId = "beta-thread"`
+- **THEN** pane beta receives and renders those events
+- **AND THEN** pane alpha remains the gateway active thread
+
+### Requirement: Active-thread clear is conditional when pane ownership is stale
+When a pane closes or retargets away, the workbench SHALL clear gateway active-thread only if the gateway still reports the pane's old thread as active.
+
+The workbench SHALL NOT clear a newer active-thread value set by another pane.
+
+#### Scenario: Closing stale pane does not clear newer active thread
+- **WHEN** pane alpha was active
+- **AND WHEN** pane beta becomes active for the same gateway
+- **AND WHEN** pane alpha closes
+- **THEN** the workbench does not clear pane beta's active-thread state
+
+### Requirement: Agent panes delegate AG-UI lifecycles to runtime
+Agent panes SHALL delegate long-lived AG-UI lifecycle ownership to the workbench runtime.
+
+Agent panes SHALL dispatch runtime actions for target changes, connect/watch requests, run requests, stream cancellation, clear-canvas requests, and pane disposal.
+
+Agent panes SHALL keep UI-local concerns such as prompt editor state, target form editing, measured canvas size, and rendered DOM outside the runtime lifecycle effects.
+
+Agent panes SHALL NOT keep component-local reconnect timers, stream abort refs, connection ids, or duplicated connect/run status after the equivalent workflow has moved into the runtime.
+
+#### Scenario: Agent pane connect uses runtime action
+- **WHEN** a user connects an agent pane to a target
+- **THEN** the pane dispatches a runtime connect or watch action for that target
+- **AND THEN** runtime effects own passive resolution, AG-UI connect stream startup, reconnect behavior, and detach cleanup
+
+#### Scenario: Agent pane run uses runtime action
+- **WHEN** a user submits a prompt from an agent pane
+- **THEN** the pane dispatches a runtime run action containing the submitted message and compact canvas-size context when available
+- **AND THEN** runtime effects own the AG-UI run stream and reduce the received events into pane-visible state
+
+#### Scenario: Pane close cancels pane-owned AG-UI streams
+- **WHEN** an agent pane with a live pane-owned run stream closes
+- **THEN** the pane dispatches disposal to the runtime
+- **AND THEN** runtime effects abort that pane-owned stream without stopping watched-target listeners still required by storage state
+
+### Requirement: Tmux panes delegate tmux lifecycles to runtime
+Tmux panes SHALL delegate tmux status refresh, tmux session refresh, discovered Houmao agent refresh, tmux attach WebSocket lifecycle, tmux input, tmux resize, and tmux detach to the workbench runtime.
+
+Tmux panes SHALL keep xterm `Terminal`, `FitAddon`, DOM refs, layout measurement, and direct terminal rendering outside reduced runtime state.
+
+Tmux panes SHALL register and unregister an ephemeral terminal output sink for the active runtime attachment.
+
+#### Scenario: Tmux refresh uses runtime selector
+- **WHEN** a user opens or refreshes a tmux pane
+- **THEN** the pane dispatches a runtime refresh action
+- **AND THEN** the pane renders tmux status, session list, discovered-agent list, loading state, and errors from runtime selectors
+
+#### Scenario: Tmux attach keeps terminal DOM local
+- **WHEN** a user attaches to a tmux session
+- **THEN** the pane creates or reuses its xterm DOM objects locally
+- **AND THEN** runtime effects own the WebSocket and send terminal output to the pane through the registered sink
+
+### Requirement: Runtime migration preserves pane-visible behavior
+The runtime lifecycle refactor SHALL preserve existing workbench pane behavior unless this change explicitly changes ownership.
+
+Agent panes SHALL continue to render transcripts, Houmao graphics, typed components, state snapshots, activity, custom events, raw event timelines, visible errors, and active-thread status.
+
+Tmux panes SHALL continue to list sessions, search/filter sessions, filter Houmao agent sessions, attach read-write by default, support read-only attachment, send input only for read-write attachment, and show attach status.
+
+#### Scenario: Graphics remain visible after runtime migration
+- **WHEN** an AG-UI stream emits a valid Houmao chart or graphic event sequence
+- **THEN** the agent pane renders the graphic from reduced runtime event state
+- **AND THEN** the migration does not require a gateway protocol change
+
+#### Scenario: Read-only tmux attach suppresses input
+- **WHEN** a tmux pane is attached in read-only mode
+- **AND WHEN** the user types in the terminal
+- **THEN** the pane does not dispatch tmux input to the runtime attachment
+- **AND THEN** output received from the tmux session remains visible

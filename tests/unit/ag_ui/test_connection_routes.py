@@ -327,10 +327,10 @@ def test_create_app_registers_ag_ui_routes_and_preserves_existing_status_route()
     assert ("/v1/ag-ui/capabilities", frozenset({"GET"})) in inventory
     assert ("/v1/ag-ui/connect", frozenset({"POST"})) in inventory
     assert ("/v1/ag-ui/events", frozenset({"POST"})) in inventory
-    assert ("/v1/ag-ui/bindings", frozenset({"GET"})) in inventory
-    assert ("/v1/ag-ui/bindings/last-thread", frozenset({"GET"})) in inventory
-    assert ("/v1/ag-ui/bindings/last-thread", frozenset({"PUT"})) in inventory
-    assert ("/v1/ag-ui/bindings/last-thread", frozenset({"DELETE"})) in inventory
+    assert ("/v1/ag-ui/destination", frozenset({"GET"})) in inventory
+    assert ("/v1/ag-ui/active-thread", frozenset({"GET"})) in inventory
+    assert ("/v1/ag-ui/active-thread", frozenset({"PUT"})) in inventory
+    assert ("/v1/ag-ui/active-thread", frozenset({"DELETE"})) in inventory
     assert ("/v1/ag-ui/runs", frozenset({"POST"})) in inventory
     assert ("/v1/ag-ui/connections/{connection_id}", frozenset({"DELETE"})) in inventory
     assert ("/v1/status", frozenset({"GET"})) in inventory
@@ -519,7 +519,7 @@ def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
     runtime.assert_no_work_or_lifecycle_calls()
 
 
-def test_destination_bindings_start_empty_set_and_clear_bound_thread() -> None:
+def test_destination_state_starts_empty_sets_and_conditionally_clears_active_thread() -> None:
     runtime = _SpyRuntime()
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
@@ -533,45 +533,50 @@ def test_destination_bindings_start_empty_set_and_clear_bound_thread() -> None:
         },
     )
 
-    assert client.get("/v1/ag-ui/bindings").json() == {
-        "lastBoundThread": {"status": "empty"},
+    assert client.get("/v1/ag-ui/destination").json() == {
+        "activeThread": {"status": "empty"},
         "lastSentThread": {"status": "empty"},
     }
 
     blank = client.put(
-        "/v1/ag-ui/bindings/last-thread",
-        json={"threadId": "   ", "source": "gui_view_change"},
+        "/v1/ag-ui/active-thread",
+        json={"threadId": "   ", "source": "gui_button"},
     )
     assert blank.status_code == 422
 
-    bound = client.put(
-        "/v1/ag-ui/bindings/last-thread",
-        json={"threadId": " thread-bound ", "source": "gui_view_change"},
+    active = client.put(
+        "/v1/ag-ui/active-thread",
+        json={"threadId": " thread-active ", "source": "gui_button"},
     )
-    assert bound.status_code == 200
-    assert bound.json()["threadId"] == "thread-bound"
-    assert bound.json()["source"] == "gui_view_change"
+    assert active.status_code == 200
+    assert active.json()["status"] == "active"
+    assert active.json()["threadId"] == "thread-active"
+    assert active.json()["source"] == "gui_button"
 
-    blank_after_bound = client.put(
-        "/v1/ag-ui/bindings/last-thread",
+    blank_after_active = client.put(
+        "/v1/ag-ui/active-thread",
         json={"threadId": "", "source": "gui_connect"},
     )
-    assert blank_after_bound.status_code == 422
-    assert client.get("/v1/ag-ui/bindings/last-thread").json()["threadId"] == "thread-bound"
+    assert blank_after_active.status_code == 422
+    assert client.get("/v1/ag-ui/active-thread").json()["threadId"] == "thread-active"
 
     sent = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
     assert sent.status_code == 200
-    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"]["threadId"] == "thread-sent"
+    assert client.get("/v1/ag-ui/destination").json()["lastSentThread"]["threadId"] == "thread-sent"
 
-    cleared = client.delete("/v1/ag-ui/bindings/last-thread")
+    stale_clear = client.delete("/v1/ag-ui/active-thread?threadId=stale-thread")
+    assert stale_clear.status_code == 200
+    assert stale_clear.json()["threadId"] == "thread-active"
+
+    cleared = client.delete("/v1/ag-ui/active-thread?threadId=thread-active")
     assert cleared.status_code == 200
     assert cleared.json() == {"status": "empty"}
-    state = client.get("/v1/ag-ui/bindings").json()
-    assert state["lastBoundThread"] == {"status": "empty"}
+    state = client.get("/v1/ag-ui/destination").json()
+    assert state["activeThread"] == {"status": "empty"}
     assert state["lastSentThread"]["threadId"] == "thread-sent"
 
 
-def test_events_route_uses_last_sent_before_last_bound_and_refreshes_last_sent() -> None:
+def test_events_route_uses_active_thread_after_explicit_destination_and_refreshes_last_sent() -> None:
     runtime = _SpyRuntime()
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
@@ -587,22 +592,29 @@ def test_events_route_uses_last_sent_before_last_bound_and_refreshes_last_sent()
 
     explicit = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
     assert explicit.status_code == 200
-    sent_state = client.get("/v1/ag-ui/bindings").json()["lastSentThread"]
+    sent_state = client.get("/v1/ag-ui/destination").json()["lastSentThread"]
     assert sent_state["threadId"] == "thread-sent"
     assert sent_state["source"] == "explicit"
     assert sent_state["updatedAtUtc"]
 
-    bind = client.put(
-        "/v1/ag-ui/bindings/last-thread",
-        json={"threadId": "thread-bound", "source": "gui_view_change"},
+    no_active_fallback = client.post("/v1/ag-ui/events", json={"events": events})
+    assert no_active_fallback.status_code == 200
+    assert no_active_fallback.json()["destinationKind"] == "default_sink"
+    assert client.get("/v1/ag-ui/destination").json()["lastSentThread"]["threadId"] == "thread-sent"
+
+    active = client.put(
+        "/v1/ag-ui/active-thread",
+        json={"threadId": "thread-active", "source": "gui_connect"},
     )
-    assert bind.status_code == 200
+    assert active.status_code == 200
 
     fallback = client.post("/v1/ag-ui/events", json={"events": events})
     assert fallback.status_code == 200
-    assert fallback.json()["threadId"] == "thread-sent"
-    assert fallback.json()["destinationKind"] == "last_sent"
-    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"]["threadId"] == "thread-sent"
+    assert fallback.json()["threadId"] == "thread-active"
+    assert fallback.json()["destinationKind"] == "active_thread"
+    refreshed_state = client.get("/v1/ag-ui/destination").json()["lastSentThread"]
+    assert refreshed_state["threadId"] == "thread-active"
+    assert refreshed_state["source"] == "active_thread"
 
 
 def test_events_route_uses_message_connection_and_event_destination_precedence() -> None:
@@ -623,18 +635,18 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
 
     initial_sent = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
     assert initial_sent.status_code == 200
-    bind = client.put(
-        "/v1/ag-ui/bindings/last-thread",
-        json={"threadId": "thread-bound", "source": "gui_view_change"},
+    active = client.put(
+        "/v1/ag-ui/active-thread",
+        json={"threadId": "thread-active", "source": "manual"},
     )
-    assert bind.status_code == 200
+    assert active.status_code == 200
 
     explicit = client.post("/v1/ag-ui/events", json={"threadId": "thread-explicit", "events": events})
     assert explicit.status_code == 200
     explicit_body = explicit.json()
     assert explicit_body["threadId"] == "thread-explicit"
     assert "destinationKind" not in explicit_body
-    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"][
+    assert client.get("/v1/ag-ui/destination").json()["lastSentThread"][
         "threadId"
     ] == "thread-explicit"
 
@@ -645,7 +657,7 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
     assert connection.status_code == 200
     assert connection.json()["destinationKind"] == "connection"
     assert connection.json()["threadId"] == "thread-connection"
-    state_after_connection = client.get("/v1/ag-ui/bindings").json()["lastSentThread"]
+    state_after_connection = client.get("/v1/ag-ui/destination").json()["lastSentThread"]
     assert state_after_connection["threadId"] == "thread-connection"
     assert state_after_connection["source"] == "connection"
 
@@ -664,13 +676,13 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
     assert event_routed.status_code == 200
     assert event_routed.json()["destinationKind"] == "event"
     assert event_routed.json()["threadId"] == "thread-event"
-    state_after_event = client.get("/v1/ag-ui/bindings").json()["lastSentThread"]
+    state_after_event = client.get("/v1/ag-ui/destination").json()["lastSentThread"]
     assert state_after_event["threadId"] == "thread-event"
     assert state_after_event["source"] == "event"
     runtime.assert_no_work_or_lifecycle_calls()
 
 
-def test_events_route_uses_bound_thread_when_no_sent_thread_exists() -> None:
+def test_events_route_uses_active_thread_when_no_explicit_destination_exists() -> None:
     runtime = _SpyRuntime()
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
@@ -684,11 +696,11 @@ def test_events_route_uses_bound_thread_when_no_sent_thread_exists() -> None:
         },
     )
 
-    bind = client.put(
-        "/v1/ag-ui/bindings/last-thread",
-        json={"threadId": "thread-bound", "source": "gui_view_change"},
+    active = client.put(
+        "/v1/ag-ui/active-thread",
+        json={"threadId": "thread-active", "source": "manual"},
     )
-    assert bind.status_code == 200
+    assert active.status_code == 200
 
     fallback = client.post("/v1/ag-ui/events", json={"events": events})
     assert fallback.status_code == 200
@@ -698,12 +710,12 @@ def test_events_route_uses_bound_thread_when_no_sent_thread_exists() -> None:
         "storedCount": 0,
         "deliveredCount": 0,
         "replay": "none",
-        "threadId": "thread-bound",
-        "destinationKind": "last_bound",
+        "threadId": "thread-active",
+        "destinationKind": "active_thread",
     }
-    state = client.get("/v1/ag-ui/bindings").json()
-    assert state["lastSentThread"]["threadId"] == "thread-bound"
-    assert state["lastSentThread"]["source"] == "last_bound"
+    state = client.get("/v1/ag-ui/destination").json()
+    assert state["lastSentThread"]["threadId"] == "thread-active"
+    assert state["lastSentThread"]["source"] == "active_thread"
 
 
 def test_events_route_uses_default_sink_when_no_destination_exists() -> None:
@@ -732,7 +744,7 @@ def test_events_route_uses_default_sink_when_no_destination_exists() -> None:
         "destinationKind": "default_sink",
         "warnings": ["default_sink_due_to_no_destination"],
     }
-    assert client.get("/v1/ag-ui/bindings").json()["lastSentThread"] == {"status": "empty"}
+    assert client.get("/v1/ag-ui/destination").json()["lastSentThread"] == {"status": "empty"}
     default_sink = [
         entry
         for entry in runtime.diagnostics

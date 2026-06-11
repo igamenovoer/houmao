@@ -370,7 +370,7 @@ def test_gateway_ag_ui_publish_plain_output_reports_zero_delivery_without_visibi
             stored_count=0,
             delivered_count=0,
             replay="none",
-            destination_kind="last_bound",
+            destination_kind="active_thread",
         )
 
     monkeypatch.setattr(gateway_commands, "gateway_ag_ui_publish", _fake_publish)

@@ -7,6 +7,20 @@ export interface CanvasSize {
   h: number;
 }
 
+export type ActiveThreadSource = "gui_button" | "gui_connect" | "manual";
+
+export interface AgUiThreadDestination {
+  status: "empty" | "active" | "sent";
+  threadId?: string | null;
+  updatedAtUtc?: string | null;
+  source?: string | null;
+}
+
+export interface AgUiDestinationState {
+  activeThread: AgUiThreadDestination;
+  lastSentThread: AgUiThreadDestination;
+}
+
 export class AgUiHttpError extends Error {
   constructor(
     readonly status: number,
@@ -75,13 +89,43 @@ export async function detachAgUi(config: TargetConfig, connectionId: string | nu
   }
 }
 
-export async function bindLastAgUiThread(
+export async function fetchAgUiDestination(config: TargetConfig, signal?: AbortSignal): Promise<AgUiDestinationState> {
+  const target = normalizeAgUiTarget(config);
+  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/destination`), {
+    method: "GET",
+    signal,
+    headers: {
+      accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new AgUiHttpError(response.status, response.statusText, await response.text());
+  }
+  return (await response.json()) as AgUiDestinationState;
+}
+
+export async function fetchActiveAgUiThread(config: TargetConfig, signal?: AbortSignal): Promise<AgUiThreadDestination> {
+  const target = normalizeAgUiTarget(config);
+  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/active-thread`), {
+    method: "GET",
+    signal,
+    headers: {
+      accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new AgUiHttpError(response.status, response.statusText, await response.text());
+  }
+  return (await response.json()) as AgUiThreadDestination;
+}
+
+export async function setActiveAgUiThread(
   config: TargetConfig,
   threadId: string,
-  source: "gui_connect" | "gui_view_change" | "manual" = "gui_view_change",
-): Promise<void> {
+  source: ActiveThreadSource = "manual",
+): Promise<AgUiThreadDestination> {
   const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/bindings/last-thread`), {
+  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/active-thread`), {
     method: "PUT",
     headers: {
       accept: "application/json",
@@ -92,11 +136,19 @@ export async function bindLastAgUiThread(
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
   }
+  return (await response.json()) as AgUiThreadDestination;
 }
 
-export async function clearLastAgUiThread(config: TargetConfig): Promise<void> {
+export async function clearActiveAgUiThread(
+  config: TargetConfig,
+  expectedThreadId?: string,
+): Promise<AgUiThreadDestination | null> {
   const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/bindings/last-thread`), {
+  const endpoint = new URL(`${target.baseUrl}/active-thread`);
+  if (expectedThreadId) {
+    endpoint.searchParams.set("threadId", expectedThreadId);
+  }
+  const response = await fetch(proxiedTargetUrl(endpoint.toString()), {
     method: "DELETE",
     headers: {
       accept: "application/json",
@@ -105,6 +157,10 @@ export async function clearLastAgUiThread(config: TargetConfig): Promise<void> {
   if (!response.ok && response.status !== 404) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
   }
+  if (response.status === 404) {
+    return null;
+  }
+  return (await response.json()) as AgUiThreadDestination;
 }
 
 async function streamAgUi(

@@ -292,35 +292,48 @@ test("lists discovered agents, retargets panes, opens new panes, and keeps manua
   await expect(page.getByTestId("status-agent-1")).toContainText("waiting");
 });
 
-test("binds last-bound thread only for foreground discovered agent panes", async ({ page }) => {
+test("marks active thread only by user action or connect for discovered agent panes", async ({ page }) => {
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("select-agent-alpha").click();
 
   await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
+  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Inactive thread");
+  expect(fakeServer.activeThreadUpdates).toEqual([]);
+
+  await page.getByTestId("mark-active-thread-agent-1").click();
   await expect
-    .poll(() => fakeServer.bindingUpdates.filter((update) => update.target === "alpha"))
-    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_view_change" });
+    .poll(() => fakeServer.activeThreadUpdates.filter((update) => update.target === "alpha"))
+    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_button" });
+  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Active thread");
+
+  const externalActive = await page.request.put(`${fakeServer.targetBase("alpha")}/active-thread`, {
+    data: { threadId: "external-thread", source: "manual" },
+  });
+  expect(externalActive.ok()).toBeTruthy();
+  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Inactive thread");
 
   await page.getByTestId("connect-agent-1").click();
   await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
   await expect
-    .poll(() => fakeServer.bindingUpdates.filter((update) => update.target === "alpha"))
+    .poll(() => fakeServer.activeThreadUpdates.filter((update) => update.target === "alpha"))
     .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_connect" });
 
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("watch-agent-beta").click();
   await expect.poll(() => fakeServer.connects.some((connect) => connect.target === "beta")).toBeTruthy();
-  expect(fakeServer.bindingUpdates.some((update) => update.target === "beta")).toBeFalsy();
+  expect(fakeServer.activeThreadUpdates.some((update) => update.target === "beta")).toBeFalsy();
   await page.getByTestId("close-agent-picker").click();
   await expect(page.getByTestId("agent-picker")).toHaveCount(0);
 
   await page.getByTestId("close-agent-1").click();
   await expect(page.getByTestId("panel-agent-1")).toHaveCount(0);
-  await expect.poll(() => fakeServer.bindingClears).toContain("alpha");
-  expect(fakeServer.bindingClears).not.toContain("beta");
+  await expect
+    .poll(() => fakeServer.activeThreadClears)
+    .toContainEqual({ target: "alpha", expectedThreadId: "alpha-thread" });
+  expect(fakeServer.activeThreadClears.some((clear) => clear.target === "beta")).toBeFalsy();
 });
 
 test("opens tmux tab, filters sessions, attaches, rejects read-only input, and avoids persistence", async ({ page }) => {

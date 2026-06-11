@@ -6,18 +6,11 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-import { fetchDiscoveredAgents } from "../ag-ui/discovery";
 import type { DiscoveredAgentSummary } from "../ag-ui/types";
+import { useRuntimeDispatch, useRuntimeSelector } from "../runtime/react";
+import { selectTmuxPaneRuntime } from "../runtime/selectors";
 import { defaultTmuxTabConfig, type TmuxTabConfig } from "../storage";
-import {
-  fetchTmuxSessions,
-  fetchTmuxStatus,
-  openTmuxAttachSocket,
-  type TmuxAttachMode,
-  type TmuxBridgeStatus,
-  type TmuxSessionRow,
-  type TmuxSessionsResponse,
-} from "../tmux/client";
+import { type TmuxAttachMode, type TmuxSessionRow } from "../tmux/client";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 
 interface PanelParams {
@@ -29,39 +22,40 @@ interface JoinedTmuxSession {
   houmao?: DiscoveredAgentSummary;
 }
 
-type AttachState = "unattached" | "attaching" | "attached" | "disconnected" | "error";
-
 export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId } = props.params;
   const { storage, updateTmuxTab, removePaneRecord } = useWorkbench();
+  const runtimeDispatch = useRuntimeDispatch();
+  const runtime = useRuntimeSelector((state) => selectTmuxPaneRuntime(state, paneId));
   const record = paneRecordOrDefault(storage, paneId, "tmux");
   const tmux = record.tmux ?? defaultTmuxTabConfig();
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const [status, setStatus] = useState<TmuxBridgeStatus | null>(null);
-  const [sessions, setSessions] = useState<TmuxSessionRow[]>([]);
-  const [agents, setAgents] = useState<DiscoveredAgentSummary[]>([]);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  const [tmuxError, setTmuxError] = useState<string | null>(null);
-  const [attachState, setAttachState] = useState<AttachState>("unattached");
-  const [activeSession, setActiveSession] = useState<string | null>(tmux.sessionName ?? null);
+  const status = runtime?.bridgeStatus ?? null;
+  const sessions = runtime?.sessions ?? [];
+  const agents = runtime?.agents ?? [];
+  const loading = runtime?.loading ?? false;
+  const discoveryError = runtime?.discoveryError ?? null;
+  const tmuxError = runtime?.tmuxError ?? null;
+  const attachState = runtime?.attachState ?? "unattached";
+  const activeSession = runtime?.activeSession ?? tmux.sessionName ?? null;
 
   useEffect(() => {
     props.api.setTitle(activeSession ? `tmux ${activeSession}` : "tmux");
   }, [activeSession, props.api]);
 
   useEffect(() => {
-    void refreshSessions();
+    refreshSessions();
     return () => {
       closeAttachment();
+      runtimeDispatch({
+        type: "pane/disposed",
+        paneId,
+      });
     };
-    // The teardown must close the live socket exactly once for this pane.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const joinedSessions = useMemo(() => joinSessions(sessions, agents), [agents, sessions]);
@@ -92,34 +86,12 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     updateTmuxTab(paneId, next);
   };
 
-  const refreshSessions = async () => {
-    const controller = new AbortController();
-    setLoading(true);
-    setTmuxError(null);
-    setDiscoveryError(null);
-    try {
-      const [bridgeStatus, tmuxSessions] = await Promise.all([
-        fetchTmuxStatus(controller.signal),
-        fetchTmuxSessions(controller.signal),
-      ]);
-      setStatus(bridgeStatus);
-      setSessions(tmuxSessions.sessions);
-      if (tmuxSessions.status === "error" || tmuxSessions.status === "unavailable") {
-        setTmuxError(tmuxSessions.detail ?? "tmux sessions are unavailable.");
-      }
-    } catch (error) {
-      setTmuxError(errorMessage(error));
-      setStatus(null);
-      setSessions([]);
-    }
-    try {
-      setAgents(await fetchDiscoveredAgents(storage.discovery.passiveServerUrl, controller.signal));
-    } catch (error) {
-      setAgents([]);
-      setDiscoveryError(errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
+  const refreshSessions = () => {
+    runtimeDispatch({
+      type: "tmux/refreshRequested",
+      paneId,
+      passiveServerUrl: storage.discovery.passiveServerUrl,
+    });
   };
 
   const attach = (sessionName: string, mode: TmuxAttachMode) => {
@@ -128,8 +100,6 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       return;
     }
     closeAttachment();
-    setAttachState("attaching");
-    setActiveSession(sessionName);
     setTmuxConfig({
       ...tmux,
       sessionName,
@@ -157,61 +127,36 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    const socket = openTmuxAttachSocket();
-    socketRef.current = socket;
-    socket.addEventListener("open", () => {
-      socket.send(
-        JSON.stringify({
-          type: "attach",
-          sessionName,
-          mode,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        }),
-      );
+    runtimeDispatch({
+      type: "tmux/registerOutputSink",
+      paneId,
+      sink: (data) => terminal.write(data),
     });
-    socket.addEventListener("message", (event) => {
-      const message = parseSocketMessage(event.data);
-      if (message.type === "attached") {
-        setAttachState("attached");
-        terminal.focus();
-        return;
-      }
-      if (message.type === "output" && typeof message.data === "string") {
-        terminal.write(message.data);
-        return;
-      }
-      if (message.type === "error") {
-        setAttachState("error");
-        terminal.writeln(`\r\n[tmux] ${String(message.detail ?? message.code ?? "error")}`);
-        return;
-      }
-      if (message.type === "exit") {
-        setAttachState("disconnected");
-        terminal.writeln("\r\n[tmux] attachment ended");
-      }
-    });
-    socket.addEventListener("close", () => {
-      if (attachState !== "error") {
-        setAttachState((current) => (current === "attached" ? "disconnected" : current));
-      }
-    });
-    socket.addEventListener("error", () => {
-      setAttachState("error");
-      terminal.writeln("\r\n[tmux] WebSocket error");
+    runtimeDispatch({
+      type: "tmux/attachRequested",
+      paneId,
+      sessionName,
+      mode,
+      cols: terminal.cols,
+      rows: terminal.rows,
     });
     if (mode === "read-write") {
       terminal.onData((data) => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "input", data }));
-        }
+        runtimeDispatch({
+          type: "tmux/inputRequested",
+          paneId,
+          data,
+        });
       });
     }
     resizeObserverRef.current = new ResizeObserver(() => {
       fitAddon.fit();
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-      }
+      runtimeDispatch({
+        type: "tmux/resizeRequested",
+        paneId,
+        cols: terminal.cols,
+        rows: terminal.rows,
+      });
     });
     resizeObserverRef.current.observe(host);
   };
@@ -219,23 +164,26 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const closeAttachment = () => {
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
-    const socket = socketRef.current;
-    socketRef.current = null;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "close" }));
-      socket.close(1000, "client detach");
-    } else {
-      socket?.close();
-    }
+    runtimeDispatch({
+      type: "tmux/detachRequested",
+      paneId,
+    });
+    runtimeDispatch({
+      type: "tmux/unregisterOutputSink",
+      paneId,
+    });
     terminalRef.current?.dispose();
     terminalRef.current = null;
     fitAddonRef.current?.dispose();
     fitAddonRef.current = null;
-    setAttachState((current) => (current === "attached" || current === "attaching" ? "disconnected" : current));
   };
 
   const closePane = () => {
     closeAttachment();
+    runtimeDispatch({
+      type: "pane/disposed",
+      paneId,
+    });
     removePaneRecord(paneId);
     props.api.close();
   };
@@ -376,22 +324,6 @@ function joinSessions(
     session,
     houmao: agentsBySession.get(session.sessionName),
   }));
-}
-
-function parseSocketMessage(value: unknown): Record<string, unknown> {
-  if (typeof value !== "string") {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "tmux request failed.";
 }
 
 function safeTestToken(value: string): string {

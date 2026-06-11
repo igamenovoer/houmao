@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanel } from "dockview-react";
 import { Boxes, Bug, PanelBottom, Plus, Server, TerminalSquare, Users } from "lucide-react";
@@ -7,10 +7,24 @@ import { AgentSessionPanel } from "./panes/AgentSessionPanel";
 import { AgentPicker } from "./panes/AgentPicker";
 import { DebugAgentPanel } from "./panes/DebugAgentPanel";
 import { TmuxTabPanel } from "./panes/TmuxTabPanel";
-import { bindLastAgUiThread, clearLastAgUiThread } from "./ag-ui/client";
+import {
+  clearActiveAgUiThread,
+  connectAgUi,
+  detachAgUi,
+  fetchActiveAgUiThread,
+  fetchCapabilities,
+  runAgUi,
+  setActiveAgUiThread,
+} from "./ag-ui/client";
+import { resolveTargetConfigForConnect, fetchDiscoveredAgents } from "./ag-ui/discovery";
+import { appendCachedEvent, clearCachedEvents, loadCachedEvents } from "./ag-ui/eventCache";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
-import { useWatchedTargets } from "./ag-ui/useWatchedTargets";
 import { createWatchedTargetRecord, updateWatchedTargetRecord } from "./ag-ui/watchedTargets";
+import { WorkbenchRuntimeProvider } from "./runtime/react";
+import { gatewayKeyForTarget, selectWatchedTargetRuntimes } from "./runtime/selectors";
+import { WorkbenchRuntime, type WorkbenchRuntimeServices } from "./runtime/workbenchRuntime";
+import type { WorkbenchRuntimeState } from "./runtime/state";
+import { fetchTmuxSessions, fetchTmuxStatus, openTmuxAttachSocket } from "./tmux/client";
 import {
   defaultDebugAgentConfig,
   defaultTmuxTabConfig,
@@ -49,6 +63,44 @@ export default function App() {
   const [pickerRequest, setPickerRequest] = useState<AgentPickerRequest | null>(null);
   const apiRef = useRef<DockviewApi | null>(null);
   const storageRef = useRef(storage);
+  const watchedTargetResolvedRef = useRef<(key: string, target: TargetConfig) => void>(() => undefined);
+  const runtimeRef = useRef<WorkbenchRuntime | null>(null);
+  if (!runtimeRef.current) {
+    const services: WorkbenchRuntimeServices = {
+      fetchActiveThread: fetchActiveAgUiThread,
+      setActiveThread: setActiveAgUiThread,
+      clearActiveThread: clearActiveAgUiThread,
+      activeThreadPollIntervalMs: 1000,
+      fetchCapabilities,
+      connectAgUi,
+      runAgUi,
+      detachAgUi,
+      resolveTargetForConnect: resolveTargetConfigForConnect,
+      loadCachedEvents,
+      appendCachedEvent,
+      clearCachedEvents,
+      onWatchedTargetResolved: (key, target) => watchedTargetResolvedRef.current(key, target),
+      fetchTmuxStatus,
+      fetchTmuxSessions,
+      fetchDiscoveredAgents,
+      openTmuxAttachSocket,
+      setTimeout: (handler, timeoutMs) => window.setTimeout(handler, timeoutMs),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    };
+    runtimeRef.current = new WorkbenchRuntime(services);
+  }
+  const runtime = runtimeRef.current;
+  const watchedTargetRuntimes = useRuntimeExternalSelector(runtime, selectWatchedTargetRuntimes);
+
+  useEffect(() => {
+    const disposeRuntime = () => {
+      runtime.dispose();
+    };
+    window.addEventListener("beforeunload", disposeRuntime);
+    return () => {
+      window.removeEventListener("beforeunload", disposeRuntime);
+    };
+  }, [runtime]);
 
   window.__HMWB_TEST__ = {
     storage: storageSnapshotForTests,
@@ -88,20 +140,23 @@ export default function App() {
     [persist],
   );
 
-  const watchedTargets = useWatchedTargets({
-    watchedTargets: storage.watchedTargets,
-    onResolvedTarget: updateWatchedTarget,
-  });
+  useEffect(() => {
+    watchedTargetResolvedRef.current = updateWatchedTarget;
+  }, [updateWatchedTarget]);
+
+  useEffect(() => {
+    runtime.dispatch({
+      type: "watchedTargets/snapshotReceived",
+      watchedTargets: storage.watchedTargets,
+    });
+  }, [runtime, storage.watchedTargets]);
 
   const updateTarget = useCallback(
     (paneId: string, target: TargetConfig) => {
       const current = storageRef.current;
       const existing = current.panes[paneId];
       if (existing?.target.source?.kind === "discovered" && !sameTarget(existing.target, target)) {
-        void clearLastAgUiThread(existing.target).catch(() => undefined);
-      }
-      if (target.source?.kind === "discovered" && target.url && target.threadId) {
-        void bindLastAgUiThread(target, target.threadId, "gui_view_change").catch(() => undefined);
+        clearActiveForTarget(runtime, paneId, existing.target);
       }
       const nextOperatorPaneId =
         current.operatorPaneId === paneId && target.source?.kind !== "discovered"
@@ -119,7 +174,7 @@ export default function App() {
         },
       });
     },
-    [persist],
+    [persist, runtime],
   );
 
   const updateDebugAgent = useCallback(
@@ -244,7 +299,7 @@ export default function App() {
   const contextValue = useMemo(
     () => ({
       storage,
-      watchedTargetRuntimes: watchedTargets.runtimes,
+      watchedTargetRuntimes,
       updateTarget,
       updateDebugAgent,
       updateTmuxTab,
@@ -252,12 +307,17 @@ export default function App() {
       setOperatorPaneId,
       watchTarget,
       unwatchTarget,
-      clearWatchedTargetCache: watchedTargets.clearTargetCache,
-      clearAllWatchedTargetCaches: watchedTargets.clearAllCaches,
+      clearWatchedTargetCache: async (key: string) => {
+        runtime.dispatch({ type: "watchedTarget/clearCacheRequested", key });
+      },
+      clearAllWatchedTargetCaches: async () => {
+        runtime.dispatch({ type: "watchedTarget/clearAllCachesRequested" });
+      },
       openAgentPicker: setPickerRequest,
     }),
     [
       removePaneRecord,
+      runtime,
       setOperatorPaneId,
       storage,
       unwatchTarget,
@@ -265,9 +325,7 @@ export default function App() {
       updateTarget,
       updateTmuxTab,
       watchTarget,
-      watchedTargets.clearAllCaches,
-      watchedTargets.clearTargetCache,
-      watchedTargets.runtimes,
+      watchedTargetRuntimes,
     ],
   );
 
@@ -288,6 +346,10 @@ export default function App() {
       apiRef.current = event.api;
       event.api.onDidLayoutChange(saveLayout);
       event.api.onDidRemovePanel((panel) => {
+        const existing = storageRef.current.panes[panel.api.id];
+        if (existing?.kind === "agent" && existing.target.source?.kind === "discovered") {
+          clearActiveForTarget(runtime, panel.api.id, existing.target);
+        }
         removePaneRecord(panel.api.id);
       });
       if (storage.layout) {
@@ -295,7 +357,7 @@ export default function App() {
       }
       void refreshProxyStatus();
     },
-    [removePaneRecord, saveLayout, storage.layout],
+    [removePaneRecord, runtime, saveLayout, storage.layout],
   );
 
   const refreshProxyStatus = async () => {
@@ -323,11 +385,6 @@ export default function App() {
       kind: "agent",
       target: target ?? defaultTarget(paneId, "agent"),
     };
-    if (record.target.source?.kind === "discovered" && record.target.url && record.target.threadId) {
-      void bindLastAgUiThread(record.target, record.target.threadId, "gui_view_change").catch(
-        () => undefined,
-      );
-    }
     persist({
       ...current,
       panes: {
@@ -430,10 +487,7 @@ export default function App() {
       target: defaultTarget(paneId, "agent"),
     };
     if (existing.target.source?.kind === "discovered" && !sameTarget(existing.target, target)) {
-      void clearLastAgUiThread(existing.target).catch(() => undefined);
-    }
-    if (target.source?.kind === "discovered" && target.url && target.threadId) {
-      void bindLastAgUiThread(target, target.threadId, "gui_view_change").catch(() => undefined);
+      clearActiveForTarget(runtime, paneId, existing.target);
     }
     const nextOperatorPaneId =
       current.operatorPaneId === paneId && target.source?.kind !== "discovered"
@@ -463,7 +517,8 @@ export default function App() {
   };
 
   return (
-    <WorkbenchProvider value={contextValue}>
+    <WorkbenchRuntimeProvider runtime={runtime}>
+      <WorkbenchProvider value={contextValue}>
       <main className="app-shell" data-testid="app-shell">
         <header className="topbar">
           <div className="brand">
@@ -515,7 +570,7 @@ export default function App() {
           passiveServerUrl={storage.discovery.passiveServerUrl}
           panes={storage.panes}
           watchedTargets={storage.watchedTargets}
-          watchedTargetRuntimes={watchedTargets.runtimes}
+          watchedTargetRuntimes={watchedTargetRuntimes}
           onPassiveServerUrlChange={updateDiscoveryUrl}
           onCreatePane={addAgentPane}
           onRetargetPane={retargetPane}
@@ -525,8 +580,23 @@ export default function App() {
           onClose={() => setPickerRequest(null)}
         />
       </main>
-    </WorkbenchProvider>
+      </WorkbenchProvider>
+    </WorkbenchRuntimeProvider>
   );
+}
+
+function clearActiveForTarget(runtime: WorkbenchRuntime, paneId: string, target: TargetConfig): void {
+  const gatewayKey = gatewayKeyForTarget(target);
+  if (!gatewayKey || !target.threadId) {
+    return;
+  }
+  runtime.dispatch({
+    type: "activeThread/clearRequested",
+    paneId,
+    gatewayKey,
+    target,
+    expectedThreadId: target.threadId,
+  });
 }
 
 function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
@@ -549,7 +619,16 @@ function dockRightPosition(api: DockviewApi):
   return referencePanel
     ? {
         referencePanel,
-        direction: "right",
-      }
+      direction: "right",
+    }
     : undefined;
+}
+
+function useRuntimeExternalSelector<T>(
+  runtime: WorkbenchRuntime,
+  selector: (state: WorkbenchRuntimeState) => T,
+): T {
+  const getSnapshot = useCallback(() => selector(runtime.snapshot()), [runtime, selector]);
+  const subscribe = useCallback((listener: () => void) => runtime.subscribe(listener), [runtime]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

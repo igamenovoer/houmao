@@ -163,7 +163,7 @@ textarea {
   min-width: 340px;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto auto auto auto 1fr auto;
+  grid-template-rows: repeat(7, auto) 1fr auto;
   gap: 8px;
   padding: 10px;
   overflow: hidden;
@@ -196,6 +196,12 @@ textarea {
 .icon-row button {
   width: 31px;
   padding: 0;
+}
+
+.icon-row button.active-thread-button.active {
+  border-color: #87b35f;
+  background: #30452f;
+  color: #ecf6df;
 }
 
 .status-dot {
@@ -361,6 +367,26 @@ textarea {
   padding: 3px 8px;
   font-size: 11px;
   font-weight: 700;
+}
+
+.active-thread-marker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  border: 1px solid #4c5149;
+  border-radius: 6px;
+  background: #22231f;
+  color: #b9b2a3;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.active-thread-marker.active {
+  border-color: #6f9c55;
+  background: #263528;
+  color: #dff1d1;
 }
 
 .tmux-panel {

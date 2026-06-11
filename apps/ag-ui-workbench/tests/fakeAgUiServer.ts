@@ -15,10 +15,15 @@ interface RecordedConnect {
   body: Record<string, unknown>;
 }
 
-interface RecordedBinding {
+interface RecordedActiveThreadUpdate {
   target: string;
   threadId: string;
   source: string;
+}
+
+interface RecordedActiveThreadClear {
+  target: string;
+  expectedThreadId?: string;
 }
 
 interface GatewayServerRecord {
@@ -38,12 +43,13 @@ export class FakeAgUiServer {
   private m_passivePort = 0;
   private readonly m_gateways = new Map<string, GatewayServerRecord>();
   private readonly m_openResponses = new Map<ServerResponse, OpenGatewayResponse>();
+  private readonly m_activeThreads = new Map<string, { threadId: string; source: string }>();
 
   readonly runs: RecordedRun[] = [];
   readonly detaches: RecordedDetach[] = [];
   readonly connects: RecordedConnect[] = [];
-  readonly bindingUpdates: RecordedBinding[] = [];
-  readonly bindingClears: string[] = [];
+  readonly activeThreadUpdates: RecordedActiveThreadUpdate[] = [];
+  readonly activeThreadClears: RecordedActiveThreadClear[] = [];
   interruptRequests = 0;
 
   async start(): Promise<void> {
@@ -98,8 +104,9 @@ export class FakeAgUiServer {
     this.runs.length = 0;
     this.detaches.length = 0;
     this.connects.length = 0;
-    this.bindingUpdates.length = 0;
-    this.bindingClears.length = 0;
+    this.activeThreadUpdates.length = 0;
+    this.activeThreadClears.length = 0;
+    this.m_activeThreads.clear();
     this.interruptRequests = 0;
   }
 
@@ -229,34 +236,42 @@ export class FakeAgUiServer {
       this.handlePublishedEvents(res, target, body);
       return;
     }
-    if (req.method === "GET" && url.pathname.endsWith("/bindings")) {
+    if (req.method === "GET" && url.pathname.endsWith("/destination")) {
       sendJson(res, 200, {
-        lastBoundThread: { status: "empty" },
+        activeThread: activeThreadResponse(this.m_activeThreads.get(target)),
         lastSentThread: { status: "empty" },
       });
       return;
     }
-    if (req.method === "PUT" && url.pathname.endsWith("/bindings/last-thread")) {
+    if (req.method === "GET" && url.pathname.endsWith("/active-thread")) {
+      sendJson(res, 200, activeThreadResponse(this.m_activeThreads.get(target)));
+      return;
+    }
+    if (req.method === "PUT" && url.pathname.endsWith("/active-thread")) {
       const body = await readJson(req);
       const bodyRecord = isRecord(body) ? body : {};
       const threadId = stringField(bodyRecord, "threadId", "");
       const source = stringField(bodyRecord, "source", "manual");
       if (!threadId.trim()) {
-        sendJson(res, 422, { code: "ag_ui_last_bound_thread_invalid" });
+        sendJson(res, 422, { code: "ag_ui_active_thread_invalid" });
         return;
       }
-      this.bindingUpdates.push({ target, threadId: threadId.trim(), source });
-      sendJson(res, 200, {
-        status: "bound",
-        threadId: threadId.trim(),
-        source,
-        updatedAtUtc: "2026-06-10T00:00:00Z",
-      });
+      const state = { threadId: threadId.trim(), source };
+      this.m_activeThreads.set(target, state);
+      this.activeThreadUpdates.push({ target, ...state });
+      sendJson(res, 200, activeThreadResponse(state));
       return;
     }
-    if (req.method === "DELETE" && url.pathname.endsWith("/bindings/last-thread")) {
-      this.bindingClears.push(target);
-      sendJson(res, 200, { status: "empty" });
+    if (req.method === "DELETE" && url.pathname.endsWith("/active-thread")) {
+      const expectedThreadId = url.searchParams.get("threadId") ?? undefined;
+      this.activeThreadClears.push({ target, expectedThreadId });
+      const current = this.m_activeThreads.get(target);
+      if (!expectedThreadId || current?.threadId === expectedThreadId) {
+        this.m_activeThreads.delete(target);
+        sendJson(res, 200, { status: "empty" });
+        return;
+      }
+      sendJson(res, 200, activeThreadResponse(current));
       return;
     }
     if (req.method === "POST" && url.pathname.endsWith("/runs")) {
@@ -327,12 +342,17 @@ export class FakeAgUiServer {
 
   private handlePublishedEvents(res: ServerResponse, target: string, body: unknown): void {
     const bodyRecord = isRecord(body) ? body : {};
-    const threadId = stringField(bodyRecord, "threadId", `${target}-thread`);
+    const explicitThreadId = stringField(bodyRecord, "threadId", "");
+    const activeThreadId = this.m_activeThreads.get(target)?.threadId;
+    const threadId = explicitThreadId || activeThreadId || null;
     const events = Array.isArray(bodyRecord.events)
       ? bodyRecord.events.filter((event): event is Record<string, unknown> => isRecord(event))
       : [];
     let deliveredCount = 0;
     for (const [response, openResponse] of this.m_openResponses.entries()) {
+      if (!threadId) {
+        continue;
+      }
       if (openResponse.target !== target || openResponse.threadId !== threadId) {
         continue;
       }
@@ -347,7 +367,9 @@ export class FakeAgUiServer {
       storedCount: 0,
       deliveredCount,
       replay: "none",
-      threadId,
+      threadId: threadId ?? undefined,
+      destinationKind: explicitThreadId ? undefined : activeThreadId ? "active_thread" : "default_sink",
+      warnings: explicitThreadId || activeThreadId ? undefined : ["default_sink_due_to_no_destination"],
     });
   }
 
@@ -579,6 +601,18 @@ function writeSse(res: ServerResponse, event: unknown, eventId?: string): void {
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+function activeThreadResponse(state: { threadId: string; source: string } | undefined): unknown {
+  if (!state) {
+    return { status: "empty" };
+  }
+  return {
+    status: "active",
+    threadId: state.threadId,
+    source: state.source,
+    updatedAtUtc: "2026-06-10T00:00:00Z",
+  };
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {

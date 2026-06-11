@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from houmao.ag_ui.authoring import (
@@ -34,10 +34,10 @@ from houmao.ag_ui.event_hub import AgUiEventHub, AgUiEventSubscription, AgUiQueu
 from houmao.ag_ui.models import (
     AgUiConnectInput,
     AgUiDetachResponse,
-    AgUiDestinationBindingsResponse,
+    AgUiDestinationStateResponse,
     AgUiEventPublishRequest,
     AgUiEventPublishResponse,
-    AgUiSetLastBoundThreadRequest,
+    AgUiSetActiveThreadRequest,
     AgUiStateSnapshotEvent,
     AgUiThreadDestinationResponse,
     HoumaoAgUiCapabilitiesResponse,
@@ -54,7 +54,7 @@ _DEFAULT_RUN_POLL_INTERVAL_SECONDS = 0.2
 class _ResolvedPublishDestination:
     """Resolved destination for one AG-UI publish request."""
 
-    kind: Literal["message", "event", "connection", "last_sent", "last_bound", "default_sink"]
+    kind: Literal["message", "event", "connection", "active_thread", "default_sink"]
     thread_id: str | None
     run_id: str | None
     connection_id: str | None
@@ -456,37 +456,37 @@ def register_ag_ui_routes(
         )
 
     @router.get(
-        "/bindings",
-        response_model=AgUiDestinationBindingsResponse,
+        "/destination",
+        response_model=AgUiDestinationStateResponse,
         response_model_exclude_none=True,
     )
-    def _bindings() -> AgUiDestinationBindingsResponse:
+    def _destination() -> AgUiDestinationStateResponse:
         """Return gateway-local AG-UI destination fallback state."""
 
-        return _destination_bindings_response(destination_state)
+        return _destination_state_response(destination_state)
 
     @router.get(
-        "/bindings/last-thread",
+        "/active-thread",
         response_model=AgUiThreadDestinationResponse,
         response_model_exclude_none=True,
     )
-    def _last_bound_thread() -> AgUiThreadDestinationResponse:
-        """Return the current GUI-bound AG-UI thread."""
+    def _active_thread() -> AgUiThreadDestinationResponse:
+        """Return the current GUI-selected active AG-UI thread."""
 
-        return _thread_destination_response(destination_state.last_bound_thread)
+        return _thread_destination_response(destination_state.active_thread)
 
     @router.put(
-        "/bindings/last-thread",
+        "/active-thread",
         response_model=AgUiThreadDestinationResponse,
         response_model_exclude_none=True,
     )
-    def _set_last_bound_thread(
-        request_payload: AgUiSetLastBoundThreadRequest,
+    def _set_active_thread(
+        request_payload: AgUiSetActiveThreadRequest,
     ) -> AgUiThreadDestinationResponse | JSONResponse:
-        """Set the current foreground GUI-bound AG-UI thread."""
+        """Set the current GUI-selected active AG-UI thread."""
 
         try:
-            state = destination_state.set_last_bound_thread(
+            state = destination_state.set_active_thread(
                 request_payload.thread_id,
                 source=request_payload.source,
             )
@@ -495,21 +495,25 @@ def register_ag_ui_routes(
                 status_code=422,
                 content={
                     "ok": False,
-                    "code": "ag_ui_last_bound_thread_invalid",
+                    "code": "ag_ui_active_thread_invalid",
                     "message": str(exc),
                 },
             )
         return _thread_destination_response(state)
 
     @router.delete(
-        "/bindings/last-thread",
+        "/active-thread",
         response_model=AgUiThreadDestinationResponse,
         response_model_exclude_none=True,
     )
-    def _clear_last_bound_thread() -> AgUiThreadDestinationResponse:
-        """Clear the current foreground GUI-bound AG-UI thread."""
+    def _clear_active_thread(
+        thread_id: str | None = Query(default=None, alias="threadId"),
+    ) -> AgUiThreadDestinationResponse:
+        """Clear the active AG-UI thread if the optional expected thread still matches."""
 
-        return _thread_destination_response(destination_state.clear_last_bound_thread())
+        return _thread_destination_response(
+            destination_state.clear_active_thread(expected_thread_id=thread_id)
+        )
 
     app.include_router(router)
     return resolved_registry
@@ -613,22 +617,14 @@ def _resolve_publish_destination(
             connection_id=None,
             last_sent_source="event",
         )
-    last_bound, last_sent = destination_state.snapshot()
-    if last_sent.thread_id is not None:
+    active_thread, _last_sent = destination_state.snapshot()
+    if active_thread.thread_id is not None:
         return _ResolvedPublishDestination(
-            kind="last_sent",
-            thread_id=last_sent.thread_id,
+            kind="active_thread",
+            thread_id=active_thread.thread_id,
             run_id=None,
             connection_id=None,
-            last_sent_source="last_sent",
-        )
-    if last_bound.thread_id is not None:
-        return _ResolvedPublishDestination(
-            kind="last_bound",
-            thread_id=last_bound.thread_id,
-            run_id=None,
-            connection_id=None,
-            last_sent_source="last_bound",
+            last_sent_source="active_thread",
         )
     return _ResolvedPublishDestination(
         kind="default_sink",
@@ -639,14 +635,14 @@ def _resolve_publish_destination(
     )
 
 
-def _destination_bindings_response(
+def _destination_state_response(
     state: AgUiDestinationState,
-) -> AgUiDestinationBindingsResponse:
+) -> AgUiDestinationStateResponse:
     """Return a serializable destination fallback state response."""
 
-    last_bound, last_sent = state.snapshot()
-    return AgUiDestinationBindingsResponse(
-        last_bound_thread=_thread_destination_response(last_bound),
+    active_thread, last_sent = state.snapshot()
+    return AgUiDestinationStateResponse(
+        active_thread=_thread_destination_response(active_thread),
         last_sent_thread=_thread_destination_response(last_sent),
     )
 
