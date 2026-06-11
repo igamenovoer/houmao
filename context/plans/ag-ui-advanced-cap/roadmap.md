@@ -1,79 +1,102 @@
-# AG-UI Advanced Presentation Capability Roadmap
+# AG-UI Advanced Graphing Capability Roadmap
 
 ## Scope
 
-This roadmap covers a future expansion of AG-UI graphics and media beyond the current typed component and SVG compatibility paths. It assumes the existing live per-agent gateway remains the source of truth for AG-UI routing, stream delivery, and lifecycle boundaries. The workbench remains a GUI harness for already-running agents and must not gain managed-agent lifecycle ownership as part of presentation work.
+This roadmap covers graphing capability beyond the current fixed chart components and SVG compatibility path. It assumes the live per-agent gateway remains the source of truth for AG-UI routing, stream delivery, and lifecycle boundaries. The workbench remains a GUI harness for already-running agents and must not gain managed-agent lifecycle ownership as part of graphing work.
 
-The target capability stack has three user-facing layers:
+The revised target stack has three graphing layers:
 
-1. Template graphics: one standardized Houmao chart schema, selectable renderer backends, and optional backend-specific `extra`.
-2. Vega DSL graphics: raw Vega-Lite and possibly raw Vega specs, locked to the Vega ecosystem.
-3. React components: predefined trusted component catalog first, future sandboxed custom React later.
+1. Template graphics: one Plotly-aligned standardized Houmao chart schema rendered through Plotly.js.
+2. Vega DSL graphics: raw Vega-Lite and possibly raw Vega specs rendered with `vega-embed`, with Python Altair as the main authoring bridge.
+3. D3.js scripted graphics: sandboxed agent-authored JavaScript that uses D3 inside an isolated iframe.
 
-## Milestone 1: Define the Standard Template Graphics Schema
+This roadmap intentionally removes Recharts, Apache ECharts, and Vega-Lite from the planned Layer 1 backend set. Vega-Lite moves to Layer 2.
 
-Goal: replace ad hoc fixed component payloads with one renderer-neutral chart intent schema that can feed Recharts, Vega-Lite, Plotly, and later renderers.
+## Milestone 1: Reset the Layer 1 Backend Contract Around Plotly
+
+Goal: keep Layer 1 templated graphics, but make Plotly.js the only Layer 1 renderer and align the standardized schema with Plotly concepts as much as possible without exposing raw unrestricted Plotly figures as the whole contract.
+
+Decisions:
+
+- Layer 1 renderer ids SHALL include only `plotly` for the next design pass.
+- Plotly.js SHALL be the only Layer 1 renderer.
+- The Layer 1 schema SHALL be Plotly-aligned, using trace-like series, layout-like axes and legends, and config-like interaction options where practical.
+- The Layer 1 schema SHALL NOT be the complete raw Plotly.js builtin schema. The raw Plotly schema may inform field names, validation allowlists, examples, and converter behavior, but the public Houmao template schema remains curated.
+- Recharts SHALL be removed from the planned Layer 1 backend set.
+- Apache ECharts SHALL be removed from the planned Layer 1 backend set.
+- Vega-Lite SHALL be removed from the Layer 1 backend set and reserved for Layer 2.
+- Layer 1 `extra` SHALL be scoped to `extra.plotly`.
+- Layer 1 SHALL NOT accept raw Plotly trace/layout/config replacement, Vega-Lite specs, JavaScript callbacks, HTML, iframes, or remote data URLs.
 
 Deliverables:
 
-- A `houmao.graphic.template` payload model with `schemaVersion`, `chartType`, `renderer`, `title`, `data`, `encoding`, `interactions`, style fields, and optional `extra`.
-- Renderer ids such as `recharts`, `vega-lite`, and `plotly`.
-- A strict rule that top-level standardized fields are sufficient to render the chart.
-- A strict rule that `extra` is keyed by renderer id and ignored when unsupported.
-- A strict rule that Layer 1 does not accept custom user templates, arbitrary backend specs, JavaScript callbacks, HTML, iframes, remote data URLs, or full trace/spec replacement.
-- Capabilities that advertise supported renderer ids and the `extra` policy.
+- Revised `houmao.graphic.template` schema metadata that lists only the `plotly` renderer id.
+- Capability metadata with `renderers: ["plotly"]` and `defaultRenderer: "plotly"`.
+- Updated docs and agent guidance that remove Recharts, ECharts, and Layer 1 Vega-Lite from the template backend story.
+- A migration note for existing experimental workbench code that still advertises or implements Recharts, ECharts, or Vega-Lite as Layer 1 template renderers.
 
 Todo:
 
-- [ ] Define the core chart types for the first release: bar, line, scatter, area, pie or donut, table-like summary if desired.
-- [ ] Define common data and encoding shape, including field names, field types, title, aggregate, sort, color, size, tooltip, and series semantics.
-- [ ] Define `renderer.preferred` and `renderer.fallback` semantics.
-- [ ] Define `extra` as `dict[renderer_id, object]` with per-renderer allowlists.
-- [ ] Decide whether unsupported known `extra` fields produce warnings, diagnostics records, or silent no-ops.
-- [ ] Add examples for the same payload rendered through Recharts, Vega-Lite, and Plotly.
-- [ ] Add test cases proving the same standardized payload renders through every enabled backend without `extra`.
-- [ ] Add test cases proving unsupported `extra` is ignored and fallback rendering still works.
+- [ ] Confirm whether the standardized chart types remain bar, line, scatter, area, pie or donut.
+- [ ] Decide the exact boundary between curated Plotly-aligned fields and raw Plotly fields.
+- [ ] Define the trace-like common data shape, including `type`, `name`, `x`, `y`, `z`, `labels`, `values`, marker style, line style, color, size, text, hover, and series semantics.
+- [ ] Define the layout-like common shape, including title, axes, legend, margins, annotations, subplot hints, and responsive sizing.
+- [ ] Define the config-like interaction shape, including tooltip or hover behavior, mode bar policy, responsiveness, and static-vs-interactive mode.
+- [ ] Define `renderer.preferred` semantics when the only supported renderer is `plotly`.
+- [ ] Define `extra.plotly` allowlisted fragments such as narrow layout refinements, hover mode, axis formatting, marker refinements, and bar gap.
+- [ ] Decide whether unsupported known `extra.plotly` fields produce warnings, diagnostics records, or silent no-ops.
+- [ ] Add examples for Plotly-first payloads rendered through Plotly.
+- [ ] Add tests proving standardized payloads render through Plotly without `extra`.
+- [ ] Add tests proving unsupported `extra.plotly` is ignored or reported without breaking rendering.
 
 Done when:
 
-- Agents can emit one standard template payload without knowing the final renderer.
-- The GUI can choose Recharts, Vega-Lite, or Plotly and get a reasonable chart from the same payload.
-- Backend-specific tuning exists only as optional `extra`.
+- Agents can emit one standard template payload without choosing among template renderers.
+- The GUI renders every valid Layer 1 payload through Plotly unless the payload explicitly targets a chart family not supported by the chosen Plotly bundle.
+- Backend-specific tuning exists only as optional `extra.plotly`.
+- Recharts, ECharts, and Vega-Lite are absent from Layer 1 documentation, capabilities, and renderer selection.
 
-## Milestone 2: Implement Renderer Adapters for Template Graphics
+## Milestone 2: Implement the Layer 1 Plotly Adapter
 
-Goal: ship multiple Layer 1 backends early so users can compare output and provide feedback before the schema hardens.
+Goal: ship Plotly.js as the single Layer 1 renderer and remove the old multi-backend template renderer assumption.
 
-Initial renderer adapters:
+Initial renderer adapter:
 
-- Recharts: native React renderer for common dashboard charts.
-- Vega-Lite: adapter from the standardized schema to a Vega-Lite spec.
-- Plotly: adapter from the standardized schema to Plotly data and layout.
+- Plotly.js: default and only Layer 1 renderer, and the schema alignment target.
+
+Migration from current implementation:
+
+- Remove Recharts template rendering code and dependencies when no longer used by compatibility components.
+- Remove Vega-Lite template rendering code from Layer 1.
+- Do not add ECharts template rendering code.
+- Keep `vega`, `vega-lite`, and `vega-embed` only for Layer 2 when that milestone lands.
+- Replace the workbench template renderer dropdown with either no control or a fixed `plotly` display, unless future non-template layers need a separate selector.
+- Update capability metadata, test fixtures, docs, and agent-facing examples.
 
 Todo:
 
-- [ ] Add a renderer registry in the workbench keyed by renderer id.
-- [ ] Add adapter-level validation for each renderer's supported chart types and `extra` fields.
-- [ ] Keep renderer selection deterministic: preferred renderer when available, otherwise first supported fallback, otherwise GUI default.
-- [ ] Surface selected renderer and ignored `extra` warnings in diagnostics.
-- [ ] Add a visual comparison fixture for several payloads across all enabled renderers.
-- [ ] Add browser tests for renderer fallback when the preferred backend is unavailable.
-- [ ] Add browser tests for renderer-specific `extra` behavior.
+- [ ] Add or revise the renderer registry so Layer 1 resolves to `plotly`.
+- [ ] Add adapter-level validation for supported chart types and allowed `extra.plotly` fields.
+- [ ] Keep renderer selection deterministic: forced GUI override is unnecessary while only Plotly exists; payload `renderer.preferred` may be accepted only when it is `plotly`.
+- [ ] Surface selected renderer and ignored `extra.plotly` warnings in diagnostics.
+- [ ] Add visual fixtures for Plotly-first payloads across common chart families.
+- [ ] Add browser tests for renderer-specific `extra.plotly` behavior.
+- [ ] Add browser tests for pie or donut charts, line charts, scatter charts, grouped bars, and multi-trace layouts.
 
 Done when:
 
-- The workbench can render one Layer 1 payload through at least two independent backends.
-- Users can choose or compare backends without changing the agent payload.
-- Renderer-specific differences are observable without breaking the standardized contract.
+- The workbench renders Layer 1 payloads through Plotly by default.
+- The GUI no longer presents ECharts, Recharts, or Vega-Lite as Layer 1 choices.
+- Renderer-specific differences no longer complicate the standardized contract.
 
-## Milestone 3: Add Vega DSL Graphics
+## Milestone 3: Add Vega DSL Graphics and Altair Authoring
 
 Goal: give agents full declarative graphics freedom through the Vega ecosystem without allowing arbitrary React or JavaScript execution.
 
 Recommended libraries:
 
 - Python gateway and tooling: `altair`, `jsonschema`, and optionally `vl-convert-python`.
-- TypeScript GUI: `vega`, `vega-lite`, and `vega-embed` or `react-vega`.
+- TypeScript GUI: `vega`, `vega-lite`, and `vega-embed`.
 
 Contracts:
 
@@ -83,6 +106,23 @@ Contracts:
 - Inline data values are allowed with size limits.
 - Remote data URLs are disabled by default or restricted by explicit allowlist.
 - The GUI renderer owns theme, autosizing defaults, error display, and renderer cleanup.
+
+Altair path:
+
+```python
+import altair as alt
+import pandas as pd
+
+df = pd.DataFrame({"status": ["ready", "queued"], "count": [58, 23]})
+chart = alt.Chart(df).mark_arc().encode(
+    theta="count:Q",
+    color="status:N",
+    tooltip=["status:N", "count:Q"],
+)
+spec = chart.to_dict()
+```
+
+The agent sends `spec` as a Layer 2 Vega-Lite payload. If raw Vega is needed, an optional helper can compile with `vl-convert-python` before publishing.
 
 Todo:
 
@@ -94,66 +134,31 @@ Todo:
 - [ ] Add a workbench renderer that mounts Vega-Lite and optionally Vega specs in a bounded responsive container.
 - [ ] Add renderer cleanup so repeated specs do not leak Vega views.
 - [ ] Add capability metadata for supported DSL library, supported major version, max payload bytes, max inline rows, and remote data policy.
-- [ ] Add deterministic examples for bar chart, layered chart, interactive selection, tooltip, linked view, and one direct Vega example if enabled.
+- [ ] Add deterministic examples for bar chart, pie chart, layered chart, interactive selection, tooltip, linked view, and one direct Vega example if enabled.
 - [ ] Add tests for malformed specs, oversized inline data, disabled remote URLs, and successful interactive render smoke.
 
 Done when:
 
 - A user who wants custom templates can use a raw Vega-Lite or Vega spec rather than extending Layer 1.
-- The workbench renders a Vega-Lite chart with interaction and a clear fallback on validation or render failure.
-- Capabilities make it clear that this is Vega DSL, not renderer-neutral template graphics and not React code execution.
+- Altair-generated Vega-Lite JSON can be validated, sent through AG-UI, and rendered by the workbench.
+- Capabilities make it clear that this is Vega DSL, not template graphics and not JavaScript code execution.
 
-## Milestone 4: Add Predefined React Component Catalog
+## Milestone 4: Plan D3.js Scripted Graphics
 
-Goal: expose trusted GUI components such as PDF viewers, video players, image viewers, galleries, and layout containers to agents through validated JSON props.
-
-Recommended libraries:
-
-- Python gateway and tooling: `pydantic` for component payload models and JSON Schema.
-- TypeScript GUI: `zod` or generated validators for browser-side props validation.
-- PDF: PDF.js-backed viewer or a React wrapper built on PDF.js.
-- Video and audio: native media elements, Vidstack, or Media Chrome depending on desired controls.
-
-Contract:
-
-- Tool name: `houmao.component.catalog`.
-- Payload contains `schemaVersion`, `component`, and `props`.
-- Component ids are stable names such as `houmao.media.pdf_viewer`, `houmao.media.video_player`, `houmao.media.audio_player`, `houmao.media.image_viewer`, `houmao.media.gallery`, `houmao.ui.tabs`, `houmao.ui.split_panel`, and `houmao.ui.dashboard`.
-- Each component id has an owned props schema.
-- Prefer gateway artifact ids over arbitrary remote URLs.
-
-Todo:
-
-- [ ] Define the component catalog registry and metadata shape.
-- [ ] Add initial components for PDF, video, image, and gallery.
-- [ ] Define source reference objects: gateway artifact, data URI where safe, and explicit URL only when allowed by policy.
-- [ ] Add per-component payload size, MIME type, and source policy.
-- [ ] Add workbench renderers with loading, error, and unsupported fallbacks.
-- [ ] Add capabilities listing component ids, schema versions, source policies, and media limits.
-- [ ] Add tests for valid PDF/video/image payloads, unsupported source kinds, oversized media references, and unknown component ids.
-
-Done when:
-
-- Agents can present complex media without generating React code.
-- The GUI owns the trusted implementation and the agent supplies only JSON props.
-- Components render through the same AG-UI tool-call/reducer path as graphics.
-
-## Milestone 5: Plan Custom React Components Without Enabling Them by Default
-
-Goal: define the future custom React contract and sandbox requirements without shipping it as an active default feature.
+Goal: define the future custom scripted graphics contract and sandbox requirements before enabling it by default.
 
 Recommended libraries:
 
 - Python gateway and tooling: `pydantic` for manifest validation and optional out-of-process Node or Bun preflight.
-- TypeScript GUI: `@codesandbox/sandpack-react` for the first prototype, or `esbuild-wasm` plus a custom iframe runtime for stricter control.
+- TypeScript GUI: `d3`, sandboxed iframe runtime, and optional `esbuild-wasm` only if TypeScript or bundling becomes necessary.
 
 Contract:
 
-- Tool name: `houmao.component.react_bundle`.
-- Payload contains `schemaVersion`, `componentId`, `entryFile`, `files`, `props`, `propsSchema`, `dependencies`, `permissions`, and display metadata.
-- The component must export a default React component or a known named export.
-- The component receives only `data`, `width`, `height`, `theme`, and a narrow optional `emit` function.
-- Communication with the parent GUI uses `postMessage` or a controlled Sandpack channel.
+- Tool name: `houmao.graphic.d3_script`.
+- Payload contains `schemaVersion`, `title`, optional `description`, `scriptKind`, `code`, `data`, optional `style`, optional `propsSchema`, `permissions`, and display metadata.
+- The script exports `render(context)` and may return a cleanup function.
+- The context provides `d3`, `container`, `data`, `width`, `height`, `theme`, and a narrow optional `emit` function.
+- The script runs only inside a sandboxed iframe and communicates with the workbench through `postMessage`.
 
 Security posture:
 
@@ -162,44 +167,45 @@ Security posture:
 - Runs in a sandboxed iframe.
 - No access to parent DOM, localStorage, cookies, credentials, mailbox content, memory content, or tmux sockets.
 - Network disabled or allowlisted by default.
-- Dependency list allowlisted and pinned.
+- Dependency list starts with D3 only; additional dependencies require explicit allowlisting and version pinning.
 - Payload size, file count, compile time, render time, and console output are bounded.
 
 Todo:
 
-- [ ] Decide whether the first prototype uses Sandpack or a custom `esbuild-wasm` iframe.
-- [ ] Define the manifest model and minimum source file format.
-- [ ] Define dependency policy, starting with `react`, `react-dom`, and a small approved visualization helper set.
-- [ ] Add GUI trust controls and visible enabled or disabled state for custom React.
-- [ ] Add iframe sandbox flags and a parent-child message protocol.
+- [ ] Decide whether the first prototype accepts plain JavaScript modules only, or also TypeScript through `esbuild-wasm`.
+- [ ] Define the script payload model and minimum source format.
+- [ ] Define the iframe sandbox flags and parent-child message protocol.
+- [ ] Define the D3 render context interface and cleanup lifecycle.
+- [ ] Define dependency policy, starting with `d3` only.
+- [ ] Add GUI trust controls and visible enabled or disabled state for D3 scripts.
 - [ ] Add compile error, runtime error, timeout, dependency rejection, and permission rejection fallbacks.
-- [ ] Add test fixtures for a valid tiny component, a compile error, an attempted parent access, an attempted network access, and an infinite render loop.
-- [ ] Decide whether generated React component bundles can be cached client-side, and if so, what metadata is safe to persist.
+- [ ] Add test fixtures for a valid tiny D3 chart, a compile error, attempted parent access, attempted network access, excessive CPU loop, and cleanup after pane clear.
+- [ ] Decide whether D3 script payloads can be cached client-side, and if so, what metadata is safe to persist.
 
 Done when:
 
-- The custom React contract is documented and capability-gated.
+- The D3 script contract is documented and capability-gated.
 - The workbench can keep reporting the feature as planned or disabled until the sandbox is implemented.
-- The predefined component catalog remains the recommended route for complex media.
+- Layer 1 and Layer 2 remain the recommended routes unless the user explicitly needs scripted D3 behavior.
 
-## Milestone 6: Agent-Facing Authoring Guidance
+## Milestone 5: Agent-Facing Authoring Guidance
 
-Goal: teach agents to choose the least powerful layer that satisfies the requested visual output.
+Goal: teach agents to choose the least powerful graphing layer that satisfies the requested visual output.
 
 Selection rule:
 
-1. Use template graphics for ordinary charts when a standardized schema can express the chart.
-2. Add Layer 1 `extra` only for non-essential backend-specific refinements.
-3. Use Vega-Lite or Vega DSL when the user needs custom chart structure, custom interaction, or backend-native Vega control.
-4. Use predefined React catalog components for PDFs, videos, images, galleries, and trusted GUI widgets.
-5. Use custom React only when explicitly enabled and no safer layer can express the requested surface.
+1. Use Layer 1 template graphics for ordinary charts when the Plotly-aligned standardized schema can express the chart.
+2. Add Layer 1 `extra.plotly` only for non-essential Plotly refinements.
+3. Use Layer 2 Vega-Lite when the user needs a backend-native declarative grammar, Altair output, custom chart structure, or custom interaction.
+4. Use Layer 2 direct Vega only when Vega-Lite cannot express the needed behavior.
+5. Use Layer 3 D3.js only when the GUI advertises explicit support and the requested graphic needs scripted DOM/SVG/canvas behavior.
 
 Todo:
 
-- [ ] Update `houmao-agent-ag-ui` guidance to explain the three-layer decision tree.
-- [ ] Add examples for Layer 1 with and without `extra`.
-- [ ] Add examples for raw Vega-Lite specs as the custom-template path.
-- [ ] Add examples for predefined media components.
+- [ ] Update `houmao-interop-ag-ui` guidance to explain the three graphing layers.
+- [ ] Add examples for Plotly-only Layer 1 payloads.
+- [ ] Add examples for raw Vega-Lite specs generated by Altair.
+- [ ] Add examples for D3.js scripted graphics, clearly marked as sandboxed and disabled by default until implemented.
 - [ ] Add repair guidance for validation failures per layer.
 - [ ] Make publish-result reporting unchanged: never claim a GUI displayed graphics unless delivery and render evidence support that claim.
 - [ ] Teach agents not to guess GUI destination routing ids.
@@ -207,42 +213,41 @@ Todo:
 Done when:
 
 - Agents default to standardized template graphics.
-- Agents understand that Layer 1 `extra` is optional and disposable.
-- Agents choose Vega DSL for custom chart specs and predefined components for complex media.
-- Agents do not use custom React unless the GUI advertises explicit support.
+- Agents understand that Layer 1 `extra.plotly` is optional and disposable.
+- Agents choose Vega DSL for custom declarative specs and D3 only for custom scripted graphics.
+- Agents do not use D3 scripts unless the GUI advertises explicit support.
 
-## Milestone 7: Capability, Compatibility, and Tests
+## Milestone 6: Capability, Compatibility, and Tests
 
-Goal: make the advanced capability set discoverable and regression-resistant.
+Goal: make the advanced graphing capability set discoverable and regression-resistant.
 
 Deliverables:
 
-- Capabilities report template renderer ids, `extra` policy, Vega DSL support, component catalog ids, custom React support, versions, limits, sandbox policy, and whether explicit enablement is required.
+- Capabilities report Plotly template support, `extra.plotly` policy, Vega DSL support, D3 script support, versions, limits, sandbox policy, and whether explicit enablement is required.
 - Workbench renderers show layer-specific fallback details.
-- Unit tests cover backend validation for all layers.
-- Browser tests cover successful render, fallback render, selected renderer behavior, ignored `extra`, and state isolation for all enabled layers.
-- Documentation explains transport-vs-renderer separation clearly: the gateway may carry opaque AG-UI events, but the GUI renders only recognized and enabled contracts.
+- Unit tests cover backend validation for all enabled layers.
+- Browser tests cover successful render, selected renderer behavior where applicable, ignored `extra.plotly`, state isolation, and sandbox failures.
+- Documentation explains transport-vs-renderer separation clearly: the gateway may carry opaque AG-UI events, but the GUI renders only recognized and enabled graphing contracts.
 
 Suggested test cases:
 
-- `test_capabilities_list_template_renderers_and_extra_policy`.
-- `test_template_payload_renders_without_extra`.
-- `test_template_extra_is_renderer_scoped`.
-- `test_template_unsupported_extra_does_not_block_fallback`.
-- `test_template_rejects_full_backend_spec_in_extra`.
+- `test_capabilities_list_plotly_template_renderer_and_extra_policy`.
+- `test_template_payload_renders_without_extra_plotly`.
+- `test_template_extra_plotly_is_allowlisted`.
+- `test_template_rejects_full_plotly_figure_replacement`.
 - `test_vegalite_payload_rejects_remote_data_when_disabled`.
-- `test_vegalite_payload_accepts_inline_interactive_spec`.
+- `test_vegalite_payload_accepts_altair_generated_inline_spec`.
 - `test_workbench_renders_vegalite_spec`.
 - `test_workbench_shows_vegalite_compile_error_fallback`.
-- `test_catalog_component_validates_pdf_props`.
-- `test_catalog_component_rejects_unknown_component`.
-- `test_custom_react_capability_disabled_by_default`.
-- `test_custom_react_runs_only_in_sandbox_when_enabled`.
-- `test_custom_react_rejects_unapproved_dependency`.
+- `test_d3_script_capability_disabled_by_default`.
+- `test_d3_script_runs_only_in_sandbox_when_enabled`.
+- `test_d3_script_rejects_unapproved_dependency`.
+- `test_d3_script_cannot_access_parent_dom_or_local_storage`.
+- `test_d3_script_timeout_unloads_iframe`.
 
 Done when:
 
 - The layers are visible as separate capabilities.
 - Each layer has a distinct validation and renderer path.
-- Backend-specific Layer 1 tuning does not weaken renderer-neutral fallback.
+- Backend-specific Layer 1 tuning does not weaken the curated Plotly-aligned contract.
 - Higher freedom does not weaken lower-risk defaults.

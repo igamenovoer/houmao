@@ -3,6 +3,7 @@ import type { GatewayKey } from "./actions";
 import {
   gatewayKeyForTarget,
   type ActiveThreadRuntimeState,
+  type TmuxInventoryRuntimeState,
   type PaneAgUiRuntimeState,
   type TmuxPaneRuntimeState,
   type WatchedTargetRuntimeState,
@@ -11,12 +12,15 @@ import {
 
 export interface PaneActiveThreadView {
   gatewayKey: GatewayKey | null;
-  runtime: ActiveThreadRuntimeState | null;
-  isEligible: boolean;
-  isActive: boolean;
-  status: string;
-  error?: string;
-}
+	  runtime: ActiveThreadRuntimeState | null;
+	  isEligible: boolean;
+	  isUnsupported: boolean;
+	  isActive: boolean;
+	  canMutate: boolean;
+	  status: string;
+	  label: string;
+	  error?: string;
+	}
 
 export function selectGatewayActiveThread(
   state: WorkbenchRuntimeState,
@@ -33,19 +37,24 @@ export function selectPaneActiveThreadView(
   target: TargetConfig,
 ): PaneActiveThreadView {
   const gatewayKey = gatewayKeyForTarget(target);
-  const runtime = selectGatewayActiveThread(state, gatewayKey);
-  const isEligible = target.source?.kind === "discovered" && Boolean(target.url && target.threadId);
-  const activeThreadId = runtime?.activeThread.threadId ?? null;
-  const isActive = isEligible && activeThreadId === target.threadId;
-  return {
-    gatewayKey,
-    runtime,
-    isEligible,
-    isActive,
-    status: runtime?.status ?? "idle",
-    error: runtime?.error,
-  };
-}
+	  const runtime = selectGatewayActiveThread(state, gatewayKey);
+	  const isEligible = target.source?.kind === "discovered" && Boolean(target.url && target.threadId);
+	  const isUnsupported = runtime?.status === "unsupported";
+	  const activeThreadId = runtime?.activeThread.threadId ?? null;
+	  const isActive = isEligible && !isUnsupported && activeThreadId === target.threadId;
+	  const canMutate = isEligible && !isUnsupported;
+	  return {
+	    gatewayKey,
+	    runtime,
+	    isEligible,
+	    isUnsupported,
+	    isActive,
+	    canMutate,
+	    status: runtime?.status ?? "idle",
+	    label: isUnsupported ? "Active-thread unsupported" : isActive ? "Active thread" : "Inactive thread",
+	    error: runtime?.error,
+	  };
+	}
 
 export function selectPaneAgUiRuntime(
   state: WorkbenchRuntimeState,
@@ -74,7 +83,25 @@ export function selectTmuxPaneRuntime(
   state: WorkbenchRuntimeState,
   paneId: string,
 ): TmuxPaneRuntimeState | null {
-  return state.tmuxPanes[paneId] ?? null;
+  const pane = state.tmuxPanes[paneId];
+  if (!pane) {
+    return null;
+  }
+  const inventory = state.tmuxInventory;
+  return {
+    ...pane,
+    bridgeStatus: inventory.bridgeStatus,
+    sessions: inventory.sessions,
+    agents: inventory.agents,
+    loading: inventory.loading,
+    tmuxError: inventory.tmuxError,
+    discoveryError: inventory.discoveryError,
+    lastReceivedAt: inventory.lastReceivedAt ?? pane.lastReceivedAt,
+  };
+}
+
+export function selectTmuxInventory(state: WorkbenchRuntimeState): TmuxInventoryRuntimeState {
+  return state.tmuxInventory;
 }
 
 export function selectRuntimeErrors(state: WorkbenchRuntimeState) {

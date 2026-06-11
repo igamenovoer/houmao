@@ -2,11 +2,6 @@ import type { CapabilitiesResponse, RunAgentInput, TargetConfig, RawTimelineEntr
 import { detachUrl, normalizeAgUiTarget, proxiedTargetUrl } from "./target";
 import { SseParser } from "./sse";
 
-export interface CanvasSize {
-  w: number;
-  h: number;
-}
-
 export type ActiveThreadSource = "gui_button" | "gui_connect" | "manual";
 
 export interface AgUiThreadDestination {
@@ -212,12 +207,10 @@ export function buildRunInput({
   paneId,
   threadId,
   message,
-  canvasSize,
 }: {
   paneId: string;
   threadId: string;
   message: string;
-  canvasSize?: CanvasSize | null;
 }): RunAgentInput {
   const runId = `run-${paneId}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   return {
@@ -232,7 +225,7 @@ export function buildRunInput({
       },
     ],
     tools: [],
-    context: canvasContext(canvasSize),
+    context: [],
     forwardedProps: {},
   };
 }
@@ -254,21 +247,4 @@ export function buildConnectInput({
     context: [],
     forwardedProps: {},
   };
-}
-
-export function canvasContext(canvasSize: CanvasSize | null | undefined): RunAgentInput["context"] {
-  if (!canvasSize) {
-    return [];
-  }
-  const w = Math.round(canvasSize.w);
-  const h = Math.round(canvasSize.h);
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
-    return [];
-  }
-  return [
-    {
-      description: "houmao.canvas_size_px.v1",
-      value: JSON.stringify({ widthPx: w, heightPx: h }),
-    },
-  ];
 }

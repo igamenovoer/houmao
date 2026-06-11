@@ -356,7 +356,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
-    assert (home / "skills/houmao-agent-ag-ui/SKILL.md").is_file()
+    assert (home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     installed_records = discover_installed_system_skills(tool="codex", home_path=home)
@@ -379,7 +379,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-operator-messaging",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
-        "houmao-agent-ag-ui",
+        "houmao-interop-ag-ui",
     )
 
     # Credential file projection and env contract setup.

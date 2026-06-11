@@ -26,4 +26,4 @@ Houmao AG-UI currently supports fixed chart components and a compatibility graph
 - `houmao-mgr internals ag-ui` schema, validation, and event-rendering commands.
 - Gateway capability metadata under `GET /v1/ag-ui/capabilities`.
 - Workbench renderer code under `apps/ag-ui-workbench/src/ag-ui/` and workbench package dependencies for Vega-Lite rendering.
-- Debug workbench fixtures, tests, gateway reference docs, and `houmao-agent-ag-ui` skill guidance.
+- Debug workbench fixtures, tests, gateway reference docs, and `houmao-interop-ag-ui` skill guidance.

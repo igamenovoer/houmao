@@ -122,7 +122,7 @@ The initial raw Vega-Lite DSL support flag SHALL be false for this Layer 1 chang
 - **AND THEN** the metadata states that raw Vega-Lite DSL graphics are not part of this Layer 1 feature
 
 ### Requirement: Agent guidance prefers template graphics for ordinary charts
-The `houmao-agent-ag-ui` skill SHALL teach agents to prefer `houmao.graphic.template` for new ordinary charts.
+The `houmao-interop-ag-ui` skill SHALL teach agents to prefer `houmao.graphic.template` for new ordinary charts.
 
 The skill SHALL explain that Layer 1 template graphics use standardized Houmao JSON and optional renderer-specific `extra`.
 

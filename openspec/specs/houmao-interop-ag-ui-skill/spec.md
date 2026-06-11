@@ -1,10 +1,10 @@
-# houmao-agent-ag-ui-skill Specification
+# houmao-interop-ag-ui-skill Specification
 
 ## Purpose
-Define the maintained `houmao-agent-ag-ui` system skill that teaches Houmao agents how to generate, validate, render, and publish AG-UI-conforming GUI messages with Houmao typed component schemas.
+Define the maintained `houmao-interop-ag-ui` system skill that teaches Houmao agents how to generate, validate, render, and publish AG-UI-conforming GUI messages with Houmao typed component schemas.
 ## Requirements
-### Requirement: Houmao packages a `houmao-agent-ag-ui` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-ag-ui` under the maintained system-skill asset root.
+### Requirement: Houmao packages a `houmao-interop-ag-ui` system skill
+The system SHALL package a Houmao-owned system skill named `houmao-interop-ag-ui` under the maintained system-skill asset root.
 
 The skill SHALL teach agents how to produce AG-UI-conforming GUI messages by using `houmao-mgr internals ag-ui` for schema discovery, payload validation, AG-UI event rendering, event validation, and optional publishing.
 
@@ -13,16 +13,16 @@ The skill SHALL state that AG-UI is the wire/event protocol and that Houmao type
 The skill SHALL be installable through the Houmao system-skill catalog like other maintained Houmao system skills.
 
 #### Scenario: Installed skill explains the protocol split
-- **WHEN** an agent opens the installed `houmao-agent-ag-ui` skill
+- **WHEN** an agent opens the installed `houmao-interop-ag-ui` skill
 - **THEN** the skill states that AG-UI standardizes event envelopes and tool-call events
 - **AND THEN** it states that component names such as `houmao.chart.bar` are Houmao application-layer schemas, not AG-UI core standard names
 
 #### Scenario: System-skill catalog includes the skill
 - **WHEN** an operator lists maintained Houmao system skills
-- **THEN** `houmao-agent-ag-ui` appears as an installable Houmao-owned skill
+- **THEN** `houmao-interop-ag-ui` appears as an installable Houmao-owned skill
 
 ### Requirement: Skill provides a validated authoring workflow
-The `houmao-agent-ag-ui` skill SHALL provide a concrete workflow for generating GUI messages.
+The `houmao-interop-ag-ui` skill SHALL provide a concrete workflow for generating GUI messages.
 
 The workflow SHALL instruct the agent to resolve `houmao-mgr`, inspect the target component schema, create a JSON payload, validate the payload, render AG-UI events, validate the rendered events, and then publish or hand off the generated events.
 
@@ -42,7 +42,7 @@ The workflow SHALL prefer `houmao-mgr` validation over hand-written AG-UI JSON.
 - **AND THEN** the skill instructs it to render standard AG-UI events rather than sending an ad hoc table object to the gateway
 
 ### Requirement: Skill documents endpoint selection without guessing
-The `houmao-agent-ag-ui` skill SHALL describe how to choose a publish target.
+The `houmao-interop-ag-ui` skill SHALL describe how to choose a publish target.
 
 The skill SHALL allow publishing to a known Houmao per-agent gateway AG-UI event ingestion endpoint.
 
@@ -67,7 +67,7 @@ The skill SHALL direct agents to supported Houmao discovery surfaces when they n
 - **AND THEN** it does not tell the agent to invent a loopback port
 
 ### Requirement: Skill enforces safe GUI payload guidance
-The `houmao-agent-ag-ui` skill SHALL warn agents that GUI payloads are untrusted until validated and rendered.
+The `houmao-interop-ag-ui` skill SHALL warn agents that GUI payloads are untrusted until validated and rendered.
 
 The skill SHALL instruct agents not to embed raw unsanitized HTML, scriptable SVG, JavaScript URLs, credential material, or local file contents in component payloads.
 
@@ -83,7 +83,7 @@ The skill SHALL tell agents to use typed chart, table, metric, and dashboard com
 - **THEN** the skill tells it not to include credentials, API keys, bearer tokens, cookies, or private local file contents
 
 ### Requirement: Skill explains reconnect-aware publish results
-The `houmao-agent-ag-ui` skill SHALL teach agents how to interpret AG-UI publish responses that report accepted, stored, and delivered event counts.
+The `houmao-interop-ag-ui` skill SHALL teach agents how to interpret AG-UI publish responses that report accepted, stored, and delivered event counts.
 
 The skill SHALL state that `accepted_count` means the gateway accepted valid AG-UI events.
 
@@ -115,7 +115,7 @@ The skill SHALL instruct agents to ask the user to open or watch the intended GU
 - **AND THEN** it tells the agent to publish again only after a live listener is expected
 
 ### Requirement: Skill prefers agent-addressed GUI targets for Houmao workbench use
-The `houmao-agent-ag-ui` skill SHALL explain that Houmao workbench panes and watchers should target a stable `agent_id` or unambiguous `agent_name` rather than treating a gateway host and port as durable.
+The `houmao-interop-ag-ui` skill SHALL explain that Houmao workbench panes and watchers should target a stable `agent_id` or unambiguous `agent_name` rather than treating a gateway host and port as durable.
 
 The skill SHALL continue to instruct agents not to guess gateway host, port, thread id, run id, connection id, or endpoint URL.
 
@@ -141,7 +141,7 @@ For third-party AG-UI-compatible endpoints, the skill SHALL continue to instruct
 - **AND THEN** it tells the agent to use the third-party endpoint's own delivery constraints rather than the Houmao gateway publish helper
 
 ### Requirement: Skill explains active-thread fallback publishing
-The `houmao-agent-ag-ui` skill SHALL explain that a tmux-controlled Houmao agent may not receive GUI-appended canvas or thread context in its prompt.
+The `houmao-interop-ag-ui` skill SHALL explain that a tmux-controlled Houmao agent may not receive GUI-appended canvas or thread context in its prompt.
 
 The skill SHALL teach agents that, for Houmao gateway publishing, they may omit explicit routing and let the gateway resolve the destination through active-thread fallback.
 
@@ -174,7 +174,7 @@ The skill SHALL instruct agents not to claim GUI visibility when publishing repo
 - **AND THEN** it does not instruct the agent to rely on last-sent-thread for routing fallback
 
 ### Requirement: Skill explains active GUI selection to users and agents
-The `houmao-agent-ag-ui` skill SHALL explain that the workbench user can mark one eligible pane as the active default AG-UI thread.
+The `houmao-interop-ag-ui` skill SHALL explain that the workbench user can mark one eligible pane as the active default AG-UI thread.
 
 The skill SHALL explain that inactive panes may still receive explicitly addressed AG-UI events.
 

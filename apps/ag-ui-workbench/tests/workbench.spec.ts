@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { FakeAgUiServer } from "./fakeAgUiServer";
 
@@ -16,6 +16,7 @@ test.afterAll(async () => {
 test.beforeEach(async ({ page }) => {
   fakeServer.resetRecords();
   await page.goto("/");
+  await page.request.post("/__houmao_tmux/fixture/reset");
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
 });
@@ -26,14 +27,14 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
   await expect(page.getByTestId("panel-operator")).toHaveCount(0);
   await expect.poll(() => panelIds(page)).toEqual([]);
 
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
   await configurePane(page, "agent-1", "Manual Operator", fakeServer.targetBase("operator"), "operator-thread");
   await page.getByTestId("connect-agent-1").click();
   await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "operator").length).toBe(1);
   expectMinimalConnectBody(fakeServer.connects.find((connect) => connect.target === "operator")!.body);
 
   await page.getByTestId("prompt-agent-1").fill("operator canvas prompt");
-  const operatorSurface = await measuredSurfaceSize(page, "agent-1");
+  await expectSurfaceHasPositiveSize(page, "agent-1");
   await page.getByTestId("run-agent-1").click();
   await expect(page.getByTestId("transcript-agent-1")).toContainText("operator-only-run-evidence");
   const operatorRun = fakeServer.runs.find((run) => run.target === "operator");
@@ -41,19 +42,18 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
   expectMinimalRunBody(operatorRun!.body, {
     threadId: "operator-thread",
     message: "operator canvas prompt",
-    canvasSize: operatorSurface,
   });
 
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
   await configurePane(page, "agent-2", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
   await page.getByTestId("connect-agent-2").click();
-  await expect(page.getByTestId("raw-agent-2")).toContainText("alpha-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "alpha").length).toBe(1);
   const agentConnect = fakeServer.connects.find((connect) => connect.target === "alpha");
   expect(agentConnect).toBeTruthy();
   expectMinimalConnectBody(agentConnect!.body);
 
   await page.getByTestId("prompt-agent-2").fill("agent canvas prompt");
-  const agentSurface = await measuredSurfaceSize(page, "agent-2");
+  await expectSurfaceHasPositiveSize(page, "agent-2");
   await page.getByTestId("run-agent-2").click();
   await expect(page.getByTestId("transcript-agent-2")).toContainText("alpha-run-evidence");
   const agentRun = fakeServer.runs.find((run) => run.target === "alpha");
@@ -61,7 +61,6 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
   expectMinimalRunBody(agentRun!.body, {
     threadId: "alpha-thread",
     message: "agent canvas prompt",
-    canvasSize: agentSurface,
   });
 
   await page.getByTestId("add-debug-agent-pane").click();
@@ -73,26 +72,86 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
   expectMinimalConnectBody(expectRecord(debugConnect!.body), { allowReplayFlag: true });
 });
 
+test("prompt editors submit with Shift+Enter and keep plain Enter multiline", async ({ page }) => {
+  await addBlankAgentPane(page);
+  await configurePane(page, "agent-1", "Manual", fakeServer.targetBase("manual"), "manual-thread");
+
+  const prompt = page.getByTestId("prompt-agent-1");
+  await prompt.fill("line one");
+  await prompt.press("Enter");
+  await expect(prompt).toHaveValue("line one\n");
+  expect(fakeServer.runs).toHaveLength(0);
+
+  await prompt.fill("shortcut agent prompt");
+  await expectSurfaceHasPositiveSize(page, "agent-1");
+  await prompt.press("Shift+Enter");
+  await expect(page.getByTestId("transcript-agent-1")).toContainText("manual-run-evidence");
+  await expect(prompt).toHaveValue("");
+  const manualRun = fakeServer.runs.find((run) => run.target === "manual");
+  expect(manualRun).toBeTruthy();
+  expectMinimalRunBody(manualRun!.body, {
+    threadId: "manual-thread",
+    message: "shortcut agent prompt",
+  });
+
+  const runCount = fakeServer.runs.length;
+  await prompt.fill("   ");
+  await prompt.press("Shift+Enter");
+  await page.waitForTimeout(100);
+  expect(fakeServer.runs).toHaveLength(runCount);
+  await expect(prompt).toHaveValue("   ");
+
+  await page.getByTestId("add-debug-agent-pane").click();
+  await expect(page.getByTestId("status-debug-agent-1")).toContainText("connected");
+  const debugEditor = page.getByTestId("debug-editor-debug-agent-1");
+  const debugResponse = page.getByTestId("debug-response-debug-agent-1");
+  await debugEditor.fill("   ");
+  await debugEditor.press("Shift+Enter");
+  await page.waitForTimeout(100);
+  await expect(debugResponse).toContainText("No message has been sent.");
+
+  await debugEditor.fill(
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        title: "Shift Enter Debug Chart",
+        data: [{ label: "A", value: 7 }],
+      },
+      null,
+      2,
+    ),
+  );
+  await debugEditor.press("Shift+Enter");
+  await expect(debugResponse).toContainText('"status": "accepted"');
+  await expect(page.getByTestId("component-debug-agent-1")).toContainText("Shift Enter Debug Chart");
+});
+
 test("validates docked multi-pane isolation, graphics, detach, and persistence", async ({ page, context }) => {
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("proxy-status")).toContainText("loopback proxy ready");
 
-  await page.getByTestId("add-agent-pane").click();
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
+  await addBlankAgentPane(page);
   await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
   await configurePane(page, "agent-2", "Beta", fakeServer.targetBase("beta"), "beta-thread");
   await page.getByTestId("split-right-agent-2").click();
 
   await page.getByTestId("connect-agent-1").click();
   await page.getByTestId("connect-agent-2").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
-  await expect(page.getByTestId("raw-agent-2")).toContainText("beta-connect-evidence");
-  await expect(page.getByTestId("raw-agent-1")).not.toContainText("beta-connect-evidence");
-  await expect(page.getByTestId("raw-agent-2")).not.toContainText("alpha-connect-evidence");
+  await expect
+    .poll(() => fakeServer.connects.map((connect) => connect.target).sort())
+    .toEqual(["alpha", "beta"]);
+  await expect(page.getByTestId("status-agent-1")).toContainText("connected");
+  await expect(page.getByTestId("status-agent-2")).toContainText("connected");
 
   await page.getByTestId("prompt-agent-1").fill("render alpha graphic");
   await page.getByTestId("run-agent-1").click();
   await expect(page.getByTestId("transcript-agent-1")).toContainText("alpha-run-evidence");
+  await page.getByTestId("message-info-agent-1-alpha-assistant").click();
+  await expect(page.getByTestId("message-diagnostics-agent-1")).toBeVisible();
+  await expect(page.getByTestId("raw-agent-1")).toContainText("TEXT_MESSAGE_CONTENT");
+  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-run-evidence");
+  await page.getByTestId("message-diagnostics-close-agent-1").click();
   await expect(page.getByTestId("graphic-agent-1")).toContainText("Alpha SVG Graphic");
   await expect(page.getByTestId("graphic-agent-1")).toContainText("Alpha graphic alt text");
   await expect(page.getByTestId("graphic-agent-1").locator("svg")).toContainText("alpha svg content");
@@ -113,7 +172,7 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await expect(page.getByTestId("component-dashboard-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("transcript-agent-1")).not.toContainText("alpha-run-evidence");
-  await expect(page.getByTestId("raw-agent-1")).not.toContainText("alpha-connect-evidence");
+  await expect(page.getByTestId("message-diagnostics-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("prompt-agent-1")).toHaveValue("prompt survives clear");
   await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
   await expect(page.getByTestId("status-agent-1")).toContainText("connected");
@@ -153,6 +212,109 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   expect(JSON.stringify(savedAfterReload.layout)).not.toContain("popoutGroups");
 });
 
+test("agent pane template renderer preference selects auto, forced backends, and diagnostics", async ({ page }) => {
+  await addBlankAgentPane(page);
+  await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
+
+  const rendererSelect = page.getByTestId("template-renderer-agent-1");
+  await expect(rendererSelect).toHaveValue("auto");
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("watch-strip-agent-1")).toContainText("Watched");
+
+  await page.getByTestId("prompt-agent-1").fill("auto template graphic");
+  await page.getByTestId("run-agent-1").click();
+  const autoFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
+  await expect(autoFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg")).toBeVisible();
+  await expectVegaChartToFillContainer(autoFrame.getByTestId("template-chart-vega-lite-agent-1"));
+
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await rendererSelect.selectOption("recharts");
+  await expect(rendererSelect).toHaveValue("recharts");
+  await page.getByTestId("prompt-agent-1").fill("forced recharts template graphic");
+  await page.getByTestId("run-agent-1").click();
+  const rechartsFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
+  await expect(rechartsFrame.getByTestId("component-chart-agent-1").locator("svg")).toBeVisible();
+  await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
+
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await rendererSelect.selectOption("vega-lite");
+  await expect(rendererSelect).toHaveValue("vega-lite");
+  await page.getByTestId("prompt-agent-1").fill("forced vega template graphic");
+  await page.getByTestId("run-agent-1").click();
+  const vegaFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
+  await expect(vegaFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg")).toBeVisible();
+  await expectVegaChartToFillContainer(vegaFrame.getByTestId("template-chart-vega-lite-agent-1"));
+
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await rendererSelect.selectOption("recharts");
+  const rechartsPieResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: templateToolCallEvents("recharts-pie-template", "Recharts Pie Template Graphic", {
+        chartType: "pie",
+      }),
+    },
+  });
+  expect(rechartsPieResponse.ok()).toBeTruthy();
+  const rechartsPieFrame = page.getByTestId("component-agent-1").filter({ hasText: "Recharts Pie Template Graphic" });
+  await expect(rechartsPieFrame.getByTestId("component-chart-agent-1").locator("svg").first()).toBeVisible();
+  await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
+
+  await rendererSelect.selectOption("vega-lite");
+  await expect(rechartsPieFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg")).toBeVisible();
+  await expect(rechartsPieFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg path").first()).toBeVisible();
+
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await rendererSelect.selectOption("recharts");
+  const aggregateResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: templateToolCallEvents("aggregate-template", "Aggregate Template Graphic", {
+        aggregateY: true,
+      }),
+    },
+  });
+  expect(aggregateResponse.ok()).toBeTruthy();
+  await expect(page.getByTestId("invalid-component-agent-1")).toContainText(
+    'Forced template renderer "recharts" cannot render this graphic payload.',
+  );
+  await expect(page.getByTestId("invalid-component-agent-1")).toContainText("Aggregate Template Graphic");
+});
+
+test("persists pane template renderer preference and sanitizes invalid stored values", async ({ page }) => {
+  await addBlankAgentPane(page);
+  await expect(page.getByTestId("template-renderer-agent-1")).toHaveValue("auto");
+  expect(
+    await page.evaluate(
+      () => window.__HMWB_TEST__!.storage().panes["agent-1"].presentation?.templateGraphicBackend,
+    ),
+  ).toBe("auto");
+
+  await page.getByTestId("template-renderer-agent-1").selectOption("recharts");
+  expect(
+    await page.evaluate(
+      () => window.__HMWB_TEST__!.storage().panes["agent-1"].presentation?.templateGraphicBackend,
+    ),
+  ).toBe("recharts");
+
+  await page.reload();
+  await expect(page.getByTestId("template-renderer-agent-1")).toHaveValue("recharts");
+
+  await page.evaluate(() => {
+    const current = window.__HMWB_TEST__!.storage() as any;
+    current.panes["agent-1"].presentation = { templateGraphicBackend: "plotly" };
+    window.localStorage.setItem("houmao.agUiWorkbench.v1", JSON.stringify(current));
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("template-renderer-agent-1")).toHaveValue("auto");
+  expect(
+    await page.evaluate(
+      () => window.__HMWB_TEST__!.storage().panes["agent-1"].presentation?.templateGraphicBackend,
+    ),
+  ).toBe("auto");
+});
+
 test("supports agent-pane operator marking without restoring the legacy operator pane", async ({ page }) => {
   await expect(page.getByTestId("app-shell")).toBeVisible();
   await expect(page.getByTestId("panel-operator")).toHaveCount(0);
@@ -188,7 +350,7 @@ test("supports agent-pane operator marking without restoring the legacy operator
   await expect.poll(() => panelIds(page)).toEqual([]);
   expect(await page.evaluate(() => window.__HMWB_TEST__!.storage().panes.operator)).toBeUndefined();
 
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
   await expect(page.getByTestId("mark-operator-agent-1")).toBeDisabled();
 
   await page.getByTestId("choose-agent-agent-1").click();
@@ -202,14 +364,13 @@ test("supports agent-pane operator marking without restoring the legacy operator
   await expect(page.getByTestId("operator-marker-agent-1")).toContainText("Operator");
   expect(await page.evaluate(() => window.__HMWB_TEST__!.storage().operatorPaneId)).toBe("agent-1");
 
-  await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((entry) => entry.target === "alpha").length).toBe(1);
   const connect = fakeServer.connects.find((entry) => entry.target === "alpha");
   expect(connect).toBeTruthy();
   expectMinimalConnectBody(connect!.body);
 
   await page.getByTestId("prompt-agent-1").fill("operator marked request stays minimal");
-  const surface = await measuredSurfaceSize(page, "agent-1");
+  await expectSurfaceHasPositiveSize(page, "agent-1");
   await page.getByTestId("run-agent-1").click();
   await expect(page.getByTestId("transcript-agent-1")).toContainText("alpha-run-evidence");
   const run = fakeServer.runs.find((entry) => entry.target === "alpha");
@@ -217,7 +378,6 @@ test("supports agent-pane operator marking without restoring the legacy operator
   expectMinimalRunBody(run!.body, {
     threadId: "alpha-thread",
     message: "operator marked request stays minimal",
-    canvasSize: surface,
   });
 
   await page.getByTestId("target-url-agent-1").fill(fakeServer.targetBase("manual"));
@@ -233,17 +393,17 @@ test("supports agent-pane operator marking without restoring the legacy operator
 });
 
 test("surfaces target policy errors before contacting a disallowed target", async ({ page }) => {
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
   await configurePane(page, "agent-1", "Manual", "http://example.com/v1/ag-ui", "agent-thread");
   await page.getByTestId("capabilities-agent-1").click();
   await expect(page.getByTestId("errors-agent-1")).toContainText("target_policy_rejected");
 });
 
 test("lists discovered agents, retargets panes, opens new panes, and keeps manual fallback", async ({ page }) => {
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
   await configurePane(page, "agent-1", "Manual", fakeServer.targetBase("manual"), "manual-thread");
   await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("manual-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((entry) => entry.target === "manual").length).toBe(1);
 
   await page.getByTestId("choose-agent-agent-1").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
@@ -257,9 +417,10 @@ test("lists discovered agents, retargets panes, opens new panes, and keeps manua
   await page.getByTestId("agent-row-alpha").dblclick();
 
   await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
-  await expect(page.getByTestId("raw-agent-1")).not.toContainText("manual-connect-evidence");
-  await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((entry) => entry.target === "alpha").length).toBe(1);
+  await expect
+    .poll(() => fakeServer.activeThreadUpdates.filter((entry) => entry.target === "alpha"))
+    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_connect" });
 
   const savedDiscovered = await page.evaluate(() => window.__HMWB_TEST__!.storage());
   expect(savedDiscovered.discovery.passiveServerUrl).toBe(fakeServer.passiveBase());
@@ -274,9 +435,10 @@ test("lists discovered agents, retargets panes, opens new panes, and keeps manua
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("agent-row-beta").dblclick();
   await expect(page.getByTestId("target-url-agent-2")).toHaveValue(fakeServer.targetBase("beta"));
-  await page.getByTestId("connect-agent-2").click();
-  await expect(page.getByTestId("raw-agent-2")).toContainText("beta-connect-evidence");
-  await expect(page.getByTestId("raw-agent-1")).not.toContainText("beta-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((entry) => entry.target === "beta").length).toBe(1);
+  await expect
+    .poll(() => fakeServer.activeThreadUpdates.filter((entry) => entry.target === "beta"))
+    .toContainEqual({ target: "beta", threadId: "beta-thread", source: "gui_connect" });
 
   await page.getByTestId("target-url-agent-1").fill(fakeServer.targetBase("manual"));
   const savedManual = await page.evaluate(() => window.__HMWB_TEST__!.storage());
@@ -297,6 +459,35 @@ test("lists discovered agents, retargets panes, opens new panes, and keeps manua
   await expect(page.getByTestId("status-agent-1")).toContainText("waiting");
 });
 
+test("agents picker auto-refreshes and creates blank panes from New", async ({ page }) => {
+  await expect(page.getByTestId("add-agent-pane")).toHaveCount(0);
+
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await expect(page.getByTestId("agent-row-alpha")).toBeVisible();
+  await expect(page.getByTestId("agent-row-beta")).toBeVisible();
+  const connectsBeforeBlankPane = fakeServer.connects.length;
+  const activeUpdatesBeforeBlankPane = fakeServer.activeThreadUpdates.length;
+  await page.getByTestId("new-agent-pane").click();
+
+  await expect(page.getByTestId("panel-agent-1")).toBeVisible();
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue("");
+  expect(fakeServer.connects).toHaveLength(connectsBeforeBlankPane);
+  expect(fakeServer.activeThreadUpdates).toHaveLength(activeUpdatesBeforeBlankPane);
+  await expect.poll(() => page.evaluate(() => window.__HMWB_TEST__!.watchedTargetKeys())).toEqual([]);
+
+  await page.getByTestId("choose-agent-agent-1").click();
+  await expect(page.getByTestId("agent-row-alpha")).toBeVisible();
+  const connectsBeforeSecondBlankPane = fakeServer.connects.length;
+  const activeUpdatesBeforeSecondBlankPane = fakeServer.activeThreadUpdates.length;
+  await page.getByTestId("new-agent-pane").click();
+
+  await expect(page.getByTestId("panel-agent-2")).toBeVisible();
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue("");
+  expect(fakeServer.connects).toHaveLength(connectsBeforeSecondBlankPane);
+  expect(fakeServer.activeThreadUpdates).toHaveLength(activeUpdatesBeforeSecondBlankPane);
+});
+
 test("marks active thread only by user action or connect for discovered agent panes", async ({ page }) => {
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
@@ -304,13 +495,10 @@ test("marks active thread only by user action or connect for discovered agent pa
   await page.getByTestId("select-agent-alpha").click();
 
   await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("alpha"));
-  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Inactive thread");
-  expect(fakeServer.activeThreadUpdates).toEqual([]);
-
-  await page.getByTestId("mark-active-thread-agent-1").click();
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "alpha").length).toBe(1);
   await expect
     .poll(() => fakeServer.activeThreadUpdates.filter((update) => update.target === "alpha"))
-    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_button" });
+    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_connect" });
   await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Active thread");
 
   const externalActive = await page.request.put(`${fakeServer.targetBase("alpha")}/active-thread`, {
@@ -319,11 +507,11 @@ test("marks active thread only by user action or connect for discovered agent pa
   expect(externalActive.ok()).toBeTruthy();
   await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Inactive thread");
 
-  await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await page.getByTestId("mark-active-thread-agent-1").click();
   await expect
     .poll(() => fakeServer.activeThreadUpdates.filter((update) => update.target === "alpha"))
-    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_connect" });
+    .toContainEqual({ target: "alpha", threadId: "alpha-thread", source: "gui_button" });
+  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Active thread");
 
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("refresh-agents").click();
@@ -341,6 +529,21 @@ test("marks active thread only by user action or connect for discovered agent pa
   expect(fakeServer.activeThreadClears.some((clear) => clear.target === "beta")).toBeFalsy();
 });
 
+test("shows unsupported active-thread state for discovered gateways without active-thread route", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("refresh-agents").click();
+  await page.getByTestId("select-agent-legacy").click();
+
+  await expect(page.getByTestId("target-url-agent-1")).toHaveValue(fakeServer.targetBase("legacy"));
+  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("Active-thread unsupported");
+  await expect(page.getByTestId("active-thread-marker-agent-1")).toContainText("unsupported");
+  await expect(page.getByTestId("active-thread-marker-agent-1")).not.toContainText("Inactive thread");
+  await expect(page.getByTestId("mark-active-thread-agent-1")).toBeDisabled();
+  await expect.poll(() => fakeServer.connects.some((connect) => connect.target === "legacy")).toBeTruthy();
+  expect(fakeServer.activeThreadUpdates.some((update) => update.target === "legacy")).toBeFalsy();
+});
+
 test("opens tmux tab, filters sessions, attaches, rejects read-only input, and avoids persistence", async ({ page }) => {
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
@@ -348,6 +551,8 @@ test("opens tmux tab, filters sessions, attaches, rejects read-only input, and a
 
   await page.getByTestId("add-tmux-pane").click();
   await expect(page.getByTestId("panel-tmux-1")).toBeVisible();
+  await expect(page.getByTestId("tmux-session-list-tmux-1")).toHaveCount(0);
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
   await expect(page.getByTestId("tmux-status-tmux-1")).toContainText("ready");
   await expect(page.getByTestId("tmux-session-houmao-alpha")).toBeVisible();
   await expect(page.getByTestId("tmux-session-houmao-alpha")).toContainText("HOUMAO-alpha");
@@ -360,6 +565,7 @@ test("opens tmux tab, filters sessions, attaches, rejects read-only input, and a
   await expect(page.getByTestId("tmux-empty-tmux-1")).toContainText("No tmux sessions match");
 
   await page.getByTestId("tmux-houmao-only-tmux-1").uncheck();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
   await expect(page.getByTestId("tmux-session-utility-shell")).toBeVisible();
   await page.getByTestId("tmux-search-tmux-1").fill("");
 
@@ -371,6 +577,7 @@ test("opens tmux tab, filters sessions, attaches, rejects read-only input, and a
 
   await page.getByTestId("tmux-detach-tmux-1").click();
   await page.getByTestId("tmux-read-only-tmux-1").check();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
   await page.getByTestId("tmux-session-houmao-alpha").click();
   await expect(page.getByTestId("tmux-read-only-state-tmux-1")).toContainText("read only");
   await expect(page.getByTestId("tmux-terminal-tmux-1")).toContainText("fixture attached houmao-alpha");
@@ -403,6 +610,61 @@ test("opens tmux tab, filters sessions, attaches, rejects read-only input, and a
   );
 });
 
+test("tmux tab refits on resize and removes dead fixture sessions", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("close-agent-picker").click();
+
+  await page.getByTestId("add-tmux-pane").click();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toBeVisible();
+  const initialHeight = await elementHeight(page, "tmux-terminal-tmux-1");
+
+  await page.getByTestId("tmux-session-houmao-alpha").click();
+  await expect(page.getByTestId("tmux-terminal-tmux-1")).toContainText("fixture attached houmao-alpha");
+  const panelBox = await page.getByTestId("panel-tmux-1").boundingBox();
+  const terminalBox = await page.getByTestId("tmux-terminal-tmux-1").boundingBox();
+  expect(panelBox).toBeTruthy();
+  expect(terminalBox).toBeTruthy();
+  expect(terminalBox!.width).toBeGreaterThan(panelBox!.width - 40);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect.poll(() => elementHeight(page, "tmux-terminal-tmux-1")).toBeGreaterThan(initialHeight + 50);
+
+  await page.request.delete("/__houmao_tmux/fixture/sessions/houmao-alpha");
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toHaveCount(0);
+});
+
+test("tmux tab repaints visible scrollback after mouse-wheel scrolling", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("close-agent-picker").click();
+
+  await page.getByTestId("add-tmux-pane").click();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await page.getByTestId("tmux-session-houmao-alpha").click();
+  const terminal = page.getByTestId("tmux-terminal-tmux-1");
+  await expect(terminal).toContainText("fixture attached houmao-alpha");
+  await terminal.click();
+  for (let index = 0; index < 70; index += 1) {
+    await page.keyboard.insertText(`scrollback-${String(index).padStart(2, "0")}\n`);
+  }
+  await expect(terminal).toContainText("scrollback-69");
+
+  const beforeScrollBox = await terminal.boundingBox();
+  expect(beforeScrollBox).toBeTruthy();
+  await terminal.hover();
+  await page.mouse.wheel(0, -2500);
+  await expect.poll(() => visibleScrollbackMinIndex(terminal)).toBeLessThan(50);
+  const afterScrollBox = await terminal.boundingBox();
+  expect(afterScrollBox).toBeTruthy();
+  expect(Math.round(afterScrollBox!.width)).toBe(Math.round(beforeScrollBox!.width));
+  expect(Math.round(afterScrollBox!.height)).toBe(Math.round(beforeScrollBox!.height));
+
+  await page.mouse.wheel(0, 2500);
+  await expect.poll(() => visibleScrollbackMaxIndex(terminal)).toBeGreaterThan(65);
+});
+
 test("surfaces target policy errors for disallowed passive-server discovery", async ({ page }) => {
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("passive-server-url").fill("http://example.com");
@@ -411,21 +673,18 @@ test("surfaces target policy errors for disallowed passive-server discovery", as
 });
 
 test("reconnects discovered pane through passive resolution after gateway restart", async ({ page }) => {
-  await page.getByTestId("add-agent-pane").click();
+  await addBlankAgentPane(page);
   await page.getByTestId("choose-agent-agent-1").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("agent-row-alpha").dblclick();
 
-  await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "alpha").length).toBe(1);
   const firstGatewayUrl = await page.getByTestId("target-url-agent-1").inputValue();
 
   await fakeServer.restartGateway("alpha");
 
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-reconnect-evidence", {
-    timeout: 15000,
-  });
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "alpha").length).toBeGreaterThan(1);
   await expect
     .poll(() => page.getByTestId("target-url-agent-1").inputValue())
     .not.toBe(firstGatewayUrl);
@@ -442,9 +701,8 @@ test("watched target keeps external chart in client cache after pane close and r
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("agent-row-alpha").dblclick();
 
-  await page.getByTestId("connect-agent-1").click();
   await expect(page.getByTestId("watch-strip-agent-1")).toContainText("Watched");
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "alpha").length).toBe(1);
 
   const publishResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
     data: {
@@ -484,9 +742,8 @@ test("clear canvas clears watched cache without detaching and accepts future liv
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("agent-row-alpha").dblclick();
-  await page.getByTestId("connect-agent-1").click();
   await expect(page.getByTestId("watch-strip-agent-1")).toContainText("Watched");
-  await expect(page.getByTestId("raw-agent-1")).toContainText("alpha-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "alpha").length).toBe(1);
 
   const staleResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
     data: {
@@ -504,7 +761,7 @@ test("clear canvas clears watched cache without detaching and accepts future liv
   const detachesBeforeClear = fakeServer.detaches.length;
   await page.getByTestId("clear-canvas-agent-1").click();
   await expect(page.getByTestId("component-agent-1")).toHaveCount(0);
-  await expect(page.getByTestId("raw-agent-1")).not.toContainText("alpha-connect-evidence");
+  await expect(page.getByTestId("message-diagnostics-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("status-agent-1")).toContainText("connected");
   expect(fakeServer.detaches).toHaveLength(detachesBeforeClear);
   expect(fakeServer.interruptRequests).toBe(0);
@@ -555,8 +812,7 @@ test("events published while unwatched are live-only and not recovered later", a
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
   await page.getByTestId("refresh-agents").click();
   await page.getByTestId("agent-row-beta").dblclick();
-  await page.getByTestId("connect-agent-1").click();
-  await expect(page.getByTestId("raw-agent-1")).toContainText("beta-connect-evidence");
+  await expect.poll(() => fakeServer.connects.filter((connect) => connect.target === "beta").length).toBe(1);
   await expect(page.getByTestId("transcript-agent-1")).not.toContainText("Missed Live-Only Chart");
 });
 
@@ -782,10 +1038,14 @@ async function configurePane(
   await page.getByTestId(`thread-id-${paneId}`).fill(threadId);
 }
 
+async function addBlankAgentPane(page: Page): Promise<void> {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("new-agent-pane").click();
+}
+
 interface ExpectedRunBody {
   threadId: string;
   message: string;
-  canvasSize: { w: number; h: number };
 }
 
 interface RecordedProxyRequest {
@@ -811,14 +1071,47 @@ function collectProxyPostBodies(page: Page): RecordedProxyRequest[] {
   return requests;
 }
 
-async function measuredSurfaceSize(page: Page, paneId: string): Promise<{ w: number; h: number }> {
+async function expectSurfaceHasPositiveSize(page: Page, paneId: string): Promise<void> {
   const box = await page.getByTestId(`transcript-${paneId}`).boundingBox();
   expect(box).toBeTruthy();
   const w = Math.round(box!.width);
   const h = Math.round(box!.height);
   expect(w).toBeGreaterThan(0);
   expect(h).toBeGreaterThan(0);
-  return { w, h };
+}
+
+async function elementHeight(page: Page, testId: string): Promise<number> {
+  const box = await page.getByTestId(testId).boundingBox();
+  expect(box).toBeTruthy();
+  return Math.round(box!.height);
+}
+
+async function visibleScrollbackMinIndex(locator: Locator): Promise<number> {
+  const indices = await visibleScrollbackIndices(locator);
+  return indices.length ? Math.min(...indices) : Number.POSITIVE_INFINITY;
+}
+
+async function visibleScrollbackMaxIndex(locator: Locator): Promise<number> {
+  const indices = await visibleScrollbackIndices(locator);
+  return indices.length ? Math.max(...indices) : Number.NEGATIVE_INFINITY;
+}
+
+async function visibleScrollbackIndices(locator: Locator): Promise<number[]> {
+  const text = await locator.innerText();
+  return [...text.matchAll(/scrollback-(\d{2})/g)].map((match) => Number(match[1]));
+}
+
+async function expectVegaChartToFillContainer(locator: Locator): Promise<void> {
+  await expect
+    .poll(async () => {
+      const chartBox = await locator.boundingBox();
+      const svgBox = await locator.locator("svg").boundingBox();
+      if (!chartBox || !svgBox || chartBox.height <= 0) {
+        return 0;
+      }
+      return svgBox.height / chartBox.height;
+    })
+    .toBeGreaterThan(0.9);
 }
 
 function expectMinimalRunBody(body: unknown, expected: ExpectedRunBody): void {
@@ -828,15 +1121,7 @@ function expectMinimalRunBody(body: unknown, expected: ExpectedRunBody): void {
   expect(record.state).toEqual({});
   expect(record.forwardedProps).toEqual({});
   expect(record.tools).toEqual([]);
-  expect(record.context).toEqual([
-    {
-      description: "houmao.canvas_size_px.v1",
-      value: JSON.stringify({
-        widthPx: expected.canvasSize.w,
-        heightPx: expected.canvasSize.h,
-      }),
-    },
-  ]);
+  expect(record.context).toEqual([]);
   const messages = Array.isArray(record.messages) ? record.messages : [];
   expect(messages).toHaveLength(1);
   const message = expectRecord(messages[0]);
@@ -844,7 +1129,17 @@ function expectMinimalRunBody(body: unknown, expected: ExpectedRunBody): void {
   expect(message.content).toBe(expected.message);
   expect(JSON.stringify(record.state)).not.toContain("pane");
   expect(JSON.stringify(record.forwardedProps)).not.toContain("pane");
-  expect(JSON.stringify(record.context)).not.toContain("agentId");
+  const contextJson = JSON.stringify(record.context);
+  expect(contextJson).not.toContain("houmao.canvas_size_px.v1");
+  expect(contextJson).not.toContain("houmao.canvas.v1");
+  expect(contextJson).not.toContain("width");
+  expect(contextJson).not.toContain("height");
+  expect(contextJson).not.toContain("pane");
+  expect(contextJson).not.toContain("display");
+  expect(contextJson).not.toContain("transcript");
+  expect(contextJson).not.toContain("renderer");
+  expect(contextJson).not.toContain("scroll");
+  expect(contextJson).not.toContain("agentId");
 }
 
 function expectMinimalConnectBody(
@@ -918,14 +1213,37 @@ function barToolCallEvents(toolCallId: string, title: string): Array<Record<stri
 function templateToolCallEvents(
   toolCallId: string,
   title: string,
-  options: { preferred?: string; fallback?: string[]; omitY?: boolean } = {},
+  options: {
+    preferred?: string;
+    fallback?: string[];
+    omitY?: boolean;
+    aggregateY?: boolean;
+    chartType?: "bar" | "pie";
+  } = {},
 ): Array<Record<string, unknown>> {
-  const encoding: Record<string, unknown> = {
-    x: { field: "status", type: "nominal", title: "Status" },
-    tooltip: true,
-  };
-  if (!options.omitY) {
-    encoding.y = { field: "count", type: "quantitative", title: "Count" };
+  const chartType = options.chartType ?? "bar";
+  const encoding: Record<string, unknown> = chartType === "pie"
+    ? {
+        color: { field: "status", type: "nominal", title: "Status" },
+        theta: {
+          field: "count",
+          type: "quantitative",
+          title: "Count",
+          ...(options.aggregateY ? { aggregate: "sum" } : {}),
+        },
+        tooltip: true,
+      }
+    : {
+        x: { field: "status", type: "nominal", title: "Status" },
+        tooltip: true,
+      };
+  if (chartType !== "pie" && !options.omitY) {
+    encoding.y = {
+      field: "count",
+      type: "quantitative",
+      title: "Count",
+      ...(options.aggregateY ? { aggregate: "sum" } : {}),
+    };
   }
   return [
     {
@@ -939,7 +1257,7 @@ function templateToolCallEvents(
       toolCallId,
       delta: JSON.stringify({
         schemaVersion: 1,
-        chartType: "bar",
+        chartType,
         renderer: {
           preferred: options.preferred ?? "vega-lite",
           fallback: options.fallback ?? ["recharts"],

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import Fuse from "fuse.js";
-import { CircleStop, Monitor, RefreshCw, Search, TerminalSquare, Trash2, X } from "lucide-react";
+import { ChevronDown, CircleStop, Monitor, RefreshCw, Search, TerminalSquare, X } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -22,6 +22,10 @@ interface JoinedTmuxSession {
   houmao?: DiscoveredAgentSummary;
 }
 
+interface Disposable {
+  dispose(): void;
+}
+
 export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId } = props.params;
   const { storage, updateTmuxTab, removePaneRecord } = useWorkbench();
@@ -33,7 +37,15 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const fitFrameRef = useRef<number | null>(null);
+  const refreshFrameRef = useRef<number | null>(null);
+  const terminalDisposablesRef = useRef<Disposable[]>([]);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const pickerOpenRef = useRef(false);
+  const attachStateRef = useRef("unattached");
+  const lastTerminalSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const [query, setQuery] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const status = runtime?.bridgeStatus ?? null;
   const sessions = runtime?.sessions ?? [];
   const agents = runtime?.agents ?? [];
@@ -44,11 +56,18 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const activeSession = runtime?.activeSession ?? tmux.sessionName ?? null;
 
   useEffect(() => {
+    attachStateRef.current = attachState;
+    if (attachState === "attached") {
+      scheduleFit();
+      scheduleTerminalRefresh();
+    }
+  }, [attachState]);
+
+  useEffect(() => {
     props.api.setTitle(activeSession ? `tmux ${activeSession}` : "tmux");
   }, [activeSession, props.api]);
 
   useEffect(() => {
-    refreshSessions();
     return () => {
       closeAttachment();
       runtimeDispatch({
@@ -57,6 +76,46 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       });
     };
   }, []);
+
+  useEffect(() => {
+    const disposables = [
+      props.api.onDidDimensionsChange(() => scheduleFit()),
+      props.api.onDidVisibilityChange((event) => {
+        if (event.isVisible) {
+          scheduleFit();
+        }
+      }),
+    ];
+    return () => {
+      disposeAll(disposables);
+    };
+  }, [props.api]);
+
+  useEffect(() => {
+    if (!pickerOpen) {
+      return;
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && pickerRef.current?.contains(target)) {
+        return;
+      }
+      pickerOpenRef.current = false;
+      setPickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        pickerOpenRef.current = false;
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [pickerOpen]);
 
   const joinedSessions = useMemo(() => joinSessions(sessions, agents), [agents, sessions]);
   const visibleSessions = useMemo(() => {
@@ -94,6 +153,27 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     });
   };
 
+  const openSessionPicker = () => {
+    if (!pickerOpenRef.current) {
+      pickerOpenRef.current = true;
+      refreshSessions();
+    }
+    setPickerOpen(true);
+  };
+
+  const closeSessionPicker = () => {
+    pickerOpenRef.current = false;
+    setPickerOpen(false);
+  };
+
+  const toggleSessionPicker = () => {
+    if (pickerOpenRef.current) {
+      closeSessionPicker();
+      return;
+    }
+    openSessionPicker();
+  };
+
   const attach = (sessionName: string, mode: TmuxAttachMode) => {
     const host = terminalHostRef.current;
     if (!host) {
@@ -122,10 +202,16 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.open(host);
-    fitAddon.fit();
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    terminal.open(host);
+    fitAddon.fit();
+    scheduleTerminalRefresh();
+    lastTerminalSizeRef.current = { cols: terminal.cols, rows: terminal.rows };
+    terminalDisposablesRef.current = [
+      terminal.onScroll(() => scheduleTerminalRefresh()),
+      terminal.onWriteParsed(() => scheduleTerminalRefresh()),
+    ];
 
     runtimeDispatch({
       type: "tmux/registerOutputSink",
@@ -141,29 +227,43 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       rows: terminal.rows,
     });
     if (mode === "read-write") {
-      terminal.onData((data) => {
-        runtimeDispatch({
-          type: "tmux/inputRequested",
-          paneId,
-          data,
-        });
-      });
+      terminalDisposablesRef.current.push(
+        terminal.onData((data) => {
+          runtimeDispatch({
+            type: "tmux/inputRequested",
+            paneId,
+            data,
+          });
+        }),
+      );
     }
     resizeObserverRef.current = new ResizeObserver(() => {
-      fitAddon.fit();
-      runtimeDispatch({
-        type: "tmux/resizeRequested",
-        paneId,
-        cols: terminal.cols,
-        rows: terminal.rows,
-      });
+      scheduleFit();
     });
     resizeObserverRef.current.observe(host);
+    scheduleFit();
+  };
+
+  const attachFromPicker = (sessionName: string, mode: TmuxAttachMode) => {
+    closeSessionPicker();
+    setQuery("");
+    attach(sessionName, mode);
   };
 
   const closeAttachment = () => {
+    disposeAll(terminalDisposablesRef.current);
+    terminalDisposablesRef.current = [];
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
+    if (fitFrameRef.current !== null) {
+      window.cancelAnimationFrame(fitFrameRef.current);
+      fitFrameRef.current = null;
+    }
+    if (refreshFrameRef.current !== null) {
+      window.cancelAnimationFrame(refreshFrameRef.current);
+      refreshFrameRef.current = null;
+    }
+    lastTerminalSizeRef.current = null;
     runtimeDispatch({
       type: "tmux/detachRequested",
       paneId,
@@ -177,6 +277,51 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     fitAddonRef.current?.dispose();
     fitAddonRef.current = null;
   };
+
+  function scheduleFit() {
+    if (fitFrameRef.current !== null) {
+      return;
+    }
+    fitFrameRef.current = window.requestAnimationFrame(() => {
+      fitFrameRef.current = null;
+      const terminal = terminalRef.current;
+      const fitAddon = fitAddonRef.current;
+      if (!terminal || !fitAddon) {
+        return;
+      }
+      fitAddon.fit();
+      scheduleTerminalRefresh();
+      const nextSize = { cols: terminal.cols, rows: terminal.rows };
+      const previousSize = lastTerminalSizeRef.current;
+      if (previousSize?.cols === nextSize.cols && previousSize.rows === nextSize.rows) {
+        return;
+      }
+      lastTerminalSizeRef.current = nextSize;
+      if (attachStateRef.current !== "attached") {
+        return;
+      }
+      runtimeDispatch({
+        type: "tmux/resizeRequested",
+        paneId,
+        cols: nextSize.cols,
+        rows: nextSize.rows,
+      });
+    });
+  }
+
+  function scheduleTerminalRefresh() {
+    if (refreshFrameRef.current !== null) {
+      return;
+    }
+    refreshFrameRef.current = window.requestAnimationFrame(() => {
+      refreshFrameRef.current = null;
+      const terminal = terminalRef.current;
+      if (!terminal) {
+        return;
+      }
+      terminal.refresh(0, Math.max(0, terminal.rows - 1));
+    });
+  }
 
   const closePane = () => {
     closeAttachment();
@@ -218,18 +363,65 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       </header>
 
       <div className="tmux-controls">
-        <label>
-          <span>Search</span>
-          <div className="input-with-icon">
+        <div className="tmux-session-picker" ref={pickerRef}>
+          <span>Session</span>
+          <div className="tmux-combobox">
             <Search size={14} />
             <input
               data-testid={`tmux-search-${paneId}`}
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="session, agent, backend"
+              onFocus={openSessionPicker}
+              onClick={openSessionPicker}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                openSessionPicker();
+              }}
+              placeholder={activeSession ? `Attached: ${activeSession}` : "session, agent, backend"}
+              role="combobox"
+              aria-expanded={pickerOpen}
+              aria-controls={`tmux-session-list-${paneId}`}
             />
+            <button
+              type="button"
+              className="tmux-picker-toggle"
+              title="Open tmux session picker"
+              data-testid={`tmux-picker-toggle-${paneId}`}
+              onClick={toggleSessionPicker}
+            >
+              <ChevronDown size={15} />
+            </button>
           </div>
-        </label>
+          {pickerOpen ? (
+            <div className="tmux-session-list" data-testid={`tmux-session-list-${paneId}`} id={`tmux-session-list-${paneId}`}>
+              {visibleSessions.length === 0 ? (
+                <div className="empty" data-testid={`tmux-empty-${paneId}`}>
+                  {emptyMessage}
+                </div>
+              ) : (
+                visibleSessions.map((row) => (
+                  <button
+                    key={row.session.sessionName}
+                    type="button"
+                    className="tmux-session-row"
+                    data-testid={`tmux-session-${safeTestToken(row.session.sessionName)}`}
+                    onClick={() => attachFromPicker(row.session.sessionName, tmux.mode)}
+                  >
+                    <TerminalSquare size={16} />
+                    <span>
+                      <strong>{row.session.sessionName}</strong>
+                      <small>
+                        {row.session.windowCount} windows
+                        {row.session.attached ? " attached" : " detached"}
+                        {row.houmao ? ` ${row.houmao.agent_name}` : ""}
+                      </small>
+                    </span>
+                    {row.houmao ? <Monitor size={15} /> : null}
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
         <label className="checkbox-row">
           <input
             data-testid={`tmux-houmao-only-${paneId}`}
@@ -260,33 +452,6 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       )}
 
       <div className="tmux-body">
-        <div className="tmux-session-list" data-testid={`tmux-session-list-${paneId}`}>
-          {visibleSessions.length === 0 ? (
-            <div className="empty" data-testid={`tmux-empty-${paneId}`}>
-              {emptyMessage}
-            </div>
-          ) : (
-            visibleSessions.map((row) => (
-              <button
-                key={row.session.sessionName}
-                className="tmux-session-row"
-                data-testid={`tmux-session-${safeTestToken(row.session.sessionName)}`}
-                onClick={() => attach(row.session.sessionName, tmux.mode)}
-              >
-                <TerminalSquare size={16} />
-                <span>
-                  <strong>{row.session.sessionName}</strong>
-                  <small>
-                    {row.session.windowCount} windows
-                    {row.session.attached ? " attached" : " detached"}
-                    {row.houmao ? ` ${row.houmao.agent_name}` : ""}
-                  </small>
-                </span>
-                {row.houmao ? <Monitor size={15} /> : null}
-              </button>
-            ))
-          )}
-        </div>
         <div className="tmux-terminal-wrap">
           {attachState === "unattached" ? (
             <div className="tmux-placeholder">
@@ -302,11 +467,6 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
           <div ref={terminalHostRef} className="tmux-terminal" data-testid={`tmux-terminal-${paneId}`} />
         </div>
       </div>
-
-      <button className="danger-link" title="Remove tmux tab" onClick={closePane}>
-        <Trash2 size={13} />
-        Remove
-      </button>
     </section>
   );
 }
@@ -324,6 +484,12 @@ function joinSessions(
     session,
     houmao: agentsBySession.get(session.sessionName),
   }));
+}
+
+function disposeAll(disposables: Disposable[]): void {
+  for (const disposable of disposables) {
+    disposable.dispose();
+  }
 }
 
 function safeTestToken(value: string): string {

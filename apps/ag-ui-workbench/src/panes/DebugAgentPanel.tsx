@@ -19,6 +19,7 @@ import {
 } from "../storage";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
+import { submitOnShiftEnter } from "./keyboard";
 
 type SenderMode = "component" | "raw";
 type ComponentName =
@@ -342,9 +343,16 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
     await postEditor(true);
   };
 
-  const send = async () => {
-    await postEditor(false);
-  };
+	  const send = async () => {
+	    await postEditor(false);
+	  };
+
+	  const sendFromShortcut = async () => {
+	    if (!editor.trim()) {
+	      return;
+	    }
+	    await send();
+	  };
 
   const postEditor = async (validateOnly: boolean) => {
     try {
@@ -482,10 +490,11 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
           <textarea
             className="debug-editor"
             data-testid={`debug-editor-${paneId}`}
-            value={editor}
-            spellCheck={false}
-            onChange={(event) => setEditor(event.target.value)}
-          />
+	            value={editor}
+	            spellCheck={false}
+	            onChange={(event) => setEditor(event.target.value)}
+	            onKeyDown={(event) => submitOnShiftEnter(event, sendFromShortcut)}
+	          />
 
           <div className="debug-action-row">
             <button data-testid={`debug-validate-${paneId}`} title="Validate message" onClick={() => void validate()}>
@@ -518,7 +527,12 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
         </section>
 
         <section className="debug-display" data-testid={`debug-display-${paneId}`}>
-          <AgUiDisplaySurface paneId={paneId} eventState={eventState} latestErrors={latestErrors} />
+          <AgUiDisplaySurface
+            paneId={paneId}
+            eventState={eventState}
+            latestErrors={latestErrors}
+            diagnosticsMode="global"
+          />
         </section>
       </div>
     </section>

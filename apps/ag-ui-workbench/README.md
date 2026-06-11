@@ -12,9 +12,10 @@ bun run dev
 bun run typecheck
 bun run build
 bun run e2e
+bun run e2e:real-agent-smoke
 ```
 
-The E2E script uses Playwright from the Bun toolchain through `bunx playwright`.
+The E2E scripts use Playwright from the Bun toolchain through `bunx playwright`. `bun run e2e` runs deterministic local tests only. `bun run e2e:real-agent-smoke` is a manual, opt-in live-agent smoke that requires `HMWB_REAL_AGENT_SMOKE=1`, `HMWB_PASSIVE_SERVER_URL`, and `HMWB_TEST_AGENT_NAME` or `HMWB_TEST_AGENT_ID`.
 
 ## Targets
 
@@ -127,7 +128,7 @@ Troubleshooting checks:
 
 ## Lifecycle Boundary
 
-The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect on an agent pane marks the target watched and attaches a background AG-UI stream. Run submits one AG-UI `RunAgentInput`. Disconnect or Unwatch detaches the watched stream. Closing a watched pane does not detach the stream. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream. Tmux tab attachment is separate from AG-UI lifecycle and managed-agent lifecycle.
+The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect on an agent pane marks the target watched and attaches a background AG-UI stream. Run submits one AG-UI `RunAgentInput`. Normal run submissions send empty `state`, `tools`, `context`, and `forwardedProps`; the workbench does not append pane dimensions, canvas size, renderer size, or scroll state as agent-visible context. Disconnect or Unwatch detaches the watched stream. Closing a watched pane does not detach the stream. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream. Tmux tab attachment is separate from AG-UI lifecycle and managed-agent lifecycle.
 
 The workbench uses an RxJS runtime for long-lived gateway active-thread polling, active-thread mutation effects, and shared runtime state selection. React still owns short-lived prompt/editor state and xterm DOM refs, and raw AG-UI events or terminal bytes are not replayed through runtime subjects.
 
@@ -159,6 +160,21 @@ For live/manual validation of this change, use a Kimi Code headless Houmao agent
 Start or discover the Kimi headless agent with the existing Houmao workflow, then point an operator or agent pane at the gateway URL, for example `http://127.0.0.1:<gateway_port>/v1/ag-ui`. The workbench should attach through AG-UI connect or submit one run through AG-UI runs without managing the Kimi headless process lifecycle.
 
 The deterministic Playwright fake-server smoke remains the required automated test path. The Kimi Code headless run is opt-in evidence for local real-agent validation.
+
+## Real-Agent GUI Graphics Smoke
+
+The maintained real-agent GUI smoke lives at `scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh`. It relaunches one existing managed test agent, selects it through the workbench agent picker, connects the pane, submits a nonce-labeled prompt through the GUI, and waits for a rendered `houmao.graphic.template` Vega-Lite chart. It records the optional nonce-labeled text marker when present, but the chart is the pass condition.
+
+Run from the repository root:
+
+```bash
+HMWB_REAL_AGENT_SMOKE=1 \
+HMWB_PASSIVE_SERVER_URL=http://127.0.0.1:9891 \
+HMWB_TEST_AGENT_NAME=<existing-test-agent-name> \
+scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh
+```
+
+Use `HMWB_REAL_AGENT_EVIDENCE_DIR=<path>` to choose where failure evidence is written. The default leaves the selected managed agent running; set `HMWB_REAL_AGENT_STOP_AFTER=1` only when the smoke owns that test agent.
 
 ## Known Limits
 

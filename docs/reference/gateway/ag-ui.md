@@ -194,6 +194,19 @@ scripts/demo/ag-ui-browser-smoke/run_smoke.sh
 
 This browser smoke uses a deterministic AG-UI graphics stream and verifies visible renderer evidence. It stays outside `pixi run test`.
 
+The real-agent GUI graphics smoke validates the operator-facing workbench path against an existing managed test agent. It restarts the selected agent, selects it through passive-server discovery, connects the workbench pane, submits a nonce-labeled prompt through the GUI, and requires the agent to publish a visible `houmao.graphic.template` Vega-Lite chart. The prompt requests a nonce-labeled text marker too, but that marker is diagnostic rather than required for TUI-backed agents:
+
+```bash
+HMWB_REAL_AGENT_SMOKE=1 \
+HMWB_PASSIVE_SERVER_URL=http://127.0.0.1:9891 \
+HMWB_TEST_AGENT_NAME=<existing-test-agent-name> \
+scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh
+```
+
+Use `HMWB_TEST_AGENT_ID=<agent-id>` instead of `HMWB_TEST_AGENT_NAME` when the friendly name is ambiguous. Optional controls include `HMWB_REAL_AGENT_TIMEOUT_MS`, `HMWB_AGENT_COMMAND_TIMEOUT_MS`, `HMWB_REAL_AGENT_STOP_AFTER=1`, and `HMWB_REAL_AGENT_EVIDENCE_DIR=<path>`.
+
+This smoke is manual and opt-in because it uses live credentials, model behavior, managed-agent lifecycle commands, passive-server discovery, and Playwright browser automation. On failure it saves a screenshot, browser console output, visible transcript text, AG-UI capabilities, resolved target, prompt text, thread id, and raw event diagnostics when available.
+
 ## Known Limits
 
 - TUI targets stream lower-fidelity status and final text, not headless canonical event detail.
@@ -201,6 +214,7 @@ This browser smoke uses a deterministic AG-UI graphics stream and verifies visib
 - State deltas remain future work; published GUI events are not replayed by the gateway.
 - Multimodal input support is conservative and may reject unsupported content before admission.
 - The first graphics smoke is deterministic and fixture-backed because live models are not required to choose `houmao_render_graphic`.
+- The real-agent GUI graphics smoke is not deterministic CI coverage; it is a local operator smoke for configured test-agent environments.
 - Closing a GUI stream detaches the AG-UI subscription by default and does not interrupt the underlying Houmao task.
 
 ## Passive-Server Readiness

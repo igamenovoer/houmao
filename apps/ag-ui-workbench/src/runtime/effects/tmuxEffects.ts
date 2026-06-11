@@ -17,12 +17,23 @@ export function installTmuxEffects(
   const subscriptions = new Subscription();
   const sockets = new Map<string, TmuxAttachment>();
   const sinks = new Map<string, RuntimeTerminalOutputSink>();
-  const refreshControllers = new Map<string, AbortController>();
+  const interestedPaneIds = new Set<string>();
+  let activePassiveServerUrl = "";
+  let refreshController: AbortController | null = null;
+  let refreshSequence = 0;
+  let disposed = false;
 
   subscriptions.add(
     runtime.actions$.subscribe((action) => {
       switch (action.type) {
+        case "tmux/registerInventoryInterest":
+          registerInventoryInterest(action.paneId, action.passiveServerUrl);
+          break;
+        case "tmux/unregisterInventoryInterest":
+          unregisterInventoryInterest(action.paneId);
+          break;
         case "tmux/refreshRequested":
+          activePassiveServerUrl = action.passiveServerUrl;
           void refreshTmux(action.paneId, action.passiveServerUrl);
           break;
         case "tmux/registerOutputSink":
@@ -35,7 +46,10 @@ export function installTmuxEffects(
           attach(action.paneId, action.sessionName, action.mode, action.cols, action.rows);
           break;
         case "tmux/detachRequested":
+          detach(action.paneId);
+          break;
         case "pane/disposed":
+          unregisterInventoryInterest(action.paneId);
           detach(action.paneId);
           sinks.delete(action.paneId);
           break;
@@ -52,27 +66,64 @@ export function installTmuxEffects(
   );
 
   subscriptions.add(() => {
-    for (const controller of refreshControllers.values()) {
-      controller.abort();
-    }
-    refreshControllers.clear();
+    disposed = true;
+    refreshController?.abort();
+    refreshController = null;
     for (const paneId of [...sockets.keys()]) {
       detach(paneId);
     }
+    interestedPaneIds.clear();
     sinks.clear();
   });
 
   return subscriptions;
 
+  function registerInventoryInterest(paneId: string, passiveServerUrl: string): void {
+    interestedPaneIds.add(paneId);
+    activePassiveServerUrl = passiveServerUrl;
+  }
+
+  function unregisterInventoryInterest(paneId: string): void {
+    interestedPaneIds.delete(paneId);
+    if (interestedPaneIds.size === 0) {
+      refreshController?.abort();
+      refreshController = null;
+    }
+  }
+
+  function requestInventoryRefresh(paneId?: string, passiveServerUrl?: string): void {
+    if (disposed) {
+      return;
+    }
+    const requestPaneId = paneId ?? firstInterestedPaneId();
+    if (!requestPaneId) {
+      return;
+    }
+    const nextPassiveServerUrl =
+      passiveServerUrl ?? activePassiveServerUrl ?? runtime.snapshot().tmuxInventory.passiveServerUrl;
+    runtime.dispatch({
+      type: "tmux/refreshRequested",
+      paneId: requestPaneId,
+      passiveServerUrl: nextPassiveServerUrl,
+    });
+  }
+
+  function firstInterestedPaneId(): string | undefined {
+    return interestedPaneIds.values().next().value;
+  }
+
   async function refreshTmux(paneId: string, passiveServerUrl: string): Promise<void> {
-    refreshControllers.get(paneId)?.abort();
+    refreshController?.abort();
     const controller = new AbortController();
-    refreshControllers.set(paneId, controller);
+    const sequence = refreshSequence + 1;
+    refreshSequence = sequence;
+    refreshController = controller;
+
     let tmuxError: string | undefined;
     let discoveryError: string | undefined;
-    let bridgeStatus = runtime.snapshot().tmuxPanes[paneId]?.bridgeStatus ?? null;
-    let sessions = runtime.snapshot().tmuxPanes[paneId]?.sessions ?? [];
-    let agents = runtime.snapshot().tmuxPanes[paneId]?.agents ?? [];
+    let bridgeStatus = runtime.snapshot().tmuxInventory.bridgeStatus;
+    let sessions = runtime.snapshot().tmuxInventory.sessions;
+    let agents = runtime.snapshot().tmuxInventory.agents;
 
     try {
       if (!services.fetchTmuxStatus || !services.fetchTmuxSessions) {
@@ -88,7 +139,7 @@ export function installTmuxEffects(
         tmuxError = tmuxSessions.detail ?? "tmux sessions are unavailable.";
       }
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || sequence !== refreshSequence) {
         return;
       }
       tmuxError = errorMessage(error);
@@ -102,13 +153,19 @@ export function installTmuxEffects(
       }
       agents = await services.fetchDiscoveredAgents(passiveServerUrl, controller.signal);
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || sequence !== refreshSequence) {
         return;
       }
       discoveryError = errorMessage(error);
       agents = [];
     } finally {
-      refreshControllers.delete(paneId);
+      if (refreshController === controller) {
+        refreshController = null;
+      }
+    }
+
+    if (disposed || controller.signal.aborted || sequence !== refreshSequence) {
+      return;
     }
 
     if (tmuxError || discoveryError || !bridgeStatus) {
@@ -194,15 +251,18 @@ export function installTmuxEffects(
           error: detail,
           receivedAt: nowUtc(),
         });
+        requestInventoryRefresh(paneId);
         return;
       }
       if (message.type === "exit") {
         sinks.get(paneId)?.("\r\n[tmux] attachment ended");
+        sockets.delete(paneId);
         runtime.dispatch({
           type: "tmux/attachDisconnected",
           paneId,
           receivedAt: nowUtc(),
         });
+        requestInventoryRefresh(paneId);
       }
     });
     socket.addEventListener("close", () => {
@@ -212,6 +272,7 @@ export function installTmuxEffects(
         paneId,
         receivedAt: nowUtc(),
       });
+      requestInventoryRefresh(paneId);
     });
     socket.addEventListener("error", () => {
       sinks.get(paneId)?.("\r\n[tmux] WebSocket error");
@@ -221,6 +282,7 @@ export function installTmuxEffects(
         error: "tmux WebSocket error",
         receivedAt: nowUtc(),
       });
+      requestInventoryRefresh(paneId);
     });
   }
 

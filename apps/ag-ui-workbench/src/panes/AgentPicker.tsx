@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Eye, EyeOff, PanelRightOpen, Plus, RefreshCw, Search, Target, Users, X } from "lucide-react";
 
 import {
@@ -19,8 +19,9 @@ interface AgentPickerProps {
   watchedTargets: Record<string, WatchedTargetRecord>;
   watchedTargetRuntimes: Record<string, WatchedTargetRuntime>;
   onPassiveServerUrlChange: (url: string) => void;
-  onCreatePane: (target: TargetConfig) => void;
-  onRetargetPane: (paneId: string, target: TargetConfig) => void;
+  onCreateBlankPane: () => void;
+  onCreatePane: (target: TargetConfig, options?: AgentPickerApplyOptions) => void;
+  onRetargetPane: (paneId: string, target: TargetConfig, options?: AgentPickerApplyOptions) => void;
   onWatchTarget: (target: TargetConfig) => string;
   onUnwatchTarget: (key: string) => void;
   onOpenWatchedTarget: (key: string) => void;
@@ -29,6 +30,10 @@ interface AgentPickerProps {
 
 type PickerAction = "new-pane" | "retarget";
 
+interface AgentPickerApplyOptions {
+  autoConnect?: boolean;
+}
+
 export function AgentPicker({
   request,
   passiveServerUrl,
@@ -36,6 +41,7 @@ export function AgentPicker({
   watchedTargets,
   watchedTargetRuntimes,
   onPassiveServerUrlChange,
+  onCreateBlankPane,
   onCreatePane,
   onRetargetPane,
   onWatchTarget,
@@ -50,6 +56,7 @@ export function AgentPicker({
   const [resolvingAgentId, setResolvingAgentId] = useState<string | null>(null);
   const [action, setAction] = useState<PickerAction>("new-pane");
   const [destinationPaneId, setDestinationPaneId] = useState("operator");
+  const refreshGenerationRef = useRef(0);
 
   const paneEntries = useMemo(
     () =>
@@ -80,6 +87,15 @@ export function AgentPicker({
     setFilter("");
   }, [paneEntries, request]);
 
+  useEffect(() => {
+    if (!request) {
+      refreshGenerationRef.current += 1;
+      setLoading(false);
+      return;
+    }
+    void refresh();
+  }, [passiveServerUrl, request]);
+
   const filteredAgents = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) {
@@ -97,16 +113,32 @@ export function AgentPicker({
   }
 
   async function refresh() {
+    const refreshGeneration = refreshGenerationRef.current + 1;
+    refreshGenerationRef.current = refreshGeneration;
     setLoading(true);
     setError("");
     try {
-      setAgents(await fetchDiscoveredAgents(passiveServerUrl));
+      const nextAgents = await fetchDiscoveredAgents(passiveServerUrl);
+      if (refreshGeneration !== refreshGenerationRef.current) {
+        return;
+      }
+      setAgents(nextAgents);
     } catch (refreshError) {
+      if (refreshGeneration !== refreshGenerationRef.current) {
+        return;
+      }
       setAgents([]);
       setError(discoveryErrorMessage(refreshError));
     } finally {
-      setLoading(false);
+      if (refreshGeneration === refreshGenerationRef.current) {
+        setLoading(false);
+      }
     }
+  }
+
+  function createBlankPane() {
+    onCreateBlankPane();
+    onClose();
   }
 
   async function applyAgent(agent: DiscoveredAgentSummary) {
@@ -115,9 +147,9 @@ export function AgentPicker({
     try {
       const resolved = await resolveDiscoveredAgentTarget(passiveServerUrl, agent);
       if (action === "retarget") {
-        onRetargetPane(destinationPaneId, resolved.target);
+        onRetargetPane(destinationPaneId, resolved.target, { autoConnect: true });
       } else {
-        onCreatePane(resolved.target);
+        onCreatePane(resolved.target, { autoConnect: true });
       }
       onClose();
     } catch (resolveError) {
@@ -195,6 +227,10 @@ export function AgentPicker({
           <button className="primary" title="Refresh discovered agents" data-testid="refresh-agents" onClick={() => void refresh()}>
             <RefreshCw size={15} />
             Refresh
+          </button>
+          <button title="New manual agent pane" data-testid="new-agent-pane" onClick={createBlankPane}>
+            <Plus size={15} />
+            New
           </button>
         </div>
 

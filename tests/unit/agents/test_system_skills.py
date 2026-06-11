@@ -10,7 +10,7 @@ import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_ALL,
     SYSTEM_SKILL_SET_CORE,
-    SYSTEM_SKILL_AGENT_AG_UI,
+    SYSTEM_SKILL_INTEROP_AG_UI,
     SYSTEM_SKILL_OPERATOR_MESSAGING,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     PROFILE_SYSTEM_SKILL_POLICY_MODES,
@@ -33,6 +33,17 @@ from houmao.agents.system_skills import (
     uninstall_system_skills_for_home,
 )
 
+RETIRED_AGENT_AG_UI_SKILL = "houmao-agent-ag-ui"
+RETIRED_LOOP_SKILLS = (
+    "houmao-agent-loop-pairwise",
+    "houmao-agent-loop-pairwise-v2",
+    "houmao-agent-loop-pairwise-v3",
+    "houmao-agent-loop-pairwise-v4",
+    "houmao-agent-loop-pairwise-v5",
+    "houmao-agent-loop-generic",
+)
+RETIRED_SYSTEM_SKILLS = RETIRED_LOOP_SKILLS + (RETIRED_AGENT_AG_UI_SKILL,)
+
 CORE_SYSTEM_SKILLS = (
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
@@ -52,7 +63,7 @@ CORE_SYSTEM_SKILLS = (
     SYSTEM_SKILL_OPERATOR_MESSAGING,
     "houmao-agent-messaging",
     "houmao-agent-gateway",
-    SYSTEM_SKILL_AGENT_AG_UI,
+    SYSTEM_SKILL_INTEROP_AG_UI,
 )
 ALL_SYSTEM_SKILLS = CORE_SYSTEM_SKILLS
 
@@ -106,7 +117,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         SYSTEM_SKILL_OPERATOR_MESSAGING,
         "houmao-agent-messaging",
         "houmao-agent-gateway",
-        SYSTEM_SKILL_AGENT_AG_UI,
+        SYSTEM_SKILL_INTEROP_AG_UI,
     )
     assert "Canonical pre-launch agent-definition skill" in (
         catalog.skills["houmao-agent-definition"].description or ""
@@ -122,16 +133,9 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
     )
     assert "AG-UI component authoring" in (
-        catalog.skills[SYSTEM_SKILL_AGENT_AG_UI].description or ""
+        catalog.skills[SYSTEM_SKILL_INTEROP_AG_UI].description or ""
     )
-    assert catalog.retired_skill_names == (
-        "houmao-agent-loop-pairwise",
-        "houmao-agent-loop-pairwise-v2",
-        "houmao-agent-loop-pairwise-v3",
-        "houmao-agent-loop-pairwise-v4",
-        "houmao-agent-loop-pairwise-v5",
-        "houmao-agent-loop-generic",
-    )
+    assert catalog.retired_skill_names == RETIRED_SYSTEM_SKILLS
     assert "houmao-utils-llm-wiki" not in catalog.skills
     assert "houmao-utils-llm-wiki" not in catalog.retired_skill_names
     assert all(
@@ -152,11 +156,11 @@ def test_system_skills_destination_supports_kimi_home_skills_root() -> None:
     assert system_skills_destination_for_tool("kimi") == "skills"
 
 
-def test_agent_ag_ui_packaged_asset_contract() -> None:
-    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_AGENT_AG_UI)
+def test_interop_ag_ui_packaged_asset_contract() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_INTEROP_AG_UI)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
 
-    assert "name: houmao-agent-ag-ui" in skill_text
+    assert "name: houmao-interop-ag-ui" in skill_text
     assert "Typed Houmao components are an application-layer protocol" in skill_text
     assert "houmao-mgr internals ag-ui components list" in skill_text
     assert "houmao-mgr internals ag-ui events render" in skill_text
@@ -361,10 +365,15 @@ def test_retired_loop_skill_sources_are_legacy_only() -> None:
 
     assert "houmao-agent-loop-pro" in catalog.skills
     assert "houmao-agent-loop-lite" in catalog.skills
-    for retired_name in catalog.retired_skill_names:
+    for retired_name in RETIRED_LOOP_SKILLS:
+        assert retired_name in catalog.retired_skill_names
         assert retired_name not in catalog.skills
         assert not (asset_root / retired_name).exists()
         assert (asset_root / "legacy" / retired_name / "SKILL.md").is_file()
+    assert RETIRED_AGENT_AG_UI_SKILL in catalog.retired_skill_names
+    assert RETIRED_AGENT_AG_UI_SKILL not in catalog.skills
+    assert not (asset_root / RETIRED_AGENT_AG_UI_SKILL).exists()
+    assert not (asset_root / "legacy" / RETIRED_AGENT_AG_UI_SKILL).exists()
 
 
 def test_houmao_system_input_questions_distinguish_required_and_optional_inputs() -> None:
@@ -1023,8 +1032,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     home_path = (tmp_path / "codex-home").resolve()
     user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
     retired_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
+    retired_agent_ag_ui_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
     _write(user_skill_path, "custom user skill\n")
     _write(retired_skill_path, "retired loop skill\n")
+    _write(retired_agent_ag_ui_path, "retired AG-UI skill\n")
 
     result = install_system_skills_for_home(
         tool="codex",
@@ -1058,9 +1069,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
 
     assert result.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
     assert result.resolved_skill_names == CORE_SYSTEM_SKILLS
-    assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v3",)
+    assert result.removed_retired_skill_names == (
+        "houmao-agent-loop-pairwise-v3",
+        RETIRED_AGENT_AG_UI_SKILL,
+    )
     assert result.removed_retired_projected_relative_dirs == (
         "skills/houmao-agent-loop-pairwise-v3",
+        f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
     )
     assert set(record.name for record in installed_records) == set(result.resolved_skill_names)
     assert tuple(record.projection_mode for record in installed_records) == ("copy",) * len(
@@ -1069,6 +1084,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     _assert_no_install_state_written(home_path)
     assert user_skill_path.is_file()
     assert not retired_skill_path.exists()
+    assert not retired_agent_ag_ui_path.exists()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert project_mgr_path.is_file()
@@ -2111,11 +2127,13 @@ def test_sync_system_skills_for_home_removes_unselected_current_and_retired_path
     user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
     unknown_houmao_path = home_path / "skills/houmao-user-owned/SKILL.md"
     retired_loop_path = home_path / "skills/houmao-agent-loop-pairwise-v5/SKILL.md"
+    retired_agent_ag_ui_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
     _write(stale_removed_wiki_path, "stale removed wiki\n")
     _write(stale_project_mgr_path, "stale project manager\n")
     _write(user_skill_path, "custom user skill\n")
     _write(unknown_houmao_path, "not catalog owned\n")
     _write(retired_loop_path, "retired loop skill\n")
+    _write(retired_agent_ag_ui_path, "retired AG-UI skill\n")
     selection = resolve_managed_system_skill_selection(
         profile_policy=SystemSkillSelectionPolicy(mode="none")
     )
@@ -2132,13 +2150,18 @@ def test_sync_system_skills_for_home_removes_unselected_current_and_retired_path
     assert result.projected_relative_dirs == ()
     assert result.removed_skill_names == ("houmao-project-mgr",)
     assert result.removed_projected_relative_dirs == ("skills/houmao-project-mgr",)
-    assert result.removed_retired_skill_names == ("houmao-agent-loop-pairwise-v5",)
+    assert result.removed_retired_skill_names == (
+        "houmao-agent-loop-pairwise-v5",
+        RETIRED_AGENT_AG_UI_SKILL,
+    )
     assert result.removed_retired_projected_relative_dirs == (
         "skills/houmao-agent-loop-pairwise-v5",
+        f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
     )
     assert stale_removed_wiki_path.is_file()
     assert not stale_project_mgr_path.exists()
     assert not retired_loop_path.exists()
+    assert not retired_agent_ag_ui_path.exists()
     assert user_skill_path.is_file()
     assert unknown_houmao_path.is_file()
     assert discover_installed_system_skills(tool="codex", home_path=home_path) == ()

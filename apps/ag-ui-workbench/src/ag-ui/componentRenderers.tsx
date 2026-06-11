@@ -17,12 +17,14 @@ import {
 
 import type { ToolCallRecord } from "./reducer";
 import type { GraphicArtifact, JsonObject, JsonScalar, JsonValue } from "./types";
+import type { TemplateGraphicBackendOverride } from "../storage";
 import { GraphicView } from "./graphics";
 import { renderTemplateGraphic } from "./templateGraphics";
 
 interface ToolCallRendererProps {
   toolCall: ToolCallRecord;
   paneId: string;
+  templateGraphicBackend?: TemplateGraphicBackendOverride;
 }
 
 interface ChartDatum {
@@ -109,6 +111,7 @@ interface RendererContext {
   paneId: string;
   toolCallId: string;
   depth: number;
+  templateGraphicBackend?: TemplateGraphicBackendOverride;
 }
 
 const CHART_COLORS = ["#79a35d", "#d3a749", "#6aa6b8", "#c86f5a", "#9a82c8", "#d88a42"];
@@ -124,7 +127,11 @@ const COMPONENT_RENDERERS: Record<string, ComponentRenderer> = {
   "houmao.dashboard": renderDashboard,
 };
 
-export function ToolCallRenderer({ toolCall, paneId }: ToolCallRendererProps) {
+export function ToolCallRenderer({
+  toolCall,
+  paneId,
+  templateGraphicBackend = "auto",
+}: ToolCallRendererProps) {
   if (!toolCall.complete) {
     return null;
   }
@@ -141,11 +148,25 @@ export function ToolCallRenderer({ toolCall, paneId }: ToolCallRendererProps) {
     );
   }
   if (toolCall.name === "houmao_render_graphic") {
-    return renderGraphicCompatibility(parsed.value, { paneId, toolCallId: toolCall.id, depth: 0 });
+    return renderGraphicCompatibility(parsed.value, {
+      paneId,
+      toolCallId: toolCall.id,
+      depth: 0,
+      templateGraphicBackend,
+    });
   }
   const renderer = COMPONENT_RENDERERS[toolCall.name];
   if (renderer) {
-    return <>{renderer(parsed.value, { paneId, toolCallId: toolCall.id, depth: 0 })}</>;
+    return (
+      <>
+        {renderer(parsed.value, {
+          paneId,
+          toolCallId: toolCall.id,
+          depth: 0,
+          templateGraphicBackend,
+        })}
+      </>
+    );
   }
   if (toolCall.name.startsWith("houmao.")) {
     return (
@@ -319,6 +340,7 @@ function renderDashboard(payload: unknown, context: RendererContext): ReactNode 
               paneId: context.paneId,
               toolCallId: `${context.toolCallId}-${index}`,
               depth: context.depth + 1,
+              templateGraphicBackend: context.templateGraphicBackend,
             })}
           </div>
         ))}

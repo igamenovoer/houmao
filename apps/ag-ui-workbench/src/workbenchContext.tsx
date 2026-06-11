@@ -1,7 +1,18 @@
 import { createContext, useContext } from "react";
 
-import { defaultDebugAgentConfig, defaultTarget, defaultTmuxTabConfig } from "./storage";
-import type { DebugAgentConfig, PaneRecord, TmuxTabConfig, WorkbenchStorage } from "./storage";
+import {
+  defaultDebugAgentConfig,
+  defaultPanePresentationConfig,
+  defaultTarget,
+  defaultTmuxTabConfig,
+} from "./storage";
+import type {
+  DebugAgentConfig,
+  PanePresentationConfig,
+  PaneRecord,
+  TmuxTabConfig,
+  WorkbenchStorage,
+} from "./storage";
 import type { WatchedTargetRuntime } from "./ag-ui/useWatchedTargets";
 import type { AgentPickerRequest, TargetConfig } from "./ag-ui/types";
 
@@ -11,6 +22,7 @@ export interface WorkbenchContextValue {
   updateTarget: (paneId: string, target: TargetConfig) => void;
   updateDebugAgent: (paneId: string, debugAgent: DebugAgentConfig) => void;
   updateTmuxTab: (paneId: string, tmux: TmuxTabConfig) => void;
+  updatePanePresentation: (paneId: string, presentation: PanePresentationConfig) => void;
   removePaneRecord: (paneId: string) => void;
   setOperatorPaneId: (paneId: string | undefined) => void;
   watchTarget: (target: TargetConfig) => string;
@@ -39,6 +51,7 @@ export function paneRecordOrDefault(storage: WorkbenchStorage, paneId: string, k
       kind,
       target: defaultTarget(paneId, kind),
       debugAgent: kind === "debug-agent" ? defaultDebugAgentConfig(paneId) : undefined,
+      presentation: defaultPanePresentationConfig(),
       tmux: kind === "tmux" ? defaultTmuxTabConfig() : undefined,
     }
   );

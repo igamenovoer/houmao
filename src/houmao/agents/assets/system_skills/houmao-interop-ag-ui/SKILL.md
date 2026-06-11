@@ -1,10 +1,10 @@
 ---
-name: houmao-agent-ag-ui
-description: Use Houmao AG-UI authoring helpers to discover component schemas, validate payloads, render standard AG-UI events, and publish them to the Houmao gateway.
+name: houmao-interop-ag-ui
+description: Use Houmao AG-UI interop helpers to discover component schemas, validate payloads, render standard AG-UI events, and publish them to the Houmao gateway.
 license: MIT
 ---
 
-# Houmao Agent AG-UI
+# Houmao Interop AG-UI
 
 Use this skill when a Houmao agent needs to send typed visual output to an AG-UI GUI through maintained Houmao tooling.
 
@@ -12,7 +12,7 @@ Typed Houmao components are an application-layer protocol carried inside standar
 
 ## Help
 
-When the user asks `$houmao-agent-ag-ui help`, `help for houmao-agent-ag-ui`, or what this skill can do, answer from this section and stop unless they also ask for a concrete AG-UI action. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me send a chart to the GUI", route to the matching workflow instead of stopping at generic help.
+When the user asks `$houmao-interop-ag-ui help`, `help for houmao-interop-ag-ui`, or what this skill can do, answer from this section and stop unless they also ask for a concrete AG-UI action. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me send a chart to the GUI", route to the matching workflow instead of stopping at generic help.
 
 Purpose: create visual AG-UI messages without hand-writing raw event JSON.
 
@@ -27,10 +27,10 @@ Available functionality:
 
 Common starting prompts:
 
-- `$houmao-agent-ag-ui help`
-- `$houmao-agent-ag-ui list components`
-- `$houmao-agent-ag-ui render a bar chart`
-- `$houmao-agent-ag-ui publish these events to my GUI`
+- `$houmao-interop-ag-ui help`
+- `$houmao-interop-ag-ui list components`
+- `$houmao-interop-ag-ui render a bar chart`
+- `$houmao-interop-ag-ui publish these events to my GUI`
 
 Related skills and boundaries:
 

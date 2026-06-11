@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DockviewReact } from "dockview-react";
 import type { DockviewApi, DockviewReadyEvent, IDockviewPanel } from "dockview-react";
-import { Boxes, Bug, PanelBottom, Plus, Server, TerminalSquare, Users } from "lucide-react";
+import { Boxes, Bug, PanelBottom, Server, TerminalSquare, Users } from "lucide-react";
 
 import { AgentSessionPanel } from "./panes/AgentSessionPanel";
 import { AgentPicker } from "./panes/AgentPicker";
@@ -27,6 +27,7 @@ import type { WorkbenchRuntimeState } from "./runtime/state";
 import { fetchTmuxSessions, fetchTmuxStatus, openTmuxAttachSocket } from "./tmux/client";
 import {
   defaultDebugAgentConfig,
+  defaultPanePresentationConfig,
   defaultTmuxTabConfig,
   defaultTarget,
   loadWorkbenchStorage,
@@ -34,6 +35,7 @@ import {
   saveWorkbenchStorage,
   storageSnapshotForTests,
   type DebugAgentConfig,
+  type PanePresentationConfig,
   type PaneRecord,
   type TmuxTabConfig,
   type WorkbenchStorage,
@@ -56,6 +58,10 @@ const components = {
   debugAgent: DebugAgentPanel,
   tmux: TmuxTabPanel,
 };
+
+interface AgentPaneOpenOptions {
+  autoConnect?: boolean;
+}
 
 export default function App() {
   const [storage, setStorage] = useState(loadWorkbenchStorage);
@@ -219,6 +225,27 @@ export default function App() {
     [persist],
   );
 
+  const updatePanePresentation = useCallback(
+    (paneId: string, presentation: PanePresentationConfig) => {
+      const current = storageRef.current;
+      const existing = current.panes[paneId];
+      if (!existing) {
+        return;
+      }
+      persist({
+        ...current,
+        panes: {
+          ...current.panes,
+          [paneId]: {
+            ...existing,
+            presentation,
+          },
+        },
+      });
+    },
+    [persist],
+  );
+
   const removePaneRecord = useCallback(
     (paneId: string) => {
       const current = storageRef.current;
@@ -280,6 +307,33 @@ export default function App() {
     [persist],
   );
 
+  const connectPaneToTarget = useCallback(
+    (paneId: string, target: TargetConfig) => {
+      if (!isAutoConnectTarget(target)) {
+        return;
+      }
+      const key = watchTarget(target);
+      runtime.dispatch({
+        type: "pane/targetChanged",
+        paneId,
+        target: watchedTargetRuntimes[key]?.target ?? target,
+      });
+
+      const gatewayKey = gatewayKeyForTarget(target);
+      if (gatewayKey && target.threadId) {
+        runtime.dispatch({
+          type: "activeThread/setRequested",
+          paneId,
+          gatewayKey,
+          target,
+          threadId: target.threadId,
+          source: "gui_connect",
+        });
+      }
+    },
+    [runtime, watchTarget, watchedTargetRuntimes],
+  );
+
   const unwatchTarget = useCallback(
     (key: string) => {
       const current = storageRef.current;
@@ -303,6 +357,7 @@ export default function App() {
       updateTarget,
       updateDebugAgent,
       updateTmuxTab,
+      updatePanePresentation,
       removePaneRecord,
       setOperatorPaneId,
       watchTarget,
@@ -322,6 +377,7 @@ export default function App() {
       storage,
       unwatchTarget,
       updateDebugAgent,
+      updatePanePresentation,
       updateTarget,
       updateTmuxTab,
       watchTarget,
@@ -369,10 +425,10 @@ export default function App() {
     }
   };
 
-  const addAgentPane = (target?: TargetConfig) => {
+  const addAgentPane = (target?: TargetConfig, options: AgentPaneOpenOptions = {}) => {
     const api = apiRef.current;
     if (!api) {
-      return;
+      return null;
     }
     const current = storageRef.current;
     let index = current.nextAgentIndex;
@@ -384,6 +440,7 @@ export default function App() {
       paneId,
       kind: "agent",
       target: target ?? defaultTarget(paneId, "agent"),
+      presentation: defaultPanePresentationConfig(),
     };
     persist({
       ...current,
@@ -403,6 +460,10 @@ export default function App() {
       },
       position: dockRightPosition(api),
     });
+    if (options.autoConnect && target) {
+      connectPaneToTarget(paneId, record.target);
+    }
+    return paneId;
   };
 
   const addDebugAgentPane = () => {
@@ -479,7 +540,7 @@ export default function App() {
     });
   };
 
-  const retargetPane = (paneId: string, target: TargetConfig) => {
+  const retargetPane = (paneId: string, target: TargetConfig, options: AgentPaneOpenOptions = {}) => {
     const current = storageRef.current;
     const existing = current.panes[paneId] ?? {
       paneId,
@@ -506,6 +567,9 @@ export default function App() {
       },
     });
     apiRef.current?.getPanel(paneId)?.api.setTitle(target.label || paneId);
+    if (options.autoConnect) {
+      connectPaneToTarget(paneId, target);
+    }
   };
 
   const openPaneForWatchedTarget = (key: string) => {
@@ -548,10 +612,6 @@ export default function App() {
               <TerminalSquare size={15} />
               tmux
             </button>
-            <button className="primary" title="Add agent pane" data-testid="add-agent-pane" onClick={() => addAgentPane()}>
-              <Plus size={16} />
-              Agent Pane
-            </button>
           </div>
         </header>
         <section className="dockview-shell dockview-theme-dark" data-testid="dockview-shell">
@@ -572,6 +632,7 @@ export default function App() {
           watchedTargets={storage.watchedTargets}
           watchedTargetRuntimes={watchedTargetRuntimes}
           onPassiveServerUrlChange={updateDiscoveryUrl}
+          onCreateBlankPane={() => addAgentPane()}
           onCreatePane={addAgentPane}
           onRetargetPane={retargetPane}
           onWatchTarget={watchTarget}
@@ -606,6 +667,14 @@ function sameTarget(left: TargetConfig, right: TargetConfig): boolean {
     left.threadId === right.threadId &&
     JSON.stringify(left.source ?? { kind: "manual" }) ===
       JSON.stringify(right.source ?? { kind: "manual" })
+  );
+}
+
+function isAutoConnectTarget(target: TargetConfig): boolean {
+  return (
+    target.source?.kind === "discovered" &&
+    Boolean(target.threadId) &&
+    target.url.trim().length > 0
   );
 }
 

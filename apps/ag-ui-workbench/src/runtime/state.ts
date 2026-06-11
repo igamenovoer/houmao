@@ -15,11 +15,12 @@ import type { GatewayKey, RuntimeStreamKind, WorkbenchRuntimeAction } from "./ac
 
 export type ActiveThreadRuntimeStatus =
   | "idle"
-  | "polling"
-  | "ready"
-  | "setting"
-  | "clearing"
-  | "error";
+	  | "polling"
+	  | "ready"
+	  | "setting"
+	  | "clearing"
+	  | "unsupported"
+	  | "error";
 
 export interface ActiveThreadRuntimeState {
   gatewayKey: GatewayKey;
@@ -75,6 +76,18 @@ export interface TmuxPaneRuntimeState {
   lastReceivedAt?: string;
 }
 
+export interface TmuxInventoryRuntimeState {
+  bridgeStatus: TmuxBridgeStatus | null;
+  sessions: TmuxSessionRow[];
+  agents: DiscoveredAgentSummary[];
+  loading: boolean;
+  tmuxError?: string;
+  discoveryError?: string;
+  lastReceivedAt?: string;
+  passiveServerUrl: string;
+  interestedPaneIds: string[];
+}
+
 export interface RuntimeErrorEntry {
   message: string;
   receivedAt: string;
@@ -84,6 +97,7 @@ export interface WorkbenchRuntimeState {
   activeThreads: Record<GatewayKey, ActiveThreadRuntimeState>;
   paneAgUi: Record<string, PaneAgUiRuntimeState>;
   watchedTargets: Record<string, WatchedTargetRuntimeState>;
+  tmuxInventory: TmuxInventoryRuntimeState;
   tmuxPanes: Record<string, TmuxPaneRuntimeState>;
   errors: RuntimeErrorEntry[];
 }
@@ -94,6 +108,14 @@ export const initialRuntimeState: WorkbenchRuntimeState = {
   activeThreads: {},
   paneAgUi: {},
   watchedTargets: {},
+  tmuxInventory: {
+    bridgeStatus: null,
+    sessions: [],
+    agents: [],
+    loading: false,
+    passiveServerUrl: "",
+    interestedPaneIds: [],
+  },
   tmuxPanes: {},
   errors: [],
 };
@@ -113,7 +135,15 @@ export function reduceRuntimeState(
       const nextTmuxPanes = { ...state.tmuxPanes };
       delete nextPaneAgUi[action.paneId];
       delete nextTmuxPanes[action.paneId];
-      return { ...state, paneAgUi: nextPaneAgUi, tmuxPanes: nextTmuxPanes };
+      return {
+        ...state,
+        paneAgUi: nextPaneAgUi,
+        tmuxPanes: nextTmuxPanes,
+        tmuxInventory: {
+          ...state.tmuxInventory,
+          interestedPaneIds: removeValue(state.tmuxInventory.interestedPaneIds, action.paneId),
+        },
+      };
     }
     case "agUi/capabilitiesRequested":
       return updatePaneAgUiState(state, action.paneId, (current) => ({
@@ -331,36 +361,107 @@ export function reduceRuntimeState(
         ...state,
         errors: [...state.errors, { message: action.error, receivedAt: action.receivedAt }].slice(-20),
       };
+    case "tmux/registerInventoryInterest":
+      return updateTmuxPaneState(
+        {
+          ...state,
+          tmuxInventory: {
+            ...state.tmuxInventory,
+            passiveServerUrl: action.passiveServerUrl,
+            interestedPaneIds: addUnique(state.tmuxInventory.interestedPaneIds, action.paneId),
+          },
+        },
+        action.paneId,
+        (current) => current,
+      );
+    case "tmux/unregisterInventoryInterest":
+      return {
+        ...state,
+        tmuxInventory: {
+          ...state.tmuxInventory,
+          interestedPaneIds: removeValue(state.tmuxInventory.interestedPaneIds, action.paneId),
+        },
+      };
     case "tmux/refreshRequested":
-      return updateTmuxPaneState(state, action.paneId, (current) => ({
-        ...current,
-        loading: true,
-        tmuxError: undefined,
-        discoveryError: undefined,
-      }));
+      return updateTmuxPaneState(
+        {
+          ...state,
+          tmuxInventory: {
+            ...state.tmuxInventory,
+            passiveServerUrl: action.passiveServerUrl,
+            loading: true,
+            tmuxError: undefined,
+            discoveryError: undefined,
+          },
+        },
+        action.paneId,
+        (current) => ({
+          ...current,
+          loading: true,
+          tmuxError: undefined,
+          discoveryError: undefined,
+        }),
+      );
     case "tmux/refreshSucceeded":
-      return updateTmuxPaneState(state, action.paneId, (current) => ({
-        ...current,
-        loading: false,
-        bridgeStatus: action.bridgeStatus,
-        sessions: action.sessions,
-        agents: action.agents,
-        tmuxError:
-          action.bridgeStatus.status === "unavailable" ? action.bridgeStatus.detail : undefined,
-        discoveryError: undefined,
-        lastReceivedAt: action.receivedAt,
-      }));
-    case "tmux/refreshFailed":
-      return updateTmuxPaneState(state, action.paneId, (current) => ({
-        ...current,
-        loading: false,
-        bridgeStatus: action.bridgeStatus ?? current.bridgeStatus,
-        sessions: action.sessions ?? current.sessions,
-        agents: action.agents ?? current.agents,
-        tmuxError: action.tmuxError,
-        discoveryError: action.discoveryError,
-        lastReceivedAt: action.receivedAt,
-      }));
+      return updateTmuxPaneState(
+        {
+          ...state,
+          tmuxInventory: {
+            ...state.tmuxInventory,
+            loading: false,
+            bridgeStatus: action.bridgeStatus,
+            sessions: action.sessions,
+            agents: action.agents,
+            tmuxError:
+              action.bridgeStatus.status === "unavailable" ? action.bridgeStatus.detail : undefined,
+            discoveryError: undefined,
+            lastReceivedAt: action.receivedAt,
+          },
+        },
+        action.paneId,
+        (current) => ({
+          ...current,
+          loading: false,
+          bridgeStatus: action.bridgeStatus,
+          sessions: action.sessions,
+          agents: action.agents,
+          tmuxError:
+            action.bridgeStatus.status === "unavailable" ? action.bridgeStatus.detail : undefined,
+          discoveryError: undefined,
+          lastReceivedAt: action.receivedAt,
+        }),
+      );
+    case "tmux/refreshFailed": {
+      const bridgeStatus = action.bridgeStatus ?? state.tmuxInventory.bridgeStatus;
+      const sessions = action.sessions ?? state.tmuxInventory.sessions;
+      const agents = action.agents ?? state.tmuxInventory.agents;
+      return updateTmuxPaneState(
+        {
+          ...state,
+          tmuxInventory: {
+            ...state.tmuxInventory,
+            loading: false,
+            bridgeStatus,
+            sessions,
+            agents,
+            tmuxError: action.tmuxError,
+            discoveryError: action.discoveryError,
+            lastReceivedAt: action.receivedAt,
+          },
+        },
+        action.paneId,
+        (current) => ({
+          ...current,
+          loading: false,
+          bridgeStatus,
+          sessions,
+          agents,
+          tmuxError: action.tmuxError,
+          discoveryError: action.discoveryError,
+          lastReceivedAt: action.receivedAt,
+        }),
+      );
+    }
     case "tmux/registerOutputSink":
     case "tmux/unregisterOutputSink":
       return state;
@@ -403,24 +504,25 @@ export function reduceRuntimeState(
     case "tmux/inputRequested":
     case "tmux/resizeRequested":
       return state;
-    case "activeThread/registerInterest": {
-      const existing = state.activeThreads[action.gatewayKey];
-      const interestedPaneIds = addUnique(existing?.interestedPaneIds ?? [], action.paneId);
-      return {
-        ...state,
+	    case "activeThread/registerInterest": {
+	      const existing = state.activeThreads[action.gatewayKey];
+	      const targetChanged = existing ? !sameActiveThreadTarget(existing.target, action.target) : false;
+	      const interestedPaneIds = addUnique(existing?.interestedPaneIds ?? [], action.paneId);
+	      return {
+	        ...state,
         activeThreads: {
           ...state.activeThreads,
-          [action.gatewayKey]: {
-            gatewayKey: action.gatewayKey,
-            target: action.target,
-            activeThread: existing?.activeThread ?? EMPTY_THREAD,
-            status: existing?.status ?? "idle",
-            interestedPaneIds,
-            lastReceivedAt: existing?.lastReceivedAt,
-            error: existing?.error,
-          },
-        },
-      };
+	          [action.gatewayKey]: {
+	            gatewayKey: action.gatewayKey,
+	            target: action.target,
+	            activeThread: targetChanged ? EMPTY_THREAD : existing?.activeThread ?? EMPTY_THREAD,
+	            status: targetChanged ? "idle" : existing?.status ?? "idle",
+	            interestedPaneIds,
+	            lastReceivedAt: targetChanged ? undefined : existing?.lastReceivedAt,
+	            error: targetChanged ? undefined : existing?.error,
+	          },
+	        },
+	      };
     }
     case "activeThread/unregisterInterest": {
       const existing = state.activeThreads[action.gatewayKey];
@@ -438,11 +540,17 @@ export function reduceRuntimeState(
         },
       };
     }
-    case "activeThread/pollStarted":
-      return updateActiveThreadState(state, action.gatewayKey, (current) => ({
-        ...current,
-        status: current.status === "setting" || current.status === "clearing" ? current.status : "polling",
-      }));
+	    case "activeThread/pollStarted":
+	      return updateActiveThreadState(state, action.gatewayKey, (current) => ({
+	        ...current,
+	        status:
+	          current.status === "setting" ||
+	          current.status === "clearing" ||
+	          current.status === "unsupported" ||
+	          current.status === "ready"
+	            ? current.status
+	            : "polling",
+	      }));
     case "activeThread/pollSucceeded":
       return updateActiveThreadState(state, action.gatewayKey, (current) => ({
         ...current,
@@ -452,20 +560,33 @@ export function reduceRuntimeState(
         lastReceivedAt: action.receivedAt,
         error: undefined,
       }));
-    case "activeThread/pollFailed":
-      return updateActiveThreadState(state, action.gatewayKey, (current) => ({
-        ...current,
-        status: "error",
-        lastReceivedAt: action.receivedAt,
-        error: action.error,
-      }));
-    case "activeThread/setRequested":
-      return updateOrCreateActiveThreadState(state, action.gatewayKey, action.target, (current) => ({
-        ...current,
-        target: action.target,
-        status: "setting",
-        error: undefined,
-      }));
+	    case "activeThread/pollFailed":
+	      return updateActiveThreadState(state, action.gatewayKey, (current) => ({
+	        ...current,
+	        status: current.status === "unsupported" ? current.status : "error",
+	        lastReceivedAt: action.receivedAt,
+	        error: current.status === "unsupported" ? current.error : action.error,
+	      }));
+	    case "activeThread/unsupported":
+	      return updateActiveThreadState(state, action.gatewayKey, (current) => ({
+	        ...current,
+	        target: action.target,
+	        activeThread: EMPTY_THREAD,
+	        status: "unsupported",
+	        lastReceivedAt: action.receivedAt,
+	        error: action.error,
+	      }));
+	    case "activeThread/setRequested":
+	      return updateOrCreateActiveThreadState(state, action.gatewayKey, action.target, (current) =>
+	        current.status === "unsupported"
+	          ? current
+	          : {
+	              ...current,
+	              target: action.target,
+	              status: "setting",
+	              error: undefined,
+	            },
+	      );
     case "activeThread/setSucceeded":
       return updateOrCreateActiveThreadState(state, action.gatewayKey, action.target, (current) => ({
         ...current,
@@ -475,13 +596,17 @@ export function reduceRuntimeState(
         lastReceivedAt: action.receivedAt,
         error: undefined,
       }));
-    case "activeThread/clearRequested":
-      return updateOrCreateActiveThreadState(state, action.gatewayKey, action.target, (current) => ({
-        ...current,
-        target: action.target,
-        status: "clearing",
-        error: undefined,
-      }));
+	    case "activeThread/clearRequested":
+	      return updateOrCreateActiveThreadState(state, action.gatewayKey, action.target, (current) =>
+	        current.status === "unsupported"
+	          ? current
+	          : {
+	              ...current,
+	              target: action.target,
+	              status: "clearing",
+	              error: undefined,
+	            },
+	      );
     case "activeThread/clearSucceeded":
       return updateOrCreateActiveThreadState(state, action.gatewayKey, action.target, (current) => ({
         ...current,
@@ -676,11 +801,25 @@ function updateOrCreateActiveThreadState(
   };
 }
 
+function sameActiveThreadTarget(left: TargetConfig, right: TargetConfig): boolean {
+  return (
+    left.label === right.label &&
+    left.url === right.url &&
+    left.threadId === right.threadId &&
+    JSON.stringify(left.source ?? { kind: "manual" }) ===
+      JSON.stringify(right.source ?? { kind: "manual" })
+  );
+}
+
 function addUnique(values: string[], value: string): string[] {
   if (values.includes(value)) {
     return values;
   }
   return [...values, value];
+}
+
+function removeValue(values: string[], value: string): string[] {
+  return values.filter((candidate) => candidate !== value);
 }
 
 function exhaustive(value: never): WorkbenchRuntimeState {

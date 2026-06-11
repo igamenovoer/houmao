@@ -31,7 +31,7 @@ export function installAgUiEffects(
           void startConnect(action.paneId, action.target);
           break;
         case "agUi/runRequested":
-          void startRun(action.paneId, action.target, action.message, action.canvasSize);
+          void startRun(action.paneId, action.target, action.message);
           break;
         case "agUi/cancelRequested":
           stopPaneStream(action.paneId, action.detach);
@@ -110,7 +110,6 @@ export function installAgUiEffects(
     paneId: string,
     target: TargetConfig,
     message: string,
-    canvasSize: Extract<WorkbenchRuntimeAction, { type: "agUi/runRequested" }>["canvasSize"],
   ): Promise<void> {
     const trimmed = message.trim();
     if (!trimmed) {
@@ -120,7 +119,6 @@ export function installAgUiEffects(
       paneId,
       threadId: target.threadId,
       message: trimmed,
-      canvasSize,
     });
     await startStream(paneId, target, "run", input);
   }

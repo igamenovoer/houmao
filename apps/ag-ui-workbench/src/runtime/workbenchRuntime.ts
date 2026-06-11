@@ -61,6 +61,7 @@ export interface WorkbenchRuntimeServices {
   onWatchedTargetResolved?: (key: string, target: TargetConfig) => void;
   fetchTmuxStatus?: (signal?: AbortSignal) => Promise<TmuxBridgeStatus>;
   fetchTmuxSessions?: (signal?: AbortSignal) => Promise<TmuxSessionsResponse>;
+  tmuxInventoryPollIntervalMs?: number;
   fetchDiscoveredAgents?: (
     passiveServerUrl: string,
     signal?: AbortSignal,

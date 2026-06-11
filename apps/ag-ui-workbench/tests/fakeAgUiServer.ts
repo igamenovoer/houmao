@@ -36,7 +36,7 @@ interface OpenGatewayResponse {
   threadId: string;
 }
 
-const GATEWAY_TARGETS = ["operator", "alpha", "beta", "manual"] as const;
+const GATEWAY_TARGETS = ["operator", "alpha", "beta", "manual", "legacy"] as const;
 
 export class FakeAgUiServer {
   private m_passiveServer: Server | null = null;
@@ -143,11 +143,12 @@ export class FakeAgUiServer {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     if (req.method === "GET" && url.pathname === "/houmao/agents") {
       sendJson(res, 200, {
-        agents: [
-          discoveredAgent("alpha", this.m_gateways.get("alpha") !== undefined),
-          discoveredAgent("beta", this.m_gateways.get("beta") !== undefined),
-          discoveredAgent("no-gateway", false),
-        ],
+	        agents: [
+	          discoveredAgent("alpha", this.m_gateways.get("alpha") !== undefined),
+	          discoveredAgent("beta", this.m_gateways.get("beta") !== undefined),
+	          discoveredAgent("legacy", this.m_gateways.get("legacy") !== undefined),
+	          discoveredAgent("no-gateway", false),
+	        ],
       });
       return;
     }
@@ -155,7 +156,7 @@ export class FakeAgUiServer {
     const resolveMatch = /^\/houmao\/agents\/([^/]+)\/resolve$/.exec(url.pathname);
     if (req.method === "GET" && resolveMatch) {
       const agentRef = decodeURIComponent(resolveMatch[1]);
-      if (!["alpha", "beta", "no-gateway"].includes(agentRef)) {
+	      if (!["alpha", "beta", "legacy", "no-gateway"].includes(agentRef)) {
         sendJson(res, 200, {
           status: "unknown",
           detail: `Agent not found: ${agentRef}`,
@@ -236,14 +237,18 @@ export class FakeAgUiServer {
       this.handlePublishedEvents(res, target, body);
       return;
     }
-    if (req.method === "GET" && url.pathname.endsWith("/destination")) {
-      sendJson(res, 200, {
-        activeThread: activeThreadResponse(this.m_activeThreads.get(target)),
-        lastSentThread: { status: "empty" },
-      });
-      return;
-    }
-    if (req.method === "GET" && url.pathname.endsWith("/active-thread")) {
+	    if (req.method === "GET" && url.pathname.endsWith("/destination")) {
+	      sendJson(res, 200, {
+	        activeThread: activeThreadResponse(this.m_activeThreads.get(target)),
+	        lastSentThread: { status: "empty" },
+	      });
+	      return;
+	    }
+	    if (target === "legacy" && url.pathname.endsWith("/active-thread")) {
+	      sendJson(res, 404, { code: "active_thread_unsupported" });
+	      return;
+	    }
+	    if (req.method === "GET" && url.pathname.endsWith("/active-thread")) {
       sendJson(res, 200, activeThreadResponse(this.m_activeThreads.get(target)));
       return;
     }

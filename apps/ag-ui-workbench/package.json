@@ -6,7 +6,8 @@
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "e2e": "bunx playwright test --config=playwright.config.ts"
+    "e2e": "bunx playwright test --config=playwright.config.ts",
+    "e2e:real-agent-smoke": "bunx playwright test --config=playwright.real-agent.config.ts"
   },
   "dependencies": {
     "@ag-ui/core": "^0.0.55",

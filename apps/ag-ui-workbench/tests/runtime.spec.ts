@@ -1,10 +1,13 @@
 import { expect, test } from "@playwright/test";
 
 import type { CachedAgUiEventRecord } from "../src/ag-ui/eventCache";
+import { AgUiHttpError, type AgUiThreadDestination } from "../src/ag-ui/client";
 import type { RawTimelineEntry, TargetConfig } from "../src/ag-ui/types";
 import type { WatchedTargetRecord } from "../src/ag-ui/watchedTargets";
 import { WorkbenchRuntime, type WorkbenchRuntimeServices } from "../src/runtime/workbenchRuntime";
+import { selectTmuxInventory, selectTmuxPaneRuntime } from "../src/runtime/selectors";
 import { gatewayKeyForTarget, initialRuntimeState, reduceRuntimeState } from "../src/runtime/state";
+import type { TmuxSessionRow } from "../src/tmux/client";
 
 const target: TargetConfig = {
   label: "Alpha",
@@ -93,6 +96,130 @@ test("runtime shares one active-thread poller per gateway and tears it down", as
   expect(fetchCalls).toBe(callsAtDispose);
 });
 
+test("active-thread unsupported route stops polling and suppresses mutations", async () => {
+  const gatewayKey = gatewayKeyForTarget(target)!;
+  let fetchCalls = 0;
+  let setCalls = 0;
+  let clearCalls = 0;
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      activeThreadPollIntervalMs: 10,
+      fetchActiveThread: async () => {
+        fetchCalls += 1;
+        throw new AgUiHttpError(404, "Not Found", "active-thread route missing");
+      },
+      setActiveThread: async (_target, threadId, source) => {
+        setCalls += 1;
+        return { status: "active", threadId, source };
+      },
+      clearActiveThread: async () => {
+        clearCalls += 1;
+        return { status: "empty" };
+      },
+    }),
+  );
+
+  runtime.dispatch({
+    type: "activeThread/registerInterest",
+    paneId: "agent-1",
+    gatewayKey,
+    target,
+  });
+
+  await expect.poll(() => runtime.snapshot().activeThreads[gatewayKey]?.status).toBe("unsupported");
+  const fetchCallsAfterUnsupported = fetchCalls;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(fetchCalls).toBe(fetchCallsAfterUnsupported);
+
+  runtime.dispatch({
+    type: "activeThread/setRequested",
+    paneId: "agent-1",
+    gatewayKey,
+    target,
+    threadId: "alpha-thread",
+    source: "gui_button",
+  });
+  runtime.dispatch({
+    type: "activeThread/clearRequested",
+    paneId: "agent-1",
+    gatewayKey,
+    target,
+    expectedThreadId: "alpha-thread",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(setCalls).toBe(0);
+  expect(clearCalls).toBe(0);
+
+  runtime.dispose();
+});
+
+test("active-thread unsupported state resets when the registered target changes", () => {
+  const gatewayKey = gatewayKeyForTarget(target)!;
+  const registered = reduceRuntimeState(initialRuntimeState, {
+    type: "activeThread/registerInterest",
+    paneId: "agent-1",
+    gatewayKey,
+    target,
+  });
+  const unsupported = reduceRuntimeState(registered, {
+    type: "activeThread/unsupported",
+    gatewayKey,
+    target,
+    error: "AG-UI HTTP 404",
+    receivedAt: "2026-06-10T00:00:00Z",
+  });
+  const nextTarget = { ...target, threadId: "next-thread" };
+  const reset = reduceRuntimeState(unsupported, {
+    type: "activeThread/registerInterest",
+    paneId: "agent-1",
+    gatewayKey,
+    target: nextTarget,
+  });
+
+  expect(reset.activeThreads[gatewayKey].status).toBe("idle");
+  expect(reset.activeThreads[gatewayKey].activeThread).toEqual({ status: "empty" });
+  expect(reset.activeThreads[gatewayKey].error).toBeUndefined();
+});
+
+test("active-thread poller does not overlap slow polls or abort them on interval ticks", async () => {
+  const gatewayKey = gatewayKeyForTarget(target)!;
+  const polls: Array<Deferred<AgUiThreadDestination> & { aborted: boolean }> = [];
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      activeThreadPollIntervalMs: 10,
+      fetchActiveThread: async (_target, signal) => {
+        const pending = deferred<AgUiThreadDestination>() as Deferred<AgUiThreadDestination> & {
+          aborted: boolean;
+        };
+        pending.aborted = false;
+        signal?.addEventListener("abort", () => {
+          pending.aborted = true;
+        });
+        polls.push(pending);
+        return pending.promise;
+      },
+    }),
+  );
+
+  runtime.dispatch({
+    type: "activeThread/registerInterest",
+    paneId: "agent-1",
+    gatewayKey,
+    target,
+  });
+
+  await expect.poll(() => polls.length).toBe(1);
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  expect(polls).toHaveLength(1);
+  expect(polls[0].aborted).toBeFalsy();
+
+  polls[0].resolve({ status: "empty" });
+  await expect.poll(() => runtime.snapshot().activeThreads[gatewayKey]?.status).toBe("ready");
+  await expect.poll(() => polls.length).toBeGreaterThan(1);
+
+  runtime.dispose();
+});
+
 test("watched target runtime caches live events and does not set active thread", async () => {
   const cached: CachedAgUiEventRecord[] = [];
   const activeThreadUpdates: Array<{ threadId: string; source: string }> = [];
@@ -171,7 +298,6 @@ test("pane run stream reduces events, cancels, and does not retain prompt text",
     paneId: "agent-1",
     target,
     message: "secret prompt text",
-    canvasSize: { w: 640, h: 420 },
   });
 
   await expect.poll(() => runtime.snapshot().paneAgUi["agent-1"]?.eventState.transcript[0]?.content).toBe(
@@ -223,6 +349,211 @@ test("tmux runtime routes output to sinks, suppresses read-only input, and clean
   expect(output.join("")).not.toContain("late-output");
 
   runtime.dispose();
+});
+
+test("tmux runtime refreshes inventory only on explicit requests and shares results", async () => {
+  let fetchCalls = 0;
+  let timerCalls = 0;
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      tmuxInventoryPollIntervalMs: 50,
+      fetchTmuxSessions: async () => {
+        fetchCalls += 1;
+        return {
+          status: "ready",
+          tmuxAvailable: true,
+          sessions: [tmuxSession("houmao-alpha")],
+        };
+      },
+      setTimeout: (handler, timeoutMs) => {
+        timerCalls += 1;
+        return setTimeout(handler, timeoutMs) as unknown as number;
+      },
+    }),
+  );
+
+  runtime.dispatch({
+    type: "tmux/registerInventoryInterest",
+    paneId: "tmux-1",
+    passiveServerUrl: "http://127.0.0.1:17070",
+  });
+  runtime.dispatch({
+    type: "tmux/registerInventoryInterest",
+    paneId: "tmux-2",
+    passiveServerUrl: "http://127.0.0.1:17070",
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  expect(fetchCalls).toBe(0);
+  expect(timerCalls).toBe(0);
+  expect(selectTmuxInventory(runtime.snapshot()).interestedPaneIds.sort()).toEqual([
+    "tmux-1",
+    "tmux-2",
+  ]);
+
+  runtime.dispatch({
+    type: "tmux/refreshRequested",
+    paneId: "tmux-1",
+    passiveServerUrl: "http://127.0.0.1:17070",
+  });
+  await expect.poll(() => fetchCalls).toBe(1);
+  expect(selectTmuxPaneRuntime(runtime.snapshot(), "tmux-1")?.sessions).toEqual([
+    tmuxSession("houmao-alpha"),
+  ]);
+  expect(selectTmuxPaneRuntime(runtime.snapshot(), "tmux-2")?.sessions).toEqual([
+    tmuxSession("houmao-alpha"),
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect(fetchCalls).toBe(1);
+
+  runtime.dispatch({ type: "tmux/unregisterInventoryInterest", paneId: "tmux-1" });
+  runtime.dispatch({ type: "tmux/unregisterInventoryInterest", paneId: "tmux-2" });
+
+  runtime.dispose();
+});
+
+test("tmux runtime ignores stale inventory responses", async () => {
+  const sessionResponses: Array<Deferred<TmuxSessionRow[]>> = [];
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      fetchTmuxSessions: async () => {
+        const pending = deferred<TmuxSessionRow[]>();
+        sessionResponses.push(pending);
+        return {
+          status: "ready",
+          tmuxAvailable: true,
+          sessions: await pending.promise,
+        };
+      },
+    }),
+  );
+
+  runtime.dispatch({
+    type: "tmux/refreshRequested",
+    paneId: "tmux-1",
+    passiveServerUrl: "http://127.0.0.1:17070",
+  });
+  await expect.poll(() => sessionResponses.length).toBe(1);
+
+  runtime.dispatch({
+    type: "tmux/refreshRequested",
+    paneId: "tmux-1",
+    passiveServerUrl: "http://127.0.0.1:17070",
+  });
+  await expect.poll(() => sessionResponses.length).toBe(2);
+
+  sessionResponses[1].resolve([tmuxSession("houmao-beta")]);
+  await expect
+    .poll(() => selectTmuxPaneRuntime(runtime.snapshot(), "tmux-1")?.sessions.map((session) => session.sessionName))
+    .toEqual(["houmao-beta"]);
+
+  sessionResponses[0].resolve([tmuxSession("houmao-alpha"), tmuxSession("houmao-beta")]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(selectTmuxPaneRuntime(runtime.snapshot(), "tmux-1")?.sessions.map((session) => session.sessionName)).toEqual([
+    "houmao-beta",
+  ]);
+
+  runtime.dispose();
+});
+
+test("tmux attach exit refreshes inventory without controlling sessions", async () => {
+  const socket = new FakeSocket();
+  let sessions = [tmuxSession("houmao-alpha")];
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      openTmuxAttachSocket: () => socket.asWebSocket(),
+      fetchTmuxSessions: async () => ({
+        status: "ready",
+        tmuxAvailable: true,
+        sessions,
+      }),
+    }),
+  );
+
+  runtime.dispatch({
+    type: "tmux/refreshRequested",
+    paneId: "tmux-1",
+    passiveServerUrl: "http://127.0.0.1:17070",
+  });
+  await expect
+    .poll(() => selectTmuxPaneRuntime(runtime.snapshot(), "tmux-1")?.sessions.map((session) => session.sessionName))
+    .toEqual(["houmao-alpha"]);
+
+  runtime.dispatch({
+    type: "tmux/attachRequested",
+    paneId: "tmux-1",
+    sessionName: "houmao-alpha",
+    mode: "read-write",
+    cols: 80,
+    rows: 24,
+  });
+  socket.open();
+  socket.message({ type: "attached" });
+  await expect.poll(() => runtime.snapshot().tmuxPanes["tmux-1"]?.attachState).toBe("attached");
+
+  sessions = [];
+  socket.message({ type: "exit", exitCode: 0, signal: 0 });
+
+  await expect.poll(() => runtime.snapshot().tmuxPanes["tmux-1"]?.attachState).toBe("disconnected");
+  await expect
+    .poll(() => selectTmuxPaneRuntime(runtime.snapshot(), "tmux-1")?.sessions.map((session) => session.sessionName))
+    .toEqual([]);
+  expect(socket.sent.some((value) => value.includes("kill-session"))).toBeFalsy();
+
+  runtime.dispose();
+});
+
+test("tmux inventory refreshes on manual requests without browser-focus polling", async () => {
+  const previousWindow = globalThis.window;
+  const listeners = new Map<string, () => void>();
+  globalThis.window = {
+    addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (typeof listener === "function") {
+        listeners.set(type, listener as () => void);
+      }
+    },
+    removeEventListener: (type: string) => {
+      listeners.delete(type);
+    },
+  } as unknown as Window & typeof globalThis;
+  let fetchCalls = 0;
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      fetchTmuxSessions: async () => {
+        fetchCalls += 1;
+        return {
+          status: "ready",
+          tmuxAvailable: true,
+          sessions: [],
+        };
+      },
+    }),
+  );
+
+  try {
+    runtime.dispatch({
+      type: "tmux/registerInventoryInterest",
+      paneId: "tmux-1",
+      passiveServerUrl: "http://127.0.0.1:17070",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchCalls).toBe(0);
+    expect(listeners.has("focus")).toBeFalsy();
+
+    runtime.dispatch({
+      type: "tmux/refreshRequested",
+      paneId: "tmux-1",
+      passiveServerUrl: "http://127.0.0.1:17070",
+    });
+    await expect.poll(() => fetchCalls).toBe(1);
+
+    listeners.get("focus")?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchCalls).toBe(1);
+  } finally {
+    runtime.dispose();
+    globalThis.window = previousWindow;
+  }
 });
 
 test("runtime disposal aborts watched streams and closes tmux sockets", async () => {
@@ -313,6 +644,28 @@ function rawEntry(marker: string): RawTimelineEntry {
     id: marker,
     receivedAt: "2026-06-10T00:00:00Z",
     raw: marker,
+  };
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+function tmuxSession(sessionName: string): TmuxSessionRow {
+  return {
+    sessionName,
+    windowCount: 1,
+    attached: false,
+    createdAtUtc: "2026-06-10T00:00:00Z",
   };
 }
 

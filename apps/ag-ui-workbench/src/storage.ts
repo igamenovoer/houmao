@@ -5,6 +5,7 @@ import type { WatchedTargetRecord } from "./ag-ui/watchedTargets";
 import { watchedTargetKey } from "./ag-ui/watchedTargets";
 
 export type PaneKind = "agent" | "debug-agent" | "tmux";
+export type TemplateGraphicBackendOverride = "auto" | "vega-lite" | "recharts";
 
 export interface DebugAgentConfig {
   debugAgentId: string;
@@ -17,12 +18,17 @@ export interface TmuxTabConfig {
   houmaoOnly: boolean;
 }
 
+export interface PanePresentationConfig {
+  templateGraphicBackend: TemplateGraphicBackendOverride;
+}
+
 export interface PaneRecord {
   paneId: string;
   kind: PaneKind;
   target: TargetConfig;
   resetToken?: number;
   debugAgent?: DebugAgentConfig;
+  presentation?: PanePresentationConfig;
   tmux?: TmuxTabConfig;
 }
 
@@ -74,6 +80,10 @@ export function defaultTmuxTabConfig(): TmuxTabConfig {
     mode: "read-write",
     houmaoOnly: true,
   };
+}
+
+export function defaultPanePresentationConfig(): PanePresentationConfig {
+  return { templateGraphicBackend: "auto" };
 }
 
 export function defaultStorage(): WorkbenchStorage {
@@ -161,8 +171,9 @@ function sanitizePaneRecords(value: unknown): Record<string, PaneRecord> {
     const target = sanitizeTarget(record.target, defaultTarget(paneId, kind));
     const resetToken = typeof record.resetToken === "number" ? record.resetToken : undefined;
     const debugAgent = kind === "debug-agent" ? sanitizeDebugAgent(record.debugAgent, paneId) : undefined;
+    const presentation = sanitizePanePresentationConfig(record.presentation);
     const tmux = kind === "tmux" ? sanitizeTmuxTabConfig(record.tmux) : undefined;
-    records[paneId] = { paneId, kind, target, resetToken, debugAgent, tmux };
+    records[paneId] = { paneId, kind, target, resetToken, debugAgent, presentation, tmux };
   }
   return records;
 }
@@ -275,6 +286,23 @@ function sanitizeDebugAgent(value: unknown, paneId: string): DebugAgentConfig {
     replayEnabled:
       typeof config.replayEnabled === "boolean" ? config.replayEnabled : fallback.replayEnabled,
   };
+}
+
+function sanitizePanePresentationConfig(value: unknown): PanePresentationConfig {
+  if (!value || typeof value !== "object") {
+    return defaultPanePresentationConfig();
+  }
+  const config = value as Partial<PanePresentationConfig>;
+  return {
+    templateGraphicBackend: sanitizeTemplateGraphicBackendOverride(config.templateGraphicBackend),
+  };
+}
+
+function sanitizeTemplateGraphicBackendOverride(value: unknown): TemplateGraphicBackendOverride {
+  if (value === "vega-lite" || value === "recharts") {
+    return value;
+  }
+  return "auto";
 }
 
 function sanitizeTmuxTabConfig(value: unknown): TmuxTabConfig {

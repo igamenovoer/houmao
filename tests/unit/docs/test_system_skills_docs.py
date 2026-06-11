@@ -58,6 +58,9 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert '"help me send mail to this agent"' in overview
     assert "teaches Houmao in stages" in overview
     assert "offers stage-aware next actions" in overview
+    assert "`houmao-interop-ag-ui`" in overview
+    assert "Houmao typed component authoring, AG-UI event rendering" in overview
+    assert "`houmao-agent-ag-ui`" not in overview
 
     assert "This page documents `houmao-mgr system-skills` command behavior" in cli_reference
     assert f"npx skills add {system_skills_collection}" in cli_reference

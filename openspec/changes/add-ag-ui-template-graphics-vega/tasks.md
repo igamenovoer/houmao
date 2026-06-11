@@ -22,7 +22,7 @@
 
 ## 4. Agent Guidance and Debug Fixtures
 
-- [x] 4.1 Update `houmao-agent-ag-ui` guidance to prefer `houmao.graphic.template` for ordinary Layer 1 charts and keep raw Vega-Lite out of Layer 1 `extra`.
+- [x] 4.1 Update `houmao-interop-ag-ui` guidance to prefer `houmao.graphic.template` for ordinary Layer 1 charts and keep raw Vega-Lite out of Layer 1 `extra`.
 - [x] 4.2 Update Debug Agent component lists and templates so developers can send a template graphic payload from the workbench.
 - [x] 4.3 Update system-skill docs tests if they assert specific AG-UI component guidance.
 

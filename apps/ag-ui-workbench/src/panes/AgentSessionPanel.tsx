@@ -8,9 +8,11 @@ import { watchedTargetKey } from "../ag-ui/watchedTargets";
 import type { WorkbenchRuntimeAction } from "../runtime/actions";
 import { useRuntimeDispatch, useRuntimeSelector } from "../runtime/react";
 import { gatewayKeyForTarget, selectPaneActiveThreadView, selectPaneAgUiRuntime } from "../runtime/selectors";
+import { defaultPanePresentationConfig, type TemplateGraphicBackendOverride } from "../storage";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
 import { CapabilityBadges } from "./CapabilityBadges";
+import { submitOnShiftEnter } from "./keyboard";
 import { TargetForm } from "./TargetForm";
 
 interface PanelParams {
@@ -23,6 +25,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     storage,
     watchedTargetRuntimes,
     updateTarget,
+    updatePanePresentation,
     removePaneRecord,
     setOperatorPaneId,
     watchTarget,
@@ -33,6 +36,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId, kind } = props.params;
   const record = paneRecordOrDefault(storage, paneId, kind);
   const target = record.target;
+  const presentation = record.presentation ?? defaultPanePresentationConfig();
   const runtimeDispatch = useRuntimeDispatch();
   const resetTokenRef = useRef(record.resetToken ?? 0);
   const displaySurfaceRef = useRef<HTMLElement | null>(null);
@@ -137,7 +141,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const connect = async () => {
-    if (activeThreadView.isEligible && activeGatewayKey && target.threadId) {
+    if (activeThreadView.canMutate && activeGatewayKey && target.threadId) {
       runtimeDispatch({
         type: "activeThread/setRequested",
         paneId,
@@ -166,7 +170,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
       paneId,
       message: text,
       target,
-      canvasSize: measureCanvasSize(displaySurfaceRef.current),
     });
   };
 
@@ -237,7 +240,7 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   };
 
   const markActiveThread = () => {
-    if (!activeThreadView.isEligible || !activeGatewayKey || !target.threadId) {
+    if (!activeThreadView.canMutate || !activeGatewayKey || !target.threadId) {
       return;
     }
     runtimeDispatch({
@@ -250,13 +253,25 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     });
   };
 
+  const setTemplateGraphicBackend = (templateGraphicBackend: TemplateGraphicBackendOverride) => {
+    updatePanePresentation(paneId, {
+      ...presentation,
+      templateGraphicBackend,
+    });
+  };
+
   const visibleStatus =
     watchedRuntime?.status ?? (paneRuntime?.status === "empty" ? displayEventState.status : paneRuntime?.status ?? "empty");
   const isDiscoveredAgent = target.source?.kind === "discovered";
   const isOperatorPane = storage.operatorPaneId === paneId;
-  const activeThreadButtonClass = activeThreadView.isActive
-    ? "active-thread-button active"
-    : "active-thread-button";
+	  const activeThreadButtonClass = activeThreadView.isActive
+	    ? "active-thread-button active"
+	    : "active-thread-button";
+	  const activeThreadButtonTitle = activeThreadView.isUnsupported
+	    ? "Active-thread route is unsupported by this gateway"
+	    : activeThreadView.isActive
+	      ? "Active AG-UI default thread"
+	      : "Mark as active AG-UI default thread";
 
   return (
     <section className="session-panel" data-testid={`panel-${paneId}`}>
@@ -279,17 +294,13 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
           <button title="Clear canvas" data-testid={`clear-canvas-${paneId}`} onClick={() => void clearCanvas()}>
             <Eraser size={15} />
           </button>
-          <button
-            className={activeThreadButtonClass}
-            title={
-              activeThreadView.isActive
-                ? "Active AG-UI default thread"
-                : "Mark as active AG-UI default thread"
-            }
-            data-testid={`mark-active-thread-${paneId}`}
-            disabled={!activeThreadView.isEligible}
-            onClick={markActiveThread}
-          >
+	          <button
+	            className={activeThreadButtonClass}
+	            title={activeThreadButtonTitle}
+	            data-testid={`mark-active-thread-${paneId}`}
+	            disabled={!activeThreadView.canMutate}
+	            onClick={markActiveThread}
+	          >
             <Crosshair size={15} />
           </button>
           <button
@@ -314,15 +325,17 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
           Operator
         </div>
       ) : null}
-      {activeThreadView.isEligible ? (
-        <div
-          className={`active-thread-marker ${activeThreadView.isActive ? "active" : "idle"}`}
-          data-testid={`active-thread-marker-${paneId}`}
-          title={activeThreadView.error ?? undefined}
-        >
-          <span>{activeThreadView.isActive ? "Active thread" : "Inactive thread"}</span>
-          <span>{activeThreadView.status}</span>
-        </div>
+	      {activeThreadView.isEligible ? (
+	        <div
+	          className={`active-thread-marker ${
+	            activeThreadView.isUnsupported ? "unsupported" : activeThreadView.isActive ? "active" : "idle"
+	          }`}
+	          data-testid={`active-thread-marker-${paneId}`}
+	          title={activeThreadView.error ?? undefined}
+	        >
+	          <span>{activeThreadView.label}</span>
+	          <span>{activeThreadView.status}</span>
+	        </div>
       ) : null}
 
       <TargetForm
@@ -332,6 +345,20 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         onChooseAgent={() => openAgentPicker({ mode: "retarget", paneId })}
       />
       <CapabilityBadges capabilities={capabilities} />
+      <label className="template-renderer-control">
+        <span>Template Renderer</span>
+        <select
+          data-testid={`template-renderer-${paneId}`}
+          value={presentation.templateGraphicBackend}
+          onChange={(event) =>
+            setTemplateGraphicBackend(event.target.value as TemplateGraphicBackendOverride)
+          }
+        >
+          <option value="auto">Auto</option>
+          <option value="vega-lite">Vega-Lite</option>
+          <option value="recharts">Recharts</option>
+        </select>
+      </label>
       {targetWatchKey && watchedRecord ? (
         <div className="watch-strip" data-testid={`watch-strip-${paneId}`}>
           <span>Watched</span>
@@ -340,12 +367,13 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
       ) : null}
 
       <div className="composer">
-        <textarea
-          data-testid={`prompt-${paneId}`}
-          value={prompt}
-          placeholder="Pane prompt"
-          onChange={(event) => setPrompt(event.target.value)}
-        />
+	        <textarea
+	          data-testid={`prompt-${paneId}`}
+	          value={prompt}
+	          placeholder="Pane prompt"
+	          onChange={(event) => setPrompt(event.target.value)}
+	          onKeyDown={(event) => submitOnShiftEnter(event, run)}
+	        />
         <button className="run-button" title="Submit AG-UI run" data-testid={`run-${paneId}`} onClick={() => void run()}>
           <Play size={16} />
           Run
@@ -357,6 +385,8 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         eventState={displayEventState}
         latestErrors={latestErrors}
         transcriptSurfaceRef={displaySurfaceRef}
+        diagnosticsMode="message"
+        templateGraphicBackend={presentation.templateGraphicBackend}
       />
       <button className="danger-link" title="Remove pane" onClick={() => void closePane()}>
         <Trash2 size={13} />
@@ -368,19 +398,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
 
 function requestErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "AG-UI request failed.";
-}
-
-function measureCanvasSize(element: HTMLElement | null): { w: number; h: number } | null {
-  if (!element) {
-    return null;
-  }
-  const rect = element.getBoundingClientRect();
-  const w = Math.round(rect.width);
-  const h = Math.round(rect.height);
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
-    return null;
-  }
-  return { w, h };
 }
 
 function clearActiveThreadSelection(

@@ -1,7 +1,6 @@
 import type {
   ActiveThreadSource,
   AgUiThreadDestination,
-  CanvasSize,
 } from "../ag-ui/client";
 import type {
   AgUiEvent,
@@ -58,7 +57,6 @@ export type WorkbenchRuntimeAction =
       paneId: string;
       target: TargetConfig;
       message: string;
-      canvasSize?: CanvasSize | null;
     }
   | {
       type: "agUi/cancelRequested";
@@ -188,6 +186,15 @@ export type WorkbenchRuntimeAction =
       receivedAt: string;
     }
   | {
+      type: "tmux/registerInventoryInterest";
+      paneId: string;
+      passiveServerUrl: string;
+    }
+  | {
+      type: "tmux/unregisterInventoryInterest";
+      paneId: string;
+    }
+  | {
       type: "tmux/refreshRequested";
       paneId: string;
       passiveServerUrl: string;
@@ -289,14 +296,21 @@ export type WorkbenchRuntimeAction =
       activeThread: AgUiThreadDestination;
       receivedAt: string;
     }
-  | {
-      type: "activeThread/pollFailed";
-      gatewayKey: GatewayKey;
-      error: string;
-      receivedAt: string;
-    }
-  | {
-      type: "activeThread/setRequested";
+	  | {
+	      type: "activeThread/pollFailed";
+	      gatewayKey: GatewayKey;
+	      error: string;
+	      receivedAt: string;
+	    }
+	  | {
+	      type: "activeThread/unsupported";
+	      gatewayKey: GatewayKey;
+	      target: TargetConfig;
+	      error: string;
+	      receivedAt: string;
+	    }
+	  | {
+	      type: "activeThread/setRequested";
       paneId: string;
       gatewayKey: GatewayKey;
       target: TargetConfig;
@@ -383,6 +397,10 @@ export type TmuxRefreshRequestedAction = Extract<
   WorkbenchRuntimeAction,
   { type: "tmux/refreshRequested" }
 >;
+export type TmuxRegisterInventoryInterestAction = Extract<
+  WorkbenchRuntimeAction,
+  { type: "tmux/registerInventoryInterest" }
+>;
 export type TmuxAttachRequestedAction = Extract<
   WorkbenchRuntimeAction,
   { type: "tmux/attachRequested" }
@@ -442,6 +460,12 @@ export function isTmuxRefreshRequested(
   action: WorkbenchRuntimeAction,
 ): action is TmuxRefreshRequestedAction {
   return action.type === "tmux/refreshRequested";
+}
+
+export function isTmuxRegisterInventoryInterest(
+  action: WorkbenchRuntimeAction,
+): action is TmuxRegisterInventoryInterestAction {
+  return action.type === "tmux/registerInventoryInterest";
 }
 
 export function isTmuxAttachRequested(

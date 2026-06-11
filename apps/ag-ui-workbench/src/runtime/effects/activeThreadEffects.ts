@@ -1,5 +1,6 @@
-import { EMPTY, Observable, Subscription, catchError, filter, from, map, mergeMap, of, switchMap, timer } from "rxjs";
+import { EMPTY, Observable, Subscription, catchError, exhaustMap, filter, from, map, mergeMap, of, timer } from "rxjs";
 
+import { AgUiHttpError } from "../../ag-ui/client";
 import type { WorkbenchRuntime } from "../workbenchRuntime";
 import type { WorkbenchRuntimeServices } from "../workbenchRuntime";
 import {
@@ -22,9 +23,9 @@ export function installActiveThreadEffects(
   subscriptions.add(
     runtime.state$.subscribe((state) => {
       const interestedKeys = new Set(
-        Object.entries(state.activeThreads)
-          .filter(([, gateway]) => gateway.interestedPaneIds.length > 0)
-          .map(([gatewayKey]) => gatewayKey),
+	        Object.entries(state.activeThreads)
+	          .filter(([, gateway]) => gateway.interestedPaneIds.length > 0 && gateway.status !== "unsupported")
+	          .map(([gatewayKey]) => gatewayKey),
       );
       for (const gatewayKey of interestedKeys) {
         if (!pollers.has(gatewayKey)) {
@@ -44,27 +45,39 @@ export function installActiveThreadEffects(
     runtime.actions$
       .pipe(
         filter(isActiveThreadSetRequested),
-        mergeMap((action) =>
-          from(services.setActiveThread(action.target, action.threadId, action.source)).pipe(
-            map((activeThread) => ({
-              type: "activeThread/setSucceeded" as const,
+	        mergeMap((action) => {
+	          if (runtime.snapshot().activeThreads[action.gatewayKey]?.status === "unsupported") {
+	            return EMPTY;
+	          }
+	          return from(services.setActiveThread(action.target, action.threadId, action.source)).pipe(
+	            map((activeThread) => ({
+	              type: "activeThread/setSucceeded" as const,
               paneId: action.paneId,
               gatewayKey: action.gatewayKey,
               target: action.target,
               activeThread,
               receivedAt: nowUtc(),
             })),
-            catchError((error: unknown) =>
-              of({
-                type: "activeThread/mutationFailed" as const,
-                paneId: action.paneId,
-                gatewayKey: action.gatewayKey,
-                error: errorMessage(error),
-                receivedAt: nowUtc(),
-              }),
-            ),
-          ),
-        ),
+	            catchError((error: unknown) => {
+	              if (isUnsupportedActiveThreadError(error)) {
+	                return of({
+	                  type: "activeThread/unsupported" as const,
+	                  gatewayKey: action.gatewayKey,
+	                  target: action.target,
+	                  error: errorMessage(error),
+	                  receivedAt: nowUtc(),
+	                });
+	              }
+	              return of({
+	                type: "activeThread/mutationFailed" as const,
+	                paneId: action.paneId,
+	                gatewayKey: action.gatewayKey,
+	                error: errorMessage(error),
+	                receivedAt: nowUtc(),
+	              });
+	            }),
+	          );
+	        }),
       )
       .subscribe((action) => runtime.dispatch(action)),
   );
@@ -73,27 +86,39 @@ export function installActiveThreadEffects(
     runtime.actions$
       .pipe(
         filter(isActiveThreadClearRequested),
-        mergeMap((action) =>
-          from(services.clearActiveThread(action.target, action.expectedThreadId)).pipe(
-            map((activeThread) => ({
-              type: "activeThread/clearSucceeded" as const,
+	        mergeMap((action) => {
+	          if (runtime.snapshot().activeThreads[action.gatewayKey]?.status === "unsupported") {
+	            return EMPTY;
+	          }
+	          return from(services.clearActiveThread(action.target, action.expectedThreadId)).pipe(
+	            map((activeThread) => ({
+	              type: "activeThread/clearSucceeded" as const,
               paneId: action.paneId,
               gatewayKey: action.gatewayKey,
               target: action.target,
               activeThread,
               receivedAt: nowUtc(),
             })),
-            catchError((error: unknown) =>
-              of({
-                type: "activeThread/mutationFailed" as const,
-                paneId: action.paneId,
-                gatewayKey: action.gatewayKey,
-                error: errorMessage(error),
-                receivedAt: nowUtc(),
-              }),
-            ),
-          ),
-        ),
+	            catchError((error: unknown) => {
+	              if (isUnsupportedActiveThreadError(error)) {
+	                return of({
+	                  type: "activeThread/unsupported" as const,
+	                  gatewayKey: action.gatewayKey,
+	                  target: action.target,
+	                  error: errorMessage(error),
+	                  receivedAt: nowUtc(),
+	                });
+	              }
+	              return of({
+	                type: "activeThread/mutationFailed" as const,
+	                paneId: action.paneId,
+	                gatewayKey: action.gatewayKey,
+	                error: errorMessage(error),
+	                receivedAt: nowUtc(),
+	              });
+	            }),
+	          );
+	        }),
       )
       .subscribe((action) => runtime.dispatch(action)),
   );
@@ -117,13 +142,13 @@ function startActiveThreadPoller(
   const controllers = new Set<AbortController>();
   const subscription = new Subscription();
   subscription.add(
-    timer(0, pollIntervalMs)
-    .pipe(
-      switchMap(() => {
-        const gateway = runtime.snapshot().activeThreads[gatewayKey];
-        if (!gateway || gateway.interestedPaneIds.length === 0) {
-          return EMPTY;
-        }
+	    timer(0, pollIntervalMs)
+	    .pipe(
+	      exhaustMap(() => {
+	        const gateway = runtime.snapshot().activeThreads[gatewayKey];
+	        if (!gateway || gateway.interestedPaneIds.length === 0 || gateway.status === "unsupported") {
+	          return EMPTY;
+	        }
         runtime.dispatch({ type: "activeThread/pollStarted", gatewayKey });
         return new Observable<WorkbenchRuntimeAction>((subscriber) => {
           const controller = new AbortController();
@@ -142,16 +167,26 @@ function startActiveThreadPoller(
                 subscriber.complete();
               }
             })
-            .catch((error: unknown) => {
-              if (!subscriber.closed) {
-                subscriber.next({
-                  type: "activeThread/pollFailed",
-                  gatewayKey,
-                  error: errorMessage(error),
-                  receivedAt: nowUtc(),
-                });
-                subscriber.complete();
-              }
+	            .catch((error: unknown) => {
+	              if (!subscriber.closed) {
+	                if (isUnsupportedActiveThreadError(error)) {
+	                  subscriber.next({
+	                    type: "activeThread/unsupported",
+	                    gatewayKey,
+	                    target: gateway.target,
+	                    error: errorMessage(error),
+	                    receivedAt: nowUtc(),
+	                  });
+	                } else {
+	                  subscriber.next({
+	                    type: "activeThread/pollFailed",
+	                    gatewayKey,
+	                    error: errorMessage(error),
+	                    receivedAt: nowUtc(),
+	                  });
+	                }
+	                subscriber.complete();
+	              }
             })
             .finally(() => {
               controllers.delete(controller);
@@ -180,4 +215,23 @@ function nowUtc(): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isUnsupportedActiveThreadError(error: unknown): boolean {
+  const status = httpStatus(error);
+  return status === 404 || status === 405;
+}
+
+function httpStatus(error: unknown): number | null {
+  if (error instanceof AgUiHttpError) {
+    return error.status;
+  }
+  if (isRecord(error) && typeof error.status === "number") {
+    return error.status;
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

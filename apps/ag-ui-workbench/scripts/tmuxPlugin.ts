@@ -19,6 +19,8 @@ interface TmuxSessionRow {
   createdAtUtc: string;
 }
 
+let fixtureSessionRows: TmuxSessionRow[] | null = null;
+
 interface ClientAttachMessage {
   type: "attach";
   sessionName: string;
@@ -85,6 +87,8 @@ async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerResponse):
           `GET ${TMUX_PREFIX}/status`,
           `GET ${TMUX_PREFIX}/sessions`,
           `WS ${TMUX_PREFIX}/attach`,
+          `POST ${TMUX_PREFIX}/fixture/reset`,
+          `DELETE ${TMUX_PREFIX}/fixture/sessions/{sessionName}`,
         ],
       });
       return;
@@ -105,6 +109,29 @@ async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerResponse):
   if (req.method === "GET" && requestUrl.pathname === "/sessions") {
     const sessions = await listTmuxSessions();
     sendJson(res, 200, sessions);
+    return;
+  }
+  if (tmuxFixtureEnabled() && req.method === "POST" && requestUrl.pathname === "/fixture/reset") {
+    resetFixtureSessions();
+    sendJson(res, 200, {
+      status: "ready",
+      sessions: fixtureSessions(),
+    });
+    return;
+  }
+  if (
+    tmuxFixtureEnabled() &&
+    req.method === "DELETE" &&
+    requestUrl.pathname.startsWith("/fixture/sessions/")
+  ) {
+    const sessionName = decodeURIComponent(
+      requestUrl.pathname.slice("/fixture/sessions/".length),
+    );
+    const removed = removeFixtureSession(sessionName);
+    sendJson(res, 200, {
+      status: removed ? "removed" : "missing",
+      sessions: fixtureSessions(),
+    });
     return;
   }
   sendJson(res, 404, {
@@ -379,6 +406,20 @@ function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
         });
         return;
       }
+      if (message.value.data.includes("\u0004")) {
+        removeFixtureSession(sessionName);
+        sendWs(ws, {
+          type: "output",
+          data: `fixture session ${sessionName} exited\r\n`,
+        });
+        sendWs(ws, {
+          type: "exit",
+          exitCode: 0,
+          signal: 0,
+        });
+        ws.close(1000, "fixture session exited");
+        return;
+      }
       sendWs(ws, {
         type: "output",
         data: `fixture input ${message.value.data}\r\n`,
@@ -506,6 +547,28 @@ function tmuxFixtureEnabled(): boolean {
 }
 
 function fixtureSessions(): TmuxSessionRow[] {
+  if (!fixtureSessionRows) {
+    fixtureSessionRows = defaultFixtureSessions();
+  }
+  return fixtureSessionRows.map((session) => ({ ...session }));
+}
+
+function resetFixtureSessions(): void {
+  fixtureSessionRows = defaultFixtureSessions();
+}
+
+function removeFixtureSession(sessionName: string): boolean {
+  if (!fixtureSessionRows) {
+    resetFixtureSessions();
+  }
+  const before = fixtureSessionRows?.length ?? 0;
+  fixtureSessionRows = (fixtureSessionRows ?? []).filter(
+    (session) => session.sessionName !== sessionName,
+  );
+  return fixtureSessionRows.length !== before;
+}
+
+function defaultFixtureSessions(): TmuxSessionRow[] {
   return [
     {
       sessionName: "houmao-alpha",

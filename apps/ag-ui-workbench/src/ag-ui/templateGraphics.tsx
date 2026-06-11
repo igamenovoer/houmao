@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import {
   Area,
   AreaChart,
@@ -20,11 +28,13 @@ import {
 } from "recharts";
 import vegaEmbed, { type Result as VegaEmbedResult, type VisualizationSpec } from "vega-embed";
 
+import type { TemplateGraphicBackendOverride } from "../storage";
 import type { JsonObject, JsonScalar, JsonValue } from "./types";
 
 export interface TemplateRendererContext {
   paneId: string;
   toolCallId: string;
+  templateGraphicBackend?: TemplateGraphicBackendOverride;
 }
 
 type ChartType = "bar" | "line" | "scatter" | "area" | "pie";
@@ -117,7 +127,7 @@ const TEMPLATE_RENDERERS: Record<RendererId, { supports: (payload: TemplateGraph
     render: renderVegaLiteTemplate,
   },
   recharts: {
-    supports: () => true,
+    supports: supportsRechartsTemplate,
     render: renderRechartsTemplate,
   },
 };
@@ -134,18 +144,18 @@ export function renderTemplateGraphic(payload: unknown, context: TemplateRendere
       />
     );
   }
-  const rendererId = selectRenderer(validated.value);
-  if (!rendererId) {
+  const selection = selectRenderer(validated.value, context.templateGraphicBackend ?? "auto");
+  if (!selection.rendererId) {
     return (
       <TemplateFallback
         paneId={context.paneId}
         title={validated.value.title}
-        detail="No supported template graphic renderer is available."
+        detail={selection.detail ?? "No supported template graphic renderer is available."}
         raw={safeJson(payload)}
       />
     );
   }
-  return <>{TEMPLATE_RENDERERS[rendererId].render(validated.value, context)}</>;
+  return <>{TEMPLATE_RENDERERS[selection.rendererId].render(validated.value, context)}</>;
 }
 
 function renderRechartsTemplate(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
@@ -296,22 +306,32 @@ function renderVegaLiteTemplate(payload: TemplateGraphicPayload, context: Templa
     <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
       <VegaLiteTemplateView
         paneId={context.paneId}
-        spec={templatePayloadToVegaLiteSpec(payload)}
+        payload={payload}
       />
     </TemplateFrame>
   );
 }
 
-function VegaLiteTemplateView({ paneId, spec }: { paneId: string; spec: VisualizationSpec }) {
+function VegaLiteTemplateView({
+  paneId,
+  payload,
+}: {
+  paneId: string;
+  payload: TemplateGraphicPayload;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const specText = useMemo(() => JSON.stringify(spec), [spec]);
+  const containerSize = useElementSize(containerRef);
+  const specText = useMemo(
+    () => JSON.stringify(templatePayloadToVegaLiteSpec(payload, containerSize)),
+    [containerSize.height, containerSize.width, payload],
+  );
 
   useEffect(() => {
     let result: VegaEmbedResult | null = null;
     let cancelled = false;
     setError(null);
-    if (!containerRef.current) {
+    if (!containerRef.current || !containerSize.width || !containerSize.height) {
       return undefined;
     }
     containerRef.current.replaceChildren();
@@ -336,7 +356,7 @@ function VegaLiteTemplateView({ paneId, spec }: { paneId: string; spec: Visualiz
       cancelled = true;
       result?.finalize();
     };
-  }, [specText]);
+  }, [containerSize.height, containerSize.width, specText]);
 
   if (error) {
     return (
@@ -354,7 +374,33 @@ function VegaLiteTemplateView({ paneId, spec }: { paneId: string; spec: Visualiz
   );
 }
 
-function templatePayloadToVegaLiteSpec(payload: TemplateGraphicPayload): VisualizationSpec {
+function useElementSize(ref: RefObject<HTMLElement | null>): { width: number; height: number } {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) {
+      return undefined;
+    }
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect();
+      const width = Math.max(0, Math.floor(rect.width));
+      const height = Math.max(0, Math.floor(rect.height));
+      setSize((current) =>
+        current.width === width && current.height === height ? current : { width, height },
+      );
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return size;
+}
+
+function templatePayloadToVegaLiteSpec(
+  payload: TemplateGraphicPayload,
+  containerSize: { width: number; height: number },
+): VisualizationSpec {
   const extra = isRecord(payload.extra["vega-lite"]) ? payload.extra["vega-lite"] : {};
   const markExtra = isRecord(extra.mark) ? extra.mark : {};
   const configExtra = isRecord(extra.config) ? extra.config : {};
@@ -370,19 +416,19 @@ function templatePayloadToVegaLiteSpec(payload: TemplateGraphicPayload): Visuali
   }
   const spec: JsonObject = {
     $schema: "https://vega.github.io/schema/vega-lite/v6.json",
-    title: payload.title,
+    autosize: { type: "fit", contains: "padding", resize: true },
     data: { values: payload.data.values },
     mark: { type: vegaLiteMarkType(payload.chartType), tooltip: payload.interactions.tooltip, ...markExtra },
     encoding: vegaLiteEncoding(payload),
     config,
   };
-  const width = numberValue(extra.width) ?? payload.style?.width;
-  const height = numberValue(extra.height) ?? payload.style?.height;
+  const width = numberValue(extra.width) ?? payload.style?.width ?? containerSize.width;
+  const height = numberValue(extra.height) ?? payload.style?.height ?? containerSize.height;
   if (width) {
-    spec.width = width;
+    spec.width = Math.max(120, Math.floor(width));
   }
   if (height) {
-    spec.height = height;
+    spec.height = Math.max(120, Math.floor(height));
   }
   return spec as VisualizationSpec;
 }
@@ -439,7 +485,26 @@ function vegaLiteMarkType(chartType: ChartType): string {
   return chartType;
 }
 
-function selectRenderer(payload: TemplateGraphicPayload): RendererId | null {
+interface RendererSelectionResult {
+  rendererId: RendererId | null;
+  detail?: string;
+}
+
+function selectRenderer(
+  payload: TemplateGraphicPayload,
+  override: TemplateGraphicBackendOverride,
+): RendererSelectionResult {
+  if (override !== "auto") {
+    const renderer = TEMPLATE_RENDERERS[override];
+    if (renderer.supports(payload)) {
+      return { rendererId: override };
+    }
+    return {
+      rendererId: null,
+      detail: `Forced template renderer "${override}" cannot render this graphic payload.`,
+    };
+  }
+
   const requested = uniqueValues([
     payload.renderer.preferred,
     ...payload.renderer.fallback,
@@ -452,10 +517,25 @@ function selectRenderer(payload: TemplateGraphicPayload): RendererId | null {
     }
     const renderer = TEMPLATE_RENDERERS[candidate];
     if (renderer.supports(payload)) {
-      return candidate;
+      return { rendererId: candidate };
     }
   }
-  return null;
+  return { rendererId: null };
+}
+
+function supportsRechartsTemplate(payload: TemplateGraphicPayload): boolean {
+  return templateChannels(payload).every((channel) => !channel.aggregate);
+}
+
+function templateChannels(payload: TemplateGraphicPayload): TemplateGraphicChannel[] {
+  return [
+    payload.encoding.x,
+    payload.encoding.y,
+    payload.encoding.color,
+    payload.encoding.size,
+    payload.encoding.theta,
+    ...(Array.isArray(payload.encoding.tooltip) ? payload.encoding.tooltip : []),
+  ].filter((channel): channel is TemplateGraphicChannel => channel !== undefined);
 }
 
 function validateTemplatePayload(payload: unknown): ValidationResult<TemplateGraphicPayload> {
