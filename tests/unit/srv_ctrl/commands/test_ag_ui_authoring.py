@@ -29,6 +29,27 @@ def _bar_payload() -> dict[str, object]:
     }
 
 
+def _template_payload() -> dict[str, object]:
+    """Return one valid template graphic payload."""
+
+    return {
+        "schemaVersion": 1,
+        "chartType": "bar",
+        "renderer": {"preferred": "vega-lite", "fallback": ["recharts"]},
+        "title": "Build Results",
+        "data": {
+            "values": [
+                {"status": "passed", "count": 42},
+                {"status": "failed", "count": 2},
+            ]
+        },
+        "encoding": {
+            "x": {"field": "status", "type": "nominal", "title": "Status"},
+            "y": {"field": "count", "type": "quantitative", "title": "Count"},
+        },
+    }
+
+
 def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     runner = CliRunner()
 
@@ -50,8 +71,55 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     listed = json.loads(list_result.output)
     schema = json.loads(schema_result.output)
     assert "houmao.chart.bar" in {item["name"] for item in listed["components"]}
+    assert "houmao.graphic.template" in {item["name"] for item in listed["components"]}
     assert schema["name"] == "houmao.chart.bar"
     assert schema["example"]["schemaVersion"] == 1
+
+
+def test_ag_ui_template_graphic_validate_and_render_accept_path_input(tmp_path: Path) -> None:
+    runner = CliRunner()
+    payload_path = _write_json(tmp_path / "template.json", _template_payload())
+
+    validate_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "internals",
+            "ag-ui",
+            "components",
+            "validate",
+            "houmao.graphic.template",
+            "--input",
+            str(payload_path),
+        ],
+    )
+    render_result = runner.invoke(
+        cli,
+        [
+            "internals",
+            "ag-ui",
+            "events",
+            "render",
+            "houmao.graphic.template",
+            "--input",
+            str(payload_path),
+            "--message-id",
+            "message-1",
+            "--tool-call-id",
+            "tool-1",
+        ],
+    )
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert json.loads(validate_result.output) == {
+        "component": "houmao.graphic.template",
+        "ok": True,
+        "schemaVersion": 1,
+    }
+    assert render_result.exit_code == 0, render_result.output
+    events = json.loads(render_result.output)
+    assert events[0]["toolCallName"] == "houmao.graphic.template"
+    assert json.loads(events[1]["delta"])["renderer"]["preferred"] == "vega-lite"
 
 
 def test_ag_ui_component_validate_accepts_path_input(tmp_path: Path) -> None:

@@ -466,6 +466,46 @@ export class FakeAgUiServer {
         }),
       });
       writeSse(res, { type: "TOOL_CALL_END", toolCallId: "alpha-dashboard-tool" });
+      writeSse(res, {
+        type: "TOOL_CALL_START",
+        toolCallId: "alpha-template-graphic-tool",
+        toolCallName: "houmao.graphic.template",
+        parentMessageId: messageId,
+      });
+      writeSse(res, {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: "alpha-template-graphic-tool",
+        delta: JSON.stringify({
+          schemaVersion: 1,
+          chartType: "bar",
+          renderer: {
+            preferred: "vega-lite",
+            fallback: ["recharts"],
+          },
+          title: "Alpha Template Graphic",
+          subtitle: "Layer 1 standardized JSON",
+          data: {
+            values: [
+              { status: "Done", count: 18 },
+              { status: "Review", count: 4 },
+              { status: "Blocked", count: 1 },
+            ],
+          },
+          encoding: {
+            x: { field: "status", type: "nominal", title: "Status" },
+            y: { field: "count", type: "quantitative", title: "Count" },
+            tooltip: true,
+          },
+          interactions: { tooltip: true, legend: true },
+          extra: {
+            "vega-lite": {
+              config: { axis: { labelFontSize: 12 } },
+              mark: { cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
+            },
+          },
+        }),
+      });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "alpha-template-graphic-tool" });
     }
     if (target === "beta") {
       writeSse(res, {
@@ -561,6 +601,7 @@ function capabilities(target: string): unknown {
         clientProvided: false,
         items: [
           { name: "houmao_render_graphic" },
+          { name: "houmao.graphic.template" },
           { name: "houmao.chart.bar" },
           { name: "houmao.table" },
           { name: "houmao.metric_grid" },

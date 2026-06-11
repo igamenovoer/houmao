@@ -72,6 +72,7 @@ interface ComponentRequest {
 }
 
 const COMPONENT_NAMES = [
+  "houmao.graphic.template",
   "houmao.chart.bar",
   "houmao.chart.line",
   "houmao.chart.pie",
@@ -83,8 +84,61 @@ const COMPONENT_NAMES = [
 type ComponentName = (typeof COMPONENT_NAMES)[number];
 
 const COMPONENT_NAME_SET = new Set<string>(COMPONENT_NAMES);
+const TEMPLATE_CHART_TYPES = ["bar", "line", "scatter", "area", "pie"] as const;
+const TEMPLATE_FIELD_TYPES = ["nominal", "ordinal", "quantitative", "temporal", "boolean"] as const;
+const TEMPLATE_AGGREGATES = ["count", "sum", "mean", "median", "min", "max"] as const;
+const VEGA_LITE_EXTRA_ALLOWED_KEYS = new Set(["axis", "config", "height", "legend", "mark", "view", "width"]);
+const VEGA_LITE_EXTRA_DISALLOWED_KEYS = new Set([
+  "$schema",
+  "autosize",
+  "concat",
+  "data",
+  "datasets",
+  "encoding",
+  "facet",
+  "hconcat",
+  "layer",
+  "params",
+  "projection",
+  "repeat",
+  "resolve",
+  "signals",
+  "spec",
+  "transform",
+  "usermeta",
+  "vconcat",
+]);
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
+  "houmao.graphic.template": {
+    schemaVersion: 1,
+    chartType: "bar",
+    renderer: {
+      preferred: "vega-lite",
+      fallback: ["recharts"],
+    },
+    title: "Debug Template Graphic",
+    subtitle: "Posted through the Debug Agent relay",
+    data: {
+      values: [
+        { status: "Ready", count: 18 },
+        { status: "Review", count: 7 },
+        { status: "Blocked", count: 2 },
+      ],
+    },
+    encoding: {
+      x: { field: "status", type: "nominal", title: "Status" },
+      y: { field: "count", type: "quantitative", title: "Count" },
+      tooltip: true,
+    },
+    interactions: { tooltip: true, legend: true },
+    extra: {
+      "vega-lite": {
+        config: { axis: { labelFontSize: 12 } },
+        mark: { cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
+      },
+    },
+  },
   "houmao.chart.bar": {
     schemaVersion: 1,
     title: "Debug Bar Chart",
@@ -664,6 +718,8 @@ function validateToolEventSequence(
 
 function validateComponentPayload(componentName: string, payload: unknown, depth = 0): ValidationResult<unknown> {
   switch (componentName) {
+    case "houmao.graphic.template":
+      return validateTemplateGraphicPayload(payload);
     case "houmao.chart.bar":
     case "houmao.chart.pie":
       return validateChartPayload(payload);
@@ -678,6 +734,264 @@ function validateComponentPayload(componentName: string, payload: unknown, depth
     default:
       return invalid(`Unknown Houmao component: ${componentName}.`, "componentName");
   }
+}
+
+function validateTemplateGraphicPayload(payload: unknown): ValidationResult<unknown> {
+  const record = versionedRecord(payload);
+  if (!record.ok) {
+    return record;
+  }
+  const chartType = enumValue(record.value.chartType, TEMPLATE_CHART_TYPES, "chartType");
+  if (!chartType.ok) {
+    return chartType;
+  }
+  const title = nonBlankString(record.value.title, "title");
+  if (!title.ok) {
+    return title;
+  }
+  const renderer = validateTemplateRenderer(record.value.renderer);
+  if (!renderer.ok) {
+    return renderer;
+  }
+  const data = validateTemplateData(record.value.data);
+  if (!data.ok) {
+    return data;
+  }
+  const encoding = validateTemplateEncoding(record.value.encoding, chartType.value, data.value);
+  if (!encoding.ok) {
+    return encoding;
+  }
+  const interactions = validateTemplateInteractions(record.value.interactions);
+  if (!interactions.ok) {
+    return interactions;
+  }
+  const extra = validateTemplateExtra(record.value.extra);
+  if (!extra.ok) {
+    return extra;
+  }
+  return { ok: true, value: payload };
+}
+
+function validateTemplateRenderer(value: unknown): ValidationResult<void> {
+  if (typeof value === "undefined") {
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return invalid("renderer must be an object.", "renderer");
+  }
+  const preferred = nonBlankString(value.preferred ?? "vega-lite", "renderer.preferred");
+  if (!preferred.ok) {
+    return preferred;
+  }
+  const fallbackValue = value.fallback ?? ["recharts"];
+  if (!Array.isArray(fallbackValue)) {
+    return invalid("renderer.fallback must be an array.", "renderer.fallback");
+  }
+  for (const [index, item] of fallbackValue.entries()) {
+    const fallback = nonBlankString(item, `renderer.fallback.${index}`);
+    if (!fallback.ok) {
+      return fallback;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function validateTemplateData(value: unknown): ValidationResult<JsonObject[]> {
+  if (!isRecord(value)) {
+    return invalid("data must be an object.", "data");
+  }
+  if (!Array.isArray(value.values) || value.values.length === 0) {
+    return invalid("data.values must be a non-empty array.", "data.values");
+  }
+  const rows: JsonObject[] = [];
+  for (const [index, row] of value.values.entries()) {
+    if (!isRecord(row)) {
+      return invalid(`data.values.${index} must be an object.`, `data.values.${index}`);
+    }
+    rows.push(row);
+  }
+  return { ok: true, value: rows };
+}
+
+function validateTemplateEncoding(
+  value: unknown,
+  chartType: (typeof TEMPLATE_CHART_TYPES)[number],
+  rows: JsonObject[],
+): ValidationResult<void> {
+  if (!isRecord(value)) {
+    return invalid("encoding must be an object.", "encoding");
+  }
+  const channels = {
+    x: validateOptionalTemplateChannel(value.x, "encoding.x"),
+    y: validateOptionalTemplateChannel(value.y, "encoding.y"),
+    color: validateOptionalTemplateChannel(value.color, "encoding.color"),
+    size: validateOptionalTemplateChannel(value.size, "encoding.size"),
+    theta: validateOptionalTemplateChannel(value.theta, "encoding.theta"),
+  };
+  for (const channel of Object.values(channels)) {
+    if (isValidationFailure(channel)) {
+      return channel;
+    }
+  }
+  const tooltip = validateTemplateTooltip(value.tooltip);
+  if (!tooltip.ok) {
+    return tooltip;
+  }
+  if (chartType === "pie") {
+    if (!channels.theta || !channels.color) {
+      return invalid("pie charts require encoding.theta and encoding.color.", "encoding");
+    }
+  } else if (!channels.x || !channels.y) {
+    return invalid(`${chartType} charts require encoding.x and encoding.y.`, "encoding");
+  }
+  const requiredFields = new Set<string>();
+  for (const channel of Object.values(channels)) {
+    if (channel && !isValidationFailure(channel)) {
+      requiredFields.add(channel.field);
+    }
+  }
+  for (const channel of tooltip.value) {
+    requiredFields.add(channel.field);
+  }
+  for (const field of requiredFields) {
+    for (const [rowIndex, row] of rows.entries()) {
+      if (!(field in row)) {
+        return invalid(`data.values.${rowIndex}.${field} is missing.`, `data.values.${rowIndex}.${field}`);
+      }
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function validateOptionalTemplateChannel(
+  value: unknown,
+  path: string,
+): { field: string } | ValidationResult<never> | undefined {
+  if (typeof value === "undefined" || value === null) {
+    return undefined;
+  }
+  return validateTemplateChannel(value, path);
+}
+
+function validateTemplateChannel(value: unknown, path: string): { field: string } | ValidationResult<never> {
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`, path);
+  }
+  const field = nonBlankString(value.field, `${path}.field`);
+  if (!field.ok) {
+    return field;
+  }
+  const type = enumValue(value.type, TEMPLATE_FIELD_TYPES, `${path}.type`);
+  if (!type.ok) {
+    return type;
+  }
+  if (typeof value.aggregate !== "undefined") {
+    const aggregate = enumValue(value.aggregate, TEMPLATE_AGGREGATES, `${path}.aggregate`);
+    if (!aggregate.ok) {
+      return aggregate;
+    }
+  }
+  if (typeof value.sort !== "undefined") {
+    const sort = enumValue(value.sort, ["ascending", "descending"], `${path}.sort`);
+    if (!sort.ok) {
+      return sort;
+    }
+  }
+  return { field: field.value };
+}
+
+function validateTemplateTooltip(value: unknown): ValidationResult<Array<{ field: string }>> {
+  if (typeof value === "undefined" || typeof value === "boolean") {
+    return { ok: true, value: [] };
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    return invalid("encoding.tooltip must be a boolean or non-empty array.", "encoding.tooltip");
+  }
+  const channels: Array<{ field: string }> = [];
+  for (const [index, item] of value.entries()) {
+    const channel = validateTemplateChannel(item, `encoding.tooltip.${index}`);
+    if (isValidationFailure(channel)) {
+      return channel;
+    }
+    channels.push(channel);
+  }
+  return { ok: true, value: channels };
+}
+
+function validateTemplateInteractions(value: unknown): ValidationResult<void> {
+  if (typeof value === "undefined") {
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return invalid("interactions must be an object.", "interactions");
+  }
+  if (typeof value.tooltip !== "undefined" && typeof value.tooltip !== "boolean") {
+    return invalid("interactions.tooltip must be a boolean.", "interactions.tooltip");
+  }
+  if (typeof value.legend !== "undefined" && typeof value.legend !== "boolean") {
+    return invalid("interactions.legend must be a boolean.", "interactions.legend");
+  }
+  return { ok: true, value: undefined };
+}
+
+function validateTemplateExtra(value: unknown): ValidationResult<void> {
+  if (typeof value === "undefined") {
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return invalid("extra must be an object.", "extra");
+  }
+  for (const [rendererId, block] of Object.entries(value)) {
+    if (!isRecord(block)) {
+      return invalid(`extra.${rendererId} must be an object.`, `extra.${rendererId}`);
+    }
+    if (rendererId === "vega-lite") {
+      const validation = validateVegaLiteExtra(block, `extra.${rendererId}`);
+      if (!validation.ok) {
+        return validation;
+      }
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function validateVegaLiteExtra(value: JsonObject, path: string): ValidationResult<void> {
+  const nestedValidation = rejectVegaLiteSpecKeys(value, path);
+  if (!nestedValidation.ok) {
+    return nestedValidation;
+  }
+  for (const key of Object.keys(value)) {
+    if (!VEGA_LITE_EXTRA_ALLOWED_KEYS.has(key)) {
+      return invalid(`${path}.${key} is not allowed in Layer 1 Vega-Lite extra.`, `${path}.${key}`);
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function rejectVegaLiteSpecKeys(value: unknown, path: string): ValidationResult<void> {
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const validation = rejectVegaLiteSpecKeys(item, `${path}.${index}`);
+      if (!validation.ok) {
+        return validation;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const nextPath = `${path}.${key}`;
+    if (VEGA_LITE_EXTRA_DISALLOWED_KEYS.has(key)) {
+      return invalid(`${nextPath} is not allowed in Layer 1 Vega-Lite extra.`, nextPath);
+    }
+    const validation = rejectVegaLiteSpecKeys(item, nextPath);
+    if (!validation.ok) {
+      return validation;
+    }
+  }
+  return { ok: true, value: undefined };
 }
 
 function validateChartPayload(payload: unknown): ValidationResult<unknown> {
@@ -865,6 +1179,10 @@ function validateDatum(value: unknown, path: string): ValidationResult<void> {
     return invalid(`${path}.value must be a finite number.`, `${path}.value`);
   }
   return { ok: true, value: undefined };
+}
+
+function isValidationFailure<T>(value: T | ValidationResult<never>): value is ValidationResult<never> {
+  return isRecord(value) && value.ok === false && typeof value.error === "string";
 }
 
 function versionedRecord(value: unknown): ValidationResult<JsonObject> {

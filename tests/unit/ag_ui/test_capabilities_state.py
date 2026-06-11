@@ -69,6 +69,15 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
         "cacheOwner": "client",
         "missedEventRecovery": "none",
     }
+    template_graphics = capabilities["custom"]["houmao"]["presentation"]["templateGraphics"]
+    assert template_graphics["toolName"] == "houmao.graphic.template"
+    assert template_graphics["schemaVersion"] == 1
+    assert template_graphics["chartTypes"] == ["bar", "line", "scatter", "area", "pie"]
+    assert template_graphics["renderers"] == ["recharts", "vega-lite"]
+    assert template_graphics["defaultRenderer"] == "vega-lite"
+    assert template_graphics["extraPolicy"]["rendererScoped"] is True
+    assert template_graphics["extraPolicy"]["requiredForRendering"] is False
+    assert template_graphics["rawVegaLiteDsl"] is False
 
     houmao = dumped["houmao"]
     assert houmao["features"]["httpSse"] is True
@@ -113,10 +122,14 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
     assert dumped["houmao"]["gateway"]["graphicsToolName"] == "houmao_render_graphic"
     assert dumped["capabilities"]["tools"]["supported"] is True
     assert dumped["capabilities"]["tools"]["items"][0]["name"] == "houmao_render_graphic"
+    assert dumped["capabilities"]["tools"]["items"][1]["name"] == "houmao.graphic.template"
     assert dumped["capabilities"]["tools"]["clientProvided"] is False
     assert dumped["capabilities"]["custom"]["houmao"]["graphics"]["toolName"] == (
         "houmao_render_graphic"
     )
+    assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["templateGraphics"][
+        "renderers"
+    ] == ["recharts", "vega-lite"]
 
 
 def test_state_snapshot_includes_connection_and_compact_gateway_status() -> None:

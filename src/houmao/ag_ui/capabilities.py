@@ -19,6 +19,13 @@ from ag_ui.core import (
     TransportCapabilities,
 )
 
+from houmao.ag_ui.authoring import (
+    HOUMAO_AG_UI_SCHEMA_VERSION,
+    HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES,
+    HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
+    HOUMAO_TEMPLATE_GRAPHIC_RENDERERS,
+    HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+)
 from houmao.ag_ui.graphics import HOUMAO_RENDER_GRAPHIC_TOOL_NAME
 from houmao.ag_ui.models import (
     HoumaoAgUiCapabilitiesResponse,
@@ -85,6 +92,31 @@ def build_ag_ui_capabilities(
             "toolName": HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
             "generatedGraphics": generated_graphics,
         },
+        "presentation": {
+            "templateGraphics": {
+                "toolName": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+                "schemaVersion": HOUMAO_AG_UI_SCHEMA_VERSION,
+                "chartTypes": list(HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES),
+                "renderers": list(HOUMAO_TEMPLATE_GRAPHIC_RENDERERS),
+                "defaultRenderer": HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
+                "extraPolicy": {
+                    "rendererScoped": True,
+                    "requiredForRendering": False,
+                    "unsupportedBehavior": "ignore_or_diagnostic",
+                    "forbidden": [
+                        "full_backend_spec",
+                        "remote_data_url",
+                        "raw_transform",
+                        "raw_layer",
+                        "javascript",
+                        "html",
+                        "iframe",
+                        "scriptable_svg",
+                    ],
+                },
+                "rawVegaLiteDsl": False,
+            }
+        },
         "lifecycle": {
             "agentLifecycleManagedByGui": False,
             "boundary": (
@@ -146,7 +178,30 @@ def build_ag_ui_capabilities(
                             "metadata": {"type": "object"},
                         },
                     },
-                )
+                ),
+                Tool(
+                    name=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+                    description="Render a standardized Houmao Layer 1 template graphic.",
+                    parameters={
+                        "type": "object",
+                        "required": ["schemaVersion", "chartType", "title", "data", "encoding"],
+                        "properties": {
+                            "schemaVersion": {"type": "integer", "const": HOUMAO_AG_UI_SCHEMA_VERSION},
+                            "chartType": {
+                                "type": "string",
+                                "enum": list(HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES),
+                            },
+                            "renderer": {"type": "object"},
+                            "title": {"type": "string"},
+                            "subtitle": {"type": ["string", "null"]},
+                            "data": {"type": "object"},
+                            "encoding": {"type": "object"},
+                            "interactions": {"type": "object"},
+                            "style": {"type": ["object", "null"]},
+                            "extra": {"type": "object"},
+                        },
+                    },
+                ),
             ]
             if generated_graphics
             else [],

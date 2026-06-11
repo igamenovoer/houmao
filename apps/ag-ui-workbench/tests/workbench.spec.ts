@@ -101,12 +101,17 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await expect(page.getByTestId("component-metric-grid-agent-1")).toContainText("Pass rate");
   await expect(page.getByTestId("component-chart-agent-1").first()).toBeVisible();
   await expect(page.getByTestId("component-table-agent-1")).toContainText("Alpha count");
+  const alphaTemplateChart = page.getByTestId("template-chart-vega-lite-agent-1");
+  await expect(page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" })).toBeVisible();
+  await expect(alphaTemplateChart).toBeVisible();
+  await expect(alphaTemplateChart.locator("svg")).toBeVisible();
 
   await page.getByTestId("prompt-agent-1").fill("prompt survives clear");
   const detachesBeforeClear = fakeServer.detaches.length;
   await page.getByTestId("clear-canvas-agent-1").click();
   await expect(page.getByTestId("graphic-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("component-dashboard-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("transcript-agent-1")).not.toContainText("alpha-run-evidence");
   await expect(page.getByTestId("raw-agent-1")).not.toContainText("alpha-connect-evidence");
   await expect(page.getByTestId("prompt-agent-1")).toHaveValue("prompt survives clear");
@@ -582,13 +587,52 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   expect(body.storedCount).toBe(3);
   expect(body.replay).toBe("debug_thread_buffer");
 
-  await expect(page.getByTestId("component-debug-agent-1")).toContainText("External Live Chart");
-  const chart = page.getByTestId("component-chart-debug-agent-1").first();
+  const liveFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "External Live Chart" });
+  await expect(liveFrame).toBeVisible();
+  const chart = liveFrame.getByTestId("component-chart-debug-agent-1");
   await expect(chart).toBeVisible();
   await expect(chart.locator("svg")).toBeVisible();
   const bars = chart.locator("svg .recharts-bar-rectangle, svg .recharts-rectangle");
   await expect(bars.first()).toBeVisible();
   expect(await bars.count()).toBeGreaterThan(0);
+
+  const templateResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
+    data: {
+      threadId: "debug-agent-1-thread",
+      events: templateToolCallEvents("debug-live-template", "External Template Graphic"),
+    },
+  });
+  expect(templateResponse.ok()).toBeTruthy();
+  const templateFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "External Template Graphic" });
+  await expect(templateFrame).toBeVisible();
+  await expect(templateFrame.getByTestId("template-chart-vega-lite-debug-agent-1").locator("svg")).toBeVisible();
+
+  const fallbackResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
+    data: {
+      threadId: "debug-agent-1-thread",
+      events: templateToolCallEvents("debug-template-fallback", "Fallback Template Graphic", {
+        preferred: "not-installed",
+        fallback: ["recharts"],
+      }),
+    },
+  });
+  expect(fallbackResponse.ok()).toBeTruthy();
+  const fallbackFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "Fallback Template Graphic" });
+  await expect(fallbackFrame).toBeVisible();
+  await expect(fallbackFrame.getByTestId("component-chart-debug-agent-1").locator("svg")).toBeVisible();
+
+  const invalidTemplateResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
+    data: {
+      threadId: "debug-agent-1-thread",
+      events: templateToolCallEvents("debug-invalid-template", "Invalid Template Graphic", {
+        omitY: true,
+      }),
+    },
+  });
+  expect(invalidTemplateResponse.ok()).toBeTruthy();
+  await expect(
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "bar charts require encoding.x and encoding.y" }),
+  ).toBeVisible();
 
   await page.getByTestId("panel-debug-agent-1").screenshot({
     path: "test-results/debug-agent-chart.png",
@@ -862,6 +906,60 @@ function barToolCallEvents(toolCallId: string, title: string): Array<Record<stri
           { label: "B", value: 21, color: "#d3a749" },
           { label: "C", value: 16, color: "#6aa6b8" },
         ],
+      }),
+    },
+    {
+      type: "TOOL_CALL_END",
+      toolCallId,
+    },
+  ];
+}
+
+function templateToolCallEvents(
+  toolCallId: string,
+  title: string,
+  options: { preferred?: string; fallback?: string[]; omitY?: boolean } = {},
+): Array<Record<string, unknown>> {
+  const encoding: Record<string, unknown> = {
+    x: { field: "status", type: "nominal", title: "Status" },
+    tooltip: true,
+  };
+  if (!options.omitY) {
+    encoding.y = { field: "count", type: "quantitative", title: "Count" };
+  }
+  return [
+    {
+      type: "TOOL_CALL_START",
+      toolCallId,
+      toolCallName: "houmao.graphic.template",
+      parentMessageId: `${toolCallId}-message`,
+    },
+    {
+      type: "TOOL_CALL_ARGS",
+      toolCallId,
+      delta: JSON.stringify({
+        schemaVersion: 1,
+        chartType: "bar",
+        renderer: {
+          preferred: options.preferred ?? "vega-lite",
+          fallback: options.fallback ?? ["recharts"],
+        },
+        title,
+        subtitle: "Playwright template graphic proof",
+        data: {
+          values: [
+            { status: "Ready", count: 12 },
+            { status: "Review", count: 21 },
+            { status: "Blocked", count: 3 },
+          ],
+        },
+        encoding,
+        interactions: { tooltip: true, legend: true },
+        extra: {
+          "vega-lite": {
+            config: { axis: { labelFontSize: 12 } },
+          },
+        },
       }),
     },
     {

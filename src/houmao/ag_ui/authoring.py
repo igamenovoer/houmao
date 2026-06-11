@@ -10,7 +10,15 @@ import re
 from typing import Any, Literal, TypeAlias, cast
 
 from ag_ui.core import BaseEvent, Event, ToolCallArgsEvent, ToolCallEndEvent, ToolCallStartEvent
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 from houmao.ag_ui.encoder import encode_sse_event
@@ -25,7 +33,20 @@ HOUMAO_AG_UI_EVENT_BATCH_MAX_COUNT = 100
 HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES = 256 * 1024
 """Maximum encoded JSON byte size accepted for one publish batch."""
 
+HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: Literal["houmao.graphic.template"] = "houmao.graphic.template"
+"""Houmao Layer 1 template-graphics AG-UI tool-call name."""
+
+HOUMAO_TEMPLATE_GRAPHIC_RENDERERS = ("recharts", "vega-lite")
+"""Initial renderer ids for Houmao Layer 1 template graphics."""
+
+HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER = "vega-lite"
+"""Default renderer id for Houmao Layer 1 template graphics."""
+
+HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES = ("bar", "line", "scatter", "area", "pie")
+"""Initial chart types supported by Houmao Layer 1 template graphics."""
+
 HoumaoAgUiComponentName = Literal[
+    "houmao.graphic.template",
     "houmao.chart.bar",
     "houmao.chart.line",
     "houmao.chart.pie",
@@ -48,6 +69,41 @@ _UNSAFE_TEXT_PATTERNS = (
     re.compile(r"javascript\s*:", re.IGNORECASE),
     re.compile(r"<\s*iframe\b", re.IGNORECASE),
     re.compile(r"<\s*svg\b", re.IGNORECASE),
+)
+_REMOTE_URL_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
+_RENDERER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_VEGA_LITE_EXTRA_ALLOWED_TOP_LEVEL = frozenset(
+    {
+        "axis",
+        "config",
+        "height",
+        "legend",
+        "mark",
+        "view",
+        "width",
+    }
+)
+_VEGA_LITE_EXTRA_DISALLOWED_KEYS = frozenset(
+    {
+        "$schema",
+        "autosize",
+        "concat",
+        "data",
+        "datasets",
+        "encoding",
+        "facet",
+        "hconcat",
+        "layer",
+        "params",
+        "projection",
+        "repeat",
+        "resolve",
+        "signals",
+        "spec",
+        "transform",
+        "usermeta",
+        "vconcat",
+    }
 )
 
 
@@ -192,6 +248,212 @@ class HoumaoLineChartPayload(_VersionedComponentPayload):
         return _non_blank_text(value, field_name="title")
 
 
+TemplateGraphicChartType = Literal["bar", "line", "scatter", "area", "pie"]
+"""Supported standardized Layer 1 chart intents."""
+
+TemplateGraphicFieldType = Literal["nominal", "ordinal", "quantitative", "temporal", "boolean"]
+"""Supported Layer 1 data-field types."""
+
+TemplateGraphicAggregate = Literal["count", "sum", "mean", "median", "min", "max"]
+"""Supported renderer-neutral aggregate hints."""
+
+
+class TemplateGraphicRendererSelection(_HoumaoAgUiAuthoringModel):
+    """Renderer preference for one template graphic payload."""
+
+    preferred: str = HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER
+    fallback: list[str] = Field(default_factory=lambda: ["recharts"])
+
+    @field_validator("preferred")
+    @classmethod
+    def _preferred_not_blank(cls, value: str) -> str:
+        """Require a non-empty preferred renderer id."""
+
+        return _renderer_id(value, field_name="preferred")
+
+    @field_validator("fallback")
+    @classmethod
+    def _fallback_ids_not_blank(cls, value: list[str]) -> list[str]:
+        """Require non-empty fallback renderer ids."""
+
+        return [_renderer_id(item, field_name="fallback") for item in value]
+
+
+class TemplateGraphicData(_HoumaoAgUiAuthoringModel):
+    """Inline row data for one template graphic."""
+
+    values: list[dict[str, Any]] = Field(min_length=1)
+
+
+class TemplateGraphicChannel(_HoumaoAgUiAuthoringModel):
+    """One renderer-neutral encoding channel."""
+
+    field: str
+    type: TemplateGraphicFieldType
+    title: str | None = None
+    aggregate: TemplateGraphicAggregate | None = None
+    sort: Literal["ascending", "descending"] | None = None
+
+    @field_validator("field")
+    @classmethod
+    def _field_not_blank(cls, value: str) -> str:
+        """Require a non-empty field name."""
+
+        return _non_blank_text(value, field_name="field")
+
+    @field_validator("title")
+    @classmethod
+    def _title_stripped(cls, value: str | None) -> str | None:
+        """Normalize optional channel titles."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class TemplateGraphicEncoding(_HoumaoAgUiAuthoringModel):
+    """Renderer-neutral encoding map for template graphics."""
+
+    x: TemplateGraphicChannel | None = None
+    y: TemplateGraphicChannel | None = None
+    color: TemplateGraphicChannel | None = None
+    size: TemplateGraphicChannel | None = None
+    theta: TemplateGraphicChannel | None = None
+    tooltip: bool | list[TemplateGraphicChannel] = True
+
+
+class TemplateGraphicInteractions(_HoumaoAgUiAuthoringModel):
+    """Common interaction hints for template graphics."""
+
+    tooltip: bool = True
+    legend: bool = True
+
+
+class TemplateGraphicStyle(_HoumaoAgUiAuthoringModel):
+    """Renderer-neutral style hints for template graphics."""
+
+    color_scheme: str | None = None
+    width: int | None = Field(default=None, ge=120, le=2400)
+    height: int | None = Field(default=None, ge=120, le=1800)
+
+    @field_validator("color_scheme")
+    @classmethod
+    def _color_scheme_stripped(cls, value: str | None) -> str | None:
+        """Normalize optional color scheme names."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class HoumaoTemplateGraphicPayload(_VersionedComponentPayload):
+    """Payload for `houmao.graphic.template`."""
+
+    chart_type: TemplateGraphicChartType
+    renderer: TemplateGraphicRendererSelection = Field(
+        default_factory=TemplateGraphicRendererSelection
+    )
+    title: str
+    subtitle: str | None = None
+    data: TemplateGraphicData
+    encoding: TemplateGraphicEncoding
+    interactions: TemplateGraphicInteractions = Field(
+        default_factory=TemplateGraphicInteractions
+    )
+    style: TemplateGraphicStyle | None = None
+    extra: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+    @field_validator("title")
+    @classmethod
+    def _template_title_not_blank(cls, value: str) -> str:
+        """Require a non-empty template graphic title."""
+
+        return _non_blank_text(value, field_name="title")
+
+    @field_validator("subtitle")
+    @classmethod
+    def _subtitle_stripped(cls, value: str | None) -> str | None:
+        """Normalize optional subtitles."""
+
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("extra")
+    @classmethod
+    def _validate_extra(cls, value: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Validate renderer-scoped extra blocks."""
+
+        _validate_template_graphic_extra(value)
+        return value
+
+    @field_validator("data")
+    @classmethod
+    def _data_values_are_objects(cls, value: TemplateGraphicData) -> TemplateGraphicData:
+        """Require inline data rows to be JSON objects."""
+
+        for index, row in enumerate(value.values):
+            if not isinstance(row, dict):
+                raise ValueError(f"data.values.{index} must be an object")
+        return value
+
+    @field_validator("encoding")
+    @classmethod
+    def _encoding_has_supported_shape(
+        cls,
+        value: TemplateGraphicEncoding,
+        info: Any,
+    ) -> TemplateGraphicEncoding:
+        """Validate chart-type-specific encoding requirements."""
+
+        chart_type = info.data.get("chart_type")
+        if chart_type == "pie":
+            if value.theta is None or value.color is None:
+                raise ValueError("pie charts require encoding.theta and encoding.color")
+            return value
+        if value.x is None or value.y is None:
+            raise ValueError(f"{chart_type or 'template'} charts require encoding.x and encoding.y")
+        return value
+
+    @field_validator("encoding", mode="after")
+    @classmethod
+    def _encoding_field_names_not_blank(
+        cls,
+        value: TemplateGraphicEncoding,
+    ) -> TemplateGraphicEncoding:
+        """Validate optional tooltip channels."""
+
+        tooltip = value.tooltip
+        if isinstance(tooltip, list) and not tooltip:
+            raise ValueError("encoding.tooltip must not be an empty array")
+        return value
+
+    @field_validator("data", mode="after")
+    @classmethod
+    def _data_values_are_safe_json(cls, value: TemplateGraphicData) -> TemplateGraphicData:
+        """Reject non-JSON row values that cannot be serialized predictably."""
+
+        try:
+            json.dumps(value.values, separators=(",", ":"), sort_keys=True)
+        except TypeError as exc:
+            raise ValueError("data.values must be JSON-serializable") from exc
+        return value
+
+    @model_validator(mode="after")
+    def _encoding_fields_exist_in_rows(self) -> "HoumaoTemplateGraphicPayload":
+        """Require encoded fields to be present in every inline row."""
+
+        required_fields = _template_graphic_required_fields(self.encoding)
+        for row_index, row in enumerate(self.data.values):
+            for field_name in required_fields:
+                if field_name not in row:
+                    raise ValueError(f"data.values.{row_index}.{field_name} is missing")
+        return self
+
+
 class TableColumn(_HoumaoAgUiAuthoringModel):
     """One table column definition."""
 
@@ -315,6 +577,41 @@ class HoumaoAgUiComponentSpec:
 
 
 _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
+    HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
+        name=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+        description=(
+            "Display standardized Layer 1 chart intent through a selected renderer backend."
+        ),
+        model=HoumaoTemplateGraphicPayload,
+        example={
+            "schemaVersion": 1,
+            "chartType": "bar",
+            "renderer": {
+                "preferred": "vega-lite",
+                "fallback": ["recharts"],
+            },
+            "title": "Build Results",
+            "subtitle": "Latest CI run",
+            "data": {
+                "values": [
+                    {"status": "passed", "count": 42},
+                    {"status": "failed", "count": 2},
+                ]
+            },
+            "encoding": {
+                "x": {"field": "status", "type": "nominal", "title": "Status"},
+                "y": {"field": "count", "type": "quantitative", "title": "Count"},
+                "tooltip": True,
+            },
+            "interactions": {"tooltip": True, "legend": True},
+            "extra": {
+                "vega-lite": {
+                    "config": {"axis": {"labelFontSize": 12}},
+                    "mark": {"cornerRadiusTopLeft": 3, "cornerRadiusTopRight": 3},
+                }
+            },
+        },
+    ),
     "houmao.chart.bar": HoumaoAgUiComponentSpec(
         name="houmao.chart.bar",
         description="Display labeled numeric values as a bar chart.",
@@ -638,6 +935,90 @@ def _payload_digest(*, component: str, payload: JsonObject) -> str:
     return sha256(payload_json.encode("utf-8")).hexdigest()[:12]
 
 
+def _renderer_id(value: str, *, field_name: str) -> str:
+    """Return a normalized renderer id or raise for an invalid id."""
+
+    stripped = _non_blank_text(value, field_name=field_name)
+    if _RENDERER_ID_PATTERN.fullmatch(stripped) is None:
+        raise ValueError(f"{field_name} must be a lower-case renderer id")
+    return stripped
+
+
+def _template_graphic_required_fields(encoding: TemplateGraphicEncoding) -> set[str]:
+    """Return data fields required by one template graphic encoding."""
+
+    fields: set[str] = set()
+    for channel in (encoding.x, encoding.y, encoding.color, encoding.size, encoding.theta):
+        if channel is not None:
+            fields.add(channel.field)
+    tooltip = encoding.tooltip
+    if isinstance(tooltip, list):
+        fields.update(channel.field for channel in tooltip)
+    return fields
+
+
+def _validate_template_graphic_extra(extra: Mapping[str, Mapping[str, Any]]) -> None:
+    """Validate renderer-scoped Layer 1 extra blocks."""
+
+    for renderer_id, block in extra.items():
+        _renderer_id(str(renderer_id), field_name="extra renderer id")
+        if not isinstance(block, Mapping):
+            raise ValueError(f"extra.{renderer_id} must be an object")
+        if renderer_id == "vega-lite":
+            _validate_vega_lite_extra(block, path=("extra", "vega-lite"))
+        else:
+            _reject_remote_urls_in_payload_tree(block, path=("extra", str(renderer_id)))
+
+
+def _validate_vega_lite_extra(
+    block: Mapping[str, Any],
+    *,
+    path: tuple[str, ...],
+) -> None:
+    """Validate the safe Layer 1 subset of Vega-Lite extra data."""
+
+    unsupported = sorted(set(block).difference(_VEGA_LITE_EXTRA_ALLOWED_TOP_LEVEL))
+    if unsupported:
+        field_path = ".".join((*path, unsupported[0]))
+        raise ValueError(f"{field_path} is not allowed in Layer 1 Vega-Lite extra")
+    _reject_disallowed_vega_lite_keys(block, path=path)
+    _reject_remote_urls_in_payload_tree(block, path=path)
+
+
+def _reject_disallowed_vega_lite_keys(value: object, *, path: tuple[str, ...]) -> None:
+    """Reject Vega-Lite keys that would replace standardized Layer 1 semantics."""
+
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            key_text = str(key)
+            next_path = (*path, key_text)
+            if key_text in _VEGA_LITE_EXTRA_DISALLOWED_KEYS:
+                field_path = ".".join(next_path)
+                raise ValueError(f"{field_path} is not allowed in Layer 1 Vega-Lite extra")
+            _reject_disallowed_vega_lite_keys(nested_value, path=next_path)
+        return
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+        for index, nested_value in enumerate(value):
+            _reject_disallowed_vega_lite_keys(nested_value, path=(*path, str(index)))
+
+
+def _reject_remote_urls_in_payload_tree(value: object, *, path: tuple[str, ...]) -> None:
+    """Reject remote URL strings in backend-specific Layer 1 extra blocks."""
+
+    if isinstance(value, str):
+        if _REMOTE_URL_PATTERN.search(value.strip()):
+            safe_path = ".".join(_redacted_path(path)) or "$"
+            raise ValueError(f"payload contains remote URL content at `{safe_path}`")
+        return
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            _reject_remote_urls_in_payload_tree(nested_value, path=(*path, str(key)))
+        return
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
+        for index, nested_value in enumerate(value):
+            _reject_remote_urls_in_payload_tree(nested_value, path=(*path, str(index)))
+
+
 def _validation_error_paths(exc: ValidationError) -> tuple[str, ...]:
     """Return normalized field paths without raw values."""
 
@@ -689,6 +1070,10 @@ __all__ = [
     "HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES",
     "HOUMAO_AG_UI_EVENT_BATCH_MAX_COUNT",
     "HOUMAO_AG_UI_SCHEMA_VERSION",
+    "HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES",
+    "HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER",
+    "HOUMAO_TEMPLATE_GRAPHIC_RENDERERS",
+    "HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME",
     "HoumaoAgUiComponentName",
     "HoumaoAgUiValidationError",
     "component_schema_payload",

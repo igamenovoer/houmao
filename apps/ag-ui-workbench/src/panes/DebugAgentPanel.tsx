@@ -22,6 +22,7 @@ import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
 
 type SenderMode = "component" | "raw";
 type ComponentName =
+  | "houmao.graphic.template"
   | "houmao.chart.bar"
   | "houmao.chart.line"
   | "houmao.chart.pie"
@@ -39,6 +40,7 @@ interface PublishRequest {
 }
 
 const COMPONENT_NAMES: ComponentName[] = [
+  "houmao.graphic.template",
   "houmao.chart.bar",
   "houmao.chart.line",
   "houmao.chart.pie",
@@ -48,6 +50,35 @@ const COMPONENT_NAMES: ComponentName[] = [
 ];
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
+  "houmao.graphic.template": {
+    schemaVersion: 1,
+    chartType: "bar",
+    renderer: {
+      preferred: "vega-lite",
+      fallback: ["recharts"],
+    },
+    title: "Debug Agent Template Graphic",
+    subtitle: "Standardized Layer 1 JSON rendered through Vega-Lite",
+    data: {
+      values: [
+        { status: "Ready", count: 18 },
+        { status: "Review", count: 7 },
+        { status: "Blocked", count: 2 },
+      ],
+    },
+    encoding: {
+      x: { field: "status", type: "nominal", title: "Status" },
+      y: { field: "count", type: "quantitative", title: "Count" },
+      tooltip: true,
+    },
+    interactions: { tooltip: true, legend: true },
+    extra: {
+      "vega-lite": {
+        config: { axis: { labelFontSize: 12 } },
+        mark: { cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
+      },
+    },
+  },
   "houmao.chart.bar": {
     schemaVersion: 1,
     title: "Debug Agent Sales",

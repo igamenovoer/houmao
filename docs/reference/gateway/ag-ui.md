@@ -84,7 +84,7 @@ The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gate
 curl "$GATEWAY_URL/v1/ag-ui/capabilities"
 ```
 
-Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. It does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
+Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. When generated graphics are enabled, capabilities also include `custom.houmao.presentation.templateGraphics` metadata with the Layer 1 tool name, schema version, supported chart types, renderer ids, default renderer, and `extra` policy. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
 
 Capabilities report `transport.resumable: false` and Houmao `replaySupport: "current_snapshot_only"` for published GUI events. `POST /v1/ag-ui/connect` emits a fresh `STATE_SNAPSHOT` and then future live fanout events. Clients should not send browser cache cursors as `lastSeenEventId` expecting the gateway to recover missed published events.
 
@@ -100,7 +100,7 @@ export const houmaoAgent = new HttpAgent({
 });
 ```
 
-CopilotKit can register an AG-UI `HttpAgent` at its runtime boundary and point the agent URL at the same endpoint. The renderer for Houmao graphics should register the `houmao_render_graphic` tool name. A minimal renderer example lives at [`docs/reference/gateway/examples/houmao-graphic-renderer.tsx`](examples/houmao-graphic-renderer.tsx).
+CopilotKit can register an AG-UI `HttpAgent` at its runtime boundary and point the agent URL at the same endpoint. The renderer for Houmao graphics should register `houmao_render_graphic` for compatibility graphics and `houmao.graphic.template` for standardized Layer 1 charts. A minimal renderer example lives at [`docs/reference/gateway/examples/houmao-graphic-renderer.tsx`](examples/houmao-graphic-renderer.tsx).
 
 ## Graphics Contract
 
@@ -118,9 +118,55 @@ The AG-UI mapper recognizes graphics only from explicit structured canonical `ac
 
 ## Typed Component Contract
 
-Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The initial names are `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
 
 Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
+
+### Layer 1 Template Graphics
+
+`houmao.graphic.template` is the standardized Layer 1 chart object. The agent fills a renderer-neutral JSON payload with `schemaVersion`, `chartType`, `renderer`, `title`, optional `subtitle`, inline `data.values`, `encoding`, optional `interactions`, optional `style`, and optional renderer-scoped `extra`. The initial chart types are `bar`, `line`, `scatter`, `area`, and `pie`.
+
+The `renderer` field is a preference, not a raw backend contract. The GUI tries `renderer.preferred`, then `renderer.fallback`, then its own defaults. The current workbench supports `vega-lite` and `recharts`, and the current default is `vega-lite`. A backend can ignore `extra` blocks it does not understand.
+
+`extra` is only for small backend-specific knobs that do not replace the standardized chart object. For `extra.vega-lite`, Layer 1 allows top-level `axis`, `config`, `height`, `legend`, `mark`, `view`, and `width`. It rejects raw Vega-Lite spec replacement keys such as `data`, `datasets`, `encoding`, `transform`, `layer`, `facet`, `concat`, `params`, `repeat`, and `spec`. This means Layer 1 can use Vega-Lite as a renderer backend, but it is not the raw Vega-Lite DSL. Raw Vega-Lite or Vega specs belong to the planned Layer 2 DSL graphics capability.
+
+Minimal template graphic payload:
+
+```json
+{
+  "schemaVersion": 1,
+  "chartType": "bar",
+  "renderer": {
+    "preferred": "vega-lite",
+    "fallback": ["recharts"]
+  },
+  "title": "Build Results",
+  "data": {
+    "values": [
+      { "status": "passed", "count": 42 },
+      { "status": "failed", "count": 2 }
+    ]
+  },
+  "encoding": {
+    "x": { "field": "status", "type": "nominal", "title": "Status" },
+    "y": { "field": "count", "type": "quantitative", "title": "Count" },
+    "tooltip": true
+  },
+  "interactions": { "tooltip": true, "legend": true },
+  "extra": {
+    "vega-lite": {
+      "config": { "axis": { "labelFontSize": 12 } }
+    }
+  }
+}
+```
+
+Agents should generate template graphic events through the authoring helpers:
+
+```bash
+houmao-mgr internals ag-ui components validate houmao.graphic.template --input payload.json
+houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json > events.json
+```
 
 ## Smoke Commands
 

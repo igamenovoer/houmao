@@ -630,6 +630,17 @@ pre {
   min-width: 220px;
 }
 
+.template-vega-lite-chart {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.template-vega-lite-chart .vega-embed,
+.template-vega-lite-chart svg {
+  max-width: 100%;
+}
+
 .component-chart-pie {
   height: 230px;
 }

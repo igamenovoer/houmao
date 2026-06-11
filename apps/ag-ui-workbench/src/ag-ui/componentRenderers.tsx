@@ -18,6 +18,7 @@ import {
 import type { ToolCallRecord } from "./reducer";
 import type { GraphicArtifact, JsonObject, JsonScalar, JsonValue } from "./types";
 import { GraphicView } from "./graphics";
+import { renderTemplateGraphic } from "./templateGraphics";
 
 interface ToolCallRendererProps {
   toolCall: ToolCallRecord;
@@ -114,6 +115,7 @@ const CHART_COLORS = ["#79a35d", "#d3a749", "#6aa6b8", "#c86f5a", "#9a82c8", "#d
 const MAX_DASHBOARD_DEPTH = 3;
 
 const COMPONENT_RENDERERS: Record<string, ComponentRenderer> = {
+  "houmao.graphic.template": renderTemplateGraphic,
   "houmao.chart.bar": renderBarChart,
   "houmao.chart.line": renderLineChart,
   "houmao.chart.pie": renderPieChart,
