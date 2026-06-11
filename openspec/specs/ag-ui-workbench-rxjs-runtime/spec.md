@@ -2,42 +2,51 @@
 
 ## Purpose
 Define the AG-UI workbench browser runtime event layer, RxJS action/effect/state patterns, shared polling, cancellation, and React integration boundaries.
-
 ## Requirements
 ### Requirement: Workbench has an RxJS runtime event layer
-The AG-UI workbench SHALL use RxJS as the primary browser runtime event facility for long-lived asynchronous workflows.
+The AG-UI workbench browser frontend SHALL use RxJS as the primary browser runtime event facility for long-lived UI workflows.
 
-The runtime SHALL expose a typed action dispatch surface, a shared observable state surface, runtime effects, and React selector hooks.
+The browser runtime SHALL expose a typed action dispatch surface, a shared observable state surface, runtime effects, and React selector hooks.
 
-The runtime SHALL own cross-pane workflows, including active-thread polling, active-thread mutation, watched-target lifecycle, AG-UI stream lifecycle, tmux bridge lifecycle, and storage side effects as those workflows migrate into the runtime.
+The browser runtime SHALL own browser workflows, including local-server stream subscriptions, pane state reduction, active-thread view-state polling through local-server services, watched-target presentation state, tmux browser attachment lifecycle, storage side effects, and browser teardown.
+
+The Fastify backend SHALL own host-side workflows, including Houmao AG-UI gateway streams, target-policy enforcement, Debug Agent fixture behavior, tmux host bridge behavior, and presentation-session state.
 
 React components SHALL render runtime-derived view models and dispatch runtime actions rather than owning cross-pane long-lived workflows directly.
 
 #### Scenario: Runtime exposes state through React selectors
-- **WHEN** a React pane needs runtime state such as active-thread status or watched-target runtime state
+- **WHEN** a React pane needs runtime state such as active-thread status, watched-target runtime state, or local-server connection state
 - **THEN** the pane subscribes through a runtime selector hook
 - **AND THEN** the pane does not subscribe directly to raw internal subjects
 
 #### Scenario: Runtime accepts typed UI actions
 - **WHEN** a user clicks a pane control that affects cross-pane state
 - **THEN** the component dispatches a typed runtime action
-- **AND THEN** runtime effects perform any required network, cache, timer, or cancellation work
+- **AND THEN** runtime effects perform required browser-side network, cache, timer, or cancellation work through local-server services
+
+#### Scenario: Host workflow remains server-owned
+- **WHEN** an action requires Houmao AG-UI gateway I/O, tmux host access, Debug Agent fixture behavior, or presentation-session mutation
+- **THEN** the browser runtime calls a local Fastify server service
+- **AND THEN** the browser runtime does not directly own that host-side resource
 
 ### Requirement: Runtime effects are cancellable and lifecycle-owned
-The RxJS runtime SHALL model long-lived workflows as cancellable effects.
+The RxJS runtime SHALL model browser-side long-lived workflows as cancellable effects.
 
-Runtime effects SHALL stop their timers, HTTP streams, WebSocket streams, and cache writes when the owning pane, watched target, gateway subscription, or runtime is removed.
+Runtime effects SHALL stop their timers, local-server HTTP streams, browser WebSocket streams, cache writes, and local-server subscriptions when the owning pane, watched target, gateway subscription, or runtime is removed.
 
 Runtime effects SHALL use deterministic teardown boundaries rather than relying on orphaned component-local refs.
 
+Server-owned workflows SHALL receive cancellation or close signals through the private workbench protocol when browser ownership ends.
+
 #### Scenario: Pane close cancels pane-owned effects
-- **WHEN** a pane with a live AG-UI stream or tmux attachment is closed
-- **THEN** the runtime stops the stream or attachment effect for that pane
+- **WHEN** a pane with a live local-server AG-UI subscription or tmux attachment is closed
+- **THEN** the runtime stops the browser-side stream or attachment effect for that pane
 - **AND THEN** later stream events do not mutate removed pane state
+- **AND THEN** the server receives a detach, cancellation, WebSocket close, or equivalent teardown signal
 
 #### Scenario: Runtime teardown stops periodic effects
-- **WHEN** the workbench runtime is disposed during page unload or test teardown
-- **THEN** active polling, reconnect timers, HTTP streams, WebSocket streams, and pending cache effects are stopped
+- **WHEN** the browser workbench runtime is disposed during page unload or test teardown
+- **THEN** active polling, reconnect timers, local-server HTTP streams, browser WebSocket streams, and pending cache effects are stopped
 
 ### Requirement: Runtime shares gateway polling by gateway key
 The RxJS runtime SHALL maintain at most one active-thread polling effect per normalized Houmao gateway key.
@@ -89,11 +98,18 @@ The runtime SHALL NOT persist raw tmux terminal bytes in localStorage or Indexed
 - **AND THEN** it does not persist those events to the watched-target cache unless the target is watched
 
 ### Requirement: Pure AG-UI reducers remain separate from runtime effects
-The RxJS runtime SHALL feed AG-UI events into pure reducer functions for visible state updates.
+The RxJS runtime SHALL feed AG-UI events or server-forwarded AG-UI event payloads into pure reducer functions for visible state updates.
 
 Runtime effects SHALL NOT mix protocol parsing, network lifecycle, and component rendering logic into one monolithic effect.
 
+The local server MAY own upstream AG-UI SSE parsing or forwarding, but browser-visible event reduction SHALL remain testable through pure reducer functions.
+
 #### Scenario: AG-UI event updates use pure reducers
-- **WHEN** an AG-UI stream emits a valid event
+- **WHEN** a local-server stream emits a valid AG-UI event payload for a pane or watched target
 - **THEN** the runtime routes that event through the existing AG-UI event reducer or an equivalent pure reducer
 - **AND THEN** the resulting state can be unit-tested without opening a network stream
+
+#### Scenario: Private protocol wrapper does not enter renderer code
+- **WHEN** the local server wraps an AG-UI event with private workbench routing metadata
+- **THEN** runtime effects unwrap and route the AG-UI payload before rendering
+- **AND THEN** React component renderers consume reduced view state rather than raw private protocol frames

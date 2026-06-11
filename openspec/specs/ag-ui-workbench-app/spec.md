@@ -4,17 +4,29 @@
 TBD - created by archiving change add-ag-ui-workbench-app. Update Purpose after archive.
 ## Requirements
 ### Requirement: Standalone AG-UI workbench app
-The repository SHALL provide a standalone AG-UI workbench application under `apps/ag-ui-workbench/` for testing Houmao AG-UI protocol behavior without including the GUI in the Python package distribution.
+The repository SHALL provide a standalone AG-UI workbench application under `apps/ag-ui-workbench/` for testing and operating Houmao AG-UI protocol behavior without including the GUI in the Python package distribution.
+
+The workbench SHALL run as a single-user local web application with a TypeScript Fastify backend server and a browser frontend.
+
+The user SHALL start the local workbench server and open the browser to that server's loopback port.
+
+The workbench backend SHALL be part of the GUI product and SHALL NOT be treated as part of the Houmao Python package distribution.
 
 #### Scenario: Workbench app lives outside Python package contents
 - **WHEN** a developer inspects the workbench files and Python build configuration
 - **THEN** the workbench is located under `apps/ag-ui-workbench/`
 - **AND THEN** the Python wheel target continues to include only the Houmao Python package under `src/houmao`
 
-#### Scenario: Workbench can be started with Bun
+#### Scenario: Workbench starts as a local server-backed app
 - **WHEN** a developer follows the workbench README in a checkout with Bun available
-- **THEN** the documented command starts the local workbench development server
+- **THEN** the documented command starts the local Fastify-backed workbench server
 - **AND THEN** the command does not require entering `pixi shell`
+- **AND THEN** the browser frontend is served from the local workbench server origin
+
+#### Scenario: Vite remains a frontend development tool
+- **WHEN** a developer runs the workbench in development mode
+- **THEN** Vite may serve or build frontend assets
+- **AND THEN** host-side AG-UI, tmux, Debug Agent, proxy, and presentation-session behavior is owned by the local Fastify server rather than Vite-only plugins
 
 ### Requirement: Docked multi-agent panes
 The workbench SHALL use a dockable pane layout where each agent pane can be added, removed, moved within the main workbench, and configured independently for one running Houmao agent or watched AG-UI target.
@@ -52,7 +64,11 @@ Agent panes SHALL be presentation surfaces for target event state. They SHALL NO
 - **AND THEN** the workbench does not send any Houmao lifecycle stop, restart, shutdown, or interrupt request
 
 ### Requirement: Direct AG-UI client and event reduction
-The workbench SHALL include direct AG-UI client behavior for Houmao capabilities, connect, run, detach, SSE parsing, stream abort, raw event recording, and reduced display state.
+The workbench SHALL include AG-UI client behavior for Houmao capabilities, connect, run, detach, SSE parsing, stream abort, raw event recording, and reduced display state.
+
+The local workbench backend SHALL own AG-UI gateway network access and target-policy enforcement.
+
+The browser frontend SHALL request AG-UI actions through the workbench backend's private protocol rather than directly owning arbitrary Houmao gateway connections.
 
 For watched targets, the workbench SHALL route connect-stream events through the watched-target cache and reducer rather than storing them only in pane-local state.
 
@@ -62,22 +78,23 @@ Normal agent panes SHALL keep transcripts and rendered artifacts visible by defa
 
 #### Scenario: Capabilities are fetched before interaction
 - **WHEN** a pane target is configured
-- **THEN** the workbench can request AG-UI capabilities for that target
+- **THEN** the browser requests capability state through the local workbench backend
+- **AND THEN** the backend requests AG-UI capabilities from the target after applying target-policy checks
 - **AND THEN** the pane displays whether HTTP SSE, text input, state snapshots, generated graphics, frontend tool execution, state deltas, and multimodal input are reported as supported
 
 #### Scenario: Connect attaches without prompt submission
 - **WHEN** a user connects or watches a target without submitting a prompt
-- **THEN** the workbench sends an AG-UI connect request rather than a run request
+- **THEN** the workbench backend sends an AG-UI connect request rather than a run request
 - **AND THEN** the target records state snapshot, activity, custom, text, tool-call, and error events received from that connection stream
 
 #### Scenario: Run stream is reduced into visible state
 - **WHEN** a run stream emits `RUN_STARTED`, text message events, state snapshot events, activity events, tool call events, custom events, and `RUN_FINISHED`
-- **THEN** the pane shows run status and transcript messages in the main display
+- **THEN** the workbench reduces those events into pane-visible state
 - **AND THEN** normal agent panes expose state snapshot content, activity/custom records, tool-call records, and the raw event timeline through on-demand diagnostics
 
 #### Scenario: Cached connect stream is reduced into visible state
 - **WHEN** a watched connect stream receives state snapshot events, activity events, tool call events, custom events, and errors
-- **THEN** the workbench stores those events in the client cache
+- **THEN** the workbench stores those events in the explicit watched-target cache boundary
 - **AND THEN** any pane for that target renders the reduced display state from those cached events
 
 #### Scenario: Run error remains visible
@@ -91,21 +108,20 @@ Normal agent panes SHALL keep transcripts and rendered artifacts visible by defa
 - **AND THEN** the inspector shows deterministic diagnostics for the message and any related raw events, tool calls, activity/custom records, and current state snapshot evidence
 
 ### Requirement: Workbench run requests minimize agent-visible metadata
-For normal agent pane prompt submissions, including operator-designated panes, the workbench SHALL submit AG-UI `RunAgentInput` requests with only protocol-required routing fields, the user message, an empty tools array, an empty state object, an empty forwarded props object, and at most one compact canvas context entry.
+For normal agent pane prompt submissions, including operator-designated panes, the workbench SHALL submit AG-UI `RunAgentInput` requests with only protocol-required routing fields, the user message, an empty tools array, an empty state object, an empty context array, and an empty forwarded props object.
 
-When a positive visible graphics surface size is available, the workbench SHALL include one context entry with `description` equal to `houmao.canvas_size_px.v1` and `value` equal to a compact JSON string containing integer `widthPx` and `heightPx` fields in CSS pixels.
+The workbench SHALL NOT include GUI-derived layout measurements in `RunAgentInput.context`, including `houmao.canvas_size_px.v1`, `houmao.canvas.v1`, pane dimensions, display surface dimensions, transcript dimensions, renderer dimensions, scroll state, or any equivalent canvas-size hint.
 
-When no positive visible graphics surface size is available, the workbench SHALL omit the canvas context entry rather than inventing a default size.
+The workbench SHALL NOT measure the visible graphics surface as part of normal prompt submission.
 
 The workbench SHALL NOT duplicate pane id, pane kind, source labels, component schemas, CLI command recipes, agent identity, thread id, run id, delivery semantics, or safety guidance in `state`, `context`, or non-Houmao `forwardedProps` for normal prompt submissions.
 
-The workbench MAY still use `forwardedProps.houmao` for explicit gateway-recognized runtime controls when a future caller intentionally requests those controls.
+The workbench SHALL use `forwardedProps.houmao` only for explicit gateway-recognized runtime controls when a future caller intentionally requests those controls.
 
-#### Scenario: Prompt run includes only compact canvas context
-- **WHEN** an agent pane submits a text prompt and the visible graphics surface measures 640 by 520 CSS pixels
-- **THEN** the submitted `RunAgentInput.context` contains exactly one Houmao presentation entry
-- **AND THEN** that entry has `description` equal to `houmao.canvas_size_px.v1`
-- **AND THEN** that entry has `value` equal to `{"widthPx":640,"heightPx":520}` or an equivalent compact JSON string with those integer fields
+#### Scenario: Prompt run uses empty context despite available surface size
+- **WHEN** an agent pane submits a text prompt while the visible graphics surface measures 640 by 520 CSS pixels
+- **THEN** the submitted `RunAgentInput.context` is an empty array
+- **AND THEN** the submitted request does not include `houmao.canvas_size_px.v1`, `houmao.canvas.v1`, width, height, pane, display surface, transcript, renderer, or scroll-state measurements
 
 #### Scenario: Prompt run omits redundant pane metadata
 - **WHEN** an agent pane submits a normal text prompt
@@ -118,10 +134,10 @@ The workbench MAY still use `forwardedProps.houmao` for explicit gateway-recogni
 - **THEN** the submitted `RunAgentInput.tools` is an empty array
 - **AND THEN** the request does not declare `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard` as frontend tools
 
-#### Scenario: Missing surface size omits canvas context
-- **WHEN** an agent pane submits a text prompt before a positive visible graphics surface size can be measured
-- **THEN** the submitted `RunAgentInput.context` does not include `houmao.canvas_size_px.v1`
-- **AND THEN** the workbench does not send guessed width or height values
+#### Scenario: Pane layout changes do not alter agent-visible context
+- **WHEN** an agent pane is resized, scrolled, cleared, or rendered with a different graphics backend before submitting a text prompt
+- **THEN** the submitted `RunAgentInput.context` remains an empty array
+- **AND THEN** the workbench does not send guessed, measured, or cached canvas width or height values
 
 ### Requirement: Send-capable prompt editors submit with Shift+Enter
 The workbench SHALL submit send-capable prompt editor contents when the focused editor receives `Shift+Enter`.
@@ -209,20 +225,24 @@ The clear-canvas control SHALL NOT send detach, stop, restart, shutdown, interru
 - **THEN** the pane renders those new events from an empty display baseline
 
 ### Requirement: Local AG-UI development proxy
-The workbench SHALL provide a local development proxy for browser-to-Houmao AG-UI requests that preserves AG-UI HTTP and SSE semantics while restricting target URLs.
+The workbench SHALL provide a local AG-UI proxy through the Fastify backend for browser-origin workbench requests that need to reach Houmao AG-UI gateways.
+
+The proxy SHALL preserve AG-UI HTTP and SSE semantics while restricting target URLs.
+
+The proxy SHALL be available in development and production-like workbench modes and SHALL NOT depend on Vite middleware plugins as the authoritative implementation.
 
 #### Scenario: Proxy preserves SSE stream behavior
-- **WHEN** the browser sends a proxied AG-UI run or connect request to an allowed target that returns `text/event-stream`
-- **THEN** the proxy forwards the upstream status, content type, and SSE bytes to the browser without buffering the full stream
+- **WHEN** the browser requests a proxied AG-UI run or connect operation for an allowed target that returns `text/event-stream`
+- **THEN** the Fastify proxy forwards the upstream status, content type, and SSE bytes to the browser without buffering the full stream
 
 #### Scenario: Proxy rejects disallowed targets
 - **WHEN** a pane attempts to proxy an AG-UI request to a non-loopback or otherwise disallowed target
-- **THEN** the proxy rejects the request before contacting the target
+- **THEN** the Fastify proxy rejects the request before contacting the target
 - **AND THEN** the workbench displays a deterministic target-policy error
 
 #### Scenario: Browser abort aborts upstream request
 - **WHEN** the browser aborts an in-flight proxied connect or run request
-- **THEN** the proxy aborts the upstream request and releases stream resources
+- **THEN** the Fastify proxy aborts the upstream request and releases stream resources
 
 ### Requirement: Workbench persistence boundary
 The workbench SHALL persist layout and non-sensitive configuration in localStorage or an equivalent browser configuration store.
@@ -249,16 +269,25 @@ The workbench SHALL NOT persist discovered-agent list responses, gateway-status 
 - **AND THEN** the workbench persists them in the client event cache only after the target is watched
 
 ### Requirement: Deterministic browser E2E coverage
-The repository SHALL include deterministic browser E2E coverage for the workbench using Bun-global Playwright and a fake AG-UI server or route fixture.
+The repository SHALL include deterministic browser E2E coverage for the workbench using Bun-global Playwright and Fastify-backed local server fixtures.
+
+The test harness SHALL start the local workbench server rather than relying on Vite middleware plugins as the only backend surface.
+
+The deterministic fixture path SHALL cover AG-UI, Debug Agent, tmux bridge, and server teardown behavior without requiring live Houmao agents.
 
 #### Scenario: E2E validates multi-pane flow
-- **WHEN** the workbench E2E smoke runs against a deterministic AG-UI fixture
+- **WHEN** the workbench E2E smoke runs against deterministic Fastify-backed fixtures
 - **THEN** it adds at least two agent panes, moves a pane into an in-app split, connects panes independently, submits at least one run, and verifies visible transcript or status evidence for each target
 
 #### Scenario: E2E validates graphics and detach behavior
 - **WHEN** the deterministic fixture emits a `houmao_render_graphic` sequence and the test closes or disconnects a pane
 - **THEN** the test verifies visible graphic evidence
 - **AND THEN** the test verifies the browser-side detach or abort path without expecting a Houmao interrupt request
+
+#### Scenario: E2E validates server-owned host integrations
+- **WHEN** the workbench E2E suite exercises AG-UI proxy, Debug Agent, or tmux bridge behavior
+- **THEN** the requests are served by the Fastify local server
+- **AND THEN** the test does not depend on Vite-only plugin routes for host integration behavior
 
 ### Requirement: Kimi Code headless live validation guidance
 The workbench documentation SHALL describe how to perform live/manual validation for this change with a Kimi Code headless Houmao agent while keeping deterministic fake-server E2E as the required automated test path.
@@ -708,7 +737,7 @@ Agent panes SHALL delegate long-lived AG-UI lifecycle ownership to the workbench
 
 Agent panes SHALL dispatch runtime actions for target changes, connect/watch requests, run requests, stream cancellation, clear-canvas requests, and pane disposal.
 
-Agent panes SHALL keep UI-local concerns such as prompt editor state, target form editing, measured canvas size, and rendered DOM outside the runtime lifecycle effects.
+Agent panes SHALL keep UI-local concerns such as prompt editor state, target form editing, display DOM refs, and rendered DOM outside the runtime lifecycle effects.
 
 Agent panes SHALL NOT keep component-local reconnect timers, stream abort refs, connection ids, or duplicated connect/run status after the equivalent workflow has moved into the runtime.
 
@@ -719,7 +748,8 @@ Agent panes SHALL NOT keep component-local reconnect timers, stream abort refs, 
 
 #### Scenario: Agent pane run uses runtime action
 - **WHEN** a user submits a prompt from an agent pane
-- **THEN** the pane dispatches a runtime run action containing the submitted message and compact canvas-size context when available
+- **THEN** the pane dispatches a runtime run action containing the submitted message and target only
+- **AND THEN** the runtime run action does not contain canvas size, pane dimensions, display surface dimensions, renderer dimensions, or scroll-state measurements
 - **AND THEN** runtime effects own the AG-UI run stream and reduce the received events into pane-visible state
 
 #### Scenario: Pane close cancels pane-owned AG-UI streams
@@ -843,3 +873,95 @@ The deterministic workbench browser coverage SHALL exercise tmux terminal resize
 - **WHEN** the workbench E2E suite opens the Agents picker from the toolbar
 - **THEN** the test verifies discovery refresh evidence
 - **AND THEN** the test creates a blank manual agent pane through the picker New action
+
+### Requirement: Agent panes expose a template graphic renderer override
+Agent panes SHALL provide a pane-level control for choosing how `houmao.graphic.template` tool calls are rendered.
+
+The control SHALL expose at least `auto`, `vega-lite`, and `recharts` options.
+
+When the value is `auto`, the workbench SHALL use the renderer selection encoded in the received template graphic payload.
+
+When the value is a renderer id such as `vega-lite` or `recharts`, the workbench SHALL attempt to render completed `houmao.graphic.template` tool calls in that pane with the selected renderer before considering message-level renderer preference.
+
+The renderer override SHALL be presentation metadata only. The workbench SHALL NOT mutate the received AG-UI events, reconstructed tool-call arguments, diagnostics payloads, or gateway messages to apply the override.
+
+#### Scenario: Auto respects message renderer selection
+- **WHEN** an agent pane renderer control is set to `auto`
+- **AND WHEN** a completed `houmao.graphic.template` tool call requests `renderer.preferred` equal to `vega-lite`
+- **THEN** the workbench selects the renderer through the message-level renderer preference and fallback rules
+- **AND THEN** the raw tool-call diagnostics still show the original message payload
+
+#### Scenario: Forced renderer overrides message preference
+- **WHEN** an agent pane renderer control is set to `recharts`
+- **AND WHEN** a completed `houmao.graphic.template` tool call requests `renderer.preferred` equal to `vega-lite`
+- **THEN** the workbench renders that template graphic through Recharts when Recharts supports the payload
+- **AND THEN** the raw tool-call diagnostics still show `renderer.preferred` equal to `vega-lite`
+
+#### Scenario: Unsupported forced renderer degrades visibly
+- **WHEN** an agent pane renderer control is set to a renderer that cannot render the completed template graphic payload
+- **THEN** the workbench shows a deterministic renderer-override diagnostic in the pane
+- **AND THEN** the workbench does not silently fall back to another renderer for that forced-renderer attempt
+- **AND THEN** unrelated pane messages and rendered components remain visible
+
+### Requirement: Template renderer preference persists as safe pane metadata
+The workbench SHALL persist each agent pane's template graphic renderer preference in the same safe browser configuration boundary as pane layout and target metadata.
+
+The persisted renderer preference SHALL default to `auto` when absent, invalid, or unsupported by the current workbench build.
+
+The persisted renderer preference SHALL NOT include AG-UI stream content, tool-call payloads, transcript text, prompt text, raw terminal bytes, gateway response bodies, credentials, cookies, bearer tokens, or authorization headers.
+
+#### Scenario: Renderer preference restores after reload
+- **WHEN** a tester sets pane `agent-1` to force the `vega-lite` template renderer
+- **AND WHEN** the browser reloads the workbench
+- **THEN** pane `agent-1` restores the `vega-lite` renderer preference
+- **AND THEN** the restored localStorage state does not contain prior template graphic payloads or AG-UI stream content
+
+#### Scenario: Invalid stored renderer falls back to auto
+- **WHEN** localStorage contains an unsupported template renderer preference for pane `agent-1`
+- **AND WHEN** the workbench loads that pane
+- **THEN** the pane uses `auto` as its template renderer preference
+- **AND THEN** the invalid stored value does not prevent the pane from rendering AG-UI messages
+
+### Requirement: Tmux terminal panes repaint after scroll and layout-local changes
+Tmux panes SHALL keep xterm `Terminal`, `FitAddon`, DOM refs, and direct terminal rendering outside reduced runtime state while ensuring the full visible terminal area repaints after local terminal viewport changes.
+
+Tmux panes SHALL schedule a visible-row xterm refresh after local scroll events, parsed terminal writes, successful fit operations, Dockview dimension or visibility changes, and terminal host resize observations.
+
+Tmux panes SHALL continue to send tmux resize messages to the runtime only when the fitted terminal column or row count changes.
+
+The repaint behavior SHALL NOT persist terminal bytes in reduced runtime state or localStorage.
+
+#### Scenario: Mouse scroll repaints full terminal width
+- **WHEN** a tmux pane is attached to a session with enough scrollback for mouse-wheel scrolling
+- **AND WHEN** the tester scrolls the xterm viewport with the mouse wheel
+- **THEN** the visible terminal rows repaint across the full terminal width without requiring an outer browser-window resize
+- **AND THEN** the workbench does not store terminal bytes in reduced runtime state
+
+#### Scenario: Same-size layout refresh does not send redundant tmux resize
+- **WHEN** a Dockview layout or visibility event causes the tmux pane to refit at the same terminal columns and rows
+- **THEN** the pane refreshes the visible terminal area
+- **AND THEN** the runtime does not receive a redundant tmux resize action solely because the repaint ran
+
+#### Scenario: Real resize still updates tmux attachment size
+- **WHEN** a tmux pane is attached to a session
+- **AND WHEN** the browser or Dockview panel changes the visible terminal host size enough to change fitted columns or rows
+- **THEN** the pane sends the updated terminal columns and rows to the runtime attachment
+- **AND THEN** the visible terminal area repaints after the fit
+
+### Requirement: Workbench tests cover pane presentation behavior
+The deterministic workbench browser coverage SHALL exercise template graphic renderer override behavior and tmux terminal repaint behavior.
+
+Renderer override coverage SHALL verify `auto`, forced `vega-lite`, forced `recharts`, and visible forced-renderer diagnostics using deterministic AG-UI fixture events.
+
+Tmux repaint coverage SHALL attach to a deterministic tmux bridge fixture, create enough terminal output to scroll, perform mouse-wheel scrolling, and verify that the terminal remains visibly updated without forcing an outer window resize.
+
+#### Scenario: E2E validates template renderer override
+- **WHEN** the workbench E2E suite emits a completed `houmao.graphic.template` tool call for an agent pane
+- **AND WHEN** the test switches the pane renderer control between `auto`, `vega-lite`, and `recharts`
+- **THEN** the test verifies the renderer-specific visible evidence for the selected mode
+- **AND THEN** the raw tool-call diagnostics still expose the original payload
+
+#### Scenario: E2E validates tmux scroll repaint
+- **WHEN** the workbench E2E suite attaches a tmux tab through the deterministic tmux bridge fixture
+- **AND WHEN** the test scrolls the terminal viewport with the mouse wheel
+- **THEN** the test verifies that terminal content remains visibly refreshed without resizing the browser window

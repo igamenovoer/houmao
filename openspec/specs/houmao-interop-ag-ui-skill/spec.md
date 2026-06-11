@@ -20,6 +20,7 @@ The skill SHALL be installable through the Houmao system-skill catalog like othe
 #### Scenario: System-skill catalog includes the skill
 - **WHEN** an operator lists maintained Houmao system skills
 - **THEN** `houmao-interop-ag-ui` appears as an installable Houmao-owned skill
+- **AND THEN** `houmao-agent-ag-ui` does not appear as a current installable skill
 
 ### Requirement: Skill provides a validated authoring workflow
 The `houmao-interop-ag-ui` skill SHALL provide a concrete workflow for generating GUI messages.
@@ -48,7 +49,7 @@ The skill SHALL allow publishing to a known Houmao per-agent gateway AG-UI event
 
 For third-party AG-UI-compatible endpoints, the skill SHALL instruct agents to use `houmao-mgr` to generate and validate events, then perform delivery themselves according to the third-party endpoint's own request, authentication, header, framing, and admission constraints.
 
-The skill SHALL instruct agents not to guess gateway host, port, thread id, run id, or endpoint URL when those values are absent from the current environment or user context.
+The skill SHALL instruct agents not to guess gateway host, port, thread id, run id, connection id, or endpoint URL when those values are absent from the current environment or user context.
 
 The skill SHALL direct agents to supported Houmao discovery surfaces when they need a live gateway URL.
 
