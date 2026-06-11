@@ -10,6 +10,7 @@ import {
 import { normalizeAgUiTarget } from "../ag-ui/target";
 import type { CapabilitiesResponse, DiscoveredAgentSummary, TargetConfig } from "../ag-ui/types";
 import type { WatchedTargetRecord } from "../ag-ui/watchedTargets";
+import type { PresentationSessionView } from "../shared/workbenchProtocol";
 import type { TmuxAttachMode, TmuxBridgeStatus, TmuxSessionRow } from "../tmux/client";
 import type { GatewayKey, RuntimeStreamKind, WorkbenchRuntimeAction } from "./actions";
 
@@ -93,12 +94,18 @@ export interface RuntimeErrorEntry {
   receivedAt: string;
 }
 
+export interface PresentationSessionRuntimeState {
+  sessions: Record<string, PresentationSessionView>;
+  lastReceivedAt?: string;
+}
+
 export interface WorkbenchRuntimeState {
   activeThreads: Record<GatewayKey, ActiveThreadRuntimeState>;
   paneAgUi: Record<string, PaneAgUiRuntimeState>;
   watchedTargets: Record<string, WatchedTargetRuntimeState>;
   tmuxInventory: TmuxInventoryRuntimeState;
   tmuxPanes: Record<string, TmuxPaneRuntimeState>;
+  presentationSessions: PresentationSessionRuntimeState;
   errors: RuntimeErrorEntry[];
 }
 
@@ -117,6 +124,9 @@ export const initialRuntimeState: WorkbenchRuntimeState = {
     interestedPaneIds: [],
   },
   tmuxPanes: {},
+  presentationSessions: {
+    sessions: {},
+  },
   errors: [],
 };
 
@@ -142,6 +152,51 @@ export function reduceRuntimeState(
         tmuxInventory: {
           ...state.tmuxInventory,
           interestedPaneIds: removeValue(state.tmuxInventory.interestedPaneIds, action.paneId),
+        },
+        presentationSessions: removePresentationSessionsForPane(
+          state.presentationSessions,
+          action.paneId,
+        ),
+      };
+    }
+    case "presentationSessions/snapshotReceived":
+      return {
+        ...state,
+        presentationSessions: {
+          sessions: Object.fromEntries(
+            action.sessions.map((session) => [session.sessionId, session]),
+          ),
+          lastReceivedAt: action.receivedAt,
+        },
+      };
+    case "presentationSession/created":
+      return {
+        ...state,
+        presentationSessions: {
+          sessions: {
+            ...state.presentationSessions.sessions,
+            [action.session.sessionId]: action.session,
+          },
+          lastReceivedAt: action.receivedAt,
+        },
+      };
+    case "presentationSession/disposed": {
+      const nextSessions = { ...state.presentationSessions.sessions };
+      if (action.sessionId) {
+        delete nextSessions[action.sessionId];
+      }
+      if (action.paneId) {
+        for (const [sessionId, session] of Object.entries(nextSessions)) {
+          if (session.paneId === action.paneId) {
+            delete nextSessions[sessionId];
+          }
+        }
+      }
+      return {
+        ...state,
+        presentationSessions: {
+          sessions: nextSessions,
+          lastReceivedAt: action.receivedAt,
         },
       };
     }
@@ -820,6 +875,22 @@ function addUnique(values: string[], value: string): string[] {
 
 function removeValue(values: string[], value: string): string[] {
   return values.filter((candidate) => candidate !== value);
+}
+
+function removePresentationSessionsForPane(
+  state: PresentationSessionRuntimeState,
+  paneId: string,
+): PresentationSessionRuntimeState {
+  const sessions = { ...state.sessions };
+  for (const [sessionId, session] of Object.entries(sessions)) {
+    if (session.paneId === paneId) {
+      delete sessions[sessionId];
+    }
+  }
+  return {
+    ...state,
+    sessions,
+  };
 }
 
 function exhaustive(value: never): WorkbenchRuntimeState {

@@ -1,4 +1,3 @@
-import { proxiedTargetUrl } from "./target";
 import type {
   AgentAddressResolvedAgent,
   DiscoveredAgentListResponse,
@@ -8,6 +7,7 @@ import type {
   ResolvedDiscoveredTarget,
   TargetConfig,
 } from "./types";
+import { WORKBENCH_API_PREFIX } from "../shared/workbenchProtocol";
 
 export class DiscoveryHttpError extends Error {
   readonly status: number;
@@ -185,12 +185,14 @@ function routeUrl(base: URL, path: string): string {
 }
 
 async function fetchJson<T>(targetUrl: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(proxiedTargetUrl(targetUrl), {
-    method: "GET",
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/fetch-json`, {
+    method: "POST",
     signal,
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ targetUrl, method: "GET" }),
   });
   const body = await response.text();
   if (!response.ok) {

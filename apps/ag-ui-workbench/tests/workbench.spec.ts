@@ -14,6 +14,7 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await page.request.post("/__houmao_workbench/ag-ui/streams/close-all").catch(() => undefined);
   fakeServer.resetRecords();
   await page.goto("/");
   await page.request.post("/__houmao_tmux/fixture/reset");
@@ -22,7 +23,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("submits minimal run and connect request bodies", async ({ page }) => {
-  const proxyRequests = collectProxyPostBodies(page);
+  const bridgeRequests = collectAgUiBridgePostBodies(page);
 
   await expect(page.getByTestId("panel-operator")).toHaveCount(0);
   await expect.poll(() => panelIds(page)).toEqual([]);
@@ -65,8 +66,10 @@ test("submits minimal run and connect request bodies", async ({ page }) => {
 
   await page.getByTestId("add-debug-agent-pane").click();
   await expect(page.getByTestId("status-debug-agent-1")).toContainText("connected");
-  const debugConnect = proxyRequests.find(
-    (request) => request.target?.includes("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/connect"),
+  const debugConnect = bridgeRequests.find(
+    (request) =>
+      request.operation === "connect" &&
+      request.target?.includes("/__houmao_debug_agents/debug-agent-1/v1/ag-ui"),
   );
   expect(debugConnect).toBeTruthy();
   expectMinimalConnectBody(expectRecord(debugConnect!.body), { allowReplayFlag: true });
@@ -1048,25 +1051,29 @@ interface ExpectedRunBody {
   message: string;
 }
 
-interface RecordedProxyRequest {
+interface RecordedBridgeRequest {
   target: string | null;
+  operation: string;
   body: unknown;
 }
 
-function collectProxyPostBodies(page: Page): RecordedProxyRequest[] {
-  const requests: RecordedProxyRequest[] = [];
+function collectAgUiBridgePostBodies(page: Page): RecordedBridgeRequest[] {
+  const requests: RecordedBridgeRequest[] = [];
   page.on("request", (request) => {
-    if (request.method() !== "POST" || !request.url().includes("/__houmao_ag_ui_proxy?")) {
+    if (request.method() !== "POST" || !request.url().includes("/__houmao_workbench/ag-ui/")) {
       return;
     }
-    const target = new URL(request.url()).searchParams.get("target");
-    let body: unknown;
+    let payload: unknown;
     try {
-      body = request.postDataJSON();
+      payload = request.postDataJSON();
     } catch {
-      body = request.postData();
+      payload = request.postData();
     }
-    requests.push({ target, body });
+    const operation = new URL(request.url()).pathname.split("/").pop() ?? "";
+    const record = expectRecord(payload);
+    const target = typeof record.targetUrl === "string" ? record.targetUrl : null;
+    const body = record.input ?? payload;
+    requests.push({ target, operation, body });
   });
   return requests;
 }

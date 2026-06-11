@@ -11,6 +11,7 @@ import type {
 } from "../ag-ui/types";
 import type { PaneRunStatus } from "../ag-ui/reducer";
 import type { WatchedTargetRecord } from "../ag-ui/watchedTargets";
+import type { PresentationSessionView } from "../shared/workbenchProtocol";
 import type { TmuxAttachMode, TmuxBridgeStatus, TmuxSessionRow } from "../tmux/client";
 
 export type GatewayKey = string;
@@ -27,6 +28,22 @@ export type WorkbenchRuntimeAction =
   | {
       type: "pane/disposed";
       paneId: string;
+    }
+  | {
+      type: "presentationSessions/snapshotReceived";
+      sessions: PresentationSessionView[];
+      receivedAt: string;
+    }
+  | {
+      type: "presentationSession/created";
+      session: PresentationSessionView;
+      receivedAt: string;
+    }
+  | {
+      type: "presentationSession/disposed";
+      sessionId: string;
+      paneId?: string | null;
+      receivedAt: string;
     }
   | {
       type: "agUi/capabilitiesRequested";

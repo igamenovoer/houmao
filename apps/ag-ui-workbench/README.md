@@ -1,6 +1,8 @@
 # Houmao AG-UI Workbench
 
-The AG-UI workbench is a standalone Bun/Vite application for testing Houmao AG-UI protocol behavior against already-running agents. It is intentionally outside the PyPI package and lives under `apps/ag-ui-workbench/`.
+The AG-UI workbench is a standalone single-user local web application for testing Houmao AG-UI protocol behavior against already-running agents. It is intentionally outside the PyPI package and lives under `apps/ag-ui-workbench/`.
+
+The user runs a TypeScript Fastify server on the same host as Houmao, then opens the browser to that loopback port. Fastify is the GUI backend and owns host-side integrations such as AG-UI gateway access, target policy, Debug Agent relay behavior, tmux bridging, and presentation-session state. The browser frontend remains React/Dockview/RxJS and talks to the local server through private workbench APIs.
 
 ## Commands
 
@@ -9,11 +11,15 @@ Run from this directory:
 ```bash
 bun install
 bun run dev
+bun run dev:vite
 bun run typecheck
 bun run build
+bun run start
 bun run e2e
 bun run e2e:real-agent-smoke
 ```
+
+`bun run dev` starts the Fastify-backed local workbench server in development mode. Fastify is the user-facing origin, while Vite serves frontend assets and HMR behind that server. `bun run start` serves the built frontend from Fastify after `bun run build`. `bun run dev:vite` is a temporary legacy fallback that starts the old Vite-plugin host path directly while the migration remains in progress.
 
 The E2E scripts use Playwright from the Bun toolchain through `bunx playwright`. `bun run e2e` runs deterministic local tests only. `bun run e2e:real-agent-smoke` is a manual, opt-in live-agent smoke that requires `HMWB_REAL_AGENT_SMOKE=1`, `HMWB_PASSIVE_SERVER_URL`, and `HMWB_TEST_AGENT_NAME` or `HMWB_TEST_AGENT_ID`.
 
@@ -35,7 +41,7 @@ http://127.0.0.1:8080/houmao/agents/<agent_ref>/ag-ui
 http://127.0.0.1:8080/houmao/agents/<agent_ref>/ag-ui/runs
 ```
 
-Browser requests go through the app-local development proxy at `/__houmao_ag_ui_proxy`. The proxy allows loopback HTTP or HTTPS targets by default and rejects other hosts unless `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` lists an exact hostname or host:port value.
+Browser requests go through the Fastify local server. AG-UI actions use the private `/__houmao_workbench/ag-ui/*` route family, where the server normalizes target URLs, applies the target policy, opens upstream Houmao AG-UI HTTP/SSE streams, and forwards bounded event bytes to the browser. The legacy `/__houmao_ag_ui_proxy` route remains as a migration fallback and status endpoint. The server allows loopback HTTP or HTTPS targets by default and rejects other hosts unless `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` lists an exact hostname or host:port value.
 
 ## Agent Picker
 
@@ -49,7 +55,7 @@ If the agent is known but currently has no gateway, the pane can still be target
 
 Closing a pane removes only the presentation surface when the target is watched. The background listener keeps running until Unwatch or Disconnect is used. Events published while no watcher is connected are lost for this browser because the Houmao gateway does not retain published GUI events.
 
-For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the Vite dev server.
+For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the workbench server.
 
 Validation flows:
 
@@ -66,7 +72,7 @@ The operator marker is UI metadata only. It does not change AG-UI request bodies
 
 ## Tmux Tabs
 
-The toolbar `tmux` control opens a docked tmux tab. The tab talks to the Vite host process through the local bridge:
+The toolbar `tmux` control opens a docked tmux tab. The tab talks to the Fastify GUI backend through the local bridge:
 
 ```text
 GET /__houmao_tmux/status
@@ -88,7 +94,7 @@ The workbench persists the tmux tab layout and non-sensitive tab configuration s
 
 The toolbar `Debug Agent` control opens a local protocol playground. It does not create a managed Houmao agent, tmux session, passive-server registry record, gateway sidecar, mailbox, or credential binding. The pane has a white-box sender on the left and a normal AG-UI display on the right. The display connects through the same AG-UI client, SSE parser, reducer, diagnostics, and typed component renderers used by ordinary workbench panes.
 
-The debug relay runs in the Vite host process on the same host and port as the workbench. Its route family is local development/test surface only:
+The debug relay runs in the Fastify GUI backend on the same host and port as the workbench. Its route family is local development/test surface only:
 
 ```text
 GET    /__houmao_debug_agents/status
@@ -123,7 +129,11 @@ Troubleshooting checks:
 - `deliveredCount = 0`: no active display stream matched the posted `threadId`, `runId`, or `connectionId`, or the display was disconnected when a live-only batch was posted.
 - Display connected but nothing rendered: confirm the event batch contains a complete tool-call sequence and that `TOOL_CALL_ARGS.delta` is a JSON string for a supported Houmao component.
 - Validation error: inspect `code`, `detail`, and `path` in the publish response; invalid batches are rejected before delivery.
-- Wrong host URL: external callers must reach the workbench host and port. The debug relay is served by Vite; it is not available if the workbench dev server is stopped.
+- Wrong host URL: external callers must reach the workbench host and port. The debug relay is served by Fastify; it is not available if the workbench server is stopped.
+
+## Presentation Sessions
+
+The local server owns a minimal presentation-session registry at `/__houmao_workbench/presentation-sessions`. The first implementation stores only session ids, optional pane ids, renderer-neutral kind labels, safe scalar metadata, and lifecycle diagnostics. It does not store large datasource rows in browser state and does not control Houmao agent lifecycle when sessions are created, disposed, or cleared.
 - Unknown component: use one of `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard`.
 
 ## Lifecycle Boundary

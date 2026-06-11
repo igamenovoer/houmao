@@ -9,6 +9,7 @@ import { DebugAgentPanel } from "./panes/DebugAgentPanel";
 import { TmuxTabPanel } from "./panes/TmuxTabPanel";
 import {
   clearActiveAgUiThread,
+  closeAllWorkbenchAgUiStreams,
   connectAgUi,
   detachAgUi,
   fetchActiveAgUiThread,
@@ -101,10 +102,13 @@ export default function App() {
   useEffect(() => {
     const disposeRuntime = () => {
       runtime.dispose();
+      closeAllWorkbenchAgUiStreams();
     };
     window.addEventListener("beforeunload", disposeRuntime);
+    window.addEventListener("pagehide", disposeRuntime);
     return () => {
       window.removeEventListener("beforeunload", disposeRuntime);
+      window.removeEventListener("pagehide", disposeRuntime);
     };
   }, [runtime]);
 

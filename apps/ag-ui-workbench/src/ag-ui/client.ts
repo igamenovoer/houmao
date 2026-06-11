@@ -1,6 +1,6 @@
 import type { CapabilitiesResponse, RunAgentInput, TargetConfig, RawTimelineEntry, AgUiEvent } from "./types";
-import { detachUrl, normalizeAgUiTarget, proxiedTargetUrl } from "./target";
 import { SseParser } from "./sse";
+import { WORKBENCH_API_PREFIX } from "../shared/workbenchProtocol";
 
 export type ActiveThreadSource = "gui_button" | "gui_connect" | "manual";
 
@@ -34,13 +34,14 @@ export interface StreamHandlers {
 }
 
 export async function fetchCapabilities(config: TargetConfig, signal?: AbortSignal): Promise<CapabilitiesResponse> {
-  const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(target.capabilitiesUrl), {
-    method: "GET",
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/capabilities`, {
+    method: "POST",
     signal,
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ targetUrl: config.url }),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -54,8 +55,7 @@ export async function runAgUi(
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const target = normalizeAgUiTarget(config);
-  await streamAgUi(target.runsUrl, "POST", input, handlers, signal);
+  await streamAgUi(workbenchStreamUrl("run"), config, input, handlers, signal);
 }
 
 export async function connectAgUi(
@@ -64,20 +64,20 @@ export async function connectAgUi(
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const target = normalizeAgUiTarget(config);
-  await streamAgUi(target.connectUrl, "POST", input, handlers, signal);
+  await streamAgUi(workbenchStreamUrl("connect"), config, input, handlers, signal);
 }
 
 export async function detachAgUi(config: TargetConfig, connectionId: string | null | undefined): Promise<void> {
   if (!connectionId) {
     return;
   }
-  const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(detachUrl(target, connectionId)), {
-    method: "DELETE",
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/detach`, {
+    method: "POST",
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ targetUrl: config.url, connectionId }),
   });
   if (!response.ok && response.status !== 404) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -85,13 +85,14 @@ export async function detachAgUi(config: TargetConfig, connectionId: string | nu
 }
 
 export async function fetchAgUiDestination(config: TargetConfig, signal?: AbortSignal): Promise<AgUiDestinationState> {
-  const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/destination`), {
-    method: "GET",
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/destination`, {
+    method: "POST",
     signal,
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ targetUrl: config.url }),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -100,13 +101,14 @@ export async function fetchAgUiDestination(config: TargetConfig, signal?: AbortS
 }
 
 export async function fetchActiveAgUiThread(config: TargetConfig, signal?: AbortSignal): Promise<AgUiThreadDestination> {
-  const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/active-thread`), {
-    method: "GET",
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
+    method: "POST",
     signal,
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ targetUrl: config.url }),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -119,14 +121,13 @@ export async function setActiveAgUiThread(
   threadId: string,
   source: ActiveThreadSource = "manual",
 ): Promise<AgUiThreadDestination> {
-  const target = normalizeAgUiTarget(config);
-  const response = await fetch(proxiedTargetUrl(`${target.baseUrl}/active-thread`), {
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
     method: "PUT",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ threadId, source }),
+    body: JSON.stringify({ targetUrl: config.url, threadId, source }),
   });
   if (!response.ok) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -138,16 +139,13 @@ export async function clearActiveAgUiThread(
   config: TargetConfig,
   expectedThreadId?: string,
 ): Promise<AgUiThreadDestination | null> {
-  const target = normalizeAgUiTarget(config);
-  const endpoint = new URL(`${target.baseUrl}/active-thread`);
-  if (expectedThreadId) {
-    endpoint.searchParams.set("threadId", expectedThreadId);
-  }
-  const response = await fetch(proxiedTargetUrl(endpoint.toString()), {
+  const response = await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/active-thread`, {
     method: "DELETE",
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ targetUrl: config.url, expectedThreadId }),
   });
   if (!response.ok && response.status !== 404) {
     throw new AgUiHttpError(response.status, response.statusText, await response.text());
@@ -158,21 +156,50 @@ export async function clearActiveAgUiThread(
   return (await response.json()) as AgUiThreadDestination;
 }
 
+export function closeAllWorkbenchAgUiStreams(): void {
+  const url = `${WORKBENCH_API_PREFIX}/ag-ui/streams/close-all`;
+  if (navigator.sendBeacon) {
+    const payload = new Blob(["{}"], { type: "application/json" });
+    if (navigator.sendBeacon(url, payload)) {
+      return;
+    }
+  }
+  void fetch(url, {
+    method: "POST",
+    keepalive: true,
+    headers: {
+      "content-type": "application/json",
+    },
+    body: "{}",
+  }).catch(() => undefined);
+}
+
+export async function closeWorkbenchAgUiStreamsForTarget(config: TargetConfig): Promise<void> {
+  await fetch(`${WORKBENCH_API_PREFIX}/ag-ui/streams/close-target`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ targetUrl: config.url }),
+  }).catch(() => undefined);
+}
+
 async function streamAgUi(
   endpointUrl: string,
-  method: "POST",
-  body: unknown,
+  config: TargetConfig,
+  input: RunAgentInput,
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(proxiedTargetUrl(endpointUrl), {
-    method,
+  const response = await fetch(endpointUrl, {
+    method: "POST",
     signal,
     headers: {
       accept: "text/event-stream",
       "content-type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ targetUrl: config.url, input }),
   });
   handlers.onOpen?.();
   if (!response.ok) {
@@ -201,6 +228,10 @@ async function streamAgUi(
     }
     parser.feed(decoder.decode(value, { stream: true }));
   }
+}
+
+function workbenchStreamUrl(route: "connect" | "run"): string {
+  return `${WORKBENCH_API_PREFIX}/ag-ui/${route}`;
 }
 
 export function buildRunInput({

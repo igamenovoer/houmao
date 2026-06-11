@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import { Cable, CheckCircle2, CircleStop, Clipboard, Eraser, Send, X } from "lucide-react";
 
-import { AgUiHttpError, buildConnectInput, connectAgUi, detachAgUi } from "../ag-ui/client";
+import {
+  AgUiHttpError,
+  buildConnectInput,
+  closeWorkbenchAgUiStreamsForTarget,
+  connectAgUi,
+  detachAgUi,
+} from "../ag-ui/client";
 import {
   extractConnectionId,
   initialPaneEventState,
@@ -314,6 +320,7 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
       await detachAgUi(detachTarget, connectionIdRef.current).catch((error) => {
         setEventState((current) => reduceHttpError(current, requestErrorMessage(error)));
       });
+      await closeWorkbenchAgUiStreamsForTarget(detachTarget);
       connectionIdRef.current = null;
     }
   }
