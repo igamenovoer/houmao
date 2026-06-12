@@ -6,6 +6,8 @@ This opt-in smoke validates the full GUI-to-agent AG-UI path with a real Houmao 
 AG-UI workbench prompt -> /v1/ag-ui/runs -> real Houmao agent -> houmao.graphic.template publish -> workbench render
 ```
 
+The requested chart is intentionally an ordinary Layer 1 Plotly-backed bar chart, so the prompt uses `houmao.graphic.template`. Custom declarative Vega-Lite chart requests should use the Layer 2 `houmao.graphic.vegalite` component; the Debug Agent sender and workbench E2E tests include those deterministic examples.
+
 It uses live credentials, model behavior, passive-server discovery, a managed agent relaunch, and Playwright browser automation. It is intentionally not part of the default Python test suite or the default workbench E2E suite.
 
 ## Command

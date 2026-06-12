@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
-import { Cable, CheckCircle2, CircleStop, Clipboard, Eraser, Send, X } from "lucide-react";
+import {
+  Cable,
+  CheckCircle2,
+  CircleStop,
+  Clipboard,
+  Eraser,
+  Send,
+  ShieldAlert,
+  X,
+} from "lucide-react";
 
 import {
   AgUiHttpError,
@@ -30,6 +39,7 @@ import { submitOnShiftEnter } from "./keyboard";
 type SenderMode = "component" | "raw";
 type ComponentName =
   | "houmao.graphic.template"
+  | "houmao.graphic.vegalite"
   | "houmao.table"
   | "houmao.metric_grid"
   | "houmao.dashboard";
@@ -45,10 +55,52 @@ interface PublishRequest {
 
 const COMPONENT_NAMES: ComponentName[] = [
   "houmao.graphic.template",
+  "houmao.graphic.vegalite",
   "houmao.table",
   "houmao.metric_grid",
   "houmao.dashboard",
 ];
+
+const VEGALITE_TEMPLATE = {
+  schemaVersion: 1,
+  library: "vega-lite",
+  specVersion: "6",
+  title: "Debug Agent Vega-Lite Graphic",
+  description: "Layer 2 declarative JSON rendered through Vega-Embed",
+  spec: {
+    $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+    data: {
+      values: [
+        { status: "Ready", count: 18 },
+        { status: "Review", count: 7 },
+        { status: "Blocked", count: 2 },
+      ],
+    },
+    mark: "bar",
+    encoding: {
+      x: { field: "status", type: "nominal" },
+      y: { field: "count", type: "quantitative" },
+      color: { field: "status", type: "nominal", legend: null },
+    },
+  },
+  display: { height: 320, caption: "Debug Agent inline Vega-Lite payload." },
+};
+
+const VEGALITE_REMOTE_DATA_TEMPLATE = {
+  schemaVersion: 1,
+  library: "vega-lite",
+  specVersion: "6",
+  title: "Invalid Remote Vega-Lite Graphic",
+  spec: {
+    $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+    data: { url: "https://example.invalid/private.json" },
+    mark: "bar",
+    encoding: {
+      x: { field: "status", type: "nominal" },
+      y: { field: "count", type: "quantitative" },
+    },
+  },
+};
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
   "houmao.graphic.template": {
@@ -72,6 +124,7 @@ const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
       },
     },
   },
+  "houmao.graphic.vegalite": VEGALITE_TEMPLATE,
   "houmao.table": {
     schemaVersion: 1,
     title: "Debug Agent Table",
@@ -294,6 +347,12 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
     }
   };
 
+  const loadRemoteDataVegaLite = () => {
+    setMode("component");
+    setComponentName("houmao.graphic.vegalite");
+    setEditor(formatJson(VEGALITE_REMOTE_DATA_TEMPLATE));
+  };
+
   const validate = async () => {
     await postEditor(true);
   };
@@ -463,6 +522,14 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
             <button data-testid={`debug-copy-curl-${paneId}`} title="Copy curl command" onClick={() => void copyCurl()}>
               <Clipboard size={15} />
               Copy curl
+            </button>
+            <button
+              data-testid={`debug-load-remote-vega-${paneId}`}
+              title="Load invalid remote-data Vega-Lite payload"
+              onClick={loadRemoteDataVegaLite}
+            >
+              <ShieldAlert size={15} />
+              Remote data
             </button>
             <button data-testid={`debug-clear-${paneId}`} title="Clear display" onClick={clearDisplay}>
               <Eraser size={15} />

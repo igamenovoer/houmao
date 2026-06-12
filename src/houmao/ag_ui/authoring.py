@@ -48,6 +48,27 @@ HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER = "plotly"
 HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES = ("bar", "line", "scatter", "pie", "histogram")
 """Initial chart types supported by Houmao Layer 1 template graphics."""
 
+HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME: Literal["houmao.graphic.vegalite"] = "houmao.graphic.vegalite"
+"""Houmao Layer 2 Vega-Lite DSL graphics AG-UI tool-call name."""
+
+HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION = 1
+"""Current Houmao Layer 2 Vega-Lite graphics payload schema version."""
+
+HOUMAO_VEGALITE_GRAPHIC_LIBRARY: Literal["vega-lite"] = "vega-lite"
+"""Library identifier accepted by the Layer 2 Vega-Lite payload envelope."""
+
+HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS: tuple[Literal["6"], ...] = ("6",)
+"""Supported Vega-Lite major versions for Layer 2 graphics."""
+
+HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION: Literal["6"] = "6"
+"""Default Vega-Lite major version for Layer 2 graphics."""
+
+HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES = 128 * 1024
+"""Maximum encoded JSON byte size accepted for one Vega-Lite component payload."""
+
+HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS = 5_000
+"""Maximum inline row objects accepted across one Vega-Lite component payload."""
+
 HOUMAO_RETIRED_FIXED_CHART_COMPONENTS = frozenset(
     {"houmao.chart.bar", "houmao.chart.line", "houmao.chart.pie"}
 )
@@ -55,6 +76,7 @@ HOUMAO_RETIRED_FIXED_CHART_COMPONENTS = frozenset(
 
 HoumaoAgUiComponentName = Literal[
     "houmao.graphic.template",
+    "houmao.graphic.vegalite",
     "houmao.table",
     "houmao.metric_grid",
     "houmao.dashboard",
@@ -74,8 +96,13 @@ _UNSAFE_TEXT_PATTERNS = (
     re.compile(r"javascript\s*:", re.IGNORECASE),
     re.compile(r"<\s*iframe\b", re.IGNORECASE),
     re.compile(r"<\s*svg\b", re.IGNORECASE),
+    re.compile(r"image/svg\+xml", re.IGNORECASE),
 )
 _REMOTE_URL_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
+_VEGALITE_SCHEMA_URL_PATTERN = re.compile(
+    r"^https://vega\.github\.io/schema/vega-lite/v6(?:\.\d+)*\.json$",
+    re.IGNORECASE,
+)
 _RENDERER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 _TEMPLATE_GRAPHIC_LEGACY_KEYS = frozenset({"data", "encoding", "interactions", "style"})
 _PLOTLY_EXTRA_DISALLOWED_KEYS = frozenset(
@@ -296,6 +323,60 @@ class TemplateGraphicDisplay(_HoumaoAgUiAuthoringModel):
         return _optional_non_blank_text(value, field_name="display")
 
 
+class VegaLiteGraphicDisplay(_HoumaoAgUiAuthoringModel):
+    """Display metadata that is not part of the Vega-Lite spec."""
+
+    width: int | None = Field(default=None, ge=120, le=2400)
+    height: int | None = Field(default=None, ge=120, le=1800)
+    aspect_ratio: float | None = Field(default=None, alias="aspectRatio", gt=0, le=4)
+    caption: str | None = None
+    description: str | None = None
+
+    @field_validator("caption", "description")
+    @classmethod
+    def _optional_text_stripped(cls, value: str | None) -> str | None:
+        """Normalize optional display text."""
+
+        return _optional_non_blank_text(value, field_name="display")
+
+
+class HoumaoVegaLiteGraphicPayload(_VersionedComponentPayload):
+    """Payload for `houmao.graphic.vegalite`."""
+
+    schema_version: Literal[1] = 1
+    library: Literal["vega-lite"] = HOUMAO_VEGALITE_GRAPHIC_LIBRARY
+    spec_version: Literal["6"] = Field(
+        default=HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION,
+        alias="specVersion",
+    )
+    title: str
+    description: str | None = None
+    spec: dict[str, Any]
+    display: VegaLiteGraphicDisplay | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        """Require a non-empty Vega-Lite title."""
+
+        return _non_blank_text(value, field_name="title")
+
+    @field_validator("description")
+    @classmethod
+    def _description_stripped(cls, value: str | None) -> str | None:
+        """Normalize optional descriptions."""
+
+        return _optional_non_blank_text(value, field_name="description")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _prevalidate_vegalite_shape(cls, value: object) -> object:
+        """Apply Vega-Lite-specific payload checks before normal validation."""
+
+        _prevalidate_vegalite_graphic_payload(value)
+        return value
+
+
 class TemplateGraphicDataRefColumn(_HoumaoAgUiAuthoringModel):
     """One reserved datasource column declaration."""
 
@@ -459,15 +540,18 @@ class TemplateGraphicTrace(_HoumaoAgUiAuthoringModel):
     values: list[float] | None = Field(default=None, min_length=1)
     text: str | list[TemplateGraphicArrayValue] | None = None
     hovertemplate: str | None = None
-    mode: Literal[
-        "lines",
-        "markers",
-        "text",
-        "lines+markers",
-        "lines+text",
-        "markers+text",
-        "lines+markers+text",
-    ] | None = None
+    mode: (
+        Literal[
+            "lines",
+            "markers",
+            "text",
+            "lines+markers",
+            "lines+text",
+            "markers+text",
+            "lines+markers+text",
+        ]
+        | None
+    ) = None
     orientation: Literal["v", "h"] | None = None
     marker: TemplateGraphicMarker | None = None
     line: TemplateGraphicLine | None = None
@@ -698,9 +782,7 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
     HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
         name=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
         schema_version=HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
-        description=(
-            "Display standardized Layer 1 chart intent through Plotly.js."
-        ),
+        description=("Display standardized Layer 1 chart intent through Plotly.js."),
         model=HoumaoTemplateGraphicPayload,
         example={
             "schemaVersion": 2,
@@ -727,6 +809,34 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
                     "layout": {"margin": {"l": 48, "r": 16, "t": 48, "b": 44}},
                 }
             },
+        },
+    ),
+    HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
+        name=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+        schema_version=HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION,
+        description="Display a Layer 2 declarative Vega-Lite v6 graphic.",
+        model=HoumaoVegaLiteGraphicPayload,
+        example={
+            "schemaVersion": 1,
+            "library": "vega-lite",
+            "specVersion": "6",
+            "title": "Queue Status",
+            "description": "Inline Vega-Lite data rendered in the workbench.",
+            "spec": {
+                "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+                "data": {
+                    "values": [
+                        {"status": "ready", "count": 58},
+                        {"status": "queued", "count": 23},
+                    ]
+                },
+                "mark": "bar",
+                "encoding": {
+                    "x": {"field": "status", "type": "nominal"},
+                    "y": {"field": "count", "type": "quantitative"},
+                },
+            },
+            "display": {"height": 360, "caption": "Current queue status."},
         },
     ),
     "houmao.table": HoumaoAgUiComponentSpec(
@@ -764,7 +874,7 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
     "houmao.dashboard": HoumaoAgUiComponentSpec(
         name="houmao.dashboard",
         schema_version=HOUMAO_AG_UI_SCHEMA_VERSION,
-        description="Compose Houmao chart, table, and metric components into one layout.",
+        description=("Compose Houmao graphic, table, and metric components into one layout."),
         model=HoumaoDashboardPayload,
         example={
             "schemaVersion": 1,
@@ -838,8 +948,14 @@ def validate_component_payload(component: str, payload: object) -> JsonObject:
         _reject_unsafe_payload_tree(payload)
         if component == HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME:
             _prevalidate_template_graphic_payload(payload)
+        elif component == HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME:
+            _prevalidate_vegalite_graphic_payload(payload)
+        elif component == "houmao.dashboard":
+            _prevalidate_dashboard_payload(payload)
         validated = spec.model.model_validate(payload)
         normalized = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if component == "houmao.dashboard":
+            _normalize_dashboard_child_payloads(normalized)
     except HoumaoAgUiValidationError:
         raise
     except ValidationError as exc:
@@ -1029,6 +1145,237 @@ def _renderer_id(value: str, *, field_name: str) -> str:
     if _RENDERER_ID_PATTERN.fullmatch(stripped) is None:
         raise ValueError(f"{field_name} must be a lower-case renderer id")
     return stripped
+
+
+def _prevalidate_vegalite_graphic_payload(payload: object) -> None:
+    """Raise direct diagnostics for Layer 2 Vega-Lite payload policy."""
+
+    if not isinstance(payload, Mapping):
+        return
+
+    encoded_size = _encoded_json_size(payload)
+    if encoded_size > HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES:
+        raise HoumaoAgUiValidationError(
+            (
+                f"`{HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME}` payload is {encoded_size} bytes, "
+                f"above the limit of {HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES}."
+            ),
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=("$",),
+            repair_hint="Reduce inline data or split large charts into smaller components.",
+        )
+
+    schema_version = payload.get("schemaVersion", HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION)
+    if schema_version != HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION:
+        raise HoumaoAgUiValidationError(
+            "Layer 2 Vega-Lite graphics require schemaVersion 1.",
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=("schemaVersion",),
+            repair_hint="Use the `houmao.graphic.vegalite` envelope with schemaVersion 1.",
+        )
+
+    library = payload.get("library", HOUMAO_VEGALITE_GRAPHIC_LIBRARY)
+    if library != HOUMAO_VEGALITE_GRAPHIC_LIBRARY:
+        raise HoumaoAgUiValidationError(
+            "Layer 2 Vega-Lite graphics require library `vega-lite`.",
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=("library",),
+            repair_hint='Use `library: "vega-lite"`; direct raw Vega is not supported yet.',
+        )
+
+    spec_version = payload.get("specVersion", HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION)
+    if spec_version not in HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS:
+        supported = ", ".join(HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS)
+        raise HoumaoAgUiValidationError(
+            f"Unsupported Vega-Lite specVersion `{spec_version}`.",
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=("specVersion",),
+            repair_hint=f"Use one of the supported Vega-Lite major versions: {supported}.",
+        )
+
+    spec = payload.get("spec")
+    if "spec" in payload and not isinstance(spec, Mapping):
+        raise HoumaoAgUiValidationError(
+            "`houmao.graphic.vegalite.spec` must be a Vega-Lite JSON object.",
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=("spec",),
+            repair_hint=(
+                "Send `chart.to_dict()` or equivalent Vega-Lite JSON, not Python source, "
+                "Altair objects, or notebook state."
+            ),
+        )
+    if isinstance(spec, Mapping):
+        inline_rows = _InlineRowCounter()
+        _reject_vegalite_remote_loading(
+            spec,
+            path=("spec",),
+            inline_rows=inline_rows,
+        )
+
+
+@dataclass
+class _InlineRowCounter:
+    """Mutable counter for inline Vega-Lite row objects."""
+
+    count: int = 0
+
+
+def _reject_vegalite_remote_loading(
+    value: object,
+    *,
+    path: tuple[str, ...],
+    inline_rows: _InlineRowCounter,
+) -> None:
+    """Reject remote-loading shapes while allowing known Vega-Lite schema URLs."""
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if _REMOTE_URL_PATTERN.search(stripped) and not _is_allowed_vegalite_schema_url(
+            stripped,
+            path=path,
+        ):
+            safe_path = ".".join(_redacted_path(path)) or "$"
+            raise HoumaoAgUiValidationError(
+                f"`{HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME}` contains remote URL content.",
+                component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+                field_paths=(safe_path,),
+                repair_hint="Use inline `data.values`; remote Vega-Lite loading is disabled.",
+            )
+        return
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            key_text = str(key)
+            next_path = (*path, key_text)
+            if key_text == "url" and nested_value is not None:
+                safe_path = ".".join(_redacted_path(next_path)) or "$"
+                raise HoumaoAgUiValidationError(
+                    f"`{HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME}` contains a disabled URL field.",
+                    component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+                    field_paths=(safe_path,),
+                    repair_hint=(
+                        "Use inline `data.values`; remote files, local files, and asset URLs "
+                        "are not supported."
+                    ),
+                )
+            if key_text == "values" and isinstance(nested_value, list):
+                _count_vegalite_inline_rows(nested_value, path=next_path, inline_rows=inline_rows)
+            _reject_vegalite_remote_loading(
+                nested_value,
+                path=next_path,
+                inline_rows=inline_rows,
+            )
+        return
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
+        for index, nested_value in enumerate(value):
+            _reject_vegalite_remote_loading(
+                nested_value,
+                path=(*path, str(index)),
+                inline_rows=inline_rows,
+            )
+
+
+def _is_allowed_vegalite_schema_url(value: str, *, path: tuple[str, ...]) -> bool:
+    """Return whether a URL string is the supported Vega-Lite v6 schema marker."""
+
+    return path[-1:] == ("$schema",) and _VEGALITE_SCHEMA_URL_PATTERN.fullmatch(value) is not None
+
+
+def _count_vegalite_inline_rows(
+    values: list[object],
+    *,
+    path: tuple[str, ...],
+    inline_rows: _InlineRowCounter,
+) -> None:
+    """Count inline row objects in Vega-Lite `values` arrays."""
+
+    row_count = sum(1 for item in values if isinstance(item, Mapping))
+    if row_count == 0:
+        return
+    inline_rows.count += row_count
+    if inline_rows.count > HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS:
+        safe_path = ".".join(_redacted_path(path)) or "$"
+        raise HoumaoAgUiValidationError(
+            (
+                f"`{HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME}` contains "
+                f"{inline_rows.count} inline rows, above the limit of "
+                f"{HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS}."
+            ),
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=(safe_path,),
+            repair_hint="Reduce inline data rows before sending the Vega-Lite payload.",
+        )
+
+
+def _encoded_json_size(value: object) -> int:
+    """Return compact encoded JSON byte size or raise a safe validation error."""
+
+    try:
+        rendered = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise HoumaoAgUiValidationError(
+            "`houmao.graphic.vegalite` payload must be JSON serializable.",
+            component=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+            field_paths=("$",),
+            repair_hint="Send plain JSON values, not Python objects.",
+        ) from exc
+    return len(rendered.encode("utf-8"))
+
+
+def _prevalidate_dashboard_payload(payload: object) -> None:
+    """Validate dashboard child component props before normal dashboard parsing."""
+
+    if not isinstance(payload, Mapping):
+        return
+    children = payload.get("children")
+    if not isinstance(children, list):
+        return
+    for index, child in enumerate(children):
+        if not isinstance(child, Mapping):
+            continue
+        component = child.get("component")
+        props = child.get("props")
+        if not isinstance(component, str) or not isinstance(props, Mapping):
+            continue
+        try:
+            validate_component_payload(component, props)
+        except HoumaoAgUiValidationError as exc:
+            child_paths = _prefix_field_paths(
+                prefix=f"children.{index}.props",
+                paths=exc.field_paths,
+            )
+            raise HoumaoAgUiValidationError(
+                f"Dashboard child `{component}` payload is invalid.",
+                component="houmao.dashboard",
+                field_paths=child_paths or (f"children.{index}.props",),
+                repair_hint=exc.repair_hint,
+            ) from exc
+
+
+def _normalize_dashboard_child_payloads(payload: JsonObject) -> None:
+    """Normalize dashboard child props in the already-validated payload."""
+
+    children = payload.get("children")
+    if not isinstance(children, list):
+        return
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        component = child.get("component")
+        props = child.get("props")
+        if isinstance(component, str) and isinstance(props, Mapping):
+            child["props"] = validate_component_payload(component, props)
+
+
+def _prefix_field_paths(*, prefix: str, paths: Sequence[str]) -> tuple[str, ...]:
+    """Return field paths nested under a dashboard child props prefix."""
+
+    prefixed: list[str] = []
+    for path in paths:
+        if path == "$":
+            prefixed.append(prefix)
+        else:
+            prefixed.append(f"{prefix}.{path}")
+    return tuple(prefixed)
 
 
 def _prevalidate_template_graphic_payload(payload: object) -> None:
@@ -1385,6 +1732,13 @@ __all__ = [
     "HOUMAO_TEMPLATE_GRAPHIC_RENDERERS",
     "HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION",
     "HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME",
+    "HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION",
+    "HOUMAO_VEGALITE_GRAPHIC_LIBRARY",
+    "HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES",
+    "HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS",
+    "HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION",
+    "HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS",
+    "HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME",
     "HoumaoAgUiComponentName",
     "HoumaoAgUiValidationError",
     "component_schema_payload",

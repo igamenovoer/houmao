@@ -32,6 +32,31 @@ def _template_payload() -> dict[str, object]:
     }
 
 
+def _vegalite_payload() -> dict[str, object]:
+    """Return one valid Vega-Lite graphic payload."""
+
+    return {
+        "schemaVersion": 1,
+        "library": "vega-lite",
+        "specVersion": "6",
+        "title": "Queue Status",
+        "spec": {
+            "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+            "data": {
+                "values": [
+                    {"status": "ready", "count": 58},
+                    {"status": "queued", "count": 23},
+                ]
+            },
+            "mark": "bar",
+            "encoding": {
+                "x": {"field": "status", "type": "nominal"},
+                "y": {"field": "count", "type": "quantitative"},
+            },
+        },
+    }
+
+
 def _table_payload() -> dict[str, object]:
     """Return one valid table component payload."""
 
@@ -65,8 +90,26 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     schema = json.loads(schema_result.output)
     assert "houmao.chart.bar" not in {item["name"] for item in listed["components"]}
     assert "houmao.graphic.template" in {item["name"] for item in listed["components"]}
+    assert "houmao.graphic.vegalite" in {item["name"] for item in listed["components"]}
     assert schema["name"] == "houmao.graphic.template"
     assert schema["example"]["schemaVersion"] == 2
+
+    vegalite_schema_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "internals",
+            "ag-ui",
+            "components",
+            "schema",
+            "houmao.graphic.vegalite",
+        ],
+    )
+    assert vegalite_schema_result.exit_code == 0, vegalite_schema_result.output
+    vegalite_schema = json.loads(vegalite_schema_result.output)
+    assert vegalite_schema["name"] == "houmao.graphic.vegalite"
+    assert vegalite_schema["example"]["library"] == "vega-lite"
+    assert vegalite_schema["example"]["specVersion"] == "6"
 
 
 def test_ag_ui_components_retired_fixed_chart_schema_reports_migration_hint() -> None:
@@ -132,6 +175,52 @@ def test_ag_ui_template_graphic_validate_and_render_accept_path_input(tmp_path: 
     events = json.loads(render_result.output)
     assert events[0]["toolCallName"] == "houmao.graphic.template"
     assert json.loads(events[1]["delta"])["renderer"]["preferred"] == "plotly"
+
+
+def test_ag_ui_vegalite_validate_and_render_accept_path_input(tmp_path: Path) -> None:
+    runner = CliRunner()
+    payload_path = _write_json(tmp_path / "vegalite.json", _vegalite_payload())
+
+    validate_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "internals",
+            "ag-ui",
+            "components",
+            "validate",
+            "houmao.graphic.vegalite",
+            "--input",
+            str(payload_path),
+        ],
+    )
+    render_result = runner.invoke(
+        cli,
+        [
+            "internals",
+            "ag-ui",
+            "events",
+            "render",
+            "houmao.graphic.vegalite",
+            "--input",
+            str(payload_path),
+            "--message-id",
+            "message-vega",
+            "--tool-call-id",
+            "tool-vega",
+        ],
+    )
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert json.loads(validate_result.output) == {
+        "component": "houmao.graphic.vegalite",
+        "ok": True,
+        "schemaVersion": 1,
+    }
+    assert render_result.exit_code == 0, render_result.output
+    events = json.loads(render_result.output)
+    assert events[0]["toolCallName"] == "houmao.graphic.vegalite"
+    assert json.loads(events[1]["delta"])["specVersion"] == "6"
 
 
 def test_ag_ui_component_validate_accepts_path_input(tmp_path: Path) -> None:
@@ -331,7 +420,9 @@ def test_gateway_ag_ui_publish_validates_path_input_and_posts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    events = render_component_events(component="houmao.graphic.template", payload=_template_payload())
+    events = render_component_events(
+        component="houmao.graphic.template", payload=_template_payload()
+    )
     events_path = _write_json(tmp_path / "events.json", events)
     calls: list[dict[str, object]] = []
 
@@ -384,7 +475,9 @@ def test_gateway_ag_ui_publish_allows_omitted_route_and_reports_sink_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    events = render_component_events(component="houmao.graphic.template", payload=_template_payload())
+    events = render_component_events(
+        component="houmao.graphic.template", payload=_template_payload()
+    )
     events_path = _write_json(tmp_path / "events.json", events)
     calls: list[dict[str, object]] = []
 
@@ -436,7 +529,9 @@ def test_gateway_ag_ui_publish_plain_output_reports_zero_delivery_without_visibi
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    events = render_component_events(component="houmao.graphic.template", payload=_template_payload())
+    events = render_component_events(
+        component="houmao.graphic.template", payload=_template_payload()
+    )
     events_path = _write_json(tmp_path / "events.json", events)
 
     monkeypatch.setattr(

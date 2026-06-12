@@ -72,6 +72,7 @@ interface ComponentRequest {
 
 const COMPONENT_NAMES = [
   "houmao.graphic.template",
+  "houmao.graphic.vegalite",
   "houmao.table",
   "houmao.metric_grid",
   "houmao.dashboard",
@@ -81,6 +82,18 @@ type ComponentName = (typeof COMPONENT_NAMES)[number];
 
 const COMPONENT_NAME_SET = new Set<string>(COMPONENT_NAMES);
 const TEMPLATE_CHART_TYPES = ["bar", "line", "scatter", "pie", "histogram"] as const;
+const MAX_VEGALITE_PAYLOAD_BYTES = 128 * 1024;
+const REMOTE_URL_PATTERN = /^https?:\/\//i;
+const VEGALITE_SCHEMA_URL_PATTERN =
+  /^https:\/\/vega\.github\.io\/schema\/vega-lite\/v6(?:\.\d+)*\.json$/i;
+const UNSAFE_TEXT_PATTERNS = [
+  /<\s*script\b/i,
+  /\son[a-z0-9_-]+\s*=/i,
+  /javascript\s*:/i,
+  /<\s*iframe\b/i,
+  /<\s*svg\b/i,
+  /image\/svg\+xml/i,
+];
 const PLOTLY_EXTRA_DISALLOWED_KEYS = new Set([
   "$schema",
   "data",
@@ -127,6 +140,30 @@ const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
         layout: { margin: { l: 48, r: 16, t: 20, b: 44 } },
       },
     },
+  },
+  "houmao.graphic.vegalite": {
+    schemaVersion: 1,
+    library: "vega-lite",
+    specVersion: "6",
+    title: "Debug Vega-Lite Graphic",
+    description: "Posted through the Debug Agent relay",
+    spec: {
+      $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+      data: {
+        values: [
+          { status: "Ready", count: 18 },
+          { status: "Review", count: 7 },
+          { status: "Blocked", count: 2 },
+        ],
+      },
+      mark: "bar",
+      encoding: {
+        x: { field: "status", type: "nominal" },
+        y: { field: "count", type: "quantitative" },
+        color: { field: "status", type: "nominal", legend: null },
+      },
+    },
+    display: { height: 320, caption: "Debug Agent inline Vega-Lite payload." },
   },
   "houmao.table": {
     schemaVersion: 1,
@@ -660,6 +697,8 @@ function validateComponentPayload(componentName: string, payload: unknown, depth
   switch (componentName) {
     case "houmao.graphic.template":
       return validateTemplateGraphicPayload(payload);
+    case "houmao.graphic.vegalite":
+      return validateVegaLitePayload(payload);
     case "houmao.table":
       return validateTablePayload(payload);
     case "houmao.metric_grid":
@@ -710,6 +749,44 @@ function validateTemplateGraphicPayload(payload: unknown): ValidationResult<unkn
   const extra = validateTemplateExtra(payload.extra);
   if (!extra.ok) {
     return extra;
+  }
+  return { ok: true, value: payload };
+}
+
+function validateVegaLitePayload(payload: unknown): ValidationResult<unknown> {
+  if (!isRecord(payload)) {
+    return invalid("payload must be an object.", "$");
+  }
+  const payloadBytes = encodedJsonSize(payload);
+  if (payloadBytes > MAX_VEGALITE_PAYLOAD_BYTES) {
+    return invalid(
+      `payload is ${payloadBytes} bytes, above the limit of ${MAX_VEGALITE_PAYLOAD_BYTES}.`,
+      "$",
+    );
+  }
+  if (payload.schemaVersion !== 1) {
+    return invalid("schemaVersion must be 1.", "schemaVersion");
+  }
+  if (payload.library !== "vega-lite") {
+    return invalid("library must be vega-lite.", "library");
+  }
+  if (payload.specVersion !== "6") {
+    return invalid("specVersion must be 6.", "specVersion");
+  }
+  const title = nonBlankString(payload.title, "title");
+  if (!title.ok) {
+    return title;
+  }
+  if (!isRecord(payload.spec)) {
+    return invalid("spec must be a Vega-Lite JSON object.", "spec");
+  }
+  const unsafe = rejectUnsafeText(payload, "$");
+  if (!unsafe.ok) {
+    return unsafe;
+  }
+  const remote = rejectVegaLiteRemoteLoading(payload.spec, "spec");
+  if (!remote.ok) {
+    return remote;
   }
   return { ok: true, value: payload };
 }
@@ -916,6 +993,79 @@ function rejectPlotlyRawSpecKeys(value: unknown, path: string): ValidationResult
     }
   }
   return { ok: true, value: undefined };
+}
+
+function rejectVegaLiteRemoteLoading(value: unknown, path: string): ValidationResult<void> {
+  if (typeof value === "string") {
+    const stripped = value.trim();
+    if (REMOTE_URL_PATTERN.test(stripped) && !allowedVegaLiteSchemaUrl(stripped, path)) {
+      return invalid(`${path} contains remote URL content; use inline data.values.`, path);
+    }
+    return { ok: true, value: undefined };
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectVegaLiteRemoteLoading(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const nextPath = `${path}.${key}`;
+    if (key === "url" && typeof item !== "undefined" && item !== null) {
+      return invalid(`${nextPath} is disabled; use inline data.values.`, nextPath);
+    }
+    const result = rejectVegaLiteRemoteLoading(item, nextPath);
+    if (!result.ok) {
+      return result;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function rejectUnsafeText(value: unknown, path: string): ValidationResult<void> {
+  if (typeof value === "string") {
+    if (UNSAFE_TEXT_PATTERNS.some((pattern) => pattern.test(value))) {
+      return invalid(`${path} contains unsafe inline content.`, path);
+    }
+    return { ok: true, value: undefined };
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectUnsafeText(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const result = rejectUnsafeText(item, `${path}.${key}`);
+    if (!result.ok) {
+      return result;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function allowedVegaLiteSchemaUrl(value: string, path: string): boolean {
+  return path.endsWith(".$schema") && VEGALITE_SCHEMA_URL_PATTERN.test(value);
+}
+
+function encodedJsonSize(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 function validateTablePayload(payload: unknown): ValidationResult<unknown> {

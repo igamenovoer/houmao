@@ -501,6 +501,41 @@ export class FakeAgUiServer {
         }),
       });
       writeSse(res, { type: "TOOL_CALL_END", toolCallId: "alpha-template-graphic-tool" });
+      writeSse(res, {
+        type: "TOOL_CALL_START",
+        toolCallId: "alpha-vegalite-graphic-tool",
+        toolCallName: "houmao.graphic.vegalite",
+        parentMessageId: messageId,
+      });
+      writeSse(res, {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: "alpha-vegalite-graphic-tool",
+        delta: JSON.stringify({
+          schemaVersion: 1,
+          library: "vega-lite",
+          specVersion: "6",
+          title: "Alpha Vega-Lite Graphic",
+          description: "Layer 2 declarative JSON",
+          spec: {
+            $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+            data: {
+              values: [
+                { status: "Done", count: 18 },
+                { status: "Review", count: 4 },
+                { status: "Blocked", count: 1 },
+              ],
+            },
+            mark: "bar",
+            encoding: {
+              x: { field: "status", type: "nominal" },
+              y: { field: "count", type: "quantitative" },
+              color: { field: "status", type: "nominal", legend: null },
+            },
+          },
+          display: { height: 320, caption: "Alpha inline Vega-Lite data" },
+        }),
+      });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "alpha-vegalite-graphic-tool" });
     }
     if (target === "beta") {
       writeSse(res, {
@@ -531,6 +566,32 @@ export class FakeAgUiServer {
         delta: JSON.stringify({ schemaVersion: 2, chartType: "bar", title: "Broken Template" }),
       });
       writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-invalid-template" });
+      writeSse(res, {
+        type: "TOOL_CALL_START",
+        toolCallId: "beta-invalid-vegalite",
+        toolCallName: "houmao.graphic.vegalite",
+        parentMessageId: messageId,
+      });
+      writeSse(res, {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: "beta-invalid-vegalite",
+        delta: JSON.stringify({
+          schemaVersion: 1,
+          library: "vega-lite",
+          specVersion: "6",
+          title: "Remote Vega-Lite Graphic",
+          spec: {
+            $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+            data: { url: "https://example.invalid/private.json" },
+            mark: "bar",
+            encoding: {
+              x: { field: "status", type: "nominal" },
+              y: { field: "count", type: "quantitative" },
+            },
+          },
+        }),
+      });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-invalid-vegalite" });
       writeSse(res, {
         type: "TOOL_CALL_START",
         toolCallId: "beta-unknown-component",
@@ -597,6 +658,7 @@ function capabilities(target: string): unknown {
         items: [
           { name: "houmao_render_graphic" },
           { name: "houmao.graphic.template" },
+          { name: "houmao.graphic.vegalite" },
           { name: "houmao.table" },
           { name: "houmao.metric_grid" },
           { name: "houmao.dashboard" },

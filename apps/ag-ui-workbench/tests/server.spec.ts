@@ -182,6 +182,64 @@ test("Debug Agent module publishes validation errors and lifecycle diagnostics t
     await expect(invalidResponse.json()).resolves.toMatchObject({
       code: "ag_ui_event_validation_failed",
     });
+
+    const validVegaLite = {
+      schemaVersion: 1,
+      library: "vega-lite",
+      specVersion: "6",
+      title: "Server Vega-Lite",
+      spec: {
+        $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+        data: { values: [{ status: "ready", count: 1 }] },
+        mark: "bar",
+        encoding: {
+          x: { field: "status", type: "nominal" },
+          y: { field: "count", type: "quantitative" },
+        },
+      },
+    };
+    const validComponentResponse = await fetch(
+      `${server.baseUrl}/__houmao_debug_agents/debug-agent-1/components/houmao.graphic.vegalite`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: "debug-agent-1-thread",
+          validateOnly: true,
+          payload: validVegaLite,
+        }),
+      },
+    );
+    expect(validComponentResponse.status).toBe(200);
+    await expect(validComponentResponse.json()).resolves.toMatchObject({
+      status: "validated",
+      componentName: "houmao.graphic.vegalite",
+      acceptedCount: 3,
+    });
+
+    const invalidComponentResponse = await fetch(
+      `${server.baseUrl}/__houmao_debug_agents/debug-agent-1/components/houmao.graphic.vegalite`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          threadId: "debug-agent-1-thread",
+          validateOnly: true,
+          payload: {
+            ...validVegaLite,
+            spec: {
+              ...validVegaLite.spec,
+              data: { url: "https://example.invalid/private.json" },
+            },
+          },
+        }),
+      },
+    );
+    expect(invalidComponentResponse.status).toBe(400);
+    await expect(invalidComponentResponse.json()).resolves.toMatchObject({
+      code: "component_validation_failed",
+      path: "spec.data.url",
+    });
   } finally {
     await server.close();
   }

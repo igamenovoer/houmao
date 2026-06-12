@@ -51,7 +51,7 @@ Reuse the same launcher for discovery, validation, rendering, and publishing in 
 
 ## Protocol Split
 
-- Houmao component protocol: `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+- Houmao component protocol: `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
 - Standard AG-UI protocol: the rendered output is an event array such as `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
 - Houmao gateway publishing: use `houmao-mgr agents ... gateway ag-ui publish`.
 - Third-party endpoints: use `houmao-mgr` only to generate or validate events, then deliver the generated event batch with endpoint-specific instructions from that endpoint.
@@ -74,6 +74,7 @@ Show a schema and example:
 
 ```bash
 houmao-mgr internals ag-ui components schema houmao.graphic.template
+houmao-mgr internals ag-ui components schema houmao.graphic.vegalite
 ```
 
 Use the schema output before crafting a new payload. Do not invent fields.
@@ -117,6 +118,68 @@ Do not ask the user to choose a Layer 1 renderer. Omit `renderer` or set `"rende
 Datasource bindings are reserved vocabulary until capabilities explicitly advertise materialization support. You may declare `dataRefs` and trace `source` bindings only when the target capability says the vocabulary is supported. In the current workbench, materialization is unsupported, so datasource-bound traces show a diagnostic instead of a chart. Prefer inline trace arrays when the user needs a visible chart now.
 
 Use `extra.plotly` only for small allowlisted presentation refinements such as curated `layout`, `config`, `marker`, `line`, and `display` fields. Do not put raw Plotly `data`, raw `traces`, full replacement `layout` or `config`, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, Vega-Lite, or Vega fields in Layer 1.
+
+## Layer 2 Vega-Lite Graphics
+
+Use `houmao.graphic.vegalite` only when the user needs Vega-Lite grammar or custom declarative structure that does not fit Layer 1 template graphics, such as layering, custom encodings, transforms, selections, or linked views. For ordinary bar, line, scatter, pie, or histogram charts with inline data, keep using `houmao.graphic.template`.
+
+Layer 2 payloads use schema version `1` and a strict Houmao envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "library": "vega-lite",
+  "specVersion": "6",
+  "title": "Queue Status",
+  "spec": {
+    "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+    "data": {
+      "values": [
+        { "status": "ready", "count": 58 },
+        { "status": "queued", "count": 23 }
+      ]
+    },
+    "mark": "bar",
+    "encoding": {
+      "x": { "field": "status", "type": "nominal" },
+      "y": { "field": "count", "type": "quantitative" }
+    }
+  },
+  "display": { "height": 360, "caption": "Current queue status." }
+}
+```
+
+You may hand-author the Vega-Lite JSON `spec`. You may also use Python Altair only as an authoring helper:
+
+```python
+import altair as alt
+
+chart = alt.Chart(
+    alt.Data(values=[
+        {"status": "ready", "count": 58},
+        {"status": "queued", "count": 23},
+    ])
+).mark_bar().encode(
+    x="status:N",
+    y="count:Q",
+)
+spec = chart.to_dict()
+```
+
+Send the resulting JSON object under `spec`. Do not send Python source code, Altair objects, pandas objects, notebook state, local file paths, or code that expects the gateway or workbench to execute Python. The gateway and workbench receive declarative JSON only.
+
+Validate and render Layer 2 payloads before publishing:
+
+```bash
+houmao-mgr internals ag-ui components validate houmao.graphic.vegalite --input payload.json
+houmao-mgr internals ag-ui events render houmao.graphic.vegalite --input payload.json > events.json
+```
+
+Layer 2 safety limits:
+
+- Use inline `data.values` unless a future capability explicitly advertises a safe reference mechanism.
+- Do not use remote `data.url`, local file URLs, remote images, arbitrary HTTP(S) strings outside the allowed Vega-Lite v6 `$schema` marker, credentials, private local file contents, arbitrary HTML, script tags, iframes, JavaScript URLs, or scriptable SVG.
+- Do not put a raw Vega-Lite spec inside `houmao.graphic.template.extra`; use `houmao.graphic.vegalite`.
 
 ## Publish to Houmao Gateway
 

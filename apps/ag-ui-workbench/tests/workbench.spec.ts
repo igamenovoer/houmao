@@ -170,6 +170,9 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await expect(alphaTemplateFrame).toBeVisible();
   await expect(alphaTemplateChart).toBeVisible();
   await expect(alphaTemplateChart.locator("svg").first()).toBeVisible();
+  const alphaVegaFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Vega-Lite Graphic" });
+  await expect(alphaVegaFrame).toBeVisible();
+  await expectVegaChartVisible(alphaVegaFrame.getByTestId("vega-lite-chart-agent-1"));
 
   await page.getByTestId("prompt-agent-1").fill("prompt survives clear");
   const detachesBeforeClear = fakeServer.detaches.length;
@@ -177,6 +180,7 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await expect(page.getByTestId("graphic-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("component-dashboard-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("template-chart-plotly-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("vega-lite-chart-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("transcript-agent-1")).not.toContainText("alpha-run-evidence");
   await expect(page.getByTestId("message-diagnostics-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("prompt-agent-1")).toHaveValue("prompt survives clear");
@@ -193,7 +197,10 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await page.getByTestId("prompt-agent-2").fill("render unsupported graphic");
   await page.getByTestId("run-agent-2").click();
   await expect(page.getByTestId("unsupported-graphic-agent-2")).toContainText("Unsupported graphic format: iframe");
-  await expect(page.getByTestId("invalid-component-agent-2")).toContainText("traces must be a non-empty array");
+  await expect(
+    page.getByTestId("invalid-component-agent-2").filter({ hasText: "traces must be a non-empty array" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("invalid-component-agent-2").filter({ hasText: "spec.data.url" })).toBeVisible();
   await expect(page.getByTestId("unknown-component-agent-2")).toContainText("houmao.chart.scatter");
   await expect(page.getByTestId("unknown-component-agent-2")).toContainText("beta unknown raw marker");
 
@@ -268,6 +275,54 @@ test("agent pane renders Plotly templates and diagnostic-only unsupported payloa
   });
   expect(retiredResponse.ok()).toBeTruthy();
   await expect(page.getByTestId("unknown-component-agent-1")).toContainText("houmao.chart.bar");
+});
+
+test("agent pane renders Vega-Lite, shows fallback, and clears the Vega view", async ({ page }) => {
+  await addBlankAgentPane(page);
+  await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
+  await page.getByTestId("connect-agent-1").click();
+  await expect(page.getByTestId("status-agent-1")).toContainText("connected");
+
+  const validResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: vegaliteToolCallEvents("vega-normal-valid", "Normal Vega-Lite Graphic"),
+    },
+  });
+  expect(validResponse.ok()).toBeTruthy();
+  const validFrame = page.getByTestId("component-agent-1").filter({ hasText: "Normal Vega-Lite Graphic" });
+  await expect(validFrame).toBeVisible();
+  await expectVegaChartVisible(validFrame.getByTestId("vega-lite-chart-agent-1"));
+
+  const detachesBeforeClear = fakeServer.detaches.length;
+  await page.getByTestId("clear-canvas-agent-1").click();
+  await expect(page.getByTestId("vega-lite-chart-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("status-agent-1")).toContainText("connected");
+  expect(fakeServer.detaches).toHaveLength(detachesBeforeClear);
+
+  const remoteResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: vegaliteToolCallEvents("vega-normal-remote", "Remote Vega-Lite Graphic", {
+        remoteData: true,
+      }),
+    },
+  });
+  expect(remoteResponse.ok()).toBeTruthy();
+  await expect(
+    page.getByTestId("invalid-component-agent-1").filter({ hasText: "Remote Vega-Lite Graphic" }),
+  ).toContainText("spec.data.url");
+
+  const laterResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: vegaliteToolCallEvents("vega-normal-later", "Later Vega-Lite Graphic"),
+    },
+  });
+  expect(laterResponse.ok()).toBeTruthy();
+  const laterFrame = page.getByTestId("component-agent-1").filter({ hasText: "Later Vega-Lite Graphic" });
+  await expect(laterFrame).toBeVisible();
+  await expectVegaChartVisible(laterFrame.getByTestId("vega-lite-chart-agent-1"));
 });
 
 test("sanitizes legacy stored template renderer values to Plotly", async ({ page }) => {
@@ -840,6 +895,61 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   await expect(templateFrame).toBeVisible();
   await expect(templateFrame.getByTestId("template-chart-plotly-debug-agent-1").locator("svg").first()).toBeVisible();
 
+  await page.getByTestId("debug-component-debug-agent-1").selectOption("houmao.graphic.vegalite");
+  await expect(page.getByTestId("debug-editor-debug-agent-1")).toContainText("Debug Agent Vega-Lite Graphic");
+  await page.getByTestId("debug-validate-debug-agent-1").click();
+  await expect(page.getByTestId("debug-response-debug-agent-1")).toContainText('"status": "validated"');
+  await page.getByTestId("debug-load-remote-vega-debug-agent-1").click();
+  await page.getByTestId("debug-validate-debug-agent-1").click();
+  await expect(page.getByTestId("debug-response-debug-agent-1")).toContainText(
+    '"code": "component_validation_failed"',
+  );
+  await expect(page.getByTestId("debug-response-debug-agent-1")).toContainText("spec.data.url");
+
+  const vegaResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
+    data: {
+      threadId: "debug-agent-1-thread",
+      events: vegaliteToolCallEvents("debug-live-vega", "External Vega-Lite Graphic"),
+    },
+  });
+  expect(vegaResponse.ok()).toBeTruthy();
+  const vegaBody = (await vegaResponse.json()) as { deliveredCount: number; acceptedCount: number };
+  expect(vegaBody.acceptedCount).toBe(3);
+  expect(vegaBody.deliveredCount).toBeGreaterThan(0);
+  const vegaFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "External Vega-Lite Graphic" });
+  await expect(vegaFrame).toBeVisible();
+  await expectVegaChartVisible(vegaFrame.getByTestId("vega-lite-chart-debug-agent-1"));
+
+  const remoteVegaResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
+    data: {
+      threadId: "debug-agent-1-thread",
+      events: vegaliteToolCallEvents("debug-remote-vega", "Remote Debug Vega-Lite Graphic", {
+        remoteData: true,
+      }),
+    },
+  });
+  expect(remoteVegaResponse.ok()).toBeTruthy();
+  await expect(
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "Remote Debug Vega-Lite Graphic" }),
+  ).toContainText("spec.data.url");
+
+  const laterVegaResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
+    data: {
+      threadId: "debug-agent-1-thread",
+      events: vegaliteToolCallEvents("debug-later-vega", "Later Debug Vega-Lite Graphic"),
+    },
+  });
+  expect(laterVegaResponse.ok()).toBeTruthy();
+  const laterVegaFrame = page
+    .getByTestId("component-debug-agent-1")
+    .filter({ hasText: "Later Debug Vega-Lite Graphic" });
+  await expect(laterVegaFrame).toBeVisible();
+  await expectVegaChartVisible(laterVegaFrame.getByTestId("vega-lite-chart-debug-agent-1"));
+
+  await page.getByTestId("debug-clear-debug-agent-1").click();
+  await expect(page.getByTestId("vega-lite-chart-debug-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("status-debug-agent-1")).toContainText("connected");
+
   const fallbackResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
     data: {
       threadId: "debug-agent-1-thread",
@@ -1144,6 +1254,21 @@ async function expectPlotlyChartToFillContainer(locator: Locator): Promise<void>
     .toBeGreaterThan(0.75);
 }
 
+async function expectVegaChartVisible(locator: Locator): Promise<void> {
+  await expect(locator).toBeVisible();
+  await expect(locator.locator("svg").first()).toBeVisible();
+  await expect
+    .poll(async () => {
+      const chartBox = await locator.boundingBox();
+      const svgBox = await locator.locator("svg").first().boundingBox();
+      if (!chartBox || !svgBox) {
+        return 0;
+      }
+      return Math.min(svgBox.width, svgBox.height, chartBox.width, chartBox.height);
+    })
+    .toBeGreaterThan(20);
+}
+
 function expectMinimalRunBody(body: unknown, expected: ExpectedRunBody): void {
   const record = expectRecord(body);
   expect(record.threadId).toBe(expected.threadId);
@@ -1271,6 +1396,63 @@ function templateToolCallEvents(
       toolCallId,
     },
   ];
+}
+
+function vegaliteToolCallEvents(
+  toolCallId: string,
+  title: string,
+  options: { remoteData?: boolean; malformed?: boolean } = {},
+): Array<Record<string, unknown>> {
+  return [
+    {
+      type: "TOOL_CALL_START",
+      toolCallId,
+      toolCallName: "houmao.graphic.vegalite",
+      parentMessageId: `${toolCallId}-message`,
+    },
+    {
+      type: "TOOL_CALL_ARGS",
+      toolCallId,
+      delta: JSON.stringify(vegalitePayload(title, options)),
+    },
+    {
+      type: "TOOL_CALL_END",
+      toolCallId,
+    },
+  ];
+}
+
+function vegalitePayload(
+  title: string,
+  options: { remoteData?: boolean; malformed?: boolean } = {},
+): Record<string, unknown> {
+  const data = options.remoteData
+    ? { url: "https://example.invalid/private.json" }
+    : {
+        values: [
+          { status: "Ready", count: 12 },
+          { status: "Review", count: 21 },
+          { status: "Blocked", count: 3 },
+        ],
+      };
+  return {
+    schemaVersion: 1,
+    library: "vega-lite",
+    specVersion: "6",
+    title,
+    description: "Playwright Vega-Lite proof",
+    spec: {
+      $schema: "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+      data,
+      mark: options.malformed ? undefined : "bar",
+      encoding: {
+        x: { field: "status", type: "nominal" },
+        y: { field: "count", type: "quantitative" },
+        color: { field: "status", type: "nominal", legend: null },
+      },
+    },
+    display: { height: 320, caption: "Inline Vega-Lite rows." },
+  };
 }
 
 function templatePayload(

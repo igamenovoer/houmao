@@ -84,7 +84,7 @@ The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gate
 curl "$GATEWAY_URL/v1/ag-ui/capabilities"
 ```
 
-Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. When generated graphics are enabled, capabilities also include `custom.houmao.presentation.templateGraphics` metadata with the Layer 1 tool name, schema version, supported chart types, renderer ids, default renderer, and `extra` policy. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
+Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. Capabilities include `custom.houmao.presentation.templateGraphics` metadata for Layer 1 Plotly-backed template charts and `custom.houmao.presentation.vegaDsl` metadata for Layer 2 Vega-Lite DSL graphics. `templateGraphics.rawVegaLiteDsl` remains `false`; raw Vega-Lite belongs to the separate `houmao.graphic.vegalite` component, not Layer 1. The `vegaDsl` block reports the `houmao.graphic.vegalite` tool name, supported Vega-Lite major versions, `vega-embed` browser rendering, disabled remote-data loading, inline-data support, optional Altair authoring, and `preflight.pythonCompile: false`. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
 
 Capabilities report `transport.resumable: false` and Houmao `replaySupport: "current_snapshot_only"` for published GUI events. `POST /v1/ag-ui/connect` emits a fresh `STATE_SNAPSHOT` and then future live fanout events. Clients should not send browser cache cursors as `lastSeenEventId` expecting the gateway to recover missed published events.
 
@@ -100,7 +100,7 @@ export const houmaoAgent = new HttpAgent({
 });
 ```
 
-CopilotKit can register an AG-UI `HttpAgent` at its runtime boundary and point the agent URL at the same endpoint. The renderer for Houmao graphics should register `houmao_render_graphic` for compatibility graphics and `houmao.graphic.template` for standardized Layer 1 charts. A minimal renderer example lives at [`docs/reference/gateway/examples/houmao-graphic-renderer.tsx`](examples/houmao-graphic-renderer.tsx).
+CopilotKit can register an AG-UI `HttpAgent` at its runtime boundary and point the agent URL at the same endpoint. The renderer for Houmao graphics should register `houmao_render_graphic` for compatibility graphics, `houmao.graphic.template` for standardized Layer 1 charts, and `houmao.graphic.vegalite` for Layer 2 declarative Vega-Lite graphics. A minimal renderer example lives at [`docs/reference/gateway/examples/houmao-graphic-renderer.tsx`](examples/houmao-graphic-renderer.tsx).
 
 ## Graphics Contract
 
@@ -118,9 +118,9 @@ The AG-UI mapper recognizes graphics only from explicit structured canonical `ac
 
 ## Typed Component Contract
 
-Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. The legacy fixed chart names `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` are retired and must be rewritten as `houmao.graphic.template` payloads.
+Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. The legacy fixed chart names `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` are retired and must be rewritten as `houmao.graphic.template` payloads.
 
-Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
+Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. Choose the least powerful graphics layer that satisfies the request: use Layer 1 `houmao.graphic.template` for ordinary bar, line, scatter, pie, and histogram charts, and use Layer 2 `houmao.graphic.vegalite` only when the chart needs Vega-Lite grammar, custom declarative composition, layering, or interactions. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
 
 ### Layer 1 Template Graphics
 
@@ -201,6 +201,66 @@ houmao-mgr internals ag-ui components validate houmao.graphic.template --input p
 houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json > events.json
 ```
 
+### Layer 2 Vega-Lite Graphics
+
+`houmao.graphic.vegalite` is the Layer 2 component for custom declarative Vega-Lite v6 graphics. Use it when the chart structure does not fit the Layer 1 template fields, such as layered views, custom encodings, Vega-Lite transforms, or interactions. Do not place a raw Vega-Lite spec in `houmao.graphic.template.extra`; Layer 1 continues to reject Vega-Lite renderer ids, fallback renderer lists, and `extra.vega-lite`.
+
+The payload uses a Houmao envelope around a raw Vega-Lite JSON object:
+
+```json
+{
+  "schemaVersion": 1,
+  "library": "vega-lite",
+  "specVersion": "6",
+  "title": "Queue Status",
+  "description": "Inline Vega-Lite rows rendered by the workbench.",
+  "spec": {
+    "$schema": "https://vega.github.io/schema/vega-lite/v6.4.1.json",
+    "data": {
+      "values": [
+        { "status": "ready", "count": 58 },
+        { "status": "queued", "count": 23 }
+      ]
+    },
+    "mark": "bar",
+    "encoding": {
+      "x": { "field": "status", "type": "nominal" },
+      "y": { "field": "count", "type": "quantitative" }
+    }
+  },
+  "display": {
+    "height": 360,
+    "caption": "Current queue status."
+  }
+}
+```
+
+Agents may hand-author the `spec` object or optionally use Python Altair as an authoring helper. Altair output is JSON input, not runtime code. Send `chart.to_dict()` or equivalent JSON under `spec`; do not send Python source, Altair objects, notebook state, pandas code, local files, or `vl-convert-python` output requirements to the gateway.
+
+```python
+import altair as alt
+
+chart = alt.Chart(
+    alt.Data(values=[
+        {"status": "ready", "count": 58},
+        {"status": "queued", "count": 23},
+    ])
+).mark_bar().encode(
+    x="status:N",
+    y="count:Q",
+)
+spec = chart.to_dict()
+```
+
+Validate and render Layer 2 payloads through the same authoring surface:
+
+```bash
+houmao-mgr internals ag-ui components validate houmao.graphic.vegalite --input payload.json
+houmao-mgr internals ag-ui events render houmao.graphic.vegalite --input payload.json > events.json
+```
+
+Safety policy: `houmao.graphic.vegalite` accepts inline JSON data and known Vega-Lite v6 `$schema` URLs such as the Altair-emitted schema URL. It rejects remote `data.url`, other URL-loading fields, arbitrary HTTP(S) strings outside the allowed schema marker, script tags, JavaScript URLs, iframes, scriptable SVG content, non-JSON `spec` values, unsupported `specVersion` values, and oversized payloads. The workbench also disables external loading in `vega-embed` and shows an invalid-component fallback for malformed specs, compile errors, runtime errors, or rejected remote-loading shapes.
+
 ## Smoke Commands
 
 The deterministic backend E2E runs through pytest:
@@ -227,7 +287,7 @@ scripts/demo/ag-ui-browser-smoke/run_smoke.sh
 
 This browser smoke uses a deterministic AG-UI graphics stream and verifies visible renderer evidence. It stays outside `pixi run test`.
 
-The real-agent GUI graphics smoke validates the operator-facing workbench path against an existing managed test agent. It restarts the selected agent, selects it through passive-server discovery, connects the workbench pane, submits a nonce-labeled prompt through the GUI, and requires the agent to publish a visible Plotly-backed `houmao.graphic.template` chart. The prompt requests a nonce-labeled text marker too, but that marker is diagnostic rather than required for TUI-backed agents:
+The real-agent GUI graphics smoke validates the operator-facing workbench path against an existing managed test agent. It restarts the selected agent, selects it through passive-server discovery, connects the workbench pane, submits a nonce-labeled prompt through the GUI, and requires the agent to publish a visible Plotly-backed `houmao.graphic.template` chart. This smoke intentionally remains an ordinary Layer 1 chart. Custom declarative Vega-Lite examples use `houmao.graphic.vegalite` in the Debug Agent and workbench E2E fixtures. The prompt requests a nonce-labeled text marker too, but that marker is diagnostic rather than required for TUI-backed agents:
 
 ```bash
 HMWB_REAL_AGENT_SMOKE=1 \

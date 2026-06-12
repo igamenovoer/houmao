@@ -762,6 +762,29 @@ pre {
   overflow: hidden;
 }
 
+.vega-lite-chart {
+  display: block;
+  overflow: hidden;
+}
+
+.vega-lite-chart .vega-embed,
+.vega-lite-chart .chart-wrapper,
+.vega-lite-chart svg {
+  width: 100%;
+  max-width: 100%;
+  display: block;
+}
+
+.vega-lite-chart svg {
+  height: 100%;
+}
+
+.component-caption {
+  margin: 6px 0 0;
+  color: #b9b2a3;
+  font-size: 12px;
+}
+
 .template-plotly-chart .js-plotly-plot,
 .template-plotly-chart .plot-container,
 .template-plotly-chart .svg-container,

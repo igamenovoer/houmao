@@ -96,6 +96,17 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     }
     assert template_graphics["rawPlotlyDsl"] is False
     assert template_graphics["rawVegaLiteDsl"] is False
+    vega_dsl = capabilities["custom"]["houmao"]["presentation"]["vegaDsl"]
+    assert vega_dsl["supported"] is True
+    assert vega_dsl["toolNames"] == ["houmao.graphic.vegalite"]
+    assert vega_dsl["schemaVersion"] == 1
+    assert vega_dsl["libraries"][0]["name"] == "vega-lite"
+    assert vega_dsl["libraries"][0]["majorVersions"] == ["6"]
+    assert vega_dsl["libraries"][0]["pythonAuthoring"] == ["altair"]
+    assert vega_dsl["renderer"] == "vega-embed"
+    assert vega_dsl["remoteData"] == "disabled"
+    assert vega_dsl["inlineData"] is True
+    assert vega_dsl["preflight"] == {"pythonCompile": False, "browserCompile": True}
 
     houmao = dumped["houmao"]
     assert houmao["features"]["httpSse"] is True
@@ -141,6 +152,14 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
     assert dumped["capabilities"]["tools"]["supported"] is True
     assert dumped["capabilities"]["tools"]["items"][0]["name"] == "houmao_render_graphic"
     assert dumped["capabilities"]["tools"]["items"][1]["name"] == "houmao.graphic.template"
+    assert dumped["capabilities"]["tools"]["items"][2]["name"] == "houmao.graphic.vegalite"
+    assert dumped["capabilities"]["tools"]["items"][2]["parameters"]["required"] == [
+        "schemaVersion",
+        "library",
+        "specVersion",
+        "title",
+        "spec",
+    ]
     assert dumped["capabilities"]["tools"]["clientProvided"] is False
     assert dumped["capabilities"]["custom"]["houmao"]["graphics"]["toolName"] == (
         "houmao_render_graphic"
@@ -148,6 +167,9 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
     assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["templateGraphics"][
         "renderers"
     ] == ["plotly"]
+    assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["vegaDsl"]["toolNames"] == [
+        "houmao.graphic.vegalite"
+    ]
 
 
 def test_state_snapshot_includes_connection_and_compact_gateway_status() -> None:

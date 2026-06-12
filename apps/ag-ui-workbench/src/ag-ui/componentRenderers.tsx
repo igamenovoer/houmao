@@ -4,6 +4,7 @@ import type { ToolCallRecord } from "./reducer";
 import type { GraphicArtifact, JsonObject, JsonScalar, JsonValue } from "./types";
 import { GraphicView } from "./graphics";
 import { renderTemplateGraphic } from "./templateGraphics";
+import { renderVegaDslGraphic } from "./vegaDslGraphics";
 
 interface ToolCallRendererProps {
   toolCall: ToolCallRecord;
@@ -63,6 +64,7 @@ const MAX_DASHBOARD_DEPTH = 3;
 
 const COMPONENT_RENDERERS: Record<string, ComponentRenderer> = {
   "houmao.graphic.template": renderTemplateGraphic,
+  "houmao.graphic.vegalite": renderVegaDslGraphic,
   "houmao.table": renderTable,
   "houmao.metric_grid": renderMetricGrid,
   "houmao.dashboard": renderDashboard,

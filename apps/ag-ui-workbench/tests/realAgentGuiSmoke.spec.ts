@@ -364,6 +364,7 @@ function validationPrompt(nonce: string, threadId: string): string {
     `If active-thread routing is unavailable, publish to this thread id exactly: ${threadId}.`,
     "",
     `Use the Houmao typed component ${TEMPLATE_TOOL_NAME}.`,
+    "This is an ordinary Layer 1 bar chart smoke; do not use houmao.graphic.vegalite for it.",
     "Generate events with `houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json`.",
     "Publish those events with `houmao-mgr agents self gateway ag-ui publish`.",
     "",

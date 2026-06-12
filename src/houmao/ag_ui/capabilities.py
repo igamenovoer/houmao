@@ -25,6 +25,13 @@ from houmao.ag_ui.authoring import (
     HOUMAO_TEMPLATE_GRAPHIC_RENDERERS,
     HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
     HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+    HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION,
+    HOUMAO_VEGALITE_GRAPHIC_LIBRARY,
+    HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES,
+    HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS,
+    HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION,
+    HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS,
+    HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
 )
 from houmao.ag_ui.graphics import HOUMAO_RENDER_GRAPHIC_TOOL_NAME
 from houmao.ag_ui.models import (
@@ -143,7 +150,38 @@ def build_ag_ui_capabilities(
                 },
                 "rawPlotlyDsl": False,
                 "rawVegaLiteDsl": False,
-            }
+            },
+            "vegaDsl": {
+                "supported": True,
+                "toolNames": [HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME],
+                "schemaVersion": HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION,
+                "libraries": [
+                    {
+                        "name": HOUMAO_VEGALITE_GRAPHIC_LIBRARY,
+                        "majorVersions": list(HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS),
+                        "pythonAuthoring": ["altair"],
+                    },
+                    {"name": "vega", "supported": False, "planned": True},
+                ],
+                "renderer": "vega-embed",
+                "remoteData": "disabled",
+                "inlineData": True,
+                "limits": {
+                    "payloadBytes": HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES,
+                    "inlineRows": HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS,
+                },
+                "preflight": {
+                    "pythonCompile": False,
+                    "browserCompile": True,
+                },
+                "authoring": {
+                    "altair": {
+                        "supported": True,
+                        "send": "chart.to_dict()",
+                        "runtimeExecution": False,
+                    }
+                },
+            },
         },
         "lifecycle": {
             "agentLifecycleManagedByGui": False,
@@ -231,6 +269,39 @@ def build_ag_ui_capabilities(
                             "config": {"type": "object"},
                             "display": {"type": "object"},
                             "extra": {"type": "object"},
+                        },
+                    },
+                ),
+                Tool(
+                    name=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+                    description="Render a declarative Houmao Layer 2 Vega-Lite graphic.",
+                    parameters={
+                        "type": "object",
+                        "required": [
+                            "schemaVersion",
+                            "library",
+                            "specVersion",
+                            "title",
+                            "spec",
+                        ],
+                        "properties": {
+                            "schemaVersion": {
+                                "type": "integer",
+                                "const": HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION,
+                            },
+                            "library": {
+                                "type": "string",
+                                "const": HOUMAO_VEGALITE_GRAPHIC_LIBRARY,
+                            },
+                            "specVersion": {
+                                "type": "string",
+                                "enum": list(HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS),
+                                "default": HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION,
+                            },
+                            "title": {"type": "string"},
+                            "description": {"type": ["string", "null"]},
+                            "spec": {"type": "object"},
+                            "display": {"type": "object"},
                         },
                     },
                 ),
