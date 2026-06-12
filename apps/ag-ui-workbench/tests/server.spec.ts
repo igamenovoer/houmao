@@ -312,6 +312,36 @@ test("tmux Fastify bridge fixture records valid attachment resizes", async () =>
   }
 });
 
+test("tmux Fastify bridge fixture forwards PTY newline bytes without normalization", async () => {
+  const previousFixture = process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE;
+  process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = "1";
+  const server = await startWorkbenchTestServer();
+  try {
+    await fetch(`${server.baseUrl}/__houmao_tmux/fixture/reset`, { method: "POST" });
+    const messages = await collectTmuxMessages(
+      server.baseUrl,
+      [{ type: "attach", sessionName: "pty-newline-fixture", mode: "read-only", cols: 80, rows: 24 }],
+      3,
+    );
+    expect(messages).toContainEqual(expect.objectContaining({ type: "attached" }));
+    expect(messages).toContainEqual(
+      expect.objectContaining({
+        type: "output",
+        data: expect.stringContaining("freshSTALE_EDGE_REGION\n\u001b[1A"),
+      }),
+    );
+    expect(messages).not.toContainEqual(
+      expect.objectContaining({
+        type: "output",
+        data: expect.stringContaining("freshSTALE_EDGE_REGION\r\n\u001b[1A"),
+      }),
+    );
+  } finally {
+    await server.close();
+    restoreFixtureEnv(previousFixture);
+  }
+});
+
 test("tmux Fastify bridge fixture handles resize and scroll validation", async () => {
   const previousFixture = process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE;
   process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = "1";

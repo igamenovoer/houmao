@@ -673,6 +673,25 @@ test("tmux tab keeps the switched attachment current", async ({ page }) => {
   await expect(terminal).not.toContainText("fixture scrolled houmao-alpha");
 });
 
+test("tmux tab preserves bare-LF PTY cursor semantics without resize", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("close-agent-picker").click();
+
+  await page.getByTestId("add-tmux-pane").click();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await page.getByTestId("tmux-houmao-only-tmux-1").uncheck();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await page.getByTestId("tmux-search-tmux-1").fill("pty-newline-fixture");
+  await expect(page.getByTestId("tmux-session-pty-newline-fixture")).toBeVisible();
+  await page.getByTestId("tmux-session-pty-newline-fixture").click();
+
+  const terminal = page.getByTestId("tmux-terminal-tmux-1");
+  await expect(terminal).toContainText("pty-newline-fixture-complete");
+  await expect(terminal).toContainText("short");
+  await expect.poll(() => terminal.innerText()).not.toContain("STALE_EDGE_REGION");
+});
+
 test("tmux tab refits on resize and removes dead fixture sessions", async ({ page }) => {
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());

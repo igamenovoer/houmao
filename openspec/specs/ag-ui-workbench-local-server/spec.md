@@ -118,3 +118,74 @@ The server SHALL release stream, WebSocket, process, and session resources durin
 - **THEN** the server releases associated private protocol subscriptions and host-side resource handles
 - **AND THEN** the server does not stop the underlying Houmao agent solely because the GUI resource closed
 
+### Requirement: Tmux attach bridge applies attachment resize messages
+The workbench local server tmux bridge SHALL apply valid browser resize messages to the active tmux attachment.
+
+Resize messages SHALL be scoped to the WebSocket attachment that received them.
+
+The bridge SHALL reject or ignore resize messages that arrive before a tmux session is attached, after the attachment closes, or with invalid column or row values.
+
+The bridge SHALL continue to report deterministic attachment errors instead of silently ending the WebSocket when resize handling fails.
+
+#### Scenario: Resize after attach updates tmux pane size
+- **WHEN** the browser attaches to a real tmux session through the workbench tmux WebSocket
+- **AND WHEN** the browser sends a resize message with valid terminal columns and rows after the attachment succeeds
+- **THEN** the server applies those columns and rows to the active tmux attachment
+- **AND THEN** a host tmux pane-size query reports the requested size or the nearest size tmux can represent
+
+#### Scenario: Resize before attach is rejected deterministically
+- **WHEN** the browser opens a tmux attach WebSocket but has not attached to a session
+- **AND WHEN** the browser sends a resize message
+- **THEN** the server rejects or ignores the message deterministically as not attached
+- **AND THEN** the server does not crash or mark an unrelated tmux session resized
+
+### Requirement: Tmux bridge diagnostics distinguish attach exit from resize failure
+The workbench local server SHALL emit deterministic tmux WebSocket error details for attach failure, attach process exit, invalid input, read-only input, and resize failure.
+
+The browser SHALL be able to surface these details without conflating them all into a generic attachment-ended message.
+
+#### Scenario: Resize failure is visible as resize failure
+- **WHEN** a browser tmux attachment is active
+- **AND WHEN** applying a valid resize message fails in the bridge
+- **THEN** the server sends or records an error detail that identifies resize handling
+- **AND THEN** the browser does not report only a generic `[tmux] attachment ended` message for that failure
+
+### Requirement: Tmux bridge releases attach clients when attachments close
+The workbench local server tmux bridge SHALL release the tmux attach client associated with a browser WebSocket attachment when that attachment closes.
+
+The bridge SHALL perform this cleanup for client close messages, browser WebSocket close, WebSocket errors, and attach process exits.
+
+The bridge SHALL release only the browser-owned tmux attach client and SHALL NOT stop, restart, shut down, interrupt, or kill the underlying tmux session or Houmao managed agent.
+
+The bridge SHALL tolerate tmux detach cleanup failures by reporting or logging deterministic diagnostics without crashing the workbench server.
+
+#### Scenario: Client close releases only the attach client
+- **WHEN** a browser tmux WebSocket is attached to session `houmao-alpha`
+- **AND WHEN** the browser sends a close message or closes the WebSocket
+- **THEN** the server detaches or terminates the browser-owned tmux attach client for `houmao-alpha`
+- **AND THEN** the underlying `houmao-alpha` tmux session remains alive
+
+#### Scenario: Attach process exit does not stop the tmux session
+- **WHEN** a tmux attach process exits for a browser attachment
+- **THEN** the server cleans up that attachment's process and WebSocket state
+- **AND THEN** the server does not issue tmux kill-session or any Houmao managed-agent lifecycle command
+
+### Requirement: Tmux scroll commands are scoped to the owning attachment
+The workbench local server tmux bridge SHALL execute scroll commands against the tmux session bound to the WebSocket attachment that received the scroll message.
+
+The bridge SHALL reject or ignore scroll messages that arrive before a successful attach or after the attachment has been cleaned up.
+
+The bridge SHALL keep mouse-wheel scroll handling server-side rather than forwarding raw wheel or copy-mode input through the PTY passthrough path.
+
+#### Scenario: Scroll uses the WebSocket-bound session
+- **WHEN** a browser WebSocket is attached to session `utility-shell`
+- **AND WHEN** that WebSocket sends a scroll-up message
+- **THEN** the server runs the tmux scroll operation against `utility-shell`
+- **AND THEN** the server does not scroll any previous session that used the same workbench pane
+
+#### Scenario: Scroll before attach is rejected
+- **WHEN** a browser opens a tmux attach WebSocket but has not attached to a session
+- **AND WHEN** the browser sends a scroll message
+- **THEN** the server rejects or ignores the message deterministically as not attached
+- **AND THEN** no tmux session receives a scroll command
+

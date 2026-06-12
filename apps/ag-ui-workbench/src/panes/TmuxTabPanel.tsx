@@ -201,7 +201,6 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     host.replaceChildren();
 
     const terminal = new Terminal({
-      convertEol: true,
       cursorBlink: mode === "read-write",
       disableStdin: mode === "read-only",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",

@@ -8,6 +8,9 @@ const execFileAsync = promisify(execFile);
 export const TMUX_PREFIX = "/__houmao_tmux";
 const MAX_SESSION_NAME_LENGTH = 256;
 const TMUX_FIXTURE_ENV = "HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE";
+const PTY_NEWLINE_FIXTURE_SESSION = "pty-newline-fixture";
+const PTY_NEWLINE_STALE_MARKER = "STALE_EDGE_REGION";
+const PTY_NEWLINE_FIXTURE_OUTPUT = `\x1b[2J\x1b[Hfresh${PTY_NEWLINE_STALE_MARKER}\n\x1b[1A\x1b[1Kshort\r\npty-newline-fixture-complete\r\n`;
 
 type AttachMode = "read-write" | "read-only";
 
@@ -456,6 +459,12 @@ function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
         type: "output",
         data: `fixture attached ${sessionName}\r\n`,
       });
+      if (sessionName === PTY_NEWLINE_FIXTURE_SESSION) {
+        sendWs(ws, {
+          type: "output",
+          data: PTY_NEWLINE_FIXTURE_OUTPUT,
+        });
+      }
       return;
     }
     if (!sessionName) {
@@ -792,6 +801,12 @@ function defaultFixtureSessions(): TmuxSessionRow[] {
       windowCount: 2,
       attached: true,
       createdAtUtc: "2026-06-09T12:06:00.000Z",
+    },
+    {
+      sessionName: PTY_NEWLINE_FIXTURE_SESSION,
+      windowCount: 1,
+      attached: false,
+      createdAtUtc: "2026-06-09T12:06:12.000Z",
     },
   ];
 }

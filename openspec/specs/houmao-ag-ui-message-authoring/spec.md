@@ -2,12 +2,13 @@
 
 ## Purpose
 Define Houmao-owned typed GUI component schemas, `houmao-mgr internals ag-ui` authoring utilities, AG-UI event rendering, Houmao gateway publish behavior, and unsafe content boundaries for agent-authored GUI messages.
-
 ## Requirements
 ### Requirement: Houmao defines typed GUI component schemas for AG-UI authoring
 Houmao SHALL define an application-layer GUI component schema namespace for typed AG-UI authoring.
 
-The schema namespace SHALL include `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard` in the initial component set.
+The schema namespace SHALL include `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard` in the supported component set.
+
+The schema namespace SHALL NOT include the retired fixed chart APIs `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
 Each component schema SHALL include a stable component name, `schemaVersion`, description, JSON Schema-compatible payload shape, and at least one valid example payload.
 
@@ -16,9 +17,14 @@ Each typed component payload SHALL validate without requiring a live gateway or 
 Component names and payload schemas SHALL be documented as Houmao application-layer protocol, not as AG-UI core standard names.
 
 #### Scenario: Component schemas are discoverable offline
-- **WHEN** an agent asks `houmao-mgr` for the schema of `houmao.chart.bar`
-- **THEN** the command returns the component name, schema version, JSON Schema-compatible payload shape, and a valid example
+- **WHEN** an agent asks `houmao-mgr` for the schema of `houmao.graphic.template`
+- **THEN** the command returns the component name, schema version, JSON Schema-compatible payload shape, and a valid Plotly-backed chart example
 - **AND THEN** the command does not require a live gateway, passive server, or GUI
+
+#### Scenario: Retired fixed chart schemas are not discoverable
+- **WHEN** an agent asks `houmao-mgr` for the schema of `houmao.chart.bar`
+- **THEN** the command exits non-zero with an unsupported component diagnostic
+- **AND THEN** the diagnostic directs the agent to `houmao.graphic.template`
 
 #### Scenario: Component namespace is clearly Houmao-owned
 - **WHEN** an agent lists supported GUI components
@@ -37,10 +43,15 @@ Validation failures SHALL include the selected component or event context, norma
 The commands SHALL accept JSON input from stdin or a path.
 
 #### Scenario: Valid component payload passes validation
-- **WHEN** an agent runs `houmao-mgr internals ag-ui components validate houmao.chart.bar --input payload.json`
-- **AND WHEN** `payload.json` matches the `houmao.chart.bar` schema
+- **WHEN** an agent runs `houmao-mgr internals ag-ui components validate houmao.graphic.template --input payload.json`
+- **AND WHEN** `payload.json` matches the Plotly-backed `houmao.graphic.template` schema
 - **THEN** the command exits successfully
 - **AND THEN** the output identifies the component and schema version that accepted the payload
+
+#### Scenario: Retired fixed chart payload fails validation
+- **WHEN** an agent runs `houmao-mgr internals ag-ui components validate houmao.chart.line --input payload.json`
+- **THEN** the command exits non-zero
+- **AND THEN** the diagnostic names `houmao.chart.line` as unsupported or retired
 
 #### Scenario: Invalid component payload reports field paths
 - **WHEN** an agent validates a `houmao.table` payload with rows that do not match the declared columns
@@ -67,10 +78,10 @@ The render command SHALL support deterministic output formats for machine use, i
 
 The render command SHALL be able to generate stable message and tool-call identifiers from explicit options or deterministic defaults.
 
-#### Scenario: Bar chart renders to AG-UI tool-call events
-- **WHEN** an agent renders a valid `houmao.chart.bar` payload
-- **THEN** the output event sequence contains `TOOL_CALL_START` with `toolCallName` equal to `houmao.chart.bar`
-- **AND THEN** the sequence contains `TOOL_CALL_ARGS` whose JSON payload validates as `houmao.chart.bar`
+#### Scenario: Plotly template chart renders to AG-UI tool-call events
+- **WHEN** an agent renders a valid `houmao.graphic.template` chart payload
+- **THEN** the output event sequence contains `TOOL_CALL_START` with `toolCallName` equal to `houmao.graphic.template`
+- **AND THEN** the sequence contains `TOOL_CALL_ARGS` whose JSON payload validates as `houmao.graphic.template`
 - **AND THEN** the sequence ends that tool call with `TOOL_CALL_END`
 
 #### Scenario: Render output supports SSE framing
@@ -103,7 +114,7 @@ The publish helper SHALL identify Houmao gateway GUI-event publishing as live-on
 The publish helper SHALL NOT claim durable delivery or GUI visibility when the gateway reports `delivered_count = 0`.
 
 #### Scenario: Publish rejects typed payload before rendering
-- **WHEN** an agent passes a raw `houmao.chart.bar` component payload to the publish helper as the event input
+- **WHEN** an agent passes a raw `houmao.graphic.template` component payload to the publish helper as the event input
 - **THEN** the command exits non-zero before contacting the Houmao gateway
 - **AND THEN** the diagnostic tells the agent to render the component payload into AG-UI events first
 
@@ -112,16 +123,6 @@ The publish helper SHALL NOT claim durable delivery or GUI visibility when the g
 - **THEN** the publish helper validates the events
 - **AND THEN** it sends the events to the Houmao gateway AG-UI ingestion route
 - **AND THEN** it reports the gateway response status without logging credential material
-
-#### Scenario: Publish reports live-only no-subscriber result
-- **WHEN** the Houmao gateway accepts a valid AG-UI event batch but no GUI stream receives it
-- **THEN** the publish helper reports `accepted_count > 0`, `stored_count = 0`, and `delivered_count = 0`
-- **AND THEN** it does not describe the message as visible in the GUI
-
-#### Scenario: Third-party endpoint delivery stops at generated events
-- **WHEN** an agent needs to send generated AG-UI events to a non-Houmao endpoint
-- **THEN** `houmao-mgr` provides the generated and validated event payload
-- **AND THEN** the Houmao publish helper does not contact the non-Houmao endpoint
 
 ### Requirement: Authoring commands preserve unsafe content boundaries
 The AG-UI authoring schema SHALL NOT accept arbitrary raw HTML, scriptable SVG, iframe content, JavaScript URLs, credential material, or local file contents as component payload by default.
@@ -177,3 +178,52 @@ The publish helper SHALL NOT describe last-sent-thread as a fallback route.
 - **WHEN** publish helper documentation or output describes omitted routing
 - **THEN** it lists active-thread fallback and default sink behavior
 - **AND THEN** it does not list last-sent-thread as a fallback destination
+
+### Requirement: Authoring utilities support Layer 2 Vega-Lite graphics
+Houmao AG-UI authoring utilities SHALL include `houmao.graphic.vegalite` in the discoverable Houmao typed component namespace.
+
+The component schema SHALL validate without requiring a live gateway, passive server, workbench browser, Python Altair execution, or Vega runtime.
+
+The generic `houmao-mgr internals ag-ui components validate` and `events render` commands SHALL work for `houmao.graphic.vegalite` through the existing component authoring surface.
+
+#### Scenario: Vega-Lite schema appears in component list
+- **WHEN** an agent runs `houmao-mgr internals ag-ui components list`
+- **THEN** the returned component list includes `houmao.graphic.vegalite`
+- **AND THEN** the list continues to include `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`
+
+#### Scenario: Vega-Lite payload validates offline
+- **WHEN** an agent validates a `houmao.graphic.vegalite` payload with inline Vega-Lite data values
+- **THEN** the command exits successfully
+- **AND THEN** the output identifies `houmao.graphic.vegalite` and the accepted schema version
+
+#### Scenario: Vega-Lite payload renders to AG-UI tool-call events
+- **WHEN** an agent renders a valid `houmao.graphic.vegalite` payload
+- **THEN** the output event sequence contains `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`
+- **AND THEN** the `TOOL_CALL_START.toolCallName` value is `houmao.graphic.vegalite`
+- **AND THEN** the rendered event sequence passes standard AG-UI event validation
+
+### Requirement: Authoring validation accepts Altair-shaped Vega-Lite JSON
+Authoring validation SHALL accept valid Vega-Lite JSON generated by Python Altair when the generated object is passed as the `spec` field in a `houmao.graphic.vegalite` payload.
+
+Authoring validation SHALL treat Altair as optional authoring context and SHALL NOT require pandas, notebook display integration, `vl-convert-python`, or Python code execution to validate or render the component payload.
+
+#### Scenario: Altair schema URL is accepted
+- **WHEN** a `houmao.graphic.vegalite` payload contains a `spec.$schema` value matching a supported Vega-Lite v6 schema URL emitted by Altair
+- **THEN** authoring validation accepts the schema URL
+- **AND THEN** the normalized payload preserves the declarative `spec` object
+
+#### Scenario: Python code is not accepted as the spec
+- **WHEN** an agent submits Python or Altair source code instead of a JSON object under `spec`
+- **THEN** authoring validation rejects the payload
+- **AND THEN** the diagnostic instructs the agent to send `chart.to_dict()` or equivalent Vega-Lite JSON
+
+### Requirement: Dashboard children may include Vega-Lite graphics
+Houmao dashboard payloads SHALL allow `houmao.graphic.vegalite` as a child component when the child props validate as a Vega-Lite graphic payload.
+
+Dashboard validation SHALL continue to reject unknown or malformed child components.
+
+#### Scenario: Dashboard embeds a Vega-Lite child
+- **WHEN** an agent validates a `houmao.dashboard` payload containing a `houmao.graphic.vegalite` child with valid props
+- **THEN** component validation accepts the dashboard
+- **AND THEN** rendered dashboard AG-UI events preserve the Vega-Lite child component name and props
+

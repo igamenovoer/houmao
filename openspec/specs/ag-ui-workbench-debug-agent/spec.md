@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the AG-UI workbench Debug Agent pane, local host relay routes, external curl publishing behavior, debug replay controls, persistence boundary, and deterministic graphical proof expectations.
-
 ## Requirements
 ### Requirement: Toolbar opens a Debug Agent pane
 The AG-UI workbench SHALL provide a toolbar control that opens a Debug Agent pane for local AG-UI message testing.
@@ -62,9 +61,9 @@ The events publish route SHALL accept route metadata including `threadId`, optio
 
 The response SHALL report accepted event count, delivered event count, replay behavior, and the route metadata used.
 
-#### Scenario: Curl-posted chart events render in the display
+#### Scenario: Curl-posted Plotly template chart events render in the display
 - **WHEN** a Debug Agent display is connected to thread `debug-agent-1-thread`
-- **AND WHEN** an external caller posts a complete `houmao.chart.bar` AG-UI tool-call event batch to `/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events` with `threadId = "debug-agent-1-thread"`
+- **AND WHEN** an external caller posts a complete `houmao.graphic.template` AG-UI tool-call event batch to `/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events` with `threadId = "debug-agent-1-thread"`
 - **THEN** the relay delivers the event batch to the display stream
 - **AND THEN** the display renders the chart graphically through the typed component renderer
 
@@ -79,15 +78,22 @@ The response SHALL report accepted event count, delivered event count, replay be
 - **AND THEN** the display stream does not receive the invalid batch
 
 ### Requirement: Sender can publish typed component payloads
-The Debug Agent sender SHALL provide a typed component lane for Houmao component payloads such as `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+The Debug Agent sender SHALL provide a typed component lane for Houmao component payloads such as `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+
+The Debug Agent sender SHALL NOT provide retired fixed chart presets for `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
 The typed component lane SHALL render or wrap valid component payloads into standard AG-UI `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END` events before delivering them to the display.
 
-#### Scenario: Sender publishes a bar chart payload
-- **WHEN** a user enters a valid `houmao.chart.bar` payload in the Debug Agent sender
+#### Scenario: Sender publishes a Plotly template chart payload
+- **WHEN** a user enters a valid `houmao.graphic.template` chart payload in the Debug Agent sender
 - **AND WHEN** the user sends it to the display
 - **THEN** the display receives a complete AG-UI tool-call event sequence
-- **AND THEN** the display renders the bar chart graphically
+- **AND THEN** the display renders the chart graphically
+
+#### Scenario: Sender does not offer retired fixed chart presets
+- **WHEN** a user opens the typed component lane presets
+- **THEN** the preset list omits `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie`
+- **AND THEN** chart examples use `houmao.graphic.template`
 
 #### Scenario: Sender surfaces component validation failure
 - **WHEN** a user enters an invalid typed component payload
@@ -135,14 +141,48 @@ The test SHALL prove that an external-style HTTP POST to the debug relay can del
 
 The test SHALL save or expose enough visual evidence to confirm that the rendered component is visible.
 
-#### Scenario: E2E posts chart events and captures rendered proof
+#### Scenario: E2E posts template chart events and captures rendered proof
 - **WHEN** the Playwright test opens the workbench and creates a Debug Agent pane
-- **AND WHEN** the test posts a `houmao.chart.bar` AG-UI event batch to the debug relay events endpoint
+- **AND WHEN** the test posts a `houmao.graphic.template` AG-UI event batch to the debug relay events endpoint
 - **THEN** the publish response reports accepted events and at least one live delivery
-- **AND THEN** the Debug Agent display shows a visible chart with an SVG and rendered bar elements
+- **AND THEN** the Debug Agent display shows a visible Plotly-backed chart
 - **AND THEN** the test captures screenshot evidence of the rendered chart
 
 #### Scenario: E2E covers replay and live-only modes
 - **WHEN** the Playwright test posts a valid event batch before connecting the display
 - **THEN** the replay-enabled path can show the stored batch after connect
 - **AND THEN** the live-only path reports no replay for a batch posted before connect
+
+### Requirement: Debug Agent supports Vega-Lite typed component payloads
+The Debug Agent sender SHALL include `houmao.graphic.vegalite` in its typed component lane.
+
+The typed component lane SHALL validate or wrap a valid Vega-Lite payload into standard AG-UI tool-call events before delivering it to the Debug Agent display.
+
+The Debug Agent display SHALL render `houmao.graphic.vegalite` through the same Layer 2 renderer path used by ordinary workbench panes.
+
+#### Scenario: Sender publishes a Vega-Lite payload
+- **WHEN** a user selects `houmao.graphic.vegalite` in the Debug Agent typed component sender
+- **AND WHEN** the user sends a valid inline Vega-Lite payload
+- **THEN** the display receives a complete AG-UI tool-call event sequence
+- **AND THEN** the display renders the Vega-Lite chart graphically
+
+#### Scenario: Sender surfaces Vega-Lite validation failure
+- **WHEN** a user enters a `houmao.graphic.vegalite` payload with remote `data.url`
+- **AND WHEN** the user validates or sends the payload
+- **THEN** the sender shows a deterministic validation failure
+- **AND THEN** the invalid payload is not delivered as a successful rendered component
+
+### Requirement: Debug Agent fixtures cover Vega-Lite rendering and fallback
+The repository SHALL include deterministic Debug Agent fixtures or tests that prove external AG-UI event publishing can render a valid Vega-Lite chart and can show a visible fallback for a malformed Vega-Lite spec.
+
+#### Scenario: E2E posts Vega-Lite chart events
+- **WHEN** the Playwright test opens the workbench and creates a Debug Agent pane
+- **AND WHEN** the test posts a valid `houmao.graphic.vegalite` AG-UI event batch to the debug relay events endpoint
+- **THEN** the publish response reports accepted events and at least one live delivery
+- **AND THEN** the Debug Agent display shows a visible Vega-Lite chart
+
+#### Scenario: E2E posts malformed Vega-Lite events
+- **WHEN** the Playwright test posts a malformed `houmao.graphic.vegalite` AG-UI event batch to a connected Debug Agent display
+- **THEN** the display shows an invalid component fallback
+- **AND THEN** the workbench remains responsive for later valid events
+

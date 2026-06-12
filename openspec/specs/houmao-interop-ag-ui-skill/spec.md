@@ -15,7 +15,7 @@ The skill SHALL be installable through the Houmao system-skill catalog like othe
 #### Scenario: Installed skill explains the protocol split
 - **WHEN** an agent opens the installed `houmao-interop-ag-ui` skill
 - **THEN** the skill states that AG-UI standardizes event envelopes and tool-call events
-- **AND THEN** it states that component names such as `houmao.chart.bar` are Houmao application-layer schemas, not AG-UI core standard names
+- **AND THEN** it states that component names such as `houmao.graphic.template` are Houmao application-layer schemas, not AG-UI core standard names
 
 #### Scenario: System-skill catalog includes the skill
 - **WHEN** an operator lists maintained Houmao system skills
@@ -27,13 +27,15 @@ The `houmao-interop-ag-ui` skill SHALL provide a concrete workflow for generatin
 
 The workflow SHALL instruct the agent to resolve `houmao-mgr`, inspect the target component schema, create a JSON payload, validate the payload, render AG-UI events, validate the rendered events, and then publish or hand off the generated events.
 
-The workflow SHALL include examples for at least one chart component and one non-chart component.
+The workflow SHALL include examples for at least one `houmao.graphic.template` chart and one non-chart component.
 
 The workflow SHALL prefer `houmao-mgr` validation over hand-written AG-UI JSON.
 
+The workflow SHALL NOT instruct agents to retrieve, validate, render, or publish retired fixed chart component schemas named `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
+
 #### Scenario: Agent follows chart workflow
 - **WHEN** an agent needs to send a bar chart to a GUI
-- **THEN** the skill instructs it to retrieve the `houmao.chart.bar` schema
+- **THEN** the skill instructs it to retrieve the `houmao.graphic.template` schema
 - **AND THEN** the skill instructs it to validate the chart payload
 - **AND THEN** the skill instructs it to render standard AG-UI tool-call events before publishing
 
@@ -41,6 +43,11 @@ The workflow SHALL prefer `houmao-mgr` validation over hand-written AG-UI JSON.
 - **WHEN** an agent needs to send a table to a GUI
 - **THEN** the skill instructs it to retrieve and validate the `houmao.table` schema
 - **AND THEN** the skill instructs it to render standard AG-UI events rather than sending an ad hoc table object to the gateway
+
+#### Scenario: Agent avoids retired fixed chart workflow
+- **WHEN** an agent needs to create a chart
+- **THEN** the skill does not recommend `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`
+- **AND THEN** it directs the agent to `houmao.graphic.template`
 
 ### Requirement: Skill documents endpoint selection without guessing
 The `houmao-interop-ag-ui` skill SHALL describe how to choose a publish target.
@@ -72,7 +79,7 @@ The `houmao-interop-ag-ui` skill SHALL warn agents that GUI payloads are untrust
 
 The skill SHALL instruct agents not to embed raw unsanitized HTML, scriptable SVG, JavaScript URLs, credential material, or local file contents in component payloads.
 
-The skill SHALL tell agents to use typed chart, table, metric, and dashboard components before considering free-form media.
+The skill SHALL tell agents to use typed graphic template, table, metric, and dashboard components before considering free-form media.
 
 #### Scenario: Skill warns against raw HTML and scriptable SVG
 - **WHEN** an agent reads the GUI payload safety guidance
@@ -190,3 +197,44 @@ The skill SHALL tell agents to ask the user to connect or mark the intended GUI 
 - **WHEN** an agent explains why an inactive pane can still display graphics
 - **THEN** the skill states that active-thread controls only omitted-route default publishing
 - **AND THEN** it states that explicit thread routing can still deliver to an inactive pane's thread
+
+### Requirement: Skill explains Layer 2 Vega-Lite authoring
+The `houmao-interop-ag-ui` skill SHALL teach agents that `houmao.graphic.vegalite` is the Layer 2 path for custom declarative Vega-Lite graphics.
+
+The skill SHALL explain that agents may either hand-author Vega-Lite JSON or optionally use Python Altair to generate the Vega-Lite `spec` with `chart.to_dict()` or `chart.to_json()`.
+
+The skill SHALL state that agents send the resulting JSON spec in a `houmao.graphic.vegalite` payload and SHALL NOT send Python source code, notebook state, or Altair objects to the gateway.
+
+#### Scenario: Agent chooses Layer 2 for custom declarative graphics
+- **WHEN** an agent needs a layered, interactive, or custom chart structure that does not fit Layer 1 template graphics
+- **THEN** the skill directs it to inspect and use `houmao.graphic.vegalite`
+- **AND THEN** the skill tells it to validate and render the payload before publishing
+
+#### Scenario: Agent uses Altair only as an authoring helper
+- **WHEN** an agent uses Python Altair to build a chart
+- **THEN** the skill tells it to send `chart.to_dict()` or equivalent Vega-Lite JSON
+- **AND THEN** the skill does not tell it to send Python code or rely on runtime Python execution by the gateway or workbench
+
+### Requirement: Skill preserves least-powerful-layer guidance
+The `houmao-interop-ag-ui` skill SHALL teach agents to prefer `houmao.graphic.template` for ordinary Plotly-backed snapshot charts and to use `houmao.graphic.vegalite` only when they need Vega-Lite grammar, custom declarative structure, or Vega-Lite interaction.
+
+The skill SHALL continue to state that Layer 1 does not accept Vega-Lite renderer ids, fallback renderer lists, or `extra.vega-lite`.
+
+#### Scenario: Agent keeps ordinary charts on Layer 1
+- **WHEN** an agent needs an ordinary bar, line, scatter, pie, or histogram chart with inline data
+- **THEN** the skill directs it to prefer `houmao.graphic.template`
+- **AND THEN** it does not direct the agent to use Vega-Lite only because Layer 2 exists
+
+#### Scenario: Agent does not put Vega-Lite inside Layer 1
+- **WHEN** an agent has a raw Vega-Lite spec
+- **THEN** the skill tells it to use `houmao.graphic.vegalite`
+- **AND THEN** the skill tells it not to place the raw spec in `houmao.graphic.template.extra`
+
+### Requirement: Skill explains Vega-Lite safety limits
+The `houmao-interop-ag-ui` skill SHALL tell agents that Layer 2 Vega-Lite payloads must use inline data or other explicitly supported safe references and must not use remote `data.url`, arbitrary HTML, script tags, iframes, JavaScript URLs, scriptable SVG, credentials, or private local file contents.
+
+#### Scenario: Agent avoids remote Vega-Lite data
+- **WHEN** an agent prepares a `houmao.graphic.vegalite` payload
+- **THEN** the skill tells it not to use remote `data.url`
+- **AND THEN** it tells the agent to validate the payload before rendering AG-UI events
+

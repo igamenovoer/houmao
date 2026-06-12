@@ -307,21 +307,30 @@ The workbench SHALL render known Houmao typed components carried by standard AG-
 
 The renderer registry SHALL be keyed by component or tool-call name.
 
-The initial renderer registry SHALL support `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+The initial renderer registry SHALL support `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+
+The renderer registry SHALL NOT register `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie` after those fixed chart APIs are retired.
 
 The workbench SHALL preserve unknown component events as visible raw tool-call or custom-event records rather than failing the pane.
 
 The workbench SHALL continue to render existing `houmao_render_graphic` events through the same rendering path or a compatibility registry entry.
 
-#### Scenario: Bar chart tool call renders visibly
+#### Scenario: Plotly template chart tool call renders visibly
+- **WHEN** a stream emits a complete AG-UI tool-call sequence with `toolCallName` equal to `houmao.graphic.template`
+- **AND WHEN** the tool-call args validate as a Plotly-backed schema version `2` chart payload
+- **THEN** the pane renders a visible chart with the provided title, traces, labels, and values
+- **AND THEN** the rendered evidence does not require a Recharts DOM node or Recharts-specific selector
+
+#### Scenario: Retired fixed chart tool call remains inspectable
 - **WHEN** a stream emits a complete AG-UI tool-call sequence with `toolCallName` equal to `houmao.chart.bar`
-- **AND WHEN** the tool-call args validate as a `houmao.chart.bar` payload
-- **THEN** the pane renders a visible bar chart with the provided title, labels, and values
+- **THEN** the pane shows a visible unknown or unsupported component fallback
+- **AND THEN** the raw tool-call record remains inspectable
+- **AND THEN** the pane does not try to render the payload through Recharts or a hidden legacy chart adapter
 
 #### Scenario: Dashboard event renders contained components
-- **WHEN** a stream emits a valid `houmao.dashboard` component payload containing chart and metric-grid children
+- **WHEN** a stream emits a valid `houmao.dashboard` component payload containing `houmao.graphic.template` and metric-grid children
 - **THEN** the pane renders the dashboard layout
-- **AND THEN** the child components render through their registered component renderers
+- **AND THEN** the child template chart renders through Plotly-backed registered component renderers
 
 #### Scenario: Unknown component remains inspectable
 - **WHEN** a stream emits a complete AG-UI tool call with an unknown `toolCallName`
@@ -874,54 +883,6 @@ The deterministic workbench browser coverage SHALL exercise tmux terminal resize
 - **THEN** the test verifies discovery refresh evidence
 - **AND THEN** the test creates a blank manual agent pane through the picker New action
 
-### Requirement: Agent panes expose a template graphic renderer override
-Agent panes SHALL provide a pane-level control for choosing how `houmao.graphic.template` tool calls are rendered.
-
-The control SHALL expose at least `auto`, `vega-lite`, and `recharts` options.
-
-When the value is `auto`, the workbench SHALL use the renderer selection encoded in the received template graphic payload.
-
-When the value is a renderer id such as `vega-lite` or `recharts`, the workbench SHALL attempt to render completed `houmao.graphic.template` tool calls in that pane with the selected renderer before considering message-level renderer preference.
-
-The renderer override SHALL be presentation metadata only. The workbench SHALL NOT mutate the received AG-UI events, reconstructed tool-call arguments, diagnostics payloads, or gateway messages to apply the override.
-
-#### Scenario: Auto respects message renderer selection
-- **WHEN** an agent pane renderer control is set to `auto`
-- **AND WHEN** a completed `houmao.graphic.template` tool call requests `renderer.preferred` equal to `vega-lite`
-- **THEN** the workbench selects the renderer through the message-level renderer preference and fallback rules
-- **AND THEN** the raw tool-call diagnostics still show the original message payload
-
-#### Scenario: Forced renderer overrides message preference
-- **WHEN** an agent pane renderer control is set to `recharts`
-- **AND WHEN** a completed `houmao.graphic.template` tool call requests `renderer.preferred` equal to `vega-lite`
-- **THEN** the workbench renders that template graphic through Recharts when Recharts supports the payload
-- **AND THEN** the raw tool-call diagnostics still show `renderer.preferred` equal to `vega-lite`
-
-#### Scenario: Unsupported forced renderer degrades visibly
-- **WHEN** an agent pane renderer control is set to a renderer that cannot render the completed template graphic payload
-- **THEN** the workbench shows a deterministic renderer-override diagnostic in the pane
-- **AND THEN** the workbench does not silently fall back to another renderer for that forced-renderer attempt
-- **AND THEN** unrelated pane messages and rendered components remain visible
-
-### Requirement: Template renderer preference persists as safe pane metadata
-The workbench SHALL persist each agent pane's template graphic renderer preference in the same safe browser configuration boundary as pane layout and target metadata.
-
-The persisted renderer preference SHALL default to `auto` when absent, invalid, or unsupported by the current workbench build.
-
-The persisted renderer preference SHALL NOT include AG-UI stream content, tool-call payloads, transcript text, prompt text, raw terminal bytes, gateway response bodies, credentials, cookies, bearer tokens, or authorization headers.
-
-#### Scenario: Renderer preference restores after reload
-- **WHEN** a tester sets pane `agent-1` to force the `vega-lite` template renderer
-- **AND WHEN** the browser reloads the workbench
-- **THEN** pane `agent-1` restores the `vega-lite` renderer preference
-- **AND THEN** the restored localStorage state does not contain prior template graphic payloads or AG-UI stream content
-
-#### Scenario: Invalid stored renderer falls back to auto
-- **WHEN** localStorage contains an unsupported template renderer preference for pane `agent-1`
-- **AND WHEN** the workbench loads that pane
-- **THEN** the pane uses `auto` as its template renderer preference
-- **AND THEN** the invalid stored value does not prevent the pane from rendering AG-UI messages
-
 ### Requirement: Tmux terminal panes repaint after scroll and layout-local changes
 Tmux panes SHALL keep xterm `Terminal`, `FitAddon`, DOM refs, and direct terminal rendering outside reduced runtime state while ensuring the full visible terminal area repaints after local terminal viewport changes.
 
@@ -949,19 +910,207 @@ The repaint behavior SHALL NOT persist terminal bytes in reduced runtime state o
 - **AND THEN** the visible terminal area repaints after the fit
 
 ### Requirement: Workbench tests cover pane presentation behavior
-The deterministic workbench browser coverage SHALL exercise template graphic renderer override behavior and tmux terminal repaint behavior.
+The deterministic workbench browser coverage SHALL exercise Plotly-backed template graphic rendering, retired fixed-chart fallback behavior, datasource-bound template rendering, visible renderer diagnostics, and tmux terminal repaint behavior.
 
-Renderer override coverage SHALL verify `auto`, forced `vega-lite`, forced `recharts`, and visible forced-renderer diagnostics using deterministic AG-UI fixture events.
+Chart rendering coverage SHALL verify Plotly-backed visible evidence without relying on Recharts-specific DOM selectors.
 
 Tmux repaint coverage SHALL attach to a deterministic tmux bridge fixture, create enough terminal output to scroll, perform mouse-wheel scrolling, and verify that the terminal remains visibly updated without forcing an outer window resize.
 
-#### Scenario: E2E validates template renderer override
-- **WHEN** the workbench E2E suite emits a completed `houmao.graphic.template` tool call for an agent pane
-- **AND WHEN** the test switches the pane renderer control between `auto`, `vega-lite`, and `recharts`
-- **THEN** the test verifies the renderer-specific visible evidence for the selected mode
-- **AND THEN** the raw tool-call diagnostics still expose the original payload
+#### Scenario: E2E validates Plotly-backed chart presentation
+- **WHEN** the workbench E2E suite emits completed `houmao.graphic.template` tool calls for an agent pane
+- **THEN** the test verifies Plotly-backed visible evidence for the template chart
+- **AND THEN** the raw tool-call diagnostics still expose the original payloads
+
+#### Scenario: E2E validates retired fixed chart fallback
+- **WHEN** the workbench E2E suite emits a completed `houmao.chart.bar` tool call for an agent pane
+- **THEN** the test verifies visible unknown or unsupported component evidence
+- **AND THEN** the test verifies that no Recharts-specific DOM selector is required
 
 #### Scenario: E2E validates tmux scroll repaint
 - **WHEN** the workbench E2E suite attaches a tmux tab through the deterministic tmux bridge fixture
 - **AND WHEN** the test scrolls the terminal viewport with the mouse wheel
 - **THEN** the test verifies that terminal content remains visibly refreshed without resizing the browser window
+
+### Requirement: Workbench has no Recharts runtime dependency
+The AG-UI workbench SHALL NOT depend on Recharts for chart rendering.
+
+The workbench frontend SHALL NOT import from the `recharts` package.
+
+The workbench dependency manifest SHALL NOT list `recharts` after template graphics and supported typed component rendering no longer require it.
+
+The deterministic browser tests SHALL NOT use Recharts-specific DOM selectors as evidence of successful chart rendering.
+
+#### Scenario: Dependency manifest omits Recharts
+- **WHEN** a developer inspects the workbench package manifest after this change
+- **THEN** the manifest does not list `recharts` as a dependency or dev dependency
+- **AND THEN** chart rendering tests still pass with Plotly-backed evidence
+
+#### Scenario: Source does not import Recharts
+- **WHEN** a developer searches the workbench source after this change
+- **THEN** no workbench runtime module imports from `recharts`
+- **AND THEN** template graphics and supported typed components still render visibly
+
+### Requirement: Workbench renders Layer 2 Vega-Lite components
+The AG-UI workbench SHALL register a typed component renderer for `houmao.graphic.vegalite`.
+
+The renderer SHALL use `vega`, `vega-lite`, and `vega-embed` to render accepted Vega-Lite specs in the browser.
+
+The renderer SHALL disable remote data loading by default, disable renderer action controls by default, apply bounded responsive sizing, and clean up Vega view resources on rerender, unmount, pane clear, or target clear.
+
+#### Scenario: Vega-Lite tool call renders in an agent pane
+- **WHEN** an AG-UI pane receives a complete `houmao.graphic.vegalite` tool-call sequence with a valid inline Vega-Lite spec
+- **THEN** the pane renders a visible Vega-Lite chart
+- **AND THEN** normal transcript, tool-call, and raw-event diagnostics remain available
+
+#### Scenario: Invalid Vega-Lite tool call shows fallback
+- **WHEN** an AG-UI pane receives a complete `houmao.graphic.vegalite` tool-call sequence whose payload is malformed or rejected by browser validation
+- **THEN** the pane shows a deterministic invalid component fallback
+- **AND THEN** unrelated transcript and graphics content remain visible
+
+#### Scenario: Clear canvas disposes Vega view
+- **WHEN** a pane displays a rendered Vega-Lite chart
+- **AND WHEN** the user activates clear-canvas for that pane
+- **THEN** the chart is removed from visible state
+- **AND THEN** the workbench disposes the mounted Vega view without stopping or detaching the target
+
+### Requirement: Workbench keeps Vega-Lite separate from Layer 1 renderer selection
+The workbench SHALL NOT reintroduce a Layer 1 template renderer selector for Vega-Lite.
+
+The workbench SHALL render `houmao.graphic.template` through the existing Plotly Layer 1 path and SHALL render `houmao.graphic.vegalite` through the Layer 2 Vega-Lite path.
+
+#### Scenario: Template graphics still use Plotly
+- **WHEN** a pane receives a valid `houmao.graphic.template` payload
+- **THEN** the workbench renders it through the Plotly template renderer
+- **AND THEN** the workbench does not route it through the Vega-Lite renderer
+
+#### Scenario: Vega-Lite graphics use Layer 2 renderer
+- **WHEN** a pane receives a valid `houmao.graphic.vegalite` payload
+- **THEN** the workbench renders it through the Vega-Lite renderer
+- **AND THEN** the workbench does not require or inspect a Layer 1 `renderer.preferred` value
+
+### Requirement: Tmux terminal panes synchronize measured size after attachment
+Tmux panes SHALL distinguish the terminal size measured by xterm from the terminal size delivered to the active tmux attachment.
+
+If a pane measures terminal columns and rows before the tmux attachment reaches the attached state, the pane SHALL deliver the current measured size to the runtime after attachment succeeds.
+
+The pane SHALL continue to suppress redundant tmux resize actions when the current attachment has already received the measured columns and rows.
+
+#### Scenario: Pre-attach fit is delivered after attach succeeds
+- **WHEN** a tmux pane fits its xterm terminal while the attach WebSocket is still connecting
+- **AND WHEN** the attach later succeeds without another browser layout change
+- **THEN** the pane sends the current terminal columns and rows to the runtime attachment
+- **AND THEN** the real tmux pane size matches the browser xterm size without requiring an outer browser-window resize
+
+#### Scenario: Same-size refit does not spam resize
+- **WHEN** a tmux pane has already delivered columns `100` and rows `29` to the current attachment
+- **AND WHEN** Dockview or ResizeObserver triggers another fit that still reports columns `100` and rows `29`
+- **THEN** the pane refreshes the visible terminal area
+- **AND THEN** the pane does not dispatch another tmux resize action solely because the same-size fit ran
+
+### Requirement: Tmux terminal panes handle host wheel repaint without stale edges
+Tmux panes SHALL keep wheel scrolling inside the terminal host when a tmux terminal is attached.
+
+Wheel scrolling inside the terminal host SHALL scroll the xterm viewport and schedule a full visible-row xterm refresh.
+
+Wheel scrolling inside the terminal host SHALL NOT require resizing the browser window, Dockview panel, or terminal host before stale edge regions repaint.
+
+The behavior SHALL NOT persist terminal bytes in reduced runtime state, browser storage, or AG-UI event caches.
+
+#### Scenario: Host wheel scroll repaints real tmux attachment
+- **WHEN** a tmux pane is attached to a real tmux session with enough output to scroll
+- **AND WHEN** the tester scrolls inside the terminal host with the mouse wheel
+- **THEN** the visible terminal area repaints across the terminal width without requiring a browser resize
+- **AND THEN** terminal bytes are not written to reduced runtime state or localStorage
+
+#### Scenario: Terminal wheel does not scroll outer workbench
+- **WHEN** a tmux pane is attached and the pointer is over the terminal host
+- **AND WHEN** the tester uses the mouse wheel
+- **THEN** the scroll action is handled by the terminal viewport
+- **AND THEN** the surrounding workbench layout does not move because of that terminal wheel event
+
+### Requirement: Workbench validation covers fresh-agent first-connect graphics
+The workbench validation suite SHALL include a real-agent smoke path that launches or relaunches a Houmao agent into a clean browser session, connects once, sends one graphics-producing prompt, and verifies visible template graphics without requiring a disconnect and reconnect.
+
+The smoke assertion SHALL treat one Plotly chart with multiple SVG layers as one visible chart.
+
+The smoke evidence SHALL include enough information to distinguish a rendering failure, a publish-delivery failure, an active-thread routing failure, and a test-locator failure.
+
+#### Scenario: Fresh agent renders graphics on first connect
+- **WHEN** the real-agent smoke starts a clean browser session and starts a new or freshly relaunched Houmao agent
+- **AND WHEN** the tester connects the workbench pane to that agent exactly once
+- **AND WHEN** the tester sends a prompt that publishes one Houmao template graphic
+- **THEN** the workbench displays the template graphic without requiring disconnect or reconnect
+- **AND THEN** the smoke evidence records the thread id, prompt nonce, chart title, and any visible errors
+
+#### Scenario: Plotly multi-SVG chart passes visible assertion
+- **WHEN** the real-agent smoke receives a Plotly-rendered template graphic
+- **AND WHEN** the rendered chart contains multiple SVG elements for layers or axes
+- **THEN** the smoke treats the chart as visible when at least one chart SVG layer is visible inside the template chart container
+- **AND THEN** the smoke does not fail only because the chart contains more than one SVG element
+
+### Requirement: Tmux pane session selection replaces the active attachment
+The workbench tmux pane SHALL treat selecting a different tmux session as replacing the active attachment.
+
+Before attaching to the selected session, the pane SHALL request detach for the previous attachment and remove the previous xterm surface from the pane.
+
+The runtime SHALL maintain only one current tmux attachment per pane and SHALL route input, resize, and scroll actions only through that current attachment.
+
+The runtime SHALL ignore output, close, exit, error, and attached events from an older attachment after a newer attachment has become current for the same pane.
+
+#### Scenario: Switching sessions routes commands to the new attachment
+- **WHEN** a tmux pane is attached to session `houmao-alpha`
+- **AND WHEN** the user selects session `utility-shell` from the session picker in the same pane
+- **THEN** the pane detaches the `houmao-alpha` attachment before requesting the `utility-shell` attachment
+- **AND THEN** subsequent keyboard input, resize, and scroll actions are sent only through the `utility-shell` attachment
+
+#### Scenario: Stale old attachment events do not overwrite the new attachment
+- **WHEN** a tmux pane starts replacing session `houmao-alpha` with session `utility-shell`
+- **AND WHEN** the old `houmao-alpha` socket later emits output, close, exit, error, or attached messages
+- **THEN** the runtime ignores those old socket events for pane state and terminal output
+- **AND THEN** the pane continues showing the `utility-shell` attachment state
+
+#### Scenario: Wheel scroll after switch targets the selected session
+- **WHEN** a tmux pane has switched from session `houmao-alpha` to session `utility-shell`
+- **AND WHEN** the user scrolls inside the attached terminal host with the mouse wheel
+- **THEN** the workbench sends the scroll request through the current `utility-shell` attachment
+- **AND THEN** no scroll request is sent through the old `houmao-alpha` attachment
+
+### Requirement: Tmux terminal panes preserve PTY output newline semantics
+Tmux panes SHALL write tmux attachment output to xterm as a PTY terminal stream without browser-side newline conversion.
+
+Tmux panes SHALL NOT enable xterm newline conversion intended for non-PTY data sources when rendering a tmux attachment.
+
+Tmux panes SHALL preserve raw tmux control semantics for bare line feed, carriage return, cursor movement, line clear, alternate screen, wrapping, and long autonomous TUI redraws.
+
+The behavior SHALL NOT require a browser resize, Dockview resize, mouse scroll, or terminal refresh workaround to clear stale edge cells caused by newline rewriting.
+
+#### Scenario: Bare line feed keeps PTY cursor semantics
+- **WHEN** a tmux pane receives PTY-style terminal output that includes a bare line feed after a line containing edge text
+- **THEN** xterm applies normal PTY line-feed semantics without injecting an extra carriage return
+- **AND THEN** subsequent cursor movement and line-clear sequences update the intended cells without leaving stale edge text
+
+#### Scenario: Long alternate-screen TUI output does not leave newline-conversion artifacts
+- **WHEN** a tmux pane is attached to a full-screen TUI running in tmux alternate screen
+- **AND WHEN** the TUI emits long autonomous output that redraws tables, prompts, and status regions without user input
+- **THEN** the visible terminal area reflects tmux's intended screen state
+- **AND THEN** stale edge regions caused by browser-side newline rewriting are not visible
+
+### Requirement: Workbench tests cover tmux PTY newline rendering
+The deterministic workbench browser coverage SHALL include a tmux pane regression case for PTY-style control output that is sensitive to newline conversion.
+
+The regression case SHALL use terminal control bytes rather than only line-oriented fixture messages ending in `\r\n`.
+
+The regression case SHALL verify that edge text is cleared or overwritten without resizing the browser window or Dockview panel.
+
+Manual or smoke validation for real tmux TUI sessions SHALL include evidence that the browser xterm size and host tmux pane size are synchronized while long autonomous output renders without stale edge artifacts.
+
+#### Scenario: Fixture detects newline-conversion artifact
+- **WHEN** the deterministic tmux fixture emits PTY-style output containing edge text, a bare line feed, cursor movement, and a line clear or overwrite
+- **THEN** the workbench test verifies that the stale edge text is absent from the visible terminal cells
+- **AND THEN** the test would fail if the tmux pane enabled browser-side newline conversion for the xterm instance
+
+#### Scenario: Real tmux smoke records newline-rendering evidence
+- **WHEN** a tester validates the workbench against a real tmux session running a Claude or Kimi TUI
+- **AND WHEN** that TUI emits long output without user input
+- **THEN** the smoke evidence records enough terminal geometry and visible rendering evidence to distinguish newline parsing errors from tmux pane-size mismatches
+

@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the AG-UI workbench model for browser-owned watched-target event caching, pane rendering from cached events, and live-only missed-event semantics.
-
 ## Requirements
 ### Requirement: Workbench tracks watched AG-UI targets independently from panes
 The workbench SHALL maintain a watched-target registry separate from visible Dockview panes.
@@ -42,8 +41,8 @@ The cache SHALL NOT store AG-UI request bodies, forwarded props, credentials, co
 
 The cache SHALL enforce bounded retention by event count, byte size, time window, or a documented combination of those limits.
 
-#### Scenario: Received chart event is cached
-- **WHEN** a watched target receives a complete AG-UI tool-call sequence for `houmao.chart.bar`
+#### Scenario: Received Plotly template chart event is cached
+- **WHEN** a watched target receives a complete AG-UI tool-call sequence for `houmao.graphic.template`
 - **THEN** the workbench stores the received standard AG-UI events in the client cache
 - **AND THEN** the stored records include local receive ordering and target/thread metadata
 
@@ -66,11 +65,11 @@ The pane SHALL render Houmao typed components, graphics, transcripts, raw events
 
 Reopening a pane for a still-watched target SHALL show previously received cached graphics without asking the gateway to replay them.
 
-#### Scenario: Reopened pane shows cached chart
-- **WHEN** a watched target receives and caches a `houmao.chart.bar` event sequence
+#### Scenario: Reopened pane shows cached Plotly template chart
+- **WHEN** a watched target receives and caches a `houmao.graphic.template` event sequence
 - **AND WHEN** the tester closes the visible pane
 - **AND WHEN** the tester opens a pane for the same watched target
-- **THEN** the pane renders the cached bar chart
+- **THEN** the pane renders the cached Plotly-backed chart
 - **AND THEN** the workbench does not require gateway replay for that chart
 
 #### Scenario: Live events update open pane
@@ -227,3 +226,4 @@ The runtime SHALL NOT send a local cache cursor as a gateway replay request and 
 - **AND WHEN** the target is watched again
 - **THEN** the runtime keeps previously cached events and receives future live events
 - **AND THEN** it does not recover the missed gateway events through replay
+
