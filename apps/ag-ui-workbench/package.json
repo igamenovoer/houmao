@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/server/cli.ts --dev",
+    "dev": "esbuild src/server/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=src/server/.manual-workbench-server.mjs && node src/server/.manual-workbench-server.mjs --dev",
+    "dev:bun": "bun run src/server/cli.ts --dev",
     "dev:vite": "vite --host 127.0.0.1",
     "dev:legacy-vite": "vite --host 127.0.0.1",
-    "start": "bun run src/server/cli.ts --static",
+    "start": "esbuild src/server/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=src/server/.manual-workbench-server.mjs && node src/server/.manual-workbench-server.mjs --static",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "e2e": "bunx playwright test --config=playwright.config.ts",

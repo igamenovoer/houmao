@@ -351,6 +351,91 @@ test("tmux runtime routes output to sinks, suppresses read-only input, and clean
   runtime.dispose();
 });
 
+test("tmux runtime replaces switched attachments and routes scroll to the current socket", async () => {
+  const sockets: FakeSocket[] = [];
+  const output: string[] = [];
+  const runtime = new WorkbenchRuntime(
+    runtimeServices({
+      openTmuxAttachSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket.asWebSocket();
+      },
+    }),
+  );
+
+  runtime.dispatch({
+    type: "tmux/registerOutputSink",
+    paneId: "tmux-1",
+    sink: (data) => output.push(data),
+  });
+  runtime.dispatch({
+    type: "tmux/attachRequested",
+    paneId: "tmux-1",
+    sessionName: "houmao-alpha",
+    mode: "read-write",
+    cols: 80,
+    rows: 24,
+  });
+  expect(sockets).toHaveLength(1);
+  const firstSocket = sockets[0];
+  firstSocket.open();
+  expect(sentMessages(firstSocket)).toContainEqual(
+    expect.objectContaining({ type: "attach", sessionName: "houmao-alpha" }),
+  );
+  firstSocket.message({ type: "attached" });
+  await expect.poll(() => runtime.snapshot().tmuxPanes["tmux-1"]?.attachState).toBe("attached");
+
+  runtime.dispatch({
+    type: "tmux/attachRequested",
+    paneId: "tmux-1",
+    sessionName: "utility-shell",
+    mode: "read-write",
+    cols: 90,
+    rows: 30,
+  });
+
+  expect(firstSocket.closed).toBeTruthy();
+  expect(sockets).toHaveLength(2);
+  const secondSocket = sockets[1];
+  expect(secondSocket.sent).toHaveLength(0);
+
+  secondSocket.open();
+  expect(sentMessages(secondSocket)).toContainEqual(
+    expect.objectContaining({ type: "attach", sessionName: "utility-shell" }),
+  );
+  secondSocket.message({ type: "attached" });
+  secondSocket.message({ type: "output", data: "fixture attached utility-shell" });
+  await expect.poll(() => runtime.snapshot().tmuxPanes["tmux-1"]?.activeSession).toBe("utility-shell");
+  await expect.poll(() => runtime.snapshot().tmuxPanes["tmux-1"]?.attachState).toBe("attached");
+
+  firstSocket.message({ type: "output", data: "stale alpha output" });
+  firstSocket.message({ type: "attached" });
+  firstSocket.message({ type: "exit", exitCode: 0, signal: 0 });
+  firstSocket.error();
+  firstSocket.close();
+
+  expect(output.join("")).toContain("fixture attached utility-shell");
+  expect(output.join("")).not.toContain("stale alpha output");
+  expect(output.join("")).not.toContain("WebSocket error");
+  expect(runtime.snapshot().tmuxPanes["tmux-1"]?.activeSession).toBe("utility-shell");
+  expect(runtime.snapshot().tmuxPanes["tmux-1"]?.attachState).toBe("attached");
+
+  runtime.dispatch({
+    type: "tmux/scrollRequested",
+    paneId: "tmux-1",
+    direction: "up",
+    lines: 5,
+  });
+
+  expect(sentMessages(firstSocket).some((message) => message.type === "scroll")).toBeFalsy();
+  expect(sentMessages(secondSocket)).toContainEqual(
+    expect.objectContaining({ type: "scroll", direction: "up", lines: 5 }),
+  );
+
+  runtime.dispose();
+});
+
 test("tmux runtime refreshes inventory only on explicit requests and shares results", async () => {
   let fetchCalls = 0;
   let timerCalls = 0;
@@ -681,6 +766,10 @@ function untilAborted(signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
+function sentMessages(socket: FakeSocket): Array<Record<string, unknown>> {
+  return socket.sent.map((value) => JSON.parse(value) as Record<string, unknown>);
+}
+
 class FakeSocket {
   readonly sent: string[] = [];
   closed = false;
@@ -711,6 +800,10 @@ class FakeSocket {
     this.closed = true;
     this.m_readyState = 3;
     this.emit("close", {});
+  }
+
+  error(): void {
+    this.emit("error", {});
   }
 
   open(): void {

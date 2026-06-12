@@ -53,11 +53,24 @@ interface ClientResizeMessage {
   rows: number;
 }
 
+interface ClientScrollMessage {
+  type: "scroll";
+  direction: "up" | "down";
+  lines: number;
+}
+
 interface ClientCloseMessage {
   type: "close";
 }
 
-type ClientMessage = ClientAttachMessage | ClientInputMessage | ClientResizeMessage | ClientCloseMessage;
+type ClientMessage =
+  | ClientAttachMessage
+  | ClientInputMessage
+  | ClientResizeMessage
+  | ClientScrollMessage
+  | ClientCloseMessage;
+
+type TmuxCommandRunner = (file: string, args: string[]) => Promise<unknown>;
 
 export async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -227,11 +240,24 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
     return;
   }
   let attachedMode: AttachMode | null = null;
+  let sessionName: string | null = null;
   let terminal: pty.IPty | null = null;
+  let cleanupDone = false;
 
   const cleanup = () => {
+    if (cleanupDone) {
+      return;
+    }
+    cleanupDone = true;
     const current = terminal;
+    const currentSessionName = sessionName;
+    const currentAttachPid = current?.pid;
     terminal = null;
+    sessionName = null;
+    attachedMode = null;
+    if (currentSessionName) {
+      void detachTmuxAttachClient(currentSessionName, currentAttachPid);
+    }
     if (current) {
       try {
         current.kill();
@@ -272,6 +298,7 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
       try {
         terminal = spawnTmuxAttach(message.value);
         attachedMode = message.value.mode;
+        sessionName = message.value.sessionName;
       } catch (error) {
         sendWs(ws, {
           type: "error",
@@ -288,12 +315,16 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
         });
       });
       terminal.onExit((event) => {
+        const alreadyCleanedUp = cleanupDone;
+        cleanup();
+        if (alreadyCleanedUp) {
+          return;
+        }
         sendWs(ws, {
           type: "exit",
           exitCode: event.exitCode,
           signal: event.signal,
         });
-        terminal = null;
         ws.close(1000, "tmux attach exited");
       });
       sendWs(ws, {
@@ -342,6 +373,24 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
           detail: `Failed to resize tmux attachment: ${errorMessage(error) || "unknown error"}`,
         });
       }
+      return;
+    }
+    if (message.value.type === "scroll") {
+      if (!sessionName) {
+        sendWs(ws, {
+          type: "error",
+          code: "tmux_not_attached",
+          detail: "Attach to a tmux session before sending terminal messages.",
+        });
+        return;
+      }
+      void scrollTmuxAttachment(sessionName, message.value).catch((error: unknown) => {
+        sendWs(ws, {
+          type: "error",
+          code: "tmux_scroll_failed",
+          detail: `Failed to scroll tmux attachment: ${errorMessage(error) || "unknown error"}`,
+        });
+      });
       return;
     }
     cleanup();
@@ -466,6 +515,13 @@ function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
       });
       return;
     }
+    if (message.value.type === "scroll") {
+      sendWs(ws, {
+        type: "output",
+        data: `fixture scrolled ${sessionName} ${message.value.direction} ${safeScrollLines(message.value.lines)}\r\n`,
+      });
+      return;
+    }
     sendWs(ws, {
       type: "exit",
       exitCode: 0,
@@ -497,6 +553,53 @@ export function tmuxAttachEnvironment(
   return { ...env, TERM: "xterm-256color" };
 }
 
+export async function detachTmuxAttachClient(
+  sessionName: string,
+  attachPid?: number,
+  runner: TmuxCommandRunner = execFileAsync,
+): Promise<void> {
+  const target = sessionName.trim();
+  if (!target) {
+    return;
+  }
+  if (typeof attachPid !== "number" || !Number.isFinite(attachPid)) {
+    return;
+  }
+  try {
+    const listResult = await runner("tmux", [
+      "list-clients",
+      "-F",
+      "#{client_pid}\t#{client_tty}\t#{session_name}",
+      "-t",
+      target,
+    ]);
+    const clientTarget = tmuxClientTargetForPid(listResult, attachPid, target);
+    if (!clientTarget) {
+      return;
+    }
+    await runner("tmux", ["detach-client", "-t", clientTarget]);
+  } catch (error) {
+    console.warn(
+      `Failed to detach tmux attach client for session ${target}: ${errorMessage(error) || "unknown error"}`,
+    );
+  }
+}
+
+function tmuxClientTargetForPid(result: unknown, attachPid: number, sessionName: string): string | null {
+  const stdout =
+    result && typeof result === "object" && "stdout" in result
+      ? String((result as { stdout?: unknown }).stdout ?? "")
+      : "";
+  for (const line of stdout.split("\n")) {
+    const [pidRaw, clientTty, clientSessionName] = line.split("\t");
+    const pid = Number.parseInt(pidRaw ?? "", 10);
+    if (pid === attachPid && clientTty && clientSessionName === sessionName) {
+      return clientTty;
+    }
+  }
+  return null;
+}
+
 function validateAttachMessage(message: ClientAttachMessage): { ok: true } | { ok: false; detail: string } {
   const sessionName = message.sessionName.trim();
   if (!sessionName) {
@@ -524,6 +627,34 @@ function validateResizeMessage(
     };
   }
   return { ok: true, cols: Math.round(cols), rows: Math.round(rows) };
+}
+
+async function scrollTmuxAttachment(
+  sessionName: string,
+  message: ClientScrollMessage,
+): Promise<void> {
+  const lines = safeScrollLines(message.lines);
+  if (message.direction === "up") {
+    await execFileAsync("tmux", ["copy-mode", "-e", "-t", sessionName]);
+    await execFileAsync("tmux", ["send-keys", "-X", "-N", String(lines), "-t", sessionName, "scroll-up"]);
+    return;
+  }
+  const inMode = await tmuxPaneInMode(sessionName);
+  if (!inMode) {
+    return;
+  }
+  await execFileAsync("tmux", ["send-keys", "-X", "-N", String(lines), "-t", sessionName, "scroll-down"]);
+}
+
+async function tmuxPaneInMode(sessionName: string): Promise<boolean> {
+  const { stdout } = await execFileAsync("tmux", [
+    "display-message",
+    "-p",
+    "-t",
+    sessionName,
+    "#{pane_in_mode}",
+  ]);
+  return stdout.trim() === "1";
 }
 
 function parseClientMessage(raw: string): { ok: true; value: ClientMessage } | { ok: false; detail: string } {
@@ -568,6 +699,16 @@ function parseClientMessage(raw: string): { ok: true; value: ClientMessage } | {
       },
     };
   }
+  if (record.type === "scroll") {
+    return {
+      ok: true,
+      value: {
+        type: "scroll",
+        direction: record.direction === "down" ? "down" : "up",
+        lines: typeof record.lines === "number" ? record.lines : 5,
+      },
+    };
+  }
   if (record.type === "close") {
     return {
       ok: true,
@@ -586,6 +727,13 @@ function safeDimension(value: number | undefined, fallback: number): number {
 
 function validDimension(value: number): boolean {
   return Number.isFinite(value) && value >= 2 && value <= 500;
+}
+
+function safeScrollLines(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 5;
+  }
+  return Math.max(1, Math.min(200, Math.round(value)));
 }
 
 function sendWs(ws: WebSocket, payload: unknown): void {

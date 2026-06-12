@@ -8,6 +8,7 @@ interface TmuxAttachment {
   socket: WebSocket;
   sessionName: string;
   mode: TmuxAttachMode;
+  socketId: number;
 }
 
 export function installTmuxEffects(
@@ -21,6 +22,7 @@ export function installTmuxEffects(
   let activePassiveServerUrl = "";
   let refreshController: AbortController | null = null;
   let refreshSequence = 0;
+  let socketSequence = 0;
   let disposed = false;
 
   subscriptions.add(
@@ -58,6 +60,9 @@ export function installTmuxEffects(
           break;
         case "tmux/resizeRequested":
           sendResize(action.paneId, action.cols, action.rows);
+          break;
+        case "tmux/scrollRequested":
+          sendScroll(action.paneId, action.direction, action.lines);
           break;
         default:
           break;
@@ -216,8 +221,15 @@ export function installTmuxEffects(
       receivedAt: nowUtc(),
     });
     const socket = services.openTmuxAttachSocket();
-    sockets.set(paneId, { socket, sessionName, mode });
+    const socketId = socketSequence + 1;
+    socketSequence = socketId;
+    sockets.set(paneId, { socket, sessionName, mode, socketId });
+    debugTmux("socket-opened", { paneId, sessionName, socketId });
     socket.addEventListener("open", () => {
+      if (!isCurrentSocket(paneId, socket)) {
+        debugTmux("socket-open-ignored", { paneId, sessionName, socketId });
+        return;
+      }
       sendSocketJson(socket, {
         type: "attach",
         sessionName,
@@ -227,8 +239,13 @@ export function installTmuxEffects(
       });
     });
     socket.addEventListener("message", (event) => {
+      if (!isCurrentSocket(paneId, socket)) {
+        debugTmux("socket-message-ignored", { paneId, sessionName, socketId });
+        return;
+      }
       const message = parseSocketMessage(event.data);
       if (message.type === "attached") {
+        debugTmux("socket-attached", { paneId, sessionName, socketId });
         runtime.dispatch({
           type: "tmux/attachSucceeded",
           paneId,
@@ -255,6 +272,7 @@ export function installTmuxEffects(
         return;
       }
       if (message.type === "exit") {
+        debugTmux("socket-exit", { paneId, sessionName, socketId });
         sinks.get(paneId)?.("\r\n[tmux] attachment ended");
         sockets.delete(paneId);
         runtime.dispatch({
@@ -266,6 +284,11 @@ export function installTmuxEffects(
       }
     });
     socket.addEventListener("close", () => {
+      if (!isCurrentSocket(paneId, socket)) {
+        debugTmux("socket-close-ignored", { paneId, sessionName, socketId });
+        return;
+      }
+      debugTmux("socket-close", { paneId, sessionName, socketId });
       sockets.delete(paneId);
       runtime.dispatch({
         type: "tmux/attachDisconnected",
@@ -275,6 +298,11 @@ export function installTmuxEffects(
       requestInventoryRefresh(paneId);
     });
     socket.addEventListener("error", () => {
+      if (!isCurrentSocket(paneId, socket)) {
+        debugTmux("socket-error-ignored", { paneId, sessionName, socketId });
+        return;
+      }
+      debugTmux("socket-error", { paneId, sessionName, socketId });
       sinks.get(paneId)?.("\r\n[tmux] WebSocket error");
       runtime.dispatch({
         type: "tmux/attachFailed",
@@ -291,6 +319,11 @@ export function installTmuxEffects(
     if (!attachment) {
       return;
     }
+    debugTmux("socket-detach", {
+      paneId,
+      sessionName: attachment.sessionName,
+      socketId: attachment.socketId,
+    });
     sockets.delete(paneId);
     if (attachment.socket.readyState === WebSocket.OPEN) {
       sendSocketJson(attachment.socket, { type: "close" });
@@ -314,6 +347,26 @@ export function installTmuxEffects(
       return;
     }
     sendSocketJson(attachment.socket, { type: "resize", cols, rows });
+  }
+
+  function sendScroll(paneId: string, direction: "up" | "down", lines: number): void {
+    const attachment = sockets.get(paneId);
+    if (!attachment || attachment.socket.readyState !== WebSocket.OPEN) {
+      debugTmux("socket-scroll-dropped", { paneId, direction, lines });
+      return;
+    }
+    debugTmux("socket-scroll", {
+      paneId,
+      sessionName: attachment.sessionName,
+      socketId: attachment.socketId,
+      direction,
+      lines,
+    });
+    sendSocketJson(attachment.socket, { type: "scroll", direction, lines });
+  }
+
+  function isCurrentSocket(paneId: string, socket: WebSocket): boolean {
+    return sockets.get(paneId)?.socket === socket;
   }
 }
 
@@ -339,4 +392,14 @@ function errorMessage(error: unknown): string {
 
 function nowUtc(): string {
   return new Date().toISOString();
+}
+
+function debugTmux(event: string, detail: Record<string, unknown>): void {
+  if (
+    typeof window === "undefined" ||
+    window.localStorage.getItem("hmwb.tmuxDebug") !== "1"
+  ) {
+    return;
+  }
+  console.debug("[tmux]", event, detail);
 }

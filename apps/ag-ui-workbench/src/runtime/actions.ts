@@ -292,6 +292,12 @@ export type WorkbenchRuntimeAction =
       rows: number;
     }
   | {
+      type: "tmux/scrollRequested";
+      paneId: string;
+      direction: "up" | "down";
+      lines: number;
+    }
+  | {
       type: "activeThread/registerInterest";
       paneId: string;
       gatewayKey: GatewayKey;
@@ -430,6 +436,10 @@ export type TmuxResizeRequestedAction = Extract<
   WorkbenchRuntimeAction,
   { type: "tmux/resizeRequested" }
 >;
+export type TmuxScrollRequestedAction = Extract<
+  WorkbenchRuntimeAction,
+  { type: "tmux/scrollRequested" }
+>;
 
 export function isActiveThreadSetRequested(
   action: WorkbenchRuntimeAction,
@@ -501,4 +511,10 @@ export function isTmuxResizeRequested(
   action: WorkbenchRuntimeAction,
 ): action is TmuxResizeRequestedAction {
   return action.type === "tmux/resizeRequested";
+}
+
+export function isTmuxScrollRequested(
+  action: WorkbenchRuntimeAction,
+): action is TmuxScrollRequestedAction {
+  return action.type === "tmux/scrollRequested";
 }

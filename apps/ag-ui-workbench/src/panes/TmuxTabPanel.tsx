@@ -31,6 +31,8 @@ interface TerminalSize {
   rows: number;
 }
 
+const FIT_SETTLE_DELAYS_MS = [40, 140, 320] as const;
+
 export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId } = props.params;
   const { storage, updateTmuxTab, removePaneRecord } = useWorkbench();
@@ -43,7 +45,10 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const fitFrameRef = useRef<number | null>(null);
+  const fitTimerRefs = useRef<number[]>([]);
   const refreshFrameRef = useRef<number | null>(null);
+  const refreshAgainRef = useRef(false);
+  const refreshTextureAtlasRef = useRef(false);
   const terminalDisposablesRef = useRef<Disposable[]>([]);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const pickerOpenRef = useRef(false);
@@ -64,9 +69,9 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   useEffect(() => {
     attachStateRef.current = attachState;
     if (attachState === "attached") {
-      scheduleFit();
+      scheduleFit({ settle: true });
       deliverMeasuredSizeToAttachment();
-      scheduleTerminalRefresh();
+      scheduleTerminalRefresh({ followUpWhenPending: true, resetTextureAtlas: true });
     }
   }, [attachState]);
 
@@ -86,10 +91,10 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
 
   useEffect(() => {
     const disposables = [
-      props.api.onDidDimensionsChange(() => scheduleFit()),
+      props.api.onDidDimensionsChange(() => scheduleFit({ settle: true })),
       props.api.onDidVisibilityChange((event) => {
         if (event.isVisible) {
-          scheduleFit();
+          scheduleFit({ settle: true });
         }
       }),
     ];
@@ -187,6 +192,7 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       return;
     }
     closeAttachment();
+    attachStateRef.current = "attaching";
     setTmuxConfig({
       ...tmux,
       sessionName,
@@ -213,19 +219,21 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     fitAddonRef.current = fitAddon;
     terminal.open(host);
     fitAddon.fit();
-    scheduleTerminalRefresh();
+    scheduleTerminalRefresh({ followUpWhenPending: true, resetTextureAtlas: true });
     setMeasuredTerminalSize({ cols: terminal.cols, rows: terminal.rows });
     deliveredAttachmentSizeRef.current = null;
     terminalDisposablesRef.current = [
       terminal.onScroll(() => scheduleTerminalRefresh()),
-      terminal.onWriteParsed(() => scheduleTerminalRefresh()),
-      addTerminalWheelHandler(host),
+      terminal.onWriteParsed(() => scheduleTerminalRefresh({ followUpWhenPending: true })),
+      addTerminalWheelRefreshHandler(host),
     ];
 
     runtimeDispatch({
       type: "tmux/registerOutputSink",
       paneId,
-      sink: (data) => terminal.write(data),
+      sink: (data) => {
+        terminal.write(data, () => scheduleTerminalRefresh({ followUpWhenPending: true }));
+      },
     });
     runtimeDispatch({
       type: "tmux/attachRequested",
@@ -247,10 +255,10 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       );
     }
     resizeObserverRef.current = new ResizeObserver(() => {
-      scheduleFit();
+      scheduleFit({ settle: true });
     });
     resizeObserverRef.current.observe(host);
-    scheduleFit();
+    scheduleFit({ settle: true });
   };
 
   const attachFromPicker = (sessionName: string, mode: TmuxAttachMode) => {
@@ -264,14 +272,18 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     terminalDisposablesRef.current = [];
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
+    attachStateRef.current = "unattached";
     if (fitFrameRef.current !== null) {
       window.cancelAnimationFrame(fitFrameRef.current);
       fitFrameRef.current = null;
     }
+    clearFitTimers();
     if (refreshFrameRef.current !== null) {
       window.cancelAnimationFrame(refreshFrameRef.current);
       refreshFrameRef.current = null;
     }
+    refreshAgainRef.current = false;
+    refreshTextureAtlasRef.current = false;
     lastMeasuredTerminalSizeRef.current = null;
     deliveredAttachmentSizeRef.current = null;
     if (terminalHostRef.current) {
@@ -292,7 +304,32 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     fitAddonRef.current = null;
   };
 
-  function scheduleFit() {
+  function scheduleFit(options: { settle?: boolean } = {}) {
+    scheduleFitFrame();
+    if (options.settle) {
+      scheduleSettledFits();
+    }
+  }
+
+  function scheduleSettledFits() {
+    clearFitTimers();
+    for (const delay of FIT_SETTLE_DELAYS_MS) {
+      const timer = window.setTimeout(() => {
+        fitTimerRefs.current = fitTimerRefs.current.filter((value) => value !== timer);
+        scheduleFitFrame();
+      }, delay);
+      fitTimerRefs.current.push(timer);
+    }
+  }
+
+  function clearFitTimers() {
+    for (const timer of fitTimerRefs.current) {
+      window.clearTimeout(timer);
+    }
+    fitTimerRefs.current = [];
+  }
+
+  function scheduleFitFrame() {
     if (fitFrameRef.current !== null) {
       return;
     }
@@ -303,16 +340,15 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       if (!terminal || !fitAddon) {
         return;
       }
-      fitAddon.fit();
-      scheduleTerminalRefresh();
-      const nextSize = { cols: terminal.cols, rows: terminal.rows };
-      const previousSize = lastMeasuredTerminalSizeRef.current;
-      setMeasuredTerminalSize(nextSize);
-      if (attachStateRef.current !== "attached") {
+      try {
+        fitAddon.fit();
+      } catch {
         return;
       }
-      if (previousSize?.cols === nextSize.cols && previousSize.rows === nextSize.rows) {
-        deliverMeasuredSizeToAttachment();
+      scheduleTerminalRefresh({ followUpWhenPending: true, resetTextureAtlas: true });
+      const nextSize = { cols: terminal.cols, rows: terminal.rows };
+      setMeasuredTerminalSize(nextSize);
+      if (attachStateRef.current !== "attached") {
         return;
       }
       deliverMeasuredSizeToAttachment();
@@ -325,10 +361,6 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     }
     const nextSize = lastMeasuredTerminalSizeRef.current;
     if (!nextSize) {
-      return;
-    }
-    const deliveredSize = deliveredAttachmentSizeRef.current;
-    if (deliveredSize?.cols === nextSize.cols && deliveredSize.rows === nextSize.rows) {
       return;
     }
     deliveredAttachmentSizeRef.current = nextSize;
@@ -349,19 +381,23 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     }
   }
 
-  function addTerminalWheelHandler(host: HTMLElement): Disposable {
+  function addTerminalWheelRefreshHandler(host: HTMLElement): Disposable {
     const handleWheel = (event: WheelEvent) => {
+      if (attachStateRef.current === "attached") {
+        scheduleTerminalRefresh({ followUpWhenPending: true });
+      }
       const terminal = terminalRef.current;
-      if (!terminal || attachStateRef.current !== "attached") {
+      if (!terminal || terminal.buffer.active.type !== "alternate" || event.deltaY === 0) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
-      const lines = wheelDeltaToLines(event);
-      if (lines !== 0) {
-        terminal.scrollLines(lines);
-      }
-      scheduleTerminalRefresh();
+      runtimeDispatch({
+        type: "tmux/scrollRequested",
+        paneId,
+        direction: event.deltaY < 0 ? "up" : "down",
+        lines: tmuxWheelLines(event),
+      });
     };
     host.addEventListener("wheel", handleWheel, { capture: true, passive: false });
     return {
@@ -369,8 +405,16 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     };
   }
 
-  function scheduleTerminalRefresh() {
+  function scheduleTerminalRefresh(
+    options: { followUpWhenPending?: boolean; resetTextureAtlas?: boolean } = {},
+  ) {
+    if (options.resetTextureAtlas) {
+      refreshTextureAtlasRef.current = true;
+    }
     if (refreshFrameRef.current !== null) {
+      if (options.followUpWhenPending) {
+        refreshAgainRef.current = true;
+      }
       return;
     }
     refreshFrameRef.current = window.requestAnimationFrame(() => {
@@ -379,7 +423,15 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       if (!terminal) {
         return;
       }
+      if (refreshTextureAtlasRef.current) {
+        refreshTextureAtlasRef.current = false;
+        terminal.clearTextureAtlas();
+      }
       terminal.refresh(0, Math.max(0, terminal.rows - 1));
+      if (refreshAgainRef.current) {
+        refreshAgainRef.current = false;
+        scheduleTerminalRefresh();
+      }
     });
   }
 
@@ -562,16 +614,12 @@ function safeTestToken(value: string): string {
   );
 }
 
-function wheelDeltaToLines(event: WheelEvent): number {
-  const unit =
-    event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-      ? 24
-      : event.deltaMode === WheelEvent.DOM_DELTA_LINE
-        ? 1
-        : 1 / 48;
-  const lines = event.deltaY * unit;
-  if (Math.abs(lines) < 1) {
-    return Math.sign(lines);
+function tmuxWheelLines(event: WheelEvent): number {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return 25;
   }
-  return Math.trunc(lines);
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return Math.max(1, Math.min(25, Math.round(Math.abs(event.deltaY))));
+  }
+  return 5;
 }

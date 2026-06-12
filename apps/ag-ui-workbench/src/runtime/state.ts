@@ -558,6 +558,7 @@ export function reduceRuntimeState(
       }));
     case "tmux/inputRequested":
     case "tmux/resizeRequested":
+    case "tmux/scrollRequested":
       return state;
 	    case "activeThread/registerInterest": {
 	      const existing = state.activeThreads[action.gatewayKey];

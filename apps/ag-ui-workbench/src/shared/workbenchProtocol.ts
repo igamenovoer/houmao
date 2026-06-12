@@ -76,6 +76,11 @@ export type TmuxClientMessage =
       rows: number;
     }
   | {
+      type: "scroll";
+      direction: "up" | "down";
+      lines: number;
+    }
+  | {
       type: "close";
     };
 

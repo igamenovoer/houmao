@@ -1,0 +1,6 @@
+  name           houmao.graphic.template
+  schemaVersion  2
+  description    Display standardized Layer 1 chart intent through Plotly.js.
+  schema         {...}
+  example        {...}
+  protocol       houmao.application.ag-ui

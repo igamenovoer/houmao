@@ -644,6 +644,35 @@ test("opens tmux tab, filters sessions, attaches, rejects read-only input, and a
   );
 });
 
+test("tmux tab keeps the switched attachment current", async ({ page }) => {
+  await page.getByTestId("open-agent-picker").click();
+  await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());
+  await page.getByTestId("close-agent-picker").click();
+
+  await page.getByTestId("add-tmux-pane").click();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await expect(page.getByTestId("tmux-session-houmao-alpha")).toBeVisible();
+  await page.getByTestId("tmux-session-houmao-alpha").click();
+  const terminal = page.getByTestId("tmux-terminal-tmux-1");
+  await expect(terminal).toContainText("fixture attached houmao-alpha");
+
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await page.getByTestId("tmux-houmao-only-tmux-1").uncheck();
+  await page.getByTestId("tmux-picker-toggle-tmux-1").click();
+  await page.getByTestId("tmux-search-tmux-1").fill("utility-shell");
+  await expect(page.getByTestId("tmux-session-utility-shell")).toBeVisible();
+  await page.getByTestId("tmux-session-utility-shell").click();
+  await expect(terminal).toContainText("fixture attached utility-shell");
+  await terminal.click();
+  await page.keyboard.type("z");
+  await expect(terminal).toContainText("fixture input z");
+  await page.keyboard.insertText("\u001b[?1049h");
+  await terminal.hover();
+  await page.mouse.wheel(0, -400);
+  await expect(terminal).toContainText("fixture scrolled utility-shell up 5");
+  await expect(terminal).not.toContainText("fixture scrolled houmao-alpha");
+});
+
 test("tmux tab refits on resize and removes dead fixture sessions", async ({ page }) => {
   await page.getByTestId("open-agent-picker").click();
   await page.getByTestId("passive-server-url").fill(fakeServer.passiveBase());

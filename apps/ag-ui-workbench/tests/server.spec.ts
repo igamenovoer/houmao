@@ -5,7 +5,7 @@ import { WebSocket } from "ws";
 
 import { createWorkbenchFastifyApp } from "../src/server/app";
 import { PresentationSessionRegistry } from "../src/server/presentationSessions";
-import { tmuxAttachEnvironment } from "../src/server/tmuxBridge";
+import { detachTmuxAttachClient, tmuxAttachEnvironment } from "../src/server/tmuxBridge";
 import type { RunAgentInput } from "../src/ag-ui/types";
 
 test("Fastify app exposes health/status and cleans presentation sessions on shutdown", async () => {
@@ -312,7 +312,7 @@ test("tmux Fastify bridge fixture records valid attachment resizes", async () =>
   }
 });
 
-test("tmux Fastify bridge fixture rejects resize before attach and invalid dimensions", async () => {
+test("tmux Fastify bridge fixture handles resize and scroll validation", async () => {
   const previousFixture = process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE;
   process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = "1";
   const server = await startWorkbenchTestServer();
@@ -326,6 +326,14 @@ test("tmux Fastify bridge fixture rejects resize before attach and invalid dimen
     expect(beforeAttachMessages).toContainEqual(
       expect.objectContaining({ type: "error", code: "tmux_not_attached" }),
     );
+    const scrollBeforeAttachMessages = await collectTmuxMessages(
+      server.baseUrl,
+      [{ type: "scroll", direction: "up", lines: 5 }],
+      1,
+    );
+    expect(scrollBeforeAttachMessages).toContainEqual(
+      expect.objectContaining({ type: "error", code: "tmux_not_attached" }),
+    );
 
     const invalidMessages = await collectTmuxMessages(
       server.baseUrl,
@@ -337,6 +345,21 @@ test("tmux Fastify bridge fixture rejects resize before attach and invalid dimen
     );
     expect(invalidMessages).toContainEqual(
       expect.objectContaining({ type: "error", code: "tmux_resize_invalid" }),
+    );
+
+    const scrollMessages = await collectTmuxMessages(
+      server.baseUrl,
+      [
+        { type: "attach", sessionName: "houmao-alpha", mode: "read-write", cols: 80, rows: 24 },
+        { type: "scroll", direction: "up", lines: 5 },
+      ],
+      3,
+    );
+    expect(scrollMessages).toContainEqual(
+      expect.objectContaining({
+        type: "output",
+        data: expect.stringContaining("fixture scrolled houmao-alpha up 5"),
+      }),
     );
 
     const closeMessages = await collectTmuxMessages(
@@ -366,6 +389,51 @@ test("tmux attach environment strips nested tmux variables", () => {
   expect(env).toMatchObject({ PATH: "/usr/bin", HOME: "/tmp/home", TERM: "xterm-256color" });
   expect(env.TMUX).toBeUndefined();
   expect(env.TMUX_PANE).toBeUndefined();
+});
+
+test("tmux attach client cleanup detaches without killing the session and tolerates failures", async () => {
+  const commands: Array<{ file: string; args: string[] }> = [];
+  const runner = async (file: string, args: string[]) => {
+    commands.push({ file, args });
+    if (args[0] === "list-clients") {
+      return {
+        stdout: "12345\t/dev/pts/42\thoumao-alpha\n99999\t/dev/pts/99\tother-session\n",
+      };
+    }
+    return {};
+  };
+
+  await detachTmuxAttachClient(" houmao-alpha ", 12345, runner);
+  expect(commands).toEqual([
+    {
+      file: "tmux",
+      args: [
+        "list-clients",
+        "-F",
+        "#{client_pid}\t#{client_tty}\t#{session_name}",
+        "-t",
+        "houmao-alpha",
+      ],
+    },
+    { file: "tmux", args: ["detach-client", "-t", "/dev/pts/42"] },
+  ]);
+  expect(commands.flatMap((command) => command.args)).not.toContain("kill-session");
+
+  const warn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    warnings.push(String(args[0] ?? ""));
+  };
+  try {
+    await expect(
+      detachTmuxAttachClient("houmao-beta", 12345, async () => {
+        throw new Error("detach failed");
+      }),
+    ).resolves.toBeUndefined();
+  } finally {
+    console.warn = warn;
+  }
+  expect(warnings[0] ?? "").toContain("Failed to detach tmux attach client");
 });
 
 test("presentation-session disposal is presentation-only", async () => {
