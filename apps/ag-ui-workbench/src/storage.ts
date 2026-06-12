@@ -5,7 +5,7 @@ import type { WatchedTargetRecord } from "./ag-ui/watchedTargets";
 import { watchedTargetKey } from "./ag-ui/watchedTargets";
 
 export type PaneKind = "agent" | "debug-agent" | "tmux";
-export type TemplateGraphicBackendOverride = "auto" | "vega-lite" | "recharts";
+export type TemplateGraphicBackendOverride = "plotly";
 
 export interface DebugAgentConfig {
   debugAgentId: string;
@@ -83,7 +83,7 @@ export function defaultTmuxTabConfig(): TmuxTabConfig {
 }
 
 export function defaultPanePresentationConfig(): PanePresentationConfig {
-  return { templateGraphicBackend: "auto" };
+  return { templateGraphicBackend: "plotly" };
 }
 
 export function defaultStorage(): WorkbenchStorage {
@@ -298,11 +298,8 @@ function sanitizePanePresentationConfig(value: unknown): PanePresentationConfig 
   };
 }
 
-function sanitizeTemplateGraphicBackendOverride(value: unknown): TemplateGraphicBackendOverride {
-  if (value === "vega-lite" || value === "recharts") {
-    return value;
-  }
-  return "auto";
+function sanitizeTemplateGraphicBackendOverride(_value: unknown): TemplateGraphicBackendOverride {
+  return "plotly";
 }
 
 function sanitizeTmuxTabConfig(value: unknown): TmuxTabConfig {

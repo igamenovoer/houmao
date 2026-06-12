@@ -116,9 +116,11 @@ test("prompt editors submit with Shift+Enter and keep plain Enter multiline", as
   await debugEditor.fill(
     JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        chartType: "bar",
+        renderer: { preferred: "plotly" },
         title: "Shift Enter Debug Chart",
-        data: [{ label: "A", value: 7 }],
+        traces: [{ type: "bar", x: ["A"], y: [7] }],
       },
       null,
       2,
@@ -161,19 +163,20 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await expect(page.getByTestId("transcript-agent-1")).toContainText("Alpha Dashboard");
   await expect(page.getByTestId("component-dashboard-agent-1")).toBeVisible();
   await expect(page.getByTestId("component-metric-grid-agent-1")).toContainText("Pass rate");
-  await expect(page.getByTestId("component-chart-agent-1").first()).toBeVisible();
+  await expect(page.getByTestId("template-chart-plotly-agent-1").first()).toBeVisible();
   await expect(page.getByTestId("component-table-agent-1")).toContainText("Alpha count");
-  const alphaTemplateChart = page.getByTestId("template-chart-vega-lite-agent-1");
-  await expect(page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" })).toBeVisible();
+  const alphaTemplateFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
+  const alphaTemplateChart = alphaTemplateFrame.getByTestId("template-chart-plotly-agent-1");
+  await expect(alphaTemplateFrame).toBeVisible();
   await expect(alphaTemplateChart).toBeVisible();
-  await expect(alphaTemplateChart.locator("svg")).toBeVisible();
+  await expect(alphaTemplateChart.locator("svg").first()).toBeVisible();
 
   await page.getByTestId("prompt-agent-1").fill("prompt survives clear");
   const detachesBeforeClear = fakeServer.detaches.length;
   await page.getByTestId("clear-canvas-agent-1").click();
   await expect(page.getByTestId("graphic-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("component-dashboard-agent-1")).toHaveCount(0);
-  await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
+  await expect(page.getByTestId("template-chart-plotly-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("transcript-agent-1")).not.toContainText("alpha-run-evidence");
   await expect(page.getByTestId("message-diagnostics-agent-1")).toHaveCount(0);
   await expect(page.getByTestId("prompt-agent-1")).toHaveValue("prompt survives clear");
@@ -190,7 +193,7 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   await page.getByTestId("prompt-agent-2").fill("render unsupported graphic");
   await page.getByTestId("run-agent-2").click();
   await expect(page.getByTestId("unsupported-graphic-agent-2")).toContainText("Unsupported graphic format: iframe");
-  await expect(page.getByTestId("invalid-component-agent-2")).toContainText("data must be a non-empty array");
+  await expect(page.getByTestId("invalid-component-agent-2")).toContainText("traces must be a non-empty array");
   await expect(page.getByTestId("unknown-component-agent-2")).toContainText("houmao.chart.scatter");
   await expect(page.getByTestId("unknown-component-agent-2")).toContainText("beta unknown raw marker");
 
@@ -215,107 +218,80 @@ test("validates docked multi-pane isolation, graphics, detach, and persistence",
   expect(JSON.stringify(savedAfterReload.layout)).not.toContain("popoutGroups");
 });
 
-test("agent pane template renderer preference selects auto, forced backends, and diagnostics", async ({ page }) => {
+test("agent pane renders Plotly templates and diagnostic-only unsupported payloads", async ({ page }) => {
   await addBlankAgentPane(page);
   await configurePane(page, "agent-1", "Alpha", fakeServer.targetBase("alpha"), "alpha-thread");
 
-  const rendererSelect = page.getByTestId("template-renderer-agent-1");
-  await expect(rendererSelect).toHaveValue("auto");
+  const rendererLabel = page.getByTestId("template-renderer-agent-1");
+  await expect(rendererLabel).toContainText("Plotly");
+  await expect(rendererLabel.locator("select")).toHaveCount(0);
   await page.getByTestId("connect-agent-1").click();
   await expect(page.getByTestId("watch-strip-agent-1")).toContainText("Watched");
 
-  await page.getByTestId("prompt-agent-1").fill("auto template graphic");
+  await page.getByTestId("prompt-agent-1").fill("plotly template graphic");
   await page.getByTestId("run-agent-1").click();
   const autoFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
-  await expect(autoFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg")).toBeVisible();
-  await expectVegaChartToFillContainer(autoFrame.getByTestId("template-chart-vega-lite-agent-1"));
+  await expect(autoFrame.getByTestId("template-chart-plotly-agent-1").locator("svg").first()).toBeVisible();
+  await expectPlotlyChartToFillContainer(autoFrame.getByTestId("template-chart-plotly-agent-1"));
 
   await page.getByTestId("clear-canvas-agent-1").click();
-  await rendererSelect.selectOption("recharts");
-  await expect(rendererSelect).toHaveValue("recharts");
-  await page.getByTestId("prompt-agent-1").fill("forced recharts template graphic");
-  await page.getByTestId("run-agent-1").click();
-  const rechartsFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
-  await expect(rechartsFrame.getByTestId("component-chart-agent-1").locator("svg")).toBeVisible();
-  await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
+  for (const chartType of ["line", "scatter", "pie", "histogram"] as const) {
+    const title = `Plotly ${chartType} Template Graphic`;
+    const response = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+      data: {
+        threadId: "alpha-thread",
+        events: templateToolCallEvents(`plotly-${chartType}-template`, title, { chartType }),
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+    const frame = page.getByTestId("component-agent-1").filter({ hasText: title });
+    await expect(frame.getByTestId("template-chart-plotly-agent-1").locator("svg").first()).toBeVisible();
+  }
 
-  await page.getByTestId("clear-canvas-agent-1").click();
-  await rendererSelect.selectOption("vega-lite");
-  await expect(rendererSelect).toHaveValue("vega-lite");
-  await page.getByTestId("prompt-agent-1").fill("forced vega template graphic");
-  await page.getByTestId("run-agent-1").click();
-  const vegaFrame = page.getByTestId("component-agent-1").filter({ hasText: "Alpha Template Graphic" });
-  await expect(vegaFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg")).toBeVisible();
-  await expectVegaChartToFillContainer(vegaFrame.getByTestId("template-chart-vega-lite-agent-1"));
-
-  await page.getByTestId("clear-canvas-agent-1").click();
-  await rendererSelect.selectOption("recharts");
-  const rechartsPieResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+  const datasourceResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
     data: {
       threadId: "alpha-thread",
-      events: templateToolCallEvents("recharts-pie-template", "Recharts Pie Template Graphic", {
-        chartType: "pie",
-      }),
+      events: templateToolCallEvents("datasource-template", "Datasource Template Graphic", { datasource: true }),
     },
   });
-  expect(rechartsPieResponse.ok()).toBeTruthy();
-  const rechartsPieFrame = page.getByTestId("component-agent-1").filter({ hasText: "Recharts Pie Template Graphic" });
-  await expect(rechartsPieFrame.getByTestId("component-chart-agent-1").locator("svg").first()).toBeVisible();
-  await expect(page.getByTestId("template-chart-vega-lite-agent-1")).toHaveCount(0);
-
-  await rendererSelect.selectOption("vega-lite");
-  await expect(rechartsPieFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg")).toBeVisible();
-  await expect(rechartsPieFrame.getByTestId("template-chart-vega-lite-agent-1").locator("svg path").first()).toBeVisible();
-
-  await page.getByTestId("clear-canvas-agent-1").click();
-  await rendererSelect.selectOption("recharts");
-  const aggregateResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
-    data: {
-      threadId: "alpha-thread",
-      events: templateToolCallEvents("aggregate-template", "Aggregate Template Graphic", {
-        aggregateY: true,
-      }),
-    },
-  });
-  expect(aggregateResponse.ok()).toBeTruthy();
+  expect(datasourceResponse.ok()).toBeTruthy();
   await expect(page.getByTestId("invalid-component-agent-1")).toContainText(
-    'Forced template renderer "recharts" cannot render this graphic payload.',
+    "Datasource materialization is not supported yet",
   );
-  await expect(page.getByTestId("invalid-component-agent-1")).toContainText("Aggregate Template Graphic");
+  await expect(page.getByTestId("invalid-component-agent-1")).toContainText("Datasource Template Graphic");
+
+  const retiredResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
+    data: {
+      threadId: "alpha-thread",
+      events: retiredBarToolCallEvents("retired-bar", "Retired Bar Chart"),
+    },
+  });
+  expect(retiredResponse.ok()).toBeTruthy();
+  await expect(page.getByTestId("unknown-component-agent-1")).toContainText("houmao.chart.bar");
 });
 
-test("persists pane template renderer preference and sanitizes invalid stored values", async ({ page }) => {
+test("sanitizes legacy stored template renderer values to Plotly", async ({ page }) => {
   await addBlankAgentPane(page);
-  await expect(page.getByTestId("template-renderer-agent-1")).toHaveValue("auto");
+  await expect(page.getByTestId("template-renderer-agent-1")).toContainText("Plotly");
   expect(
     await page.evaluate(
       () => window.__HMWB_TEST__!.storage().panes["agent-1"].presentation?.templateGraphicBackend,
     ),
-  ).toBe("auto");
-
-  await page.getByTestId("template-renderer-agent-1").selectOption("recharts");
-  expect(
-    await page.evaluate(
-      () => window.__HMWB_TEST__!.storage().panes["agent-1"].presentation?.templateGraphicBackend,
-    ),
-  ).toBe("recharts");
-
-  await page.reload();
-  await expect(page.getByTestId("template-renderer-agent-1")).toHaveValue("recharts");
+  ).toBe("plotly");
 
   await page.evaluate(() => {
     const current = window.__HMWB_TEST__!.storage() as any;
-    current.panes["agent-1"].presentation = { templateGraphicBackend: "plotly" };
+    current.panes["agent-1"].presentation = { templateGraphicBackend: "legacy-multi-renderer" };
     window.localStorage.setItem("houmao.agUiWorkbench.v1", JSON.stringify(current));
   });
   await page.reload();
 
-  await expect(page.getByTestId("template-renderer-agent-1")).toHaveValue("auto");
+  await expect(page.getByTestId("template-renderer-agent-1")).toContainText("Plotly");
   expect(
     await page.evaluate(
       () => window.__HMWB_TEST__!.storage().panes["agent-1"].presentation?.templateGraphicBackend,
     ),
-  ).toBe("auto");
+  ).toBe("plotly");
 });
 
 test("supports agent-pane operator marking without restoring the legacy operator pane", async ({ page }) => {
@@ -710,7 +686,7 @@ test("watched target keeps external chart in client cache after pane close and r
   const publishResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
     data: {
       threadId: "alpha-thread",
-      events: barToolCallEvents("watched-cache-chart", "Watched Cache Chart"),
+      events: templateToolCallEvents("watched-cache-chart", "Watched Cache Chart"),
     },
   });
   expect(publishResponse.ok()).toBeTruthy();
@@ -724,7 +700,7 @@ test("watched target keeps external chart in client cache after pane close and r
   expect(publishBody.replay).toBe("none");
 
   await expect(page.getByTestId("component-agent-1")).toContainText("Watched Cache Chart");
-  await expect(page.getByTestId("component-chart-agent-1").first().locator("svg")).toBeVisible();
+  await expect(page.getByTestId("template-chart-plotly-agent-1").first().locator("svg").first()).toBeVisible();
 
   await page.getByTestId("close-agent-1").click();
   await expect(page.getByTestId("panel-agent-1")).toHaveCount(0);
@@ -737,7 +713,7 @@ test("watched target keeps external chart in client cache after pane close and r
 
   await expect(page.getByTestId("panel-agent-2")).toBeVisible();
   await expect(page.getByTestId("component-agent-2")).toContainText("Watched Cache Chart");
-  await expect(page.getByTestId("component-chart-agent-2").first().locator("svg")).toBeVisible();
+  await expect(page.getByTestId("template-chart-plotly-agent-2").first().locator("svg").first()).toBeVisible();
 });
 
 test("clear canvas clears watched cache without detaching and accepts future live events", async ({ page }) => {
@@ -751,7 +727,7 @@ test("clear canvas clears watched cache without detaching and accepts future liv
   const staleResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
     data: {
       threadId: "alpha-thread",
-      events: barToolCallEvents("watched-clear-stale-chart", "Watched Clear Stale Chart"),
+      events: templateToolCallEvents("watched-clear-stale-chart", "Watched Clear Stale Chart"),
     },
   });
   expect(staleResponse.ok()).toBeTruthy();
@@ -759,7 +735,7 @@ test("clear canvas clears watched cache without detaching and accepts future liv
     deliveredCount: 3,
   });
   await expect(page.getByTestId("component-agent-1")).toContainText("Watched Clear Stale Chart");
-  await expect(page.getByTestId("component-chart-agent-1").first().locator("svg")).toBeVisible();
+  await expect(page.getByTestId("template-chart-plotly-agent-1").first().locator("svg").first()).toBeVisible();
 
   const detachesBeforeClear = fakeServer.detaches.length;
   await page.getByTestId("clear-canvas-agent-1").click();
@@ -783,7 +759,7 @@ test("clear canvas clears watched cache without detaching and accepts future liv
   const freshResponse = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
     data: {
       threadId: "alpha-thread",
-      events: barToolCallEvents("watched-clear-fresh-chart", "Watched Clear Fresh Chart"),
+      events: templateToolCallEvents("watched-clear-fresh-chart", "Watched Clear Fresh Chart"),
     },
   });
   expect(freshResponse.ok()).toBeTruthy();
@@ -791,14 +767,14 @@ test("clear canvas clears watched cache without detaching and accepts future liv
     deliveredCount: 3,
   });
   await expect(page.getByTestId("component-agent-2")).toContainText("Watched Clear Fresh Chart");
-  await expect(page.getByTestId("component-chart-agent-2").first().locator("svg")).toBeVisible();
+  await expect(page.getByTestId("template-chart-plotly-agent-2").first().locator("svg").first()).toBeVisible();
 });
 
 test("events published while unwatched are live-only and not recovered later", async ({ page }) => {
   const publishResponse = await page.request.post(`${fakeServer.targetBase("beta")}/events`, {
     data: {
       threadId: "beta-thread",
-      events: barToolCallEvents("missed-live-chart", "Missed Live-Only Chart"),
+      events: templateToolCallEvents("missed-live-chart", "Missed Live-Only Chart"),
     },
   });
   expect(publishResponse.ok()).toBeTruthy();
@@ -831,7 +807,7 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   const response = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
     data: {
       threadId: "debug-agent-1-thread",
-      events: barToolCallEvents("debug-live-bar", "External Live Chart"),
+      events: templateToolCallEvents("debug-live-bar", "External Live Chart"),
     },
   });
   expect(response.ok()).toBeTruthy();
@@ -848,12 +824,10 @@ test("debug agent receives external AG-UI events and renders chart proof", async
 
   const liveFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "External Live Chart" });
   await expect(liveFrame).toBeVisible();
-  const chart = liveFrame.getByTestId("component-chart-debug-agent-1");
+  const chart = liveFrame.getByTestId("template-chart-plotly-debug-agent-1");
   await expect(chart).toBeVisible();
-  await expect(chart.locator("svg")).toBeVisible();
-  const bars = chart.locator("svg .recharts-bar-rectangle, svg .recharts-rectangle");
-  await expect(bars.first()).toBeVisible();
-  expect(await bars.count()).toBeGreaterThan(0);
+  await expect(chart.locator("svg").first()).toBeVisible();
+  await expectPlotlyChartToFillContainer(chart);
 
   const templateResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
     data: {
@@ -864,21 +838,22 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   expect(templateResponse.ok()).toBeTruthy();
   const templateFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "External Template Graphic" });
   await expect(templateFrame).toBeVisible();
-  await expect(templateFrame.getByTestId("template-chart-vega-lite-debug-agent-1").locator("svg")).toBeVisible();
+  await expect(templateFrame.getByTestId("template-chart-plotly-debug-agent-1").locator("svg").first()).toBeVisible();
 
   const fallbackResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
     data: {
       threadId: "debug-agent-1-thread",
       events: templateToolCallEvents("debug-template-fallback", "Fallback Template Graphic", {
-        preferred: "not-installed",
-        fallback: ["recharts"],
+        rendererPreferred: "not-installed",
       }),
     },
   });
   expect(fallbackResponse.ok()).toBeTruthy();
-  const fallbackFrame = page.getByTestId("component-debug-agent-1").filter({ hasText: "Fallback Template Graphic" });
+  const fallbackFrame = page.getByTestId("invalid-component-debug-agent-1").filter({
+    hasText: "Fallback Template Graphic",
+  });
   await expect(fallbackFrame).toBeVisible();
-  await expect(fallbackFrame.getByTestId("component-chart-debug-agent-1").locator("svg")).toBeVisible();
+  await expect(fallbackFrame).toContainText("renderer.preferred must be plotly");
 
   const invalidTemplateResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
     data: {
@@ -890,8 +865,56 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   });
   expect(invalidTemplateResponse.ok()).toBeTruthy();
   await expect(
-    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "bar charts require encoding.x and encoding.y" }),
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "traces.0 requires y" }),
   ).toBeVisible();
+
+  const unsupportedAreaResponse = await page.request.post(
+    "/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events",
+    {
+      data: {
+        threadId: "debug-agent-1-thread",
+        events: templateToolCallEvents("debug-unsupported-area", "Unsupported Area Template", {
+          chartTypeOverride: "area",
+        }),
+      },
+    },
+  );
+  expect(unsupportedAreaResponse.ok()).toBeTruthy();
+  await expect(
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "chartType must be one of" }),
+  ).toBeVisible();
+
+  const unsupported3dResponse = await page.request.post(
+    "/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events",
+    {
+      data: {
+        threadId: "debug-agent-1-thread",
+        events: templateToolCallEvents("debug-unsupported-3d", "Unsupported 3D Template", {
+          chartTypeOverride: "scatter3d",
+        }),
+      },
+    },
+  );
+  expect(unsupported3dResponse.ok()).toBeTruthy();
+  await expect(
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "Unsupported 3D Template" }),
+  ).toContainText("chartType must be one of");
+
+  const unsupportedTraceResponse = await page.request.post(
+    "/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events",
+    {
+      data: {
+        threadId: "debug-agent-1-thread",
+        events: templateToolCallEvents("debug-unsupported-trace", "Unsupported Trace Template", {
+          traceTypeOverride: "scatter",
+        }),
+      },
+    },
+  );
+  expect(unsupportedTraceResponse.ok()).toBeTruthy();
+  await expect(
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "Unsupported Trace Template" }),
+  ).toContainText("traces.0.type must be one of bar");
 
   await page.getByTestId("panel-debug-agent-1").screenshot({
     path: "test-results/debug-agent-chart.png",
@@ -940,7 +963,7 @@ test("debug relay validates, replays, supports live-only mode, and detaches", as
   const replayResponse = await page.request.post("/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events", {
     data: {
       threadId: "debug-agent-1-thread",
-      events: barToolCallEvents("debug-replay-bar", "Replay Before Connect Chart"),
+      events: templateToolCallEvents("debug-replay-bar", "Replay Before Connect Chart"),
     },
   });
   const replayBody = (await replayResponse.json()) as {
@@ -962,7 +985,7 @@ test("debug relay validates, replays, supports live-only mode, and detaches", as
     data: {
       threadId: "debug-agent-1-wrong-thread",
       replay: false,
-      events: barToolCallEvents("debug-wrong-thread-bar", "Wrong Thread Chart"),
+      events: templateToolCallEvents("debug-wrong-thread-bar", "Wrong Thread Chart"),
     },
   });
   const wrongThreadBody = (await wrongThreadResponse.json()) as {
@@ -982,7 +1005,7 @@ test("debug relay validates, replays, supports live-only mode, and detaches", as
     data: {
       threadId: "debug-agent-1-thread",
       replay: false,
-      events: barToolCallEvents("debug-after-detach-bar", "After Detach Chart"),
+      events: templateToolCallEvents("debug-after-detach-bar", "After Detach Chart"),
     },
   });
   const afterDetachBody = (await afterDetachResponse.json()) as { deliveredCount: number };
@@ -997,7 +1020,7 @@ test("debug relay validates, replays, supports live-only mode, and detaches", as
   await page.request.post(`/__houmao_debug_agents/${replayAgentId}/v1/ag-ui/events`, {
     data: {
       threadId: replayThreadId,
-      events: barToolCallEvents("debug-direct-replay-bar", "Direct Replay Chart"),
+      events: templateToolCallEvents("debug-direct-replay-bar", "Direct Replay Chart"),
     },
   });
   await expect
@@ -1012,7 +1035,7 @@ test("debug relay validates, replays, supports live-only mode, and detaches", as
       data: {
         threadId: liveOnlyThreadId,
         replay: false,
-        events: barToolCallEvents("debug-live-only-bar", "Live Only Unseen Chart"),
+        events: templateToolCallEvents("debug-live-only-bar", "Live Only Unseen Chart"),
       },
     },
   );
@@ -1108,17 +1131,17 @@ async function visibleScrollbackIndices(locator: Locator): Promise<number[]> {
   return [...text.matchAll(/scrollback-(\d{2})/g)].map((match) => Number(match[1]));
 }
 
-async function expectVegaChartToFillContainer(locator: Locator): Promise<void> {
+async function expectPlotlyChartToFillContainer(locator: Locator): Promise<void> {
   await expect
     .poll(async () => {
       const chartBox = await locator.boundingBox();
-      const svgBox = await locator.locator("svg").boundingBox();
+      const svgBox = await locator.locator("svg").first().boundingBox();
       if (!chartBox || !svgBox || chartBox.height <= 0) {
         return 0;
       }
       return svgBox.height / chartBox.height;
     })
-    .toBeGreaterThan(0.9);
+    .toBeGreaterThan(0.75);
 }
 
 function expectMinimalRunBody(body: unknown, expected: ExpectedRunBody): void {
@@ -1186,7 +1209,7 @@ function expectRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function barToolCallEvents(toolCallId: string, title: string): Array<Record<string, unknown>> {
+function retiredBarToolCallEvents(toolCallId: string, title: string): Array<Record<string, unknown>> {
   return [
     {
       type: "TOOL_CALL_START",
@@ -1221,37 +1244,16 @@ function templateToolCallEvents(
   toolCallId: string,
   title: string,
   options: {
-    preferred?: string;
-    fallback?: string[];
+    rendererPreferred?: string;
     omitY?: boolean;
-    aggregateY?: boolean;
-    chartType?: "bar" | "pie";
+    datasource?: boolean;
+    chartType?: "bar" | "line" | "scatter" | "pie" | "histogram";
+    chartTypeOverride?: string;
+    traceTypeOverride?: string;
   } = {},
 ): Array<Record<string, unknown>> {
   const chartType = options.chartType ?? "bar";
-  const encoding: Record<string, unknown> = chartType === "pie"
-    ? {
-        color: { field: "status", type: "nominal", title: "Status" },
-        theta: {
-          field: "count",
-          type: "quantitative",
-          title: "Count",
-          ...(options.aggregateY ? { aggregate: "sum" } : {}),
-        },
-        tooltip: true,
-      }
-    : {
-        x: { field: "status", type: "nominal", title: "Status" },
-        tooltip: true,
-      };
-  if (chartType !== "pie" && !options.omitY) {
-    encoding.y = {
-      field: "count",
-      type: "quantitative",
-      title: "Count",
-      ...(options.aggregateY ? { aggregate: "sum" } : {}),
-    };
-  }
+  const payload = templatePayload(title, { ...options, chartType });
   return [
     {
       type: "TOOL_CALL_START",
@@ -1262,36 +1264,82 @@ function templateToolCallEvents(
     {
       type: "TOOL_CALL_ARGS",
       toolCallId,
-      delta: JSON.stringify({
-        schemaVersion: 1,
-        chartType,
-        renderer: {
-          preferred: options.preferred ?? "vega-lite",
-          fallback: options.fallback ?? ["recharts"],
-        },
-        title,
-        subtitle: "Playwright template graphic proof",
-        data: {
-          values: [
-            { status: "Ready", count: 12 },
-            { status: "Review", count: 21 },
-            { status: "Blocked", count: 3 },
-          ],
-        },
-        encoding,
-        interactions: { tooltip: true, legend: true },
-        extra: {
-          "vega-lite": {
-            config: { axis: { labelFontSize: 12 } },
-          },
-        },
-      }),
+      delta: JSON.stringify(payload),
     },
     {
       type: "TOOL_CALL_END",
       toolCallId,
     },
   ];
+}
+
+function templatePayload(
+  title: string,
+  options: {
+    rendererPreferred?: string;
+    omitY?: boolean;
+    datasource?: boolean;
+    chartType: "bar" | "line" | "scatter" | "pie" | "histogram";
+    chartTypeOverride?: string;
+    traceTypeOverride?: string;
+  },
+): Record<string, unknown> {
+  if (options.datasource) {
+    return {
+      schemaVersion: 2,
+      chartType: options.chartType,
+      renderer: { preferred: "plotly" },
+      title,
+      subtitle: "Playwright template graphic proof",
+      dataRefs: [{ id: "debugRows", columns: [{ name: "status" }, { name: "count" }] }],
+      traces: [
+        {
+          type: options.chartType === "line" ? "scatter" : options.chartType,
+          source: {
+            dataRef: "debugRows",
+            x: { column: "status" },
+            y: { column: "count" },
+          },
+        },
+      ],
+    };
+  }
+  const trace = templateTrace(options.chartType, options.omitY);
+  if (typeof options.traceTypeOverride === "string") {
+    trace.type = options.traceTypeOverride;
+  }
+  return {
+    schemaVersion: 2,
+    chartType: options.chartTypeOverride ?? options.chartType,
+    renderer: { preferred: options.rendererPreferred ?? "plotly" },
+    title,
+    subtitle: "Playwright template graphic proof",
+    traces: [trace],
+    layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },
+    extra: { plotly: { layout: { margin: { l: 48, r: 16, t: 20, b: 44 } } } },
+  };
+}
+
+function templateTrace(
+  chartType: "bar" | "line" | "scatter" | "pie" | "histogram",
+  omitY = false,
+): Record<string, unknown> {
+  if (chartType === "pie") {
+    return { type: "pie", labels: ["Ready", "Review", "Blocked"], values: [12, 21, 3] };
+  }
+  if (chartType === "histogram") {
+    return { type: "histogram", x: [91, 102, 107, 120, 121, 135] };
+  }
+  const trace: Record<string, unknown> = {
+    type: chartType === "line" ? "scatter" : chartType,
+    x: ["Ready", "Review", "Blocked"],
+    mode: chartType === "scatter" ? "markers" : chartType === "line" ? "lines+markers" : undefined,
+    marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
+  };
+  if (!omitY) {
+    trace.y = [12, 21, 3];
+  }
+  return trace;
 }
 
 async function readDebugStreamPreview(page: Page, agentId: string, threadId: string): Promise<string> {

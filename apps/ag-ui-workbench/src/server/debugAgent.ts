@@ -72,9 +72,6 @@ interface ComponentRequest {
 
 const COMPONENT_NAMES = [
   "houmao.graphic.template",
-  "houmao.chart.bar",
-  "houmao.chart.line",
-  "houmao.chart.pie",
   "houmao.table",
   "houmao.metric_grid",
   "houmao.dashboard",
@@ -83,97 +80,53 @@ const COMPONENT_NAMES = [
 type ComponentName = (typeof COMPONENT_NAMES)[number];
 
 const COMPONENT_NAME_SET = new Set<string>(COMPONENT_NAMES);
-const TEMPLATE_CHART_TYPES = ["bar", "line", "scatter", "area", "pie"] as const;
-const TEMPLATE_FIELD_TYPES = ["nominal", "ordinal", "quantitative", "temporal", "boolean"] as const;
-const TEMPLATE_AGGREGATES = ["count", "sum", "mean", "median", "min", "max"] as const;
-const VEGA_LITE_EXTRA_ALLOWED_KEYS = new Set(["axis", "config", "height", "legend", "mark", "view", "width"]);
-const VEGA_LITE_EXTRA_DISALLOWED_KEYS = new Set([
+const TEMPLATE_CHART_TYPES = ["bar", "line", "scatter", "pie", "histogram"] as const;
+const PLOTLY_EXTRA_DISALLOWED_KEYS = new Set([
   "$schema",
-  "autosize",
-  "concat",
   "data",
   "datasets",
   "encoding",
-  "facet",
-  "hconcat",
+  "figure",
+  "frames",
+  "html",
+  "iframe",
+  "javascript",
   "layer",
   "params",
-  "projection",
-  "repeat",
-  "resolve",
+  "script",
   "signals",
   "spec",
+  "svg",
+  "template",
+  "templates",
   "transform",
-  "usermeta",
-  "vconcat",
+  "transforms",
+  "traces",
+  "vega",
+  "vegaLite",
 ]);
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
   "houmao.graphic.template": {
-    schemaVersion: 1,
+    schemaVersion: 2,
     chartType: "bar",
-    renderer: {
-      preferred: "vega-lite",
-      fallback: ["recharts"],
-    },
+    renderer: { preferred: "plotly" },
     title: "Debug Template Graphic",
     subtitle: "Posted through the Debug Agent relay",
-    data: {
-      values: [
-        { status: "Ready", count: 18 },
-        { status: "Review", count: 7 },
-        { status: "Blocked", count: 2 },
-      ],
-    },
-    encoding: {
-      x: { field: "status", type: "nominal", title: "Status" },
-      y: { field: "count", type: "quantitative", title: "Count" },
-      tooltip: true,
-    },
-    interactions: { tooltip: true, legend: true },
-    extra: {
-      "vega-lite": {
-        config: { axis: { labelFontSize: 12 } },
-        mark: { cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
-      },
-    },
-  },
-  "houmao.chart.bar": {
-    schemaVersion: 1,
-    title: "Debug Bar Chart",
-    subtitle: "Posted through the Debug Agent relay",
-    xLabel: "Bucket",
-    yLabel: "Count",
-    data: [
-      { label: "Alpha", value: 18, color: "#79a35d" },
-      { label: "Beta", value: 31, color: "#d3a749" },
-      { label: "Gamma", value: 24, color: "#6aa6b8" },
-    ],
-  },
-  "houmao.chart.line": {
-    schemaVersion: 1,
-    title: "Debug Line Chart",
-    xLabel: "Step",
-    yLabel: "Value",
-    series: [
+    traces: [
       {
-        name: "Score",
-        data: [
-          { label: "T1", value: 4 },
-          { label: "T2", value: 7 },
-          { label: "T3", value: 5 },
-        ],
+        type: "bar",
+        x: ["Ready", "Review", "Blocked"],
+        y: [18, 7, 2],
+        marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
       },
     ],
-  },
-  "houmao.chart.pie": {
-    schemaVersion: 1,
-    title: "Debug Pie Chart",
-    data: [
-      { label: "Open", value: 12 },
-      { label: "Closed", value: 28 },
-      { label: "Blocked", value: 3 },
-    ],
+    layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },
+    extra: {
+      plotly: {
+        layout: { margin: { l: 48, r: 16, t: 20, b: 44 } },
+      },
+    },
   },
   "houmao.table": {
     schemaVersion: 1,
@@ -212,15 +165,14 @@ const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
         },
       },
       {
-        component: "houmao.chart.bar",
+        component: "houmao.graphic.template",
         width: "half",
         props: {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          chartType: "bar",
+          renderer: { preferred: "plotly" },
           title: "Dashboard Chart",
-          data: [
-            { label: "A", value: 8 },
-            { label: "B", value: 13 },
-          ],
+          traces: [{ type: "bar", x: ["A", "B"], y: [8, 13] }],
         },
       },
       {
@@ -708,11 +660,6 @@ function validateComponentPayload(componentName: string, payload: unknown, depth
   switch (componentName) {
     case "houmao.graphic.template":
       return validateTemplateGraphicPayload(payload);
-    case "houmao.chart.bar":
-    case "houmao.chart.pie":
-      return validateChartPayload(payload);
-    case "houmao.chart.line":
-      return validateLinePayload(payload);
     case "houmao.table":
       return validateTablePayload(payload);
     case "houmao.metric_grid":
@@ -725,35 +672,42 @@ function validateComponentPayload(componentName: string, payload: unknown, depth
 }
 
 function validateTemplateGraphicPayload(payload: unknown): ValidationResult<unknown> {
-  const record = versionedRecord(payload);
-  if (!record.ok) {
-    return record;
+  if (!isRecord(payload)) {
+    return invalid("payload must be an object.", "$");
   }
-  const chartType = enumValue(record.value.chartType, TEMPLATE_CHART_TYPES, "chartType");
+  if (payload.schemaVersion !== 2) {
+    return invalid("schemaVersion must be 2.", "schemaVersion");
+  }
+  if ("data" in payload || "encoding" in payload) {
+    return invalid("legacy data.values plus encoding payloads are retired.", "data");
+  }
+  const chartType = enumValue(payload.chartType, TEMPLATE_CHART_TYPES, "chartType");
   if (!chartType.ok) {
     return chartType;
   }
-  const title = nonBlankString(record.value.title, "title");
+  const title = nonBlankString(payload.title, "title");
   if (!title.ok) {
     return title;
   }
-  const renderer = validateTemplateRenderer(record.value.renderer);
+  const renderer = validateTemplateRenderer(payload.renderer);
   if (!renderer.ok) {
     return renderer;
   }
-  const data = validateTemplateData(record.value.data);
-  if (!data.ok) {
-    return data;
+  const traces = validateTemplateTraces(payload.traces, chartType.value);
+  if (!traces.ok) {
+    return traces;
   }
-  const encoding = validateTemplateEncoding(record.value.encoding, chartType.value, data.value);
-  if (!encoding.ok) {
-    return encoding;
+  const dataRefs = validateTemplateDataRefs(payload.dataRefs);
+  if (!dataRefs.ok) {
+    return dataRefs;
   }
-  const interactions = validateTemplateInteractions(record.value.interactions);
-  if (!interactions.ok) {
-    return interactions;
+  const refs = new Set(dataRefs.value);
+  for (const [index, trace] of traces.value.entries()) {
+    if (trace.sourceDataRef && !refs.has(trace.sourceDataRef)) {
+      return invalid(`traces.${index}.source.dataRef is not declared in dataRefs.`, `traces.${index}.source.dataRef`);
+    }
   }
-  const extra = validateTemplateExtra(record.value.extra);
+  const extra = validateTemplateExtra(payload.extra);
   if (!extra.ok) {
     return extra;
   }
@@ -767,159 +721,153 @@ function validateTemplateRenderer(value: unknown): ValidationResult<void> {
   if (!isRecord(value)) {
     return invalid("renderer must be an object.", "renderer");
   }
-  const preferred = nonBlankString(value.preferred ?? "vega-lite", "renderer.preferred");
-  if (!preferred.ok) {
-    return preferred;
+  if ("fallback" in value) {
+    return invalid("renderer.fallback is retired.", "renderer.fallback");
   }
-  const fallbackValue = value.fallback ?? ["recharts"];
-  if (!Array.isArray(fallbackValue)) {
-    return invalid("renderer.fallback must be an array.", "renderer.fallback");
-  }
-  for (const [index, item] of fallbackValue.entries()) {
-    const fallback = nonBlankString(item, `renderer.fallback.${index}`);
-    if (!fallback.ok) {
-      return fallback;
-    }
+  if (typeof value.preferred !== "undefined" && value.preferred !== "plotly") {
+    return invalid("renderer.preferred must be plotly.", "renderer.preferred");
   }
   return { ok: true, value: undefined };
 }
 
-function validateTemplateData(value: unknown): ValidationResult<JsonObject[]> {
-  if (!isRecord(value)) {
-    return invalid("data must be an object.", "data");
-  }
-  if (!Array.isArray(value.values) || value.values.length === 0) {
-    return invalid("data.values must be a non-empty array.", "data.values");
-  }
-  const rows: JsonObject[] = [];
-  for (const [index, row] of value.values.entries()) {
-    if (!isRecord(row)) {
-      return invalid(`data.values.${index} must be an object.`, `data.values.${index}`);
-    }
-    rows.push(row);
-  }
-  return { ok: true, value: rows };
-}
-
-function validateTemplateEncoding(
+function validateTemplateTraces(
   value: unknown,
   chartType: (typeof TEMPLATE_CHART_TYPES)[number],
-  rows: JsonObject[],
-): ValidationResult<void> {
-  if (!isRecord(value)) {
-    return invalid("encoding must be an object.", "encoding");
+): ValidationResult<Array<{ sourceDataRef?: string }>> {
+  if (!Array.isArray(value) || value.length === 0) {
+    return invalid("traces must be a non-empty array.", "traces");
   }
-  const channels = {
-    x: validateOptionalTemplateChannel(value.x, "encoding.x"),
-    y: validateOptionalTemplateChannel(value.y, "encoding.y"),
-    color: validateOptionalTemplateChannel(value.color, "encoding.color"),
-    size: validateOptionalTemplateChannel(value.size, "encoding.size"),
-    theta: validateOptionalTemplateChannel(value.theta, "encoding.theta"),
-  };
-  for (const channel of Object.values(channels)) {
-    if (isValidationFailure(channel)) {
-      return channel;
+  const traces: Array<{ sourceDataRef?: string }> = [];
+  for (const [index, item] of value.entries()) {
+    if (!isRecord(item)) {
+      return invalid(`traces.${index} must be an object.`, `traces.${index}`);
     }
+    const traceType = optionalTemplateTraceType(item.type, chartType, `traces.${index}.type`);
+    if (!traceType.ok) {
+      return traceType;
+    }
+    const source = validateTemplateSource(item.source, `traces.${index}.source`);
+    if (!source.ok) {
+      return source;
+    }
+    const channelValidation = validateTemplateTraceChannels(item, source.value, chartType, index);
+    if (!channelValidation.ok) {
+      return channelValidation;
+    }
+    traces.push({ sourceDataRef: source.value?.dataRef });
   }
-  const tooltip = validateTemplateTooltip(value.tooltip);
-  if (!tooltip.ok) {
-    return tooltip;
+  return { ok: true, value: traces };
+}
+
+function optionalTemplateTraceType(
+  value: unknown,
+  chartType: (typeof TEMPLATE_CHART_TYPES)[number],
+  path: string,
+): ValidationResult<void> {
+  if (typeof value === "undefined") {
+    return { ok: true, value: undefined };
+  }
+  const expected = chartType === "line" ? "scatter" : chartType;
+  if (value !== expected) {
+    return invalid(`${path} must be ${expected}.`, path);
+  }
+  return { ok: true, value: undefined };
+}
+
+function validateTemplateTraceChannels(
+  trace: JsonObject,
+  source: { dataRef: string; channels: Set<string> } | undefined,
+  chartType: (typeof TEMPLATE_CHART_TYPES)[number],
+  index: number,
+): ValidationResult<void> {
+  for (const channel of ["x", "y", "labels", "values", "text"] as const) {
+    if (source?.channels.has(channel) && typeof trace[channel] !== "undefined") {
+      return invalid(`traces.${index}.${channel} cannot be combined with source.${channel}.`, `traces.${index}.${channel}`);
+    }
   }
   if (chartType === "pie") {
-    if (!channels.theta || !channels.color) {
-      return invalid("pie charts require encoding.theta and encoding.color.", "encoding");
-    }
-  } else if (!channels.x || !channels.y) {
-    return invalid(`${chartType} charts require encoding.x and encoding.y.`, "encoding");
+    return requireTemplateChannels(trace, source, index, ["labels", "values"]);
   }
-  const requiredFields = new Set<string>();
-  for (const channel of Object.values(channels)) {
-    if (channel && !isValidationFailure(channel)) {
-      requiredFields.add(channel.field);
-    }
+  if (chartType === "histogram") {
+    return hasTemplateChannel(trace, source, "x") || hasTemplateChannel(trace, source, "y")
+      ? { ok: true, value: undefined }
+      : invalid(`traces.${index} requires x or y.`, `traces.${index}`);
   }
-  for (const channel of tooltip.value) {
-    requiredFields.add(channel.field);
-  }
-  for (const field of requiredFields) {
-    for (const [rowIndex, row] of rows.entries()) {
-      if (!(field in row)) {
-        return invalid(`data.values.${rowIndex}.${field} is missing.`, `data.values.${rowIndex}.${field}`);
-      }
+  return requireTemplateChannels(trace, source, index, ["x", "y"]);
+}
+
+function requireTemplateChannels(
+  trace: JsonObject,
+  source: { dataRef: string; channels: Set<string> } | undefined,
+  index: number,
+  channels: string[],
+): ValidationResult<void> {
+  for (const channel of channels) {
+    if (!hasTemplateChannel(trace, source, channel)) {
+      return invalid(`traces.${index} requires ${channel}.`, `traces.${index}.${channel}`);
     }
   }
   return { ok: true, value: undefined };
 }
 
-function validateOptionalTemplateChannel(
-  value: unknown,
-  path: string,
-): { field: string } | ValidationResult<never> | undefined {
-  if (typeof value === "undefined" || value === null) {
-    return undefined;
-  }
-  return validateTemplateChannel(value, path);
+function hasTemplateChannel(
+  trace: JsonObject,
+  source: { dataRef: string; channels: Set<string> } | undefined,
+  channel: string,
+): boolean {
+  return typeof trace[channel] !== "undefined" || Boolean(source?.channels.has(channel));
 }
 
-function validateTemplateChannel(value: unknown, path: string): { field: string } | ValidationResult<never> {
-  if (!isRecord(value)) {
-    return invalid(`${path} must be an object.`, path);
-  }
-  const field = nonBlankString(value.field, `${path}.field`);
-  if (!field.ok) {
-    return field;
-  }
-  const type = enumValue(value.type, TEMPLATE_FIELD_TYPES, `${path}.type`);
-  if (!type.ok) {
-    return type;
-  }
-  if (typeof value.aggregate !== "undefined") {
-    const aggregate = enumValue(value.aggregate, TEMPLATE_AGGREGATES, `${path}.aggregate`);
-    if (!aggregate.ok) {
-      return aggregate;
-    }
-  }
-  if (typeof value.sort !== "undefined") {
-    const sort = enumValue(value.sort, ["ascending", "descending"], `${path}.sort`);
-    if (!sort.ok) {
-      return sort;
-    }
-  }
-  return { field: field.value };
-}
-
-function validateTemplateTooltip(value: unknown): ValidationResult<Array<{ field: string }>> {
-  if (typeof value === "undefined" || typeof value === "boolean") {
+function validateTemplateDataRefs(value: unknown): ValidationResult<string[]> {
+  if (typeof value === "undefined") {
     return { ok: true, value: [] };
   }
-  if (!Array.isArray(value) || value.length === 0) {
-    return invalid("encoding.tooltip must be a boolean or non-empty array.", "encoding.tooltip");
+  if (!Array.isArray(value)) {
+    return invalid("dataRefs must be an array.", "dataRefs");
   }
-  const channels: Array<{ field: string }> = [];
+  const ids: string[] = [];
   for (const [index, item] of value.entries()) {
-    const channel = validateTemplateChannel(item, `encoding.tooltip.${index}`);
-    if (isValidationFailure(channel)) {
-      return channel;
+    if (!isRecord(item)) {
+      return invalid(`dataRefs.${index} must be an object.`, `dataRefs.${index}`);
     }
-    channels.push(channel);
+    const id = nonBlankString(item.id, `dataRefs.${index}.id`);
+    if (!id.ok) {
+      return id;
+    }
+    ids.push(id.value);
   }
-  return { ok: true, value: channels };
+  return { ok: true, value: ids };
 }
 
-function validateTemplateInteractions(value: unknown): ValidationResult<void> {
+function validateTemplateSource(
+  value: unknown,
+  path: string,
+): ValidationResult<{ dataRef: string; channels: Set<string> } | undefined> {
   if (typeof value === "undefined") {
     return { ok: true, value: undefined };
   }
   if (!isRecord(value)) {
-    return invalid("interactions must be an object.", "interactions");
+    return invalid(`${path} must be an object.`, path);
   }
-  if (typeof value.tooltip !== "undefined" && typeof value.tooltip !== "boolean") {
-    return invalid("interactions.tooltip must be a boolean.", "interactions.tooltip");
+  const dataRef = nonBlankString(value.dataRef, `${path}.dataRef`);
+  if (!dataRef.ok) {
+    return dataRef;
   }
-  if (typeof value.legend !== "undefined" && typeof value.legend !== "boolean") {
-    return invalid("interactions.legend must be a boolean.", "interactions.legend");
+  const channels = new Set<string>();
+  for (const channel of ["x", "y", "z", "labels", "values", "text"] as const) {
+    if (isRecord(value[channel])) {
+      channels.add(channel);
+    }
   }
-  return { ok: true, value: undefined };
+  if (isRecord(value.marker)) {
+    if (isRecord(value.marker.color)) {
+      channels.add("marker.color");
+    }
+    if (isRecord(value.marker.size)) {
+      channels.add("marker.size");
+    }
+  }
+  return { ok: true, value: { dataRef: dataRef.value, channels } };
 }
 
 function validateTemplateExtra(value: unknown): ValidationResult<void> {
@@ -930,36 +878,24 @@ function validateTemplateExtra(value: unknown): ValidationResult<void> {
     return invalid("extra must be an object.", "extra");
   }
   for (const [rendererId, block] of Object.entries(value)) {
+    if (rendererId !== "plotly") {
+      return invalid(`extra.${rendererId} is not supported.`, `extra.${rendererId}`);
+    }
     if (!isRecord(block)) {
       return invalid(`extra.${rendererId} must be an object.`, `extra.${rendererId}`);
     }
-    if (rendererId === "vega-lite") {
-      const validation = validateVegaLiteExtra(block, `extra.${rendererId}`);
-      if (!validation.ok) {
-        return validation;
-      }
+    const validation = rejectPlotlyRawSpecKeys(block, `extra.${rendererId}`);
+    if (!validation.ok) {
+      return validation;
     }
   }
   return { ok: true, value: undefined };
 }
 
-function validateVegaLiteExtra(value: JsonObject, path: string): ValidationResult<void> {
-  const nestedValidation = rejectVegaLiteSpecKeys(value, path);
-  if (!nestedValidation.ok) {
-    return nestedValidation;
-  }
-  for (const key of Object.keys(value)) {
-    if (!VEGA_LITE_EXTRA_ALLOWED_KEYS.has(key)) {
-      return invalid(`${path}.${key} is not allowed in Layer 1 Vega-Lite extra.`, `${path}.${key}`);
-    }
-  }
-  return { ok: true, value: undefined };
-}
-
-function rejectVegaLiteSpecKeys(value: unknown, path: string): ValidationResult<void> {
+function rejectPlotlyRawSpecKeys(value: unknown, path: string): ValidationResult<void> {
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      const validation = rejectVegaLiteSpecKeys(item, `${path}.${index}`);
+      const validation = rejectPlotlyRawSpecKeys(item, `${path}.${index}`);
       if (!validation.ok) {
         return validation;
       }
@@ -971,72 +907,15 @@ function rejectVegaLiteSpecKeys(value: unknown, path: string): ValidationResult<
   }
   for (const [key, item] of Object.entries(value)) {
     const nextPath = `${path}.${key}`;
-    if (VEGA_LITE_EXTRA_DISALLOWED_KEYS.has(key)) {
-      return invalid(`${nextPath} is not allowed in Layer 1 Vega-Lite extra.`, nextPath);
+    if (PLOTLY_EXTRA_DISALLOWED_KEYS.has(key)) {
+      return invalid(`${nextPath} is not allowed in Layer 1 Plotly extra.`, nextPath);
     }
-    const validation = rejectVegaLiteSpecKeys(item, nextPath);
+    const validation = rejectPlotlyRawSpecKeys(item, nextPath);
     if (!validation.ok) {
       return validation;
     }
   }
   return { ok: true, value: undefined };
-}
-
-function validateChartPayload(payload: unknown): ValidationResult<unknown> {
-  const record = versionedRecord(payload);
-  if (!record.ok) {
-    return record;
-  }
-  const title = nonBlankString(record.value.title, "title");
-  if (!title.ok) {
-    return title;
-  }
-  if (!Array.isArray(record.value.data) || record.value.data.length === 0) {
-    return invalid("data must be a non-empty array.", "data");
-  }
-  for (const [index, datum] of record.value.data.entries()) {
-    const checked = validateDatum(datum, `data.${index}`);
-    if (!checked.ok) {
-      return checked;
-    }
-  }
-  return { ok: true, value: payload };
-}
-
-function validateLinePayload(payload: unknown): ValidationResult<unknown> {
-  const record = versionedRecord(payload);
-  if (!record.ok) {
-    return record;
-  }
-  const title = nonBlankString(record.value.title, "title");
-  if (!title.ok) {
-    return title;
-  }
-  if (!Array.isArray(record.value.series) || record.value.series.length === 0) {
-    return invalid("series must be a non-empty array.", "series");
-  }
-  for (const [seriesIndex, series] of record.value.series.entries()) {
-    if (!isRecord(series)) {
-      return invalid(`series.${seriesIndex} must be an object.`, `series.${seriesIndex}`);
-    }
-    const name = nonBlankString(series.name, `series.${seriesIndex}.name`);
-    if (!name.ok) {
-      return name;
-    }
-    if (!Array.isArray(series.data) || series.data.length === 0) {
-      return invalid(
-        `series.${seriesIndex}.data must be a non-empty array.`,
-        `series.${seriesIndex}.data`,
-      );
-    }
-    for (const [datumIndex, datum] of series.data.entries()) {
-      const checked = validateDatum(datum, `series.${seriesIndex}.data.${datumIndex}`);
-      if (!checked.ok) {
-        return checked;
-      }
-    }
-  }
-  return { ok: true, value: payload };
 }
 
 function validateTablePayload(payload: unknown): ValidationResult<unknown> {
@@ -1153,24 +1032,6 @@ function validateDashboardPayload(payload: unknown, depth: number): ValidationRe
     }
   }
   return { ok: true, value: payload };
-}
-
-function validateDatum(value: unknown, path: string): ValidationResult<void> {
-  if (!isRecord(value)) {
-    return invalid(`${path} must be an object.`, path);
-  }
-  const label = nonBlankString(value.label, `${path}.label`);
-  if (!label.ok) {
-    return label;
-  }
-  if (typeof value.value !== "number" || !Number.isFinite(value.value)) {
-    return invalid(`${path}.value must be a finite number.`, `${path}.value`);
-  }
-  return { ok: true, value: undefined };
-}
-
-function isValidationFailure<T>(value: T | ValidationResult<never>): value is ValidationResult<never> {
-  return isRecord(value) && value.ok === false && typeof value.error === "string";
 }
 
 function versionedRecord(value: unknown): ValidationResult<JsonObject> {

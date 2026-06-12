@@ -19,34 +19,27 @@ def _write_json(path: Path, payload: object) -> Path:
     return path
 
 
-def _bar_payload() -> dict[str, object]:
-    """Return one valid bar chart component payload."""
-
-    return {
-        "schemaVersion": 1,
-        "title": "Quarterly Revenue",
-        "data": [{"label": "Q1", "value": 120000}],
-    }
-
-
 def _template_payload() -> dict[str, object]:
     """Return one valid template graphic payload."""
 
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "chartType": "bar",
-        "renderer": {"preferred": "vega-lite", "fallback": ["recharts"]},
+        "renderer": {"preferred": "plotly"},
         "title": "Build Results",
-        "data": {
-            "values": [
-                {"status": "passed", "count": 42},
-                {"status": "failed", "count": 2},
-            ]
-        },
-        "encoding": {
-            "x": {"field": "status", "type": "nominal", "title": "Status"},
-            "y": {"field": "count", "type": "quantitative", "title": "Count"},
-        },
+        "traces": [{"type": "bar", "x": ["passed", "failed"], "y": [42, 2]}],
+        "layout": {"xaxis": {"title": "Status"}, "yaxis": {"title": "Count"}},
+    }
+
+
+def _table_payload() -> dict[str, object]:
+    """Return one valid table component payload."""
+
+    return {
+        "schemaVersion": 1,
+        "title": "Top Issues",
+        "columns": [{"key": "id", "label": "ID"}],
+        "rows": [{"id": "A"}],
     }
 
 
@@ -62,7 +55,7 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
             "ag-ui",
             "components",
             "schema",
-            "houmao.chart.bar",
+            "houmao.graphic.template",
         ],
     )
 
@@ -70,10 +63,29 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     assert schema_result.exit_code == 0, schema_result.output
     listed = json.loads(list_result.output)
     schema = json.loads(schema_result.output)
-    assert "houmao.chart.bar" in {item["name"] for item in listed["components"]}
+    assert "houmao.chart.bar" not in {item["name"] for item in listed["components"]}
     assert "houmao.graphic.template" in {item["name"] for item in listed["components"]}
-    assert schema["name"] == "houmao.chart.bar"
-    assert schema["example"]["schemaVersion"] == 1
+    assert schema["name"] == "houmao.graphic.template"
+    assert schema["example"]["schemaVersion"] == 2
+
+
+def test_ag_ui_components_retired_fixed_chart_schema_reports_migration_hint() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "internals",
+            "ag-ui",
+            "components",
+            "schema",
+            "houmao.chart.bar",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Retired Houmao AG-UI component" in result.output
+    assert "houmao.graphic.template" in result.output
 
 
 def test_ag_ui_template_graphic_validate_and_render_accept_path_input(tmp_path: Path) -> None:
@@ -114,17 +126,17 @@ def test_ag_ui_template_graphic_validate_and_render_accept_path_input(tmp_path: 
     assert json.loads(validate_result.output) == {
         "component": "houmao.graphic.template",
         "ok": True,
-        "schemaVersion": 1,
+        "schemaVersion": 2,
     }
     assert render_result.exit_code == 0, render_result.output
     events = json.loads(render_result.output)
     assert events[0]["toolCallName"] == "houmao.graphic.template"
-    assert json.loads(events[1]["delta"])["renderer"]["preferred"] == "vega-lite"
+    assert json.loads(events[1]["delta"])["renderer"]["preferred"] == "plotly"
 
 
 def test_ag_ui_component_validate_accepts_path_input(tmp_path: Path) -> None:
     runner = CliRunner()
-    payload_path = _write_json(tmp_path / "payload.json", _bar_payload())
+    payload_path = _write_json(tmp_path / "payload.json", _table_payload())
 
     result = runner.invoke(
         cli,
@@ -134,7 +146,7 @@ def test_ag_ui_component_validate_accepts_path_input(tmp_path: Path) -> None:
             "ag-ui",
             "components",
             "validate",
-            "houmao.chart.bar",
+            "houmao.table",
             "--input",
             str(payload_path),
         ],
@@ -142,7 +154,7 @@ def test_ag_ui_component_validate_accepts_path_input(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload == {"component": "houmao.chart.bar", "ok": True, "schemaVersion": 1}
+    assert payload == {"component": "houmao.table", "ok": True, "schemaVersion": 1}
 
 
 def test_ag_ui_component_validate_reports_invalid_payload(tmp_path: Path) -> None:
@@ -156,14 +168,14 @@ def test_ag_ui_component_validate_reports_invalid_payload(tmp_path: Path) -> Non
             "ag-ui",
             "components",
             "validate",
-            "houmao.chart.bar",
+            "houmao.table",
             "--input",
             str(payload_path),
         ],
     )
 
     assert result.exit_code != 0
-    assert "houmao.chart.bar" in result.output
+    assert "houmao.table" in result.output
     assert "fieldPaths" in result.output
 
 
@@ -177,7 +189,7 @@ def test_ag_ui_events_render_accepts_stdin_and_outputs_json() -> None:
             "ag-ui",
             "events",
             "render",
-            "houmao.chart.bar",
+            "houmao.graphic.template",
             "--input",
             "-",
             "--message-id",
@@ -185,7 +197,7 @@ def test_ag_ui_events_render_accepts_stdin_and_outputs_json() -> None:
             "--tool-call-id",
             "tool-1",
         ],
-        input=json.dumps(_bar_payload()),
+        input=json.dumps(_template_payload()),
     )
 
     assert result.exit_code == 0, result.output
@@ -195,7 +207,7 @@ def test_ag_ui_events_render_accepts_stdin_and_outputs_json() -> None:
         "TOOL_CALL_ARGS",
         "TOOL_CALL_END",
     ]
-    assert events[0]["toolCallName"] == "houmao.chart.bar"
+    assert events[0]["toolCallName"] == "houmao.graphic.template"
     assert events[0]["parentMessageId"] == "message-1"
 
 
@@ -258,11 +270,11 @@ def test_ag_ui_events_validate_accepts_rendered_batch(tmp_path: Path) -> None:
             "ag-ui",
             "events",
             "render",
-            "houmao.chart.bar",
+            "houmao.graphic.template",
             "--input",
             "-",
         ],
-        input=json.dumps(_bar_payload()),
+        input=json.dumps(_template_payload()),
     )
     events_path = tmp_path / "events.json"
     events_path.write_text(rendered.output, encoding="utf-8")
@@ -286,7 +298,7 @@ def test_ag_ui_events_validate_accepts_rendered_batch(tmp_path: Path) -> None:
 
 def test_ag_ui_events_validate_rejects_raw_component_payload(tmp_path: Path) -> None:
     runner = CliRunner()
-    raw_path = _write_json(tmp_path / "component.json", _bar_payload())
+    raw_path = _write_json(tmp_path / "component.json", _template_payload())
 
     result = runner.invoke(
         cli,
@@ -319,7 +331,7 @@ def test_gateway_ag_ui_publish_validates_path_input_and_posts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    events = render_component_events(component="houmao.chart.bar", payload=_bar_payload())
+    events = render_component_events(component="houmao.graphic.template", payload=_template_payload())
     events_path = _write_json(tmp_path / "events.json", events)
     calls: list[dict[str, object]] = []
 
@@ -372,7 +384,7 @@ def test_gateway_ag_ui_publish_allows_omitted_route_and_reports_sink_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    events = render_component_events(component="houmao.chart.bar", payload=_bar_payload())
+    events = render_component_events(component="houmao.graphic.template", payload=_template_payload())
     events_path = _write_json(tmp_path / "events.json", events)
     calls: list[dict[str, object]] = []
 
@@ -424,7 +436,7 @@ def test_gateway_ag_ui_publish_plain_output_reports_zero_delivery_without_visibi
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    events = render_component_events(component="houmao.chart.bar", payload=_bar_payload())
+    events = render_component_events(component="houmao.graphic.template", payload=_template_payload())
     events_path = _write_json(tmp_path / "events.json", events)
 
     monkeypatch.setattr(

@@ -80,6 +80,26 @@ def _connect_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def _template_chart_payload() -> dict[str, object]:
+    """Return one valid schema version 2 template chart payload."""
+
+    return {
+        "schemaVersion": 2,
+        "chartType": "bar",
+        "title": "Revenue",
+        "traces": [{"type": "bar", "x": ["Q1"], "y": [12]}],
+    }
+
+
+def _template_chart_events() -> list[dict[str, object]]:
+    """Return one rendered schema version 2 template chart event sequence."""
+
+    return render_component_events(
+        component="houmao.graphic.template",
+        payload=_template_chart_payload(),
+    )
+
+
 @dataclass
 class _SpyRuntime:
     """Gateway runtime spy that detects work submission and lifecycle calls."""
@@ -485,14 +505,7 @@ def test_events_route_accepts_valid_batch_without_prompt_creation() -> None:
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
     client = TestClient(app)
-    events = render_component_events(
-        component="houmao.chart.bar",
-        payload={
-            "schemaVersion": 1,
-            "title": "Revenue",
-            "data": [{"label": "Q1", "value": 12}],
-        },
-    )
+    events = _template_chart_events()
 
     response = client.post(
         "/v1/ag-ui/events",
@@ -524,14 +537,7 @@ def test_destination_state_starts_empty_sets_and_conditionally_clears_active_thr
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
     client = TestClient(app)
-    events = render_component_events(
-        component="houmao.chart.bar",
-        payload={
-            "schemaVersion": 1,
-            "title": "Revenue",
-            "data": [{"label": "Q1", "value": 12}],
-        },
-    )
+    events = _template_chart_events()
 
     assert client.get("/v1/ag-ui/destination").json() == {
         "activeThread": {"status": "empty"},
@@ -581,14 +587,7 @@ def test_events_route_uses_active_thread_after_explicit_destination_and_refreshe
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
     client = TestClient(app)
-    events = render_component_events(
-        component="houmao.chart.bar",
-        payload={
-            "schemaVersion": 1,
-            "title": "Revenue",
-            "data": [{"label": "Q1", "value": 12}],
-        },
-    )
+    events = _template_chart_events()
 
     explicit = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
     assert explicit.status_code == 200
@@ -624,14 +623,7 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
     record = registry.create(thread_id="thread-connection", run_id="run-connection")
     register_ag_ui_routes(app, runtime=runtime, registry=registry)
     client = TestClient(app)
-    events = render_component_events(
-        component="houmao.chart.bar",
-        payload={
-            "schemaVersion": 1,
-            "title": "Revenue",
-            "data": [{"label": "Q1", "value": 12}],
-        },
-    )
+    events = _template_chart_events()
 
     initial_sent = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
     assert initial_sent.status_code == 200
@@ -663,14 +655,7 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
 
     event_routed_events = [
         {**event, "threadId": "thread-event"}
-        for event in render_component_events(
-            component="houmao.chart.bar",
-            payload={
-                "schemaVersion": 1,
-                "title": "Revenue",
-                "data": [{"label": "Q1", "value": 12}],
-            },
-        )
+        for event in _template_chart_events()
     ]
     event_routed = client.post("/v1/ag-ui/events", json={"events": event_routed_events})
     assert event_routed.status_code == 200
@@ -687,14 +672,7 @@ def test_events_route_uses_active_thread_when_no_explicit_destination_exists() -
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
     client = TestClient(app)
-    events = render_component_events(
-        component="houmao.chart.bar",
-        payload={
-            "schemaVersion": 1,
-            "title": "Revenue",
-            "data": [{"label": "Q1", "value": 12}],
-        },
-    )
+    events = _template_chart_events()
 
     active = client.put(
         "/v1/ag-ui/active-thread",
@@ -723,14 +701,7 @@ def test_events_route_uses_default_sink_when_no_destination_exists() -> None:
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
     client = TestClient(app)
-    events = render_component_events(
-        component="houmao.chart.bar",
-        payload={
-            "schemaVersion": 1,
-            "title": "Revenue",
-            "data": [{"label": "Q1", "value": 12}],
-        },
-    )
+    events = _template_chart_events()
 
     response = client.post("/v1/ag-ui/events", json={"events": events})
 
@@ -825,7 +796,7 @@ def test_events_route_accepts_opaque_houmao_component_payload() -> None:
         {
             "type": "TOOL_CALL_START",
             "toolCallId": "tool-1",
-            "toolCallName": "houmao.chart.bar",
+            "toolCallName": "houmao.graphic.template",
             "parentMessageId": "message-1",
         },
         {

@@ -1,67 +1,13 @@
 import type { ReactNode } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import type { ToolCallRecord } from "./reducer";
 import type { GraphicArtifact, JsonObject, JsonScalar, JsonValue } from "./types";
-import type { TemplateGraphicBackendOverride } from "../storage";
 import { GraphicView } from "./graphics";
 import { renderTemplateGraphic } from "./templateGraphics";
 
 interface ToolCallRendererProps {
   toolCall: ToolCallRecord;
   paneId: string;
-  templateGraphicBackend?: TemplateGraphicBackendOverride;
-}
-
-interface ChartDatum {
-  label: string;
-  value: number;
-  color?: string;
-}
-
-interface BarChartPayload {
-  schemaVersion: 1;
-  title: string;
-  subtitle?: string;
-  xLabel?: string;
-  yLabel?: string;
-  data: ChartDatum[];
-}
-
-interface PieChartPayload {
-  schemaVersion: 1;
-  title: string;
-  subtitle?: string;
-  data: ChartDatum[];
-}
-
-interface LineSeries {
-  name: string;
-  data: ChartDatum[];
-  color?: string;
-}
-
-interface LineChartPayload {
-  schemaVersion: 1;
-  title: string;
-  subtitle?: string;
-  xLabel?: string;
-  yLabel?: string;
-  series: LineSeries[];
 }
 
 interface TableColumn {
@@ -111,27 +57,18 @@ interface RendererContext {
   paneId: string;
   toolCallId: string;
   depth: number;
-  templateGraphicBackend?: TemplateGraphicBackendOverride;
 }
 
-const CHART_COLORS = ["#79a35d", "#d3a749", "#6aa6b8", "#c86f5a", "#9a82c8", "#d88a42"];
 const MAX_DASHBOARD_DEPTH = 3;
 
 const COMPONENT_RENDERERS: Record<string, ComponentRenderer> = {
   "houmao.graphic.template": renderTemplateGraphic,
-  "houmao.chart.bar": renderBarChart,
-  "houmao.chart.line": renderLineChart,
-  "houmao.chart.pie": renderPieChart,
   "houmao.table": renderTable,
   "houmao.metric_grid": renderMetricGrid,
   "houmao.dashboard": renderDashboard,
 };
 
-export function ToolCallRenderer({
-  toolCall,
-  paneId,
-  templateGraphicBackend = "auto",
-}: ToolCallRendererProps) {
+export function ToolCallRenderer({ toolCall, paneId }: ToolCallRendererProps) {
   if (!toolCall.complete) {
     return null;
   }
@@ -152,7 +89,6 @@ export function ToolCallRenderer({
       paneId,
       toolCallId: toolCall.id,
       depth: 0,
-      templateGraphicBackend,
     });
   }
   const renderer = COMPONENT_RENDERERS[toolCall.name];
@@ -163,7 +99,6 @@ export function ToolCallRenderer({
           paneId,
           toolCallId: toolCall.id,
           depth: 0,
-          templateGraphicBackend,
         })}
       </>
     );
@@ -174,95 +109,12 @@ export function ToolCallRenderer({
         paneId={paneId}
         kind="unknown"
         title={toolCall.name}
-        detail="Unknown Houmao component."
+        detail="Unknown or retired Houmao component."
         raw={toolCall.argsText}
       />
     );
   }
   return null;
-}
-
-function renderBarChart(payload: unknown, context: RendererContext): ReactNode {
-  const validated = validateBarChart(payload);
-  if (!validated.ok) {
-    return invalidComponent(context, "houmao.chart.bar", validated.error, payload);
-  }
-  return (
-    <ComponentFrame paneId={context.paneId} title={validated.value.title} subtitle={validated.value.subtitle}>
-      <div className="component-chart" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={validated.value.data} margin={{ top: 8, right: 18, bottom: 18, left: 4 }}>
-            <CartesianGrid stroke="#44483d" vertical={false} />
-            <XAxis dataKey="label" stroke="#c9c0af" label={axisLabel(validated.value.xLabel, "bottom")} />
-            <YAxis stroke="#c9c0af" label={axisLabel(validated.value.yLabel, "left")} />
-            <Tooltip contentStyle={tooltipStyle} />
-            <Bar dataKey="value" radius={[3, 3, 0, 0]}>
-              {validated.value.data.map((datum, index) => (
-                <Cell key={datum.label} fill={datum.color ?? CHART_COLORS[index % CHART_COLORS.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </ComponentFrame>
-  );
-}
-
-function renderLineChart(payload: unknown, context: RendererContext): ReactNode {
-  const validated = validateLineChart(payload);
-  if (!validated.ok) {
-    return invalidComponent(context, "houmao.chart.line", validated.error, payload);
-  }
-  const rows = lineRows(validated.value.series);
-  return (
-    <ComponentFrame paneId={context.paneId} title={validated.value.title} subtitle={validated.value.subtitle}>
-      <div className="component-chart" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 8, right: 20, bottom: 18, left: 4 }}>
-            <CartesianGrid stroke="#44483d" vertical={false} />
-            <XAxis dataKey="label" stroke="#c9c0af" label={axisLabel(validated.value.xLabel, "bottom")} />
-            <YAxis stroke="#c9c0af" label={axisLabel(validated.value.yLabel, "left")} />
-            <Tooltip contentStyle={tooltipStyle} />
-            <Legend />
-            {validated.value.series.map((series, index) => (
-              <Line
-                key={series.name}
-                type="monotone"
-                dataKey={series.name}
-                stroke={series.color ?? CHART_COLORS[index % CHART_COLORS.length]}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </ComponentFrame>
-  );
-}
-
-function renderPieChart(payload: unknown, context: RendererContext): ReactNode {
-  const validated = validatePieChart(payload);
-  if (!validated.ok) {
-    return invalidComponent(context, "houmao.chart.pie", validated.error, payload);
-  }
-  return (
-    <ComponentFrame paneId={context.paneId} title={validated.value.title} subtitle={validated.value.subtitle}>
-      <div className="component-chart component-chart-pie" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Tooltip contentStyle={tooltipStyle} />
-            <Legend />
-            <Pie data={validated.value.data} dataKey="value" nameKey="label" outerRadius="78%" label>
-              {validated.value.data.map((datum, index) => (
-                <Cell key={datum.label} fill={datum.color ?? CHART_COLORS[index % CHART_COLORS.length]} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-    </ComponentFrame>
-  );
 }
 
 function renderTable(payload: unknown, context: RendererContext): ReactNode {
@@ -340,7 +192,6 @@ function renderDashboard(payload: unknown, context: RendererContext): ReactNode 
               paneId: context.paneId,
               toolCallId: `${context.toolCallId}-${index}`,
               depth: context.depth + 1,
-              templateGraphicBackend: context.templateGraphicBackend,
             })}
           </div>
         ))}
@@ -357,7 +208,7 @@ function renderNestedComponent(component: string, payload: unknown, context: Ren
         paneId={context.paneId}
         kind="unknown"
         title={component}
-        detail="Unknown dashboard child component."
+        detail="Unknown or retired dashboard child component."
         raw={safeJson(payload)}
       />
     );
@@ -433,52 +284,6 @@ function invalidComponent(
       raw={safeJson(payload)}
     />
   );
-}
-
-function validateBarChart(payload: unknown): ValidationResult<BarChartPayload> {
-  const base = validateChartBase(payload);
-  if (!base.ok) {
-    return base;
-  }
-  return { ok: true, value: { ...base.value, data: base.value.data } };
-}
-
-function validatePieChart(payload: unknown): ValidationResult<PieChartPayload> {
-  const base = validateChartBase(payload);
-  if (!base.ok) {
-    return base;
-  }
-  return { ok: true, value: { ...base.value, data: base.value.data } };
-}
-
-function validateLineChart(payload: unknown): ValidationResult<LineChartPayload> {
-  const record = versionedRecord(payload);
-  if (!record.ok) {
-    return record;
-  }
-  const title = nonBlankString(record.value.title, "title");
-  if (!title.ok) {
-    return title;
-  }
-  if (!Array.isArray(record.value.series) || record.value.series.length === 0) {
-    return invalid("series must be a non-empty array.");
-  }
-  const series = record.value.series.map((item, index) => validateLineSeries(item, index));
-  const failed = series.find((item) => !item.ok);
-  if (failed && !failed.ok) {
-    return failed;
-  }
-  return {
-    ok: true,
-    value: {
-      schemaVersion: 1,
-      title: title.value,
-      subtitle: optionalString(record.value.subtitle),
-      xLabel: optionalString(record.value.xLabel),
-      yLabel: optionalString(record.value.yLabel),
-      series: series.map((item) => (item as { ok: true; value: LineSeries }).value),
-    },
-  };
 }
 
 function validateTable(payload: unknown): ValidationResult<TablePayload> {
@@ -571,85 +376,6 @@ function validateDashboard(payload: unknown): ValidationResult<DashboardPayload>
   };
 }
 
-function validateChartBase(
-  payload: unknown,
-): ValidationResult<BarChartPayload & { data: ChartDatum[] }> {
-  const record = versionedRecord(payload);
-  if (!record.ok) {
-    return record;
-  }
-  const title = nonBlankString(record.value.title, "title");
-  if (!title.ok) {
-    return title;
-  }
-  if (!Array.isArray(record.value.data) || record.value.data.length === 0) {
-    return invalid("data must be a non-empty array.");
-  }
-  const data = record.value.data.map(validateDatum);
-  const failed = data.find((item) => !item.ok);
-  if (failed && !failed.ok) {
-    return failed;
-  }
-  return {
-    ok: true,
-    value: {
-      schemaVersion: 1,
-      title: title.value,
-      subtitle: optionalString(record.value.subtitle),
-      xLabel: optionalString(record.value.xLabel),
-      yLabel: optionalString(record.value.yLabel),
-      data: data.map((item) => (item as { ok: true; value: ChartDatum }).value),
-    },
-  };
-}
-
-function validateDatum(value: unknown, index = 0): ValidationResult<ChartDatum> {
-  if (!isRecord(value)) {
-    return invalid(`data.${index} must be an object.`);
-  }
-  const label = nonBlankString(value.label, `data.${index}.label`);
-  if (!label.ok) {
-    return label;
-  }
-  if (typeof value.value !== "number" || !Number.isFinite(value.value)) {
-    return invalid(`data.${index}.value must be a finite number.`);
-  }
-  return {
-    ok: true,
-    value: {
-      label: label.value,
-      value: value.value,
-      color: optionalString(value.color),
-    },
-  };
-}
-
-function validateLineSeries(value: unknown, index: number): ValidationResult<LineSeries> {
-  if (!isRecord(value)) {
-    return invalid(`series.${index} must be an object.`);
-  }
-  const name = nonBlankString(value.name, `series.${index}.name`);
-  if (!name.ok) {
-    return name;
-  }
-  if (!Array.isArray(value.data) || value.data.length === 0) {
-    return invalid(`series.${index}.data must be a non-empty array.`);
-  }
-  const data = value.data.map((datum, datumIndex) => validateDatum(datum, datumIndex));
-  const failed = data.find((item) => !item.ok);
-  if (failed && !failed.ok) {
-    return failed;
-  }
-  return {
-    ok: true,
-    value: {
-      name: name.value,
-      data: data.map((item) => (item as { ok: true; value: ChartDatum }).value),
-      color: optionalString(value.color),
-    },
-  };
-}
-
 function validateColumn(value: unknown, index: number): ValidationResult<TableColumn> {
   if (!isRecord(value)) {
     return invalid(`columns.${index} must be an object.`);
@@ -696,7 +422,9 @@ function validateMetric(value: unknown, index: number): ValidationResult<MetricI
     return invalid(`metrics.${index}.value must be a string or number.`);
   }
   const trend =
-    typeof value.trend === "undefined" ? undefined : enumValue(value.trend, ["up", "down", "neutral"], "trend");
+    typeof value.trend === "undefined"
+      ? undefined
+      : enumValue(value.trend, ["up", "down", "neutral"], "trend");
   if (trend && !trend.ok) {
     return trend;
   }
@@ -724,7 +452,9 @@ function validateDashboardChild(value: unknown, index: number): ValidationResult
     return invalid(`children.${index}.props must be an object.`);
   }
   const width =
-    typeof value.width === "undefined" ? { ok: true as const, value: "full" as const } : enumValue(value.width, ["full", "half", "third"], "child width");
+    typeof value.width === "undefined"
+      ? { ok: true as const, value: "full" as const }
+      : enumValue(value.width, ["full", "half", "third"], "child width");
   if (!width.ok) {
     return width;
   }
@@ -803,30 +533,3 @@ function formatCell(value: JsonValue | undefined): string {
   }
   return String(value as JsonScalar);
 }
-
-function axisLabel(value: string | undefined, position: "bottom" | "left") {
-  if (!value) {
-    return undefined;
-  }
-  return position === "bottom"
-    ? { value, position: "insideBottom", offset: -8, fill: "#c9c0af" }
-    : { value, angle: -90, position: "insideLeft", fill: "#c9c0af" };
-}
-
-function lineRows(series: LineSeries[]): Array<Record<string, string | number | undefined>> {
-  const labels = [...new Set(series.flatMap((item) => item.data.map((datum) => datum.label)))];
-  return labels.map((label) => {
-    const row: Record<string, string | number | undefined> = { label };
-    for (const item of series) {
-      row[item.name] = item.data.find((datum) => datum.label === label)?.value;
-    }
-    return row;
-  });
-}
-
-const tooltipStyle = {
-  background: "#24241f",
-  border: "1px solid #55584f",
-  borderRadius: "5px",
-  color: "#f3efe5",
-};

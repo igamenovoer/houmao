@@ -52,13 +52,13 @@ curl \
       {
         "type": "TOOL_CALL_START",
         "toolCallId": "tool-1",
-        "toolCallName": "houmao.chart.bar",
+        "toolCallName": "houmao.graphic.template",
         "parentMessageId": "message-1"
       },
       {
         "type": "TOOL_CALL_ARGS",
         "toolCallId": "tool-1",
-        "delta": "{\"schemaVersion\":1,\"title\":\"Build Results\",\"data\":[{\"label\":\"Passed\",\"value\":42}]}"
+        "delta": "{\"schemaVersion\":2,\"chartType\":\"bar\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Build Results\",\"traces\":[{\"name\":\"Jobs\",\"x\":[\"passed\"],\"y\":[42]}]}"
       },
       { "type": "TOOL_CALL_END", "toolCallId": "tool-1" }
     ]
@@ -118,48 +118,81 @@ The AG-UI mapper recognizes graphics only from explicit structured canonical `ac
 
 ## Typed Component Contract
 
-Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. The legacy fixed chart names `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` are retired and must be rewritten as `houmao.graphic.template` payloads.
 
 Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
 
 ### Layer 1 Template Graphics
 
-`houmao.graphic.template` is the standardized Layer 1 chart object. The agent fills a renderer-neutral JSON payload with `schemaVersion`, `chartType`, `renderer`, `title`, optional `subtitle`, inline `data.values`, `encoding`, optional `interactions`, optional `style`, and optional renderer-scoped `extra`. The initial chart types are `bar`, `line`, `scatter`, `area`, and `pie`.
+`houmao.graphic.template` is the standardized Layer 1 chart object. Schema version `2` is Plotly-backed and supports exactly these `chartType` values: `bar`, `line`, `scatter`, `pie`, and `histogram`. Agents describe charts with curated `traces`, optional `layout`, optional `config`, optional `display`, optional datasource-binding declarations, and optional renderer-scoped `extra.plotly` refinements.
 
-The `renderer` field is a preference, not a raw backend contract. The GUI tries `renderer.preferred`, then `renderer.fallback`, then its own defaults. The current workbench supports `vega-lite` and `recharts`, and the current default is `vega-lite`. A backend can ignore `extra` blocks it does not understand.
+The only Layer 1 renderer id is `plotly`. Agents may omit `renderer`, in which case validation defaults it to `{ "preferred": "plotly" }`. If `renderer` is present, `renderer.preferred` must be `plotly`; legacy `renderer.fallback` is rejected.
 
-`extra` is only for small backend-specific knobs that do not replace the standardized chart object. For `extra.vega-lite`, Layer 1 allows top-level `axis`, `config`, `height`, `legend`, `mark`, `view`, and `width`. It rejects raw Vega-Lite spec replacement keys such as `data`, `datasets`, `encoding`, `transform`, `layer`, `facet`, `concat`, `params`, `repeat`, and `spec`. This means Layer 1 can use Vega-Lite as a renderer backend, but it is not the raw Vega-Lite DSL. Raw Vega-Lite or Vega specs belong to the planned Layer 2 DSL graphics capability.
+`extra.plotly` is only for small presentation refinements that do not replace the standardized chart object. It accepts allowlisted `layout`, `config`, `marker`, `line`, and `display` refinements. It rejects raw backend replacement fields such as raw `data`, raw `traces`, full replacement specs, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, and Vega-Lite or Vega fields. Layer 1 is not a raw Plotly JSON, Vega-Lite, Vega, HTML, or JavaScript escape hatch.
 
 Minimal template graphic payload:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "chartType": "bar",
   "renderer": {
-    "preferred": "vega-lite",
-    "fallback": ["recharts"]
+    "preferred": "plotly"
   },
   "title": "Build Results",
-  "data": {
-    "values": [
-      { "status": "passed", "count": 42 },
-      { "status": "failed", "count": 2 }
-    ]
+  "traces": [
+    {
+      "name": "Jobs",
+      "x": ["passed", "failed"],
+      "y": [42, 2],
+      "marker": { "color": ["#1f7a4d", "#c2410c"] },
+      "hovertemplate": "%{x}: %{y}<extra></extra>"
+    }
+  ],
+  "layout": {
+    "xaxis": { "title": "Status" },
+    "yaxis": { "title": "Count" },
+    "showLegend": false,
+    "bargap": 0.28
   },
-  "encoding": {
-    "x": { "field": "status", "type": "nominal", "title": "Status" },
-    "y": { "field": "count", "type": "quantitative", "title": "Count" },
-    "tooltip": true
-  },
-  "interactions": { "tooltip": true, "legend": true },
   "extra": {
-    "vega-lite": {
-      "config": { "axis": { "labelFontSize": 12 } }
+    "plotly": {
+      "layout": { "margin": { "l": 48, "r": 16, "t": 48, "b": 44 } }
     }
   }
 }
 ```
+
+Datasource-bound payloads are contract vocabulary only in this round. They validate and advertise requested columns, but the workbench does not materialize datasource rows yet. A GUI that receives datasource-bound traces should show a diagnostic instead of a blank chart:
+
+```json
+{
+  "schemaVersion": 2,
+  "chartType": "bar",
+  "title": "Build Results",
+  "dataRefs": [
+    {
+      "id": "buildRows",
+      "columns": [
+        { "name": "status", "type": "string" },
+        { "name": "count", "type": "number" }
+      ]
+    }
+  ],
+  "traces": [
+    {
+      "type": "bar",
+      "source": {
+        "dataRef": "buildRows",
+        "x": { "column": "status" },
+        "y": { "column": "count" }
+      }
+    }
+  ]
+}
+```
+
+Migration note: previous experimental schema version `1` template payloads using `data.values`, `encoding`, `interactions`, or `style`, and legacy fixed `houmao.chart.*` payloads, are no longer supported. Rewrite them as schema version `2` `houmao.graphic.template` payloads with `traces`.
 
 Agents should generate template graphic events through the authoring helpers:
 
@@ -194,7 +227,7 @@ scripts/demo/ag-ui-browser-smoke/run_smoke.sh
 
 This browser smoke uses a deterministic AG-UI graphics stream and verifies visible renderer evidence. It stays outside `pixi run test`.
 
-The real-agent GUI graphics smoke validates the operator-facing workbench path against an existing managed test agent. It restarts the selected agent, selects it through passive-server discovery, connects the workbench pane, submits a nonce-labeled prompt through the GUI, and requires the agent to publish a visible `houmao.graphic.template` Vega-Lite chart. The prompt requests a nonce-labeled text marker too, but that marker is diagnostic rather than required for TUI-backed agents:
+The real-agent GUI graphics smoke validates the operator-facing workbench path against an existing managed test agent. It restarts the selected agent, selects it through passive-server discovery, connects the workbench pane, submits a nonce-labeled prompt through the GUI, and requires the agent to publish a visible Plotly-backed `houmao.graphic.template` chart. The prompt requests a nonce-labeled text marker too, but that marker is diagnostic rather than required for TUI-backed agents:
 
 ```bash
 HMWB_REAL_AGENT_SMOKE=1 \

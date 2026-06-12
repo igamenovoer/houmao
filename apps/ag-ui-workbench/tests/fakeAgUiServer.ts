@@ -439,16 +439,14 @@ export class FakeAgUiServer {
               },
             },
             {
-              component: "houmao.chart.bar",
+              component: "houmao.graphic.template",
               width: "half",
               props: {
-                schemaVersion: 1,
+                schemaVersion: 2,
+                chartType: "bar",
+                renderer: { preferred: "plotly" },
                 title: "Alpha Counts",
-                data: [
-                  { label: "Done", value: 18 },
-                  { label: "Review", value: 4 },
-                  { label: "Blocked", value: 1 },
-                ],
+                traces: [{ type: "bar", x: ["Done", "Review", "Blocked"], y: [18, 4, 1] }],
               },
             },
             {
@@ -481,31 +479,23 @@ export class FakeAgUiServer {
         type: "TOOL_CALL_ARGS",
         toolCallId: "alpha-template-graphic-tool",
         delta: JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: 2,
           chartType: "bar",
-          renderer: {
-            preferred: "vega-lite",
-            fallback: ["recharts"],
-          },
+          renderer: { preferred: "plotly" },
           title: "Alpha Template Graphic",
           subtitle: "Layer 1 standardized JSON",
-          data: {
-            values: [
-              { status: "Done", count: 18 },
-              { status: "Review", count: 4 },
-              { status: "Blocked", count: 1 },
-            ],
-          },
-          encoding: {
-            x: { field: "status", type: "nominal", title: "Status" },
-            y: { field: "count", type: "quantitative", title: "Count" },
-            tooltip: true,
-          },
-          interactions: { tooltip: true, legend: true },
+          traces: [
+            {
+              type: "bar",
+              x: ["Done", "Review", "Blocked"],
+              y: [18, 4, 1],
+              marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
+            },
+          ],
+          layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },
           extra: {
-            "vega-lite": {
-              config: { axis: { labelFontSize: 12 } },
-              mark: { cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
+            plotly: {
+              layout: { margin: { l: 48, r: 16, t: 20, b: 44 } },
             },
           },
         }),
@@ -531,16 +521,16 @@ export class FakeAgUiServer {
       writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-graphic-tool" });
       writeSse(res, {
         type: "TOOL_CALL_START",
-        toolCallId: "beta-invalid-chart",
-        toolCallName: "houmao.chart.bar",
+        toolCallId: "beta-invalid-template",
+        toolCallName: "houmao.graphic.template",
         parentMessageId: messageId,
       });
       writeSse(res, {
         type: "TOOL_CALL_ARGS",
-        toolCallId: "beta-invalid-chart",
-        delta: JSON.stringify({ schemaVersion: 1, title: "Broken Chart", data: [] }),
+        toolCallId: "beta-invalid-template",
+        delta: JSON.stringify({ schemaVersion: 2, chartType: "bar", title: "Broken Template" }),
       });
-      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-invalid-chart" });
+      writeSse(res, { type: "TOOL_CALL_END", toolCallId: "beta-invalid-template" });
       writeSse(res, {
         type: "TOOL_CALL_START",
         toolCallId: "beta-unknown-component",
@@ -607,7 +597,6 @@ function capabilities(target: string): unknown {
         items: [
           { name: "houmao_render_graphic" },
           { name: "houmao.graphic.template" },
-          { name: "houmao.chart.bar" },
           { name: "houmao.table" },
           { name: "houmao.metric_grid" },
           { name: "houmao.dashboard" },

@@ -111,15 +111,15 @@ Open a Debug Agent pane first, then copy the visible endpoint or curl command fr
 ```bash
 curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events' \
   -H 'content-type: application/json' \
-  --data '{"threadId":"debug-agent-1-thread","events":[{"type":"TOOL_CALL_START","toolCallId":"bar-1","toolCallName":"houmao.chart.bar","parentMessageId":"debug-message"},{"type":"TOOL_CALL_ARGS","toolCallId":"bar-1","delta":"{\"schemaVersion\":1,\"title\":\"Curl Bar Chart\",\"data\":[{\"label\":\"A\",\"value\":8},{\"label\":\"B\",\"value\":13}]}"},{"type":"TOOL_CALL_END","toolCallId":"bar-1"}]}'
+  --data '{"threadId":"debug-agent-1-thread","events":[{"type":"TOOL_CALL_START","toolCallId":"bar-1","toolCallName":"houmao.graphic.template","parentMessageId":"debug-message"},{"type":"TOOL_CALL_ARGS","toolCallId":"bar-1","delta":"{\"schemaVersion\":2,\"chartType\":\"bar\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Curl Bar Chart\",\"traces\":[{\"x\":[\"A\",\"B\"],\"y\":[8,13]}]}"},{"type":"TOOL_CALL_END","toolCallId":"bar-1"}]}'
 ```
 
 The typed component convenience route validates application-layer payloads and wraps them into standard `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END` events before publishing:
 
 ```bash
-curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/components/houmao.chart.bar' \
+curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/components/houmao.graphic.template' \
   -H 'content-type: application/json' \
-  --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":1,"title":"Curl Component Bar","data":[{"label":"North","value":42},{"label":"South","value":28}]}}'
+  --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":2,"chartType":"bar","renderer":{"preferred":"plotly"},"title":"Curl Component Bar","traces":[{"x":["North","South"],"y":[42,28]}]}}'
 ```
 
 Replay is enabled by default for lab-only debug use. If a valid batch is posted before the display connects, the relay stores it in a bounded per-thread buffer and later replays it to the matching display connection. Publish responses identify this as `replay: "debug_thread_buffer"` and report `storedCount`. This intentionally differs from the live gateway. To reproduce gateway-like live-only behavior, turn off the pane replay checkbox or include `"replay": false`; the response reports `replay: "none"`, `storedCount: 0`, and a later display connection will not receive the earlier batch.
@@ -134,7 +134,7 @@ Troubleshooting checks:
 ## Presentation Sessions
 
 The local server owns a minimal presentation-session registry at `/__houmao_workbench/presentation-sessions`. The first implementation stores only session ids, optional pane ids, renderer-neutral kind labels, safe scalar metadata, and lifecycle diagnostics. It does not store large datasource rows in browser state and does not control Houmao agent lifecycle when sessions are created, disposed, or cleared.
-- Unknown component: use one of `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard`.
+- Unknown component: use one of `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard`.
 
 ## Lifecycle Boundary
 
@@ -154,14 +154,14 @@ Houmao typed components are application-layer payloads carried over standard AG-
 
 The renderer registry recognizes these Houmao component names:
 
-- `houmao.chart.bar`
-- `houmao.chart.line`
-- `houmao.chart.pie`
+- `houmao.graphic.template`
 - `houmao.table`
 - `houmao.metric_grid`
 - `houmao.dashboard`
 
-Charts render through Recharts. Tables, metric grids, and dashboards render as React components with typed payload validation. The compatibility `houmao_render_graphic` path remains available for sanitized SVG graphics. Unknown Houmao component names and invalid payloads render explicit fallback records, and the raw tool-call arguments remain visible in diagnostics. Typed component renderers do not inject raw HTML or raw SVG.
+Template graphics render through Plotly using schema version `2` `houmao.graphic.template` payloads. Tables, metric grids, and dashboards render as React components with typed payload validation. The compatibility `houmao_render_graphic` path remains available for sanitized SVG graphics. Unknown Houmao component names and invalid payloads render explicit fallback records, and the raw tool-call arguments remain visible in diagnostics. Typed component renderers do not inject raw HTML or raw SVG.
+
+Legacy `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, and experimental schema version `1` template payloads are retired. Rewrite those payloads as schema version `2` `houmao.graphic.template` payloads with curated Plotly-backed `traces`.
 
 ## Live Kimi Code Headless Check
 
@@ -173,7 +173,7 @@ The deterministic Playwright fake-server smoke remains the required automated te
 
 ## Real-Agent GUI Graphics Smoke
 
-The maintained real-agent GUI smoke lives at `scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh`. It relaunches one existing managed test agent, selects it through the workbench agent picker, connects the pane, submits a nonce-labeled prompt through the GUI, and waits for a rendered `houmao.graphic.template` Vega-Lite chart. It records the optional nonce-labeled text marker when present, but the chart is the pass condition.
+The maintained real-agent GUI smoke lives at `scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh`. It relaunches one existing managed test agent, selects it through the workbench agent picker, connects the pane, submits a nonce-labeled prompt through the GUI, and waits for a rendered Plotly-backed `houmao.graphic.template` chart. It records the optional nonce-labeled text marker when present, but the chart is the pass condition.
 
 Run from the repository root:
 

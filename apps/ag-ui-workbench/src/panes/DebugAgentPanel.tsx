@@ -30,9 +30,6 @@ import { submitOnShiftEnter } from "./keyboard";
 type SenderMode = "component" | "raw";
 type ComponentName =
   | "houmao.graphic.template"
-  | "houmao.chart.bar"
-  | "houmao.chart.line"
-  | "houmao.chart.pie"
   | "houmao.table"
   | "houmao.metric_grid"
   | "houmao.dashboard";
@@ -48,9 +45,6 @@ interface PublishRequest {
 
 const COMPONENT_NAMES: ComponentName[] = [
   "houmao.graphic.template",
-  "houmao.chart.bar",
-  "houmao.chart.line",
-  "houmao.chart.pie",
   "houmao.table",
   "houmao.metric_grid",
   "houmao.dashboard",
@@ -58,70 +52,25 @@ const COMPONENT_NAMES: ComponentName[] = [
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
   "houmao.graphic.template": {
-    schemaVersion: 1,
+    schemaVersion: 2,
     chartType: "bar",
-    renderer: {
-      preferred: "vega-lite",
-      fallback: ["recharts"],
-    },
+    renderer: { preferred: "plotly" },
     title: "Debug Agent Template Graphic",
-    subtitle: "Standardized Layer 1 JSON rendered through Vega-Lite",
-    data: {
-      values: [
-        { status: "Ready", count: 18 },
-        { status: "Review", count: 7 },
-        { status: "Blocked", count: 2 },
-      ],
-    },
-    encoding: {
-      x: { field: "status", type: "nominal", title: "Status" },
-      y: { field: "count", type: "quantitative", title: "Count" },
-      tooltip: true,
-    },
-    interactions: { tooltip: true, legend: true },
-    extra: {
-      "vega-lite": {
-        config: { axis: { labelFontSize: 12 } },
-        mark: { cornerRadiusTopLeft: 3, cornerRadiusTopRight: 3 },
-      },
-    },
-  },
-  "houmao.chart.bar": {
-    schemaVersion: 1,
-    title: "Debug Agent Sales",
-    subtitle: "External AG-UI post rendered through the normal display path",
-    xLabel: "Region",
-    yLabel: "Units",
-    data: [
-      { label: "North", value: 42, color: "#79a35d" },
-      { label: "South", value: 28, color: "#d3a749" },
-      { label: "West", value: 36, color: "#6aa6b8" },
-    ],
-  },
-  "houmao.chart.line": {
-    schemaVersion: 1,
-    title: "Debug Agent Trend",
-    xLabel: "Step",
-    yLabel: "Score",
-    series: [
+    subtitle: "Standardized Layer 1 JSON rendered through Plotly",
+    traces: [
       {
-        name: "Quality",
-        data: [
-          { label: "T1", value: 72 },
-          { label: "T2", value: 81 },
-          { label: "T3", value: 77 },
-        ],
+        type: "bar",
+        x: ["Ready", "Review", "Blocked"],
+        y: [18, 7, 2],
+        marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
       },
     ],
-  },
-  "houmao.chart.pie": {
-    schemaVersion: 1,
-    title: "Debug Agent Split",
-    data: [
-      { label: "Ready", value: 58 },
-      { label: "Queued", value: 23 },
-      { label: "Blocked", value: 6 },
-    ],
+    layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },
+    extra: {
+      plotly: {
+        layout: { margin: { l: 48, r: 16, t: 20, b: 44 } },
+      },
+    },
   },
   "houmao.table": {
     schemaVersion: 1,
@@ -160,15 +109,14 @@ const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
         },
       },
       {
-        component: "houmao.chart.bar",
+        component: "houmao.graphic.template",
         width: "half",
         props: {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          chartType: "bar",
+          renderer: { preferred: "plotly" },
           title: "Dashboard Bars",
-          data: [
-            { label: "A", value: 18 },
-            { label: "B", value: 31 },
-          ],
+          traces: [{ type: "bar", x: ["A", "B"], y: [18, 31] }],
         },
       },
       {
@@ -203,8 +151,8 @@ export function DebugAgentPanel(props: IDockviewPanelProps<PanelParams>) {
   const [eventState, setEventState] = useState(initialPaneEventState);
   const [panelStatus, setPanelStatus] = useState(eventState.status);
   const [mode, setMode] = useState<SenderMode>("component");
-  const [componentName, setComponentName] = useState<ComponentName>("houmao.chart.bar");
-  const [editor, setEditor] = useState(() => formatJson(COMPONENT_TEMPLATES["houmao.chart.bar"]));
+  const [componentName, setComponentName] = useState<ComponentName>("houmao.graphic.template");
+  const [editor, setEditor] = useState(() => formatJson(COMPONENT_TEMPLATES["houmao.graphic.template"]));
   const [publishResponse, setPublishResponse] = useState<unknown>({
     status: "idle",
     detail: "No message has been sent.",
@@ -619,13 +567,13 @@ function rawEventBatch(threadId: string): Record<string, unknown> {
       {
         type: "TOOL_CALL_START",
         toolCallId: "debug-raw-bar",
-        toolCallName: "houmao.chart.bar",
+        toolCallName: "houmao.graphic.template",
         parentMessageId: "debug-raw-message",
       },
       {
         type: "TOOL_CALL_ARGS",
         toolCallId: "debug-raw-bar",
-        delta: JSON.stringify(COMPONENT_TEMPLATES["houmao.chart.bar"]),
+        delta: JSON.stringify(COMPONENT_TEMPLATES["houmao.graphic.template"]),
       },
       {
         type: "TOOL_CALL_END",

@@ -39,7 +39,7 @@ The smoke fails unless the workbench:
 - connects the pane before prompting,
 - submits the prompt through the GUI composer and run button,
 - renders `Real Agent Template Graphic Smoke <nonce>`, and
-- shows visible SVG output inside the Vega-Lite template chart container.
+- shows visible SVG output inside the Plotly template chart container.
 
 The prompt asks for `AG_UI_TEMPLATE_GRAPHIC_SMOKE_DONE <nonce>` and the smoke records whether it appears, but that text marker is diagnostic. Some TUI-backed agents publish the GUI event correctly without mapping a final text reply into the AG-UI transcript before the smoke timeout.
 

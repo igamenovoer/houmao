@@ -9,7 +9,6 @@ import type {
   TranscriptMessage,
 } from "../ag-ui/reducer";
 import type { RawTimelineEntry } from "../ag-ui/types";
-import type { TemplateGraphicBackendOverride } from "../storage";
 
 type DiagnosticsMode = "message" | "global";
 
@@ -28,7 +27,6 @@ interface AgUiDisplaySurfaceProps {
   latestErrors: string[];
   transcriptSurfaceRef?: RefObject<HTMLElement | null>;
   diagnosticsMode?: DiagnosticsMode;
-  templateGraphicBackend?: TemplateGraphicBackendOverride;
 }
 
 export function AgUiDisplaySurface({
@@ -37,7 +35,6 @@ export function AgUiDisplaySurface({
   latestErrors,
   transcriptSurfaceRef,
   diagnosticsMode = "message",
-  templateGraphicBackend = "auto",
 }: AgUiDisplaySurfaceProps) {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const selectedMessage = useMemo(
@@ -103,7 +100,6 @@ export function AgUiDisplaySurface({
               key={toolCall.id}
               toolCall={toolCall}
               paneId={paneId}
-              templateGraphicBackend={templateGraphicBackend}
             />
           ))}
         </section>

@@ -71,12 +71,30 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     }
     template_graphics = capabilities["custom"]["houmao"]["presentation"]["templateGraphics"]
     assert template_graphics["toolName"] == "houmao.graphic.template"
-    assert template_graphics["schemaVersion"] == 1
-    assert template_graphics["chartTypes"] == ["bar", "line", "scatter", "area", "pie"]
-    assert template_graphics["renderers"] == ["recharts", "vega-lite"]
-    assert template_graphics["defaultRenderer"] == "vega-lite"
+    assert template_graphics["schemaVersion"] == 2
+    assert template_graphics["chartTypes"] == ["bar", "line", "scatter", "pie", "histogram"]
+    assert template_graphics["renderers"] == ["plotly"]
+    assert template_graphics["defaultRenderer"] == "plotly"
     assert template_graphics["extraPolicy"]["rendererScoped"] is True
     assert template_graphics["extraPolicy"]["requiredForRendering"] is False
+    assert template_graphics["extraPolicy"]["supportedRendererKeys"] == ["plotly"]
+    assert template_graphics["datasourceBindings"] == {
+        "vocabularySupported": True,
+        "materializationSupported": False,
+        "declaredThrough": ["dataRefs", "traces[].source"],
+        "channels": [
+            "x",
+            "y",
+            "z",
+            "labels",
+            "values",
+            "text",
+            "marker.color",
+            "marker.size",
+        ],
+        "limits": {"materializedRows": None, "rowUpdateModes": [], "refresh": False},
+    }
+    assert template_graphics["rawPlotlyDsl"] is False
     assert template_graphics["rawVegaLiteDsl"] is False
 
     houmao = dumped["houmao"]
@@ -129,7 +147,7 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
     )
     assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["templateGraphics"][
         "renderers"
-    ] == ["recharts", "vega-lite"]
+    ] == ["plotly"]
 
 
 def test_state_snapshot_includes_connection_and_compact_gateway_status() -> None:

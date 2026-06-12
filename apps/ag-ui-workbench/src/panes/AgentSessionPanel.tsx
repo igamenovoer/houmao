@@ -8,7 +8,6 @@ import { watchedTargetKey } from "../ag-ui/watchedTargets";
 import type { WorkbenchRuntimeAction } from "../runtime/actions";
 import { useRuntimeDispatch, useRuntimeSelector } from "../runtime/react";
 import { gatewayKeyForTarget, selectPaneActiveThreadView, selectPaneAgUiRuntime } from "../runtime/selectors";
-import { defaultPanePresentationConfig, type TemplateGraphicBackendOverride } from "../storage";
 import { paneRecordOrDefault, useWorkbench } from "../workbenchContext";
 import { AgUiDisplaySurface } from "./AgUiDisplaySurface";
 import { CapabilityBadges } from "./CapabilityBadges";
@@ -25,7 +24,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     storage,
     watchedTargetRuntimes,
     updateTarget,
-    updatePanePresentation,
     removePaneRecord,
     setOperatorPaneId,
     watchTarget,
@@ -36,7 +34,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId, kind } = props.params;
   const record = paneRecordOrDefault(storage, paneId, kind);
   const target = record.target;
-  const presentation = record.presentation ?? defaultPanePresentationConfig();
   const runtimeDispatch = useRuntimeDispatch();
   const resetTokenRef = useRef(record.resetToken ?? 0);
   const displaySurfaceRef = useRef<HTMLElement | null>(null);
@@ -253,13 +250,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
     });
   };
 
-  const setTemplateGraphicBackend = (templateGraphicBackend: TemplateGraphicBackendOverride) => {
-    updatePanePresentation(paneId, {
-      ...presentation,
-      templateGraphicBackend,
-    });
-  };
-
   const visibleStatus =
     watchedRuntime?.status ?? (paneRuntime?.status === "empty" ? displayEventState.status : paneRuntime?.status ?? "empty");
   const isDiscoveredAgent = target.source?.kind === "discovered";
@@ -345,20 +335,10 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         onChooseAgent={() => openAgentPicker({ mode: "retarget", paneId })}
       />
       <CapabilityBadges capabilities={capabilities} />
-      <label className="template-renderer-control">
+      <div className="template-renderer-control" data-testid={`template-renderer-${paneId}`}>
         <span>Template Renderer</span>
-        <select
-          data-testid={`template-renderer-${paneId}`}
-          value={presentation.templateGraphicBackend}
-          onChange={(event) =>
-            setTemplateGraphicBackend(event.target.value as TemplateGraphicBackendOverride)
-          }
-        >
-          <option value="auto">Auto</option>
-          <option value="vega-lite">Vega-Lite</option>
-          <option value="recharts">Recharts</option>
-        </select>
-      </label>
+        <strong>Plotly</strong>
+      </div>
       {targetWatchKey && watchedRecord ? (
         <div className="watch-strip" data-testid={`watch-strip-${paneId}`}>
           <span>Watched</span>
@@ -386,7 +366,6 @@ export function AgentSessionPanel(props: IDockviewPanelProps<PanelParams>) {
         latestErrors={latestErrors}
         transcriptSurfaceRef={displaySurfaceRef}
         diagnosticsMode="message"
-        templateGraphicBackend={presentation.templateGraphicBackend}
       />
       <button className="danger-link" title="Remove pane" onClick={() => void closePane()}>
         <Trash2 size={13} />

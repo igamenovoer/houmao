@@ -1,136 +1,132 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import vegaEmbed, { type Result as VegaEmbedResult, type VisualizationSpec } from "vega-embed";
-
-import type { TemplateGraphicBackendOverride } from "../storage";
-import type { JsonObject, JsonScalar, JsonValue } from "./types";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import PlotlyBundle from "plotly.js-cartesian-dist-min";
 
 export interface TemplateRendererContext {
   paneId: string;
   toolCallId: string;
-  templateGraphicBackend?: TemplateGraphicBackendOverride;
 }
 
-type ChartType = "bar" | "line" | "scatter" | "area" | "pie";
-type FieldType = "nominal" | "ordinal" | "quantitative" | "temporal" | "boolean";
-type RendererId = "recharts" | "vega-lite";
+type ChartType = "bar" | "line" | "scatter" | "pie" | "histogram";
+type TraceType = "bar" | "scatter" | "pie" | "histogram";
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
-type DataRow = Record<string, JsonValue>;
-type TemplateRenderer = (payload: TemplateGraphicPayload, context: TemplateRendererContext) => ReactNode;
+type PlainObject = Record<string, unknown>;
+type TraceArray = Array<string | number | boolean | null>;
+type PlotlyTrace = PlainObject;
+type PlotlyLayout = PlainObject;
+type PlotlyConfig = PlainObject;
+
+interface PlotlyApi {
+  react: (
+    element: HTMLElement,
+    data: PlotlyTrace[],
+    layout: PlotlyLayout,
+    config: PlotlyConfig,
+  ) => Promise<unknown>;
+  purge: (element: HTMLElement) => void;
+}
 
 interface RendererSelection {
-  preferred: string;
-  fallback: string[];
+  preferred: "plotly";
 }
 
-interface TemplateGraphicData {
-  values: DataRow[];
+interface DataRef {
+  id: string;
 }
 
-interface TemplateGraphicChannel {
-  field: string;
-  type: FieldType;
-  title?: string;
-  aggregate?: "count" | "sum" | "mean" | "median" | "min" | "max";
-  sort?: "ascending" | "descending";
+interface ColumnBinding {
+  column: string;
 }
 
-interface TemplateGraphicEncoding {
-  x?: TemplateGraphicChannel;
-  y?: TemplateGraphicChannel;
-  color?: TemplateGraphicChannel;
-  size?: TemplateGraphicChannel;
-  theta?: TemplateGraphicChannel;
-  tooltip: boolean | TemplateGraphicChannel[];
+interface MarkerSource {
+  color?: ColumnBinding;
+  size?: ColumnBinding;
 }
 
-interface TemplateGraphicInteractions {
-  tooltip: boolean;
-  legend: boolean;
+interface TraceSource {
+  dataRef: string;
+  x?: ColumnBinding;
+  y?: ColumnBinding;
+  z?: ColumnBinding;
+  labels?: ColumnBinding;
+  values?: ColumnBinding;
+  text?: ColumnBinding;
+  marker?: MarkerSource;
 }
 
-interface TemplateGraphicStyle {
-  colorScheme?: string;
-  width?: number;
-  height?: number;
+interface TemplateTrace {
+  type?: TraceType;
+  name?: string;
+  x?: TraceArray;
+  y?: TraceArray;
+  z?: TraceArray;
+  labels?: TraceArray;
+  values?: number[];
+  text?: string | TraceArray;
+  hovertemplate?: string;
+  mode?: string;
+  orientation?: "v" | "h";
+  marker?: PlainObject;
+  line?: PlainObject;
+  source?: TraceSource;
+  opacity?: number;
+  showLegend?: boolean;
 }
 
-interface TemplateGraphicPayload {
-  schemaVersion: 1;
+interface TemplatePayload {
+  schemaVersion: 2;
   chartType: ChartType;
   renderer: RendererSelection;
   title: string;
   subtitle?: string;
-  data: TemplateGraphicData;
-  encoding: TemplateGraphicEncoding;
-  interactions: TemplateGraphicInteractions;
-  style?: TemplateGraphicStyle;
-  extra: Record<string, JsonObject>;
+  traces: TemplateTrace[];
+  dataRefs?: DataRef[];
+  layout?: PlainObject;
+  config: PlainObject;
+  display?: PlainObject;
+  extra?: { plotly?: PlainObject };
 }
 
-const CHART_TYPES: readonly ChartType[] = ["bar", "line", "scatter", "area", "pie"];
-const FIELD_TYPES: readonly FieldType[] = ["nominal", "ordinal", "quantitative", "temporal", "boolean"];
-const RENDERERS: readonly RendererId[] = ["vega-lite", "recharts"];
-const TEMPLATE_COLORS = ["#79a35d", "#d3a749", "#6aa6b8", "#c86f5a", "#9a82c8", "#d88a42"];
+interface CompiledFigure {
+  data: PlotlyTrace[];
+  layout: PlotlyLayout;
+  config: PlotlyConfig;
+}
+
+const Plotly = PlotlyBundle as PlotlyApi;
+const CHART_TYPES: readonly ChartType[] = ["bar", "line", "scatter", "pie", "histogram"];
+const TRACE_TYPES_BY_CHART: Record<ChartType, readonly TraceType[]> = {
+  bar: ["bar"],
+  line: ["scatter"],
+  scatter: ["scatter"],
+  pie: ["pie"],
+  histogram: ["histogram"],
+};
 const REMOTE_URL_PATTERN = /^https?:\/\//i;
-const VEGA_LITE_EXTRA_ALLOWED_KEYS = new Set(["axis", "config", "height", "legend", "mark", "view", "width"]);
-const VEGA_LITE_EXTRA_DISALLOWED_KEYS = new Set([
+const UNSAFE_TEXT_PATTERNS = [/<\s*script\b/i, /\son[a-z0-9_-]+\s*=/i, /javascript\s*:/i, /<\s*iframe\b/i, /<\s*svg\b/i];
+const PLOTLY_EXTRA_DISALLOWED_KEYS = new Set([
   "$schema",
-  "autosize",
-  "concat",
   "data",
   "datasets",
   "encoding",
-  "facet",
-  "hconcat",
+  "figure",
+  "frames",
+  "html",
+  "iframe",
+  "javascript",
   "layer",
   "params",
-  "projection",
-  "repeat",
-  "resolve",
+  "script",
   "signals",
   "spec",
+  "svg",
+  "template",
+  "templates",
   "transform",
-  "usermeta",
-  "vconcat",
+  "transforms",
+  "traces",
+  "vega",
+  "vegaLite",
 ]);
-
-const TEMPLATE_RENDERERS: Record<RendererId, { supports: (payload: TemplateGraphicPayload) => boolean; render: TemplateRenderer }> = {
-  "vega-lite": {
-    supports: () => true,
-    render: renderVegaLiteTemplate,
-  },
-  recharts: {
-    supports: supportsRechartsTemplate,
-    render: renderRechartsTemplate,
-  },
-};
 
 export function renderTemplateGraphic(payload: unknown, context: TemplateRendererContext): ReactNode {
   const validated = validateTemplatePayload(payload);
@@ -144,219 +140,57 @@ export function renderTemplateGraphic(payload: unknown, context: TemplateRendere
       />
     );
   }
-  const selection = selectRenderer(validated.value, context.templateGraphicBackend ?? "auto");
-  if (!selection.rendererId) {
+  const datasourceDiagnostic = datasourceBindingDiagnostic(validated.value);
+  if (datasourceDiagnostic) {
     return (
       <TemplateFallback
         paneId={context.paneId}
         title={validated.value.title}
-        detail={selection.detail ?? "No supported template graphic renderer is available."}
+        detail={datasourceDiagnostic}
         raw={safeJson(payload)}
       />
     );
   }
-  return <>{TEMPLATE_RENDERERS[selection.rendererId].render(validated.value, context)}</>;
-}
-
-function renderRechartsTemplate(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  switch (payload.chartType) {
-    case "bar":
-      return renderRechartsBar(payload, context);
-    case "line":
-      return renderRechartsLine(payload, context);
-    case "scatter":
-      return renderRechartsScatter(payload, context);
-    case "area":
-      return renderRechartsArea(payload, context);
-    case "pie":
-      return renderRechartsPie(payload, context);
-  }
-}
-
-function renderRechartsBar(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  const x = payload.encoding.x!;
-  const y = payload.encoding.y!;
-  return (
-    <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
-      <div className="component-chart" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={payload.data.values} margin={{ top: 8, right: 18, bottom: 18, left: 4 }}>
-            <CartesianGrid stroke="#44483d" vertical={false} />
-            <XAxis dataKey={x.field} stroke="#c9c0af" label={axisLabel(x.title, "bottom")} />
-            <YAxis stroke="#c9c0af" label={axisLabel(y.title, "left")} />
-            {payload.interactions.tooltip ? <Tooltip contentStyle={tooltipStyle} /> : null}
-            {payload.interactions.legend && payload.encoding.color ? <Legend /> : null}
-            <Bar dataKey={y.field} radius={[3, 3, 0, 0]}>
-              {payload.data.values.map((row, index) => (
-                <Cell
-                  key={`bar-${index}`}
-                  fill={colorForRow(row, payload.encoding.color, index)}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </TemplateFrame>
-  );
-}
-
-function renderRechartsLine(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  const x = payload.encoding.x!;
-  const y = payload.encoding.y!;
-  return (
-    <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
-      <div className="component-chart" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={payload.data.values} margin={{ top: 8, right: 20, bottom: 18, left: 4 }}>
-            <CartesianGrid stroke="#44483d" vertical={false} />
-            <XAxis dataKey={x.field} stroke="#c9c0af" label={axisLabel(x.title, "bottom")} />
-            <YAxis stroke="#c9c0af" label={axisLabel(y.title, "left")} />
-            {payload.interactions.tooltip ? <Tooltip contentStyle={tooltipStyle} /> : null}
-            {payload.interactions.legend ? <Legend /> : null}
-            <Line
-              type="monotone"
-              dataKey={y.field}
-              stroke={TEMPLATE_COLORS[0]}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </TemplateFrame>
-  );
-}
-
-function renderRechartsScatter(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  const x = payload.encoding.x!;
-  const y = payload.encoding.y!;
-  return (
-    <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
-      <div className="component-chart" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 8, right: 20, bottom: 18, left: 4 }}>
-            <CartesianGrid stroke="#44483d" />
-            <XAxis dataKey={x.field} stroke="#c9c0af" name={x.title ?? x.field} />
-            <YAxis dataKey={y.field} stroke="#c9c0af" name={y.title ?? y.field} />
-            {payload.interactions.tooltip ? <Tooltip contentStyle={tooltipStyle} /> : null}
-            <Scatter data={payload.data.values} fill={TEMPLATE_COLORS[0]} />
-          </ScatterChart>
-        </ResponsiveContainer>
-      </div>
-    </TemplateFrame>
-  );
-}
-
-function renderRechartsArea(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  const x = payload.encoding.x!;
-  const y = payload.encoding.y!;
-  return (
-    <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
-      <div className="component-chart" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={payload.data.values} margin={{ top: 8, right: 20, bottom: 18, left: 4 }}>
-            <CartesianGrid stroke="#44483d" vertical={false} />
-            <XAxis dataKey={x.field} stroke="#c9c0af" label={axisLabel(x.title, "bottom")} />
-            <YAxis stroke="#c9c0af" label={axisLabel(y.title, "left")} />
-            {payload.interactions.tooltip ? <Tooltip contentStyle={tooltipStyle} /> : null}
-            <Area
-              type="monotone"
-              dataKey={y.field}
-              stroke={TEMPLATE_COLORS[0]}
-              fill={TEMPLATE_COLORS[0]}
-              fillOpacity={0.28}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </TemplateFrame>
-  );
-}
-
-function renderRechartsPie(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  const color = payload.encoding.color!;
-  const theta = payload.encoding.theta!;
-  const data = payload.data.values.map((row, index) => ({
-    label: formatValue(row[color.field]),
-    value: numberValue(row[theta.field]),
-    color: colorForRow(row, color, index),
-  }));
-  return (
-    <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
-      <div className="component-chart component-chart-pie" data-testid={`component-chart-${context.paneId}`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            {payload.interactions.tooltip ? <Tooltip contentStyle={tooltipStyle} /> : null}
-            {payload.interactions.legend ? <Legend /> : null}
-            <Pie data={data} dataKey="value" nameKey="label" outerRadius="78%" label>
-              {data.map((row, index) => (
-                <Cell key={`${row.label}-${index}`} fill={row.color} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-    </TemplateFrame>
-  );
-}
-
-function renderVegaLiteTemplate(payload: TemplateGraphicPayload, context: TemplateRendererContext): ReactNode {
-  return (
-    <TemplateFrame paneId={context.paneId} title={payload.title} subtitle={payload.subtitle}>
-      <VegaLiteTemplateView
+  const compiled = compileTemplatePayload(validated.value);
+  if (!compiled.ok) {
+    return (
+      <TemplateFallback
         paneId={context.paneId}
-        payload={payload}
+        title={validated.value.title}
+        detail={compiled.error}
+        raw={safeJson(payload)}
       />
+    );
+  }
+  return (
+    <TemplateFrame paneId={context.paneId} title={validated.value.title} subtitle={validated.value.subtitle}>
+      <PlotlyTemplateView paneId={context.paneId} figure={compiled.value} />
     </TemplateFrame>
   );
 }
 
-function VegaLiteTemplateView({
-  paneId,
-  payload,
-}: {
-  paneId: string;
-  payload: TemplateGraphicPayload;
-}) {
+function PlotlyTemplateView({ paneId, figure }: { paneId: string; figure: CompiledFigure }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const containerSize = useElementSize(containerRef);
-  const specText = useMemo(
-    () => JSON.stringify(templatePayloadToVegaLiteSpec(payload, containerSize)),
-    [containerSize.height, containerSize.width, payload],
-  );
+  const figureKey = useMemo(() => JSON.stringify(figure), [figure]);
 
   useEffect(() => {
-    let result: VegaEmbedResult | null = null;
-    let cancelled = false;
-    setError(null);
-    if (!containerRef.current || !containerSize.width || !containerSize.height) {
+    const element = containerRef.current;
+    if (!element) {
       return undefined;
     }
-    containerRef.current.replaceChildren();
-    void vegaEmbed(containerRef.current, JSON.parse(specText) as VisualizationSpec, {
-      actions: false,
-      renderer: "svg",
-      tooltip: true,
-    })
-      .then((nextResult) => {
-        if (cancelled) {
-          nextResult.finalize();
-          return;
-        }
-        result = nextResult;
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Vega-Lite render failed.");
-        }
-      });
+    let cancelled = false;
+    setError(null);
+    void Plotly.react(element, figure.data, figure.layout, figure.config).catch((err: unknown) => {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : "Plotly render failed.");
+      }
+    });
     return () => {
       cancelled = true;
-      result?.finalize();
+      Plotly.purge(element);
     };
-  }, [containerSize.height, containerSize.width, specText]);
+  }, [figureKey, figure]);
 
   if (error) {
     return (
@@ -368,636 +202,506 @@ function VegaLiteTemplateView({
   return (
     <div
       ref={containerRef}
-      className="component-chart template-vega-lite-chart"
-      data-testid={`template-chart-vega-lite-${paneId}`}
+      className="component-chart template-plotly-chart"
+      data-testid={`template-chart-plotly-${paneId}`}
     />
   );
 }
 
-function useElementSize(ref: RefObject<HTMLElement | null>): { width: number; height: number } {
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) {
-      return undefined;
+function compileTemplatePayload(payload: TemplatePayload): ValidationResult<CompiledFigure> {
+  const data: PlotlyTrace[] = [];
+  for (const [index, trace] of payload.traces.entries()) {
+    const compiled = compileTrace(trace, payload.chartType, index);
+    if (!compiled.ok) {
+      return compiled;
     }
-    const updateSize = () => {
-      const rect = element.getBoundingClientRect();
-      const width = Math.max(0, Math.floor(rect.width));
-      const height = Math.max(0, Math.floor(rect.height));
-      setSize((current) =>
-        current.width === width && current.height === height ? current : { width, height },
-      );
-    };
-    updateSize();
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref]);
-  return size;
-}
-
-function templatePayloadToVegaLiteSpec(
-  payload: TemplateGraphicPayload,
-  containerSize: { width: number; height: number },
-): VisualizationSpec {
-  const extra = isRecord(payload.extra["vega-lite"]) ? payload.extra["vega-lite"] : {};
-  const markExtra = isRecord(extra.mark) ? extra.mark : {};
-  const configExtra = isRecord(extra.config) ? extra.config : {};
-  const config: JsonObject = { ...configExtra };
-  if (isRecord(extra.axis)) {
-    config.axis = extra.axis;
+    data.push(compiled.value);
   }
-  if (isRecord(extra.legend)) {
-    config.legend = extra.legend;
-  }
-  if (isRecord(extra.view)) {
-    config.view = extra.view;
-  }
-  const spec: JsonObject = {
-    $schema: "https://vega.github.io/schema/vega-lite/v6.json",
-    autosize: { type: "fit", contains: "padding", resize: true },
-    data: { values: payload.data.values },
-    mark: { type: vegaLiteMarkType(payload.chartType), tooltip: payload.interactions.tooltip, ...markExtra },
-    encoding: vegaLiteEncoding(payload),
-    config,
+  return {
+    ok: true,
+    value: {
+      data,
+      layout: compileLayout(payload),
+      config: compileConfig(payload),
+    },
   };
-  const width = numberValue(extra.width) ?? payload.style?.width ?? containerSize.width;
-  const height = numberValue(extra.height) ?? payload.style?.height ?? containerSize.height;
-  if (width) {
-    spec.width = Math.max(120, Math.floor(width));
-  }
-  if (height) {
-    spec.height = Math.max(120, Math.floor(height));
-  }
-  return spec as VisualizationSpec;
 }
 
-function vegaLiteEncoding(payload: TemplateGraphicPayload): JsonObject {
-  const encoding: JsonObject = {};
-  for (const key of ["x", "y", "color", "size", "theta"] as const) {
-    const channel = payload.encoding[key];
-    if (channel) {
-      encoding[key] = vegaLiteChannel(channel);
-    }
-  }
-  if (payload.encoding.tooltip === true) {
-    const channels = [payload.encoding.x, payload.encoding.y, payload.encoding.color, payload.encoding.size, payload.encoding.theta]
-      .filter((item): item is TemplateGraphicChannel => item !== undefined);
-    encoding.tooltip = channels.map(vegaLiteChannel);
-  } else if (Array.isArray(payload.encoding.tooltip)) {
-    encoding.tooltip = payload.encoding.tooltip.map(vegaLiteChannel);
-  }
-  return encoding;
-}
-
-function vegaLiteChannel(channel: TemplateGraphicChannel): JsonObject {
-  const value: JsonObject = {
-    field: channel.field,
-    type: vegaLiteFieldType(channel.type),
+function compileTrace(
+  trace: TemplateTrace,
+  chartType: ChartType,
+  index: number,
+): ValidationResult<PlotlyTrace> {
+  const expectedType = TRACE_TYPES_BY_CHART[chartType][0];
+  const compiled: PlotlyTrace = {
+    type: chartType === "line" ? "scatter" : expectedType,
+    name: trace.name ?? `${chartType} ${index + 1}`,
   };
-  if (channel.title) {
-    value.title = channel.title;
+  copyArray(compiled, trace, "x");
+  copyArray(compiled, trace, "y");
+  copyArray(compiled, trace, "labels");
+  copyNumberArray(compiled, trace, "values");
+  copyString(compiled, trace, "hovertemplate");
+  copyStringOrArray(compiled, trace, "text");
+  copyNumber(compiled, trace, "opacity");
+  copyString(compiled, trace, "orientation");
+  if (typeof trace.showLegend === "boolean") {
+    compiled.showlegend = trace.showLegend;
   }
-  if (channel.aggregate) {
-    value.aggregate = channel.aggregate;
+  const marker = compileMarker(trace.marker);
+  if (!marker.ok) {
+    return invalid(`traces.${index}.${marker.error}`);
   }
-  if (channel.sort) {
-    value.sort = channel.sort;
+  if (marker.value) {
+    compiled.marker = marker.value;
   }
-  return value;
+  const line = compileLine(trace.line);
+  if (!line.ok) {
+    return invalid(`traces.${index}.${line.error}`);
+  }
+  if (line.value) {
+    compiled.line = line.value;
+  }
+  if (chartType === "line") {
+    compiled.mode = trace.mode ?? "lines";
+  } else if (chartType === "scatter") {
+    compiled.mode = trace.mode ?? "markers";
+  } else if (trace.mode) {
+    return invalid(`traces.${index}.mode is only supported for line and scatter charts.`);
+  }
+  return { ok: true, value: compiled };
 }
 
-function vegaLiteFieldType(fieldType: FieldType): string {
-  return fieldType === "boolean" ? "nominal" : fieldType;
+function compileLayout(payload: TemplatePayload): PlotlyLayout {
+  const layout = isRecord(payload.layout) ? payload.layout : {};
+  const extraPlotly = isRecord(payload.extra?.plotly) ? payload.extra.plotly : {};
+  const extraLayout = isRecord(extraPlotly.layout) ? extraPlotly.layout : {};
+  return stripUndefined({
+    autosize: true,
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#f3efe5" },
+    margin: mergeObjects({ l: 48, r: 18, t: 16, b: 44, pad: 0 }, readObject(layout.margin), readObject(extraLayout.margin)),
+    xaxis: compileAxis(readObject(layout.xaxis), readObject(extraLayout.xaxis)),
+    yaxis: compileAxis(readObject(layout.yaxis), readObject(extraLayout.yaxis)),
+    legend: mergeObjects(readObject(layout.legend), readObject(extraLayout.legend)),
+    showlegend: booleanValue(layout.showLegend ?? extraLayout.showLegend),
+    hovermode: stringValue(layout.hovermode ?? extraLayout.hovermode),
+    bargap: numberValue(layout.bargap ?? extraLayout.bargap),
+    barmode: stringValue(layout.barmode ?? extraLayout.barmode),
+  });
 }
 
-function vegaLiteMarkType(chartType: ChartType): string {
-  if (chartType === "area") {
-    return "area";
-  }
-  if (chartType === "scatter") {
-    return "point";
-  }
-  if (chartType === "pie") {
-    return "arc";
-  }
-  return chartType;
+function compileAxis(primary: PlainObject, extra: PlainObject): PlainObject {
+  return stripUndefined({
+    title: stringValue(primary.title ?? extra.title),
+    tickformat: stringValue(primary.tickformat ?? extra.tickformat),
+    type: stringValue(primary.type ?? extra.type),
+    range: numberArrayValue(primary.range ?? extra.range),
+    gridcolor: "rgba(148, 163, 184, 0.26)",
+    zerolinecolor: "rgba(148, 163, 184, 0.35)",
+  });
 }
 
-interface RendererSelectionResult {
-  rendererId: RendererId | null;
-  detail?: string;
+function compileConfig(payload: TemplatePayload): PlotlyConfig {
+  const extraPlotly = isRecord(payload.extra?.plotly) ? payload.extra.plotly : {};
+  const extraConfig = isRecord(extraPlotly.config) ? extraPlotly.config : {};
+  return stripUndefined({
+    responsive: booleanValue(payload.config.responsive ?? extraConfig.responsive) ?? true,
+    displayModeBar: payload.config.displayModeBar ?? extraConfig.displayModeBar ?? false,
+    scrollZoom: booleanValue(payload.config.scrollZoom ?? extraConfig.scrollZoom),
+    staticPlot: booleanValue(payload.config.staticPlot ?? extraConfig.staticPlot),
+  });
 }
 
-function selectRenderer(
-  payload: TemplateGraphicPayload,
-  override: TemplateGraphicBackendOverride,
-): RendererSelectionResult {
-  if (override !== "auto") {
-    const renderer = TEMPLATE_RENDERERS[override];
-    if (renderer.supports(payload)) {
-      return { rendererId: override };
-    }
-    return {
-      rendererId: null,
-      detail: `Forced template renderer "${override}" cannot render this graphic payload.`,
-    };
+function validateTemplatePayload(payload: unknown): ValidationResult<TemplatePayload> {
+  if (!isRecord(payload)) {
+    return invalid("payload must be an object.");
   }
-
-  const requested = uniqueValues([
-    payload.renderer.preferred,
-    ...payload.renderer.fallback,
-    "vega-lite",
-    "recharts",
-  ]);
-  for (const candidate of requested) {
-    if (!isRendererId(candidate)) {
-      continue;
-    }
-    const renderer = TEMPLATE_RENDERERS[candidate];
-    if (renderer.supports(payload)) {
-      return { rendererId: candidate };
-    }
+  const unsafe = rejectUnsafeText(payload, "$");
+  if (!unsafe.ok) {
+    return unsafe;
   }
-  return { rendererId: null };
-}
-
-function supportsRechartsTemplate(payload: TemplateGraphicPayload): boolean {
-  return templateChannels(payload).every((channel) => !channel.aggregate);
-}
-
-function templateChannels(payload: TemplateGraphicPayload): TemplateGraphicChannel[] {
-  return [
-    payload.encoding.x,
-    payload.encoding.y,
-    payload.encoding.color,
-    payload.encoding.size,
-    payload.encoding.theta,
-    ...(Array.isArray(payload.encoding.tooltip) ? payload.encoding.tooltip : []),
-  ].filter((channel): channel is TemplateGraphicChannel => channel !== undefined);
-}
-
-function validateTemplatePayload(payload: unknown): ValidationResult<TemplateGraphicPayload> {
-  const record = versionedRecord(payload);
-  if (!record.ok) {
-    return record;
+  const remote = rejectRemoteUrls(payload, "$");
+  if (!remote.ok) {
+    return remote;
   }
-  const chartType = enumValue(record.value.chartType, CHART_TYPES, "chartType");
+  if (payload.schemaVersion !== 2) {
+    return invalid("schemaVersion must be 2 for Plotly template graphics.");
+  }
+  if ("data" in payload || "encoding" in payload) {
+    return invalid("Legacy data.values plus encoding payloads are retired; use traces.");
+  }
+  const chartType = enumValue(payload.chartType, CHART_TYPES, "chartType");
   if (!chartType.ok) {
     return chartType;
   }
-  const title = nonBlankString(record.value.title, "title");
-  if (!title.ok) {
-    return title;
-  }
-  const renderer = validateRendererSelection(record.value.renderer);
+  const renderer = validateRenderer(payload.renderer);
   if (!renderer.ok) {
     return renderer;
   }
-  const data = validateTemplateData(record.value.data);
-  if (!data.ok) {
-    return data;
+  const title = nonBlankString(payload.title, "title");
+  if (!title.ok) {
+    return title;
   }
-  const encoding = validateTemplateEncoding(record.value.encoding, chartType.value, data.value.values);
-  if (!encoding.ok) {
-    return encoding;
+  const traces = validateTraces(payload.traces, chartType.value);
+  if (!traces.ok) {
+    return traces;
   }
-  const interactions = validateInteractions(record.value.interactions);
-  if (!interactions.ok) {
-    return interactions;
+  const dataRefs = validateDataRefs(payload.dataRefs);
+  if (!dataRefs.ok) {
+    return dataRefs;
   }
-  const style = validateStyle(record.value.style);
-  if (!style.ok) {
-    return style;
+  const sourceRefs = validateSourceRefs(traces.value, dataRefs.value);
+  if (!sourceRefs.ok) {
+    return sourceRefs;
   }
-  const extra = validateExtra(record.value.extra);
+  const extra = validateExtra(payload.extra);
   if (!extra.ok) {
     return extra;
   }
   return {
     ok: true,
     value: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       chartType: chartType.value,
       renderer: renderer.value,
       title: title.value,
-      subtitle: optionalString(record.value.subtitle),
-      data: data.value,
-      encoding: encoding.value,
-      interactions: interactions.value,
-      style: style.value,
+      subtitle: optionalString(payload.subtitle),
+      traces: traces.value,
+      dataRefs: dataRefs.value.length > 0 ? dataRefs.value : undefined,
+      layout: recordOrUndefined(payload.layout),
+      config: recordOrUndefined(payload.config) ?? { responsive: true },
+      display: recordOrUndefined(payload.display),
       extra: extra.value,
     },
   };
 }
 
-function validateRendererSelection(value: unknown): ValidationResult<RendererSelection> {
-  const record = isRecord(value) ? value : {};
-  const preferred = typeof record.preferred === "undefined" ? "vega-lite" : nonBlankString(record.preferred, "renderer.preferred");
-  if (typeof preferred !== "string" && !preferred.ok) {
-    return preferred;
+function validateRenderer(value: unknown): ValidationResult<RendererSelection> {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: { preferred: "plotly" } };
   }
-  const fallbackValue = typeof record.fallback === "undefined" ? ["recharts"] : record.fallback;
-  if (!Array.isArray(fallbackValue)) {
-    return invalid("renderer.fallback must be an array.");
-  }
-  const fallback: string[] = [];
-  for (const [index, item] of fallbackValue.entries()) {
-    const rendererId = nonBlankString(item, `renderer.fallback.${index}`);
-    if (!rendererId.ok) {
-      return rendererId;
-    }
-    fallback.push(rendererId.value);
-  }
-  return {
-    ok: true,
-    value: {
-      preferred: typeof preferred === "string" ? preferred : preferred.value,
-      fallback,
-    },
-  };
-}
-
-function validateTemplateData(value: unknown): ValidationResult<TemplateGraphicData> {
   if (!isRecord(value)) {
-    return invalid("data must be an object.");
+    return invalid("renderer must be an object.");
   }
-  if (!Array.isArray(value.values) || value.values.length === 0) {
-    return invalid("data.values must be a non-empty array.");
+  if ("fallback" in value) {
+    return invalid("renderer.fallback is retired; Plotly is the only Layer 1 renderer.");
   }
-  const rows: DataRow[] = [];
-  for (const [index, row] of value.values.entries()) {
-    if (!isRecord(row)) {
-      return invalid(`data.values.${index} must be an object.`);
-    }
-    rows.push(row);
+  if (typeof value.preferred !== "undefined" && value.preferred !== "plotly") {
+    return invalid("renderer.preferred must be plotly.");
   }
-  return { ok: true, value: { values: rows } };
+  return { ok: true, value: { preferred: "plotly" } };
 }
 
-function validateTemplateEncoding(
+function validateTraces(value: unknown, chartType: ChartType): ValidationResult<TemplateTrace[]> {
+  if (!Array.isArray(value) || value.length === 0) {
+    return invalid("traces must be a non-empty array.");
+  }
+  const traces: TemplateTrace[] = [];
+  for (const [index, item] of value.entries()) {
+    const trace = validateTrace(item, chartType, index);
+    if (!trace.ok) {
+      return trace;
+    }
+    traces.push(trace.value);
+  }
+  return { ok: true, value: traces };
+}
+
+function validateTrace(
   value: unknown,
   chartType: ChartType,
-  rows: DataRow[],
-): ValidationResult<TemplateGraphicEncoding> {
+  index: number,
+): ValidationResult<TemplateTrace> {
   if (!isRecord(value)) {
-    return invalid("encoding must be an object.");
+    return invalid(`traces.${index} must be an object.`);
   }
-  const x = validateOptionalChannel(value.x, "encoding.x");
-  if (isValidationFailure(x)) {
-    return x;
+  const traceType = optionalEnum(value.type, TRACE_TYPES_BY_CHART[chartType], `traces.${index}.type`);
+  if (!traceType.ok) {
+    return traceType;
   }
-  const y = validateOptionalChannel(value.y, "encoding.y");
-  if (isValidationFailure(y)) {
-    return y;
+  const source = validateSource(value.source, `traces.${index}.source`);
+  if (!source.ok) {
+    return source;
   }
-  const color = validateOptionalChannel(value.color, "encoding.color");
-  if (isValidationFailure(color)) {
-    return color;
-  }
-  const size = validateOptionalChannel(value.size, "encoding.size");
-  if (isValidationFailure(size)) {
-    return size;
-  }
-  const theta = validateOptionalChannel(value.theta, "encoding.theta");
-  if (isValidationFailure(theta)) {
-    return theta;
-  }
-  const tooltip = validateTooltip(value.tooltip);
-  if (isValidationFailure(tooltip)) {
-    return tooltip;
-  }
-  const encoding: TemplateGraphicEncoding = {
-    x,
-    y,
-    color,
-    size,
-    theta,
-    tooltip,
+  const trace: TemplateTrace = {
+    type: traceType.value,
+    name: optionalString(value.name),
+    x: arrayValue(value.x),
+    y: arrayValue(value.y),
+    z: arrayValue(value.z),
+    labels: arrayValue(value.labels),
+    values: numberArrayValue(value.values),
+    text: stringOrArrayValue(value.text),
+    hovertemplate: optionalString(value.hovertemplate),
+    mode: optionalString(value.mode),
+    orientation: orientationValue(value.orientation),
+    marker: recordOrUndefined(value.marker),
+    line: recordOrUndefined(value.line),
+    source: source.value,
+    opacity: numberValue(value.opacity),
+    showLegend: booleanValue(value.showLegend),
   };
-  const normalized = encoding;
+  const channelValidation = validateTraceChannels(trace, chartType, index);
+  if (!channelValidation.ok) {
+    return channelValidation;
+  }
+  return { ok: true, value: trace };
+}
+
+function validateTraceChannels(
+  trace: TemplateTrace,
+  chartType: ChartType,
+  index: number,
+): ValidationResult<void> {
+  for (const channel of ["x", "y", "z", "labels", "values", "text"] as const) {
+    if (trace.source?.[channel] && typeof trace[channel] !== "undefined") {
+      return invalid(`traces.${index}.${channel} cannot be combined with source.${channel}.`);
+    }
+  }
+  if (trace.source?.marker?.color && trace.marker && "color" in trace.marker) {
+    return invalid(`traces.${index}.marker.color cannot be combined with source.marker.color.`);
+  }
+  if (trace.source?.marker?.size && trace.marker && "size" in trace.marker) {
+    return invalid(`traces.${index}.marker.size cannot be combined with source.marker.size.`);
+  }
   if (chartType === "pie") {
-    if (!normalized.theta || !normalized.color) {
-      return invalid("pie charts require encoding.theta and encoding.color.");
+    return requireChannels(trace, index, ["labels", "values"]);
+  }
+  if (chartType === "histogram") {
+    return hasChannel(trace, "x") || hasChannel(trace, "y")
+      ? { ok: true, value: undefined }
+      : invalid(`traces.${index} for histogram charts requires x or y.`);
+  }
+  const required = requireChannels(trace, index, ["x", "y"]);
+  if (!required.ok) {
+    return required;
+  }
+  return validateEqualLengths(trace, index, "x", "y");
+}
+
+function requireChannels(
+  trace: TemplateTrace,
+  index: number,
+  channels: Array<"x" | "y" | "labels" | "values">,
+): ValidationResult<void> {
+  for (const channel of channels) {
+    if (!hasChannel(trace, channel)) {
+      return invalid(`traces.${index} requires ${channel}.`);
     }
-  } else if (!normalized.x || !normalized.y) {
-    return invalid(`${chartType} charts require encoding.x and encoding.y.`);
   }
-  for (const fieldName of requiredFieldNames(normalized)) {
-    for (const [rowIndex, row] of rows.entries()) {
-      if (!(fieldName in row)) {
-        return invalid(`data.values.${rowIndex}.${fieldName} is missing.`);
-      }
-    }
-  }
-  return { ok: true, value: normalized };
+  return { ok: true, value: undefined };
 }
 
-function validateOptionalChannel(value: unknown, path: string): TemplateGraphicChannel | ValidationResult<never> | undefined {
-  if (typeof value === "undefined" || value === null) {
-    return undefined;
+function validateEqualLengths(
+  trace: TemplateTrace,
+  index: number,
+  first: "x" | "labels",
+  second: "y" | "values",
+): ValidationResult<void> {
+  const firstValue = trace[first];
+  const secondValue = trace[second];
+  if (Array.isArray(firstValue) && Array.isArray(secondValue) && firstValue.length !== secondValue.length) {
+    return invalid(`traces.${index}.${first} and traces.${index}.${second} must have equal lengths.`);
   }
-  return validateChannel(value, path);
+  return { ok: true, value: undefined };
 }
 
-function validateChannel(value: unknown, path: string): TemplateGraphicChannel | ValidationResult<never> {
-  if (!isRecord(value)) {
-    return invalid(`${path} must be an object.`);
-  }
-  const field = nonBlankString(value.field, `${path}.field`);
-  if (!field.ok) {
-    return field;
-  }
-  const type = enumValue(value.type, FIELD_TYPES, `${path}.type`);
-  if (!type.ok) {
-    return type;
-  }
-  const aggregate = enumOptional(value.aggregate, ["count", "sum", "mean", "median", "min", "max"], `${path}.aggregate`);
-  if (isValidationFailure(aggregate)) {
-    return aggregate;
-  }
-  const sort = enumOptional(value.sort, ["ascending", "descending"], `${path}.sort`);
-  if (isValidationFailure(sort)) {
-    return sort;
-  }
-  return {
-    field: field.value,
-    type: type.value,
-    title: optionalString(value.title),
-    aggregate,
-    sort,
-  };
+function hasChannel(trace: TemplateTrace, channel: "x" | "y" | "labels" | "values"): boolean {
+  return typeof trace[channel] !== "undefined" || typeof trace.source?.[channel] !== "undefined";
 }
 
-function validateTooltip(value: unknown): boolean | TemplateGraphicChannel[] | ValidationResult<never> {
+function validateDataRefs(value: unknown): ValidationResult<DataRef[]> {
   if (typeof value === "undefined") {
-    return true;
+    return { ok: true, value: [] };
   }
-  if (typeof value === "boolean") {
-    return value;
+  if (!Array.isArray(value)) {
+    return invalid("dataRefs must be an array.");
   }
-  if (!Array.isArray(value) || value.length === 0) {
-    return invalid("encoding.tooltip must be a boolean or non-empty array.");
-  }
-  const channels: TemplateGraphicChannel[] = [];
+  const refs: DataRef[] = [];
+  const seen = new Set<string>();
   for (const [index, item] of value.entries()) {
-    const channel = validateChannel(item, `encoding.tooltip.${index}`);
-    if (isValidationFailure(channel)) {
-      return channel;
+    if (!isRecord(item)) {
+      return invalid(`dataRefs.${index} must be an object.`);
     }
-    channels.push(channel);
+    const id = nonBlankString(item.id, `dataRefs.${index}.id`);
+    if (!id.ok) {
+      return id;
+    }
+    if (seen.has(id.value)) {
+      return invalid(`dataRefs.${index}.id duplicates ${id.value}.`);
+    }
+    seen.add(id.value);
+    refs.push({ id: id.value });
   }
-  return channels;
+  return { ok: true, value: refs };
 }
 
-function validateInteractions(value: unknown): ValidationResult<TemplateGraphicInteractions> {
-  if (typeof value === "undefined") {
-    return { ok: true, value: { tooltip: true, legend: true } };
+function validateSourceRefs(traces: TemplateTrace[], dataRefs: DataRef[]): ValidationResult<void> {
+  const ids = new Set(dataRefs.map((item) => item.id));
+  for (const [index, trace] of traces.entries()) {
+    if (!trace.source) {
+      continue;
+    }
+    if (!ids.has(trace.source.dataRef)) {
+      return invalid(`traces.${index}.source.dataRef is not declared in dataRefs.`);
+    }
   }
-  if (!isRecord(value)) {
-    return invalid("interactions must be an object.");
-  }
-  return {
-    ok: true,
-    value: {
-      tooltip: typeof value.tooltip === "boolean" ? value.tooltip : true,
-      legend: typeof value.legend === "boolean" ? value.legend : true,
-    },
-  };
+  return { ok: true, value: undefined };
 }
 
-function validateStyle(value: unknown): ValidationResult<TemplateGraphicStyle | undefined> {
+function validateSource(value: unknown, path: string): ValidationResult<TraceSource | undefined> {
   if (typeof value === "undefined" || value === null) {
     return { ok: true, value: undefined };
   }
   if (!isRecord(value)) {
-    return invalid("style must be an object.");
+    return invalid(`${path} must be an object.`);
+  }
+  const dataRef = nonBlankString(value.dataRef, `${path}.dataRef`);
+  if (!dataRef.ok) {
+    return dataRef;
+  }
+  const marker = validateMarkerSource(value.marker, `${path}.marker`);
+  if (!marker.ok) {
+    return marker;
   }
   return {
     ok: true,
     value: {
-      colorScheme: optionalString(value.colorScheme),
-      width: boundedNumber(value.width, 120, 2400),
-      height: boundedNumber(value.height, 120, 1800),
+      dataRef: dataRef.value,
+      x: columnBinding(value.x, `${path}.x`),
+      y: columnBinding(value.y, `${path}.y`),
+      z: columnBinding(value.z, `${path}.z`),
+      labels: columnBinding(value.labels, `${path}.labels`),
+      values: columnBinding(value.values, `${path}.values`),
+      text: columnBinding(value.text, `${path}.text`),
+      marker: marker.value,
     },
   };
 }
 
-function validateExtra(value: unknown): ValidationResult<Record<string, JsonObject>> {
+function validateMarkerSource(value: unknown, path: string): ValidationResult<MarkerSource | undefined> {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`);
+  }
+  return {
+    ok: true,
+    value: {
+      color: columnBinding(value.color, `${path}.color`),
+      size: columnBinding(value.size, `${path}.size`),
+    },
+  };
+}
+
+function columnBinding(value: unknown, path: string): ColumnBinding | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const column = typeof value.column === "string" ? value.column.trim() : "";
+  return column ? { column } : undefined;
+}
+
+function validateExtra(value: unknown): ValidationResult<TemplatePayload["extra"]> {
   if (typeof value === "undefined") {
-    return { ok: true, value: {} };
+    return { ok: true, value: undefined };
   }
   if (!isRecord(value)) {
     return invalid("extra must be an object.");
   }
-  const extra: Record<string, JsonObject> = {};
-  for (const [key, block] of Object.entries(value)) {
-    if (!isRecord(block)) {
-      return invalid(`extra.${key} must be an object.`);
-    }
-    const remoteUrlValidation = rejectRemoteUrls(block, `extra.${key}`);
-    if (!remoteUrlValidation.ok) {
-      return remoteUrlValidation;
-    }
-    if (key === "vega-lite") {
-      const vegaLiteValidation = validateVegaLiteExtra(block, `extra.${key}`);
-      if (!vegaLiteValidation.ok) {
-        return vegaLiteValidation;
-      }
-    }
-    extra[key] = block;
-  }
-  return { ok: true, value: extra };
-}
-
-function validateVegaLiteExtra(value: JsonObject, path: string): ValidationResult<void> {
-  const rawSpecValidation = rejectVegaLiteSpecKeys(value, path);
-  if (!rawSpecValidation.ok) {
-    return rawSpecValidation;
-  }
   for (const key of Object.keys(value)) {
-    if (!VEGA_LITE_EXTRA_ALLOWED_KEYS.has(key)) {
-      return invalid(`${path}.${key} is not allowed in Layer 1 Vega-Lite extra.`);
+    if (key !== "plotly") {
+      return invalid(`extra.${key} is not supported. Only extra.plotly is allowed.`);
     }
   }
-  return { ok: true, value: undefined };
-}
-
-function rejectVegaLiteSpecKeys(value: unknown, path: string): ValidationResult<void> {
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      const result = rejectVegaLiteSpecKeys(item, `${path}.${index}`);
-      if (!result.ok) {
-        return result;
-      }
-    }
+  const plotly = value.plotly;
+  if (typeof plotly === "undefined") {
     return { ok: true, value: undefined };
   }
-  if (!isRecord(value)) {
-    return { ok: true, value: undefined };
+  if (!isRecord(plotly)) {
+    return invalid("extra.plotly must be an object.");
   }
-  for (const [key, item] of Object.entries(value)) {
-    const nextPath = `${path}.${key}`;
-    if (VEGA_LITE_EXTRA_DISALLOWED_KEYS.has(key)) {
-      return invalid(`${nextPath} is not allowed in Layer 1 Vega-Lite extra.`);
-    }
-    const result = rejectVegaLiteSpecKeys(item, nextPath);
-    if (!result.ok) {
-      return result;
-    }
+  const extraKeys = rejectDisallowedPlotlyExtra(plotly, "extra.plotly");
+  if (!extraKeys.ok) {
+    return extraKeys;
   }
-  return { ok: true, value: undefined };
+  return { ok: true, value: { plotly } };
 }
 
-function rejectRemoteUrls(value: unknown, path: string): ValidationResult<void> {
-  if (typeof value === "string") {
-    return REMOTE_URL_PATTERN.test(value)
-      ? invalid(`${path} must not contain remote URLs in Layer 1 extra.`)
-      : { ok: true, value: undefined };
+function datasourceBindingDiagnostic(payload: TemplatePayload): string | null {
+  if (!payload.traces.some((trace) => trace.source)) {
+    return null;
   }
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      const result = rejectRemoteUrls(item, `${path}.${index}`);
-      if (!result.ok) {
-        return result;
-      }
-    }
-    return { ok: true, value: undefined };
-  }
-  if (!isRecord(value)) {
-    return { ok: true, value: undefined };
-  }
-  for (const [key, item] of Object.entries(value)) {
-    const result = rejectRemoteUrls(item, `${path}.${key}`);
-    if (!result.ok) {
-      return result;
-    }
-  }
-  return { ok: true, value: undefined };
+  return "Datasource materialization is not supported yet. Inline trace arrays are required for rendering in this workbench.";
 }
 
-function requiredFieldNames(encoding: TemplateGraphicEncoding): string[] {
-  const names = new Set<string>();
-  for (const channel of [encoding.x, encoding.y, encoding.color, encoding.size, encoding.theta]) {
-    if (channel) {
-      names.add(channel.field);
-    }
-  }
-  if (Array.isArray(encoding.tooltip)) {
-    for (const channel of encoding.tooltip) {
-      names.add(channel.field);
-    }
-  }
-  return [...names];
-}
-
-function isValidationFailure<T>(value: T | ValidationResult<never>): value is ValidationResult<never> {
-  return isRecord(value) && value.ok === false && typeof value.error === "string";
-}
-
-function enumOptional<T extends string>(
-  value: unknown,
-  values: readonly T[],
-  label: string,
-): T | ValidationResult<never> | undefined {
-  if (typeof value === "undefined" || value === null) {
-    return undefined;
-  }
-  const result = enumValue(value, values, label);
-  return result.ok ? result.value : result;
-}
-
-function boundedNumber(value: unknown, min: number, max: number): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return Math.min(max, Math.max(min, value));
-}
-
-function versionedRecord(value: unknown): ValidationResult<JsonObject> {
-  if (!isRecord(value)) {
-    return invalid("payload must be an object.");
-  }
-  if (value.schemaVersion !== 1) {
-    return invalid("schemaVersion must be 1.");
-  }
-  return { ok: true, value };
-}
-
-function nonBlankString(value: unknown, field: string): ValidationResult<string> {
-  if (typeof value !== "string" || value.trim() === "") {
-    return invalid(`${field} must be a non-empty string.`);
-  }
-  return { ok: true, value: value.trim() };
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function enumValue<T extends string>(value: unknown, values: readonly T[], label: string): ValidationResult<T> {
-  if (typeof value !== "string" || !values.includes(value as T)) {
-    return invalid(`${label} must be one of ${values.join(", ")}.`);
-  }
-  return { ok: true, value: value as T };
-}
-
-function invalid(error: string): ValidationResult<never> {
-  return { ok: false, error };
-}
-
-function uniqueValues(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function isRendererId(value: string): value is RendererId {
-  return RENDERERS.includes(value as RendererId);
-}
-
-function isRecord(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function colorForRow(row: DataRow, channel: TemplateGraphicChannel | undefined, index: number): string {
-  if (channel) {
-    const value = row[channel.field];
-    if (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) {
-      return value;
-    }
-  }
-  return TEMPLATE_COLORS[index % TEMPLATE_COLORS.length];
-}
-
-function formatValue(value: JsonValue | undefined): string {
-  if (typeof value === "undefined") {
-    return "";
-  }
-  if (typeof value === "object" && value !== null) {
-    return JSON.stringify(value);
-  }
-  return String(value as JsonScalar);
-}
-
-function numberValue(value: JsonValue | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function axisLabel(value: string | undefined, position: "bottom" | "left") {
+function compileMarker(value: PlainObject | undefined): ValidationResult<PlainObject | undefined> {
   if (!value) {
-    return undefined;
+    return { ok: true, value: undefined };
   }
-  return position === "bottom"
-    ? { value, position: "insideBottom", offset: -8, fill: "#c9c0af" }
-    : { value, angle: -90, position: "insideLeft", fill: "#c9c0af" };
+  return {
+    ok: true,
+    value: stripUndefined({
+      color: value.color,
+      colors: value.colors,
+      size: value.size,
+      opacity: numberValue(value.opacity),
+      line: readObject(value.line),
+    }),
+  };
+}
+
+function compileLine(value: PlainObject | undefined): ValidationResult<PlainObject | undefined> {
+  if (!value) {
+    return { ok: true, value: undefined };
+  }
+  return {
+    ok: true,
+    value: stripUndefined({
+      color: stringValue(value.color),
+      width: numberValue(value.width),
+      dash: stringValue(value.dash),
+      shape: stringValue(value.shape),
+    }),
+  };
+}
+
+function copyArray(target: PlainObject, source: TemplateTrace, key: "x" | "y" | "labels"): void {
+  const value = source[key];
+  if (Array.isArray(value)) {
+    target[key] = value;
+  }
+}
+
+function copyNumberArray(target: PlainObject, source: TemplateTrace, key: "values"): void {
+  const value = source[key];
+  if (Array.isArray(value)) {
+    target[key] = value;
+  }
+}
+
+function copyString(target: PlainObject, source: TemplateTrace, key: "hovertemplate" | "orientation"): void {
+  const value = source[key];
+  if (typeof value === "string") {
+    target[key] = value;
+  }
+}
+
+function copyStringOrArray(target: PlainObject, source: TemplateTrace, key: "text"): void {
+  const value = source[key];
+  if (typeof value === "string" || Array.isArray(value)) {
+    target[key] = value;
+  }
+}
+
+function copyNumber(target: PlainObject, source: TemplateTrace, key: "opacity"): void {
+  const value = source[key];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    target[key] = value;
+  }
 }
 
 function TemplateFrame({
@@ -1042,9 +746,189 @@ function TemplateFallback({
   );
 }
 
-const tooltipStyle = {
-  background: "#24241f",
-  border: "1px solid #55584f",
-  borderRadius: "5px",
-  color: "#f3efe5",
-};
+function rejectDisallowedPlotlyExtra(value: unknown, path: string): ValidationResult<void> {
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectDisallowedPlotlyExtra(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const nextPath = `${path}.${key}`;
+    if (PLOTLY_EXTRA_DISALLOWED_KEYS.has(key)) {
+      return invalid(`${nextPath} is not allowed in Layer 1 Plotly extra.`);
+    }
+    const result = rejectDisallowedPlotlyExtra(item, nextPath);
+    if (!result.ok) {
+      return result;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function rejectUnsafeText(value: unknown, path: string): ValidationResult<void> {
+  if (typeof value === "string") {
+    return UNSAFE_TEXT_PATTERNS.some((pattern) => pattern.test(value))
+      ? invalid(`${path} contains unsafe inline content.`)
+      : { ok: true, value: undefined };
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectUnsafeText(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const result = rejectUnsafeText(item, `${path}.${key}`);
+    if (!result.ok) {
+      return result;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function rejectRemoteUrls(value: unknown, path: string): ValidationResult<void> {
+  if (typeof value === "string") {
+    return REMOTE_URL_PATTERN.test(value)
+      ? invalid(`${path} must not contain remote URLs.`)
+      : { ok: true, value: undefined };
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectRemoteUrls(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const result = rejectRemoteUrls(item, `${path}.${key}`);
+    if (!result.ok) {
+      return result;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function enumValue<T extends string>(
+  value: unknown,
+  values: readonly T[],
+  label: string,
+): ValidationResult<T> {
+  if (typeof value !== "string" || !values.includes(value as T)) {
+    return invalid(`${label} must be one of ${values.join(", ")}.`);
+  }
+  return { ok: true, value: value as T };
+}
+
+function optionalEnum<T extends string>(
+  value: unknown,
+  values: readonly T[],
+  label: string,
+): ValidationResult<T | undefined> {
+  if (typeof value === "undefined") {
+    return { ok: true, value: undefined };
+  }
+  return enumValue(value, values, label);
+}
+
+function nonBlankString(value: unknown, field: string): ValidationResult<string> {
+  if (typeof value !== "string" || value.trim() === "") {
+    return invalid(`${field} must be a non-empty string.`);
+  }
+  return { ok: true, value: value.trim() };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function arrayValue(value: unknown): TraceArray | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+  return value.filter((item): item is string | number | boolean | null => isTraceScalar(item));
+}
+
+function numberArrayValue(value: unknown): number[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+  const numbers = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+  return numbers.length === value.length ? numbers : undefined;
+}
+
+function stringOrArrayValue(value: unknown): string | TraceArray | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+  return arrayValue(value);
+}
+
+function orientationValue(value: unknown): "v" | "h" | undefined {
+  return value === "v" || value === "h" ? value : undefined;
+}
+
+function isTraceScalar(value: unknown): value is string | number | boolean | null {
+  return value === null || ["string", "number", "boolean"].includes(typeof value);
+}
+
+function recordOrUndefined(value: unknown): PlainObject | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function readObject(value: unknown): PlainObject {
+  return isRecord(value) ? value : {};
+}
+
+function mergeObjects(...objects: PlainObject[]): PlainObject {
+  return objects.reduce<PlainObject>((merged, item) => ({ ...merged, ...item }), {});
+}
+
+function stripUndefined(value: PlainObject): PlainObject {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item !== "undefined"));
+}
+
+function invalid(error: string): ValidationResult<never> {
+  return { ok: false, error };
+}
+
+function isRecord(value: unknown): value is PlainObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}

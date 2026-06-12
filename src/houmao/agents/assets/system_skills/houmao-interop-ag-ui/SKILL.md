@@ -52,7 +52,7 @@ Reuse the same launcher for discovery, validation, rendering, and publishing in 
 
 ## Protocol Split
 
-- Houmao component protocol: `houmao.graphic.template`, `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
+- Houmao component protocol: `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
 - Standard AG-UI protocol: the rendered output is an event array such as `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
 - Houmao gateway publishing: use `houmao-mgr agents ... gateway ag-ui publish`.
 - Third-party endpoints: use `houmao-mgr` only to generate or validate events, then deliver the generated event batch with endpoint-specific instructions from that endpoint.
@@ -74,7 +74,6 @@ houmao-mgr internals ag-ui components list
 Show a schema and example:
 
 ```bash
-houmao-mgr internals ag-ui components schema houmao.chart.bar
 houmao-mgr internals ag-ui components schema houmao.graphic.template
 ```
 
@@ -85,14 +84,12 @@ Use the schema output before crafting a new payload. Do not invent fields.
 Validate a payload:
 
 ```bash
-houmao-mgr internals ag-ui components validate houmao.chart.bar --input payload.json
 houmao-mgr internals ag-ui components validate houmao.graphic.template --input payload.json
 ```
 
 Render a valid payload into standard AG-UI events:
 
 ```bash
-houmao-mgr internals ag-ui events render houmao.chart.bar --input payload.json > events.json
 houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json > events.json
 ```
 
@@ -105,20 +102,22 @@ houmao-mgr internals ag-ui events validate --input events.json
 Supported render formats:
 
 ```bash
-houmao-mgr internals ag-ui events render houmao.chart.bar --input payload.json --format json
-houmao-mgr internals ag-ui events render houmao.chart.bar --input payload.json --format jsonl
-houmao-mgr internals ag-ui events render houmao.chart.bar --input payload.json --format sse
+houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json --format json
+houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json --format jsonl
+houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json --format sse
 ```
 
 ## Layer 1 Template Graphics
 
-Prefer `houmao.graphic.template` for ordinary charts when you need renderer choice, Vega-Lite rendering, or a forward-compatible standardized chart object. Use the older `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` payloads only for simple compatibility charts.
+Use `houmao.graphic.template` for ordinary charts. The legacy fixed chart components are retired; do not generate `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
-Layer 1 template graphics are not raw Vega-Lite specs. Fill the standardized fields: `schemaVersion`, `chartType`, `renderer`, `title`, optional `subtitle`, inline `data.values`, `encoding`, optional `interactions`, optional `style`, and optional renderer-scoped `extra`. Supported chart types are `bar`, `line`, `scatter`, `area`, and `pie`.
+Layer 1 template graphics use schema version `2` and a Plotly-backed curated schema. Fill standardized fields such as `schemaVersion`, `chartType`, `title`, optional `subtitle`, `traces`, optional `layout`, optional `config`, optional `display`, optional `dataRefs`, and optional renderer-scoped `extra`. Supported chart types are exactly `bar`, `line`, `scatter`, `pie`, and `histogram`.
 
-The `renderer` field expresses preference. Use `"preferred": "vega-lite"` when Vega-Lite output is desired and include `"fallback": ["recharts"]` so a GUI with only Recharts can still display the chart.
+Do not ask the user to choose a Layer 1 renderer. Omit `renderer` or set `"renderer": { "preferred": "plotly" }`. `renderer.fallback` is retired and validation rejects non-Plotly renderer ids.
 
-Use `extra` only for small backend-specific knobs. For `extra.vega-lite`, allowed top-level keys are `axis`, `config`, `height`, `legend`, `mark`, `view`, and `width`. Do not put raw Vega-Lite keys such as `data`, `datasets`, `encoding`, `transform`, `layer`, `facet`, `concat`, `params`, `repeat`, or `spec` in Layer 1. If the user needs a custom Vega-Lite/Vega spec, that belongs to the planned Layer 2 DSL graphics capability, not this component.
+Datasource bindings are reserved vocabulary until capabilities explicitly advertise materialization support. You may declare `dataRefs` and trace `source` bindings only when the target capability says the vocabulary is supported. In the current workbench, materialization is unsupported, so datasource-bound traces show a diagnostic instead of a chart. Prefer inline trace arrays when the user needs a visible chart now.
+
+Use `extra.plotly` only for small allowlisted presentation refinements such as curated `layout`, `config`, `marker`, `line`, and `display` fields. Do not put raw Plotly `data`, raw `traces`, full replacement `layout` or `config`, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, Vega-Lite, or Vega fields in Layer 1.
 
 ## Publish to Houmao Gateway
 
@@ -168,49 +167,64 @@ This command intentionally has no `--endpoint` option. For third-party endpoints
 
 ## Examples
 
-Bar chart payload:
-
-```json
-{
-  "schemaVersion": 1,
-  "title": "Build Results",
-  "xLabel": "Status",
-  "yLabel": "Count",
-  "data": [
-    { "label": "Passed", "value": 42 },
-    { "label": "Failed", "value": 2 }
-  ]
-}
-```
-
 Template graphic payload:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "chartType": "bar",
   "renderer": {
-    "preferred": "vega-lite",
-    "fallback": ["recharts"]
+    "preferred": "plotly"
   },
   "title": "Build Results",
-  "data": {
-    "values": [
-      { "status": "passed", "count": 42 },
-      { "status": "failed", "count": 2 }
-    ]
+  "traces": [
+    {
+      "name": "Jobs",
+      "x": ["passed", "failed"],
+      "y": [42, 2],
+      "marker": { "color": ["#1f7a4d", "#c2410c"] },
+      "hovertemplate": "%{x}: %{y}<extra></extra>"
+    }
+  ],
+  "layout": {
+    "xaxis": { "title": "Status" },
+    "yaxis": { "title": "Count" },
+    "bargap": 0.28
   },
-  "encoding": {
-    "x": { "field": "status", "type": "nominal", "title": "Status" },
-    "y": { "field": "count", "type": "quantitative", "title": "Count" },
-    "tooltip": true
-  },
-  "interactions": { "tooltip": true, "legend": true },
   "extra": {
-    "vega-lite": {
-      "config": { "axis": { "labelFontSize": 12 } }
+    "plotly": {
+      "layout": { "margin": { "l": 48, "r": 16, "t": 48, "b": 44 } }
     }
   }
+}
+```
+
+Datasource-bound template graphic payload:
+
+```json
+{
+  "schemaVersion": 2,
+  "chartType": "bar",
+  "title": "Build Results",
+  "dataRefs": [
+    {
+      "id": "buildRows",
+      "columns": [
+        { "name": "status", "type": "string" },
+        { "name": "count", "type": "number" }
+      ]
+    }
+  ],
+  "traces": [
+    {
+      "type": "bar",
+      "source": {
+        "dataRef": "buildRows",
+        "x": { "column": "status" },
+        "y": { "column": "count" }
+      }
+    }
+  ]
 }
 ```
 
@@ -247,13 +261,13 @@ After publishing, report the response accurately. If `delivered_count > 0`, say 
 - Do not include private local file contents unless the user explicitly asks to display that exact content.
 - Do not use raw unsanitized HTML, scriptable SVG, JavaScript URLs, iframe content, or event-handler attributes.
 - Prefer typed fields such as labels, numeric values, rows, metrics, and dashboard children.
-- Prefer `houmao.graphic.template` for ordinary charts that can be described as standardized chart type, data, and encoding.
+- Prefer `houmao.graphic.template` for ordinary charts that can be described as a supported chart type with inline traces.
 - If validation fails, fix the payload and rerun validation before rendering or publishing.
 
 ## Guardrails
 
 - Do not hand-write AG-UI tool-call event arrays when `events render` can generate them.
 - Do not publish raw component payloads directly to the gateway; render them into events first.
-- Do not embed full Vega-Lite or Vega DSL specs inside `houmao.graphic.template`; use only the standardized Layer 1 schema and allowed `extra` fields.
+- Do not embed raw Plotly, Vega-Lite, Vega, HTML, or JavaScript specs inside `houmao.graphic.template`; use only the standardized Layer 1 schema and allowed `extra.plotly` fields.
 - Do not call generic gateway prompt commands to display graphics. AG-UI publish is separate from prompt admission.
 - Do not invent third-party endpoint URLs, headers, auth, route ids, or stream formats.

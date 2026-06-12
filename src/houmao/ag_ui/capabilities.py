@@ -20,10 +20,10 @@ from ag_ui.core import (
 )
 
 from houmao.ag_ui.authoring import (
-    HOUMAO_AG_UI_SCHEMA_VERSION,
     HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES,
     HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
     HOUMAO_TEMPLATE_GRAPHIC_RENDERERS,
+    HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
     HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
 )
 from houmao.ag_ui.graphics import HOUMAO_RENDER_GRAPHIC_TOOL_NAME
@@ -95,7 +95,7 @@ def build_ag_ui_capabilities(
         "presentation": {
             "templateGraphics": {
                 "toolName": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
-                "schemaVersion": HOUMAO_AG_UI_SCHEMA_VERSION,
+                "schemaVersion": HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
                 "chartTypes": list(HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES),
                 "renderers": list(HOUMAO_TEMPLATE_GRAPHIC_RENDERERS),
                 "defaultRenderer": HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
@@ -103,17 +103,45 @@ def build_ag_ui_capabilities(
                     "rendererScoped": True,
                     "requiredForRendering": False,
                     "unsupportedBehavior": "ignore_or_diagnostic",
+                    "supportedRendererKeys": ["plotly"],
                     "forbidden": [
                         "full_backend_spec",
+                        "raw_plotly_data",
+                        "raw_plotly_traces",
+                        "raw_plotly_layout",
+                        "raw_plotly_config",
+                        "raw_plotly_frames",
+                        "raw_plotly_transforms",
+                        "plotly_templates",
+                        "raw_vega_lite_spec",
                         "remote_data_url",
-                        "raw_transform",
-                        "raw_layer",
                         "javascript",
                         "html",
                         "iframe",
                         "scriptable_svg",
                     ],
                 },
+                "datasourceBindings": {
+                    "vocabularySupported": True,
+                    "materializationSupported": False,
+                    "declaredThrough": ["dataRefs", "traces[].source"],
+                    "channels": [
+                        "x",
+                        "y",
+                        "z",
+                        "labels",
+                        "values",
+                        "text",
+                        "marker.color",
+                        "marker.size",
+                    ],
+                    "limits": {
+                        "materializedRows": None,
+                        "rowUpdateModes": [],
+                        "refresh": False,
+                    },
+                },
+                "rawPlotlyDsl": False,
                 "rawVegaLiteDsl": False,
             }
         },
@@ -181,12 +209,15 @@ def build_ag_ui_capabilities(
                 ),
                 Tool(
                     name=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
-                    description="Render a standardized Houmao Layer 1 template graphic.",
+                    description="Render a Plotly-backed Houmao Layer 1 template graphic.",
                     parameters={
                         "type": "object",
-                        "required": ["schemaVersion", "chartType", "title", "data", "encoding"],
+                        "required": ["schemaVersion", "chartType", "title", "traces"],
                         "properties": {
-                            "schemaVersion": {"type": "integer", "const": HOUMAO_AG_UI_SCHEMA_VERSION},
+                            "schemaVersion": {
+                                "type": "integer",
+                                "const": HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
+                            },
                             "chartType": {
                                 "type": "string",
                                 "enum": list(HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES),
@@ -194,10 +225,11 @@ def build_ag_ui_capabilities(
                             "renderer": {"type": "object"},
                             "title": {"type": "string"},
                             "subtitle": {"type": ["string", "null"]},
-                            "data": {"type": "object"},
-                            "encoding": {"type": "object"},
-                            "interactions": {"type": "object"},
-                            "style": {"type": ["object", "null"]},
+                            "traces": {"type": "array", "minItems": 1},
+                            "dataRefs": {"type": "array"},
+                            "layout": {"type": "object"},
+                            "config": {"type": "object"},
+                            "display": {"type": "object"},
                             "extra": {"type": "object"},
                         },
                     },

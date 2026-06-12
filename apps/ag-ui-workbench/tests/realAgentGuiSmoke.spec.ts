@@ -147,13 +147,13 @@ test.describe("real-agent AG-UI GUI smoke", () => {
       await page.getByTestId("prompt-agent-1").fill(prompt);
       await page.getByTestId("run-agent-1").click();
 
-      await expect(page.getByTestId("component-agent-1").filter({ hasText: `${TITLE_PREFIX} ${nonce}` })).toBeVisible({
+      const templateFrame = page.getByTestId("component-agent-1").filter({ hasText: `${TITLE_PREFIX} ${nonce}` });
+      await expect(templateFrame).toBeVisible({
         timeout: config.timeoutMs,
       });
 
-      const templateChart = page.getByTestId("template-chart-vega-lite-agent-1").filter({
+      const templateChart = templateFrame.getByTestId("template-chart-plotly-agent-1").filter({
         has: page.locator("svg"),
-        hasText: `${TITLE_PREFIX} ${nonce}`,
       });
       await expect(templateChart).toBeVisible({ timeout: config.timeoutMs });
       await expect(templateChart.locator("svg")).toBeVisible();
@@ -340,8 +340,8 @@ function assertLivePresentationCapabilities(capabilities: unknown): string[] {
     notes.push("Template graphics presentation metadata is not advertised by this gateway.");
   }
   const renderers = Array.isArray(templateGraphics.renderers) ? templateGraphics.renderers : [];
-  if (!renderers.includes("vega-lite")) {
-    notes.push("Vega-Lite renderer metadata is not advertised by this gateway.");
+  if (renderers.length !== 1 || renderers[0] !== "plotly") {
+    notes.push("Plotly renderer metadata is not advertised as the sole Layer 1 renderer.");
   }
   if (features.generatedGraphics !== true) {
     notes.push("generatedGraphics is false; this smoke relies on agent-published GUI events.");
@@ -368,14 +368,13 @@ function validationPrompt(nonce: string, threadId: string): string {
     "Publish those events with `houmao-mgr agents self gateway ag-ui publish`.",
     "",
     "The payload must use:",
-    "- schemaVersion: 1",
+    "- schemaVersion: 2",
     "- chartType: bar",
-    "- renderer.preferred: vega-lite",
-    "- renderer.fallback: [recharts]",
+    "- renderer.preferred: plotly, or omit renderer so it defaults to Plotly",
     `- title: ${TITLE_PREFIX} ${nonce}`,
-    "- data.values: [{status: Ready, count: 3}, {status: Review, count: 2}, {status: Blocked, count: 1}]",
-    "- encoding.x field status, nominal",
-    "- encoding.y field count, quantitative",
+    "- traces: [{type: bar, x: [Ready, Review, Blocked], y: [3, 2, 1]}]",
+    "- layout.xaxis.title: Status",
+    "- layout.yaxis.title: Count",
     "",
     `After publishing the chart, reply with exactly: ${DONE_PREFIX} ${nonce}`,
   ].join("\n");
