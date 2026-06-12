@@ -18,7 +18,21 @@ interface TmuxSessionRow {
   createdAtUtc: string;
 }
 
+interface TmuxResizeRecord {
+  cols: number;
+  rows: number;
+}
+
+interface FixtureAttachmentSnapshot {
+  sessionName: string;
+  mode: AttachMode;
+  attachCols: number;
+  attachRows: number;
+  resizes: TmuxResizeRecord[];
+}
+
 let fixtureSessionRows: TmuxSessionRow[] | null = null;
+let fixtureAttachments: FixtureAttachmentSnapshot[] = [];
 
 interface ClientAttachMessage {
   type: "attach";
@@ -58,6 +72,7 @@ export async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerRes
           `GET ${TMUX_PREFIX}/sessions`,
           `WS ${TMUX_PREFIX}/attach`,
           `POST ${TMUX_PREFIX}/fixture/reset`,
+          `GET ${TMUX_PREFIX}/fixture/attachments`,
           `DELETE ${TMUX_PREFIX}/fixture/sessions/{sessionName}`,
         ],
       });
@@ -86,6 +101,14 @@ export async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerRes
     sendJson(res, 200, {
       status: "ready",
       sessions: fixtureSessions(),
+      attachments: fixtureAttachmentSnapshots(),
+    });
+    return;
+  }
+  if (tmuxFixtureEnabled() && req.method === "GET" && requestUrl.pathname === "/fixture/attachments") {
+    sendJson(res, 200, {
+      status: "ready",
+      attachments: fixtureAttachmentSnapshots(),
     });
     return;
   }
@@ -101,6 +124,7 @@ export async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerRes
     sendJson(res, 200, {
       status: removed ? "removed" : "missing",
       sessions: fixtureSessions(),
+      attachments: fixtureAttachmentSnapshots(),
     });
     return;
   }
@@ -300,7 +324,24 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
       return;
     }
     if (message.value.type === "resize") {
-      terminal.resize(safeDimension(message.value.cols, 80), safeDimension(message.value.rows, 24));
+      const validation = validateResizeMessage(message.value);
+      if (!validation.ok) {
+        sendWs(ws, {
+          type: "error",
+          code: "tmux_resize_invalid",
+          detail: validation.detail,
+        });
+        return;
+      }
+      try {
+        terminal.resize(validation.cols, validation.rows);
+      } catch (error) {
+        sendWs(ws, {
+          type: "error",
+          code: "tmux_resize_failed",
+          detail: `Failed to resize tmux attachment: ${errorMessage(error) || "unknown error"}`,
+        });
+      }
       return;
     }
     cleanup();
@@ -314,6 +355,7 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
 function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
   let attachedMode: AttachMode | null = null;
   let sessionName: string | null = null;
+  let attachmentSnapshot: FixtureAttachmentSnapshot | null = null;
   ws.on("message", (data) => {
     const message = parseClientMessage(data.toString());
     if (!message.ok) {
@@ -348,6 +390,14 @@ function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
       }
       attachedMode = attachMessage.mode;
       sessionName = attachMessage.sessionName;
+      attachmentSnapshot = {
+        sessionName,
+        mode: attachedMode,
+        attachCols: safeDimension(attachMessage.cols, 80),
+        attachRows: safeDimension(attachMessage.rows, 24),
+        resizes: [],
+      };
+      fixtureAttachments.push(attachmentSnapshot);
       sendWs(ws, {
         type: "attached",
         sessionName,
@@ -397,6 +447,23 @@ function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
       return;
     }
     if (message.value.type === "resize") {
+      const validation = validateResizeMessage(message.value);
+      if (!validation.ok) {
+        sendWs(ws, {
+          type: "error",
+          code: "tmux_resize_invalid",
+          detail: validation.detail,
+        });
+        return;
+      }
+      attachmentSnapshot?.resizes.push({
+        cols: validation.cols,
+        rows: validation.rows,
+      });
+      sendWs(ws, {
+        type: "output",
+        data: `fixture resized ${sessionName} ${validation.cols}x${validation.rows}\r\n`,
+      });
       return;
     }
     sendWs(ws, {
@@ -445,6 +512,20 @@ function validateAttachMessage(message: ClientAttachMessage): { ok: true } | { o
   return { ok: true };
 }
 
+function validateResizeMessage(
+  message: ClientResizeMessage,
+): { ok: true; cols: number; rows: number } | { ok: false; detail: string } {
+  const cols = message.cols;
+  const rows = message.rows;
+  if (!validDimension(cols) || !validDimension(rows)) {
+    return {
+      ok: false,
+      detail: "Tmux resize columns and rows must be finite numbers between 2 and 500.",
+    };
+  }
+  return { ok: true, cols: Math.round(cols), rows: Math.round(rows) };
+}
+
 function parseClientMessage(raw: string): { ok: true; value: ClientMessage } | { ok: false; detail: string } {
   let parsed: unknown;
   try {
@@ -482,8 +563,8 @@ function parseClientMessage(raw: string): { ok: true; value: ClientMessage } | {
       ok: true,
       value: {
         type: "resize",
-        cols: typeof record.cols === "number" ? record.cols : 80,
-        rows: typeof record.rows === "number" ? record.rows : 24,
+        cols: typeof record.cols === "number" ? record.cols : Number.NaN,
+        rows: typeof record.rows === "number" ? record.rows : Number.NaN,
       },
     };
   }
@@ -501,6 +582,10 @@ function safeDimension(value: number | undefined, fallback: number): number {
     return fallback;
   }
   return Math.max(2, Math.min(500, Math.round(value)));
+}
+
+function validDimension(value: number): boolean {
+  return Number.isFinite(value) && value >= 2 && value <= 500;
 }
 
 function sendWs(ws: WebSocket, payload: unknown): void {
@@ -532,6 +617,7 @@ function fixtureSessions(): TmuxSessionRow[] {
 
 function resetFixtureSessions(): void {
   fixtureSessionRows = defaultFixtureSessions();
+  fixtureAttachments = [];
 }
 
 function removeFixtureSession(sessionName: string): boolean {
@@ -560,6 +646,13 @@ function defaultFixtureSessions(): TmuxSessionRow[] {
       createdAtUtc: "2026-06-09T12:06:00.000Z",
     },
   ];
+}
+
+function fixtureAttachmentSnapshots(): FixtureAttachmentSnapshot[] {
+  return fixtureAttachments.map((attachment) => ({
+    ...attachment,
+    resizes: attachment.resizes.map((resize) => ({ ...resize })),
+  }));
 }
 
 function errorMessage(error: unknown): string {

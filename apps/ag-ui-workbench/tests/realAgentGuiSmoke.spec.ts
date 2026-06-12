@@ -18,6 +18,8 @@ interface SmokeConfig {
   passiveServerUrl: string;
   agentName: string;
   agentId: string;
+  launchSpecialist: string;
+  launchAgentName: string;
   agentRef: string;
   timeoutMs: number;
   commandTimeoutMs: number;
@@ -53,6 +55,7 @@ interface Diagnostics {
   console: string[];
   errors: string[];
   relaunch?: CommandResult;
+  launch?: CommandResult;
   templateSchema?: CommandResult;
   stop?: CommandResult;
 }
@@ -81,7 +84,7 @@ test.describe("real-agent AG-UI GUI smoke", () => {
       nonce,
       passiveServerUrl: config.passiveServerUrl,
       agentRef: config.agentRef,
-      agentName: config.agentName || undefined,
+      agentName: config.agentName || config.launchAgentName || undefined,
       agentId: config.agentId || undefined,
       console: [],
       errors: [],
@@ -96,10 +99,26 @@ test.describe("real-agent AG-UI GUI smoke", () => {
     });
 
     try {
-      diagnostics.relaunch = await runHoumaoMgr(
-        ["agents", "single", ...agentSelectorArgs(config), "relaunch"],
-        config.commandTimeoutMs,
-      );
+      if (config.launchSpecialist) {
+        diagnostics.launch = await runHoumaoMgr(
+          [
+            "project",
+            "agents",
+            "launch",
+            "--specialist",
+            config.launchSpecialist,
+            "--name",
+            config.launchAgentName,
+            "--gateway-background",
+          ],
+          config.commandTimeoutMs,
+        );
+      } else {
+        diagnostics.relaunch = await runHoumaoMgr(
+          ["agents", "single", ...agentSelectorArgs(config), "relaunch"],
+          config.commandTimeoutMs,
+        );
+      }
 
       const resolved = await waitForLiveGateway(config, diagnostics);
       diagnostics.resolvedTarget = gatewayTargetUrl(resolved, config.passiveServerUrl);
@@ -152,11 +171,9 @@ test.describe("real-agent AG-UI GUI smoke", () => {
         timeout: config.timeoutMs,
       });
 
-      const templateChart = templateFrame.getByTestId("template-chart-plotly-agent-1").filter({
-        has: page.locator("svg"),
-      });
+      const templateChart = templateFrame.getByTestId("template-chart-plotly-agent-1");
       await expect(templateChart).toBeVisible({ timeout: config.timeoutMs });
-      await expect(templateChart.locator("svg")).toBeVisible();
+      await expect(templateChart.locator("svg").first()).toBeVisible();
       diagnostics.textMarkerSeen = await containsTextWithin(
         page,
         "transcript-agent-1",
@@ -189,12 +206,16 @@ test.describe("real-agent AG-UI GUI smoke", () => {
 function readConfig(): SmokeConfig {
   const agentName = process.env.HMWB_TEST_AGENT_NAME?.trim() ?? "";
   const agentId = process.env.HMWB_TEST_AGENT_ID?.trim() ?? "";
+  const launchSpecialist = process.env.HMWB_TEST_AGENT_SPECIALIST?.trim() ?? "";
+  const launchAgentName = process.env.HMWB_TEST_AGENT_LAUNCH_NAME?.trim() ?? "";
   return {
     enabled: process.env.HMWB_REAL_AGENT_SMOKE === "1",
     passiveServerUrl: process.env.HMWB_PASSIVE_SERVER_URL?.trim() ?? "",
     agentName,
     agentId,
-    agentRef: agentId || agentName,
+    launchSpecialist,
+    launchAgentName,
+    agentRef: agentId || agentName || launchAgentName,
     timeoutMs: positiveIntegerEnv("HMWB_REAL_AGENT_TIMEOUT_MS", 180_000),
     commandTimeoutMs: positiveIntegerEnv("HMWB_AGENT_COMMAND_TIMEOUT_MS", 180_000),
     stopAfterSmoke: process.env.HMWB_REAL_AGENT_STOP_AFTER === "1",
@@ -207,8 +228,14 @@ function missingPrerequisites(smokeConfig: SmokeConfig): string[] {
   if (!smokeConfig.passiveServerUrl) {
     missing.push("HMWB_PASSIVE_SERVER_URL");
   }
-  if (!smokeConfig.agentName && !smokeConfig.agentId) {
+  if (smokeConfig.launchSpecialist && !smokeConfig.launchAgentName) {
+    missing.push("HMWB_TEST_AGENT_LAUNCH_NAME");
+  }
+  if (!smokeConfig.launchSpecialist && !smokeConfig.agentName && !smokeConfig.agentId) {
     missing.push("HMWB_TEST_AGENT_NAME or HMWB_TEST_AGENT_ID");
+  }
+  if (smokeConfig.launchAgentName && !smokeConfig.launchSpecialist && !smokeConfig.agentName && !smokeConfig.agentId) {
+    missing.push("HMWB_TEST_AGENT_SPECIALIST");
   }
   return missing;
 }
@@ -226,7 +253,7 @@ function agentSelectorArgs(smokeConfig: SmokeConfig): string[] {
   if (smokeConfig.agentId) {
     return ["--agent-id", smokeConfig.agentId];
   }
-  return ["--agent-name", smokeConfig.agentName];
+  return ["--agent-name", smokeConfig.agentName || smokeConfig.launchAgentName];
 }
 
 async function runHoumaoMgr(args: string[], timeoutMs: number): Promise<CommandResult> {

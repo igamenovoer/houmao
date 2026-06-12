@@ -8,7 +8,7 @@ AG-UI workbench prompt -> /v1/ag-ui/runs -> real Houmao agent -> houmao.graphic.
 
 The requested chart is intentionally an ordinary Layer 1 Plotly-backed bar chart, so the prompt uses `houmao.graphic.template`. Custom declarative Vega-Lite chart requests should use the Layer 2 `houmao.graphic.vegalite` component; the Debug Agent sender and workbench E2E tests include those deterministic examples.
 
-It uses live credentials, model behavior, passive-server discovery, a managed agent relaunch, and Playwright browser automation. It is intentionally not part of the default Python test suite or the default workbench E2E suite.
+It uses live credentials, model behavior, passive-server discovery, either a managed agent relaunch or fresh project specialist launch, and Playwright browser automation. It is intentionally not part of the default Python test suite or the default workbench E2E suite.
 
 ## Command
 
@@ -23,11 +23,22 @@ scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh
 
 Use `HMWB_TEST_AGENT_ID=<agent-id>` instead of `HMWB_TEST_AGENT_NAME` when the name is ambiguous.
 
+To validate first-connect behavior with a newly launched project specialist, provide a specialist and launch name instead of an existing agent selector:
+
+```bash
+HMWB_REAL_AGENT_SMOKE=1 \
+HMWB_PASSIVE_SERVER_URL=http://127.0.0.1:9891 \
+HMWB_TEST_AGENT_SPECIALIST=test-claude-kimi \
+HMWB_TEST_AGENT_LAUNCH_NAME=startup-graphics-test \
+scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh
+```
+
 ## Environment
 
 - `HMWB_REAL_AGENT_SMOKE=1`: required opt-in guard.
 - `HMWB_PASSIVE_SERVER_URL`: passive-server base URL used by the workbench agent picker.
 - `HMWB_TEST_AGENT_NAME` or `HMWB_TEST_AGENT_ID`: existing managed test agent to relaunch and select.
+- `HMWB_TEST_AGENT_SPECIALIST` plus `HMWB_TEST_AGENT_LAUNCH_NAME`: optional fresh project launch mode. The smoke runs `houmao-mgr project agents launch --specialist <specialist> --name <name> --gateway-background` and then selects the launched agent.
 - `HMWB_REAL_AGENT_TIMEOUT_MS`: optional model/render wait timeout, default `180000`.
 - `HMWB_AGENT_COMMAND_TIMEOUT_MS`: optional relaunch/resolve/stop command timeout, default `180000`.
 - `HMWB_REAL_AGENT_STOP_AFTER=1`: optional cleanup switch to stop the selected agent after the smoke.

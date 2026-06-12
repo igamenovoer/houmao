@@ -6,7 +6,12 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from houmao.agents.definition_parser import AgentPreset, load_agent_catalog, resolve_agent_preset
+from houmao.agents.definition_parser import (
+    AgentPreset,
+    load_agent_catalog,
+    resolve_agent_preset,
+    resolve_explicit_or_named_preset_path,
+)
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.project.overlay import PROJECT_DIRNAME, resolve_materialized_project_aware_agent_def_dir
 
@@ -115,12 +120,20 @@ def resolve_native_launch_target(
         working_directory=resolved_working_directory,
         agent_def_dir=agent_def_dir,
     )
-    catalog = load_agent_catalog(resolved_agent_def_dir)
-    preset = resolve_agent_preset(
-        catalog=catalog,
-        selector=resolved_selector,
-        tool=resolved_tool,
-    )
+    if _is_path_like_launch_selector(resolved_selector):
+        preset_path = resolve_explicit_or_named_preset_path(
+            agent_def_dir=resolved_agent_def_dir,
+            selector=resolved_selector,
+        )
+        catalog = load_agent_catalog(resolved_agent_def_dir, preset_paths=(preset_path,))
+        preset = catalog.presets[preset_path.resolve()]
+    else:
+        catalog = load_agent_catalog(resolved_agent_def_dir)
+        preset = resolve_agent_preset(
+            catalog=catalog,
+            selector=resolved_selector,
+            tool=resolved_tool,
+        )
     if preset.tool != resolved_tool:
         raise ValueError(
             f"Resolved preset `{preset.path}` targets tool `{preset.tool}`, not `{resolved_tool}`."
@@ -153,3 +166,15 @@ def _resolve_role_prompt(*, role_name: str, agent_def_dir: Path) -> tuple[str, P
             f"Missing role prompt for preset role `{role_name}`: {role_prompt_path}"
         )
     return role_prompt_path.read_text(encoding="utf-8").strip(), role_prompt_path
+
+
+def _is_path_like_launch_selector(selector: str) -> bool:
+    """Return whether one launch selector names a concrete preset path."""
+
+    return (
+        "/" in selector
+        or "\\" in selector
+        or selector.startswith(".")
+        or selector.startswith("~")
+        or selector.endswith((".yaml", ".yml"))
+    )

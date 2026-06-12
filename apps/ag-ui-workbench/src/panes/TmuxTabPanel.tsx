@@ -26,6 +26,11 @@ interface Disposable {
   dispose(): void;
 }
 
+interface TerminalSize {
+  cols: number;
+  rows: number;
+}
+
 export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const { paneId } = props.params;
   const { storage, updateTmuxTab, removePaneRecord } = useWorkbench();
@@ -43,7 +48,8 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const pickerOpenRef = useRef(false);
   const attachStateRef = useRef("unattached");
-  const lastTerminalSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const lastMeasuredTerminalSizeRef = useRef<TerminalSize | null>(null);
+  const deliveredAttachmentSizeRef = useRef<TerminalSize | null>(null);
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const status = runtime?.bridgeStatus ?? null;
@@ -59,6 +65,7 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     attachStateRef.current = attachState;
     if (attachState === "attached") {
       scheduleFit();
+      deliverMeasuredSizeToAttachment();
       scheduleTerminalRefresh();
     }
   }, [attachState]);
@@ -207,10 +214,12 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
     terminal.open(host);
     fitAddon.fit();
     scheduleTerminalRefresh();
-    lastTerminalSizeRef.current = { cols: terminal.cols, rows: terminal.rows };
+    setMeasuredTerminalSize({ cols: terminal.cols, rows: terminal.rows });
+    deliveredAttachmentSizeRef.current = null;
     terminalDisposablesRef.current = [
       terminal.onScroll(() => scheduleTerminalRefresh()),
       terminal.onWriteParsed(() => scheduleTerminalRefresh()),
+      addTerminalWheelHandler(host),
     ];
 
     runtimeDispatch({
@@ -263,7 +272,12 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       window.cancelAnimationFrame(refreshFrameRef.current);
       refreshFrameRef.current = null;
     }
-    lastTerminalSizeRef.current = null;
+    lastMeasuredTerminalSizeRef.current = null;
+    deliveredAttachmentSizeRef.current = null;
+    if (terminalHostRef.current) {
+      delete terminalHostRef.current.dataset.tmuxCols;
+      delete terminalHostRef.current.dataset.tmuxRows;
+    }
     runtimeDispatch({
       type: "tmux/detachRequested",
       paneId,
@@ -292,21 +306,67 @@ export function TmuxTabPanel(props: IDockviewPanelProps<PanelParams>) {
       fitAddon.fit();
       scheduleTerminalRefresh();
       const nextSize = { cols: terminal.cols, rows: terminal.rows };
-      const previousSize = lastTerminalSizeRef.current;
-      if (previousSize?.cols === nextSize.cols && previousSize.rows === nextSize.rows) {
-        return;
-      }
-      lastTerminalSizeRef.current = nextSize;
+      const previousSize = lastMeasuredTerminalSizeRef.current;
+      setMeasuredTerminalSize(nextSize);
       if (attachStateRef.current !== "attached") {
         return;
       }
-      runtimeDispatch({
-        type: "tmux/resizeRequested",
-        paneId,
-        cols: nextSize.cols,
-        rows: nextSize.rows,
-      });
+      if (previousSize?.cols === nextSize.cols && previousSize.rows === nextSize.rows) {
+        deliverMeasuredSizeToAttachment();
+        return;
+      }
+      deliverMeasuredSizeToAttachment();
     });
+  }
+
+  function deliverMeasuredSizeToAttachment() {
+    if (attachStateRef.current !== "attached") {
+      return;
+    }
+    const nextSize = lastMeasuredTerminalSizeRef.current;
+    if (!nextSize) {
+      return;
+    }
+    const deliveredSize = deliveredAttachmentSizeRef.current;
+    if (deliveredSize?.cols === nextSize.cols && deliveredSize.rows === nextSize.rows) {
+      return;
+    }
+    deliveredAttachmentSizeRef.current = nextSize;
+    runtimeDispatch({
+      type: "tmux/resizeRequested",
+      paneId,
+      cols: nextSize.cols,
+      rows: nextSize.rows,
+    });
+  }
+
+  function setMeasuredTerminalSize(size: TerminalSize) {
+    lastMeasuredTerminalSizeRef.current = size;
+    const host = terminalHostRef.current;
+    if (host) {
+      host.dataset.tmuxCols = String(size.cols);
+      host.dataset.tmuxRows = String(size.rows);
+    }
+  }
+
+  function addTerminalWheelHandler(host: HTMLElement): Disposable {
+    const handleWheel = (event: WheelEvent) => {
+      const terminal = terminalRef.current;
+      if (!terminal || attachStateRef.current !== "attached") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const lines = wheelDeltaToLines(event);
+      if (lines !== 0) {
+        terminal.scrollLines(lines);
+      }
+      scheduleTerminalRefresh();
+    };
+    host.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return {
+      dispose: () => host.removeEventListener("wheel", handleWheel, { capture: true }),
+    };
   }
 
   function scheduleTerminalRefresh() {
@@ -500,4 +560,18 @@ function safeTestToken(value: string): string {
       .replace(/[^a-z0-9_.-]+/g, "-")
       .replace(/^-+|-+$/g, "") || "session"
   );
+}
+
+function wheelDeltaToLines(event: WheelEvent): number {
+  const unit =
+    event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+      ? 24
+      : event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 1
+        : 1 / 48;
+  const lines = event.deltaY * unit;
+  if (Math.abs(lines) < 1) {
+    return Math.sign(lines);
+  }
+  return Math.trunc(lines);
 }

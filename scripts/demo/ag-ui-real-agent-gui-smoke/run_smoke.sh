@@ -15,8 +15,23 @@ if [[ -z "${HMWB_PASSIVE_SERVER_URL:-}" ]]; then
   exit 2
 fi
 
-if [[ -z "${HMWB_TEST_AGENT_NAME:-}" && -z "${HMWB_TEST_AGENT_ID:-}" ]]; then
-  echo "Set HMWB_TEST_AGENT_NAME or HMWB_TEST_AGENT_ID to select the existing test agent." >&2
+has_existing_selector=0
+if [[ -n "${HMWB_TEST_AGENT_NAME:-}" || -n "${HMWB_TEST_AGENT_ID:-}" ]]; then
+  has_existing_selector=1
+fi
+
+has_launch_selector=0
+if [[ -n "${HMWB_TEST_AGENT_SPECIALIST:-}" || -n "${HMWB_TEST_AGENT_LAUNCH_NAME:-}" ]]; then
+  has_launch_selector=1
+fi
+
+if [[ "$has_launch_selector" -eq 1 ]]; then
+  if [[ -z "${HMWB_TEST_AGENT_SPECIALIST:-}" || -z "${HMWB_TEST_AGENT_LAUNCH_NAME:-}" ]]; then
+    echo "Set both HMWB_TEST_AGENT_SPECIALIST and HMWB_TEST_AGENT_LAUNCH_NAME for fresh launch mode." >&2
+    exit 2
+  fi
+elif [[ "$has_existing_selector" -ne 1 ]]; then
+  echo "Set HMWB_TEST_AGENT_NAME or HMWB_TEST_AGENT_ID, or set HMWB_TEST_AGENT_SPECIALIST and HMWB_TEST_AGENT_LAUNCH_NAME for fresh launch mode." >&2
   exit 2
 fi
 

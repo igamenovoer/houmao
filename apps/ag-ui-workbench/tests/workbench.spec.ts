@@ -656,6 +656,12 @@ test("tmux tab refits on resize and removes dead fixture sessions", async ({ pag
 
   await page.getByTestId("tmux-session-houmao-alpha").click();
   await expect(page.getByTestId("tmux-terminal-tmux-1")).toContainText("fixture attached houmao-alpha");
+  await expect.poll(() => latestFixtureResize(page, "houmao-alpha")).toEqual(
+    expect.objectContaining({
+      cols: expect.any(Number),
+      rows: expect.any(Number),
+    }),
+  );
   const panelBox = await page.getByTestId("panel-tmux-1").boundingBox();
   const terminalBox = await page.getByTestId("tmux-terminal-tmux-1").boundingBox();
   expect(panelBox).toBeTruthy();
@@ -686,14 +692,17 @@ test("tmux tab repaints visible scrollback after mouse-wheel scrolling", async (
   await expect(terminal).toContainText("scrollback-69");
 
   const beforeScrollBox = await terminal.boundingBox();
+  const beforeWindowScrollY = await page.evaluate(() => window.scrollY);
   expect(beforeScrollBox).toBeTruthy();
   await terminal.hover();
   await page.mouse.wheel(0, -2500);
   await expect.poll(() => visibleScrollbackMinIndex(terminal)).toBeLessThan(50);
   const afterScrollBox = await terminal.boundingBox();
+  const afterWindowScrollY = await page.evaluate(() => window.scrollY);
   expect(afterScrollBox).toBeTruthy();
   expect(Math.round(afterScrollBox!.width)).toBe(Math.round(beforeScrollBox!.width));
   expect(Math.round(afterScrollBox!.height)).toBe(Math.round(beforeScrollBox!.height));
+  expect(afterWindowScrollY).toBe(beforeWindowScrollY);
 
   await page.mouse.wheel(0, 2500);
   await expect.poll(() => visibleScrollbackMaxIndex(terminal)).toBeGreaterThan(65);
@@ -1579,6 +1588,21 @@ async function debugAgentConnectionCount(page: Page, agentId: string): Promise<n
     agents: Array<{ agentId: string; connectionCount: number }>;
   };
   return body.agents.find((agent) => agent.agentId === agentId)?.connectionCount ?? 0;
+}
+
+async function latestFixtureResize(
+  page: Page,
+  sessionName: string,
+): Promise<{ cols: number; rows: number } | null> {
+  const response = await page.request.get("/__houmao_tmux/fixture/attachments");
+  const body = (await response.json()) as {
+    attachments: Array<{
+      sessionName: string;
+      resizes: Array<{ cols: number; rows: number }>;
+    }>;
+  };
+  const attachment = [...body.attachments].reverse().find((item) => item.sessionName === sessionName);
+  return attachment?.resizes.at(-1) ?? null;
 }
 
 async function readOnlyTmuxSocketRejectsInput(page: Page): Promise<boolean> {

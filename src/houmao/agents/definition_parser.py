@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -182,7 +183,11 @@ class ParsedAgentCatalog:
     presets: dict[Path, AgentPreset]
 
 
-def load_agent_catalog(agent_def_dir: Path) -> ParsedAgentCatalog:
+def load_agent_catalog(
+    agent_def_dir: Path,
+    *,
+    preset_paths: Iterable[Path] | None = None,
+) -> ParsedAgentCatalog:
     """Parse one agent-definition root into the canonical catalog."""
 
     resolved_root = agent_def_dir.resolve()
@@ -213,11 +218,16 @@ def load_agent_catalog(agent_def_dir: Path) -> ParsedAgentCatalog:
                 if auth_root.is_dir() and path.is_dir()
             }
 
-    presets_root = (resolved_root / "presets").resolve()
-    if presets_root.is_dir():
-        for preset_path in sorted(path for path in presets_root.iterdir() if path.is_file()):
-            if preset_path.suffix not in _PRESET_FILE_SUFFIXES:
-                continue
+    if preset_paths is None:
+        presets_root = (resolved_root / "presets").resolve()
+        if presets_root.is_dir():
+            for preset_path in sorted(path for path in presets_root.iterdir() if path.is_file()):
+                if preset_path.suffix not in _PRESET_FILE_SUFFIXES:
+                    continue
+                parsed = parse_agent_preset(preset_path)
+                presets[parsed.path] = parsed
+    else:
+        for preset_path in preset_paths:
             parsed = parse_agent_preset(preset_path)
             presets[parsed.path] = parsed
 

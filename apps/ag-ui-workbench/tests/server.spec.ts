@@ -250,6 +250,7 @@ test("tmux Fastify bridge fixture lists sessions and rejects read-only input", a
   process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = "1";
   const server = await startWorkbenchTestServer();
   try {
+    await fetch(`${server.baseUrl}/__houmao_tmux/fixture/reset`, { method: "POST" });
     const sessionsResponse = await fetch(`${server.baseUrl}/__houmao_tmux/sessions`);
     await expect(sessionsResponse.json()).resolves.toMatchObject({
       status: "ready",
@@ -272,6 +273,84 @@ test("tmux Fastify bridge fixture lists sessions and rejects read-only input", a
     } else {
       process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = previousFixture;
     }
+  }
+});
+
+test("tmux Fastify bridge fixture records valid attachment resizes", async () => {
+  const previousFixture = process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE;
+  process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = "1";
+  const server = await startWorkbenchTestServer();
+  try {
+    await fetch(`${server.baseUrl}/__houmao_tmux/fixture/reset`, { method: "POST" });
+    const messages = await collectTmuxMessages(
+      server.baseUrl,
+      [
+        { type: "attach", sessionName: "houmao-alpha", mode: "read-write", cols: 80, rows: 24 },
+        { type: "resize", cols: 101, rows: 31 },
+      ],
+      3,
+    );
+    expect(messages).toContainEqual(expect.objectContaining({ type: "attached" }));
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: "output", data: expect.stringContaining("101x31") }),
+    );
+
+    const attachmentsResponse = await fetch(`${server.baseUrl}/__houmao_tmux/fixture/attachments`);
+    await expect(attachmentsResponse.json()).resolves.toMatchObject({
+      attachments: [
+        expect.objectContaining({
+          sessionName: "houmao-alpha",
+          attachCols: 80,
+          attachRows: 24,
+          resizes: [expect.objectContaining({ cols: 101, rows: 31 })],
+        }),
+      ],
+    });
+  } finally {
+    await server.close();
+    restoreFixtureEnv(previousFixture);
+  }
+});
+
+test("tmux Fastify bridge fixture rejects resize before attach and invalid dimensions", async () => {
+  const previousFixture = process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE;
+  process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = "1";
+  const server = await startWorkbenchTestServer();
+  try {
+    await fetch(`${server.baseUrl}/__houmao_tmux/fixture/reset`, { method: "POST" });
+    const beforeAttachMessages = await collectTmuxMessages(
+      server.baseUrl,
+      [{ type: "resize", cols: 80, rows: 24 }],
+      1,
+    );
+    expect(beforeAttachMessages).toContainEqual(
+      expect.objectContaining({ type: "error", code: "tmux_not_attached" }),
+    );
+
+    const invalidMessages = await collectTmuxMessages(
+      server.baseUrl,
+      [
+        { type: "attach", sessionName: "houmao-alpha", mode: "read-write", cols: 80, rows: 24 },
+        { type: "resize", cols: 1, rows: 24 },
+      ],
+      3,
+    );
+    expect(invalidMessages).toContainEqual(
+      expect.objectContaining({ type: "error", code: "tmux_resize_invalid" }),
+    );
+
+    const closeMessages = await collectTmuxMessages(
+      server.baseUrl,
+      [
+        { type: "attach", sessionName: "houmao-alpha", mode: "read-write", cols: 80, rows: 24 },
+        { type: "close" },
+      ],
+      2,
+    );
+    expect(closeMessages).toContainEqual(expect.objectContaining({ type: "attached" }));
+  } finally {
+    await server.close();
+    restoreFixtureEnv(previousFixture);
   }
 });
 
@@ -370,7 +449,11 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function collectTmuxMessages(baseUrl: string, outgoing: unknown[]): Promise<unknown[]> {
+async function collectTmuxMessages(
+  baseUrl: string,
+  outgoing: unknown[],
+  minimumMessages = 3,
+): Promise<unknown[]> {
   const url = new URL(baseUrl);
   const wsUrl = `ws://${url.host}/__houmao_tmux/attach`;
   const messages: unknown[] = [];
@@ -385,7 +468,15 @@ async function collectTmuxMessages(baseUrl: string, outgoing: unknown[]): Promis
   for (const message of outgoing) {
     socket.send(JSON.stringify(message));
   }
-  await expect.poll(() => messages.length).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => messages.length).toBeGreaterThanOrEqual(minimumMessages);
   socket.close();
   return messages;
+}
+
+function restoreFixtureEnv(previousFixture: string | undefined): void {
+  if (typeof previousFixture === "undefined") {
+    delete process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE;
+    return;
+  }
+  process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = previousFixture;
 }
