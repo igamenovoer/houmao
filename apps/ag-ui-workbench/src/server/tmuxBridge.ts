@@ -419,8 +419,15 @@ function spawnTmuxAttach(message: ClientAttachMessage): pty.IPty {
     cols: safeDimension(message.cols, 80),
     rows: safeDimension(message.rows, 24),
     cwd: process.env.HOME,
-    env: process.env,
+    env: tmuxAttachEnvironment(process.env),
   });
+}
+
+export function tmuxAttachEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const { TMUX: _tmux, TMUX_PANE: _tmuxPane, ...env } = source;
+  return { ...env, TERM: "xterm-256color" };
 }
 
 function validateAttachMessage(message: ClientAttachMessage): { ok: true } | { ok: false; detail: string } {

@@ -1,12 +1,11 @@
 ---
 name: houmao-interop-ag-ui
-description: Use Houmao AG-UI interop helpers to discover component schemas, validate payloads, render standard AG-UI events, and publish them to the Houmao gateway.
-license: MIT
+description: "Use Houmao AG-UI interop helpers for typed visual output: discover component schemas, validate payloads, render standard AG-UI event batches, and publish them through a live Houmao gateway. Use when Codex needs to create, validate, render, or deliver Houmao AG-UI graphics, tables, metric grids, dashboards, or other typed GUI messages."
 ---
 
 # Houmao Interop AG-UI
 
-Use this skill when a Houmao agent needs to send typed visual output to an AG-UI GUI through maintained Houmao tooling.
+Use maintained Houmao tooling to send typed visual output to an AG-UI GUI.
 
 Typed Houmao components are an application-layer protocol carried inside standard AG-UI tool-call events. The gateway validates standard AG-UI event shape and routing only. `houmao-mgr` owns Houmao component schemas, payload validation, and event generation.
 

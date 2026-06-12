@@ -1,0 +1,4 @@
+interface:
+  display_name: "Houmao Interop AG-UI"
+  short_description: "Author Houmao AG-UI graphics and publish events."
+  default_prompt: "Use $houmao-interop-ag-ui to author a Houmao typed visual component, render it into AG-UI events, and publish it through the live gateway."

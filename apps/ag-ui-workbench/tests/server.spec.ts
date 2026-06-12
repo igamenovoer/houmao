@@ -5,6 +5,7 @@ import { WebSocket } from "ws";
 
 import { createWorkbenchFastifyApp } from "../src/server/app";
 import { PresentationSessionRegistry } from "../src/server/presentationSessions";
+import { tmuxAttachEnvironment } from "../src/server/tmuxBridge";
 import type { RunAgentInput } from "../src/ag-ui/types";
 
 test("Fastify app exposes health/status and cleans presentation sessions on shutdown", async () => {
@@ -214,6 +215,20 @@ test("tmux Fastify bridge fixture lists sessions and rejects read-only input", a
       process.env.HOUMAO_AG_UI_WORKBENCH_TMUX_FIXTURE = previousFixture;
     }
   }
+});
+
+test("tmux attach environment strips nested tmux variables", () => {
+  const env = tmuxAttachEnvironment({
+    PATH: "/usr/bin",
+    HOME: "/tmp/home",
+    TERM: "dumb",
+    TMUX: "/tmp/tmux-1000/default,123,0",
+    TMUX_PANE: "%12",
+  });
+
+  expect(env).toMatchObject({ PATH: "/usr/bin", HOME: "/tmp/home", TERM: "xterm-256color" });
+  expect(env.TMUX).toBeUndefined();
+  expect(env.TMUX_PANE).toBeUndefined();
 });
 
 test("presentation-session disposal is presentation-only", async () => {
