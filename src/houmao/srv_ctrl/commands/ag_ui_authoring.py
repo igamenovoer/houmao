@@ -16,6 +16,7 @@ from houmao.ag_ui.authoring import (
     render_events_as_json,
     render_events_as_jsonl,
     render_events_as_sse,
+    template_graphic_trace_catalog_payload,
     validate_ag_ui_event_sequence,
     validate_component_payload,
 )
@@ -54,6 +55,13 @@ def component_schema_command(component: str) -> None:
         emit(component_schema_payload(component))
     except HoumaoAgUiValidationError as exc:
         raise click.ClickException(_error_message(exc)) from exc
+
+
+@ag_ui_components_group.command(name="traces")
+def template_traces_command() -> None:
+    """List supported Plotly 2D template graphic trace types."""
+
+    emit(template_graphic_trace_catalog_payload(), plain_renderer=_render_trace_catalog_plain)
 
 
 @ag_ui_components_group.command(name="validate")
@@ -173,6 +181,26 @@ def _error_message(exc: HoumaoAgUiValidationError) -> str:
 
     payload = exc.to_payload()
     return json.dumps(payload, sort_keys=True)
+
+
+def _render_trace_catalog_plain(payload: object) -> None:
+    """Render the template trace catalog in a compact plain-text form."""
+
+    if not isinstance(payload, dict):
+        click.echo(str(payload))
+        return
+    supported = payload.get("supportedTraceTypes")
+    excluded = payload.get("excludedTraceTypes")
+    if not isinstance(supported, list):
+        click.echo(str(payload))
+        return
+    click.echo(f"supportedTraceTypes ({len(supported)}):")
+    for trace_type in supported:
+        click.echo(f"  - {trace_type}")
+    if isinstance(excluded, dict) and excluded:
+        click.echo(f"excludedTraceTypes ({len(excluded)}):")
+        for trace_type, reason in sorted(excluded.items()):
+            click.echo(f"  - {trace_type}: {reason}")
 
 
 __all__ = ["ag_ui_authoring_group"]

@@ -1,5 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import {
+  PLOTLY_2D_TRACE_CATALOG,
+  PLOTLY_2D_TRACE_TYPES,
+  PLOTLY_EXCLUDED_TRACE_TYPES,
+  PLOTLY_TRACE_CATALOG_POLICY,
+  type PlotlyTraceCatalogEntry,
+} from "../ag-ui/plotlyTraceCatalog";
+
 export const DEBUG_PREFIX = "/__houmao_debug_agents";
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_EVENTS = 100;
@@ -81,7 +89,8 @@ const COMPONENT_NAMES = [
 type ComponentName = (typeof COMPONENT_NAMES)[number];
 
 const COMPONENT_NAME_SET = new Set<string>(COMPONENT_NAMES);
-const TEMPLATE_CHART_TYPES = ["bar", "line", "scatter", "pie", "histogram"] as const;
+const TEMPLATE_TRACE_TYPES = new Set<string>(PLOTLY_2D_TRACE_TYPES);
+const TEMPLATE_EXCLUDED_TRACE_TYPES: Record<string, string> = PLOTLY_EXCLUDED_TRACE_TYPES;
 const MAX_VEGALITE_PAYLOAD_BYTES = 128 * 1024;
 const REMOTE_URL_PATTERN = /^https?:\/\//i;
 const VEGALITE_SCHEMA_URL_PATTERN =
@@ -94,6 +103,12 @@ const UNSAFE_TEXT_PATTERNS = [
   /<\s*svg\b/i,
   /image\/svg\+xml/i,
 ];
+const SECRET_FIELD_PATTERN = /(token|key|secret|password|credential|authorization|cookie)/i;
+const PLOTLY_POLICY_REJECTED_EXACT_KEYS = new Set(
+  PLOTLY_TRACE_CATALOG_POLICY.globalRejectedFields
+    .filter((key) => !key.includes("*"))
+    .map((key) => key.toLowerCase()),
+);
 const PLOTLY_EXTRA_DISALLOWED_KEYS = new Set([
   "$schema",
   "data",
@@ -121,17 +136,16 @@ const PLOTLY_EXTRA_DISALLOWED_KEYS = new Set([
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
   "houmao.graphic.template": {
-    schemaVersion: 2,
-    chartType: "bar",
+    schemaVersion: 3,
+    figureType: "plotly2d",
     renderer: { preferred: "plotly" },
     title: "Debug Template Graphic",
     subtitle: "Posted through the Debug Agent relay",
     traces: [
       {
         type: "bar",
-        x: ["Ready", "Review", "Blocked"],
-        y: [18, 7, 2],
-        marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
+        data: { x: ["Ready", "Review", "Blocked"], y: [18, 7, 2] },
+        style: { marker: { color: ["#2563eb", "#16a34a", "#dc2626"] } },
       },
     ],
     layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },
@@ -205,11 +219,11 @@ const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
         component: "houmao.graphic.template",
         width: "half",
         props: {
-          schemaVersion: 2,
-          chartType: "bar",
+          schemaVersion: 3,
+          figureType: "plotly2d",
           renderer: { preferred: "plotly" },
           title: "Dashboard Chart",
-          traces: [{ type: "bar", x: ["A", "B"], y: [8, 13] }],
+          traces: [{ type: "bar", data: { x: ["A", "B"], y: [8, 13] } }],
         },
       },
       {
@@ -714,15 +728,29 @@ function validateTemplateGraphicPayload(payload: unknown): ValidationResult<unkn
   if (!isRecord(payload)) {
     return invalid("payload must be an object.", "$");
   }
-  if (payload.schemaVersion !== 2) {
-    return invalid("schemaVersion must be 2.", "schemaVersion");
+  const unsafe = rejectUnsafeText(payload, "$");
+  if (!unsafe.ok) {
+    return unsafe;
+  }
+  const remote = rejectRemoteUrls(payload, "$");
+  if (!remote.ok) {
+    return remote;
+  }
+  const policy = rejectPlotlyPolicyKeys(payload, "$");
+  if (!policy.ok) {
+    return policy;
+  }
+  if (payload.schemaVersion !== 3) {
+    return invalid("schemaVersion must be 3.", "schemaVersion");
+  }
+  if ("chartType" in payload) {
+    return invalid("chartType is retired; use figureType plotly2d and traces[].type.", "chartType");
   }
   if ("data" in payload || "encoding" in payload) {
     return invalid("legacy data.values plus encoding payloads are retired.", "data");
   }
-  const chartType = enumValue(payload.chartType, TEMPLATE_CHART_TYPES, "chartType");
-  if (!chartType.ok) {
-    return chartType;
+  if (payload.figureType !== "plotly2d") {
+    return invalid("figureType must be plotly2d.", "figureType");
   }
   const title = nonBlankString(payload.title, "title");
   if (!title.ok) {
@@ -732,18 +760,28 @@ function validateTemplateGraphicPayload(payload: unknown): ValidationResult<unkn
   if (!renderer.ok) {
     return renderer;
   }
-  const traces = validateTemplateTraces(payload.traces, chartType.value);
-  if (!traces.ok) {
-    return traces;
-  }
   const dataRefs = validateTemplateDataRefs(payload.dataRefs);
   if (!dataRefs.ok) {
     return dataRefs;
+  }
+  const traces = validateTemplateTraces(payload.traces);
+  if (!traces.ok) {
+    return traces;
   }
   const refs = new Set(dataRefs.value);
   for (const [index, trace] of traces.value.entries()) {
     if (trace.sourceDataRef && !refs.has(trace.sourceDataRef)) {
       return invalid(`traces.${index}.source.dataRef is not declared in dataRefs.`, `traces.${index}.source.dataRef`);
+    }
+  }
+  for (const [path, value] of [
+    ["layout", payload.layout],
+    ["config", payload.config],
+    ["display", payload.display],
+  ] as const) {
+    const objectValidation = validateTemplatePlotlyObject(value, path);
+    if (!objectValidation.ok) {
+      return objectValidation;
     }
   }
   const extra = validateTemplateExtra(payload.extra);
@@ -807,10 +845,7 @@ function validateTemplateRenderer(value: unknown): ValidationResult<void> {
   return { ok: true, value: undefined };
 }
 
-function validateTemplateTraces(
-  value: unknown,
-  chartType: (typeof TEMPLATE_CHART_TYPES)[number],
-): ValidationResult<Array<{ sourceDataRef?: string }>> {
+function validateTemplateTraces(value: unknown): ValidationResult<Array<{ sourceDataRef?: string }>> {
   if (!Array.isArray(value) || value.length === 0) {
     return invalid("traces must be a non-empty array.", "traces");
   }
@@ -819,80 +854,75 @@ function validateTemplateTraces(
     if (!isRecord(item)) {
       return invalid(`traces.${index} must be an object.`, `traces.${index}`);
     }
-    const traceType = optionalTemplateTraceType(item.type, chartType, `traces.${index}.type`);
+    const traceType = validateTemplateTraceType(item.type, `traces.${index}.type`);
     if (!traceType.ok) {
       return traceType;
     }
-    const source = validateTemplateSource(item.source, `traces.${index}.source`);
+    const catalogEntry = PLOTLY_2D_TRACE_CATALOG[traceType.value];
+    const data = validateTemplateTraceObject(
+      item.data,
+      `traces.${index}.data`,
+      new Set(catalogEntry.dataPaths),
+    );
+    if (!data.ok) {
+      return data;
+    }
+    const style = validateTemplateTraceObject(
+      item.style,
+      `traces.${index}.style`,
+      new Set(catalogEntry.stylePaths),
+    );
+    if (!style.ok) {
+      return style;
+    }
+    const source = validateTemplateSource(item.source, `traces.${index}.source`, catalogEntry);
     if (!source.ok) {
       return source;
     }
-    const channelValidation = validateTemplateTraceChannels(item, source.value, chartType, index);
-    if (!channelValidation.ok) {
-      return channelValidation;
+    if (Object.keys(data.value).length === 0 && !source.value) {
+      return invalid(`traces.${index} requires data or source bindings.`, `traces.${index}`);
+    }
+    const conflict = validateTemplateInlineAndSourceDisjoint(data.value, source.value, index);
+    if (!conflict.ok) {
+      return conflict;
     }
     traces.push({ sourceDataRef: source.value?.dataRef });
   }
   return { ok: true, value: traces };
 }
 
-function optionalTemplateTraceType(
+function validateTemplateTraceType(value: unknown, path: string): ValidationResult<string> {
+  if (typeof value !== "string" || value.trim() === "") {
+    return invalid(`${path} must be a non-empty Plotly 2D trace type.`, path);
+  }
+  const traceType = value.trim();
+  const excludedReason = TEMPLATE_EXCLUDED_TRACE_TYPES[traceType];
+  if (excludedReason) {
+    return invalid(`${path} ${traceType} is excluded from Layer 1 template graphics: ${excludedReason}.`, path);
+  }
+  if (!TEMPLATE_TRACE_TYPES.has(traceType)) {
+    return invalid(`${path} must be one of ${PLOTLY_2D_TRACE_TYPES.join(", ")}.`, path);
+  }
+  return { ok: true, value: traceType };
+}
+
+function validateTemplateTraceObject(
   value: unknown,
-  chartType: (typeof TEMPLATE_CHART_TYPES)[number],
   path: string,
-): ValidationResult<void> {
-  if (typeof value === "undefined") {
-    return { ok: true, value: undefined };
+  allowedPaths: ReadonlySet<string>,
+): ValidationResult<JsonObject> {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: {} };
   }
-  const expected = chartType === "line" ? "scatter" : chartType;
-  if (value !== expected) {
-    return invalid(`${path} must be ${expected}.`, path);
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`, path);
   }
-  return { ok: true, value: undefined };
-}
-
-function validateTemplateTraceChannels(
-  trace: JsonObject,
-  source: { dataRef: string; channels: Set<string> } | undefined,
-  chartType: (typeof TEMPLATE_CHART_TYPES)[number],
-  index: number,
-): ValidationResult<void> {
-  for (const channel of ["x", "y", "labels", "values", "text"] as const) {
-    if (source?.channels.has(channel) && typeof trace[channel] !== "undefined") {
-      return invalid(`traces.${index}.${channel} cannot be combined with source.${channel}.`, `traces.${index}.${channel}`);
+  for (const leafPath of objectLeafPaths(value)) {
+    if (!allowedPaths.has(leafPath)) {
+      return invalid(`${path}.${leafPath} is not supported by the Plotly 2D trace catalog.`, `${path}.${leafPath}`);
     }
   }
-  if (chartType === "pie") {
-    return requireTemplateChannels(trace, source, index, ["labels", "values"]);
-  }
-  if (chartType === "histogram") {
-    return hasTemplateChannel(trace, source, "x") || hasTemplateChannel(trace, source, "y")
-      ? { ok: true, value: undefined }
-      : invalid(`traces.${index} requires x or y.`, `traces.${index}`);
-  }
-  return requireTemplateChannels(trace, source, index, ["x", "y"]);
-}
-
-function requireTemplateChannels(
-  trace: JsonObject,
-  source: { dataRef: string; channels: Set<string> } | undefined,
-  index: number,
-  channels: string[],
-): ValidationResult<void> {
-  for (const channel of channels) {
-    if (!hasTemplateChannel(trace, source, channel)) {
-      return invalid(`traces.${index} requires ${channel}.`, `traces.${index}.${channel}`);
-    }
-  }
-  return { ok: true, value: undefined };
-}
-
-function hasTemplateChannel(
-  trace: JsonObject,
-  source: { dataRef: string; channels: Set<string> } | undefined,
-  channel: string,
-): boolean {
-  return typeof trace[channel] !== "undefined" || Boolean(source?.channels.has(channel));
+  return { ok: true, value };
 }
 
 function validateTemplateDataRefs(value: unknown): ValidationResult<string[]> {
@@ -903,6 +933,7 @@ function validateTemplateDataRefs(value: unknown): ValidationResult<string[]> {
     return invalid("dataRefs must be an array.", "dataRefs");
   }
   const ids: string[] = [];
+  const seen = new Set<string>();
   for (const [index, item] of value.entries()) {
     if (!isRecord(item)) {
       return invalid(`dataRefs.${index} must be an object.`, `dataRefs.${index}`);
@@ -911,6 +942,10 @@ function validateTemplateDataRefs(value: unknown): ValidationResult<string[]> {
     if (!id.ok) {
       return id;
     }
+    if (seen.has(id.value)) {
+      return invalid(`dataRefs.${index}.id duplicates ${id.value}.`, `dataRefs.${index}.id`);
+    }
+    seen.add(id.value);
     ids.push(id.value);
   }
   return { ok: true, value: ids };
@@ -919,7 +954,8 @@ function validateTemplateDataRefs(value: unknown): ValidationResult<string[]> {
 function validateTemplateSource(
   value: unknown,
   path: string,
-): ValidationResult<{ dataRef: string; channels: Set<string> } | undefined> {
+  catalogEntry: PlotlyTraceCatalogEntry,
+): ValidationResult<{ dataRef: string; bindingPaths: Set<string> } | undefined> {
   if (typeof value === "undefined") {
     return { ok: true, value: undefined };
   }
@@ -930,21 +966,69 @@ function validateTemplateSource(
   if (!dataRef.ok) {
     return dataRef;
   }
-  const channels = new Set<string>();
-  for (const channel of ["x", "y", "z", "labels", "values", "text"] as const) {
-    if (isRecord(value[channel])) {
-      channels.add(channel);
+  if (!isRecord(value.bindings)) {
+    return invalid(`${path}.bindings must be a non-empty object.`, `${path}.bindings`);
+  }
+  const allowedBindings = new Set(catalogEntry.bindingPaths);
+  const bindingPaths = new Set<string>();
+  for (const [rawPath, rawBinding] of Object.entries(value.bindings)) {
+    const bindingPath = normalizeBindingPath(rawPath);
+    if (!bindingPath) {
+      return invalid(`${path}.bindings contains an empty field path.`, `${path}.bindings`);
+    }
+    if (!allowedBindings.has(bindingPath)) {
+      return invalid(
+        `${path}.bindings.${rawPath} is not supported by the Plotly 2D trace catalog.`,
+        `${path}.bindings.${rawPath}`,
+      );
+    }
+    if (!isRecord(rawBinding)) {
+      return invalid(`${path}.bindings.${rawPath} must be an object.`, `${path}.bindings.${rawPath}`);
+    }
+    const column = nonBlankString(rawBinding.column, `${path}.bindings.${rawPath}.column`);
+    if (!column.ok) {
+      return column;
+    }
+    bindingPaths.add(bindingPath);
+  }
+  if (bindingPaths.size === 0) {
+    return invalid(`${path}.bindings must be a non-empty object.`, `${path}.bindings`);
+  }
+  return { ok: true, value: { dataRef: dataRef.value, bindingPaths } };
+}
+
+function validateTemplateInlineAndSourceDisjoint(
+  data: JsonObject,
+  source: { dataRef: string; bindingPaths: Set<string> } | undefined,
+  index: number,
+): ValidationResult<void> {
+  if (!source) {
+    return { ok: true, value: undefined };
+  }
+  const inlinePaths = new Set(objectLeafPaths(data));
+  for (const bindingPath of source.bindingPaths) {
+    if (inlinePaths.has(bindingPath)) {
+      return invalid(
+        `traces.${index}.data.${bindingPath} cannot be combined with source.bindings.${bindingPath}.`,
+        `traces.${index}.data.${bindingPath}`,
+      );
     }
   }
-  if (isRecord(value.marker)) {
-    if (isRecord(value.marker.color)) {
-      channels.add("marker.color");
-    }
-    if (isRecord(value.marker.size)) {
-      channels.add("marker.size");
-    }
+  return { ok: true, value: undefined };
+}
+
+function validateTemplatePlotlyObject(value: unknown, path: string): ValidationResult<void> {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: undefined };
   }
-  return { ok: true, value: { dataRef: dataRef.value, channels } };
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`, path);
+  }
+  const policy = rejectPlotlyPolicyKeys(value, path);
+  if (!policy.ok) {
+    return policy;
+  }
+  return { ok: true, value: undefined };
 }
 
 function validateTemplateExtra(value: unknown): ValidationResult<void> {
@@ -990,6 +1074,110 @@ function rejectPlotlyRawSpecKeys(value: unknown, path: string): ValidationResult
     const validation = rejectPlotlyRawSpecKeys(item, nextPath);
     if (!validation.ok) {
       return validation;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function objectLeafPaths(value: unknown): string[] {
+  const paths = new Set<string>();
+  collectObjectLeafPaths(value, [], paths);
+  return Array.from(paths).sort();
+}
+
+function collectObjectLeafPaths(value: unknown, path: string[], paths: Set<string>): void {
+  if (Array.isArray(value)) {
+    if (value.length === 0 && path.length > 0) {
+      paths.add(path.join("."));
+      return;
+    }
+    let hasScalar = false;
+    for (const item of value) {
+      if (isRecord(item) || Array.isArray(item)) {
+        collectObjectLeafPaths(item, path, paths);
+      } else {
+        hasScalar = true;
+      }
+    }
+    if (hasScalar && path.length > 0) {
+      paths.add(path.join("."));
+    }
+    return;
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0 && path.length > 0) {
+      paths.add(path.join("."));
+      return;
+    }
+    for (const [key, item] of entries) {
+      collectObjectLeafPaths(item, [...path, key], paths);
+    }
+    return;
+  }
+  if (path.length > 0) {
+    paths.add(path.join("."));
+  }
+}
+
+function normalizeBindingPath(path: string): string {
+  const stripped = path.trim();
+  return stripped.startsWith("data.") ? stripped.slice("data.".length) : stripped;
+}
+
+function rejectPlotlyPolicyKeys(value: unknown, path: string): ValidationResult<void> {
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectPlotlyPolicyKeys(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const lowerKey = key.toLowerCase();
+    const nextPath = `${path}.${key}`;
+    if (
+      lowerKey.endsWith("src") ||
+      PLOTLY_POLICY_REJECTED_EXACT_KEYS.has(lowerKey) ||
+      SECRET_FIELD_PATTERN.test(key)
+    ) {
+      return invalid(`${nextPath} is not allowed in Layer 1 Plotly template graphics.`, nextPath);
+    }
+    const result = rejectPlotlyPolicyKeys(item, nextPath);
+    if (!result.ok) {
+      return result;
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function rejectRemoteUrls(value: unknown, path: string): ValidationResult<void> {
+  if (typeof value === "string") {
+    return REMOTE_URL_PATTERN.test(value)
+      ? invalid(`${path} must not contain remote URLs.`, path)
+      : { ok: true, value: undefined };
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const result = rejectRemoteUrls(item, `${path}.${index}`);
+      if (!result.ok) {
+        return result;
+      }
+    }
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return { ok: true, value: undefined };
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const result = rejectRemoteUrls(item, `${path}.${key}`);
+    if (!result.ok) {
+      return result;
     }
   }
   return { ok: true, value: undefined };

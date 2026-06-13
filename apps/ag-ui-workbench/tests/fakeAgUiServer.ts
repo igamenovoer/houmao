@@ -442,11 +442,13 @@ export class FakeAgUiServer {
               component: "houmao.graphic.template",
               width: "half",
               props: {
-                schemaVersion: 2,
-                chartType: "bar",
+                schemaVersion: 3,
+                figureType: "plotly2d",
                 renderer: { preferred: "plotly" },
                 title: "Alpha Counts",
-                traces: [{ type: "bar", x: ["Done", "Review", "Blocked"], y: [18, 4, 1] }],
+                traces: [
+                  { type: "bar", data: { x: ["Done", "Review", "Blocked"], y: [18, 4, 1] } },
+                ],
               },
             },
             {
@@ -479,17 +481,16 @@ export class FakeAgUiServer {
         type: "TOOL_CALL_ARGS",
         toolCallId: "alpha-template-graphic-tool",
         delta: JSON.stringify({
-          schemaVersion: 2,
-          chartType: "bar",
+          schemaVersion: 3,
+          figureType: "plotly2d",
           renderer: { preferred: "plotly" },
           title: "Alpha Template Graphic",
           subtitle: "Layer 1 standardized JSON",
           traces: [
             {
               type: "bar",
-              x: ["Done", "Review", "Blocked"],
-              y: [18, 4, 1],
-              marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
+              data: { x: ["Done", "Review", "Blocked"], y: [18, 4, 1] },
+              style: { marker: { color: ["#2563eb", "#16a34a", "#dc2626"] } },
             },
           ],
           layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },

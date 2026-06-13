@@ -104,17 +104,16 @@ const VEGALITE_REMOTE_DATA_TEMPLATE = {
 
 const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
   "houmao.graphic.template": {
-    schemaVersion: 2,
-    chartType: "bar",
+    schemaVersion: 3,
+    figureType: "plotly2d",
     renderer: { preferred: "plotly" },
     title: "Debug Agent Template Graphic",
     subtitle: "Standardized Layer 1 JSON rendered through Plotly",
     traces: [
       {
         type: "bar",
-        x: ["Ready", "Review", "Blocked"],
-        y: [18, 7, 2],
-        marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
+        data: { x: ["Ready", "Review", "Blocked"], y: [18, 7, 2] },
+        style: { marker: { color: ["#2563eb", "#16a34a", "#dc2626"] } },
       },
     ],
     layout: { xaxis: { title: "Status" }, yaxis: { title: "Count" }, bargap: 0.25 },
@@ -165,11 +164,11 @@ const COMPONENT_TEMPLATES: Record<ComponentName, unknown> = {
         component: "houmao.graphic.template",
         width: "half",
         props: {
-          schemaVersion: 2,
-          chartType: "bar",
+          schemaVersion: 3,
+          figureType: "plotly2d",
           renderer: { preferred: "plotly" },
           title: "Dashboard Bars",
-          traces: [{ type: "bar", x: ["A", "B"], y: [18, 31] }],
+          traces: [{ type: "bar", data: { x: ["A", "B"], y: [18, 31] } }],
         },
       },
       {

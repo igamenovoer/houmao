@@ -116,11 +116,11 @@ test("prompt editors submit with Shift+Enter and keep plain Enter multiline", as
   await debugEditor.fill(
     JSON.stringify(
       {
-        schemaVersion: 2,
-        chartType: "bar",
+        schemaVersion: 3,
+        figureType: "plotly2d",
         renderer: { preferred: "plotly" },
         title: "Shift Enter Debug Chart",
-        traces: [{ type: "bar", x: ["A"], y: [7] }],
+        traces: [{ type: "bar", data: { x: ["A"], y: [7] } }],
       },
       null,
       2,
@@ -242,12 +242,23 @@ test("agent pane renders Plotly templates and diagnostic-only unsupported payloa
   await expectPlotlyChartToFillContainer(autoFrame.getByTestId("template-chart-plotly-agent-1"));
 
   await page.getByTestId("clear-canvas-agent-1").click();
-  for (const chartType of ["line", "scatter", "pie", "histogram"] as const) {
-    const title = `Plotly ${chartType} Template Graphic`;
+  for (const traceType of [
+    "scatter",
+    "pie",
+    "histogram",
+    "heatmap",
+    "box",
+    "candlestick",
+    "scatterpolar",
+    "sankey",
+    "treemap",
+    "table",
+  ] as const) {
+    const title = `Plotly ${traceType} Template Graphic`;
     const response = await page.request.post(`${fakeServer.targetBase("alpha")}/events`, {
       data: {
         threadId: "alpha-thread",
-        events: templateToolCallEvents(`plotly-${chartType}-template`, title, { chartType }),
+        events: templateToolCallEvents(`plotly-${traceType}-template`, title, { traceType }),
       },
     });
     expect(response.ok()).toBeTruthy();
@@ -1026,13 +1037,13 @@ test("debug agent receives external AG-UI events and renders chart proof", async
     data: {
       threadId: "debug-agent-1-thread",
       events: templateToolCallEvents("debug-invalid-template", "Invalid Template Graphic", {
-        omitY: true,
+        invalidDataField: true,
       }),
     },
   });
   expect(invalidTemplateResponse.ok()).toBeTruthy();
   await expect(
-    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "traces.0 requires y" }),
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "traces.0.data.notAPlotlyField" }),
   ).toBeVisible();
 
   const unsupportedAreaResponse = await page.request.post(
@@ -1041,14 +1052,14 @@ test("debug agent receives external AG-UI events and renders chart proof", async
       data: {
         threadId: "debug-agent-1-thread",
         events: templateToolCallEvents("debug-unsupported-area", "Unsupported Area Template", {
-          chartTypeOverride: "area",
+          traceTypeOverride: "area",
         }),
       },
     },
   );
   expect(unsupportedAreaResponse.ok()).toBeTruthy();
   await expect(
-    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "chartType must be one of" }),
+    page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "traces.0.type must be one of" }),
   ).toBeVisible();
 
   const unsupported3dResponse = await page.request.post(
@@ -1057,7 +1068,7 @@ test("debug agent receives external AG-UI events and renders chart proof", async
       data: {
         threadId: "debug-agent-1-thread",
         events: templateToolCallEvents("debug-unsupported-3d", "Unsupported 3D Template", {
-          chartTypeOverride: "scatter3d",
+          traceTypeOverride: "scatter3d",
         }),
       },
     },
@@ -1065,7 +1076,7 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   expect(unsupported3dResponse.ok()).toBeTruthy();
   await expect(
     page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "Unsupported 3D Template" }),
-  ).toContainText("chartType must be one of");
+  ).toContainText("true_3d_scene_trace");
 
   const unsupportedTraceResponse = await page.request.post(
     "/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events",
@@ -1073,7 +1084,7 @@ test("debug agent receives external AG-UI events and renders chart proof", async
       data: {
         threadId: "debug-agent-1-thread",
         events: templateToolCallEvents("debug-unsupported-trace", "Unsupported Trace Template", {
-          traceTypeOverride: "scatter",
+          invalidStyleField: true,
         }),
       },
     },
@@ -1081,7 +1092,7 @@ test("debug agent receives external AG-UI events and renders chart proof", async
   expect(unsupportedTraceResponse.ok()).toBeTruthy();
   await expect(
     page.getByTestId("invalid-component-debug-agent-1").filter({ hasText: "Unsupported Trace Template" }),
-  ).toContainText("traces.0.type must be one of bar");
+  ).toContainText("traces.0.style.notAPlotlyField");
 
   await page.getByTestId("panel-debug-agent-1").screenshot({
     path: "test-results/debug-agent-chart.png",
@@ -1422,20 +1433,33 @@ function retiredBarToolCallEvents(toolCallId: string, title: string): Array<Reco
   ];
 }
 
+type TemplateTraceType =
+  | "bar"
+  | "scatter"
+  | "pie"
+  | "histogram"
+  | "heatmap"
+  | "box"
+  | "candlestick"
+  | "scatterpolar"
+  | "sankey"
+  | "treemap"
+  | "table";
+
 function templateToolCallEvents(
   toolCallId: string,
   title: string,
   options: {
     rendererPreferred?: string;
-    omitY?: boolean;
+    invalidDataField?: boolean;
+    invalidStyleField?: boolean;
     datasource?: boolean;
-    chartType?: "bar" | "line" | "scatter" | "pie" | "histogram";
-    chartTypeOverride?: string;
+    traceType?: TemplateTraceType;
     traceTypeOverride?: string;
   } = {},
 ): Array<Record<string, unknown>> {
-  const chartType = options.chartType ?? "bar";
-  const payload = templatePayload(title, { ...options, chartType });
+  const traceType = options.traceType ?? "bar";
+  const payload = templatePayload(title, { ...options, traceType });
   return [
     {
       type: "TOOL_CALL_START",
@@ -1516,40 +1540,47 @@ function templatePayload(
   title: string,
   options: {
     rendererPreferred?: string;
-    omitY?: boolean;
+    invalidDataField?: boolean;
+    invalidStyleField?: boolean;
     datasource?: boolean;
-    chartType: "bar" | "line" | "scatter" | "pie" | "histogram";
-    chartTypeOverride?: string;
+    traceType: TemplateTraceType;
     traceTypeOverride?: string;
   },
 ): Record<string, unknown> {
+  const traceType = options.traceTypeOverride ?? options.traceType;
   if (options.datasource) {
     return {
-      schemaVersion: 2,
-      chartType: options.chartType,
+      schemaVersion: 3,
+      figureType: "plotly2d",
       renderer: { preferred: "plotly" },
       title,
       subtitle: "Playwright template graphic proof",
       dataRefs: [{ id: "debugRows", columns: [{ name: "status" }, { name: "count" }] }],
       traces: [
         {
-          type: options.chartType === "line" ? "scatter" : options.chartType,
+          type: traceType,
           source: {
             dataRef: "debugRows",
-            x: { column: "status" },
-            y: { column: "count" },
+            bindings: {
+              "data.x": { column: "status" },
+              "data.y": { column: "count" },
+            },
           },
         },
       ],
     };
   }
-  const trace = templateTrace(options.chartType, options.omitY);
-  if (typeof options.traceTypeOverride === "string") {
-    trace.type = options.traceTypeOverride;
+  const trace = templateTrace(options.traceType);
+  trace.type = traceType;
+  if (options.invalidDataField && isRecord(trace.data)) {
+    trace.data.notAPlotlyField = [1];
+  }
+  if (options.invalidStyleField) {
+    trace.style = { notAPlotlyField: true };
   }
   return {
-    schemaVersion: 2,
-    chartType: options.chartTypeOverride ?? options.chartType,
+    schemaVersion: 3,
+    figureType: "plotly2d",
     renderer: { preferred: options.rendererPreferred ?? "plotly" },
     title,
     subtitle: "Playwright template graphic proof",
@@ -1559,26 +1590,67 @@ function templatePayload(
   };
 }
 
-function templateTrace(
-  chartType: "bar" | "line" | "scatter" | "pie" | "histogram",
-  omitY = false,
-): Record<string, unknown> {
-  if (chartType === "pie") {
-    return { type: "pie", labels: ["Ready", "Review", "Blocked"], values: [12, 21, 3] };
+function templateTrace(traceType: TemplateTraceType): Record<string, unknown> {
+  if (traceType === "pie") {
+    return { type: "pie", data: { labels: ["Ready", "Review", "Blocked"], values: [12, 21, 3] } };
   }
-  if (chartType === "histogram") {
-    return { type: "histogram", x: [91, 102, 107, 120, 121, 135] };
+  if (traceType === "histogram") {
+    return { type: "histogram", data: { x: [91, 102, 107, 120, 121, 135] } };
   }
-  const trace: Record<string, unknown> = {
-    type: chartType === "line" ? "scatter" : chartType,
-    x: ["Ready", "Review", "Blocked"],
-    mode: chartType === "scatter" ? "markers" : chartType === "line" ? "lines+markers" : undefined,
-    marker: { color: ["#2563eb", "#16a34a", "#dc2626"] },
+  if (traceType === "heatmap") {
+    return { type: "heatmap", data: { z: [[1, 3, 2], [4, 2, 5], [2, 5, 4]] } };
+  }
+  if (traceType === "box") {
+    return { type: "box", data: { y: [12, 21, 18, 27, 31, 22] } };
+  }
+  if (traceType === "candlestick") {
+    return {
+      type: "candlestick",
+      data: {
+        x: ["2026-06-01", "2026-06-02", "2026-06-03"],
+        open: [100, 103, 101],
+        high: [106, 105, 108],
+        low: [99, 100, 100],
+        close: [103, 101, 107],
+      },
+    };
+  }
+  if (traceType === "scatterpolar") {
+    return { type: "scatterpolar", data: { r: [1, 2, 3, 2], theta: [0, 90, 180, 270] } };
+  }
+  if (traceType === "sankey") {
+    return {
+      type: "sankey",
+      data: {
+        node: { label: ["Input", "Review", "Done"] },
+        link: { source: [0, 1], target: [1, 2], value: [5, 3] },
+      },
+    };
+  }
+  if (traceType === "treemap") {
+    return {
+      type: "treemap",
+      data: { labels: ["All", "Ready", "Review"], parents: ["", "All", "All"], values: [30, 18, 12] },
+    };
+  }
+  if (traceType === "table") {
+    return {
+      type: "table",
+      data: {
+        header: { values: [["Status"], ["Count"]] },
+        cells: { values: [["Ready", "Review", "Blocked"], [12, 21, 3]] },
+      },
+    };
+  }
+  return {
+    type: traceType,
+    data: { x: ["Ready", "Review", "Blocked"], y: [12, 21, 3] },
+    style: { marker: { color: ["#2563eb", "#16a34a", "#dc2626"] } },
   };
-  if (!omitY) {
-    trace.y = [12, 21, 3];
-  }
-  return trace;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function readDebugStreamPreview(page: Page, agentId: string, threadId: string): Promise<string> {

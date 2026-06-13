@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import PlotlyBundle from "plotly.js-cartesian-dist-min";
+import PlotlyBundle from "plotly.js-dist-min";
+
+import {
+  PLOTLY_2D_TRACE_CATALOG,
+  PLOTLY_2D_TRACE_TYPES,
+  PLOTLY_EXCLUDED_TRACE_TYPES,
+  PLOTLY_TRACE_CATALOG_POLICY,
+  type PlotlyTraceCatalogEntry,
+} from "./plotlyTraceCatalog";
 
 export interface TemplateRendererContext {
   paneId: string;
   toolCallId: string;
 }
 
-type ChartType = "bar" | "line" | "scatter" | "pie" | "histogram";
-type TraceType = "bar" | "scatter" | "pie" | "histogram";
+type TraceType = (typeof PLOTLY_2D_TRACE_TYPES)[number];
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 type PlainObject = Record<string, unknown>;
-type TraceArray = Array<string | number | boolean | null>;
 type PlotlyTrace = PlainObject;
 type PlotlyLayout = PlainObject;
 type PlotlyConfig = PlainObject;
@@ -37,44 +43,22 @@ interface ColumnBinding {
   column: string;
 }
 
-interface MarkerSource {
-  color?: ColumnBinding;
-  size?: ColumnBinding;
-}
-
 interface TraceSource {
   dataRef: string;
-  x?: ColumnBinding;
-  y?: ColumnBinding;
-  z?: ColumnBinding;
-  labels?: ColumnBinding;
-  values?: ColumnBinding;
-  text?: ColumnBinding;
-  marker?: MarkerSource;
+  bindings: Record<string, ColumnBinding>;
 }
 
 interface TemplateTrace {
-  type?: TraceType;
+  type: TraceType;
   name?: string;
-  x?: TraceArray;
-  y?: TraceArray;
-  z?: TraceArray;
-  labels?: TraceArray;
-  values?: number[];
-  text?: string | TraceArray;
-  hovertemplate?: string;
-  mode?: string;
-  orientation?: "v" | "h";
-  marker?: PlainObject;
-  line?: PlainObject;
+  data: PlainObject;
+  style: PlainObject;
   source?: TraceSource;
-  opacity?: number;
-  showLegend?: boolean;
 }
 
 interface TemplatePayload {
-  schemaVersion: 2;
-  chartType: ChartType;
+  schemaVersion: 3;
+  figureType: "plotly2d";
   renderer: RendererSelection;
   title: string;
   subtitle?: string;
@@ -83,50 +67,46 @@ interface TemplatePayload {
   layout?: PlainObject;
   config: PlainObject;
   display?: PlainObject;
-  extra?: { plotly?: PlainObject };
+  extra?: { plotly?: PlotlyExtra };
+}
+
+interface PlotlyExtra {
+  layout?: PlainObject;
+  config?: PlainObject;
+  style?: PlainObject;
+  display?: PlainObject;
 }
 
 interface CompiledFigure {
   data: PlotlyTrace[];
   layout: PlotlyLayout;
   config: PlotlyConfig;
+  height?: number;
 }
 
 const Plotly = PlotlyBundle as PlotlyApi;
-const CHART_TYPES: readonly ChartType[] = ["bar", "line", "scatter", "pie", "histogram"];
-const TRACE_TYPES_BY_CHART: Record<ChartType, readonly TraceType[]> = {
-  bar: ["bar"],
-  line: ["scatter"],
-  scatter: ["scatter"],
-  pie: ["pie"],
-  histogram: ["histogram"],
-};
+const SUPPORTED_TRACE_TYPES = new Set<string>(PLOTLY_2D_TRACE_TYPES);
+const REGISTERED_TRACE_TYPES = new Set<string>(PLOTLY_2D_TRACE_TYPES);
+const EXCLUDED_TRACE_TYPES: Record<string, string> = PLOTLY_EXCLUDED_TRACE_TYPES;
 const REMOTE_URL_PATTERN = /^https?:\/\//i;
-const UNSAFE_TEXT_PATTERNS = [/<\s*script\b/i, /\son[a-z0-9_-]+\s*=/i, /javascript\s*:/i, /<\s*iframe\b/i, /<\s*svg\b/i];
-const PLOTLY_EXTRA_DISALLOWED_KEYS = new Set([
-  "$schema",
-  "data",
-  "datasets",
-  "encoding",
-  "figure",
-  "frames",
-  "html",
-  "iframe",
-  "javascript",
-  "layer",
-  "params",
-  "script",
-  "signals",
-  "spec",
-  "svg",
-  "template",
-  "templates",
-  "transform",
-  "transforms",
-  "traces",
-  "vega",
-  "vegaLite",
-]);
+const UNSAFE_TEXT_PATTERNS = [
+  /<\s*script\b/i,
+  /\son[a-z0-9_-]+\s*=/i,
+  /javascript\s*:/i,
+  /<\s*iframe\b/i,
+  /<\s*svg\b/i,
+  /image\/svg\+xml/i,
+];
+const SECRET_FIELD_PATTERN = /(token|key|secret|password|credential|authorization|cookie)/i;
+const PLOTLY_POLICY_REJECTED_EXACT_KEYS = new Set(
+  PLOTLY_TRACE_CATALOG_POLICY.globalRejectedFields
+    .filter((key) => !key.includes("*"))
+    .map((key) => key.toLowerCase()),
+);
+const PLOTLY_EXTRA_KEYS = new Set(["layout", "config", "style", "display"]);
+const DEFAULT_HEIGHT = 320;
+const MIN_HEIGHT = 160;
+const MAX_HEIGHT = 900;
 
 export function renderTemplateGraphic(payload: unknown, context: TemplateRendererContext): ReactNode {
   const validated = validateTemplatePayload(payload);
@@ -204,114 +184,9 @@ function PlotlyTemplateView({ paneId, figure }: { paneId: string; figure: Compil
       ref={containerRef}
       className="component-chart template-plotly-chart"
       data-testid={`template-chart-plotly-${paneId}`}
+      style={typeof figure.height === "number" ? { height: figure.height } : undefined}
     />
   );
-}
-
-function compileTemplatePayload(payload: TemplatePayload): ValidationResult<CompiledFigure> {
-  const data: PlotlyTrace[] = [];
-  for (const [index, trace] of payload.traces.entries()) {
-    const compiled = compileTrace(trace, payload.chartType, index);
-    if (!compiled.ok) {
-      return compiled;
-    }
-    data.push(compiled.value);
-  }
-  return {
-    ok: true,
-    value: {
-      data,
-      layout: compileLayout(payload),
-      config: compileConfig(payload),
-    },
-  };
-}
-
-function compileTrace(
-  trace: TemplateTrace,
-  chartType: ChartType,
-  index: number,
-): ValidationResult<PlotlyTrace> {
-  const expectedType = TRACE_TYPES_BY_CHART[chartType][0];
-  const compiled: PlotlyTrace = {
-    type: chartType === "line" ? "scatter" : expectedType,
-    name: trace.name ?? `${chartType} ${index + 1}`,
-  };
-  copyArray(compiled, trace, "x");
-  copyArray(compiled, trace, "y");
-  copyArray(compiled, trace, "labels");
-  copyNumberArray(compiled, trace, "values");
-  copyString(compiled, trace, "hovertemplate");
-  copyStringOrArray(compiled, trace, "text");
-  copyNumber(compiled, trace, "opacity");
-  copyString(compiled, trace, "orientation");
-  if (typeof trace.showLegend === "boolean") {
-    compiled.showlegend = trace.showLegend;
-  }
-  const marker = compileMarker(trace.marker);
-  if (!marker.ok) {
-    return invalid(`traces.${index}.${marker.error}`);
-  }
-  if (marker.value) {
-    compiled.marker = marker.value;
-  }
-  const line = compileLine(trace.line);
-  if (!line.ok) {
-    return invalid(`traces.${index}.${line.error}`);
-  }
-  if (line.value) {
-    compiled.line = line.value;
-  }
-  if (chartType === "line") {
-    compiled.mode = trace.mode ?? "lines";
-  } else if (chartType === "scatter") {
-    compiled.mode = trace.mode ?? "markers";
-  } else if (trace.mode) {
-    return invalid(`traces.${index}.mode is only supported for line and scatter charts.`);
-  }
-  return { ok: true, value: compiled };
-}
-
-function compileLayout(payload: TemplatePayload): PlotlyLayout {
-  const layout = isRecord(payload.layout) ? payload.layout : {};
-  const extraPlotly = isRecord(payload.extra?.plotly) ? payload.extra.plotly : {};
-  const extraLayout = isRecord(extraPlotly.layout) ? extraPlotly.layout : {};
-  return stripUndefined({
-    autosize: true,
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { color: "#f3efe5" },
-    margin: mergeObjects({ l: 48, r: 18, t: 16, b: 44, pad: 0 }, readObject(layout.margin), readObject(extraLayout.margin)),
-    xaxis: compileAxis(readObject(layout.xaxis), readObject(extraLayout.xaxis)),
-    yaxis: compileAxis(readObject(layout.yaxis), readObject(extraLayout.yaxis)),
-    legend: mergeObjects(readObject(layout.legend), readObject(extraLayout.legend)),
-    showlegend: booleanValue(layout.showLegend ?? extraLayout.showLegend),
-    hovermode: stringValue(layout.hovermode ?? extraLayout.hovermode),
-    bargap: numberValue(layout.bargap ?? extraLayout.bargap),
-    barmode: stringValue(layout.barmode ?? extraLayout.barmode),
-  });
-}
-
-function compileAxis(primary: PlainObject, extra: PlainObject): PlainObject {
-  return stripUndefined({
-    title: stringValue(primary.title ?? extra.title),
-    tickformat: stringValue(primary.tickformat ?? extra.tickformat),
-    type: stringValue(primary.type ?? extra.type),
-    range: numberArrayValue(primary.range ?? extra.range),
-    gridcolor: "rgba(148, 163, 184, 0.26)",
-    zerolinecolor: "rgba(148, 163, 184, 0.35)",
-  });
-}
-
-function compileConfig(payload: TemplatePayload): PlotlyConfig {
-  const extraPlotly = isRecord(payload.extra?.plotly) ? payload.extra.plotly : {};
-  const extraConfig = isRecord(extraPlotly.config) ? extraPlotly.config : {};
-  return stripUndefined({
-    responsive: booleanValue(payload.config.responsive ?? extraConfig.responsive) ?? true,
-    displayModeBar: payload.config.displayModeBar ?? extraConfig.displayModeBar ?? false,
-    scrollZoom: booleanValue(payload.config.scrollZoom ?? extraConfig.scrollZoom),
-    staticPlot: booleanValue(payload.config.staticPlot ?? extraConfig.staticPlot),
-  });
 }
 
 function validateTemplatePayload(payload: unknown): ValidationResult<TemplatePayload> {
@@ -326,15 +201,23 @@ function validateTemplatePayload(payload: unknown): ValidationResult<TemplatePay
   if (!remote.ok) {
     return remote;
   }
-  if (payload.schemaVersion !== 2) {
-    return invalid("schemaVersion must be 2 for Plotly template graphics.");
+  const policy = rejectPlotlyPolicyKeys(payload, "$");
+  if (!policy.ok) {
+    return policy;
+  }
+  if (payload.schemaVersion !== 3) {
+    return invalid(
+      "schemaVersion must be 3 for Plotly 2D template graphics; schemaVersion 2 chartType payloads are retired.",
+    );
+  }
+  if ("chartType" in payload) {
+    return invalid("chartType is retired; use figureType plotly2d and traces[].type.");
   }
   if ("data" in payload || "encoding" in payload) {
-    return invalid("Legacy data.values plus encoding payloads are retired; use traces.");
+    return invalid("Legacy data.values plus encoding payloads are retired; use traces[].data.");
   }
-  const chartType = enumValue(payload.chartType, CHART_TYPES, "chartType");
-  if (!chartType.ok) {
-    return chartType;
+  if (payload.figureType !== "plotly2d") {
+    return invalid("figureType must be plotly2d.");
   }
   const renderer = validateRenderer(payload.renderer);
   if (!renderer.ok) {
@@ -344,17 +227,29 @@ function validateTemplatePayload(payload: unknown): ValidationResult<TemplatePay
   if (!title.ok) {
     return title;
   }
-  const traces = validateTraces(payload.traces, chartType.value);
-  if (!traces.ok) {
-    return traces;
-  }
   const dataRefs = validateDataRefs(payload.dataRefs);
   if (!dataRefs.ok) {
     return dataRefs;
   }
+  const traces = validateTraces(payload.traces);
+  if (!traces.ok) {
+    return traces;
+  }
   const sourceRefs = validateSourceRefs(traces.value, dataRefs.value);
   if (!sourceRefs.ok) {
     return sourceRefs;
+  }
+  const layout = validatePlotlyObject(payload.layout, "layout");
+  if (!layout.ok) {
+    return layout;
+  }
+  const config = validatePlotlyObject(payload.config, "config");
+  if (!config.ok) {
+    return config;
+  }
+  const display = validatePlotlyObject(payload.display, "display");
+  if (!display.ok) {
+    return display;
   }
   const extra = validateExtra(payload.extra);
   if (!extra.ok) {
@@ -363,16 +258,16 @@ function validateTemplatePayload(payload: unknown): ValidationResult<TemplatePay
   return {
     ok: true,
     value: {
-      schemaVersion: 2,
-      chartType: chartType.value,
+      schemaVersion: 3,
+      figureType: "plotly2d",
       renderer: renderer.value,
       title: title.value,
       subtitle: optionalString(payload.subtitle),
       traces: traces.value,
       dataRefs: dataRefs.value.length > 0 ? dataRefs.value : undefined,
-      layout: recordOrUndefined(payload.layout),
-      config: recordOrUndefined(payload.config) ?? { responsive: true },
-      display: recordOrUndefined(payload.display),
+      layout: layout.value,
+      config: config.value ?? { responsive: true },
+      display: display.value,
       extra: extra.value,
     },
   };
@@ -394,13 +289,13 @@ function validateRenderer(value: unknown): ValidationResult<RendererSelection> {
   return { ok: true, value: { preferred: "plotly" } };
 }
 
-function validateTraces(value: unknown, chartType: ChartType): ValidationResult<TemplateTrace[]> {
+function validateTraces(value: unknown): ValidationResult<TemplateTrace[]> {
   if (!Array.isArray(value) || value.length === 0) {
     return invalid("traces must be a non-empty array.");
   }
   const traces: TemplateTrace[] = [];
   for (const [index, item] of value.entries()) {
-    const trace = validateTrace(item, chartType, index);
+    const trace = validateTrace(item, index);
     if (!trace.ok) {
       return trace;
     }
@@ -409,107 +304,159 @@ function validateTraces(value: unknown, chartType: ChartType): ValidationResult<
   return { ok: true, value: traces };
 }
 
-function validateTrace(
-  value: unknown,
-  chartType: ChartType,
-  index: number,
-): ValidationResult<TemplateTrace> {
+function validateTrace(value: unknown, index: number): ValidationResult<TemplateTrace> {
   if (!isRecord(value)) {
     return invalid(`traces.${index} must be an object.`);
   }
-  const traceType = optionalEnum(value.type, TRACE_TYPES_BY_CHART[chartType], `traces.${index}.type`);
+  const traceType = traceTypeValue(value.type, `traces.${index}.type`);
   if (!traceType.ok) {
     return traceType;
   }
-  const source = validateSource(value.source, `traces.${index}.source`);
+  const catalogEntry = PLOTLY_2D_TRACE_CATALOG[traceType.value];
+  const data = validateTraceObject(
+    value.data,
+    `traces.${index}.data`,
+    new Set(catalogEntry.dataPaths),
+  );
+  if (!data.ok) {
+    return data;
+  }
+  const style = validateTraceObject(
+    value.style,
+    `traces.${index}.style`,
+    new Set(catalogEntry.stylePaths),
+  );
+  if (!style.ok) {
+    return style;
+  }
+  const source = validateSource(value.source, `traces.${index}.source`, catalogEntry);
   if (!source.ok) {
     return source;
   }
-  const trace: TemplateTrace = {
-    type: traceType.value,
-    name: optionalString(value.name),
-    x: arrayValue(value.x),
-    y: arrayValue(value.y),
-    z: arrayValue(value.z),
-    labels: arrayValue(value.labels),
-    values: numberArrayValue(value.values),
-    text: stringOrArrayValue(value.text),
-    hovertemplate: optionalString(value.hovertemplate),
-    mode: optionalString(value.mode),
-    orientation: orientationValue(value.orientation),
-    marker: recordOrUndefined(value.marker),
-    line: recordOrUndefined(value.line),
-    source: source.value,
-    opacity: numberValue(value.opacity),
-    showLegend: booleanValue(value.showLegend),
+  if (Object.keys(data.value).length === 0 && !source.value) {
+    return invalid(`traces.${index} requires data or source bindings.`);
+  }
+  const conflict = validateInlineAndSourceDisjoint(data.value, source.value, index);
+  if (!conflict.ok) {
+    return conflict;
+  }
+  return {
+    ok: true,
+    value: {
+      type: traceType.value,
+      name: optionalString(value.name),
+      data: data.value,
+      style: style.value,
+      source: source.value,
+    },
   };
-  const channelValidation = validateTraceChannels(trace, chartType, index);
-  if (!channelValidation.ok) {
-    return channelValidation;
-  }
-  return { ok: true, value: trace };
 }
 
-function validateTraceChannels(
-  trace: TemplateTrace,
-  chartType: ChartType,
-  index: number,
-): ValidationResult<void> {
-  for (const channel of ["x", "y", "z", "labels", "values", "text"] as const) {
-    if (trace.source?.[channel] && typeof trace[channel] !== "undefined") {
-      return invalid(`traces.${index}.${channel} cannot be combined with source.${channel}.`);
+function traceTypeValue(value: unknown, path: string): ValidationResult<TraceType> {
+  if (typeof value !== "string" || value.trim() === "") {
+    return invalid(`${path} must be a non-empty Plotly 2D trace type.`);
+  }
+  const traceType = value.trim();
+  const excludedReason = EXCLUDED_TRACE_TYPES[traceType];
+  if (excludedReason) {
+    return invalid(`${path} ${traceType} is excluded from Layer 1 template graphics: ${excludedReason}.`);
+  }
+  if (!SUPPORTED_TRACE_TYPES.has(traceType)) {
+    return invalid(`${path} must be one of ${PLOTLY_2D_TRACE_TYPES.join(", ")}.`);
+  }
+  return { ok: true, value: traceType as TraceType };
+}
+
+function validateTraceObject(
+  value: unknown,
+  path: string,
+  allowedPaths: ReadonlySet<string>,
+): ValidationResult<PlainObject> {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: {} };
+  }
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`);
+  }
+  const policy = rejectPlotlyPolicyKeys(value, path);
+  if (!policy.ok) {
+    return policy;
+  }
+  for (const leafPath of objectLeafPaths(value)) {
+    if (!allowedPaths.has(leafPath)) {
+      return invalid(`${path}.${leafPath} is not supported by the Plotly 2D trace catalog.`);
     }
   }
-  if (trace.source?.marker?.color && trace.marker && "color" in trace.marker) {
-    return invalid(`traces.${index}.marker.color cannot be combined with source.marker.color.`);
-  }
-  if (trace.source?.marker?.size && trace.marker && "size" in trace.marker) {
-    return invalid(`traces.${index}.marker.size cannot be combined with source.marker.size.`);
-  }
-  if (chartType === "pie") {
-    return requireChannels(trace, index, ["labels", "values"]);
-  }
-  if (chartType === "histogram") {
-    return hasChannel(trace, "x") || hasChannel(trace, "y")
-      ? { ok: true, value: undefined }
-      : invalid(`traces.${index} for histogram charts requires x or y.`);
-  }
-  const required = requireChannels(trace, index, ["x", "y"]);
-  if (!required.ok) {
-    return required;
-  }
-  return validateEqualLengths(trace, index, "x", "y");
+  return { ok: true, value };
 }
 
-function requireChannels(
-  trace: TemplateTrace,
+function validateSource(
+  value: unknown,
+  path: string,
+  catalogEntry: PlotlyTraceCatalogEntry,
+): ValidationResult<TraceSource | undefined> {
+  if (typeof value === "undefined" || value === null) {
+    return { ok: true, value: undefined };
+  }
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`);
+  }
+  const dataRef = nonBlankString(value.dataRef, `${path}.dataRef`);
+  if (!dataRef.ok) {
+    return dataRef;
+  }
+  if (!isRecord(value.bindings)) {
+    return invalid(`${path}.bindings must be a non-empty object.`);
+  }
+  const allowedBindings = new Set(catalogEntry.bindingPaths);
+  const bindings: Record<string, ColumnBinding> = {};
+  for (const [rawPath, rawBinding] of Object.entries(value.bindings)) {
+    const bindingPath = normalizeBindingPath(rawPath);
+    if (!bindingPath) {
+      return invalid(`${path}.bindings contains an empty field path.`);
+    }
+    if (!allowedBindings.has(bindingPath)) {
+      return invalid(`${path}.bindings.${rawPath} is not supported by the Plotly 2D trace catalog.`);
+    }
+    const binding = columnBinding(rawBinding, `${path}.bindings.${rawPath}`);
+    if (!binding.ok) {
+      return binding;
+    }
+    bindings[rawPath.trim()] = binding.value;
+  }
+  if (Object.keys(bindings).length === 0) {
+    return invalid(`${path}.bindings must be a non-empty object.`);
+  }
+  return { ok: true, value: { dataRef: dataRef.value, bindings } };
+}
+
+function columnBinding(value: unknown, path: string): ValidationResult<ColumnBinding> {
+  if (!isRecord(value)) {
+    return invalid(`${path} must be an object.`);
+  }
+  const column = nonBlankString(value.column, `${path}.column`);
+  if (!column.ok) {
+    return column;
+  }
+  return { ok: true, value: { column: column.value } };
+}
+
+function validateInlineAndSourceDisjoint(
+  data: PlainObject,
+  source: TraceSource | undefined,
   index: number,
-  channels: Array<"x" | "y" | "labels" | "values">,
 ): ValidationResult<void> {
-  for (const channel of channels) {
-    if (!hasChannel(trace, channel)) {
-      return invalid(`traces.${index} requires ${channel}.`);
+  if (!source) {
+    return { ok: true, value: undefined };
+  }
+  const inlinePaths = new Set(objectLeafPaths(data));
+  for (const rawPath of Object.keys(source.bindings)) {
+    const bindingPath = normalizeBindingPath(rawPath);
+    if (inlinePaths.has(bindingPath)) {
+      return invalid(`traces.${index}.data.${bindingPath} cannot be combined with source.bindings.${rawPath}.`);
     }
   }
   return { ok: true, value: undefined };
-}
-
-function validateEqualLengths(
-  trace: TemplateTrace,
-  index: number,
-  first: "x" | "labels",
-  second: "y" | "values",
-): ValidationResult<void> {
-  const firstValue = trace[first];
-  const secondValue = trace[second];
-  if (Array.isArray(firstValue) && Array.isArray(secondValue) && firstValue.length !== secondValue.length) {
-    return invalid(`traces.${index}.${first} and traces.${index}.${second} must have equal lengths.`);
-  }
-  return { ok: true, value: undefined };
-}
-
-function hasChannel(trace: TemplateTrace, channel: "x" | "y" | "labels" | "values"): boolean {
-  return typeof trace[channel] !== "undefined" || typeof trace.source?.[channel] !== "undefined";
 }
 
 function validateDataRefs(value: unknown): ValidationResult<DataRef[]> {
@@ -551,58 +498,18 @@ function validateSourceRefs(traces: TemplateTrace[], dataRefs: DataRef[]): Valid
   return { ok: true, value: undefined };
 }
 
-function validateSource(value: unknown, path: string): ValidationResult<TraceSource | undefined> {
+function validatePlotlyObject(value: unknown, path: string): ValidationResult<PlainObject | undefined> {
   if (typeof value === "undefined" || value === null) {
     return { ok: true, value: undefined };
   }
   if (!isRecord(value)) {
     return invalid(`${path} must be an object.`);
   }
-  const dataRef = nonBlankString(value.dataRef, `${path}.dataRef`);
-  if (!dataRef.ok) {
-    return dataRef;
+  const policy = rejectPlotlyPolicyKeys(value, path);
+  if (!policy.ok) {
+    return policy;
   }
-  const marker = validateMarkerSource(value.marker, `${path}.marker`);
-  if (!marker.ok) {
-    return marker;
-  }
-  return {
-    ok: true,
-    value: {
-      dataRef: dataRef.value,
-      x: columnBinding(value.x, `${path}.x`),
-      y: columnBinding(value.y, `${path}.y`),
-      z: columnBinding(value.z, `${path}.z`),
-      labels: columnBinding(value.labels, `${path}.labels`),
-      values: columnBinding(value.values, `${path}.values`),
-      text: columnBinding(value.text, `${path}.text`),
-      marker: marker.value,
-    },
-  };
-}
-
-function validateMarkerSource(value: unknown, path: string): ValidationResult<MarkerSource | undefined> {
-  if (typeof value === "undefined" || value === null) {
-    return { ok: true, value: undefined };
-  }
-  if (!isRecord(value)) {
-    return invalid(`${path} must be an object.`);
-  }
-  return {
-    ok: true,
-    value: {
-      color: columnBinding(value.color, `${path}.color`),
-      size: columnBinding(value.size, `${path}.size`),
-    },
-  };
-}
-
-function columnBinding(value: unknown, path: string): ColumnBinding | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const column = typeof value.column === "string" ? value.column.trim() : "";
-  return column ? { column } : undefined;
+  return { ok: true, value };
 }
 
 function validateExtra(value: unknown): ValidationResult<TemplatePayload["extra"]> {
@@ -624,11 +531,38 @@ function validateExtra(value: unknown): ValidationResult<TemplatePayload["extra"
   if (!isRecord(plotly)) {
     return invalid("extra.plotly must be an object.");
   }
-  const extraKeys = rejectDisallowedPlotlyExtra(plotly, "extra.plotly");
-  if (!extraKeys.ok) {
-    return extraKeys;
+  for (const key of Object.keys(plotly)) {
+    if (!PLOTLY_EXTRA_KEYS.has(key)) {
+      return invalid(`extra.plotly.${key} is not allowed in Layer 1 template graphics.`);
+    }
   }
-  return { ok: true, value: { plotly } };
+  const layout = validatePlotlyObject(plotly.layout, "extra.plotly.layout");
+  if (!layout.ok) {
+    return layout;
+  }
+  const config = validatePlotlyObject(plotly.config, "extra.plotly.config");
+  if (!config.ok) {
+    return config;
+  }
+  const style = validatePlotlyObject(plotly.style, "extra.plotly.style");
+  if (!style.ok) {
+    return style;
+  }
+  const display = validatePlotlyObject(plotly.display, "extra.plotly.display");
+  if (!display.ok) {
+    return display;
+  }
+  return {
+    ok: true,
+    value: {
+      plotly: {
+        layout: layout.value,
+        config: config.value,
+        style: style.value,
+        display: display.value,
+      },
+    },
+  };
 }
 
 function datasourceBindingDiagnostic(payload: TemplatePayload): string | null {
@@ -638,118 +572,129 @@ function datasourceBindingDiagnostic(payload: TemplatePayload): string | null {
   return "Datasource materialization is not supported yet. Inline trace arrays are required for rendering in this workbench.";
 }
 
-function compileMarker(value: PlainObject | undefined): ValidationResult<PlainObject | undefined> {
-  if (!value) {
-    return { ok: true, value: undefined };
+function compileTemplatePayload(payload: TemplatePayload): ValidationResult<CompiledFigure> {
+  const bundleCoverage = validateBundleCoverage(payload.traces);
+  if (!bundleCoverage.ok) {
+    return bundleCoverage;
   }
   return {
     ok: true,
-    value: stripUndefined({
-      color: value.color,
-      colors: value.colors,
-      size: value.size,
-      opacity: numberValue(value.opacity),
-      line: readObject(value.line),
-    }),
+    value: {
+      data: payload.traces.map((trace) => compileTrace(trace)),
+      layout: compileLayout(payload),
+      config: compileConfig(payload),
+      height: displayHeight(payload),
+    },
   };
 }
 
-function compileLine(value: PlainObject | undefined): ValidationResult<PlainObject | undefined> {
-  if (!value) {
-    return { ok: true, value: undefined };
+function validateBundleCoverage(traces: TemplateTrace[]): ValidationResult<void> {
+  for (const trace of traces) {
+    if (!REGISTERED_TRACE_TYPES.has(trace.type)) {
+      return invalid(`Plotly bundle plotly.js-dist-min does not include trace type ${trace.type}.`);
+    }
   }
-  return {
-    ok: true,
-    value: stripUndefined({
-      color: stringValue(value.color),
-      width: numberValue(value.width),
-      dash: stringValue(value.dash),
-      shape: stringValue(value.shape),
-    }),
-  };
+  return { ok: true, value: undefined };
 }
 
-function copyArray(target: PlainObject, source: TemplateTrace, key: "x" | "y" | "labels"): void {
-  const value = source[key];
-  if (Array.isArray(value)) {
-    target[key] = value;
-  }
-}
-
-function copyNumberArray(target: PlainObject, source: TemplateTrace, key: "values"): void {
-  const value = source[key];
-  if (Array.isArray(value)) {
-    target[key] = value;
-  }
-}
-
-function copyString(target: PlainObject, source: TemplateTrace, key: "hovertemplate" | "orientation"): void {
-  const value = source[key];
-  if (typeof value === "string") {
-    target[key] = value;
-  }
-}
-
-function copyStringOrArray(target: PlainObject, source: TemplateTrace, key: "text"): void {
-  const value = source[key];
-  if (typeof value === "string" || Array.isArray(value)) {
-    target[key] = value;
-  }
-}
-
-function copyNumber(target: PlainObject, source: TemplateTrace, key: "opacity"): void {
-  const value = source[key];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    target[key] = value;
-  }
-}
-
-function TemplateFrame({
-  paneId,
-  title,
-  subtitle,
-  children,
-}: {
-  paneId: string;
-  title: string;
-  subtitle?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="component-frame" data-testid={`component-${paneId}`}>
-      <header>
-        <strong>{title}</strong>
-        {subtitle ? <span>{subtitle}</span> : null}
-      </header>
-      {children}
-    </section>
+function compileTrace(trace: TemplateTrace): PlotlyTrace {
+  return deepMergeObjects(
+    { type: trace.type },
+    typeof trace.name === "string" ? { name: trace.name } : {},
+    trace.data,
+    trace.style,
   );
 }
 
-function TemplateFallback({
-  paneId,
-  title,
-  detail,
-  raw,
-}: {
-  paneId: string;
-  title: string;
-  detail: string;
-  raw: string;
-}) {
-  return (
-    <details className="component-fallback" data-testid={`invalid-component-${paneId}`} open>
-      <summary>Invalid component: {title}</summary>
-      <p>{detail}</p>
-      <pre>{raw}</pre>
-    </details>
+function compileLayout(payload: TemplatePayload): PlotlyLayout {
+  return deepMergeObjects(
+    {
+      autosize: true,
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      font: { color: "#f3efe5" },
+      margin: { l: 48, r: 18, t: 16, b: 44, pad: 0 },
+      xaxis: {
+        gridcolor: "rgba(148, 163, 184, 0.26)",
+        zerolinecolor: "rgba(148, 163, 184, 0.35)",
+      },
+      yaxis: {
+        gridcolor: "rgba(148, 163, 184, 0.26)",
+        zerolinecolor: "rgba(148, 163, 184, 0.35)",
+      },
+    },
+    payload.layout ?? {},
+    payload.extra?.plotly?.layout ?? {},
   );
 }
 
-function rejectDisallowedPlotlyExtra(value: unknown, path: string): ValidationResult<void> {
+function compileConfig(payload: TemplatePayload): PlotlyConfig {
+  return deepMergeObjects(
+    { responsive: true, displayModeBar: false },
+    payload.config,
+    payload.extra?.plotly?.config ?? {},
+  );
+}
+
+function displayHeight(payload: TemplatePayload): number | undefined {
+  const displayHeightValue =
+    numberValue(payload.display?.height) ?? numberValue(payload.extra?.plotly?.display?.height);
+  if (typeof displayHeightValue !== "number") {
+    return undefined;
+  }
+  return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, displayHeightValue));
+}
+
+function objectLeafPaths(value: unknown): string[] {
+  const paths = new Set<string>();
+  collectObjectLeafPaths(value, [], paths);
+  return Array.from(paths).sort();
+}
+
+function collectObjectLeafPaths(value: unknown, path: string[], paths: Set<string>): void {
+  if (Array.isArray(value)) {
+    if (value.length === 0 && path.length > 0) {
+      paths.add(path.join("."));
+      return;
+    }
+    let hasScalar = false;
+    for (const item of value) {
+      if (isRecord(item) || Array.isArray(item)) {
+        collectObjectLeafPaths(item, path, paths);
+      } else {
+        hasScalar = true;
+      }
+    }
+    if (hasScalar && path.length > 0) {
+      paths.add(path.join("."));
+    }
+    return;
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0 && path.length > 0) {
+      paths.add(path.join("."));
+      return;
+    }
+    for (const [key, item] of entries) {
+      collectObjectLeafPaths(item, [...path, key], paths);
+    }
+    return;
+  }
+  if (path.length > 0) {
+    paths.add(path.join("."));
+  }
+}
+
+function normalizeBindingPath(path: string): string {
+  const stripped = path.trim();
+  return stripped.startsWith("data.") ? stripped.slice("data.".length) : stripped;
+}
+
+function rejectPlotlyPolicyKeys(value: unknown, path: string): ValidationResult<void> {
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      const result = rejectDisallowedPlotlyExtra(item, `${path}.${index}`);
+      const result = rejectPlotlyPolicyKeys(item, `${path}.${index}`);
       if (!result.ok) {
         return result;
       }
@@ -760,11 +705,16 @@ function rejectDisallowedPlotlyExtra(value: unknown, path: string): ValidationRe
     return { ok: true, value: undefined };
   }
   for (const [key, item] of Object.entries(value)) {
+    const lowerKey = key.toLowerCase();
     const nextPath = `${path}.${key}`;
-    if (PLOTLY_EXTRA_DISALLOWED_KEYS.has(key)) {
-      return invalid(`${nextPath} is not allowed in Layer 1 Plotly extra.`);
+    if (
+      lowerKey.endsWith("src") ||
+      PLOTLY_POLICY_REJECTED_EXACT_KEYS.has(lowerKey) ||
+      SECRET_FIELD_PATTERN.test(key)
+    ) {
+      return invalid(`${nextPath} is not allowed in Layer 1 Plotly template graphics.`);
     }
-    const result = rejectDisallowedPlotlyExtra(item, nextPath);
+    const result = rejectPlotlyPolicyKeys(item, nextPath);
     if (!result.ok) {
       return result;
     }
@@ -826,28 +776,6 @@ function rejectRemoteUrls(value: unknown, path: string): ValidationResult<void> 
   return { ok: true, value: undefined };
 }
 
-function enumValue<T extends string>(
-  value: unknown,
-  values: readonly T[],
-  label: string,
-): ValidationResult<T> {
-  if (typeof value !== "string" || !values.includes(value as T)) {
-    return invalid(`${label} must be one of ${values.join(", ")}.`);
-  }
-  return { ok: true, value: value as T };
-}
-
-function optionalEnum<T extends string>(
-  value: unknown,
-  values: readonly T[],
-  label: string,
-): ValidationResult<T | undefined> {
-  if (typeof value === "undefined") {
-    return { ok: true, value: undefined };
-  }
-  return enumValue(value, values, label);
-}
-
 function nonBlankString(value: unknown, field: string): ValidationResult<string> {
   if (typeof value !== "string" || value.trim() === "") {
     return invalid(`${field} must be a non-empty string.`);
@@ -859,58 +787,33 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function booleanValue(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function arrayValue(value: unknown): TraceArray | undefined {
-  if (!Array.isArray(value) || value.length === 0) {
-    return undefined;
+function deepMergeObjects(...objects: PlainObject[]): PlainObject {
+  const merged: PlainObject = {};
+  for (const object of objects) {
+    for (const [key, value] of Object.entries(object)) {
+      const current = merged[key];
+      if (isRecord(current) && isRecord(value)) {
+        merged[key] = deepMergeObjects(current, value);
+      } else {
+        merged[key] = cloneJsonValue(value);
+      }
+    }
   }
-  return value.filter((item): item is string | number | boolean | null => isTraceScalar(item));
+  return stripUndefined(merged);
 }
 
-function numberArrayValue(value: unknown): number[] | undefined {
-  if (!Array.isArray(value) || value.length === 0) {
-    return undefined;
+function cloneJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneJsonValue(item));
   }
-  const numbers = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
-  return numbers.length === value.length ? numbers : undefined;
-}
-
-function stringOrArrayValue(value: unknown): string | TraceArray | undefined {
-  if (typeof value === "string") {
-    return value;
+  if (isRecord(value)) {
+    return deepMergeObjects(value);
   }
-  return arrayValue(value);
-}
-
-function orientationValue(value: unknown): "v" | "h" | undefined {
-  return value === "v" || value === "h" ? value : undefined;
-}
-
-function isTraceScalar(value: unknown): value is string | number | boolean | null {
-  return value === null || ["string", "number", "boolean"].includes(typeof value);
-}
-
-function recordOrUndefined(value: unknown): PlainObject | undefined {
-  return isRecord(value) ? value : undefined;
-}
-
-function readObject(value: unknown): PlainObject {
-  return isRecord(value) ? value : {};
-}
-
-function mergeObjects(...objects: PlainObject[]): PlainObject {
-  return objects.reduce<PlainObject>((merged, item) => ({ ...merged, ...item }), {});
+  return value;
 }
 
 function stripUndefined(value: PlainObject): PlainObject {
@@ -931,4 +834,46 @@ function safeJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function TemplateFrame({
+  paneId,
+  title,
+  subtitle,
+  children,
+}: {
+  paneId: string;
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="component-frame" data-testid={`component-${paneId}`}>
+      <header>
+        <strong>{title}</strong>
+        {subtitle ? <span>{subtitle}</span> : null}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function TemplateFallback({
+  paneId,
+  title,
+  detail,
+  raw,
+}: {
+  paneId: string;
+  title: string;
+  detail: string;
+  raw: string;
+}) {
+  return (
+    <details className="component-fallback" data-testid={`invalid-component-${paneId}`} open>
+      <summary>Invalid component: {title}</summary>
+      <p>{detail}</p>
+      <pre>{raw}</pre>
+    </details>
+  );
 }

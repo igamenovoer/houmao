@@ -11,6 +11,7 @@ Run from this directory:
 ```bash
 bun install
 bun run dev
+bun run dev:bun
 bun run dev:vite
 bun run typecheck
 bun run build
@@ -19,7 +20,7 @@ bun run e2e
 bun run e2e:real-agent-smoke
 ```
 
-`bun run dev` starts the Fastify-backed local workbench server in development mode. Fastify is the user-facing origin, while Vite serves frontend assets and HMR behind that server. `bun run start` serves the built frontend from Fastify after `bun run build`. `bun run dev:vite` is a temporary legacy fallback that starts the old Vite-plugin host path directly while the migration remains in progress.
+`bun run dev` starts the Fastify-backed local workbench server in development mode by bundling the server with esbuild and running that bundle under Node. This is the default development path and uses the Node-compatible tmux PTY backend. `bun run dev:bun` starts the same server source under Bun and uses Bun's native terminal PTY backend for tmux tabs when `Bun.Terminal` is available. Fastify is the user-facing origin in both modes, while Vite serves frontend assets and HMR behind that server. `bun run start` serves the built frontend from Fastify after `bun run build`. `bun run dev:vite` is a temporary legacy fallback that starts the old Vite-plugin host path directly while the migration remains in progress.
 
 The E2E scripts use Playwright from the Bun toolchain through `bunx playwright`. `bun run e2e` runs deterministic local tests only. `bun run e2e:real-agent-smoke` is a manual, opt-in live-agent smoke that requires `HMWB_REAL_AGENT_SMOKE=1`, `HMWB_PASSIVE_SERVER_URL`, and `HMWB_TEST_AGENT_NAME` or `HMWB_TEST_AGENT_ID`.
 
@@ -82,13 +83,19 @@ WS  /__houmao_tmux/attach
 
 The host running the workbench dev server must have `tmux` available. If tmux is unavailable or has no sessions, the picker shows a deterministic empty or unavailable state instead of crashing the app.
 
+Real tmux attachment uses a runtime-selected server PTY backend. Node-backed server runs use `node-pty`; Bun-backed server runs use `Bun.Terminal` through `Bun.spawn(..., { terminal })`. Bun tmux attachment requires Bun 1.3.5 or newer. If the server cannot select a compatible PTY backend, the browser receives a deterministic tmux backend error instead of only `[tmux] attachment ended`.
+
 The tmux picker lists local tmux sessions with session name, window count, attached state, and created time. It joins that list with passive-server agent discovery by matching `tmux_session_name`, supports Fuse-powered search across tmux and Houmao metadata, and can filter to Houmao-managed agent sessions.
 
 Attachment is read-write by default. Enable Read only before attaching to start `tmux attach-session -r`; the browser terminal also suppresses stdin, and the host bridge rejects crafted input messages for read-only sockets.
 
+Mouse-wheel scroll commands are scoped to the WebSocket-bound tmux session and are handled as tmux copy-mode commands by the server, not as terminal input bytes.
+
 Closing or detaching a tmux tab closes only that browser attachment and kills only the `tmux attach-session` process created for the tab. It does not kill the tmux session, detach unrelated tmux clients, mutate shared-registry records, or send AG-UI detach, stop, restart, shutdown, interrupt, or memory-clear requests.
 
 The workbench persists the tmux tab layout and non-sensitive tab configuration such as selected session name, read-only mode, and Houmao-only filter. It does not persist tmux terminal output, terminal input, scrollback, WebSocket payloads, credentials, cookies, bearer tokens, authorization headers, mailbox content, memory content, or local file contents.
+
+For an opt-in real tmux attachment smoke, start the workbench with `bun run dev:bun`, create or choose a real tmux session, then run `scripts/demo/ag-ui-real-tmux-workbench-smoke/run_smoke.sh` from the repository root with `HMWB_WORKBENCH_URL` and `HMWB_TMUX_SESSION` set.
 
 ## Debug Agent
 
@@ -111,7 +118,7 @@ Open a Debug Agent pane first, then copy the visible endpoint or curl command fr
 ```bash
 curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events' \
   -H 'content-type: application/json' \
-  --data '{"threadId":"debug-agent-1-thread","events":[{"type":"TOOL_CALL_START","toolCallId":"bar-1","toolCallName":"houmao.graphic.template","parentMessageId":"debug-message"},{"type":"TOOL_CALL_ARGS","toolCallId":"bar-1","delta":"{\"schemaVersion\":2,\"chartType\":\"bar\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Curl Bar Chart\",\"traces\":[{\"x\":[\"A\",\"B\"],\"y\":[8,13]}]}"},{"type":"TOOL_CALL_END","toolCallId":"bar-1"}]}'
+  --data '{"threadId":"debug-agent-1-thread","events":[{"type":"TOOL_CALL_START","toolCallId":"bar-1","toolCallName":"houmao.graphic.template","parentMessageId":"debug-message"},{"type":"TOOL_CALL_ARGS","toolCallId":"bar-1","delta":"{\"schemaVersion\":3,\"figureType\":\"plotly2d\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Curl Bar Chart\",\"traces\":[{\"type\":\"bar\",\"data\":{\"x\":[\"A\",\"B\"],\"y\":[8,13]}}]}"},{"type":"TOOL_CALL_END","toolCallId":"bar-1"}]}'
 ```
 
 The typed component convenience route validates application-layer payloads and wraps them into standard `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END` events before publishing:
@@ -119,7 +126,7 @@ The typed component convenience route validates application-layer payloads and w
 ```bash
 curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/components/houmao.graphic.template' \
   -H 'content-type: application/json' \
-  --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":2,"chartType":"bar","renderer":{"preferred":"plotly"},"title":"Curl Component Bar","traces":[{"x":["North","South"],"y":[42,28]}]}}'
+  --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":3,"figureType":"plotly2d","renderer":{"preferred":"plotly"},"title":"Curl Component Bar","traces":[{"type":"bar","data":{"x":["North","South"],"y":[42,28]}}]}}'
 ```
 
 Replay is enabled by default for lab-only debug use. If a valid batch is posted before the display connects, the relay stores it in a bounded per-thread buffer and later replays it to the matching display connection. Publish responses identify this as `replay: "debug_thread_buffer"` and report `storedCount`. This intentionally differs from the live gateway. To reproduce gateway-like live-only behavior, turn off the pane replay checkbox or include `"replay": false`; the response reports `replay: "none"`, `storedCount: 0`, and a later display connection will not receive the earlier batch.
@@ -159,9 +166,9 @@ The renderer registry recognizes these Houmao component names:
 - `houmao.metric_grid`
 - `houmao.dashboard`
 
-Template graphics render through Plotly using schema version `2` `houmao.graphic.template` payloads. Tables, metric grids, and dashboards render as React components with typed payload validation. The compatibility `houmao_render_graphic` path remains available for sanitized SVG graphics. Unknown Houmao component names and invalid payloads render explicit fallback records, and the raw tool-call arguments remain visible in diagnostics. Typed component renderers do not inject raw HTML or raw SVG.
+Template graphics render through Plotly using schema version `3` `houmao.graphic.template` payloads with `figureType: "plotly2d"` and catalog-backed `traces[].type`. Tables, metric grids, and dashboards render as React components with typed payload validation. The compatibility `houmao_render_graphic` path remains available for sanitized SVG graphics. Unknown Houmao component names and invalid payloads render explicit fallback records, and the raw tool-call arguments remain visible in diagnostics. Typed component renderers do not inject raw HTML or raw SVG.
 
-Legacy `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, and experimental schema version `1` template payloads are retired. Rewrite those payloads as schema version `2` `houmao.graphic.template` payloads with curated Plotly-backed `traces`.
+Legacy `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, experimental schema version `1` template payloads, and schema version `2` `chartType` payloads are retired. Rewrite those payloads as schema version `3` `houmao.graphic.template` payloads with `figureType: "plotly2d"` and curated Plotly-backed `traces`.
 
 ## Live Kimi Code Headless Check
 

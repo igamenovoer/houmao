@@ -15,7 +15,7 @@
         "fuse.js": "^7.4.2",
         "lucide-react": "^0.468.0",
         "node-pty": "^1.1.0",
-        "plotly.js-cartesian-dist-min": "^3.6.0",
+        "plotly.js-dist-min": "^3.6.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
         "rxjs": "^7.8.2",
@@ -448,7 +448,7 @@
 
     "playwright-core": ["playwright-core@1.60.0", "https://registry.npmmirror.com/playwright-core/-/playwright-core-1.60.0.tgz", { "bin": { "playwright-core": "cli.js" } }, "sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA=="],
 
-    "plotly.js-cartesian-dist-min": ["plotly.js-cartesian-dist-min@3.6.0", "https://registry.npmmirror.com/plotly.js-cartesian-dist-min/-/plotly.js-cartesian-dist-min-3.6.0.tgz", {}, "sha512-Ti4l+8EGRWL6kPdpgeDbHJ7lGN8VvKXhpjdfUUstnUu0vdryermQzeVYAVnyvZa5D0B1EBCtNqOZ0WT42Y2rkw=="],
+    "plotly.js-dist-min": ["plotly.js-dist-min@3.6.0", "https://registry.npmmirror.com/plotly.js-dist-min/-/plotly.js-dist-min-3.6.0.tgz", {}, "sha512-VR9jO2YdcEwbzVwtRyPE0eAieXFv1x5q6M9nnIgUS8FggahPrjiID6kzpnTYABwLX0gZkgEc0zxS6gQgVmgHzw=="],
 
     "postcss": ["postcss@8.5.15", "https://registry.npmmirror.com/postcss/-/postcss-8.5.15.tgz", { "dependencies": { "nanoid": "^3.3.12", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A=="],
 

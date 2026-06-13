@@ -20,11 +20,14 @@ from ag_ui.core import (
 )
 
 from houmao.ag_ui.authoring import (
-    HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES,
+    HOUMAO_TEMPLATE_GRAPHIC_BUNDLE_ID,
     HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
+    HOUMAO_TEMPLATE_GRAPHIC_EXCLUDED_TRACE_TYPES,
+    HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
     HOUMAO_TEMPLATE_GRAPHIC_RENDERERS,
     HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
     HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+    HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES,
     HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION,
     HOUMAO_VEGALITE_GRAPHIC_LIBRARY,
     HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES,
@@ -103,9 +106,16 @@ def build_ag_ui_capabilities(
             "templateGraphics": {
                 "toolName": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
                 "schemaVersion": HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
-                "chartTypes": list(HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES),
+                "figureType": HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
+                "traceTypes": list(HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES),
+                "excludedTraceTypes": dict(HOUMAO_TEMPLATE_GRAPHIC_EXCLUDED_TRACE_TYPES),
+                "plotlyBundle": {
+                    "id": HOUMAO_TEMPLATE_GRAPHIC_BUNDLE_ID,
+                    "registeredTraceTypes": list(HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES),
+                },
                 "renderers": list(HOUMAO_TEMPLATE_GRAPHIC_RENDERERS),
                 "defaultRenderer": HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
+                "mapPolicy": "offline_only_no_remote_tiles_styles_or_tokens",
                 "extraPolicy": {
                     "rendererScoped": True,
                     "requiredForRendering": False,
@@ -132,15 +142,23 @@ def build_ag_ui_capabilities(
                     "vocabularySupported": True,
                     "materializationSupported": False,
                     "declaredThrough": ["dataRefs", "traces[].source"],
-                    "channels": [
-                        "x",
-                        "y",
-                        "z",
-                        "labels",
-                        "values",
-                        "text",
-                        "marker.color",
-                        "marker.size",
+                    "bindingStyle": "field_path",
+                    "exampleBindingPaths": [
+                        "data.x",
+                        "data.y",
+                        "data.z",
+                        "data.open",
+                        "data.high",
+                        "data.low",
+                        "data.close",
+                        "data.labels",
+                        "data.values",
+                        "data.node.label",
+                        "data.link.source",
+                        "data.link.target",
+                        "data.link.value",
+                        "data.header.values",
+                        "data.cells.values",
                     ],
                     "limits": {
                         "materializedRows": None,
@@ -250,15 +268,15 @@ def build_ag_ui_capabilities(
                     description="Render a Plotly-backed Houmao Layer 1 template graphic.",
                     parameters={
                         "type": "object",
-                        "required": ["schemaVersion", "chartType", "title", "traces"],
+                        "required": ["schemaVersion", "figureType", "title", "traces"],
                         "properties": {
                             "schemaVersion": {
                                 "type": "integer",
                                 "const": HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
                             },
-                            "chartType": {
+                            "figureType": {
                                 "type": "string",
-                                "enum": list(HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES),
+                                "const": HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
                             },
                             "renderer": {"type": "object"},
                             "title": {"type": "string"},

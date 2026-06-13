@@ -49,7 +49,7 @@ The split is intentional:
 
 Layer 1 accepts one standardized Houmao chart JSON schema and renders it with Plotly.js. Recharts, Vega-Lite, and Apache ECharts should be removed from the planned Layer 1 backend set. Vega-Lite is reserved for Layer 2.
 
-The core schema is the source of truth. It should be Plotly-aligned, but it should not be the complete raw Plotly.js builtin schema. Using the full Plotly schema directly would turn Layer 1 into an unrestricted Plotly DSL and make security validation, capability limits, future compatibility, and agent guidance much harder. The better target is a curated Plotly-like subset: trace-like series, layout-like axes and legends, config-like interaction knobs, and explicit allowlists for supported chart families.
+The core schema is the source of truth. It should be Plotly-aligned, but it should not be the complete raw Plotly.js builtin schema. Using the full Plotly schema directly would turn Layer 1 into an unrestricted Plotly DSL and make security validation, capability limits, future compatibility, and agent guidance much harder. The better target is a curated Plotly 2D trace catalog: generated from Plotly.js schema metadata, excluding true 3D scene traces, and applying Houmao safety policy to trace data, trace style, layout, config, datasource bindings, map settings, and executable or remote-loading fields.
 
 Layer 1 supports two data modes:
 
@@ -79,8 +79,8 @@ Example payload:
 
 ```json
 {
-  "schemaVersion": 1,
-  "chartType": "bar",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "renderer": {
     "preferred": "plotly"
   },
@@ -89,8 +89,10 @@ Example payload:
     {
       "type": "bar",
       "name": "Build Results",
-      "x": ["passed", "failed"],
-      "y": [42, 2]
+      "data": {
+        "x": ["passed", "failed"],
+        "y": [42, 2]
+      }
     }
   ],
   "layout": {
@@ -134,8 +136,8 @@ Example dynamic Plotly template payload:
 
 ```json
 {
-  "schemaVersion": 1,
-  "chartType": "line",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "renderer": {
     "preferred": "plotly"
   },
@@ -149,13 +151,17 @@ Example dynamic Plotly template payload:
   "traces": [
     {
       "type": "scatter",
-      "mode": "lines+markers",
       "name": "Latency",
+      "style": {
+        "mode": "lines+markers"
+      },
       "source": {
         "dataRef": "gui.selection.metrics",
-        "x": { "column": "timestamp" },
-        "y": { "column": "latency_ms" },
-        "text": { "column": "component" }
+        "bindings": {
+          "data.x": { "column": "timestamp" },
+          "data.y": { "column": "latency_ms" },
+          "data.text": { "column": "component" }
+        }
       }
     }
   ],

@@ -22,6 +22,13 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from houmao.ag_ui.encoder import encode_sse_event
+from houmao.ag_ui.plotly_trace_catalog import (
+    PLOTLY_2D_TRACE_CATALOG,
+    PLOTLY_2D_TRACE_TYPES,
+    PLOTLY_EXCLUDED_TRACE_TYPES,
+    PLOTLY_TRACE_CATALOG_POLICY,
+    PLOTLY_TRACE_CATALOG_VERSION,
+)
 from houmao.ag_ui.state import JsonObject
 
 HOUMAO_AG_UI_SCHEMA_VERSION = 1
@@ -36,8 +43,11 @@ HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES = 256 * 1024
 HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: Literal["houmao.graphic.template"] = "houmao.graphic.template"
 """Houmao Layer 1 template-graphics AG-UI tool-call name."""
 
-HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION = 2
+HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION = 3
 """Current Houmao Layer 1 template-graphics payload schema version."""
+
+HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE: Literal["plotly2d"] = "plotly2d"
+"""Figure type for Houmao Layer 1 Plotly 2D template graphics."""
 
 HOUMAO_TEMPLATE_GRAPHIC_RENDERERS = ("plotly",)
 """Renderer ids for Houmao Layer 1 template graphics."""
@@ -45,8 +55,17 @@ HOUMAO_TEMPLATE_GRAPHIC_RENDERERS = ("plotly",)
 HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER = "plotly"
 """Default renderer id for Houmao Layer 1 template graphics."""
 
-HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES = ("bar", "line", "scatter", "pie", "histogram")
-"""Initial chart types supported by Houmao Layer 1 template graphics."""
+HOUMAO_TEMPLATE_GRAPHIC_BUNDLE_ID = "plotly.js-dist-min"
+"""Plotly browser bundle identifier advertised for Layer 1 template graphics."""
+
+HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES = PLOTLY_2D_TRACE_TYPES
+"""Plotly trace families supported by Houmao Layer 1 template graphics."""
+
+HOUMAO_TEMPLATE_GRAPHIC_EXCLUDED_TRACE_TYPES = PLOTLY_EXCLUDED_TRACE_TYPES
+"""Plotly trace families explicitly excluded from Layer 1 template graphics."""
+
+HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES = HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES
+"""Deprecated compatibility alias; use HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES."""
 
 HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME: Literal["houmao.graphic.vegalite"] = "houmao.graphic.vegalite"
 """Houmao Layer 2 Vega-Lite DSL graphics AG-UI tool-call name."""
@@ -208,7 +227,7 @@ class _VersionedComponentPayload(_HoumaoAgUiAuthoringModel):
 class _TemplateGraphicVersionedPayload(_HoumaoAgUiAuthoringModel):
     """Base payload carrying the template-graphics schema version."""
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
 
     @field_validator("*", mode="before")
     @classmethod
@@ -219,14 +238,8 @@ class _TemplateGraphicVersionedPayload(_HoumaoAgUiAuthoringModel):
         return value
 
 
-TemplateGraphicChartType = Literal["bar", "line", "scatter", "pie", "histogram"]
-"""Supported standardized Layer 1 Plotly-backed chart intents."""
-
-TemplateGraphicTraceType = Literal["bar", "scatter", "pie", "histogram"]
-"""Supported Plotly trace families used by the template compiler."""
-
-TemplateGraphicArrayValue: TypeAlias = str | int | float | bool | None
-"""Scalar JSON values accepted in inline trace arrays."""
+TemplateGraphicJsonObject: TypeAlias = dict[str, Any]
+"""JSON object accepted inside curated Plotly template fields."""
 
 TemplateGraphicColumnType = Literal["string", "number", "boolean", "datetime"]
 """Reserved datasource column type labels."""
@@ -245,65 +258,6 @@ class TemplateGraphicRendererSelection(_HoumaoAgUiAuthoringModel):
         if value != HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER:
             raise ValueError("renderer.preferred must be `plotly`")
         return "plotly"
-
-
-class TemplateGraphicMargin(_HoumaoAgUiAuthoringModel):
-    """Safe Plotly-compatible margin refinements."""
-
-    left: int | None = Field(default=None, alias="l", ge=0, le=500)
-    right: int | None = Field(default=None, alias="r", ge=0, le=500)
-    top: int | None = Field(default=None, alias="t", ge=0, le=500)
-    bottom: int | None = Field(default=None, alias="b", ge=0, le=500)
-    pad: int | None = Field(default=None, ge=0, le=100)
-
-
-class TemplateGraphicAxis(_HoumaoAgUiAuthoringModel):
-    """Safe Plotly-compatible axis display refinements."""
-
-    title: str | None = None
-    tickformat: str | None = None
-    type: Literal["linear", "log", "date", "category", "multicategory"] | None = None
-    range: list[float] | None = Field(default=None, min_length=2, max_length=2)
-
-    @field_validator("title", "tickformat")
-    @classmethod
-    def _optional_text_stripped(cls, value: str | None) -> str | None:
-        """Normalize optional axis text."""
-
-        return _optional_non_blank_text(value, field_name="axis")
-
-
-class TemplateGraphicLegend(_HoumaoAgUiAuthoringModel):
-    """Safe Plotly-compatible legend display refinements."""
-
-    orientation: Literal["v", "h"] | None = None
-    x: float | None = None
-    y: float | None = None
-
-
-class TemplateGraphicLayout(_HoumaoAgUiAuthoringModel):
-    """Curated layout fields accepted by Layer 1 template graphics."""
-
-    xaxis: TemplateGraphicAxis | None = None
-    yaxis: TemplateGraphicAxis | None = None
-    legend: TemplateGraphicLegend | None = None
-    margin: TemplateGraphicMargin | None = None
-    show_legend: bool | None = None
-    hovermode: Literal["x", "y", "closest", "x unified", "y unified"] | None = None
-    bargap: float | None = Field(default=None, ge=0, le=1)
-    barmode: Literal["group", "stack", "relative", "overlay"] | None = None
-
-
-class TemplateGraphicConfig(_HoumaoAgUiAuthoringModel):
-    """Curated Plotly config fields accepted by Layer 1 template graphics."""
-
-    responsive: bool = True
-    display_mode_bar: bool | Literal["hover"] | None = Field(
-        default=None,
-        alias="displayModeBar",
-    )
-    scroll_zoom: bool | None = Field(default=None, alias="scrollZoom")
-    static_plot: bool | None = Field(default=None, alias="staticPlot")
 
 
 class TemplateGraphicDisplay(_HoumaoAgUiAuthoringModel):
@@ -430,24 +384,11 @@ class TemplateGraphicColumnBinding(_HoumaoAgUiAuthoringModel):
         return _non_blank_text(value, field_name="source.column")
 
 
-class TemplateGraphicMarkerSource(_HoumaoAgUiAuthoringModel):
-    """Reserved datasource bindings for marker channels."""
-
-    color: TemplateGraphicColumnBinding | None = None
-    size: TemplateGraphicColumnBinding | None = None
-
-
 class TemplateGraphicTraceSource(_HoumaoAgUiAuthoringModel):
     """Reserved datasource bindings for one trace."""
 
     data_ref: str = Field(alias="dataRef")
-    x: TemplateGraphicColumnBinding | None = None
-    y: TemplateGraphicColumnBinding | None = None
-    z: TemplateGraphicColumnBinding | None = None
-    labels: TemplateGraphicColumnBinding | None = None
-    values: TemplateGraphicColumnBinding | None = None
-    text: TemplateGraphicColumnBinding | None = None
-    marker: TemplateGraphicMarkerSource | None = None
+    bindings: dict[str, TemplateGraphicColumnBinding] = Field(default_factory=dict, min_length=1)
 
     @field_validator("data_ref")
     @classmethod
@@ -457,132 +398,51 @@ class TemplateGraphicTraceSource(_HoumaoAgUiAuthoringModel):
         return _non_blank_text(value, field_name="source.dataRef")
 
 
-class TemplateGraphicMarkerLine(_HoumaoAgUiAuthoringModel):
-    """Safe marker border styling."""
-
-    color: str | None = None
-    width: float | None = Field(default=None, ge=0, le=20)
-
-    @field_validator("color")
+    @field_validator("bindings")
     @classmethod
-    def _color_stripped(cls, value: str | None) -> str | None:
-        """Normalize optional marker border color."""
+    def _binding_paths_not_blank(
+        cls,
+        value: dict[str, TemplateGraphicColumnBinding],
+    ) -> dict[str, TemplateGraphicColumnBinding]:
+        """Require non-empty binding field paths."""
 
-        return _optional_non_blank_text(value, field_name="marker.line.color")
-
-
-class TemplateGraphicMarker(_HoumaoAgUiAuthoringModel):
-    """Safe marker styling."""
-
-    color: str | list[TemplateGraphicArrayValue] | None = None
-    colors: list[str] | None = None
-    size: float | list[float] | None = None
-    opacity: float | None = Field(default=None, ge=0, le=1)
-    line: TemplateGraphicMarkerLine | None = None
-
-    @field_validator("color")
-    @classmethod
-    def _color_safe(cls, value: str | list[TemplateGraphicArrayValue] | None) -> object:
-        """Normalize optional marker color."""
-
-        if isinstance(value, str):
-            return _optional_non_blank_text(value, field_name="marker.color")
-        return value
-
-    @field_validator("colors")
-    @classmethod
-    def _colors_not_blank(cls, value: list[str] | None) -> list[str] | None:
-        """Require non-empty pie marker colors."""
-
-        if value is None:
-            return None
-        return [_non_blank_text(item, field_name="marker.colors") for item in value]
-
-    @field_validator("size")
-    @classmethod
-    def _size_non_negative(cls, value: float | list[float] | None) -> float | list[float] | None:
-        """Require non-negative marker sizes."""
-
-        if isinstance(value, list):
-            if any(item < 0 for item in value):
-                raise ValueError("marker.size values must be non-negative")
-            return value
-        if value is not None and value < 0:
-            raise ValueError("marker.size must be non-negative")
-        return value
-
-
-class TemplateGraphicLine(_HoumaoAgUiAuthoringModel):
-    """Safe line styling."""
-
-    color: str | None = None
-    width: float | None = Field(default=None, ge=0, le=20)
-    dash: Literal["solid", "dot", "dash", "longdash", "dashdot", "longdashdot"] | None = None
-    shape: Literal["linear", "spline", "hv", "vh", "hvh", "vhv"] | None = None
-
-    @field_validator("color")
-    @classmethod
-    def _color_stripped(cls, value: str | None) -> str | None:
-        """Normalize optional line color."""
-
-        return _optional_non_blank_text(value, field_name="line.color")
+        normalized: dict[str, TemplateGraphicColumnBinding] = {}
+        for path, binding in value.items():
+            stripped = _non_blank_text(path, field_name="source.bindings")
+            normalized[stripped] = binding
+        return normalized
 
 
 class TemplateGraphicTrace(_HoumaoAgUiAuthoringModel):
-    """One curated Plotly-aligned trace."""
+    """One catalog-backed Plotly 2D trace."""
 
-    type: TemplateGraphicTraceType | None = None
+    type: str
     name: str | None = None
-    x: list[TemplateGraphicArrayValue] | None = Field(default=None, min_length=1)
-    y: list[TemplateGraphicArrayValue] | None = Field(default=None, min_length=1)
-    z: list[TemplateGraphicArrayValue] | None = Field(default=None, min_length=1)
-    labels: list[TemplateGraphicArrayValue] | None = Field(default=None, min_length=1)
-    values: list[float] | None = Field(default=None, min_length=1)
-    text: str | list[TemplateGraphicArrayValue] | None = None
-    hovertemplate: str | None = None
-    mode: (
-        Literal[
-            "lines",
-            "markers",
-            "text",
-            "lines+markers",
-            "lines+text",
-            "markers+text",
-            "lines+markers+text",
-        ]
-        | None
-    ) = None
-    orientation: Literal["v", "h"] | None = None
-    marker: TemplateGraphicMarker | None = None
-    line: TemplateGraphicLine | None = None
+    data: TemplateGraphicJsonObject = Field(default_factory=dict)
+    style: TemplateGraphicJsonObject = Field(default_factory=dict)
     source: TemplateGraphicTraceSource | None = None
-    opacity: float | None = Field(default=None, ge=0, le=1)
-    show_legend: bool | None = Field(default=None, alias="showLegend")
 
-    @field_validator("name", "hovertemplate")
+    @field_validator("type")
+    @classmethod
+    def _type_not_blank(cls, value: str) -> str:
+        """Normalize the required trace type."""
+
+        return _non_blank_text(value, field_name="trace.type")
+
+    @field_validator("name")
     @classmethod
     def _optional_text_stripped(cls, value: str | None) -> str | None:
         """Normalize optional trace text."""
 
         return _optional_non_blank_text(value, field_name="trace")
 
-    @field_validator("text")
-    @classmethod
-    def _text_safe(cls, value: str | list[TemplateGraphicArrayValue] | None) -> object:
-        """Normalize optional trace text."""
-
-        if isinstance(value, str):
-            return _optional_non_blank_text(value, field_name="text")
-        return value
-
 
 class TemplateGraphicPlotlyExtra(_HoumaoAgUiAuthoringModel):
     """Allowlisted non-essential Plotly presentation refinements."""
 
-    layout: TemplateGraphicLayout | None = None
-    config: TemplateGraphicConfig | None = None
-    marker: TemplateGraphicMarker | None = None
-    line: TemplateGraphicLine | None = None
+    layout: TemplateGraphicJsonObject | None = None
+    config: TemplateGraphicJsonObject | None = None
+    style: TemplateGraphicJsonObject | None = None
     display: TemplateGraphicDisplay | None = None
 
 
@@ -595,7 +455,10 @@ class TemplateGraphicExtra(_HoumaoAgUiAuthoringModel):
 class HoumaoTemplateGraphicPayload(_TemplateGraphicVersionedPayload):
     """Payload for `houmao.graphic.template`."""
 
-    chart_type: TemplateGraphicChartType
+    figure_type: Literal["plotly2d"] = Field(
+        default=HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
+        alias="figureType",
+    )
     renderer: TemplateGraphicRendererSelection = Field(
         default_factory=TemplateGraphicRendererSelection
     )
@@ -603,8 +466,8 @@ class HoumaoTemplateGraphicPayload(_TemplateGraphicVersionedPayload):
     subtitle: str | None = None
     traces: list[TemplateGraphicTrace] = Field(min_length=1)
     data_refs: list[TemplateGraphicDataRef] | None = Field(default=None, alias="dataRefs")
-    layout: TemplateGraphicLayout | None = None
-    config: TemplateGraphicConfig = Field(default_factory=TemplateGraphicConfig)
+    layout: TemplateGraphicJsonObject | None = None
+    config: TemplateGraphicJsonObject = Field(default_factory=lambda: {"responsive": True})
     display: TemplateGraphicDisplay | None = None
     extra: TemplateGraphicExtra | None = None
 
@@ -617,7 +480,7 @@ class HoumaoTemplateGraphicPayload(_TemplateGraphicVersionedPayload):
             legacy_keys = sorted(_TEMPLATE_GRAPHIC_LEGACY_KEYS.intersection(value))
             if legacy_keys:
                 raise ValueError(
-                    "schema version 2 template graphics use `traces`; "
+                    "schema version 3 template graphics use `traces`; "
                     f"legacy field `{legacy_keys[0]}` is not supported"
                 )
             _reject_remote_urls_in_payload_tree(value, path=())
@@ -647,7 +510,6 @@ class HoumaoTemplateGraphicPayload(_TemplateGraphicVersionedPayload):
         data_ref_ids = _template_graphic_data_ref_ids(self.data_refs)
         for index, trace in enumerate(self.traces):
             _validate_template_trace(
-                chart_type=self.chart_type,
                 trace=trace,
                 trace_index=index,
                 data_ref_ids=data_ref_ids,
@@ -757,6 +619,7 @@ class HoumaoAgUiComponentSpec:
     description: str
     model: ComponentPayloadModel
     example: JsonObject
+    metadata: JsonObject | None = None
 
     def to_summary(self) -> JsonObject:
         """Return compact component metadata."""
@@ -770,33 +633,38 @@ class HoumaoAgUiComponentSpec:
     def to_schema_payload(self) -> JsonObject:
         """Return the JSON Schema-compatible component schema payload."""
 
-        return {
+        payload: JsonObject = {
             **self.to_summary(),
             "schema": cast(JsonObject, self.model.model_json_schema(by_alias=True)),
             "example": self.example,
             "protocol": "houmao.application.ag-ui",
         }
+        if self.metadata:
+            payload.update(self.metadata)
+        return payload
 
 
 _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
     HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
         name=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
         schema_version=HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
-        description=("Display standardized Layer 1 chart intent through Plotly.js."),
+        description=("Display standardized Layer 1 Plotly 2D template graphics."),
         model=HoumaoTemplateGraphicPayload,
         example={
-            "schemaVersion": 2,
-            "chartType": "bar",
+            "schemaVersion": 3,
+            "figureType": "plotly2d",
             "renderer": {"preferred": "plotly"},
             "title": "Build Results",
             "subtitle": "Latest CI run",
             "traces": [
                 {
+                    "type": "bar",
                     "name": "Jobs",
-                    "x": ["passed", "failed"],
-                    "y": [42, 2],
-                    "marker": {"color": ["#1f7a4d", "#c2410c"]},
-                    "hovertemplate": "%{x}: %{y}<extra></extra>",
+                    "data": {"x": ["passed", "failed"], "y": [42, 2]},
+                    "style": {
+                        "marker": {"color": ["#1f7a4d", "#c2410c"]},
+                        "hovertemplate": "%{x}: %{y}<extra></extra>",
+                    },
                 }
             ],
             "layout": {
@@ -809,6 +677,15 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
                     "layout": {"margin": {"l": 48, "r": 16, "t": 48, "b": 44}},
                 }
             },
+        },
+        metadata={
+            "traceCatalog": {
+                "version": PLOTLY_TRACE_CATALOG_VERSION,
+                "figureType": HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
+                "supportedTraceTypes": list(PLOTLY_2D_TRACE_TYPES),
+                "excludedTraceTypes": dict(PLOTLY_EXCLUDED_TRACE_TYPES),
+                "policy": cast(JsonObject, PLOTLY_TRACE_CATALOG_POLICY),
+            }
         },
     ),
     HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
@@ -893,11 +770,11 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
                     "component": "houmao.graphic.template",
                     "width": "half",
                     "props": {
-                        "schemaVersion": 2,
-                        "chartType": "bar",
+                        "schemaVersion": 3,
+                        "figureType": "plotly2d",
                         "renderer": {"preferred": "plotly"},
                         "title": "Tests",
-                        "traces": [{"x": ["passed"], "y": [42]}],
+                        "traces": [{"type": "bar", "data": {"x": ["passed"], "y": [42]}}],
                     },
                 },
             ],
@@ -920,7 +797,7 @@ def get_component_spec(component: str) -> HoumaoAgUiComponentSpec:
             f"Retired Houmao AG-UI component `{component}` is no longer supported.",
             component=component,
             repair_hint=(
-                "Rewrite fixed chart payloads as schema version 2 "
+                "Rewrite fixed chart payloads as schema version 3 "
                 "`houmao.graphic.template` payloads."
             ),
         )
@@ -938,6 +815,20 @@ def component_schema_payload(component: str) -> JsonObject:
     """Return JSON Schema-compatible metadata for one component."""
 
     return get_component_spec(component).to_schema_payload()
+
+
+def template_graphic_trace_catalog_payload() -> JsonObject:
+    """Return discoverable Plotly 2D trace catalog metadata."""
+
+    return {
+        "component": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+        "schemaVersion": HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
+        "figureType": HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
+        "catalogVersion": PLOTLY_TRACE_CATALOG_VERSION,
+        "supportedTraceTypes": list(PLOTLY_2D_TRACE_TYPES),
+        "excludedTraceTypes": dict(PLOTLY_EXCLUDED_TRACE_TYPES),
+        "policy": cast(JsonObject, PLOTLY_TRACE_CATALOG_POLICY),
+    }
 
 
 def validate_component_payload(component: str, payload: object) -> JsonObject:
@@ -959,6 +850,10 @@ def validate_component_payload(component: str, payload: object) -> JsonObject:
     except HoumaoAgUiValidationError:
         raise
     except ValidationError as exc:
+        if component == HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME:
+            template_error = _template_validation_error_payload(exc)
+            if template_error is not None:
+                raise template_error from exc
         raise HoumaoAgUiValidationError(
             f"Payload does not match `{component}` schema.",
             component=component,
@@ -972,6 +867,34 @@ def validate_component_payload(component: str, payload: object) -> JsonObject:
             repair_hint="Remove unsafe inline content and use typed component fields.",
         ) from exc
     return cast(JsonObject, normalized)
+
+
+def _template_validation_error_payload(exc: ValidationError) -> HoumaoAgUiValidationError | None:
+    """Return a detailed template validation error when one is available."""
+
+    errors = exc.errors(include_url=False)
+    if not errors:
+        return None
+    first = errors[0]
+    context = first.get("ctx")
+    if not isinstance(context, Mapping):
+        return None
+    raw_error = context.get("error")
+    if not isinstance(raw_error, ValueError):
+        return None
+    message = str(raw_error)
+    field_path = message.split(" ", 1)[0]
+    if not field_path.startswith(("traces.", "layout", "config", "extra")):
+        field_path = "$"
+    return HoumaoAgUiValidationError(
+        message,
+        component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+        field_paths=(field_path,),
+        repair_hint=(
+            "Inspect the Plotly 2D trace catalog with "
+            "`houmao-mgr internals ag-ui components schema houmao.graphic.template`."
+        ),
+    )
 
 
 def render_component_events(
@@ -1387,12 +1310,23 @@ def _prevalidate_template_graphic_payload(payload: object) -> None:
     schema_version = payload.get("schemaVersion", HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION)
     if schema_version != HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION:
         raise HoumaoAgUiValidationError(
-            "Template graphics require schemaVersion 2.",
+            "Template graphics require schemaVersion 3.",
             component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
             field_paths=("schemaVersion",),
             repair_hint=(
-                "Rewrite experimental schema version 1 payloads to the Plotly-backed "
-                "`traces` shape."
+                "Rewrite template payloads to schema version 3 with "
+                '`figureType: "plotly2d"` and `traces[].type`.'
+            ),
+        )
+
+    if "chartType" in payload:
+        raise HoumaoAgUiValidationError(
+            "Schema version 3 template graphics do not use `chartType`.",
+            component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
+            field_paths=("chartType",),
+            repair_hint=(
+                "Use `figureType: \"plotly2d\"` and choose Plotly families with "
+                "`traces[].type`."
             ),
         )
 
@@ -1402,19 +1336,17 @@ def _prevalidate_template_graphic_payload(payload: object) -> None:
             "Legacy `data.values` plus `encoding` template payloads are retired.",
             component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
             field_paths=tuple(legacy_keys),
-            repair_hint="Use schema version 2 `traces` with inline arrays or source bindings.",
+            repair_hint="Use schema version 3 `traces[].data` or `traces[].source.bindings`.",
         )
 
-    chart_type = payload.get("chartType")
-    if isinstance(chart_type, str) and chart_type not in HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES:
+    figure_type = payload.get("figureType", HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE)
+    if figure_type != HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE:
         raise HoumaoAgUiValidationError(
-            f"Chart type `{chart_type}` is outside this Layer 1 Plotly template scope.",
+            "Template graphics require `figureType` to equal `plotly2d`.",
             component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
-            field_paths=("chartType",),
-            repair_hint="Use one of: bar, line, scatter, pie, histogram.",
+            field_paths=("figureType",),
+            repair_hint='Use `figureType: "plotly2d"` for Layer 1 template graphics.',
         )
-    if isinstance(chart_type, str) and chart_type in HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES:
-        _prevalidate_template_trace_types(payload, chart_type=chart_type)
 
     renderer = payload.get("renderer")
     if isinstance(renderer, Mapping):
@@ -1450,37 +1382,6 @@ def _prevalidate_template_graphic_payload(payload: object) -> None:
     _reject_remote_urls_in_payload_tree(payload, path=())
 
 
-def _prevalidate_template_trace_types(
-    payload: Mapping[object, object],
-    *,
-    chart_type: str,
-) -> None:
-    """Raise direct diagnostics for obvious trace family mismatches."""
-
-    traces = payload.get("traces")
-    if not isinstance(traces, list):
-        return
-    expected_types: dict[str, set[str]] = {
-        "bar": {"bar"},
-        "line": {"scatter"},
-        "scatter": {"scatter"},
-        "pie": {"pie"},
-        "histogram": {"histogram"},
-    }
-    expected = expected_types[chart_type]
-    for index, trace in enumerate(traces):
-        if not isinstance(trace, Mapping):
-            continue
-        trace_type = trace.get("type")
-        if isinstance(trace_type, str) and trace_type not in expected:
-            raise HoumaoAgUiValidationError(
-                f"Trace type `{trace_type}` is invalid for chartType `{chart_type}`.",
-                component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
-                field_paths=(f"traces.{index}.type",),
-                repair_hint=f"Use Plotly trace type `{sorted(expected)[0]}` for this chart type.",
-            )
-
-
 def _template_graphic_data_ref_ids(
     data_refs: Sequence[TemplateGraphicDataRef] | None,
 ) -> frozenset[str]:
@@ -1496,54 +1397,40 @@ def _template_graphic_data_ref_ids(
 
 def _validate_template_trace(
     *,
-    chart_type: TemplateGraphicChartType,
     trace: TemplateGraphicTrace,
     trace_index: int,
     data_ref_ids: frozenset[str],
 ) -> None:
-    """Validate one trace against its declared chart family."""
+    """Validate one trace against the Plotly 2D trace catalog."""
 
-    expected_types: dict[str, set[str]] = {
-        "bar": {"bar"},
-        "line": {"scatter"},
-        "scatter": {"scatter"},
-        "pie": {"pie"},
-        "histogram": {"histogram"},
-    }
-    actual_type = trace.type
-    if actual_type is not None and actual_type not in expected_types[str(chart_type)]:
-        expected = ", ".join(sorted(expected_types[str(chart_type)]))
-        raise ValueError(
-            f"traces.{trace_index}.type `{actual_type}` is invalid for chartType "
-            f"`{chart_type}`; expected {expected}"
-        )
-    if chart_type == "line" and trace.mode is not None and "lines" not in trace.mode:
-        raise ValueError(f"traces.{trace_index}.mode for line charts must include `lines`")
+    actual_type = trace.type.strip()
+    if actual_type in PLOTLY_EXCLUDED_TRACE_TYPES:
+        reason = PLOTLY_EXCLUDED_TRACE_TYPES[actual_type]
+        raise ValueError(f"traces.{trace_index}.type `{actual_type}` is excluded: {reason}")
+    catalog_entry = PLOTLY_2D_TRACE_CATALOG.get(actual_type)
+    if catalog_entry is None:
+        raise ValueError(f"traces.{trace_index}.type `{actual_type}` is not supported")
+
+    if not trace.data and trace.source is None:
+        raise ValueError(f"traces.{trace_index} requires `data` or `source.bindings`")
+
+    _validate_template_object_paths(
+        value=trace.data,
+        allowed_paths=frozenset(catalog_entry["data_paths"]),
+        root=f"traces.{trace_index}.data",
+    )
+    _validate_template_object_paths(
+        value=trace.style,
+        allowed_paths=frozenset(catalog_entry["style_paths"]),
+        root=f"traces.{trace_index}.style",
+    )
 
     _validate_trace_source_bindings(
         trace=trace,
         trace_index=trace_index,
         data_ref_ids=data_ref_ids,
+        binding_paths=frozenset(catalog_entry["binding_paths"]),
     )
-
-    if chart_type in {"bar", "line", "scatter"}:
-        _require_trace_channel(trace, trace_index=trace_index, channel="x")
-        _require_trace_channel(trace, trace_index=trace_index, channel="y")
-        _validate_equal_inline_lengths(trace, trace_index=trace_index, channels=("x", "y"))
-        return
-    if chart_type == "pie":
-        _require_trace_channel(trace, trace_index=trace_index, channel="labels")
-        _require_trace_channel(trace, trace_index=trace_index, channel="values")
-        _validate_equal_inline_lengths(
-            trace,
-            trace_index=trace_index,
-            channels=("labels", "values"),
-        )
-        return
-    if chart_type == "histogram" and not (
-        _trace_has_channel(trace, "x") or _trace_has_channel(trace, "y")
-    ):
-        raise ValueError(f"traces.{trace_index} for histogram charts requires `x` or `y`")
 
 
 def _validate_trace_source_bindings(
@@ -1551,6 +1438,7 @@ def _validate_trace_source_bindings(
     trace: TemplateGraphicTrace,
     trace_index: int,
     data_ref_ids: frozenset[str],
+    binding_paths: frozenset[str],
 ) -> None:
     """Validate datasource binding references and channel exclusivity."""
 
@@ -1564,72 +1452,86 @@ def _validate_trace_source_bindings(
             f"traces.{trace_index}.source.dataRef `{source.data_ref}` is not declared in dataRefs"
         )
 
-    for channel in ("x", "y", "z", "labels", "values", "text"):
-        if _source_has_channel(source, channel) and _trace_has_inline_channel(trace, channel):
+    inline_paths = _template_object_leaf_paths(trace.data)
+    for raw_path in source.bindings:
+        binding_path = _normalize_binding_path(raw_path)
+        if binding_path not in binding_paths:
+            raise ValueError(f"traces.{trace_index}.source.bindings.{raw_path} is not supported")
+        if binding_path in inline_paths:
             raise ValueError(
-                f"traces.{trace_index}.{channel} cannot be combined with "
-                f"traces.{trace_index}.source.{channel}"
-            )
-    if source.marker is not None and trace.marker is not None:
-        if source.marker.color is not None and trace.marker.color is not None:
-            raise ValueError(
-                f"traces.{trace_index}.marker.color cannot be combined with "
-                f"traces.{trace_index}.source.marker.color"
-            )
-        if source.marker.size is not None and trace.marker.size is not None:
-            raise ValueError(
-                f"traces.{trace_index}.marker.size cannot be combined with "
-                f"traces.{trace_index}.source.marker.size"
+                f"traces.{trace_index}.data.{binding_path} cannot be combined with "
+                f"traces.{trace_index}.source.bindings.{raw_path}"
             )
 
 
-def _require_trace_channel(
-    trace: TemplateGraphicTrace,
+def _validate_template_object_paths(
     *,
-    trace_index: int,
-    channel: Literal["x", "y", "labels", "values"],
+    value: Mapping[str, Any],
+    allowed_paths: frozenset[str],
+    root: str,
 ) -> None:
-    """Require one inline or datasource-bound trace channel."""
+    """Validate object leaf paths against one catalog allowlist."""
 
-    if not _trace_has_channel(trace, channel):
-        raise ValueError(f"traces.{trace_index} requires `{channel}`")
-
-
-def _trace_has_channel(trace: TemplateGraphicTrace, channel: str) -> bool:
-    """Return whether a trace has either inline data or a source binding."""
-
-    return _trace_has_inline_channel(trace, channel) or (
-        trace.source is not None and _source_has_channel(trace.source, channel)
-    )
+    _reject_plotly_policy_keys(value, path=tuple(root.split(".")))
+    for path in _template_object_leaf_paths(value):
+        if path not in allowed_paths:
+            raise ValueError(f"{root}.{path} is not supported")
 
 
-def _trace_has_inline_channel(trace: TemplateGraphicTrace, channel: str) -> bool:
-    """Return whether a trace has an inline value for a channel."""
+def _template_object_leaf_paths(value: Mapping[str, Any]) -> frozenset[str]:
+    """Return leaf paths from a template object."""
 
-    return getattr(trace, channel) is not None
-
-
-def _source_has_channel(source: TemplateGraphicTraceSource, channel: str) -> bool:
-    """Return whether a source object binds one channel."""
-
-    return getattr(source, channel) is not None
+    paths: set[str] = set()
+    _collect_template_object_leaf_paths(value, prefix=(), paths=paths)
+    return frozenset(paths)
 
 
-def _validate_equal_inline_lengths(
-    trace: TemplateGraphicTrace,
+def _collect_template_object_leaf_paths(
+    value: object,
     *,
-    trace_index: int,
-    channels: tuple[str, str],
+    prefix: tuple[str, ...],
+    paths: set[str],
 ) -> None:
-    """Require matching inline array lengths when both compared channels are inline."""
+    """Collect leaf paths, treating arrays as leaf values."""
 
-    first = getattr(trace, channels[0])
-    second = getattr(trace, channels[1])
-    if isinstance(first, list) and isinstance(second, list) and len(first) != len(second):
-        raise ValueError(
-            f"traces.{trace_index}.{channels[0]} and traces.{trace_index}.{channels[1]} "
-            "must have the same length"
-        )
+    if isinstance(value, Mapping):
+        if not value and prefix:
+            paths.add(".".join(prefix))
+            return
+        for key, nested in value.items():
+            _collect_template_object_leaf_paths(nested, prefix=(*prefix, str(key)), paths=paths)
+        return
+    if prefix:
+        paths.add(".".join(prefix))
+
+
+def _normalize_binding_path(path: str) -> str:
+    """Return a catalog path from a public source binding path."""
+
+    return path.removeprefix("data.")
+
+
+def _reject_plotly_policy_keys(value: object, *, path: tuple[str, ...]) -> None:
+    """Reject globally unsafe Plotly keys inside catalog-controlled objects."""
+
+    rejected = {
+        str(key).lower()
+        for key in PLOTLY_TRACE_CATALOG_POLICY.get("globalRejectedFields", ())
+        if key != "*src"
+    }
+    if isinstance(value, Mapping):
+        for key, nested_value in value.items():
+            key_text = str(key)
+            lowered = key_text.lower()
+            next_path = (*path, key_text)
+            if lowered.endswith("src") or lowered in rejected:
+                field_path = ".".join(next_path)
+                raise ValueError(f"{field_path} is not allowed in Layer 1 Plotly template fields")
+            _reject_plotly_policy_keys(nested_value, path=next_path)
+        return
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+        for index, nested_value in enumerate(value):
+            _reject_plotly_policy_keys(nested_value, path=(*path, str(index)))
 
 
 def _reject_disallowed_plotly_extra_keys(value: object, *, path: tuple[str, ...]) -> None:
@@ -1727,11 +1629,15 @@ __all__ = [
     "HOUMAO_AG_UI_EVENT_BATCH_MAX_COUNT",
     "HOUMAO_AG_UI_SCHEMA_VERSION",
     "HOUMAO_RETIRED_FIXED_CHART_COMPONENTS",
+    "HOUMAO_TEMPLATE_GRAPHIC_BUNDLE_ID",
     "HOUMAO_TEMPLATE_GRAPHIC_CHART_TYPES",
     "HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER",
+    "HOUMAO_TEMPLATE_GRAPHIC_EXCLUDED_TRACE_TYPES",
+    "HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE",
     "HOUMAO_TEMPLATE_GRAPHIC_RENDERERS",
     "HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION",
     "HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME",
+    "HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES",
     "HOUMAO_VEGALITE_GRAPHIC_DEFAULT_SPEC_VERSION",
     "HOUMAO_VEGALITE_GRAPHIC_LIBRARY",
     "HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES",
@@ -1749,6 +1655,7 @@ __all__ = [
     "render_events_as_jsonl",
     "render_events_as_sse",
     "parse_ag_ui_event_payloads",
+    "template_graphic_trace_catalog_payload",
     "validate_ag_ui_event_sequence",
     "validate_component_payload",
     "validation_error_payload",

@@ -58,7 +58,7 @@ curl \
       {
         "type": "TOOL_CALL_ARGS",
         "toolCallId": "tool-1",
-        "delta": "{\"schemaVersion\":2,\"chartType\":\"bar\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Build Results\",\"traces\":[{\"name\":\"Jobs\",\"x\":[\"passed\"],\"y\":[42]}]}"
+        "delta": "{\"schemaVersion\":3,\"figureType\":\"plotly2d\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Build Results\",\"traces\":[{\"type\":\"bar\",\"name\":\"Jobs\",\"data\":{\"x\":[\"passed\"],\"y\":[42]}}]}"
       },
       { "type": "TOOL_CALL_END", "toolCallId": "tool-1" }
     ]
@@ -84,7 +84,7 @@ The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gate
 curl "$GATEWAY_URL/v1/ag-ui/capabilities"
 ```
 
-Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. Capabilities include `custom.houmao.presentation.templateGraphics` metadata for Layer 1 Plotly-backed template charts and `custom.houmao.presentation.vegaDsl` metadata for Layer 2 Vega-Lite DSL graphics. `templateGraphics.rawVegaLiteDsl` remains `false`; raw Vega-Lite belongs to the separate `houmao.graphic.vegalite` component, not Layer 1. The `vegaDsl` block reports the `houmao.graphic.vegalite` tool name, supported Vega-Lite major versions, `vega-embed` browser rendering, disabled remote-data loading, inline-data support, optional Altair authoring, and `preflight.pythonCompile: false`. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
+Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. Capabilities include `custom.houmao.presentation.templateGraphics` metadata for Layer 1 Plotly-backed template graphics and `custom.houmao.presentation.vegaDsl` metadata for Layer 2 Vega-Lite DSL graphics. `templateGraphics` advertises schema version `3`, `figureType: "plotly2d"`, supported Plotly 2D trace types, excluded true 3D traces, the Plotly bundle id, the offline map policy, and datasource binding vocabulary versus materialization support. `templateGraphics.rawPlotlyDsl` and `templateGraphics.rawVegaLiteDsl` remain `false`; raw Plotly figures and raw Vega-Lite specs do not belong inside Layer 1. The `vegaDsl` block reports the `houmao.graphic.vegalite` tool name, supported Vega-Lite major versions, `vega-embed` browser rendering, disabled remote-data loading, inline-data support, optional Altair authoring, and `preflight.pythonCompile: false`. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
 
 Capabilities report `transport.resumable: false` and Houmao `replaySupport: "current_snapshot_only"` for published GUI events. `POST /v1/ag-ui/connect` emits a fresh `STATE_SNAPSHOT` and then future live fanout events. Clients should not send browser cache cursors as `lastSeenEventId` expecting the gateway to recover missed published events.
 
@@ -120,33 +120,40 @@ The AG-UI mapper recognizes graphics only from explicit structured canonical `ac
 
 Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. The legacy fixed chart names `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` are retired and must be rewritten as `houmao.graphic.template` payloads.
 
-Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. Choose the least powerful graphics layer that satisfies the request: use Layer 1 `houmao.graphic.template` for ordinary bar, line, scatter, pie, and histogram charts, and use Layer 2 `houmao.graphic.vegalite` only when the chart needs Vega-Lite grammar, custom declarative composition, layering, or interactions. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
+Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components traces` to list supported and excluded Plotly template trace types directly. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. Choose the least powerful graphics layer that satisfies the request: use Layer 1 `houmao.graphic.template` for supported Plotly 2D trace families such as bar, scatter, heatmap, box, violin, financial, polar, treemap, table, and Sankey charts, and use Layer 2 `houmao.graphic.vegalite` only when the chart needs Vega-Lite grammar, custom declarative composition, layering, or interactions. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
 
 ### Layer 1 Template Graphics
 
-`houmao.graphic.template` is the standardized Layer 1 chart object. Schema version `2` is Plotly-backed and supports exactly these `chartType` values: `bar`, `line`, `scatter`, `pie`, and `histogram`. Agents describe charts with curated `traces`, optional `layout`, optional `config`, optional `display`, optional datasource-binding declarations, and optional renderer-scoped `extra.plotly` refinements.
+`houmao.graphic.template` is the standardized Layer 1 chart object. Schema version `3` is Plotly-backed and uses `figureType: "plotly2d"` with `traces[].type` instead of the retired schema version `2` `chartType` field. Supported trace types come from the Houmao Plotly 2D trace catalog, which is generated from Plotly.js schema metadata by excluding traces whose categories include `gl3d` and then applying Houmao safety policy. The catalog includes non-3D Plotly families such as heatmap, box, violin, candlestick, ohlc, polar, ternary, smith, carpet, map and geo, table, indicator, sankey, treemap, sunburst, icicle, parcats, parcoords, and splom. True 3D scene traces such as `scatter3d`, `surface`, `mesh3d`, `cone`, `streamtube`, `volume`, and `isosurface` are rejected.
 
 The only Layer 1 renderer id is `plotly`. Agents may omit `renderer`, in which case validation defaults it to `{ "preferred": "plotly" }`. If `renderer` is present, `renderer.preferred` must be `plotly`; legacy `renderer.fallback` is rejected.
 
-`extra.plotly` is only for small presentation refinements that do not replace the standardized chart object. It accepts allowlisted `layout`, `config`, `marker`, `line`, and `display` refinements. It rejects raw backend replacement fields such as raw `data`, raw `traces`, full replacement specs, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, and Vega-Lite or Vega fields. Layer 1 is not a raw Plotly JSON, Vega-Lite, Vega, HTML, or JavaScript escape hatch.
+Agents describe charts with curated `traces[].data`, `traces[].style`, optional `layout`, optional `config`, optional `display`, optional datasource-binding declarations, and optional renderer-scoped `extra.plotly` refinements. `traces[].data` and `traces[].style` use Plotly-aligned field paths from the catalog. `layout` and `config` are still policy-checked, but Layer 1 does not expose raw `data`, frames, templates, transforms, callbacks, HTML, iframe, SVG, remote URL loading, credential-bearing map settings, or Plotly Cloud `*src` fields. Map and geo traces follow an offline-only policy: no remote tile URLs, remote style URLs, or access tokens.
+
+`extra.plotly` is only for small presentation refinements that do not replace the standardized chart object. It accepts renderer-scoped `layout`, `config`, `style`, and `display` refinements. It rejects raw backend replacement fields such as raw `data`, raw `traces`, full replacement specs, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, and Vega-Lite or Vega fields. Layer 1 is not a raw Plotly JSON, Vega-Lite, Vega, HTML, or JavaScript escape hatch.
 
 Minimal template graphic payload:
 
 ```json
 {
-  "schemaVersion": 2,
-  "chartType": "bar",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "renderer": {
     "preferred": "plotly"
   },
   "title": "Build Results",
   "traces": [
     {
+      "type": "bar",
       "name": "Jobs",
-      "x": ["passed", "failed"],
-      "y": [42, 2],
-      "marker": { "color": ["#1f7a4d", "#c2410c"] },
-      "hovertemplate": "%{x}: %{y}<extra></extra>"
+      "data": {
+        "x": ["passed", "failed"],
+        "y": [42, 2]
+      },
+      "style": {
+        "marker": { "color": ["#1f7a4d", "#c2410c"] },
+        "hovertemplate": "%{x}: %{y}<extra></extra>"
+      }
     }
   ],
   "layout": {
@@ -167,8 +174,8 @@ Datasource-bound payloads are contract vocabulary only in this round. They valid
 
 ```json
 {
-  "schemaVersion": 2,
-  "chartType": "bar",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "title": "Build Results",
   "dataRefs": [
     {
@@ -184,15 +191,19 @@ Datasource-bound payloads are contract vocabulary only in this round. They valid
       "type": "bar",
       "source": {
         "dataRef": "buildRows",
-        "x": { "column": "status" },
-        "y": { "column": "count" }
+        "bindings": {
+          "data.x": { "column": "status" },
+          "data.y": { "column": "count" }
+        }
       }
     }
   ]
 }
 ```
 
-Migration note: previous experimental schema version `1` template payloads using `data.values`, `encoding`, `interactions`, or `style`, and legacy fixed `houmao.chart.*` payloads, are no longer supported. Rewrite them as schema version `2` `houmao.graphic.template` payloads with `traces`.
+Binding keys use catalog-backed field paths such as `data.x`, `data.y`, `data.z`, `data.open`, `data.high`, `data.low`, `data.close`, `data.labels`, `data.values`, `data.node.label`, `data.link.source`, `data.link.target`, `data.link.value`, `data.header.values`, and `data.cells.values`. A trace may use inline `data` or `source.bindings` for the same field path, but not both.
+
+Migration note: previous experimental schema version `1` template payloads using `data.values`, `encoding`, `interactions`, or `style`, schema version `2` payloads using `chartType`, and legacy fixed `houmao.chart.*` payloads are no longer supported. Rewrite them as schema version `3` `houmao.graphic.template` payloads with `figureType: "plotly2d"` and `traces[].type`.
 
 Agents should generate template graphic events through the authoring helpers:
 

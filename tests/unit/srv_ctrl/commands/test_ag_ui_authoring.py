@@ -23,11 +23,17 @@ def _template_payload() -> dict[str, object]:
     """Return one valid template graphic payload."""
 
     return {
-        "schemaVersion": 2,
-        "chartType": "bar",
+        "schemaVersion": 3,
+        "figureType": "plotly2d",
         "renderer": {"preferred": "plotly"},
         "title": "Build Results",
-        "traces": [{"type": "bar", "x": ["passed", "failed"], "y": [42, 2]}],
+        "traces": [
+            {
+                "type": "bar",
+                "data": {"x": ["passed", "failed"], "y": [42, 2]},
+                "style": {"marker": {"color": ["#1f7a4d", "#c2410c"]}},
+            }
+        ],
         "layout": {"xaxis": {"title": "Status"}, "yaxis": {"title": "Count"}},
     }
 
@@ -92,7 +98,9 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     assert "houmao.graphic.template" in {item["name"] for item in listed["components"]}
     assert "houmao.graphic.vegalite" in {item["name"] for item in listed["components"]}
     assert schema["name"] == "houmao.graphic.template"
-    assert schema["example"]["schemaVersion"] == 2
+    assert schema["example"]["schemaVersion"] == 3
+    assert schema["example"]["figureType"] == "plotly2d"
+    assert "heatmap" in schema["traceCatalog"]["supportedTraceTypes"]
 
     vegalite_schema_result = runner.invoke(
         cli,
@@ -110,6 +118,31 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     assert vegalite_schema["name"] == "houmao.graphic.vegalite"
     assert vegalite_schema["example"]["library"] == "vega-lite"
     assert vegalite_schema["example"]["specVersion"] == "6"
+
+
+def test_ag_ui_components_traces_lists_template_trace_catalog() -> None:
+    runner = CliRunner()
+
+    json_result = runner.invoke(
+        cli,
+        ["--print-json", "internals", "ag-ui", "components", "traces"],
+    )
+    plain_result = CliRunner().invoke(
+        cli,
+        ["--print-plain", "internals", "ag-ui", "components", "traces"],
+    )
+
+    assert json_result.exit_code == 0, json_result.output
+    payload = json.loads(json_result.output)
+    assert payload["component"] == "houmao.graphic.template"
+    assert payload["schemaVersion"] == 3
+    assert payload["figureType"] == "plotly2d"
+    assert "heatmap" in payload["supportedTraceTypes"]
+    assert "sankey" in payload["supportedTraceTypes"]
+    assert payload["excludedTraceTypes"]["scatter3d"] == "true_3d_scene_trace"
+    assert plain_result.exit_code == 0, plain_result.output
+    assert "supportedTraceTypes (42)" in plain_result.output
+    assert "scatter3d: true_3d_scene_trace" in plain_result.output
 
 
 def test_ag_ui_components_retired_fixed_chart_schema_reports_migration_hint() -> None:
@@ -169,12 +202,14 @@ def test_ag_ui_template_graphic_validate_and_render_accept_path_input(tmp_path: 
     assert json.loads(validate_result.output) == {
         "component": "houmao.graphic.template",
         "ok": True,
-        "schemaVersion": 2,
+        "schemaVersion": 3,
     }
     assert render_result.exit_code == 0, render_result.output
     events = json.loads(render_result.output)
     assert events[0]["toolCallName"] == "houmao.graphic.template"
-    assert json.loads(events[1]["delta"])["renderer"]["preferred"] == "plotly"
+    args = json.loads(events[1]["delta"])
+    assert args["figureType"] == "plotly2d"
+    assert args["renderer"]["preferred"] == "plotly"
 
 
 def test_ag_ui_vegalite_validate_and_render_accept_path_input(tmp_path: Path) -> None:

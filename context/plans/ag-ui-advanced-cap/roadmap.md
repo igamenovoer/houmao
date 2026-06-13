@@ -42,10 +42,10 @@ Deliverables:
 
 Todo:
 
-- [ ] Confirm whether the standardized chart types remain bar, line, scatter, area, pie or donut.
-- [ ] Decide the exact boundary between curated Plotly-aligned fields and raw Plotly fields.
-- [ ] Define the trace-like common data shape, including `type`, `name`, `x`, `y`, `z`, `labels`, `values`, marker style, line style, color, size, text, hover, and series semantics.
-- [ ] Define the dynamic trace binding shape, including datasource refs and column mappings for `x`, `y`, `z`, `labels`, `values`, color, size, text, and hover fields.
+- [x] Use a Plotly 2D trace catalog rather than a fixed chart-type list; supported trace types are generated from Plotly.js schema metadata by excluding true 3D scene traces and applying Houmao safety policy.
+- [x] Define the exact boundary between curated Plotly-aligned fields and raw Plotly fields through catalog-backed `traces[].data`, `traces[].style`, policy-checked `layout` and `config`, and rejected raw figure replacement fields.
+- [x] Define the trace-like data shape around `traces[].type`, optional `name`, `data`, and `style`, including nested fields such as `node`, `link`, `header`, `cells`, financial OHLC fields, polar fields, and table fields where the catalog allows them.
+- [x] Define the dynamic trace binding shape with datasource refs and catalog field-path mappings under `source.bindings`, such as `data.x`, `data.y`, `data.open`, `data.node.label`, `data.link.value`, `data.header.values`, and `data.cells.values`.
 - [ ] Define the layout-like common shape, including title, axes, legend, margins, annotations, subplot hints, and responsive sizing.
 - [ ] Define the config-like interaction shape, including tooltip or hover behavior, mode bar policy, responsiveness, and static-vs-interactive mode.
 - [ ] Define `renderer.preferred` semantics when the only supported renderer is `plotly`.
@@ -74,7 +74,7 @@ Decisions:
 - Datasource scope SHALL be explicit, starting with `pane`, `thread`, and `workspace`.
 - Datasource updates SHALL support `replace`, `append`, `patchRows`, `deleteRows`, and `clear`.
 - Dynamic chart payloads SHALL reference datasources by stable id through `dataRefs`.
-- Trace fields SHALL use Houmao-owned source bindings such as `source.dataRef` and `source.x.column`, not Plotly Cloud `xsrc` or `ysrc` semantics.
+- Trace fields SHALL use Houmao-owned field-path source bindings such as `source.dataRef` plus `source.bindings["data.x"].column` and `source.bindings["data.link.value"].column`, not Plotly Cloud `xsrc` or `ysrc` semantics.
 - The GUI backend SHALL resolve source bindings into bounded Plotly trace arrays or materializations before the browser calls Plotly.
 - Prompt metadata SHALL describe datasource shape and freshness, but it SHALL NOT be treated as the render-time source of truth.
 - Missing datasource ids, missing columns, incompatible column types, and stale versions SHALL produce visible renderer diagnostics instead of silent blank charts.
@@ -101,8 +101,8 @@ Example dynamic chart binding:
 
 ```json
 {
-  "schemaVersion": 1,
-  "chartType": "line",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "renderer": { "preferred": "plotly" },
   "title": "Latency Over Time",
   "dataRefs": [
@@ -111,13 +111,15 @@ Example dynamic chart binding:
   "traces": [
     {
       "type": "scatter",
-      "mode": "lines+markers",
       "name": "Latency",
+      "style": { "mode": "lines+markers" },
       "source": {
         "dataRef": "gui.selection.metrics",
-        "x": { "column": "timestamp" },
-        "y": { "column": "latency_ms" },
-        "text": { "column": "component" }
+        "bindings": {
+          "data.x": { "column": "timestamp" },
+          "data.y": { "column": "latency_ms" },
+          "data.text": { "column": "component" }
+        }
       }
     }
   ]

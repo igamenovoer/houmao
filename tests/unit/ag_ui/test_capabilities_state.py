@@ -71,28 +71,40 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
     }
     template_graphics = capabilities["custom"]["houmao"]["presentation"]["templateGraphics"]
     assert template_graphics["toolName"] == "houmao.graphic.template"
-    assert template_graphics["schemaVersion"] == 2
-    assert template_graphics["chartTypes"] == ["bar", "line", "scatter", "pie", "histogram"]
+    assert template_graphics["schemaVersion"] == 3
+    assert template_graphics["figureType"] == "plotly2d"
+    assert "heatmap" in template_graphics["traceTypes"]
+    assert "box" in template_graphics["traceTypes"]
+    assert "sankey" in template_graphics["traceTypes"]
+    assert "table" in template_graphics["traceTypes"]
+    assert "treemap" in template_graphics["traceTypes"]
+    assert "scatterpolar" in template_graphics["traceTypes"]
+    assert "candlestick" in template_graphics["traceTypes"]
+    assert "chartTypes" not in template_graphics
+    assert template_graphics["excludedTraceTypes"]["scatter3d"] == "true_3d_scene_trace"
+    assert template_graphics["excludedTraceTypes"]["surface"] == "true_3d_scene_trace"
+    assert template_graphics["plotlyBundle"]["id"] == "plotly.js-dist-min"
+    assert "sankey" in template_graphics["plotlyBundle"]["registeredTraceTypes"]
     assert template_graphics["renderers"] == ["plotly"]
     assert template_graphics["defaultRenderer"] == "plotly"
+    assert template_graphics["mapPolicy"] == "offline_only_no_remote_tiles_styles_or_tokens"
     assert template_graphics["extraPolicy"]["rendererScoped"] is True
     assert template_graphics["extraPolicy"]["requiredForRendering"] is False
     assert template_graphics["extraPolicy"]["supportedRendererKeys"] == ["plotly"]
-    assert template_graphics["datasourceBindings"] == {
-        "vocabularySupported": True,
-        "materializationSupported": False,
-        "declaredThrough": ["dataRefs", "traces[].source"],
-        "channels": [
-            "x",
-            "y",
-            "z",
-            "labels",
-            "values",
-            "text",
-            "marker.color",
-            "marker.size",
-        ],
-        "limits": {"materializedRows": None, "rowUpdateModes": [], "refresh": False},
+    assert template_graphics["datasourceBindings"]["vocabularySupported"] is True
+    assert template_graphics["datasourceBindings"]["materializationSupported"] is False
+    assert template_graphics["datasourceBindings"]["declaredThrough"] == [
+        "dataRefs",
+        "traces[].source",
+    ]
+    assert template_graphics["datasourceBindings"]["bindingStyle"] == "field_path"
+    assert "data.node.label" in template_graphics["datasourceBindings"]["exampleBindingPaths"]
+    assert "data.link.value" in template_graphics["datasourceBindings"]["exampleBindingPaths"]
+    assert "data.header.values" in template_graphics["datasourceBindings"]["exampleBindingPaths"]
+    assert template_graphics["datasourceBindings"]["limits"] == {
+        "materializedRows": None,
+        "rowUpdateModes": [],
+        "refresh": False,
     }
     assert template_graphics["rawPlotlyDsl"] is False
     assert template_graphics["rawVegaLiteDsl"] is False
@@ -152,6 +164,18 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
     assert dumped["capabilities"]["tools"]["supported"] is True
     assert dumped["capabilities"]["tools"]["items"][0]["name"] == "houmao_render_graphic"
     assert dumped["capabilities"]["tools"]["items"][1]["name"] == "houmao.graphic.template"
+    assert dumped["capabilities"]["tools"]["items"][1]["parameters"]["required"] == [
+        "schemaVersion",
+        "figureType",
+        "title",
+        "traces",
+    ]
+    assert dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"][
+        "schemaVersion"
+    ]["const"] == 3
+    assert dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"][
+        "figureType"
+    ]["const"] == "plotly2d"
     assert dumped["capabilities"]["tools"]["items"][2]["name"] == "houmao.graphic.vegalite"
     assert dumped["capabilities"]["tools"]["items"][2]["parameters"]["required"] == [
         "schemaVersion",

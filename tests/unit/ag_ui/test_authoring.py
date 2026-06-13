@@ -15,63 +15,21 @@ from houmao.ag_ui.authoring import (
     validate_ag_ui_event_sequence,
     validate_component_payload,
 )
+from houmao.ag_ui.plotly_trace_catalog import PLOTLY_2D_TRACE_CATALOG, PLOTLY_2D_TRACE_TYPES
 
 
-def _template_payload(chart_type: str = "bar") -> dict[str, object]:
-    """Return one valid schema version 2 template graphic payload."""
+def _template_payload(trace_type: str = "bar") -> dict[str, object]:
+    """Return one valid schema version 3 template graphic payload."""
 
-    traces_by_type: dict[str, list[dict[str, object]]] = {
-        "bar": [
-            {
-                "type": "bar",
-                "name": "Builds",
-                "x": ["passed", "failed"],
-                "y": [42, 2],
-                "marker": {"color": ["#1f7a4d", "#c2410c"]},
-            }
-        ],
-        "line": [
-            {
-                "type": "scatter",
-                "name": "p95",
-                "x": ["09:00", "10:00"],
-                "y": [120, 98],
-                "mode": "lines+markers",
-                "line": {"shape": "linear"},
-            }
-        ],
-        "scatter": [
-            {
-                "type": "scatter",
-                "name": "Runs",
-                "x": [1, 2, 3],
-                "y": [3, 2, 4],
-                "mode": "markers",
-                "marker": {"size": [8, 10, 12]},
-            }
-        ],
-        "pie": [
-            {
-                "type": "pie",
-                "labels": ["Enterprise", "SMB"],
-                "values": [62, 38],
-                "marker": {"colors": ["#155e75", "#7c2d12"]},
-            }
-        ],
-        "histogram": [
-            {
-                "type": "histogram",
-                "name": "Latency",
-                "x": [91, 102, 107, 120, 121, 135],
-            }
-        ],
-    }
+    example = PLOTLY_2D_TRACE_CATALOG[trace_type]["example"]
+    trace: dict[str, object] = {"type": trace_type, "name": f"{trace_type} example"}
+    trace.update(example)
     return {
-        "schemaVersion": 2,
-        "chartType": chart_type,
-        "title": f"{chart_type.title()} Example",
+        "schemaVersion": 3,
+        "figureType": "plotly2d",
+        "title": f"{trace_type.title()} Example",
         "renderer": {"preferred": "plotly"},
-        "traces": traces_by_type[chart_type],
+        "traces": [trace],
         "layout": {
             "xaxis": {"title": "X"},
             "yaxis": {"title": "Y"},
@@ -122,11 +80,15 @@ def test_component_registry_exposes_current_schemas_and_examples() -> None:
 
     template_schema = component_schema_payload("houmao.graphic.template")
     assert template_schema["name"] == "houmao.graphic.template"
-    assert template_schema["schemaVersion"] == 2
+    assert template_schema["schemaVersion"] == 3
     assert template_schema["protocol"] == "houmao.application.ag-ui"
-    assert template_schema["example"]["schemaVersion"] == 2
-    assert template_schema["example"]["chartType"] == "bar"
+    assert template_schema["example"]["schemaVersion"] == 3
+    assert template_schema["example"]["figureType"] == "plotly2d"
     assert template_schema["example"]["renderer"]["preferred"] == "plotly"
+    assert "heatmap" in template_schema["traceCatalog"]["supportedTraceTypes"]
+    assert template_schema["traceCatalog"]["excludedTraceTypes"]["scatter3d"] == (
+        "true_3d_scene_trace"
+    )
     assert "schema" in template_schema
 
     vegalite_schema = component_schema_payload("houmao.graphic.vegalite")
@@ -147,18 +109,22 @@ def test_valid_examples_validate_offline() -> None:
         assert validated["schemaVersion"] == schema["schemaVersion"]
 
 
-@pytest.mark.parametrize("chart_type", ["bar", "line", "scatter", "pie", "histogram"])
-def test_template_graphic_validates_inline_plotly_payloads(chart_type: str) -> None:
+@pytest.mark.parametrize(
+    "trace_type",
+    PLOTLY_2D_TRACE_TYPES,
+)
+def test_template_graphic_validates_inline_plotly_payloads(trace_type: str) -> None:
     validated = validate_component_payload(
         "houmao.graphic.template",
-        _template_payload(chart_type),
+        _template_payload(trace_type),
     )
 
-    assert validated["schemaVersion"] == 2
-    assert validated["chartType"] == chart_type
+    assert validated["schemaVersion"] == 3
+    assert validated["figureType"] == "plotly2d"
     assert validated["renderer"]["preferred"] == "plotly"
+    assert validated["traces"][0]["type"] == trace_type
     assert "traces" in validated
-    assert "data" not in validated
+    assert "chartType" not in validated
     assert "encoding" not in validated
 
 
@@ -173,8 +139,8 @@ def test_template_graphic_defaults_missing_renderer_to_plotly() -> None:
 
 def test_template_graphic_accepts_datasource_binding_vocabulary() -> None:
     payload = {
-        "schemaVersion": 2,
-        "chartType": "bar",
+        "schemaVersion": 3,
+        "figureType": "plotly2d",
         "title": "Datasource Contract",
         "dataRefs": [
             {
@@ -187,40 +153,72 @@ def test_template_graphic_accepts_datasource_binding_vocabulary() -> None:
             }
         ],
         "traces": [
-            {
-                "type": "bar",
-                "name": "Builds",
-                "source": {
-                    "dataRef": "builds",
-                    "x": {"column": "status"},
-                    "y": {"column": "count"},
-                    "marker": {"color": {"column": "status"}},
-                },
-            }
-        ],
+                {
+                    "type": "bar",
+                    "name": "Builds",
+                    "source": {
+                        "dataRef": "builds",
+                        "bindings": {
+                            "data.x": {"column": "status"},
+                            "data.y": {"column": "count"},
+                        },
+                    },
+                }
+            ],
     }
 
     validated = validate_component_payload("houmao.graphic.template", payload)
 
     assert validated["dataRefs"][0]["id"] == "builds"
     assert validated["traces"][0]["source"]["dataRef"] == "builds"
-    assert validated["traces"][0]["source"]["marker"]["color"]["column"] == "status"
+    assert validated["traces"][0]["source"]["bindings"]["data.x"]["column"] == "status"
+
+
+def test_template_graphic_rejects_invalid_datasource_binding_path() -> None:
+    payload = {
+        "schemaVersion": 3,
+        "figureType": "plotly2d",
+        "title": "Datasource Contract",
+        "dataRefs": [
+            {
+                "id": "builds",
+                "columns": [{"name": "status", "type": "string"}],
+            }
+        ],
+        "traces": [
+            {
+                "type": "bar",
+                "source": {
+                    "dataRef": "builds",
+                    "bindings": {
+                        "data.notAPlotlyField": {"column": "status"},
+                    },
+                },
+            }
+        ],
+    }
+
+    with pytest.raises(HoumaoAgUiValidationError) as raised:
+        validate_component_payload("houmao.graphic.template", payload)
+
+    diagnostic = raised.value.to_payload()
+    assert diagnostic["fieldPaths"] == ["traces.0.source.bindings.data.notAPlotlyField"]
 
 
 def test_template_graphic_validates_safe_plotly_extra() -> None:
     payload = _template_payload("bar")
     payload["extra"] = {
-        "plotly": {
-            "layout": {"bargap": 0.24, "margin": {"l": 48, "r": 12, "t": 36, "b": 44}},
-            "config": {"responsive": True},
-            "line": {"shape": "spline"},
+            "plotly": {
+                "layout": {"bargap": 0.24, "margin": {"l": 48, "r": 12, "t": 36, "b": 44}},
+                "config": {"responsive": True},
+                "style": {"line": {"shape": "spline"}},
+            }
         }
-    }
 
     validated = validate_component_payload("houmao.graphic.template", payload)
 
     assert validated["extra"]["plotly"]["layout"]["bargap"] == 0.24
-    assert validated["extra"]["plotly"]["line"]["shape"] == "spline"
+    assert validated["extra"]["plotly"]["style"]["line"]["shape"] == "spline"
 
 
 def test_template_graphic_rejects_raw_plotly_replacement_in_extra() -> None:
@@ -269,17 +267,33 @@ def test_template_graphic_rejects_non_plotly_renderer_and_fallback() -> None:
     assert fallback_raised.value.to_payload()["fieldPaths"] == ["renderer.fallback"]
 
 
-@pytest.mark.parametrize("chart_type", ["heatmap", "area", "scatter3d"])
-def test_template_graphic_rejects_unsupported_chart_types(chart_type: str) -> None:
-    payload = _template_payload("bar")
-    payload["chartType"] = chart_type
+def test_template_graphic_rejects_schema_version_2_chart_type_payload() -> None:
+    payload = {
+        "schemaVersion": 2,
+        "chartType": "bar",
+        "title": "Old",
+        "traces": [{"type": "bar", "x": ["passed"], "y": [42]}],
+    }
 
     with pytest.raises(HoumaoAgUiValidationError) as raised:
         validate_component_payload("houmao.graphic.template", payload)
 
     diagnostic = raised.value.to_payload()
-    assert diagnostic["fieldPaths"] == ["chartType"]
-    assert "outside this Layer 1 Plotly template scope" in diagnostic["message"]
+    assert diagnostic["fieldPaths"] == ["schemaVersion"]
+    assert "schemaVersion 3" in diagnostic["message"]
+    assert "traces[].type" in diagnostic["repairHint"]
+
+
+def test_template_graphic_rejects_true_3d_trace_type() -> None:
+    payload = _template_payload("bar")
+    payload["traces"] = [{"type": "scatter3d", "data": {"x": [1], "y": [2]}}]
+
+    with pytest.raises(HoumaoAgUiValidationError) as raised:
+        validate_component_payload("houmao.graphic.template", payload)
+
+    diagnostic = raised.value.to_payload()
+    assert diagnostic["fieldPaths"] == ["traces.0.type"]
+    assert "true_3d_scene_trace" in diagnostic["message"]
 
 
 def test_template_graphic_rejects_legacy_row_encoding_payload() -> None:
@@ -299,7 +313,7 @@ def test_template_graphic_rejects_legacy_row_encoding_payload() -> None:
 
     diagnostic = raised.value.to_payload()
     assert diagnostic["fieldPaths"] == ["schemaVersion"]
-    assert "schema version 1" in diagnostic["repairHint"]
+    assert "schema version 3" in diagnostic["repairHint"]
     assert "passed" not in json.dumps(diagnostic)
 
 
@@ -322,13 +336,30 @@ def test_template_graphic_rejects_remote_urls_and_unsafe_text() -> None:
 
 
 def test_template_graphic_rejects_invalid_trace_shape() -> None:
-    payload = _template_payload("line")
-    payload["traces"] = [{"type": "bar", "x": ["a"], "y": [1]}]
+    payload = _template_payload("bar")
+    payload["traces"] = [{"type": "bar", "data": {"notAPlotlyField": [1]}}]
 
     with pytest.raises(HoumaoAgUiValidationError) as raised:
         validate_component_payload("houmao.graphic.template", payload)
 
-    assert "traces.0.type" in raised.value.to_payload()["fieldPaths"][0]
+    assert raised.value.to_payload()["fieldPaths"] == ["traces.0.data.notAPlotlyField"]
+
+
+def test_template_graphic_rejects_plotly_remote_source_fields() -> None:
+    payload = _template_payload("scatter")
+    payload["traces"] = [
+        {
+            "type": "scatter",
+            "data": {"x": [1], "y": [2]},
+            "style": {"textsrc": "column:secret"},
+        }
+    ]
+
+    with pytest.raises(HoumaoAgUiValidationError) as raised:
+        validate_component_payload("houmao.graphic.template", payload)
+
+    diagnostic = raised.value.to_payload()
+    assert diagnostic["fieldPaths"] == ["traces.0.style.textsrc"]
 
 
 def test_retired_fixed_chart_components_are_unsupported() -> None:
@@ -345,7 +376,7 @@ def test_retired_fixed_chart_components_are_unsupported() -> None:
 def test_template_graphic_renders_to_standard_tool_call_events() -> None:
     events = render_component_events(
         component="houmao.graphic.template",
-        payload=_template_payload("line"),
+        payload=_template_payload("scatter"),
         message_id="message-1",
         tool_call_id="tool-1",
     )
@@ -357,8 +388,9 @@ def test_template_graphic_renders_to_standard_tool_call_events() -> None:
     ]
     assert events[0]["toolCallName"] == "houmao.graphic.template"
     args = json.loads(str(events[1]["delta"]))
-    assert args["schemaVersion"] == 2
-    assert args["chartType"] == "line"
+    assert args["schemaVersion"] == 3
+    assert args["figureType"] == "plotly2d"
+    assert args["traces"][0]["type"] == "scatter"
     assert args["renderer"]["preferred"] == "plotly"
     assert "dataRefs" not in args
     assert validate_ag_ui_event_sequence(events) == events

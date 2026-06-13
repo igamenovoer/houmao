@@ -77,6 +77,12 @@ houmao-mgr internals ag-ui components schema houmao.graphic.template
 houmao-mgr internals ag-ui components schema houmao.graphic.vegalite
 ```
 
+List supported and excluded Plotly template trace types:
+
+```bash
+houmao-mgr internals ag-ui components traces
+```
+
 Use the schema output before crafting a new payload. Do not invent fields.
 
 ## Validate and Render
@@ -111,17 +117,17 @@ houmao-mgr internals ag-ui events render houmao.graphic.template --input payload
 
 Use `houmao.graphic.template` for ordinary charts. The legacy fixed chart components are retired; do not generate `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
-Layer 1 template graphics use schema version `2` and a Plotly-backed curated schema. Fill standardized fields such as `schemaVersion`, `chartType`, `title`, optional `subtitle`, `traces`, optional `layout`, optional `config`, optional `display`, optional `dataRefs`, and optional renderer-scoped `extra`. Supported chart types are exactly `bar`, `line`, `scatter`, `pie`, and `histogram`.
+Layer 1 template graphics use schema version `3`, `figureType: "plotly2d"`, and a Plotly-backed curated schema selected through `traces[].type`. Fill standardized fields such as `schemaVersion`, `figureType`, `title`, optional `subtitle`, `traces`, optional `layout`, optional `config`, optional `display`, optional `dataRefs`, and optional renderer-scoped `extra`. Supported trace types come from the template graphics schema and AG-UI capabilities; inspect those before authoring uncommon Plotly families. Prefer `houmao.graphic.template` for supported Plotly 2D charts such as heatmaps, box and violin plots, polar charts, financial charts, treemaps, tables, and Sankey diagrams.
 
 Do not ask the user to choose a Layer 1 renderer. Omit `renderer` or set `"renderer": { "preferred": "plotly" }`. `renderer.fallback` is retired and validation rejects non-Plotly renderer ids.
 
-Datasource bindings are reserved vocabulary until capabilities explicitly advertise materialization support. You may declare `dataRefs` and trace `source` bindings only when the target capability says the vocabulary is supported. In the current workbench, materialization is unsupported, so datasource-bound traces show a diagnostic instead of a chart. Prefer inline trace arrays when the user needs a visible chart now.
+Datasource bindings are reserved vocabulary until capabilities explicitly advertise materialization support. You may declare `dataRefs` and trace `source.bindings` entries only when the target capability says the vocabulary is supported. Binding keys are catalog field paths such as `data.x`, `data.y`, `data.open`, `data.high`, `data.low`, `data.close`, `data.node.label`, `data.link.value`, `data.header.values`, and `data.cells.values`. In the current workbench, materialization is unsupported, so datasource-bound traces show a diagnostic instead of a chart. Prefer inline `traces[].data` arrays when the user needs a visible chart now.
 
-Use `extra.plotly` only for small allowlisted presentation refinements such as curated `layout`, `config`, `marker`, `line`, and `display` fields. Do not put raw Plotly `data`, raw `traces`, full replacement `layout` or `config`, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, Vega-Lite, or Vega fields in Layer 1.
+Use `traces[].data` for Plotly-aligned data fields and `traces[].style` for Plotly-aligned style fields accepted by the catalog. Use `extra.plotly` only for small allowlisted presentation refinements such as curated `layout`, `config`, `style`, and `display` fields. Do not put raw Plotly `data`, raw `traces`, full replacement specs, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, credential-bearing map settings, Vega-Lite, or Vega fields in Layer 1. Do not use true 3D Plotly scene traces such as `scatter3d`, `surface`, or `mesh3d`.
 
 ## Layer 2 Vega-Lite Graphics
 
-Use `houmao.graphic.vegalite` only when the user needs Vega-Lite grammar or custom declarative structure that does not fit Layer 1 template graphics, such as layering, custom encodings, transforms, selections, or linked views. For ordinary bar, line, scatter, pie, or histogram charts with inline data, keep using `houmao.graphic.template`.
+Use `houmao.graphic.vegalite` only when the user needs Vega-Lite grammar or custom declarative structure that does not fit the Layer 1 Plotly 2D trace catalog, such as layering, custom encodings, transforms, selections, or linked views. For ordinary supported Plotly 2D charts with inline data, keep using `houmao.graphic.template`.
 
 Layer 2 payloads use schema version `1` and a strict Houmao envelope:
 
@@ -233,19 +239,24 @@ Template graphic payload:
 
 ```json
 {
-  "schemaVersion": 2,
-  "chartType": "bar",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "renderer": {
     "preferred": "plotly"
   },
   "title": "Build Results",
   "traces": [
     {
+      "type": "bar",
       "name": "Jobs",
-      "x": ["passed", "failed"],
-      "y": [42, 2],
-      "marker": { "color": ["#1f7a4d", "#c2410c"] },
-      "hovertemplate": "%{x}: %{y}<extra></extra>"
+      "data": {
+        "x": ["passed", "failed"],
+        "y": [42, 2]
+      },
+      "style": {
+        "marker": { "color": ["#1f7a4d", "#c2410c"] },
+        "hovertemplate": "%{x}: %{y}<extra></extra>"
+      }
     }
   ],
   "layout": {
@@ -265,8 +276,8 @@ Datasource-bound template graphic payload:
 
 ```json
 {
-  "schemaVersion": 2,
-  "chartType": "bar",
+  "schemaVersion": 3,
+  "figureType": "plotly2d",
   "title": "Build Results",
   "dataRefs": [
     {
@@ -282,8 +293,10 @@ Datasource-bound template graphic payload:
       "type": "bar",
       "source": {
         "dataRef": "buildRows",
-        "x": { "column": "status" },
-        "y": { "column": "count" }
+        "bindings": {
+          "data.x": { "column": "status" },
+          "data.y": { "column": "count" }
+        }
       }
     }
   ]
@@ -323,7 +336,7 @@ After publishing, report the response accurately. If `delivered_count > 0`, say 
 - Do not include private local file contents unless the user explicitly asks to display that exact content.
 - Do not use raw unsanitized HTML, scriptable SVG, JavaScript URLs, iframe content, or event-handler attributes.
 - Prefer typed fields such as labels, numeric values, rows, metrics, and dashboard children.
-- Prefer `houmao.graphic.template` for ordinary charts that can be described as a supported chart type with inline traces.
+- Prefer `houmao.graphic.template` for ordinary charts that can be described as a supported Plotly 2D trace type with inline traces.
 - If validation fails, fix the payload and rerun validation before rendering or publishing.
 
 ## Guardrails

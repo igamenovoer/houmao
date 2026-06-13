@@ -81,18 +81,18 @@ def _connect_payload(**overrides: object) -> dict[str, object]:
 
 
 def _template_chart_payload() -> dict[str, object]:
-    """Return one valid schema version 2 template chart payload."""
+    """Return one valid schema version 3 template chart payload."""
 
     return {
-        "schemaVersion": 2,
-        "chartType": "bar",
+        "schemaVersion": 3,
+        "figureType": "plotly2d",
         "title": "Revenue",
-        "traces": [{"type": "bar", "x": ["Q1"], "y": [12]}],
+        "traces": [{"type": "bar", "data": {"x": ["Q1"], "y": [12]}}],
     }
 
 
 def _template_chart_events() -> list[dict[str, object]]:
-    """Return one rendered schema version 2 template chart event sequence."""
+    """Return one rendered schema version 3 template chart event sequence."""
 
     return render_component_events(
         component="houmao.graphic.template",
