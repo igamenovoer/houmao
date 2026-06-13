@@ -41,6 +41,7 @@ import {
 } from "./debugAgent";
 import { PresentationSessionRegistry } from "./presentationSessions";
 import { handleTmuxAttachSocket, handleTmuxHttpRequest, TMUX_PREFIX } from "./tmuxBridge";
+import type { TmuxPtyAdapterFactory } from "./tmuxPtyAdapter";
 
 export type WorkbenchServerMode = "development" | "static" | "test";
 
@@ -52,6 +53,7 @@ export interface WorkbenchServerOptions {
   staticDir?: string;
   presentationSessions?: PresentationSessionRegistry;
   logger?: boolean;
+  tmuxPtyAdapterFactory?: TmuxPtyAdapterFactory;
 }
 
 export interface RunningWorkbenchServer {
@@ -97,7 +99,7 @@ export async function createWorkbenchFastifyApp(
   registerMountedRawRoutes(app, PROXY_PREFIX, handleProxyRequest);
   registerMountedRawRoutes(app, DEBUG_PREFIX, handleDebugRequest);
   registerMountedRawRoutes(app, TMUX_PREFIX, handleTmuxHttpRequest);
-  registerTmuxWebSocket(app);
+  registerTmuxWebSocket(app, options);
   registerPresentationSessionRoutes(app, presentationSessions);
 
   if (mode === "development") {
@@ -383,10 +385,12 @@ function registerMountedRawRoutes(
   app.all(`${prefix}/*`, handle);
 }
 
-function registerTmuxWebSocket(app: FastifyInstance): void {
+function registerTmuxWebSocket(app: FastifyInstance, options: WorkbenchServerOptions): void {
   const wss = new WebSocketServer({ noServer: true });
   wss.on("connection", (ws) => {
-    handleTmuxAttachSocket(ws);
+    handleTmuxAttachSocket(ws, {
+      ptyAdapterFactory: options.tmuxPtyAdapterFactory,
+    });
   });
   app.server.on("upgrade", (req, socket, head) => {
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");

@@ -1,8 +1,16 @@
 import { execFile } from "node:child_process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { promisify } from "node:util";
-import * as pty from "node-pty";
 import { WebSocket } from "ws";
+
+import {
+  createTmuxPtyAdapterFactory,
+  tmuxAttachEnvironment,
+  TmuxPtyBackendError,
+  type TmuxAttachMode,
+  type TmuxPtyAdapter,
+  type TmuxPtyAdapterFactory,
+} from "./tmuxPtyAdapter";
 
 const execFileAsync = promisify(execFile);
 export const TMUX_PREFIX = "/__houmao_tmux";
@@ -12,7 +20,7 @@ const PTY_NEWLINE_FIXTURE_SESSION = "pty-newline-fixture";
 const PTY_NEWLINE_STALE_MARKER = "STALE_EDGE_REGION";
 const PTY_NEWLINE_FIXTURE_OUTPUT = `\x1b[2J\x1b[Hfresh${PTY_NEWLINE_STALE_MARKER}\n\x1b[1A\x1b[1Kshort\r\npty-newline-fixture-complete\r\n`;
 
-type AttachMode = "read-write" | "read-only";
+type AttachMode = TmuxAttachMode;
 
 interface TmuxSessionRow {
   sessionName: string;
@@ -74,6 +82,10 @@ type ClientMessage =
   | ClientCloseMessage;
 
 type TmuxCommandRunner = (file: string, args: string[]) => Promise<unknown>;
+
+export interface TmuxAttachSocketOptions {
+  ptyAdapterFactory?: TmuxPtyAdapterFactory;
+}
 
 export async function handleTmuxHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -237,15 +249,17 @@ async function tmuxAvailability(): Promise<{ available: boolean; detail?: string
   }
 }
 
-export function handleTmuxAttachSocket(ws: WebSocket): void {
+export function handleTmuxAttachSocket(ws: WebSocket, options: TmuxAttachSocketOptions = {}): void {
   if (tmuxFixtureEnabled()) {
     handleFixtureTmuxAttachSocket(ws);
     return;
   }
+  const ptyAdapterFactory = options.ptyAdapterFactory ?? createTmuxPtyAdapterFactory();
   let attachedMode: AttachMode | null = null;
   let sessionName: string | null = null;
-  let terminal: pty.IPty | null = null;
+  let terminal: TmuxPtyAdapter | null = null;
   let cleanupDone = false;
+  let messageQueue = Promise.resolve();
 
   const cleanup = () => {
     if (cleanupDone) {
@@ -271,7 +285,23 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
   };
 
   ws.on("message", (data) => {
-    const message = parseClientMessage(data.toString());
+    messageQueue = messageQueue
+      .then(() => handleTmuxClientMessage(data.toString()))
+      .catch((error: unknown) => {
+        sendWs(ws, {
+          type: "error",
+          code: "tmux_internal_error",
+          detail: errorMessage(error) || "Tmux bridge failed while handling a client message.",
+        });
+        ws.close(1011, "tmux bridge internal error");
+      });
+  });
+
+  ws.on("close", cleanup);
+  ws.on("error", cleanup);
+
+  async function handleTmuxClientMessage(raw: string): Promise<void> {
+    const message = parseClientMessage(raw);
     if (!message.ok) {
       sendWs(ws, {
         type: "error",
@@ -299,13 +329,18 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
         return;
       }
       try {
-        terminal = spawnTmuxAttach(message.value);
+        const nextTerminal = await ptyAdapterFactory(message.value);
+        if (cleanupDone) {
+          nextTerminal.kill();
+          return;
+        }
+        terminal = nextTerminal;
         attachedMode = message.value.mode;
         sessionName = message.value.sessionName;
       } catch (error) {
         sendWs(ws, {
           type: "error",
-          code: "tmux_attach_failed",
+          code: tmuxAttachErrorCode(error),
           detail: errorMessage(error) || "Failed to attach tmux session.",
         });
         ws.close(1011, "tmux attach failed");
@@ -398,10 +433,14 @@ export function handleTmuxAttachSocket(ws: WebSocket): void {
     }
     cleanup();
     ws.close(1000, "client requested close");
-  });
+  }
+}
 
-  ws.on("close", cleanup);
-  ws.on("error", cleanup);
+function tmuxAttachErrorCode(error: unknown): string {
+  if (error instanceof TmuxPtyBackendError) {
+    return error.code;
+  }
+  return "tmux_attach_failed";
 }
 
 function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
@@ -540,27 +579,7 @@ function handleFixtureTmuxAttachSocket(ws: WebSocket): void {
   });
 }
 
-function spawnTmuxAttach(message: ClientAttachMessage): pty.IPty {
-  const args = ["attach-session"];
-  if (message.mode === "read-only") {
-    args.push("-r");
-  }
-  args.push("-t", message.sessionName);
-  return pty.spawn("tmux", args, {
-    name: "xterm-256color",
-    cols: safeDimension(message.cols, 80),
-    rows: safeDimension(message.rows, 24),
-    cwd: process.env.HOME,
-    env: tmuxAttachEnvironment(process.env),
-  });
-}
-
-export function tmuxAttachEnvironment(
-  source: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
-  const { TMUX: _tmux, TMUX_PANE: _tmuxPane, ...env } = source;
-  return { ...env, TERM: "xterm-256color" };
-}
+export { tmuxAttachEnvironment };
 
 export async function detachTmuxAttachClient(
   sessionName: string,

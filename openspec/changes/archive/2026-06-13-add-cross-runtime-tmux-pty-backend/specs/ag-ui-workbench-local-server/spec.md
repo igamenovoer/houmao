@@ -7,7 +7,7 @@ When the server runs under Node, the tmux bridge SHALL use the Node-compatible `
 
 When the server runs under Bun and Bun exposes first-party terminal support, the tmux bridge SHALL use Bun's native terminal backend instead of `node-pty`.
 
-The tmux bridge SHALL keep the existing private browser WebSocket protocol for attach, input, resize, close, output, attached, error, and exit messages.
+The tmux bridge SHALL keep the existing private browser WebSocket protocol for attach, input, resize, scroll, close, output, attached, error, and exit messages.
 
 The tmux bridge SHALL strip nested tmux environment variables and set a terminal type consistently for every real backend.
 
@@ -30,8 +30,9 @@ If no compatible PTY backend is available or backend selection fails, the tmux b
 - **AND THEN** the browser does not receive an `attached` message for that request
 
 #### Scenario: Runtime backend preserves tmux attachment controls
-- **WHEN** a browser tmux tab attached through any real runtime backend sends terminal input, resize, or close messages
+- **WHEN** a browser tmux tab attached through any real runtime backend sends terminal input, resize, scroll, or close messages
 - **THEN** the server forwards allowed input to the attached tmux process
 - **AND THEN** the server resizes the PTY for resize messages
+- **AND THEN** the server keeps scroll commands scoped to the WebSocket-bound tmux session instead of routing them through PTY input
 - **AND THEN** the server terminates only the attachment process for close messages
 - **AND THEN** the server does not stop, restart, shut down, or interrupt the underlying tmux session or Houmao managed agent

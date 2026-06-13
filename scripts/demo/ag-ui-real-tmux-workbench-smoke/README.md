@@ -1,8 +1,17 @@
 # AG-UI Real Tmux Workbench Smoke
 
-This opt-in smoke attaches the AG-UI workbench tmux tab to a real tmux session and records evidence for terminal repaint and resize debugging.
+This opt-in smoke attaches the AG-UI workbench tmux tab to a real tmux session and records evidence for terminal repaint and resize debugging. It can validate the Bun-native tmux PTY backend when the workbench server is started with `bun run dev:bun`.
 
-It expects an already-running workbench server and a real tmux session:
+It expects an already-running workbench server and a real tmux session. To validate the Bun backend:
+
+```bash
+tmux new-session -d -s houmao-debug-attach-probe 'printf "tmux probe ready\n"; exec bash'
+
+cd apps/ag-ui-workbench
+bun run dev:bun --host 127.0.0.1 --port 5177
+```
+
+Then run the smoke from the repository root in another shell:
 
 ```bash
 HMWB_WORKBENCH_URL=http://127.0.0.1:5177 \

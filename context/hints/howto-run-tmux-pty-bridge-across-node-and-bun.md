@@ -2,7 +2,7 @@
 
 ## Problem
 
-Use this hint when a browser terminal or tmux tab works under Node but immediately ends under Bun with a message such as `[tmux] attachment ended`. In `apps/ag-ui-workbench`, the failing path was the Fastify tmux bridge spawning `tmux attach-session` through `node-pty`. The same `tmux attach-session` stayed alive under Node, but under Bun 1.3.13 the `node-pty` child exited immediately with no useful terminal output.
+Use this hint when a browser terminal or tmux tab works under Node but immediately ends under Bun with a message such as `[tmux] attachment ended`. In `apps/ag-ui-workbench`, the failing path was the Fastify tmux bridge spawning `tmux attach-session` through `node-pty` while the server was running under Bun. The same `tmux attach-session` stayed alive under Node, but under Bun 1.3.13 the `node-pty` child exited immediately with no useful terminal output.
 
 This is a runtime PTY backend problem, not a tmux session problem, when these checks hold:
 
@@ -20,21 +20,27 @@ bun -e 'import pty from "node-pty"; const t=pty.spawn("bash",["-lc","echo ok; sl
 
 ## Short Answer
 
-Do not try to make `node-pty` the single PTY backend across Node and Bun. `node-pty` documents Node/Electron as its supported runtime, and upstream Bun and `node-pty` issues show Bun compatibility failures. Keep the workbench server on Node when using the current `node-pty` bridge, or branch behind a tiny internal PTY interface:
+Do not try to make `node-pty` the single PTY backend across Node and Bun. `node-pty` documents Node/Electron as its supported runtime, and upstream Bun and `node-pty` issues show Bun compatibility failures. Keep Node-backed workbench runs on `node-pty`, and branch Bun-backed runs behind the internal PTY adapter:
 
 - Node backend: use `node-pty`.
 - Bun 1.3.5 or newer backend: use Bun's first-party `Bun.Terminal` / `Bun.spawn(..., { terminal })`.
 - Fallback for older or unstable Bun: run a small Node PTY sidecar and connect to it from the Bun server over WebSocket or IPC.
 
-In this workspace, the immediate operational fix was to restart the workbench server under Node:
+In this workspace, the Node-backed development path is:
 
 ```bash
 cd apps/ag-ui-workbench
-./node_modules/.bin/esbuild src/server/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=src/server/.manual-workbench-server.mjs
-node src/server/.manual-workbench-server.mjs --dev --host 127.0.0.1 --port 5177
+bun run dev --host 127.0.0.1 --port 5177
 ```
 
-That fixes the current `node-pty` implementation. A durable cross-runtime fix should add a backend abstraction rather than relying on the generated manual wrapper.
+The Bun-native development path is:
+
+```bash
+cd apps/ag-ui-workbench
+bun run dev:bun --host 127.0.0.1 --port 5177
+```
+
+The current durable fix is the server-side tmux PTY adapter. It dynamically loads `node-pty` only for Node-backed runs and uses `Bun.Terminal` for Bun-backed runs.
 
 ## Steps
 
@@ -48,7 +54,7 @@ bun -e 'import pty from "node-pty"; const t=pty.spawn("bash",["-lc","echo hello;
 node -e 'const pty=require("node-pty"); const t=pty.spawn("bash",["-lc","echo hello; tty; sleep 2; echo done"],{name:"xterm-256color",cols:80,rows:24,cwd:process.env.HOME,env:{...process.env,TERM:"xterm-256color"}}); t.onData(d=>process.stdout.write(d)); t.onExit(e=>{console.log("EXIT", e); process.exit(0)});'
 ```
 
-2. If Bun exits immediately and Node prints terminal output, keep the current server on Node or implement runtime branching.
+2. If Bun exits immediately and Node prints terminal output, use `bun run dev` for the Node-backed path or `bun run dev:bun` after the runtime PTY adapter is available.
 
 3. Introduce one internal interface so the rest of the tmux bridge does not care which runtime owns the PTY:
 
@@ -93,12 +99,12 @@ const proc = Bun.spawn(["tmux", "attach-session", "-t", sessionName], {
   env: tmuxAttachEnvironment(process.env),
 });
 
-proc.exited.then((exitCode) => onExit({ exitCode }));
+proc.exited.then(() => onExit({ exitCode: proc.exitCode, signal: proc.signalCode }));
 ```
 
 6. Preserve the current tmux environment cleanup in both backends. Strip `TMUX` and `TMUX_PANE` from the child environment and set `TERM=xterm-256color`, otherwise nested tmux behavior can be surprising.
 
-7. Keep the browser and xterm.js code unchanged. The browser side only needs output bytes, input bytes, resize, and close events.
+7. Keep the browser and xterm.js code unchanged. The browser side only needs output bytes, input bytes, resize, scroll, and close events.
 
 ## Examples
 
@@ -117,7 +123,31 @@ function spawnTmuxPty(message: ClientAttachMessage): WorkbenchPty {
 }
 ```
 
-Do not import `node-pty` at module top level in code that may run under Bun. Load the Node backend dynamically inside the Node branch, or split backends into separate files and import only the selected backend.
+Do not import `node-pty` at module top level in code that may run under Bun. Load the Node backend dynamically inside the Node branch, or split backends into separate files and import only the selected backend. For Bun, use subprocess exit state (`proc.exited`, `proc.exitCode`, and `proc.signalCode`) as the attach-process exit source. `Bun.Terminal` `exit` callbacks describe PTY stream lifecycle rather than subprocess exit status.
+
+## Validation
+
+Use fixture tests for deterministic coverage:
+
+```bash
+cd apps/ag-ui-workbench
+bun run typecheck
+bunx playwright test tests/server.spec.ts --config=playwright.config.ts
+bunx playwright test tests/workbench.spec.ts -g "tmux" --config=playwright.config.ts
+```
+
+Use the existing real tmux smoke for the Bun backend when Bun 1.3.5+ and tmux are available:
+
+```bash
+tmux new-session -d -s houmao-debug-attach-probe 'printf "tmux probe ready\n"; exec bash'
+cd apps/ag-ui-workbench
+bun run dev:bun --host 127.0.0.1 --port 5177
+
+# In another shell from the repository root:
+HMWB_WORKBENCH_URL=http://127.0.0.1:5177 \
+HMWB_TMUX_SESSION=houmao-debug-attach-probe \
+scripts/demo/ag-ui-real-tmux-workbench-smoke/run_smoke.sh
+```
 
 ## Local Findings
 
