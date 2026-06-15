@@ -10,6 +10,8 @@ import houmao.agents.system_skills as system_skills_module
 from houmao.agents.system_skills import (
     SYSTEM_SKILL_SET_ALL,
     SYSTEM_SKILL_SET_CORE,
+    SYSTEM_SKILL_SET_EXTENSIONS,
+    SYSTEM_SKILL_EXT_GRAPHING,
     SYSTEM_SKILL_INTEROP_AG_UI,
     SYSTEM_SKILL_OPERATOR_MESSAGING,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
@@ -42,7 +44,11 @@ RETIRED_LOOP_SKILLS = (
     "houmao-agent-loop-pairwise-v5",
     "houmao-agent-loop-generic",
 )
-RETIRED_SYSTEM_SKILLS = RETIRED_LOOP_SKILLS + (RETIRED_AGENT_AG_UI_SKILL,)
+RETIRED_GRAPHING_SKILL = "houmao-utils-graphing"
+RETIRED_SYSTEM_SKILLS = RETIRED_LOOP_SKILLS + (
+    RETIRED_AGENT_AG_UI_SKILL,
+    RETIRED_GRAPHING_SKILL,
+)
 
 CORE_SYSTEM_SKILLS = (
     "houmao-process-emails-via-gateway",
@@ -65,7 +71,8 @@ CORE_SYSTEM_SKILLS = (
     "houmao-agent-gateway",
     SYSTEM_SKILL_INTEROP_AG_UI,
 )
-ALL_SYSTEM_SKILLS = CORE_SYSTEM_SKILLS
+EXTENSION_SYSTEM_SKILLS = (SYSTEM_SKILL_EXT_GRAPHING,)
+ALL_SYSTEM_SKILLS = CORE_SYSTEM_SKILLS + EXTENSION_SYSTEM_SKILLS
 
 
 def _write(path: Path, content: str) -> None:
@@ -103,6 +110,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
         "houmao-utils-workspace-mgr",
+        SYSTEM_SKILL_EXT_GRAPHING,
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -132,7 +140,8 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert "Manual operator messaging skill" in (
         catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
     )
-    assert "AG-UI implementation authoring" in (
+    assert "graphing payloads" in (catalog.skills[SYSTEM_SKILL_EXT_GRAPHING].description or "")
+    assert "AG-UI protocol event validation" in (
         catalog.skills[SYSTEM_SKILL_INTEROP_AG_UI].description or ""
     )
     assert catalog.retired_skill_names == RETIRED_SYSTEM_SKILLS
@@ -143,12 +152,20 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     )
     assert tuple(catalog.sets.keys()) == (
         SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
         SYSTEM_SKILL_SET_ALL,
     )
     assert catalog.sets[SYSTEM_SKILL_SET_CORE].skill_names == CORE_SYSTEM_SKILLS
+    assert catalog.sets[SYSTEM_SKILL_SET_EXTENSIONS].skill_names == EXTENSION_SYSTEM_SKILLS
     assert catalog.sets[SYSTEM_SKILL_SET_ALL].skill_names == ALL_SYSTEM_SKILLS
-    assert catalog.auto_install.managed_launch_sets == (SYSTEM_SKILL_SET_CORE,)
-    assert catalog.auto_install.managed_join_sets == (SYSTEM_SKILL_SET_CORE,)
+    assert catalog.auto_install.managed_launch_sets == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
+    assert catalog.auto_install.managed_join_sets == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
@@ -169,6 +186,27 @@ def test_interop_ag_ui_packaged_asset_contract() -> None:
     assert "This command intentionally has no `--endpoint` option" in skill_text
     assert "Do not include credentials, tokens, cookies" in skill_text
     assert "Do not use raw unsanitized HTML" in skill_text
+    assert SYSTEM_SKILL_EXT_GRAPHING not in skill_text
+    assert RETIRED_GRAPHING_SKILL not in skill_text
+
+
+def test_houmao_ext_graphing_packaged_asset_contract() -> None:
+    skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_EXT_GRAPHING)
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    openai_metadata = (skill_root / "agents/openai.yaml").read_text(encoding="utf-8")
+
+    assert "name: houmao-ext-graphing" in skill_text
+    assert "templated-graphics" in skill_text
+    assert "freeform-graphics" in skill_text
+    assert "houmao-mgr ag-ui impl templated-graphics list" in skill_text
+    assert "houmao-mgr ag-ui impl freeform-graphics list" in skill_text
+    assert "houmao-mgr ag-ui impl catalog houmao.graphic.template traces" in skill_text
+    assert "houmao.graphic.template" in skill_text
+    assert "houmao.graphic.vegalite" in skill_text
+    assert "Use `houmao-interop-ag-ui` after rendering" in skill_text
+    assert "Do not publish raw graphing payloads directly to the gateway." in skill_text
+    assert RETIRED_GRAPHING_SKILL not in skill_text
+    assert "Plotly.js and Vega-Lite" in openai_metadata
 
 
 def test_agent_loop_pro_prepare_agents_routes_agent_definition() -> None:
@@ -588,7 +626,7 @@ def test_resolve_system_skill_selection_dedupes_sets_and_explicit_skills() -> No
     )
 
     assert resolved == CORE_SYSTEM_SKILLS
-    assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == resolved
+    assert resolve_auto_install_skill_selection(catalog, kind="managed_launch") == ALL_SYSTEM_SKILLS
 
 
 def test_resolve_system_skill_selection_all_tracks_current_catalog() -> None:
@@ -602,6 +640,14 @@ def test_resolve_system_skill_selection_all_tracks_current_catalog() -> None:
     assert resolved == ALL_SYSTEM_SKILLS
     assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_launch_sets
     assert SYSTEM_SKILL_SET_ALL not in catalog.auto_install.managed_join_sets
+    assert catalog.auto_install.managed_launch_sets == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
+    assert catalog.auto_install.managed_join_sets == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
     assert "houmao-utils-llm-wiki" not in resolved
 
@@ -753,13 +799,22 @@ def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes
         profile_policy=SystemSkillSelectionPolicy(mode="none"),
     )
 
-    assert default_selection.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert default_selection.selected_set_names == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
     assert default_selection.explicit_skill_names == ()
-    assert default_selection.resolved_skill_names == CORE_SYSTEM_SKILLS
-    assert source_additive.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert default_selection.resolved_skill_names == ALL_SYSTEM_SKILLS
+    assert source_additive.selected_set_names == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
     assert source_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
     assert source_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
-    assert profile_additive.selected_set_names == (SYSTEM_SKILL_SET_CORE,)
+    assert profile_additive.selected_set_names == (
+        SYSTEM_SKILL_SET_CORE,
+        SYSTEM_SKILL_SET_EXTENSIONS,
+    )
     assert profile_additive.explicit_skill_names == (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,)
     assert profile_additive.resolved_skill_names == ALL_SYSTEM_SKILLS
     assert profile_replace.selected_set_names == (SYSTEM_SKILL_SET_ALL,)
@@ -770,7 +825,7 @@ def test_resolve_managed_system_skill_selection_applies_source_and_profile_modes
     assert profile_disabled.resolved_skill_names == ()
 
 
-def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> None:
+def test_packaged_core_set_is_closed_over_non_extension_skill_routing() -> None:
     catalog = load_system_skill_catalog()
     skill_name_pattern = re.compile(
         r"(?<![A-Za-z0-9_])("
@@ -780,6 +835,8 @@ def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> N
     asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
 
     for set_name, set_record in catalog.sets.items():
+        if set_name == SYSTEM_SKILL_SET_EXTENSIONS:
+            continue
         installed = set(set_record.skill_names)
         for skill_name in set_record.skill_names:
             skill_root = asset_root / catalog.skills[skill_name].asset_subpath
@@ -792,6 +849,23 @@ def test_packaged_installable_sets_are_closed_over_internal_skill_routing() -> N
                     f"{markdown_path.relative_to(skill_root)} references missing skills "
                     f"{sorted(missing)}"
                 )
+
+
+def test_non_extension_skills_do_not_route_to_graphing_extension() -> None:
+    catalog = load_system_skill_catalog()
+    asset_root = Path(__file__).resolve().parents[3] / "src/houmao/agents/assets/system_skills"
+    extension_skills = set(catalog.sets[SYSTEM_SKILL_SET_EXTENSIONS].skill_names)
+
+    for skill_name, skill_record in catalog.skills.items():
+        if skill_name in extension_skills:
+            continue
+        skill_root = asset_root / skill_record.asset_subpath
+        for markdown_path in skill_root.rglob("*.md"):
+            text = markdown_path.read_text(encoding="utf-8")
+            assert SYSTEM_SKILL_EXT_GRAPHING not in text, (
+                f"non-extension skill `{skill_name}` references graphing extension in "
+                f"{markdown_path.relative_to(skill_root)}"
+            )
 
 
 def test_current_packaged_system_skills_expose_help_contract() -> None:
@@ -849,6 +923,7 @@ def test_current_packaged_system_skills_route_explicit_help_before_workflows() -
         "houmao-agent-loop-pro": "- `help`: explain this skill's purpose",
         "houmao-agent-loop-lite": "- `help`: explain this skill's purpose",
         SYSTEM_SKILL_UTILS_WORKSPACE_MGR: "- `help`: explain this skill's purpose",
+        SYSTEM_SKILL_EXT_GRAPHING: "- `help`: explain this skill's purpose",
     }
     for skill_name, marker in operation_markers.items():
         skill_text = (_packaged_skill_asset_root(skill_name) / "SKILL.md").read_text(
@@ -1034,9 +1109,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     user_skill_path = home_path / "skills/custom-user-skill/SKILL.md"
     retired_skill_path = home_path / "skills/houmao-agent-loop-pairwise-v3/SKILL.md"
     retired_agent_ag_ui_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
+    retired_graphing_path = home_path / f"skills/{RETIRED_GRAPHING_SKILL}/SKILL.md"
     _write(user_skill_path, "custom user skill\n")
     _write(retired_skill_path, "retired loop skill\n")
     _write(retired_agent_ag_ui_path, "retired AG-UI skill\n")
+    _write(retired_graphing_path, "retired graphing skill\n")
 
     result = install_system_skills_for_home(
         tool="codex",
@@ -1073,10 +1150,12 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert result.removed_retired_skill_names == (
         "houmao-agent-loop-pairwise-v3",
         RETIRED_AGENT_AG_UI_SKILL,
+        RETIRED_GRAPHING_SKILL,
     )
     assert result.removed_retired_projected_relative_dirs == (
         "skills/houmao-agent-loop-pairwise-v3",
         f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
+        f"skills/{RETIRED_GRAPHING_SKILL}",
     )
     assert set(record.name for record in installed_records) == set(result.resolved_skill_names)
     assert tuple(record.projection_mode for record in installed_records) == ("copy",) * len(
@@ -1086,6 +1165,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert user_skill_path.is_file()
     assert not retired_skill_path.exists()
     assert not retired_agent_ag_ui_path.exists()
+    assert not retired_graphing_path.exists()
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
     assert project_mgr_path.is_file()
@@ -1132,6 +1212,15 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     loop_lite_skill = loop_lite_skill_path.read_text(encoding="utf-8")
     loop_pro_init = (loop_pro_authoring / "init.md").read_text(encoding="utf-8")
     loop_pro_clarify_intent = (loop_pro_authoring / "clarify-intent.md").read_text(encoding="utf-8")
+    loop_pro_clarify_execplan = (loop_pro_authoring / "clarify-execplan.md").read_text(
+        encoding="utf-8"
+    )
+    loop_lite_clarify_intent = (loop_lite_authoring / "clarify-intent.md").read_text(
+        encoding="utf-8"
+    )
+    loop_lite_clarify_execplan = (loop_lite_authoring / "clarify-execplan.md").read_text(
+        encoding="utf-8"
+    )
     loop_pro_generate_execplan = (
         (loop_pro_authoring / "execplan-fast-forward.md").read_text(encoding="utf-8")
         + "\n"
@@ -1522,7 +1611,35 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "If `<loop-dir>` is missing, ask with `Required: <loop-dir>`" in loop_pro_init
     assert "<loop-dir>/intention/README.md" in loop_pro_init
     assert "<loop-dir>/intention/project-context.md" in loop_pro_init
-    assert "Show the provisional high-level Mermaid agent architecture" in (loop_pro_clarify_intent)
+    assert "Show the provisional high-level Mermaid agent architecture" not in (
+        loop_pro_clarify_intent
+    )
+    assert "Use fenced `mermaid` code blocks." not in loop_pro_clarify_intent
+    assert "Show the provisional high-level ASCII/text agent architecture" in (
+        loop_pro_clarify_intent
+    )
+    assert "Do not use fenced `mermaid` code blocks for chat visual summaries" in (
+        loop_pro_clarify_intent
+    )
+    assert "generated execplan artifact requirements" in loop_pro_clarify_intent
+    assert "Do not paste generated Mermaid diagrams as fenced `mermaid` blocks" in (
+        loop_pro_clarify_execplan
+    )
+    assert "This chat-output rule does not change generated execplan artifact requirements" in (
+        loop_pro_clarify_execplan
+    )
+    assert "When showing participants, routes, phases, unknowns, coverage, or loop shape" in (
+        loop_lite_clarify_intent
+    )
+    assert "When showing generated Markdown, template, SQLite state" in (
+        loop_lite_clarify_execplan
+    )
+    assert "This chat-output rule does not change generated lite execplan artifact behavior" in (
+        loop_lite_clarify_intent
+    )
+    assert "This chat-output rule does not change generated lite execplan artifact behavior" in (
+        loop_lite_clarify_execplan
+    )
     assert "Ask at most five accepted questions per session, exactly one at a time" in (
         loop_pro_clarify_intent
     )
@@ -1818,6 +1935,7 @@ def test_install_system_skills_for_home_cli_default_includes_agent_instance_mess
         home_path / "skills/houmao-agent-loop-lite/assets/scaffolds/execplan/manifest.md.tmpl"
     ).is_file()
     assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
+    assert (home_path / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
 
     loop_pro_skill = (home_path / "skills/houmao-agent-loop-pro/SKILL.md").read_text(
         encoding="utf-8"

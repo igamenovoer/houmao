@@ -12,12 +12,15 @@ from houmao.srv_ctrl.commands.main import cli
 from houmao.version import get_version
 
 _CORE_SET_NAMES = ["core"]
+_EXTENSION_SET_NAMES = ["extensions"]
+_MANAGED_DEFAULT_SET_NAMES = _CORE_SET_NAMES + _EXTENSION_SET_NAMES
 _DEFAULT_SET_NAMES = ["all"]
 _CATALOG_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-adv-usage-pattern",
     "houmao-utils-workspace-mgr",
+    "houmao-ext-graphing",
     "houmao-touring",
     "houmao-mailbox-mgr",
     "houmao-memory-mgr",
@@ -42,6 +45,7 @@ _RETIRED_SYSTEM_SKILLS = [
     "houmao-agent-loop-pairwise-v5",
     "houmao-agent-loop-generic",
     "houmao-agent-ag-ui",
+    "houmao-utils-graphing",
 ]
 
 
@@ -54,7 +58,7 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-_DEFAULT_RESOLVED_SKILLS = [
+_CORE_RESOLVED_SKILLS = [
     "houmao-process-emails-via-gateway",
     "houmao-agent-email-comms",
     "houmao-utils-workspace-mgr",
@@ -74,6 +78,10 @@ _DEFAULT_RESOLVED_SKILLS = [
     "houmao-agent-messaging",
     "houmao-agent-gateway",
     "houmao-interop-ag-ui",
+]
+_DEFAULT_RESOLVED_SKILLS = [
+    *_CORE_RESOLVED_SKILLS,
+    "houmao-ext-graphing",
 ]
 _DEFAULT_INSTALLED_CATALOG_ORDER = [
     skill_name for skill_name in _CATALOG_SKILLS if skill_name in _DEFAULT_RESOLVED_SKILLS
@@ -163,10 +171,10 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert [record["name"] for record in payload["skills"]] == _CATALOG_SKILLS
-    assert [record["name"] for record in payload["sets"]] == ["core", "all"]
+    assert [record["name"] for record in payload["sets"]] == ["core", "extensions", "all"]
     assert payload["auto_install"]["cli_default_sets"] == _DEFAULT_SET_NAMES
-    assert payload["auto_install"]["managed_launch_sets"] == _CORE_SET_NAMES
-    assert payload["auto_install"]["managed_join_sets"] == _CORE_SET_NAMES
+    assert payload["auto_install"]["managed_launch_sets"] == _MANAGED_DEFAULT_SET_NAMES
+    assert payload["auto_install"]["managed_join_sets"] == _MANAGED_DEFAULT_SET_NAMES
     assert payload["retired_skill_names"] == _RETIRED_SYSTEM_SKILLS
     skill_descriptions = {record["name"]: record["description"] for record in payload["skills"]}
     assert (
@@ -174,9 +182,12 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         in skill_descriptions["houmao-agent-definition"]
     )
     assert "Compatibility wrapper" in skill_descriptions["houmao-specialist-mgr"]
-    assert "AG-UI implementation authoring" in skill_descriptions["houmao-interop-ag-ui"]
+    assert "graphing payloads" in skill_descriptions["houmao-ext-graphing"]
+    assert "AG-UI protocol event validation" in skill_descriptions["houmao-interop-ag-ui"]
     core_record = next(record for record in payload["sets"] if record["name"] == "core")
-    assert core_record["skills"] == _DEFAULT_RESOLVED_SKILLS
+    assert core_record["skills"] == _CORE_RESOLVED_SKILLS
+    extensions_record = next(record for record in payload["sets"] if record["name"] == "extensions")
+    assert extensions_record["skills"] == ["houmao-ext-graphing"]
     all_record = next(record for record in payload["sets"] if record["name"] == "all")
     assert all_record["skills"] == _DEFAULT_RESOLVED_SKILLS
 
@@ -187,8 +198,10 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     home_path = (tmp_path / "codex-home").resolve()
     stale_retired_skill = home_path / "skills/houmao-agent-loop-pairwise-v4/SKILL.md"
     stale_retired_ag_ui_skill = home_path / "skills/houmao-agent-ag-ui/SKILL.md"
+    stale_retired_graphing_skill = home_path / "skills/houmao-utils-graphing/SKILL.md"
     _write(stale_retired_skill, "stale retired loop skill\n")
     _write(stale_retired_ag_ui_skill, "stale retired AG-UI skill\n")
+    _write(stale_retired_graphing_skill, "stale retired graphing skill\n")
 
     install_result = CliRunner().invoke(
         cli,
@@ -212,10 +225,12 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert install_payload["removed_retired_skills"] == [
         "houmao-agent-loop-pairwise-v4",
         "houmao-agent-ag-ui",
+        "houmao-utils-graphing",
     ]
     assert install_payload["removed_retired_projected_relative_dirs"] == [
         "skills/houmao-agent-loop-pairwise-v4",
         "skills/houmao-agent-ag-ui",
+        "skills/houmao-utils-graphing",
     ]
     assert (home_path / "skills/houmao-process-emails-via-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
@@ -238,6 +253,7 @@ def test_system_skills_install_uses_cli_default_selection_when_selection_is_omit
     assert (home_path / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert (home_path / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
     assert (home_path / "skills/houmao-utils-workspace-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-ext-graphing/SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,
@@ -292,7 +308,9 @@ def test_system_skills_install_status_and_uninstall_support_all_set(tmp_path: Pa
     assert install_payload["selected_sets"] == _DEFAULT_SET_NAMES
     assert install_payload["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
     workspace_skill_dir = home_path / "skills/houmao-utils-workspace-mgr"
+    graphing_skill_dir = home_path / "skills/houmao-ext-graphing"
     assert (workspace_skill_dir / "SKILL.md").is_file()
+    assert (graphing_skill_dir / "SKILL.md").is_file()
 
     status_result = CliRunner().invoke(
         cli,
@@ -336,11 +354,40 @@ def test_system_skills_install_status_and_uninstall_support_all_set(tmp_path: Pa
     assert uninstall_result.exit_code == 0, uninstall_result.output
     uninstall_payload = json.loads(uninstall_result.output)
     assert "houmao-utils-workspace-mgr" in uninstall_payload["removed_skills"]
+    assert "houmao-ext-graphing" in uninstall_payload["removed_skills"]
     assert uninstall_payload["removed_retired_skills"] == []
     assert (
         "skills/houmao-utils-workspace-mgr" in uninstall_payload["removed_projected_relative_dirs"]
     )
+    assert "skills/houmao-ext-graphing" in uninstall_payload["removed_projected_relative_dirs"]
     assert not workspace_skill_dir.exists()
+    assert not graphing_skill_dir.exists()
+
+
+def test_system_skills_install_supports_extensions_set(tmp_path: Path) -> None:
+    home_path = (tmp_path / "codex-home").resolve()
+
+    install_result = CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "system-skills",
+            "install",
+            "--tool",
+            "codex",
+            "--home",
+            str(home_path),
+            "--skill-set",
+            "extensions",
+        ],
+    )
+
+    assert install_result.exit_code == 0, install_result.output
+    install_payload = json.loads(install_result.output)
+    assert install_payload["selected_sets"] == _EXTENSION_SET_NAMES
+    assert install_payload["resolved_skills"] == ["houmao-ext-graphing"]
+    assert (home_path / "skills/houmao-ext-graphing/SKILL.md").is_file()
+    assert not (home_path / "skills/houmao-interop-ag-ui").exists()
 
 
 def test_system_skills_install_uses_explicit_home_over_env_redirect(tmp_path: Path) -> None:
@@ -726,6 +773,7 @@ def test_system_skills_install_uses_project_scoped_codex_default_home(
     assert (expected_home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-memory-mgr/SKILL.md").is_file()
+    assert (expected_home / "skills/houmao-ext-graphing/SKILL.md").is_file()
 
 
 def test_system_skills_install_uses_project_root_for_gemini_default_home(
@@ -975,12 +1023,17 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
         assert record["selected_sets"] == ["core"]
         assert record["explicit_skills"] == []
         assert record["projection_mode"] == "copy"
-        assert record["resolved_skills"] == _DEFAULT_RESOLVED_SKILLS
+        assert record["resolved_skills"] == _CORE_RESOLVED_SKILLS
     assert (workspace / ".claude/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".github/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".gemini/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md").is_file()
+    assert not (workspace / ".claude/skills/houmao-ext-graphing").exists()
+    assert not (workspace / ".codex/skills/houmao-ext-graphing").exists()
+    assert not (workspace / ".github/skills/houmao-ext-graphing").exists()
+    assert not (workspace / ".gemini/skills/houmao-ext-graphing").exists()
+    assert not (workspace / ".kimi-code/skills/houmao-ext-graphing").exists()
 
 
 def test_system_skills_install_plain_reports_multi_tool_projection_roots(

@@ -24,6 +24,7 @@ from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_EXT_GRAPHING,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     SystemSkillCatalogError,
     SystemSkillSelectionPolicy,
@@ -357,6 +358,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
     assert (home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
+    assert (home / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     installed_records = discover_installed_system_skills(tool="codex", home_path=home)
@@ -365,6 +367,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
         "houmao-utils-workspace-mgr",
+        "houmao-ext-graphing",
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -1159,6 +1162,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     assert (result.home_path / ".gemini/skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert (result.home_path / f".gemini/skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
@@ -1291,6 +1295,7 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
 
     assert (result.home_path / "skills/skill-a").is_symlink()
     assert (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
+    assert (result.home_path / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
     config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
     assert config_payload["default_model"] == "kimi-code/default"
     assert config_payload["extra_skill_dirs"] == [str((result.home_path / "skills").resolve())]

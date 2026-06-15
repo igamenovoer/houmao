@@ -27,6 +27,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-agent-email-comms` for ordinary shared-mailbox operations and the no-gateway fallback path
 - `houmao-adv-usage-pattern` for supported multi-skill mailbox and gateway workflow compositions such as self-wakeup through self-mail plus notifier-driven rounds
 - `houmao-utils-workspace-mgr` for explicit multi-agent workspace planning, creation, validation, and summary utilities: dry-run plans, untracked task-scoped in-repo workspace collections, out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, tracked submodule materialization, launch-profile cwd updates, project-command readiness checks, and optional memo-seed workspace rules
+- `houmao-ext-graphing` for extension-owned built-in Plotly.js `templated-graphics` and Vega-Lite `freeform-graphics` authoring, schema discovery, payload validation, implementation rendering, and graphing-specific repair
 - `houmao-touring` for a manual guided tour that helps first-time or re-orienting users move through beginner agent creation, intermediate live operation, and advanced loop/workspace coordination when relevant
 - `houmao-mailbox-mgr` for mailbox-root lifecycle, mailbox account lifecycle, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents
 - `houmao-memory-mgr` for supported managed-agent memory edits to the fixed `houmao-memo.md` file and contained `pages/` files across relaunch, reset, and `recover_and_continue` flows
@@ -39,6 +40,7 @@ The current implementation is still intentionally narrow. It covers the packaged
 - `houmao-operator-messaging` for manual operator intent clarification and dispatch to one or more managed agents by prompt by default, or by mailbox when requested
 - `houmao-agent-messaging` for communication and control of already-running managed agents across prompt, gateway, raw-input, mailbox routing, and reset-context workflows
 - `houmao-agent-gateway` for live gateway lifecycle, manifest-first discovery, gateway-only control, ranked reminders, and gateway mail-notifier behavior
+- `houmao-interop-ag-ui` for AG-UI protocol event validation and framing, generic Houmao implementation rendering, gateway publishing, GUI delivery interpretation, and UI payload safety
 - `houmao-agent-loop-lite` for lightweight Markdown/direct-SQL generated loop authoring and execution with typed Markdown templates and generated skills
 - `houmao-agent-loop-pro` for schema-rich generated loop authoring and execution across `tree-loop` and `generic-loop` topology modes
 
@@ -104,12 +106,13 @@ The catalog is loaded by `src/houmao/agents/system_skills.py`, normalized, valid
 Current sets:
 
 - `core`
+- `extensions`
 - `all`
 
 Current fixed auto-install selections:
 
-- managed launch: `core`
-- managed join: `core`
+- managed launch: `core`, `extensions`
+- managed join: `core`, `extensions`
 - CLI default: `all`
 
 Managed launch can override the managed-launch default per source/profile. Source recipes and specialists support `default`, `extend`, `replace`, and `none`; launch profiles support `inherit`, `extend`, `replace`, and `none`. The shared managed-home sync removes unselected current Houmao-owned skill paths from reused managed homes and leaves unrelated user skills alone.
@@ -122,6 +125,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-agent-email-comms`
 - `houmao-adv-usage-pattern`
 - `houmao-utils-workspace-mgr`
+- `houmao-ext-graphing`
 - `houmao-touring`
 - `houmao-mailbox-mgr`
 - `houmao-memory-mgr`
@@ -136,6 +140,7 @@ The current packaged Houmao-owned skills are:
 - `houmao-operator-messaging`
 - `houmao-agent-messaging`
 - `houmao-agent-gateway`
+- `houmao-interop-ag-ui`
 
 These skill trees live directly under:
 
@@ -174,7 +179,7 @@ For each selected current Houmao-owned skill, reinstall computes the exact curre
 Replacement policy:
 
 - selected current Houmao-owned skill paths are explicit overwrite targets
-- exact known retired loop skill projection paths are removed from the selected target home during install/reinstall
+- exact known retired skill projection paths, including old loop names and `houmao-utils-graphing`, are removed from the selected target home during install/reinstall
 - copied projection materializes the packaged skill tree into the selected destination
 - symlink projection replaces the selected destination with a directory symlink to the packaged asset root
 - unselected skill directories, parent skill roots, legacy family-namespaced paths, unrelated tool-home content, and stale install-state files are not removed
@@ -187,7 +192,7 @@ Replacement policy:
 Removal policy:
 
 - every current catalog-known Houmao-owned skill path is an explicit removal target
-- every known retired loop skill projection path is also an explicit removal target
+- every known retired skill projection path, including old loop names and `houmao-utils-graphing`, is also an explicit removal target
 - copied directories, symlinks, and files at those exact current paths are removed
 - missing current skill paths are reported as absent rather than errors
 - missing retired projection paths are reported separately from current absent skills
@@ -242,6 +247,7 @@ pixi run houmao-mgr system-skills install --tool codex
 pixi run houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
+pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set extensions
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set all
 pixi run houmao-mgr system-skills install --tool copilot
 pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot
@@ -251,13 +257,16 @@ pixi run houmao-mgr system-skills install --tool kimi
 pixi run houmao-mgr system-skills install --tool kimi --skill-set core
 pixi run houmao-mgr system-skills install --tool kimi --home ~/.kimi-code
 pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
+pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
 ```
 
 Selection rules:
 
 - omitting both `--skill-set` and `--skill` expands the catalog's CLI-default set list
-- the CLI-default set list is `all`; use `--skill-set core` when you want the managed-launch selection
+- the CLI-default set list is `all`; managed launch and join resolve `core` plus `extensions`
+- use `--skill-set core` when you want the non-extension baseline without extension skills
+- use `--skill-set extensions` when you want only default-installed extension skills such as `houmao-ext-graphing`
 - repeatable `--skill-set` expands named sets in the order given
 - repeatable `--skill` appends explicit skill names after the expanded sets, and can also be used alone for a small named subset
 - `--symlink` switches the install from copied projection to directory symlink projection
@@ -348,15 +357,16 @@ Managed homes and joined homes use the same installer and catalog:
 
 Those managed flows continue to use copied projection in this change even though explicit `system-skills install` now supports `--symlink`.
 
-This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in the closed `core` and `all` sets. The smaller `core` set is deliberately closed over the current internal skill-routing graph, so skills installed through `core` do not direct agents to another Houmao system skill that was left out. The `all` set adds utility skills to that same closed core surface.
+This removes the old mailbox-only special path and family-specific Codex subtrees while keeping logical grouping in the `core`, `extensions`, and `all` sets. The smaller `core` set is the non-extension baseline. The `extensions` set contains default-installed extension guidance that users can ignore without breaking non-extension skill behavior. Non-extension skills do not route, delegate, or require work through extension skills.
 
 The conceptual groups are:
 
 - automation: mailbox rounds, ordinary mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control
 - control: touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration
 - utils: `houmao-utils-workspace-mgr`
+- extensions: `houmao-ext-graphing`
 
-CLI-default installation expands `all`, which installs every packaged Houmao system skill. Managed launch and managed join expand `core`, the closed managed selection currently used for automation, control, and workspace-preparation routing.
+CLI-default installation expands `all`, which installs every packaged Houmao system skill. Managed launch and managed join expand `core` followed by `extensions`, so extension skills are available by default without becoming core dependencies. Explicit `--skill-set core` excludes `houmao-ext-graphing`.
 
 ## When To Use This Surface
 
@@ -364,7 +374,7 @@ Use `system-skills` when:
 
 - you want to prepare an external Claude, Codex, Kimi, Gemini, or Copilot home before using `houmao-mgr`
 - you want to inspect whether Houmao already installed its own skill set into a home
-- you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, operator message clarification/dispatch, messaging/control, gateway-management, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
+- you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, operator message clarification/dispatch, messaging/control, gateway-management, graphing authoring, AG-UI delivery, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 
 Do not use it for:
 

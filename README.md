@@ -60,7 +60,7 @@ npx skills add igamenovoer/tool-skills/houmao
 Use Houmao's installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need customization such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
 houmao-mgr system-skills install --tool claude --home ~/.claude
 ```
 
@@ -150,7 +150,7 @@ For the full current loop-authoring workflow, see the [Loop Authoring Guide](doc
 
 ## System Skills: Agent Self-Management
 
-Houmao installs packaged skills into agent tool homes so the agent itself can drive management tasks through its native skill interface without the operator manually invoking every `houmao-mgr` command. Those skills cover guided touring, project setup, specialist and profile authoring, credentials, live-agent lifecycle, prompt and mailbox messaging, gateway/reminder work, memory, inspection, workspace preparation, and loop orchestration.
+Houmao installs packaged skills into agent tool homes so the agent itself can drive management tasks through its native skill interface without the operator manually invoking every `houmao-mgr` command. Those skills cover guided touring, project setup, specialist and profile authoring, credentials, live-agent lifecycle, prompt and mailbox messaging, gateway/reminder work, memory, inspection, AG-UI interop, graphing extension guidance, workspace preparation, and loop orchestration.
 
 The orientation-level entry points are:
 
@@ -160,10 +160,12 @@ The orientation-level entry points are:
 | `houmao-agent-definition` | Roles, recipes, `launch-dossiers`, specialists, easy `profiles`, `create-agent-fast-forward`, launch, and stop workflows. |
 | `houmao-agent-messaging` | Prompt, interrupt, queue, raw input, mailbox-routing entry, and one-turn headless override work against running agents. |
 | `houmao-agent-gateway` | Gateway attach/detach/status/watch, reminders, and mail-notifier posture. |
+| `houmao-interop-ag-ui` | AG-UI protocol validation, generic implementation rendering, gateway publishing, and delivery-result interpretation. |
+| `houmao-ext-graphing` | Default-installed extension guidance for built-in Plotly.js `templated-graphics` and Vega-Lite `freeform-graphics` payload authoring. |
 | `houmao-agent-loop-lite` | Lightweight Markdown/direct-SQL generated loop authoring and operation. |
 | `houmao-agent-loop-pro` | Schema-rich loop authoring, preparation, validation, launch, run control, and recovery for complex generated teams. |
 
-`houmao-specialist-mgr` may still appear in older installed homes as compatibility guidance, but current specialist and profile work belongs to `houmao-agent-definition`. Managed launch and join install the catalog's `core` set by default; explicit CLI installation defaults to `all`, the complete current packaged catalog. For the complete catalog, grouping, auto-install behavior, and per-skill boundaries, see the [System Skills Overview](docs/getting-started/system-skills-overview.md).
+`houmao-specialist-mgr` may still appear in older installed homes as compatibility guidance, but current specialist and profile work belongs to `houmao-agent-definition`. Managed launch and join install the catalog's `core` plus `extensions` sets by default; explicit CLI installation defaults to `all`, the complete current packaged catalog. For the complete catalog, grouping, auto-install behavior, and per-skill boundaries, see the [System Skills Overview](docs/getting-started/system-skills-overview.md).
 
 ## Subsystems at a Glance
 

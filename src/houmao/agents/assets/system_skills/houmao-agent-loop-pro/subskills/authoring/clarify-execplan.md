@@ -80,6 +80,16 @@ Question priority:
 
 Prioritize questions whose answers affect runtime correctness, generated contract shape, scheduling, recovery, state validity, mail behavior, workspace/artifact handoff, validation, or operator acceptance.
 
+## Chat Visuals
+
+When reporting generated process, topology, route, state, harness, skill, or agent-binding shape in the chat session:
+
+- Use fenced `text` code blocks or plain monospaced ASCII/text diagrams.
+- Prefer simple ASCII characters such as `+---+`, `|`, and `->` so provider TUI chat can display the diagram without Mermaid rendering support.
+- Do not paste generated Mermaid diagrams as fenced `mermaid` blocks in chat summaries.
+- This chat-output rule does not change generated execplan artifact requirements; generated Markdown files may still use Mermaid where their generation guidance requires it.
+- Mark unknown, contradictory, or stale parts as `Unknown`, `Contradictory`, or `Stale`; do not invent missing intent or implementation policy.
+
 ## Question Focus
 
 Ask only about generated implementation choices that are:

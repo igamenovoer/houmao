@@ -27,22 +27,24 @@ The skill SHALL be installable through the Houmao system-skill catalog like othe
 ### Requirement: Skill provides a validated authoring workflow
 The `houmao-interop-ag-ui` skill SHALL provide concrete workflows for generating GUI messages through AG-UI protocol events.
 
-For Houmao-known implementations, the workflow SHALL instruct the agent to resolve `houmao-mgr`, inspect the target implementation schema, create a JSON payload, validate the payload, render AG-UI events, validate the rendered events, and then publish or hand off the generated events.
+For already-chosen Houmao-known implementations, the workflow SHALL instruct the agent to resolve `houmao-mgr`, inspect the target implementation schema, create or receive a JSON payload, validate the payload, render AG-UI events, validate the rendered events, and then publish or hand off the generated events.
 
 For frontend-specific implementations that Houmao does not know, the workflow SHALL instruct the agent to use `houmao-mgr ag-ui impl new-component render`, validate the rendered events with AG-UI protocol validation, and then publish or hand off the generated events according to the target endpoint.
 
-The workflow SHALL include examples for at least one `houmao.graphic.template` chart and one non-chart implementation.
+The workflow SHALL include examples for at least one non-chart Houmao-known implementation and one frontend-specific implementation unknown to Houmao.
 
 The workflow SHALL prefer `houmao-mgr` implementation validation over hand-written AG-UI JSON when the payload uses a Houmao-known implementation.
 
-The workflow SHALL tell agents that `houmao-mgr ag-ui impl templated-graphics list` lists Layer 1 templated graphics schemas, `houmao-mgr ag-ui impl freeform-graphics list` lists higher-freedom graphics schemas, and `houmao-mgr ag-ui impl list` lists all Houmao-known implementation schemas.
+The workflow SHALL tell agents that `houmao-mgr ag-ui impl list` lists Houmao-known implementation schemas and that `houmao-mgr ag-ui impl schema <implementation>` inspects a chosen implementation.
 
 The workflow SHALL NOT instruct agents to retrieve, validate, render, or publish retired fixed chart component schemas named `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
-#### Scenario: Agent follows chart implementation workflow
-- **WHEN** an agent needs to send a bar chart to a GUI
-- **THEN** the skill instructs it to retrieve the `houmao.graphic.template` implementation schema
-- **AND THEN** the skill instructs it to validate the chart payload
+The workflow SHALL NOT route graphing authoring requests to `houmao-ext-graphing`.
+
+#### Scenario: Agent follows already-chosen known implementation workflow
+- **WHEN** an agent already has a chosen Houmao-known implementation name and payload
+- **THEN** the skill instructs it to retrieve or inspect that implementation schema
+- **AND THEN** the skill instructs it to validate the payload
 - **AND THEN** the skill instructs it to render standard AG-UI tool-call events before publishing
 
 #### Scenario: Agent follows table implementation workflow
@@ -58,7 +60,7 @@ The workflow SHALL NOT instruct agents to retrieve, validate, render, or publish
 #### Scenario: Agent avoids retired fixed chart workflow
 - **WHEN** an agent needs to create a chart
 - **THEN** the skill does not recommend `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`
-- **AND THEN** it directs the agent to `houmao.graphic.template`
+- **AND THEN** it does not route the request to `houmao-ext-graphing`
 
 ### Requirement: Skill documents endpoint selection without guessing
 The `houmao-interop-ag-ui` skill SHALL describe how to choose a publish target.
@@ -211,63 +213,6 @@ The skill SHALL tell agents to ask the user to connect or mark the intended GUI 
 - **THEN** the skill states that active-thread controls only omitted-route default publishing
 - **AND THEN** it states that explicit thread routing can still deliver to an inactive pane's thread
 
-### Requirement: Skill explains Layer 2 Vega-Lite authoring
-The `houmao-interop-ag-ui` skill SHALL teach agents that `houmao.graphic.vegalite` is the Layer 2 path for custom declarative Vega-Lite graphics.
-
-The skill SHALL explain that agents may either hand-author Vega-Lite JSON or optionally use Python Altair to generate the Vega-Lite `spec` with `chart.to_dict()` or `chart.to_json()`.
-
-The skill SHALL state that agents send the resulting JSON spec in a `houmao.graphic.vegalite` payload and SHALL NOT send Python source code, notebook state, or Altair objects to the gateway.
-
-#### Scenario: Agent chooses Layer 2 for custom declarative graphics
-- **WHEN** an agent needs a layered, interactive, or custom chart structure that does not fit Layer 1 template graphics
-- **THEN** the skill directs it to inspect and use `houmao.graphic.vegalite`
-- **AND THEN** the skill tells it to validate and render the payload before publishing
-
-#### Scenario: Agent uses Altair only as an authoring helper
-- **WHEN** an agent uses Python Altair to build a chart
-- **THEN** the skill tells it to send `chart.to_dict()` or equivalent Vega-Lite JSON
-- **AND THEN** the skill does not tell it to send Python code or rely on runtime Python execution by the gateway or workbench
-
-### Requirement: Skill preserves least-powerful-layer guidance
-The `houmao-interop-ag-ui` skill SHALL teach agents to prefer the `houmao.graphic.template` implementation for supported Plotly 2D snapshot charts and to use the `houmao.graphic.vegalite` implementation only when they need Vega-Lite grammar, custom declarative structure, Vega-Lite interaction, or a chart shape outside the Layer 1 Plotly 2D trace catalog.
-
-The skill SHALL teach agents that `houmao.graphic.template` schema version `3` uses `figureType: "plotly2d"` and `traces[].type` rather than the previous five-item `chartType` contract.
-
-The skill SHALL tell agents to inspect `houmao-mgr ag-ui impl schema houmao.graphic.template`, `houmao-mgr ag-ui impl catalog houmao.graphic.template traces`, or AG-UI capabilities to see the supported Plotly 2D trace catalog before authoring uncommon trace families.
-
-The skill SHALL tell agents to inspect `houmao-mgr ag-ui impl templated-graphics list` before choosing supported Layer 1 templated graphics and `houmao-mgr ag-ui impl freeform-graphics list` before choosing supported higher-freedom graphics contracts.
-
-The skill SHALL continue to state that Layer 1 does not accept Vega-Lite renderer ids, fallback renderer lists, or `extra.vega-lite`.
-
-#### Scenario: Agent keeps supported Plotly 2D charts on Layer 1
-- **WHEN** an agent needs an ordinary supported Plotly 2D chart with inline data, such as a heatmap, box plot, violin plot, polar chart, financial chart, treemap, table, or Sankey diagram
-- **THEN** the skill directs it to prefer the `houmao.graphic.template` implementation
-- **AND THEN** it does not direct the agent to use Vega-Lite only because Layer 2 exists
-
-#### Scenario: Agent checks catalog coverage for uncommon traces
-- **WHEN** an agent wants to emit an uncommon Plotly trace family
-- **THEN** the skill tells it to inspect the template graphics schema, implementation trace catalog, or capabilities for the supported trace catalog
-- **AND THEN** the skill tells it to validate the payload before rendering AG-UI events
-
-#### Scenario: Agent lists supported graphics categories first
-- **WHEN** an agent needs to know which renderable graphics schemas Houmao supports
-- **THEN** the skill tells it to run `houmao-mgr ag-ui impl templated-graphics list` for Layer 1 schemas
-- **AND THEN** the skill tells it to run `houmao-mgr ag-ui impl freeform-graphics list` for higher-freedom schemas
-- **AND THEN** the skill does not tell it to infer schema names from the Plotly trace catalog
-
-#### Scenario: Agent does not put Vega-Lite inside Layer 1
-- **WHEN** an agent has a raw Vega-Lite spec
-- **THEN** the skill tells it to use `houmao.graphic.vegalite`
-- **AND THEN** the skill tells it not to place the raw spec in `houmao.graphic.template.extra`
-
-### Requirement: Skill explains Vega-Lite safety limits
-The `houmao-interop-ag-ui` skill SHALL tell agents that Layer 2 Vega-Lite payloads must use inline data or other explicitly supported safe references and must not use remote `data.url`, arbitrary HTML, script tags, iframes, JavaScript URLs, scriptable SVG, credentials, or private local file contents.
-
-#### Scenario: Agent avoids remote Vega-Lite data
-- **WHEN** an agent prepares a `houmao.graphic.vegalite` payload
-- **THEN** the skill tells it not to use remote `data.url`
-- **AND THEN** it tells the agent to validate the payload before rendering AG-UI events
-
 ### Requirement: Skill explains protocol and impl for custom renderer contracts
 The `houmao-interop-ag-ui` skill SHALL teach agents that `houmao-mgr ag-ui impl new-component render` can render standard tool-call events for frontend-specific implementation names that Houmao does not know.
 
@@ -275,7 +220,7 @@ The skill SHALL teach agents that Houmao implementation commands add schema disc
 
 The skill SHALL state that protocol validation means the event batch is valid AG-UI, not that the target GUI implements or displayed the implementation payload.
 
-The skill SHALL teach agents to use `houmao-mgr ag-ui impl templated-graphics list` for supported Layer 1 templated graphics schemas and `houmao-mgr ag-ui impl freeform-graphics list` for supported higher-freedom graphics schemas.
+The skill SHALL teach agents that graphing-specific payload authoring is outside the AG-UI interop skill, while interop validation, rendering, publishing, and delivery-result interpretation remain available for already-chosen implementation payloads.
 
 #### Scenario: Agent uses new-component path for custom frontend implementation
 - **WHEN** an agent needs to send a project-specific tool-call payload such as `myapp.graphic.timeline`
@@ -287,3 +232,23 @@ The skill SHALL teach agents to use `houmao-mgr ag-ui impl templated-graphics li
 - **THEN** the skill tells the agent that only a GUI implementing the matching contract can render it
 - **AND THEN** the skill does not let the agent claim GUI visibility from protocol validation alone
 
+#### Scenario: Agent keeps graphing authoring separate from interop delivery
+- **WHEN** an agent needs to choose between built-in `templated-graphics` and `freeform-graphics`
+- **THEN** the skill treats that as graphing-specific authoring outside AG-UI interop
+- **AND THEN** the skill remains usable for rendering, validating, publishing, or interpreting already-chosen payloads
+
+### Requirement: Skill does not route non-extension work to graphing extension
+The `houmao-interop-ag-ui` skill SHALL remain a non-extension skill focused on AG-UI protocol, implementation rendering for already-chosen payloads, gateway publishing, endpoint boundaries, and delivery interpretation.
+
+The skill SHALL NOT list `houmao-ext-graphing` as a required related skill, delegated workflow, or graphing handoff.
+
+The skill SHALL NOT require the graphing extension for AG-UI protocol validation, generic implementation rendering, gateway publishing, or delivery-result interpretation.
+
+#### Scenario: Agent reads AG-UI interop related-skill guidance
+- **WHEN** an agent reads the `houmao-interop-ag-ui` related-skill or help guidance
+- **THEN** the guidance does not tell the agent to invoke `houmao-ext-graphing`
+- **AND THEN** the AG-UI interop workflow remains usable when extension skills are ignored
+
+#### Scenario: Agent publishes already-rendered AG-UI events without graphing extension
+- **WHEN** an agent has a valid AG-UI event batch to publish
+- **THEN** the skill provides publishing and delivery-result guidance without requiring `houmao-ext-graphing`

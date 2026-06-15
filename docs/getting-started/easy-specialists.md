@@ -143,7 +143,7 @@ Kimi-specific auth inputs support OAuth import and env-model bundles:
 - OAuth lane: `--kimi-code-home ~/.kimi-code` imports `config.toml` and `credentials/kimi-code.json` from an existing logged-in Kimi home. You can also pass `--kimi-config-toml` and `--kimi-credential-json` directly.
 - Env-model lane: `--api-key` with optional `--base-url` persists `KIMI_MODEL_API_KEY` plus `KIMI_MODEL_BASE_URL`; use `--kimi-model-name` or launch-owned `--model` to supply `KIMI_MODEL_NAME`.
 
-Managed launch installs the catalog's `core` system-skill set by default. To store an explicit additive source policy for a utility skill, name a current catalog skill:
+Managed launch installs the catalog's `core` plus `extensions` sets by default. To store an exact core-only source policy that omits default extension guidance, replace the managed default with the `core` set:
 
 ```bash
 houmao-mgr project specialist create \
@@ -151,10 +151,11 @@ houmao-mgr project specialist create \
   --tool codex \
   --system-prompt "Plan and validate multi-agent workspaces before launch." \
   --api-key "$OPENAI_API_KEY" \
-  --system-skill houmao-utils-workspace-mgr
+  --system-skills-mode replace \
+  --system-skill-set core
 ```
 
-That writes `launch.system_skills` into the generated recipe. Use `--system-skills-mode replace --system-skill-set all` when the specialist should use exactly a named set or `--no-system-skills` when it should launch without current Houmao-owned system skills.
+That writes an exact `launch.system_skills` policy into the generated recipe. Use `--system-skills-mode replace --system-skill <skill-name>` when the specialist should use exactly a narrow named subset, or `--no-system-skills` when it should launch without current Houmao-owned system skills.
 
 ## Editing a Specialist
 
@@ -243,13 +244,14 @@ Project profile creation may also store managed prompt-header policy. `--managed
 
 Project profiles may also store gateway mail-notifier appendix text through `--gateway-mail-notifier-appendix-text`. `profile set` preserves the stored appendix when the flag is omitted and removes it with `--clear-gateway-mail-notifier-appendix`. The stored appendix seeds runtime gateway notifier state on launches from the profile, but later live notifier edits such as `houmao-mgr agents single --agent-name <name> gateway mail-notifier enable --appendix-text ...` or `houmao-mgr agents self gateway mail-notifier enable --appendix-text ...` remain runtime-owned and do not rewrite the project profile.
 
-Project profiles may also override or extend the source specialist's managed system-skill policy. The common additive case is:
+Project profiles may also override or extend the source specialist's managed system-skill policy. A common override is a core-only profile that inherits the source specialist but drops default extension guidance:
 
 ```bash
 houmao-mgr project profile create \
   --name workspace-researcher-default \
   --specialist workspace-researcher \
-  --system-skill houmao-utils-workspace-mgr
+  --system-skills-mode replace \
+  --system-skill-set core
 ```
 
 Use `--no-system-skills` on a profile for a minimal future launch, or `houmao-mgr project profile set --name workspace-researcher-default --clear-system-skills` to remove the profile override and inherit the source specialist again.

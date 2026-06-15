@@ -1,4 +1,4 @@
 interface:
   display_name: "Houmao Interop AG-UI"
-  short_description: "Author Houmao AG-UI typed visuals, including Plotly templates and Vega-Lite DSL graphics, then publish events."
-  default_prompt: "Use $houmao-interop-ag-ui to author a Houmao typed visual component, choose Layer 1 Plotly templates or Layer 2 Vega-Lite DSL as appropriate, render it into AG-UI events, and publish it through the live gateway."
+  short_description: "Validate, render, and publish AG-UI events"
+  default_prompt: "Use $houmao-interop-ag-ui to validate, render, and publish AG-UI event batches through the live Houmao gateway."

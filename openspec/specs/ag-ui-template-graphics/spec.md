@@ -4,7 +4,7 @@
 TBD - created by archiving change add-ag-ui-template-graphics-vega. Update Purpose after archive.
 ## Requirements
 ### Requirement: Houmao defines standardized template graphic payloads
-Houmao SHALL define a Layer 1 AG-UI implementation named `houmao.graphic.template`.
+Houmao SHALL define a Layer 1 AG-UI component named `houmao.graphic.template`.
 
 The Plotly-backed payload SHALL use `schemaVersion` equal to `3`.
 
@@ -34,9 +34,9 @@ The standardized fields SHALL be sufficient for a GUI to render the chart withou
 
 The schema SHALL NOT expose the full raw Plotly figure schema as the public Layer 1 contract.
 
-#### Scenario: Template graphic implementation schema is discoverable
-- **WHEN** an agent asks `houmao-mgr ag-ui impl schema houmao.graphic.template`
-- **THEN** the command returns the implementation name, schema version `3`, JSON Schema-compatible payload shape, supported Plotly 2D trace catalog metadata, and a valid Plotly-backed example
+#### Scenario: Template graphic schema is discoverable
+- **WHEN** an agent asks `houmao-mgr internals ag-ui components schema houmao.graphic.template`
+- **THEN** the command returns the component name, schema version `3`, JSON Schema-compatible payload shape, supported Plotly 2D trace catalog metadata, and a valid Plotly-backed example
 - **AND THEN** the command does not require a live gateway, passive server, or GUI
 
 #### Scenario: Standardized inline Plotly 2D payload validates offline
@@ -88,19 +88,19 @@ Unsupported renderer keys or unsupported fields inside `extra.plotly` SHALL be i
 - **AND THEN** the diagnostic explains that raw Vega-Lite belongs outside Layer 1 template graphics
 
 ### Requirement: Template graphic rendering emits standard AG-UI events
-`houmao-mgr ag-ui impl render` SHALL render a validated `houmao.graphic.template` payload into a complete standard AG-UI tool-call event sequence.
+`houmao-mgr internals ag-ui events render` SHALL render a validated `houmao.graphic.template` payload into a complete standard AG-UI tool-call event sequence.
 
 The generated `TOOL_CALL_START` event SHALL use `toolCallName` equal to `houmao.graphic.template`.
 
 The generated `TOOL_CALL_ARGS` event SHALL contain the normalized Plotly-backed payload with stable camelCase field names, `schemaVersion` equal to `3`, and `figureType` equal to `plotly2d`.
 
-The generated sequence SHALL remain compatible with the existing Houmao gateway publish helper because publish accepts standard AG-UI protocol events and does not require template schema knowledge.
+The generated sequence SHALL remain compatible with the existing Houmao gateway publish helper.
 
-#### Scenario: Template graphic implementation renders to tool-call events
-- **WHEN** an agent renders a valid schema version `3` `houmao.graphic.template` payload with `houmao-mgr ag-ui impl render`
+#### Scenario: Template graphic renders to tool-call events
+- **WHEN** an agent renders a valid schema version `3` `houmao.graphic.template` payload
 - **THEN** the output event sequence contains `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`
 - **AND THEN** the `TOOL_CALL_START.toolCallName` value is `houmao.graphic.template`
-- **AND THEN** the rendered event sequence passes standard AG-UI protocol event validation
+- **AND THEN** the rendered event sequence passes standard AG-UI event validation
 
 #### Scenario: Publish helper accepts rendered template events
 - **WHEN** an agent passes rendered `houmao.graphic.template` AG-UI events to the Houmao gateway publish helper
@@ -108,9 +108,9 @@ The generated sequence SHALL remain compatible with the existing Houmao gateway 
 - **AND THEN** the helper does not require knowledge of the template graphic schema at publish time
 
 ### Requirement: Capabilities advertise Layer 1 template graphics
-The AG-UI capabilities response SHALL advertise Houmao Layer 1 template graphics in Houmao custom AG-UI implementation metadata.
+The AG-UI capabilities response SHALL advertise Houmao Layer 1 template graphics in Houmao custom metadata.
 
-The metadata SHALL include the template implementation tool name, implementation category `templated-graphics`, schema version, figure type, supported trace types, excluded trace types, supported renderer ids, default renderer id, Plotly bundle identifier, `extra` policy, datasource binding vocabulary support, datasource materialization support, and whether raw Plotly or Vega-Lite DSL specs are supported.
+The metadata SHALL include the template tool name, schema version, figure type, supported trace types, excluded trace types, supported renderer ids, default renderer id, Plotly bundle identifier, `extra` policy, datasource binding vocabulary support, datasource materialization support, and whether raw Plotly or Vega-Lite DSL specs are supported.
 
 The metadata SHALL list Plotly 2D trace catalog coverage rather than advertising the previous five chart types as the complete Layer 1 surface.
 
@@ -128,8 +128,7 @@ The metadata SHALL state the offline policy for geo and map traces, including th
 
 #### Scenario: Capabilities list Plotly renderer id
 - **WHEN** a caller requests `GET /v1/ag-ui/capabilities`
-- **THEN** the response includes Houmao custom implementation metadata for template graphics
-- **AND THEN** that metadata classifies the implementation as `templated-graphics`
+- **THEN** the response includes Houmao custom metadata for template graphics
 - **AND THEN** that metadata lists `plotly` as the only supported Layer 1 renderer id
 - **AND THEN** that metadata lists `plotly` as the default renderer id
 
@@ -150,7 +149,7 @@ The metadata SHALL state the offline policy for geo and map traces, including th
 - **AND THEN** the response distinguishes supported binding field paths from available runtime row materialization features
 
 ### Requirement: Agent guidance prefers template graphics for supported Plotly charts
-The `houmao-interop-ag-ui` skill SHALL teach agents to prefer the `houmao.graphic.template` implementation for supported Plotly 2D charts.
+The `houmao-interop-ag-ui` skill SHALL teach agents to prefer `houmao.graphic.template` for supported Plotly 2D charts.
 
 The skill SHALL explain that Layer 1 template graphics use standardized Houmao JSON rendered through Plotly.js.
 
@@ -162,9 +161,9 @@ The skill SHALL explain that ordinary static charts can use inline trace arrays 
 
 The skill SHALL explain that datasource metadata and trace source bindings are catalog-backed vocabulary, and that agents must check capabilities before assuming datasource materialization support.
 
-The skill SHALL keep the render, validate, and publish workflow based on `houmao-mgr ag-ui impl`, `houmao-mgr ag-ui protocol`, and `houmao-mgr agents ... gateway ag-ui publish`.
+The skill SHALL keep the existing render, validate, and publish workflow based on `houmao-mgr internals ag-ui` and `houmao-mgr agents ... gateway ag-ui publish`.
 
-#### Scenario: Agent chooses template graphics implementation
+#### Scenario: Agent chooses template graphics
 - **WHEN** an agent needs to display a supported Plotly 2D chart such as a heatmap, violin plot, polar chart, financial chart, treemap, table, or Sankey diagram
 - **THEN** the skill directs it to inspect and use `houmao.graphic.template`
 - **AND THEN** the skill tells it to validate and render the payload before publishing
@@ -176,8 +175,8 @@ The skill SHALL keep the render, validate, and publish workflow based on `houmao
 
 #### Scenario: Agent does not use Layer 1 as raw Vega-Lite
 - **WHEN** an agent needs a custom Vega-Lite chart structure that cannot be represented by standardized template fields
-- **THEN** the skill tells it that raw Vega-Lite belongs to a separate Layer 2 DSL graphics implementation
-- **AND THEN** the skill does not tell it to place a full Vega-Lite spec in Layer 1 `extra`
+- **THEN** the skill tells it that raw Vega-Lite belongs to a separate Layer 2 DSL graphics capability
+- **AND THEN** the skill does not tell it to place a full Vega-Lite spec in `houmao.graphic.template.extra`
 
 ### Requirement: Template graphics use Plotly as the sole Layer 1 renderer
 Layer 1 template graphics SHALL support exactly one renderer id: `plotly`.
@@ -205,16 +204,23 @@ The AG-UI workbench SHALL render completed `houmao.graphic.template` tool calls 
 
 The workbench SHALL compile validated Houmao template payloads into Plotly trace, layout, and config objects before rendering.
 
+The workbench SHALL use a Plotly browser bundle capable of rendering every trace type advertised as supported by the current Layer 1 trace catalog.
+
 The workbench SHALL use `Plotly.react` as the default render and refresh path.
 
 The workbench SHALL clean up mounted Plotly charts when the React component unmounts, the pane clears, or the tool-call render is replaced.
 
-The workbench SHALL show deterministic invalid or unsupported component fallbacks for malformed template payloads, unsupported chart types, unsupported trace shapes, datasource-bound payloads when materialization is unsupported, or rejected renderer fields.
+The workbench SHALL show deterministic invalid or unsupported component fallbacks for malformed template payloads, unsupported trace types, unsupported trace fields, unsupported bundle coverage, datasource-bound payloads when materialization is unsupported, or rejected renderer fields.
 
-#### Scenario: Plotly bar chart renders visibly
-- **WHEN** a stream emits a complete `houmao.graphic.template` tool-call sequence for a valid inline bar chart
+#### Scenario: Plotly 2D chart renders visibly
+- **WHEN** a stream emits a complete `houmao.graphic.template` tool-call sequence for a valid inline schema version `3` payload using an allowed Plotly 2D trace type
 - **THEN** the workbench renders a visible Plotly chart in the AG-UI pane
 - **AND THEN** the raw tool-call event details remain available for diagnostics
+
+#### Scenario: Bundle-missing trace degrades visibly
+- **WHEN** a stream emits a complete `houmao.graphic.template` tool-call sequence whose trace type is catalog-allowed but unavailable in the loaded Plotly bundle
+- **THEN** the workbench shows an invalid or unsupported component fallback naming the trace type
+- **AND THEN** the workbench does not silently render an empty chart
 
 #### Scenario: Malformed template payload degrades visibly
 - **WHEN** a stream emits a complete `houmao.graphic.template` tool-call sequence with missing required fields
@@ -226,20 +232,27 @@ Layer 1 template graphics SHALL define optional datasource binding fields for fu
 
 Datasource-bound template payloads SHALL declare datasource dependencies through `dataRefs`.
 
-A trace SHALL use either inline channel arrays or a `source` binding for a channel, not both.
+A trace SHALL use either inline data or a `source.bindings` entry for the same catalog field path, not both.
 
-Trace source bindings SHALL reference datasource columns through Houmao-owned binding fields such as `source.dataRef`, `source.x.column`, `source.y.column`, `source.z.column`, `source.labels.column`, `source.values.column`, `source.text.column`, `source.marker.color.column`, and `source.marker.size.column`.
+Trace source bindings SHALL reference datasource columns through Houmao-owned field-path binding entries under `source.bindings`.
 
-This change SHALL NOT require the workbench server to own datasource rows, materialize datasource bindings, or refresh charts from datasource updates.
+Each `source.bindings` key SHALL match a trace field path allowed by the Plotly 2D trace catalog, such as `data.x`, `data.y`, `data.z`, `data.open`, `data.high`, `data.low`, `data.close`, `data.labels`, `data.values`, `data.node.label`, `data.link.source`, `data.link.target`, `data.link.value`, `data.header.values`, or `data.cells.values`.
+
+This change SHALL NOT require the workbench server to own datasource rows, materialize datasource bindings, or refresh charts from datasource updates unless the current capabilities advertise datasource materialization support.
 
 Capability metadata SHALL distinguish datasource binding vocabulary from datasource materialization support.
 
 Datasource-bound payloads that reach a workbench without materialization support SHALL render as visible diagnostics rather than blank charts.
 
-#### Scenario: Datasource-bound shape validates as reserved vocabulary
-- **WHEN** an agent validates a schema version `2` `houmao.graphic.template` payload that declares `dataRefs` and trace `source` bindings
-- **THEN** validation accepts the datasource binding shape when field names and binding paths are valid
-- **AND THEN** validation output does not claim that the current workbench can materialize datasource rows
+#### Scenario: Datasource-bound field-path shape validates as reserved vocabulary
+- **WHEN** an agent validates a schema version `3` `houmao.graphic.template` payload that declares `dataRefs` and trace `source.bindings`
+- **THEN** validation accepts the datasource binding shape when field paths and column binding objects are valid for the trace type
+- **AND THEN** validation output does not claim that the current workbench can materialize datasource rows unless capabilities advertise materialization support
+
+#### Scenario: Invalid datasource binding path is rejected
+- **WHEN** an agent validates a schema version `3` `houmao.graphic.template` payload with `source.bindings.data.notAPlotlyField`
+- **THEN** validation rejects the payload
+- **AND THEN** the diagnostic names the invalid binding field path
 
 #### Scenario: Datasource-bound rendering is diagnostic-only before materialization
 - **WHEN** a workbench receives a valid datasource-bound `houmao.graphic.template` payload

@@ -132,11 +132,12 @@ Selectors are validated against the packaged system-skill catalog. On reused hom
 Examples:
 
 ```bash
-# Store an additive utility selector for launches from a project profile.
+# Store a core-only selector for launches from a project profile.
 houmao-mgr project profile create \
   --name researcher-workspace \
   --specialist researcher \
-  --system-skill houmao-utils-workspace-mgr
+  --system-skills-mode replace \
+  --system-skill-set core
 
 # Make an explicit launch profile use exactly every packaged system skill.
 houmao-mgr internals native-agent launch-dossiers set \
