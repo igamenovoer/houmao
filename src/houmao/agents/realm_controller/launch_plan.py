@@ -5,8 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, Final, Literal, cast
 
+from houmao.agents.auto_skills import (
+    AUTO_SKILL_SYSTEM_PROMPT,
+    AUTO_SKILL_SYSTEM_PROMPT_REASON,
+    ensure_auto_skill_provider_discovery,
+    project_auto_skills_for_home,
+    prompt_sha256,
+)
 from houmao.agents.launch_policy import apply_launch_policy
 from houmao.agents.launch_policy.models import (
     LaunchPolicyApplicationKind,
@@ -14,6 +21,7 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyError,
     LaunchPolicyRequest,
     OperatorPromptMode,
+    LaunchPolicyStrategy,
 )
 from houmao.agents.launch_overrides import (
     LaunchDefaults,
@@ -45,6 +53,10 @@ _CAO_SHADOW_COMPLETION_STABILITY_KEY: Final[str] = "completion_stability_seconds
 _CAO_SHADOW_STALLED_TERMINAL_KEY: Final[str] = "stalled_is_terminal"
 _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY"
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
+_KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
+_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
+_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY: Final[str] = "kimi_tui_auto_mode_refresh"
+_KIMI_TUI_AUTO_MODE_COMMAND: Final[str] = "/auto on"
 
 
 @dataclass(frozen=True)
@@ -95,13 +107,9 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     persistent_env_records = _persistent_launch_env_records(launch_contract)
     env_values.update(persistent_env_records)
     env_var_names = sorted({*env_var_names, *persistent_env_records.keys()})
-
-    role_injection = plan_role_injection(
-        backend=request.backend,
-        tool=tool,
-        role_name=request.role_package.role_name,
-        role_prompt=request.role_package.system_prompt,
-    )
+    if request.backend == "local_interactive" and tool == "kimi":
+        env_values[_KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR] = "1"
+        env_var_names = sorted({*env_var_names, _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR})
 
     metadata: dict[str, Any] = {
         "env_source_file": str(env_source),
@@ -132,7 +140,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
 
     if request.backend == "codex_headless":
         metadata["codex_headless_cli_mode"] = "exec_json_resume"
-    if request.backend in {"claude_headless", "gemini_headless", "codex_headless"}:
+    if request.backend in {
+        "claude_headless",
+        "gemini_headless",
+        "codex_headless",
+        "kimi_headless",
+    }:
         metadata["headless_output_format"] = "stream-json"
         metadata["headless_display_style"] = "plain"
         metadata["headless_display_detail"] = "concise"
@@ -170,6 +183,23 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         raise LaunchPlanError(str(exc)) from exc
 
     args = list(launch_policy_result.args)
+    role_injection = plan_role_injection(
+        backend=request.backend,
+        tool=tool,
+        role_name=request.role_package.role_name,
+        role_prompt=request.role_package.system_prompt,
+        strategy=launch_policy_result.strategy,
+    )
+    auto_skill_projection = _ensure_role_injection_auto_skills(
+        tool=tool,
+        home_path=home_path,
+        role_injection=role_injection,
+    )
+    if auto_skill_projection is not None:
+        metadata["auto_skills"] = auto_skill_projection["projection"]
+        discovery_payload = auto_skill_projection.get("provider_discovery")
+        if discovery_payload is not None:
+            metadata["auto_skill_provider_discovery"] = discovery_payload
     codex_cli_config_args = _codex_cli_config_args_from_contract(
         tool=tool,
         backend=request.backend,
@@ -180,11 +210,16 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         backend=request.backend,
         launch_contract=launch_contract,
     )
-    if provider_model_selection_cli_args:
+    if tool == "claude" and provider_model_selection_cli_args:
         args, provider_model_selection_cli_args = _merge_claude_model_selection_cli_args(
             args=args,
             generated_args=provider_model_selection_cli_args,
             launch_contract=launch_contract,
+        )
+    if tool == "kimi" and provider_model_selection_cli_args:
+        args, provider_model_selection_cli_args = _merge_kimi_model_selection_cli_args(
+            args=args,
+            generated_args=provider_model_selection_cli_args,
         )
     args.extend(codex_cli_config_args)
     args.extend(provider_model_selection_cli_args)
@@ -193,6 +228,19 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     metadata["launch_policy_request"] = {
         "operator_prompt_mode": requested_operator_prompt_mode,
     }
+    if (
+        tool == "kimi"
+        and request.backend == "local_interactive"
+        and requested_operator_prompt_mode == "unattended"
+        and launch_policy_result.provenance is not None
+    ):
+        metadata[_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY] = {
+            "enabled": True,
+            "command": _KIMI_TUI_AUTO_MODE_COMMAND,
+            "phase": "after_tui_ready_before_managed_prompts",
+            "operator_prompt_mode": requested_operator_prompt_mode,
+            "strategy_id": launch_policy_result.provenance.selected_strategy_id,
+        }
     launch_overrides_metadata = metadata.get("launch_overrides")
     if isinstance(launch_overrides_metadata, dict):
         backend_resolution = launch_overrides_metadata.get("backend_resolution")
@@ -222,12 +270,44 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     )
 
 
+def _ensure_role_injection_auto_skills(
+    *,
+    tool: str,
+    home_path: Path,
+    role_injection: RoleInjectionPlan,
+) -> dict[str, Any] | None:
+    """Project auto skills required by the selected role-injection method."""
+
+    if role_injection.method != "auto_skill_system_prompt":
+        return None
+
+    projection = project_auto_skills_for_home(
+        tool=tool,
+        home_path=home_path,
+        skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
+        reason=AUTO_SKILL_SYSTEM_PROMPT_REASON,
+        prompt_reference="launch_plan.role_injection.prompt",
+        prompt_sha256=prompt_sha256(role_injection.prompt),
+    )
+    discovery = ensure_auto_skill_provider_discovery(
+        tool=tool,
+        home_path=home_path,
+        destination_root=projection.destination_root,
+        has_projected_auto_skills=bool(projection.projected_relative_dirs),
+    )
+    payload: dict[str, Any] = {"projection": projection.to_payload()}
+    if discovery is not None:
+        payload["provider_discovery"] = discovery
+    return payload
+
+
 def plan_role_injection(
     *,
     backend: BackendKind,
     tool: str | None = None,
     role_name: str,
     role_prompt: str,
+    strategy: LaunchPolicyStrategy | None = None,
 ) -> RoleInjectionPlan:
     """Create role-injection strategy for a backend.
 
@@ -245,6 +325,114 @@ def plan_role_injection(
     RoleInjectionPlan
         Backend-specific role plan.
     """
+
+    if strategy is not None:
+        return _plan_role_injection_from_strategy(
+            backend=backend,
+            tool=tool,
+            role_name=role_name,
+            role_prompt=role_prompt,
+            strategy=strategy,
+        )
+
+    return _plan_legacy_role_injection(
+        backend=backend,
+        tool=tool,
+        role_name=role_name,
+        role_prompt=role_prompt,
+    )
+
+
+def _plan_role_injection_from_strategy(
+    *,
+    backend: BackendKind,
+    tool: str | None,
+    role_name: str,
+    role_prompt: str,
+    strategy: LaunchPolicyStrategy,
+) -> RoleInjectionPlan:
+    """Create a role-injection plan from launch-policy capability metadata."""
+
+    if backend in {"cao_rest", "houmao_server_rest"}:
+        return RoleInjectionPlan(
+            method="cao_profile",
+            role_name=role_name,
+            prompt=role_prompt,
+        )
+
+    capabilities = strategy.system_prompt_bootstrap
+    if capabilities.native_system_prompt:
+        method = _native_role_injection_method(backend=backend, tool=tool)
+        if method is None:
+            raise LaunchPlanError(
+                "Launch policy declares native system-prompt support, but Houmao has no "
+                f"native role-injection method for backend={backend!r}, tool={tool!r}."
+            )
+        return RoleInjectionPlan(
+            method=method,
+            role_name=role_name,
+            prompt=role_prompt,
+            bootstrap_message=(
+                _bootstrap_message(role_name, role_prompt)
+                if method == "native_append_system_prompt"
+                else None
+            ),
+        )
+
+    if capabilities.startup_visible_skill_metadata:
+        if not capabilities.provider_skills:
+            raise LaunchPlanError(
+                "Launch policy declares startup-visible skill metadata without provider "
+                f"skill support for backend={backend!r}, tool={tool!r}."
+            )
+        return RoleInjectionPlan(
+            method="auto_skill_system_prompt",
+            role_name=role_name,
+            prompt=role_prompt,
+            bootstrap_message=None,
+        )
+
+    if role_prompt.strip():
+        raise LaunchPlanError(
+            "No supported system-prompt injection method exists for "
+            f"backend={backend!r}, tool={tool!r}, strategy={strategy.strategy_id!r}: "
+            "native_system_prompt=false and startup_visible_skill_metadata=false."
+        )
+
+    return RoleInjectionPlan(
+        method="bootstrap_message",
+        role_name=role_name,
+        prompt=role_prompt,
+        bootstrap_message="",
+    )
+
+
+def _native_role_injection_method(
+    *,
+    backend: BackendKind,
+    tool: str | None,
+) -> Literal["native_developer_instructions", "native_append_system_prompt"] | None:
+    """Return the maintained native role-injection method for one backend/tool pair."""
+
+    if backend in {"codex_app_server", "codex_headless"}:
+        return "native_developer_instructions"
+    if backend == "local_interactive" and tool == "codex":
+        return "native_developer_instructions"
+    if backend == "claude_headless":
+        return "native_append_system_prompt"
+    if backend == "local_interactive" and tool == "claude":
+        return "native_append_system_prompt"
+    return None
+
+
+def _plan_legacy_role_injection(
+    *,
+    backend: BackendKind,
+    tool: str | None,
+    role_name: str,
+    role_prompt: str,
+) -> RoleInjectionPlan:
+    """Create the pre-policy role-injection plan for direct helper callers."""
 
     if backend in {"codex_app_server", "codex_headless"}:
         return RoleInjectionPlan(
@@ -267,7 +455,7 @@ def plan_role_injection(
                 prompt=role_prompt,
                 bootstrap_message=_bootstrap_message(role_name, role_prompt),
             )
-        if tool == "gemini":
+        if tool in {"gemini", "kimi"}:
             return RoleInjectionPlan(
                 method="bootstrap_message",
                 role_name=role_name,
@@ -286,7 +474,7 @@ def plan_role_injection(
             bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
-    if backend == "gemini_headless":
+    if backend in {"gemini_headless", "kimi_headless"}:
         return RoleInjectionPlan(
             method="bootstrap_message",
             role_name=role_name,
@@ -328,7 +516,7 @@ def backend_for_tool(
     if prefer_cao:
         return "cao_rest"
     if prefer_local_interactive:
-        if tool in {"codex", "claude", "gemini"}:
+        if tool in {"codex", "claude", "gemini", "kimi"}:
             return "local_interactive"
         raise LaunchPlanError(f"No local interactive backend for tool {tool!r}")
     if tool == "codex":
@@ -337,6 +525,8 @@ def backend_for_tool(
         return "claude_headless"
     if tool == "gemini":
         return "gemini_headless"
+    if tool == "kimi":
+        return "kimi_headless"
     raise LaunchPlanError(f"No default backend for tool {tool!r}")
 
 
@@ -426,7 +616,13 @@ def _provider_model_selection_cli_args_from_contract(
 ) -> list[str]:
     """Return generated provider CLI args from one model-selection contract."""
 
-    if tool != "claude" or backend not in {"local_interactive", "claude_headless"}:
+    if tool == "claude":
+        if backend not in {"local_interactive", "claude_headless"}:
+            return []
+    elif tool == "kimi":
+        if backend not in {"local_interactive", "kimi_headless"}:
+            return []
+    else:
         return []
 
     model_selection = _optional_model_selection_contract(launch_contract)
@@ -452,7 +648,10 @@ def _provider_model_selection_cli_args_from_contract(
             "Manifest `runtime.launch_contract.model_selection.provider_cli_args.args` "
             "must be a list of strings."
         )
-    _parse_claude_model_selection_arg_groups(args)
+    if tool == "claude":
+        _parse_claude_model_selection_arg_groups(args)
+    else:
+        _parse_kimi_model_selection_arg_groups(args)
     return list(args)
 
 
@@ -522,6 +721,41 @@ def _parse_claude_model_selection_arg_groups(args: list[str]) -> list[tuple[str,
         groups.append((matched_flag, [arg]))
         index += 1
     return groups
+
+
+def _parse_kimi_model_selection_arg_groups(args: list[str]) -> list[tuple[str, list[str]]]:
+    """Parse generated Kimi model-selection args into option groups."""
+
+    groups: list[tuple[str, list[str]]] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--model":
+            if index + 1 >= len(args):
+                raise LaunchPlanError("Generated Kimi model-selection arg `--model` needs a value.")
+            groups.append((arg, [arg, args[index + 1]]))
+            index += 2
+            continue
+        matched_flag = _matched_cli_option_flag(arg, flags=_KIMI_MODEL_SELECTION_FLAGS)
+        if matched_flag is None:
+            raise LaunchPlanError("Generated Kimi model-selection args may only contain `--model`.")
+        groups.append((matched_flag, [arg]))
+        index += 1
+    return groups
+
+
+def _merge_kimi_model_selection_cli_args(
+    *,
+    args: list[str],
+    generated_args: list[str],
+) -> tuple[list[str], list[str]]:
+    """Merge generated Kimi model-selection args with caller-provided args."""
+
+    _parse_kimi_model_selection_arg_groups(generated_args)
+    merged_args = list(args)
+    for flag in _KIMI_MODEL_SELECTION_FLAGS:
+        merged_args = _remove_cli_option_with_value(merged_args, flag=flag)
+    return merged_args, list(generated_args)
 
 
 def _resolved_model_selection_source(

@@ -13,7 +13,7 @@ The mailbox reference SHALL include a page at `docs/reference/mailbox/contracts/
 - When skill projection activates: during `BrainBuilder.build()` when the build request includes a resolved mailbox configuration.
 - What skills are provided: the set of mailbox-related actions and workflow layers that become available to the agent as runtime-owned tool capabilities.
 - How this relates to the build phase: skills are projected from `agents/realm_controller/assets/system_skills/` into the agent's runtime home alongside user-defined skills.
-- Tool-specific behavior: how Claude, Codex, and Gemini receive these skills through their maintained runtime-home skill destinations.
+- Tool-specific behavior: how Claude, Codex, Kimi, and Gemini receive these skills through their maintained runtime-home skill destinations.
 - Contract boundaries: runtime-owned mailbox skills are not copied into ordinary project content for maintained flows, and ordinary prompting uses native skill invocation guidance rather than telling agents to open copied `skills/.../SKILL.md` paths from the worktree.
 
 The page SHALL be derived from `agents/mailbox_runtime_support.py` and the skill assets under `agents/realm_controller/assets/`.
@@ -32,7 +32,7 @@ The page SHALL be derived from `agents/mailbox_runtime_support.py` and the skill
 
 #### Scenario: Reader understands tool-specific projection
 
-- **WHEN** a reader is setting up a Claude, Codex, or Gemini agent with mailbox support
+- **WHEN** a reader is setting up a Claude, Codex, Kimi, or Gemini agent with mailbox support
 - **THEN** the page explains that the runtime projects mailbox skills into the tool's native runtime-home skill destination
 - **AND THEN** the page notes the tool-specific differences in the visible installed skill surface
 

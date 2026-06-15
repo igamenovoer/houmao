@@ -5,11 +5,11 @@
 Defines how the passive server discovers running agents by scanning the shared registry with tmux liveness verification, and exposes them through REST API endpoints for listing and resolution.
 ## Requirements
 ### Requirement: Passive server discovers agents by scanning the shared registry with tmux liveness verification
-The passive server SHALL maintain a `RegistryDiscoveryService` that periodically scans the shared `LiveAgentRegistryRecordV2` registry under the configured registry root.
+The passive server SHALL maintain a `RegistryDiscoveryService` that periodically scans the shared managed-agent registry under the configured `PassiveServerConfig.registry_root`.
 
 On each scan cycle, the discovery service SHALL:
 1. Enumerate all `record.json` files under `{registry_root}/live_agents/*/`.
-2. Load and validate each record against the `LiveAgentRegistryRecordV2` schema.
+2. Load and validate each record against the managed-agent registry record schema.
 3. Discard records that are malformed, schema-invalid, or lease-expired.
 4. For each fresh record with `terminal.kind == "tmux"`, verify that the tmux session identified by `terminal.session_name` exists as a live tmux session.
 5. Evict agents whose tmux session no longer exists, even if the registry record's lease is still fresh.
@@ -19,29 +19,43 @@ The scan cycle SHALL run at a configurable interval (default 5 seconds).
 
 The discovery service SHALL start during server startup and stop during server shutdown.
 
+The discovery service SHALL NOT require a Houmao project overlay to resolve its registry root.
+
 #### Scenario: Discovery finds a fresh agent with a live tmux session
-- **WHEN** the shared registry contains a fresh `record.json` for agent_id `abc123`
+- **WHEN** the configured shared registry contains a fresh `record.json` for agent_id `abc123`
 - **AND WHEN** the record's `terminal.session_name` identifies a live tmux session
 - **THEN** the agent appears in the discovered agent index
 
 #### Scenario: Discovery excludes an agent with an expired lease
-- **WHEN** the shared registry contains a `record.json` for agent_id `abc123` whose lease has expired
+- **WHEN** the configured shared registry contains a `record.json` for agent_id `abc123` whose lease has expired
 - **THEN** the agent does not appear in the discovered agent index
 
 #### Scenario: Discovery excludes an agent whose tmux session is dead
-- **WHEN** the shared registry contains a fresh `record.json` for agent_id `abc123`
+- **WHEN** the configured shared registry contains a fresh `record.json` for agent_id `abc123`
 - **AND WHEN** the record's `terminal.session_name` does not match any live tmux session
 - **THEN** the agent does not appear in the discovered agent index
 
 #### Scenario: Discovery excludes malformed registry records
-- **WHEN** the shared registry contains a `record.json` that fails schema validation
+- **WHEN** the configured shared registry contains a `record.json` that fails schema validation
 - **THEN** the agent does not appear in the discovered agent index
 - **AND THEN** the discovery service does not crash
 
 #### Scenario: Discovery rebuilds the index on server startup
 - **WHEN** the passive server starts
-- **AND WHEN** the shared registry contains fresh records with live tmux sessions
+- **AND WHEN** the configured shared registry contains fresh records with live tmux sessions
 - **THEN** the agents appear in the discovered agent index after the first scan cycle completes
+
+#### Scenario: Discovery uses configured registry root
+- **WHEN** the passive server is configured with a custom `registry_root`
+- **AND WHEN** that registry root contains a fresh record for a live tmux-backed agent
+- **THEN** the agent appears in the discovered agent index
+- **AND THEN** records in the default registry root do not affect that server's discovery index
+
+#### Scenario: Later agents appear without server registration
+- **WHEN** the passive server is already running
+- **AND WHEN** a Houmao-managed agent later publishes a fresh record into the configured shared registry
+- **AND WHEN** the record's tmux session is live
+- **THEN** the agent appears in the discovered agent index after a subsequent scan cycle
 
 ### Requirement: Passive server does not modify registry records during discovery
 The passive server SHALL treat the shared registry as read-only for the purpose of agent discovery.
@@ -143,4 +157,58 @@ The discovery service SHALL log a warning when the tmux server is unreachable ra
 - **WHEN** the tmux server was not running during initial scan cycles
 - **AND WHEN** the tmux server starts and agents have live tmux sessions
 - **THEN** the discovery service picks up those agents on the next scan cycle
+
+### Requirement: Passive server resolves agent-address AG-UI attachment state
+The passive server SHALL expose a read-only agent-address resolution surface for GUI clients that target an agent by `agent_id` or friendly `agent_name`.
+
+The resolution surface SHALL return a deterministic state for each request:
+
+- `unknown` when no known agent matches the reference;
+- `ambiguous` when a friendly name matches multiple known agents;
+- `offline` when the agent is known but no live record is currently usable;
+- `live_without_gateway` when the agent is live but no gateway coordinates are available;
+- `live_with_gateway` when the agent is live and current gateway coordinates are available.
+
+When the agent is known, the response SHALL include the authoritative `agent_id` and canonical `agent_name`. When the agent is live with a gateway, the response SHALL include current gateway host, port, and protocol metadata as volatile live presence.
+
+The resolution surface SHALL NOT start, stop, launch, restart, interrupt, shut down, or otherwise control the agent lifecycle.
+
+#### Scenario: GUI resolves a live agent with current gateway
+- **WHEN** the passive server can resolve `agent_id=abc123` to a live registry record with gateway host and port
+- **AND WHEN** the GUI requests the agent-address resolution surface for `abc123`
+- **THEN** the response state is `live_with_gateway`
+- **AND THEN** the response includes the current gateway coordinates
+
+#### Scenario: GUI resolves a known offline agent
+- **WHEN** the passive server can resolve `agent_id=abc123` as known but no live registry record is usable
+- **AND WHEN** the GUI requests the agent-address resolution surface for `abc123`
+- **THEN** the response state is `offline`
+- **AND THEN** the response includes the authoritative `agent_id` without gateway coordinates
+
+#### Scenario: Ambiguous friendly name returns conflict
+- **WHEN** friendly name `alpha` matches multiple known agent ids
+- **AND WHEN** the GUI requests the agent-address resolution surface for `alpha`
+- **THEN** the passive server returns an ambiguous result or conflict response
+- **AND THEN** the response lists enough safe agent identity metadata for the user to disambiguate
+
+### Requirement: Passive server may proxy AG-UI requests by resolved agent address
+If the passive server exposes browser-friendly AG-UI proxy routes by resolved agent address, those routes SHALL accept an `agent_ref`, resolve the current gateway, and forward AG-UI requests to that gateway.
+
+When such proxy routes are present, they SHALL resolve the gateway on each new connection or request rather than caching a stale gateway URL as the durable target.
+
+When no current gateway is available, proxy routes SHALL return a deterministic offline or gateway-unavailable response and SHALL NOT wait forever inside a request unless the route explicitly documents streaming wait semantics.
+
+Proxy routes SHALL preserve the lifecycle boundary: proxying AG-UI connect, run, detach, or event publish requests SHALL NOT start, stop, restart, interrupt, or shut down the agent.
+
+#### Scenario: Proxy resolves gateway at connection time
+- **WHEN** an agent's gateway port changes after a restart
+- **AND WHEN** a GUI opens a new AG-UI proxy connection by `agent_id`
+- **THEN** the passive server resolves the current gateway coordinates before forwarding
+- **AND THEN** it does not forward to the old port
+
+#### Scenario: Proxy reports unavailable gateway without lifecycle control
+- **WHEN** an agent is known but has no live gateway
+- **AND WHEN** a GUI submits an AG-UI proxy request for that agent
+- **THEN** the passive server reports that the gateway is unavailable
+- **AND THEN** it does not launch, stop, restart, interrupt, or shut down the agent
 

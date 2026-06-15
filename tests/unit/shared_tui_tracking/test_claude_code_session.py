@@ -28,6 +28,12 @@ _CLAUDE_COLOR_STYLED_DRAFT_READY_SURFACE = (
     "\x1b[38;5;244m────────────────────────────────────────────────────────────────\n"
     "\x1b[39m  \x1b[38;5;211m⏵⏵ bypass permissions on\x1b[38;5;246m (shift+tab to cycle)\x1b[39m\n"
 )
+_CLAUDE_GHOST_SUGGESTION_READY_SURFACE = (
+    "\x1b[38;5;244m────────────────────────────────────────────────────────────────\n"
+    "\x1b[38;5;239m\x1b[48;5;237m❯ \x1b[38;5;231mReview the latest mailbox item\x1b[39m\n"
+    "\x1b[38;5;244m────────────────────────────────────────────────────────────────\n"
+    "\x1b[39m  \x1b[38;5;211m⏵⏵ bypass permissions on\x1b[38;5;246m (shift+tab to cycle)\x1b[39m\n"
+)
 _CLAUDE_UNRECOGNIZED_NON_COLOR_STYLED_READY_SURFACE = (
     "\x1b[38;5;244m────────────────────────────────────────────────────────────────\n"
     "\x1b[39m❯\xa0\x1b[4mReview staged changes\x1b[0m\n"
@@ -125,6 +131,21 @@ def test_claude_startup_placeholder_prompt_does_not_count_as_editing() -> None:
 
     scheduler.advance_to(1.0)
     session.on_snapshot(_CLAUDE_PLACEHOLDER_READY_SURFACE)
+
+    state = session.current_state()
+
+    assert state.surface_accepting_input == "yes"
+    assert state.surface_ready_posture == "yes"
+    assert state.surface_editing_input == "no"
+    assert state.turn_phase == "ready"
+
+
+def test_claude_ghost_suggestion_prompt_does_not_count_as_editing() -> None:
+    scheduler = TestScheduler()
+    session = _claude_session(scheduler=scheduler)
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CLAUDE_GHOST_SUGGESTION_READY_SURFACE)
 
     state = session.current_state()
 

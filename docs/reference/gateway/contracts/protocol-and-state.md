@@ -81,7 +81,7 @@ Representative legacy/internal `houmao_server_rest` bootstrap payload:
 Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
-- Live attach and request execution currently support runtime-owned `local_interactive` sessions and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `gemini_headless`). Legacy REST-backed manifest records may still be recognized for old-artifact inspection or explicit rejection, but new public launches do not create them.
+- Live attach and request execution currently support runtime-owned `local_interactive` sessions and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `kimi_headless`, `gemini_headless`). Legacy REST-backed manifest records may still be recognized for old-artifact inspection or explicit rejection, but new public launches do not create them.
 - Gateway-owned live TUI tracking routes currently support attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no backend-provided terminal alias exists on that path.
 - Native headless internal bootstrap metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-passive-server` for a passive-server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` may keep `manifest_path` for gateway internals, but the runtime-owned session manifest remains the supported persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
@@ -153,6 +153,12 @@ Current v1 routes:
 - `GET /v1/mail-notifier`
 - `PUT /v1/mail-notifier`
 - `DELETE /v1/mail-notifier`
+- `GET /v1/ag-ui/capabilities`
+- `POST /v1/ag-ui/connect`
+- `POST /v1/ag-ui/runs`
+- `DELETE /v1/ag-ui/connections/{connection_id}`
+
+The direct AG-UI routes are documented in [Gateway AG-UI Routes](../ag-ui.md). They attach GUI streams and submit AG-UI task runs to the existing gateway queue; they do not give the GUI managed-agent lifecycle ownership.
 
 ### `GET /health`
 

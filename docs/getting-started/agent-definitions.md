@@ -107,7 +107,7 @@ The compatibility-projected declarative recipe file. The filename supplies the r
 - optional `mailbox`
 - optional `extra`
 
-`launch.system_skills` is the source-owned managed system-skill policy for managed homes built from that recipe. Omit it to keep the packaged managed-launch default, use `mode: extend` with `skills: [houmao-utils-workspace-mgr]` to record an additive current-skill selector, use `mode: replace` with selected `sets` or `skills` for exact selection, or use `mode: none` to install no current Houmao-owned system skills.
+`launch.system_skills` is the source-owned managed system-skill policy for managed homes built from that recipe. Omit it to keep the packaged managed-launch default (`core` plus `extensions`), use `mode: replace` with `sets: [core]` for a core-only home without default extension guidance, use `mode: replace` with selected `sets` or `skills` for any exact selection, use `mode: extend` for additive policy over the packaged default, or use `mode: none` to install no current Houmao-owned system skills.
 
 ### `launch-profiles/<profile>.yaml`
 
@@ -123,6 +123,8 @@ For the shared conceptual model — easy versus explicit lanes, the precedence c
 ### `tools/<tool>/adapter.yaml`
 
 The tool adapter defines how Houmao projects setup files, skills, and auth material into the runtime home, plus the tool-specific launch contract.
+
+Maintained starter tool families are `claude`, `codex`, `kimi`, and `gemini`. The Kimi adapter uses `KIMI_CODE_HOME`, launches `kimi`, projects selected skills into `skills`, copies OAuth material from `config.toml` and `credentials/kimi-code.json` when present, and allowlists Kimi env-model variables such as `KIMI_MODEL_NAME` and `KIMI_MODEL_API_KEY`.
 
 ### `tools/<tool>/setups/<setup>/`
 

@@ -30,6 +30,7 @@ _DEMO_INPUTS_SOURCE = _WORKSPACE_ROOT / "scripts/demo/shared-tui-tracking-demo-p
 _FIXTURE_AUTH_RELATIVE_BY_TOOL = {
     "claude": Path("tests/fixtures/auth-bundles/claude/kimi-coding"),
     "codex": Path("tests/fixtures/auth-bundles/codex/yunwu-openai"),
+    "kimi": Path("tests/fixtures/auth-bundles/kimi/personal-a-default"),
 }
 
 
@@ -46,8 +47,10 @@ def _seed_fixture_auth_bundle(repo_root: Path, *, tool: str) -> None:
     env_path = env_dir / "vars.env"
     if tool == "claude":
         env_path.write_text("ANTHROPIC_API_KEY=test-key\n", encoding="utf-8")
-    else:
+    elif tool == "codex":
         env_path.write_text("OPENAI_API_KEY=test-key\n", encoding="utf-8")
+    else:
+        env_path.write_text("KIMI_MODEL_API_KEY=test-key\n", encoding="utf-8")
 
 
 def _build_demo_config(repo_root: Path) -> ResolvedDemoConfig:
@@ -76,6 +79,14 @@ def _build_demo_config(repo_root: Path) -> ResolvedDemoConfig:
                 ),
                 launch_overrides=None,
                 operator_prompt_mode="unattended",
+            ),
+            "kimi": DemoToolConfig(
+                recipe_path=(
+                    "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/"
+                    "interactive-watch-kimi-default.yaml"
+                ),
+                launch_overrides=None,
+                operator_prompt_mode="as_is",
             ),
         },
         paths=DemoPathsConfig(
@@ -107,13 +118,15 @@ def _build_demo_config(repo_root: Path) -> ResolvedDemoConfig:
     )
 
 
+@pytest.mark.parametrize("tool", ["claude", "kimi"])
 def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    tool: str,
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_demo_repo(repo_root)
-    _seed_fixture_auth_bundle(repo_root, tool="claude")
+    _seed_fixture_auth_bundle(repo_root, tool=tool)
     demo_config = _build_demo_config(repo_root)
     run_root = tmp_path / "live-run"
     build_requests: list[object] = []
@@ -129,7 +142,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
     monkeypatch.setattr(live_watch, "ensure_tmux_available", lambda: None)
     monkeypatch.setattr(live_watch, "initialize_demo_session_ownership", lambda **_: None)
     monkeypatch.setattr(live_watch, "build_brain_home", fake_build_brain_home)
-    monkeypatch.setattr(live_watch, "detect_tool_version", lambda **_: "claude 1.0.0")
+    monkeypatch.setattr(live_watch, "detect_tool_version", lambda **_: f"{tool} 1.0.0")
     monkeypatch.setattr(live_watch, "launch_tmux_session", lambda **_: None)
     monkeypatch.setattr(live_watch, "upsert_demo_owned_resource", lambda **_: None)
     monkeypatch.setattr(live_watch, "publish_demo_session_recovery_pointers", lambda **_: None)
@@ -140,7 +153,7 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
     result = live_watch.start_live_watch(
         repo_root=repo_root,
         demo_config=demo_config,
-        tool="claude",
+        tool=tool,  # type: ignore[arg-type]
         output_root=run_root,
         recipe_path=None,
         sample_interval_seconds=0.2,
@@ -160,17 +173,24 @@ def test_start_live_watch_builds_from_generated_demo_local_agent_tree(
             repo_root
             / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-claude-default.yaml"
         ).resolve()
+        if tool == "claude"
+        else (
+            repo_root
+            / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-kimi-default.yaml"
+        ).resolve()
     )
-    assert (generated_agent_def_dir / "tools/claude/auth/default").is_symlink()
+    assert (generated_agent_def_dir / "tools" / tool / "auth/default").is_symlink()
 
 
+@pytest.mark.parametrize("tool", ["codex", "kimi"])
 def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    tool: str,
 ) -> None:
     repo_root = tmp_path / "repo"
     _seed_demo_repo(repo_root)
-    _seed_fixture_auth_bundle(repo_root, tool="codex")
+    _seed_fixture_auth_bundle(repo_root, tool=tool)
     demo_config = _build_demo_config(repo_root)
     run_root = tmp_path / "recorded-run"
     build_requests: list[object] = []
@@ -196,7 +216,7 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
     monkeypatch.setattr(recorded, "ensure_tmux_available", lambda: None)
     monkeypatch.setattr(recorded, "initialize_demo_session_ownership", lambda **_: None)
     monkeypatch.setattr(recorded, "build_brain_home", fake_build_brain_home)
-    monkeypatch.setattr(recorded, "detect_tool_version", lambda **_: "codex 1.0.0")
+    monkeypatch.setattr(recorded, "detect_tool_version", lambda **_: f"{tool} 1.0.0")
     monkeypatch.setattr(recorded, "launch_tmux_session", lambda **_: None)
     monkeypatch.setattr(recorded, "upsert_demo_owned_resource", lambda **_: None)
     monkeypatch.setattr(recorded, "publish_demo_session_recovery_pointers", lambda **_: None)
@@ -219,8 +239,8 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
     monkeypatch.setattr(recorded, "reap_demo_owned_resources", lambda **_: None)
 
     scenario = ScenarioDefinition(
-        scenario_id="codex-explicit-success",
-        tool="codex",
+        scenario_id=f"{tool}-explicit-success",
+        tool=tool,  # type: ignore[arg-type]
         description="Synthetic recorded capture test",
         launch=ScenarioLaunchSpec(),
         steps=(),
@@ -244,8 +264,13 @@ def test_run_recorded_capture_builds_from_generated_demo_local_agent_tree(
             repo_root
             / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-codex-default.yaml"
         ).resolve()
+        if tool == "codex"
+        else (
+            repo_root
+            / "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-kimi-default.yaml"
+        ).resolve()
     )
-    assert (generated_agent_def_dir / "tools/codex/auth/default").is_symlink()
+    assert (generated_agent_def_dir / "tools" / tool / "auth/default").is_symlink()
 
 
 def test_validate_recorded_fixture_persists_validation_outputs(
@@ -257,9 +282,9 @@ def test_validate_recorded_fixture_persists_validation_outputs(
     recording_root.mkdir(parents=True)
     fixture_manifest = RecordedFixtureManifest(
         schema_version=1,
-        case_id="claude-explicit-success",
-        tool="claude",
-        observed_version="claude 1.0.0",
+        case_id="kimi_explicit_success",
+        tool="kimi",
+        observed_version="kimi 1.0.0",
         settle_seconds=1.0,
         description="Synthetic validation fixture",
     )
@@ -279,6 +304,8 @@ def test_validate_recorded_fixture_persists_validation_outputs(
         def to_payload(self) -> dict[str, object]:
             return {"mismatches": 0}
 
+    replay_calls: list[dict[str, object]] = []
+
     monkeypatch.setattr(
         recorded,
         "_load_recorder_manifest",
@@ -295,11 +322,12 @@ def test_validate_recorded_fixture_persists_validation_outputs(
         lambda **_: [_TimelineRow("groundtruth-sample")],
     )
     monkeypatch.setattr(recorded, "load_input_events", lambda _path: [])
-    monkeypatch.setattr(
-        recorded,
-        "replay_timeline",
-        lambda **_: ([_TimelineRow("replay-sample")], []),
-    )
+
+    def fake_replay_timeline(**kwargs: object) -> tuple[list[_TimelineRow], list[object]]:
+        replay_calls.append(kwargs)
+        return [_TimelineRow("replay-sample")], []
+
+    monkeypatch.setattr(recorded, "replay_timeline", fake_replay_timeline)
     monkeypatch.setattr(
         recorded,
         "compare_timelines",
@@ -318,11 +346,90 @@ def test_validate_recorded_fixture_persists_validation_outputs(
     )
 
     assert result.run_root == (tmp_path / "validation-run").resolve()
+    assert result.manifest.tool == "kimi"
+    assert result.manifest.observed_version == "kimi 1.0.0"
+    assert replay_calls[0]["tool"] == "kimi"
+    assert replay_calls[0]["observed_version"] == "kimi 1.0.0"
     assert (result.run_root / "artifacts/recorded_validation_manifest.json").is_file()
     assert (result.run_root / "analysis/groundtruth_timeline.ndjson").is_file()
     assert (result.run_root / "analysis/replay_timeline.ndjson").is_file()
     assert (result.run_root / "analysis/comparison.json").is_file()
     assert (result.run_root / "analysis/summary_report.md").is_file()
+
+
+def test_validate_recorded_fixture_accepts_explicit_kimi_without_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture_root = tmp_path / "fixture-root" / "kimi_explicit_success"
+    recording_root = fixture_root / "recording"
+    recording_root.mkdir(parents=True)
+
+    class _TimelineRow:
+        def __init__(self, sample_id: str) -> None:
+            self.m_sample_id = sample_id
+
+        def to_payload(self) -> dict[str, object]:
+            return {"sample_id": self.m_sample_id}
+
+    class _Comparison:
+        def to_payload(self) -> dict[str, object]:
+            return {"mismatches": 0}
+
+    replay_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        recorded,
+        "_load_recorder_manifest",
+        lambda _path: SimpleNamespace(sample_interval_seconds=0.2),
+    )
+    monkeypatch.setattr(
+        recorded,
+        "load_fixture_inputs",
+        lambda **_: SimpleNamespace(observations=[], snapshots=[]),
+    )
+    monkeypatch.setattr(
+        recorded,
+        "expand_labels_to_groundtruth_timeline",
+        lambda **_: [_TimelineRow("groundtruth-sample")],
+    )
+    monkeypatch.setattr(recorded, "load_input_events", lambda _path: [])
+
+    def fake_replay_timeline(**kwargs: object) -> tuple[list[_TimelineRow], list[object]]:
+        replay_calls.append(kwargs)
+        return [_TimelineRow("replay-sample")], []
+
+    monkeypatch.setattr(recorded, "replay_timeline", fake_replay_timeline)
+    monkeypatch.setattr(
+        recorded,
+        "compare_timelines",
+        lambda **_: (_Comparison(), "comparison markdown\n"),
+    )
+    monkeypatch.setattr(recorded, "build_recorded_run_issues", lambda **_: [])
+    monkeypatch.setattr(recorded, "write_issue_documents", lambda **_: [])
+    monkeypatch.setattr(recorded, "build_recorded_summary_report", lambda **_: "summary report\n")
+
+    result = recorded.validate_recorded_fixture(
+        repo_root=tmp_path,
+        demo_config=_build_demo_config(tmp_path),
+        fixture_root=fixture_root,
+        output_root=tmp_path / "validation-run",
+        tool="kimi",
+        observed_version="kimi 1.0.0",
+        settle_seconds=1.0,
+        render_review_video=False,
+    )
+
+    assert result.manifest.tool == "kimi"
+    assert replay_calls == [
+        {
+            "observations": [],
+            "tool": "kimi",
+            "observed_version": "kimi 1.0.0",
+            "settle_seconds": 1.0,
+            "input_events": [],
+        }
+    ]
 
 
 @pytest.mark.parametrize(

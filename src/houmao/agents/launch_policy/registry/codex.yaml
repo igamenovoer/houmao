@@ -20,6 +20,14 @@ strategies:
         - Caller launch args and config overrides that target unattended-owned no-prompt surfaces are canonicalized away.
         - Final Codex CLI --config overrides force approval_policy, sandbox_mode, notice.hide_full_access_warning, and tui.show_tooltips over project-local config.
         - User-authored no-prompt config files are not required.
+    system_prompt_bootstrap:
+      native_system_prompt: true
+      provider_skills: true
+      startup_visible_skill_metadata: false
+      evidence:
+        - kind: source_reference
+          ref: src/houmao/agents/realm_controller/backends/codex_headless.py
+          note: Maintained Codex launches use native developer instructions through CLI config or app-server request parameters.
     evidence:
       - kind: source_reference
         ref: extern/orphan/codex/codex-rs/app-server/tests/suite/auth.rs

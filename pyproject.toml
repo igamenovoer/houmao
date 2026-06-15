@@ -1,6 +1,6 @@
 [project]
 name = "Houmao"
-version = "1.0.0"
+version = "1.1.0"
 description = "Framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,7 @@ dependencies = [
   "starlette>=0.46,<2",
   "uvicorn>=0.41.0,<0.42",
   "networkx>=3.6.1,<4",
+  "ag-ui-protocol>=0.1.19,<0.2", "pytest-xdist>=3.8.0,<4", "altair>=6.2.1,<7",
 ]
 
 [project.scripts]
@@ -101,7 +102,7 @@ addopts = "--import-mode=importlib"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
 
 [tool.pixi.pypi-dependencies]
 houmao = { path = ".", editable = true }
@@ -140,7 +141,7 @@ docs-serve = { cmd = "mkdocs serve --dev-addr 127.0.0.1:8000", description = "Se
 format = { cmd = "ruff format src tests docs scripts", description = "Format runtime source, tests, docs, and scripts" }
 lint = { cmd = "ruff check src tests docs scripts", description = "Run Ruff lint checks" }
 typecheck = { cmd = "mypy src", description = "Run strict mypy checks" }
-test = { cmd = "python -m pytest tests/unit", description = "Run destination unit tests" }
+test = { cmd = "workers=$(python -c 'import os; print(max(1, (os.cpu_count() or 2) // 2))'); python -m pytest tests/unit -n \"$workers\"", description = "Run destination unit tests in parallel using half the available CPU cores" }
 test-runtime = { cmd = "python -m pytest tests/unit/agents tests/unit/cao", description = "Run runtime-focused unit suites" }
 build-dist = { cmd = "python -m build --sdist --wheel", description = "Build sdist and wheel artifacts" }
 check-dist = { cmd = "python -m twine check dist/*", description = "Validate built package metadata" }

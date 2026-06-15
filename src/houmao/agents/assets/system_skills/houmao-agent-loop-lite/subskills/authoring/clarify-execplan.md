@@ -14,6 +14,16 @@ Require:
 - `<loop-dir>`
 - generated lite `execplan/` material
 
+## Chat Visuals
+
+When showing generated Markdown, template, SQLite state, generated skill, agent-binding, coverage, or implementation shape directly in the chat session:
+
+- Use fenced `text` code blocks or plain monospaced ASCII/text diagrams.
+- Prefer simple ASCII characters such as `+---+`, `|`, and `->` so provider TUI chat can display the diagram without Mermaid rendering support.
+- Do not use fenced `mermaid` code blocks for chat visual summaries.
+- This chat-output rule does not change generated lite execplan artifact behavior.
+- Mark unknown, contradictory, or stale parts as `Unknown`, `Contradictory`, or `Stale`; do not invent hidden policy.
+
 ## Actions
 
 1. Read generated Markdown contracts, templates, state README/schema, generated skills, and agent bindings.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -63,6 +65,13 @@ from .runtime_bridge import (
 )
 
 
+SUPPORTED_ANALYZE_TOOLS = {"claude", "codex", "kimi"}
+SUPPORTED_RECORD_TOOLS = ("claude", "codex", "kimi")
+DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS = 0.5
+PANE_CAPTURE_COMMAND = "tmux capture-pane -p -e -S -"
+OUTPUT_TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
 class TerminalRecordError(RuntimeError):
     """Raised when terminal recorder operations cannot proceed."""
 
@@ -76,6 +85,8 @@ class TerminalRecordController:
         self.m_manifest = load_manifest(Path(self.m_live_state.manifest_path))
         self.m_paths = TerminalRecordPaths.from_run_root(run_root=Path(self.m_manifest.run_root))
         self.m_repo_root = Path(self.m_manifest.repo_root)
+        self.m_next_sample_index = _next_snapshot_index(self.m_paths.pane_snapshots_path)
+        self.m_duration_elapsed = False
 
     def run(self) -> int:
         """Run the recorder controller loop."""
@@ -109,6 +120,7 @@ class TerminalRecordController:
     def _sampling_loop(self) -> None:
         """Persist pane snapshots until stop is requested or recorder exits."""
 
+        visual_recording_exited = False
         while True:
             self._capture_snapshot()
             if self._active_mode_has_extra_clients():
@@ -118,11 +130,16 @@ class TerminalRecordController:
                     status="stopping", controller_pid=os.getpid(), last_error=None
                 )
                 return
-            if self._recorder_session_stopped():
+            if self._duration_reached():
+                self.m_duration_elapsed = True
                 self._write_live_state(
                     status="stopping", controller_pid=os.getpid(), last_error=None
                 )
                 return
+            if self._recorder_session_stopped():
+                if not visual_recording_exited:
+                    self._taint_run("visual_recording_exited")
+                    visual_recording_exited = True
             time.sleep(self.m_manifest.sample_interval_seconds)
 
     def _launch_recorder_session(self) -> None:
@@ -151,19 +168,20 @@ class TerminalRecordController:
         """Capture one pane snapshot and append it to disk."""
 
         output_text = capture_tmux_pane(target=self.m_manifest.target.pane_id)
-        existing_count = 0
-        if self.m_paths.pane_snapshots_path.is_file():
-            existing_count = sum(
-                1 for _ in self.m_paths.pane_snapshots_path.open("r", encoding="utf-8")
-            )
+        width, height = _target_pane_dimensions(target=self.m_manifest.target.pane_id)
         snapshot = TerminalRecordPaneSnapshot(
-            sample_id=f"s{existing_count + 1:06d}",
+            sample_id=f"s{self.m_next_sample_index:06d}",
             elapsed_seconds=_elapsed_seconds(self.m_manifest.started_at_utc),
             ts_utc=now_utc_iso(),
             target_pane_id=self.m_manifest.target.pane_id,
             output_text=output_text,
+            target_pane_width=width,
+            target_pane_height=height,
+            capture_command=PANE_CAPTURE_COMMAND,
+            output_text_sha256=hashlib.sha256(output_text.encode("utf-8")).hexdigest(),
         )
         append_ndjson(self.m_paths.pane_snapshots_path, snapshot.to_payload())
+        self.m_next_sample_index += 1
 
     def _stop_requested(self) -> bool:
         """Return whether stop has been requested for this run."""
@@ -177,6 +195,13 @@ class TerminalRecordController:
 
         result = has_tmux_session(session_name=self.m_manifest.recorder_session_name)
         return result.returncode != 0
+
+    def _duration_reached(self) -> bool:
+        """Return whether the optional capture duration has elapsed."""
+
+        if self.m_manifest.duration_seconds is None:
+            return False
+        return _elapsed_seconds(self.m_manifest.started_at_utc) >= self.m_manifest.duration_seconds
 
     def _active_mode_has_extra_clients(self) -> bool:
         """Return whether active mode lost exclusive tmux-client posture."""
@@ -210,6 +235,7 @@ class TerminalRecordController:
             started_at_utc=self.m_manifest.started_at_utc,
             stopped_at_utc=self.m_manifest.stopped_at_utc,
             stop_reason=self.m_manifest.stop_reason,
+            duration_seconds=self.m_manifest.duration_seconds,
         )
         save_manifest(self.m_paths.manifest_path, self.m_manifest)
 
@@ -218,6 +244,8 @@ class TerminalRecordController:
 
         if self.m_live_state.stop_requested_at_utc is not None:
             return "stop_requested"
+        if self.m_duration_elapsed:
+            return "duration_elapsed"
         return "recorder_session_exited"
 
     def _finalize(self, *, stop_reason: str) -> None:
@@ -291,6 +319,7 @@ class TerminalRecordController:
             started_at_utc=self.m_manifest.started_at_utc,
             stopped_at_utc=stopped_at_utc,
             stop_reason=stop_reason,
+            duration_seconds=self.m_manifest.duration_seconds,
         )
         save_manifest(self.m_paths.manifest_path, self.m_manifest)
 
@@ -330,12 +359,15 @@ def start_terminal_record(
     tool: str | None,
     run_root: Path | None,
     sample_interval_seconds: float,
+    duration_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Start one terminal recorder controller process."""
 
     ensure_tmux_available()
     if sample_interval_seconds <= 0:
         raise TerminalRecordError("sample_interval_seconds must be positive")
+    if duration_seconds is not None and duration_seconds <= 0:
+        raise TerminalRecordError("duration_seconds must be positive when provided")
     target = resolve_terminal_record_target(
         target_session=target_session,
         target_pane=target_pane,
@@ -377,6 +409,7 @@ def start_terminal_record(
         started_at_utc=now_utc_iso(),
         stopped_at_utc=None,
         stop_reason=None,
+        duration_seconds=duration_seconds,
     )
     live_state = TerminalRecordLiveState(
         schema_version=TERMINAL_RECORD_SCHEMA_VERSION,
@@ -496,33 +529,49 @@ def stop_terminal_record(*, run_root: Path) -> dict[str, Any]:
     }
 
 
-def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, Any]:
+def analyze_terminal_record(
+    *,
+    run_root: Path,
+    tool: str | None,
+    snapshots_path: Path | None = None,
+    output_tag: str | None = None,
+) -> dict[str, Any]:
     """Derive parser and state observations from one recorder run."""
 
     paths = TerminalRecordPaths.from_run_root(run_root=run_root)
     manifest = load_manifest(paths.manifest_path)
     selected_tool = tool or manifest.tool
-    if selected_tool not in {"claude", "codex"}:
+    if selected_tool not in SUPPORTED_ANALYZE_TOOLS:
         raise TerminalRecordError(
-            "analyze requires recorder manifest tool to be one of `claude` or `codex`, "
+            "analyze requires recorder manifest tool to be one of `claude`, `codex`, or `kimi`, "
             "or an explicit --tool override."
         )
 
-    parser_stack = ShadowParserStack(tool=selected_tool)
+    parser_stack = None if selected_tool == "kimi" else ShadowParserStack(tool=selected_tool)
+    selected_snapshots_path = (
+        snapshots_path.resolve() if snapshots_path is not None else paths.pane_snapshots_path
+    )
+    parser_observed_path, state_observed_path = _observed_output_paths(
+        paths=paths, output_tag=output_tag
+    )
     parser_payloads: list[dict[str, Any]] = []
     observations: list[RecordedObservation] = []
     parser_payload_by_sample_id: dict[str, dict[str, Any]] = {}
-    for snapshot in _load_snapshots(paths.pane_snapshots_path):
-        parsed = parser_stack.parse_snapshot(
-            snapshot.output_text,
-            baseline_pos=0,
-        )
-        assessment = parsed.surface_assessment
-        projection = parsed.dialog_projection
-        parser_payloads.append(
-            {
+    source_sample_by_sample_id: dict[str, str | None] = {}
+    for snapshot in _load_snapshots(selected_snapshots_path):
+        if parser_stack is None:
+            parser_payload = _parse_kimi_snapshot_payload(snapshot)
+        else:
+            parsed = parser_stack.parse_snapshot(
+                snapshot.output_text,
+                baseline_pos=0,
+            )
+            assessment = parsed.surface_assessment
+            projection = parsed.dialog_projection
+            parser_payload = {
                 "sample_id": snapshot.sample_id,
                 "elapsed_seconds": snapshot.elapsed_seconds,
+                "source_sample_id": snapshot.source_sample_id,
                 "availability": assessment.availability,
                 "business_state": assessment.business_state,
                 "input_mode": assessment.input_mode,
@@ -541,8 +590,9 @@ def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, An
                 "dialog_tail": projection.tail,
                 "normalized_text": projection.normalized_text,
             }
-        )
-        parser_payload_by_sample_id[snapshot.sample_id] = parser_payloads[-1]
+        parser_payloads.append(parser_payload)
+        parser_payload_by_sample_id[snapshot.sample_id] = parser_payload
+        source_sample_by_sample_id[snapshot.sample_id] = snapshot.source_sample_id
         observations.append(
             RecordedObservation(
                 sample_id=snapshot.sample_id,
@@ -575,6 +625,7 @@ def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, An
             {
                 "sample_id": item.sample_id,
                 "elapsed_seconds": item.elapsed_seconds,
+                "source_sample_id": source_sample_by_sample_id.get(item.sample_id),
                 "diagnostics_availability": item.diagnostics_availability,
                 "surface_accepting_input": item.surface_accepting_input,
                 "surface_editing_input": item.surface_editing_input,
@@ -602,14 +653,157 @@ def analyze_terminal_record(*, run_root: Path, tool: str | None) -> dict[str, An
             }
         )
 
-    overwrite_ndjson(paths.parser_observed_path, parser_payloads)
-    overwrite_ndjson(paths.state_observed_path, state_payloads)
+    overwrite_ndjson(parser_observed_path, parser_payloads)
+    overwrite_ndjson(state_observed_path, state_payloads)
     return {
         "run_id": manifest.run_id,
         "tool": selected_tool,
-        "parser_observed_path": str(paths.parser_observed_path),
-        "state_observed_path": str(paths.state_observed_path),
+        "snapshots_path": str(selected_snapshots_path),
+        "parser_observed_path": str(parser_observed_path),
+        "state_observed_path": str(state_observed_path),
         "sample_count": len(parser_payloads),
+    }
+
+
+def derive_terminal_record_stream(
+    *,
+    run_root: Path,
+    source_path: Path | None = None,
+    output_path: Path | None = None,
+    target_sample_interval_seconds: float = DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS,
+) -> dict[str, Any]:
+    """Derive one low-rate snapshot stream from a high-rate source stream."""
+
+    if target_sample_interval_seconds <= 0:
+        raise TerminalRecordError("target_sample_interval_seconds must be positive")
+    paths = TerminalRecordPaths.from_run_root(run_root=run_root)
+    selected_source = (
+        source_path.resolve() if source_path is not None else paths.pane_snapshots_path
+    )
+    selected_output = (
+        output_path.resolve() if output_path is not None else paths.derived_2fps_snapshots_path
+    )
+    source_snapshots = _load_snapshots(selected_source)
+    if not source_snapshots:
+        raise TerminalRecordError(f"No source snapshots found in `{selected_source}`.")
+
+    first_elapsed = source_snapshots[0].elapsed_seconds
+    last_elapsed = source_snapshots[-1].elapsed_seconds
+    selected_snapshots: list[TerminalRecordPaneSnapshot] = []
+    boundary = first_elapsed
+    last_source_id: str | None = None
+    while boundary <= last_elapsed + target_sample_interval_seconds / 2:
+        nearest = min(source_snapshots, key=lambda item: abs(item.elapsed_seconds - boundary))
+        if nearest.sample_id != last_source_id:
+            selected_snapshots.append(nearest)
+            last_source_id = nearest.sample_id
+        boundary += target_sample_interval_seconds
+
+    derived: list[TerminalRecordPaneSnapshot] = []
+    for index, source in enumerate(selected_snapshots, start=1):
+        derived.append(
+            TerminalRecordPaneSnapshot(
+                sample_id=f"d{index:06d}",
+                elapsed_seconds=source.elapsed_seconds,
+                ts_utc=source.ts_utc,
+                target_pane_id=source.target_pane_id,
+                output_text=source.output_text,
+                target_pane_width=source.target_pane_width,
+                target_pane_height=source.target_pane_height,
+                capture_command=source.capture_command,
+                stream_kind="derived",
+                source_sample_id=source.source_sample_id or source.sample_id,
+                source_elapsed_seconds=source.source_elapsed_seconds or source.elapsed_seconds,
+                output_text_sha256=source.output_text_sha256,
+            )
+        )
+    overwrite_ndjson(selected_output, [item.to_payload() for item in derived])
+    return {
+        "run_root": str(paths.run_root),
+        "source_path": str(selected_source),
+        "output_path": str(selected_output),
+        "target_sample_interval_seconds": target_sample_interval_seconds,
+        "source_sample_count": len(source_snapshots),
+        "derived_sample_count": len(derived),
+    }
+
+
+def validate_terminal_record(
+    *,
+    run_root: Path,
+    labels_path: Path | None = None,
+    state_path: Path | None = None,
+    parser_path: Path | None = None,
+) -> dict[str, Any]:
+    """Compare observed parser/tracker output against structured labels."""
+
+    paths = TerminalRecordPaths.from_run_root(run_root=run_root)
+    selected_labels_path = labels_path.resolve() if labels_path is not None else paths.labels_path
+    selected_state_path = (
+        state_path.resolve() if state_path is not None else paths.state_observed_path
+    )
+    selected_parser_path = (
+        parser_path.resolve() if parser_path is not None else paths.parser_observed_path
+    )
+    if not selected_labels_path.is_file():
+        raise TerminalRecordError(f"Labels file does not exist: {selected_labels_path}")
+    if not selected_state_path.is_file():
+        raise TerminalRecordError(f"State observation file does not exist: {selected_state_path}")
+
+    labels = load_labels(selected_labels_path)
+    state_rows = _load_ndjson_payloads(selected_state_path)
+    parser_rows = _load_ndjson_payloads(selected_parser_path)
+    parser_by_sample_id = {
+        str(item["sample_id"]): item for item in parser_rows if "sample_id" in item
+    }
+    sample_order = _sample_order_from_rows(state_rows)
+    failures: list[dict[str, Any]] = []
+    checked = 0
+
+    for label in labels.labels:
+        matching_rows = _rows_for_label(label=label, rows=state_rows, sample_order=sample_order)
+        if not matching_rows:
+            failures.append(
+                {
+                    "label_id": label.label_id,
+                    "sample_id": label.sample_id,
+                    "sample_end_id": label.sample_end_id,
+                    "error": "no_observed_rows_for_label",
+                }
+            )
+            continue
+        for row in matching_rows:
+            checked += 1
+            merged = dict(row)
+            parser_payload = parser_by_sample_id.get(str(row.get("sample_id")))
+            if parser_payload is not None:
+                for key, value in parser_payload.items():
+                    merged.setdefault(key, value)
+            for key, expected in label.expectations.items():
+                actual = merged.get(key)
+                if actual == expected:
+                    continue
+                failures.append(
+                    {
+                        "label_id": label.label_id,
+                        "sample_id": row.get("sample_id"),
+                        "source_sample_id": row.get("source_sample_id"),
+                        "field": key,
+                        "expected": expected,
+                        "actual": actual,
+                    }
+                )
+
+    return {
+        "run_root": str(paths.run_root),
+        "labels_path": str(selected_labels_path),
+        "state_path": str(selected_state_path),
+        "parser_path": str(selected_parser_path),
+        "label_count": len(labels.labels),
+        "checked_sample_count": checked,
+        "failure_count": len(failures),
+        "passed": not failures,
+        "failures": failures,
     }
 
 
@@ -623,6 +817,7 @@ def add_terminal_record_label(
     scenario_id: str | None,
     expectations: dict[str, Any],
     note: str | None,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Append or replace one structured recorder label."""
 
@@ -646,6 +841,7 @@ def add_terminal_record_label(
             sample_end_id=sample_end_id,
             expectations=expectations,
             note=note,
+            evidence=evidence or {},
         )
     )
     save_labels(
@@ -742,13 +938,14 @@ def _build_parser() -> argparse.ArgumentParser:
     start.add_argument("--mode", choices=["active", "passive"], required=True)
     start.add_argument("--target-session", required=True)
     start.add_argument("--target-pane", default=None)
-    start.add_argument("--tool", choices=["claude", "codex"], default=None)
+    start.add_argument("--tool", choices=SUPPORTED_RECORD_TOOLS, default=None)
     start.add_argument("--run-root", type=Path, default=None)
     start.add_argument(
         "--sample-interval-seconds",
         type=float,
         default=DEFAULT_SAMPLE_INTERVAL_SECONDS,
     )
+    start.add_argument("--duration-seconds", type=float, default=None)
 
     status = subparsers.add_parser("status", help="Inspect one recorder run")
     status.add_argument("--run-root", type=Path, required=True)
@@ -758,7 +955,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     analyze = subparsers.add_parser("analyze", help="Analyze one recorder run")
     analyze.add_argument("--run-root", type=Path, required=True)
-    analyze.add_argument("--tool", choices=["claude", "codex"], default=None)
+    analyze.add_argument("--tool", choices=SUPPORTED_RECORD_TOOLS, default=None)
+    analyze.add_argument("--snapshots-path", type=Path, default=None)
+    analyze.add_argument("--output-tag", default=None)
+
+    derive_stream = subparsers.add_parser(
+        "derive-stream",
+        help="Derive a low-rate snapshot stream from a high-rate recorder stream",
+    )
+    derive_stream.add_argument("--run-root", type=Path, required=True)
+    derive_stream.add_argument("--source-path", type=Path, default=None)
+    derive_stream.add_argument("--output-path", type=Path, default=None)
+    derive_stream.add_argument(
+        "--target-sample-interval-seconds",
+        type=float,
+        default=DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS,
+    )
+
+    validate = subparsers.add_parser("validate", help="Validate observations against labels")
+    validate.add_argument("--run-root", type=Path, required=True)
+    validate.add_argument("--labels-path", type=Path, default=None)
+    validate.add_argument("--state-path", type=Path, default=None)
+    validate.add_argument("--parser-path", type=Path, default=None)
 
     add_label = subparsers.add_parser("add-label", help="Persist one structured recorder label")
     add_label.add_argument("--run-root", type=Path, required=True)
@@ -780,6 +998,8 @@ def _build_parser() -> argparse.ArgumentParser:
     add_label.add_argument("--readiness-state", default=None)
     add_label.add_argument("--completion-state", default=None)
     add_label.add_argument("--note", default=None)
+    add_label.add_argument("--evidence-note", action="append", default=[])
+    add_label.add_argument("--evidence-json", default=None)
 
     controller = subparsers.add_parser("_controller-run")
     controller.add_argument("--live-state-path", type=Path, required=True)
@@ -800,6 +1020,9 @@ def main(argv: list[str] | None = None) -> int:
                 tool=str(args.tool) if args.tool is not None else None,
                 run_root=args.run_root,
                 sample_interval_seconds=float(args.sample_interval_seconds),
+                duration_seconds=(
+                    float(args.duration_seconds) if args.duration_seconds is not None else None
+                ),
             )
             print(json.dumps(payload, indent=2, sort_keys=True))
             return 0
@@ -816,7 +1039,40 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "analyze":
             print(
                 json.dumps(
-                    analyze_terminal_record(run_root=args.run_root, tool=args.tool),
+                    analyze_terminal_record(
+                        run_root=args.run_root,
+                        tool=args.tool,
+                        snapshots_path=args.snapshots_path,
+                        output_tag=args.output_tag,
+                    ),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command == "derive-stream":
+            print(
+                json.dumps(
+                    derive_terminal_record_stream(
+                        run_root=args.run_root,
+                        source_path=args.source_path,
+                        output_path=args.output_path,
+                        target_sample_interval_seconds=float(args.target_sample_interval_seconds),
+                    ),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command == "validate":
+            print(
+                json.dumps(
+                    validate_terminal_record(
+                        run_root=args.run_root,
+                        labels_path=args.labels_path,
+                        state_path=args.state_path,
+                        parser_path=args.parser_path,
+                    ),
                     indent=2,
                     sort_keys=True,
                 )
@@ -854,6 +1110,10 @@ def main(argv: list[str] | None = None) -> int:
                         scenario_id=str(args.scenario_id) if args.scenario_id is not None else None,
                         expectations=expectations,
                         note=str(args.note) if args.note is not None else None,
+                        evidence=_build_label_evidence(
+                            evidence_json=args.evidence_json,
+                            evidence_notes=tuple(str(item) for item in args.evidence_note),
+                        ),
                     ),
                     indent=2,
                     sort_keys=True,
@@ -874,6 +1134,238 @@ def _repo_root() -> Path:
     """Return the repository root from this module location."""
 
     return Path(__file__).resolve().parents[3]
+
+
+def _parse_kimi_snapshot_payload(snapshot: TerminalRecordPaneSnapshot) -> dict[str, Any]:
+    """Return parser-facing Kimi observations for one recorded snapshot."""
+
+    from houmao.shared_tui_tracking.apps.kimi_code.profile import analyze_kimi_surface
+
+    analysis = analyze_kimi_surface(snapshot.output_text)
+    if analysis.approval_visible:
+        business_state = "awaiting_operator"
+        input_mode = "modal"
+        ui_context = "approval"
+    elif analysis.activity_visible:
+        business_state = "working"
+        input_mode = "none"
+        ui_context = "normal_prompt"
+    elif analysis.prompt.prompt_visible:
+        business_state = "idle"
+        input_mode = "freeform"
+        ui_context = "normal_prompt"
+    else:
+        business_state = "unknown"
+        input_mode = "unknown"
+        ui_context = "unknown"
+
+    return {
+        "sample_id": snapshot.sample_id,
+        "elapsed_seconds": snapshot.elapsed_seconds,
+        "source_sample_id": snapshot.source_sample_id,
+        "availability": "available",
+        "business_state": business_state,
+        "input_mode": input_mode,
+        "ui_context": ui_context,
+        "parser_preset_id": "kimi_code_tui_recorded",
+        "parser_preset_version": "0.1",
+        "baseline_invalidated": False,
+        "anomaly_codes": [],
+        "dialog_tail": None,
+        "normalized_text": "\n".join(snapshot.output_text.splitlines()[-40:]),
+        "approval_header": analysis.approval_header,
+        "approval_choice_count": analysis.approval_choice_count,
+        "prompt_style": analysis.prompt.prompt_style,
+        "prompt_text": analysis.prompt.prompt_text,
+        "footer_model_thinking": analysis.footer_model_thinking,
+        "notes": list(analysis.notes),
+    }
+
+
+def _observed_output_paths(
+    *,
+    paths: TerminalRecordPaths,
+    output_tag: str | None,
+) -> tuple[Path, Path]:
+    """Return parser/state output paths for one optional stream tag."""
+
+    if output_tag is None:
+        return paths.parser_observed_path, paths.state_observed_path
+    if OUTPUT_TAG_RE.match(output_tag) is None:
+        raise TerminalRecordError("output_tag may only contain letters, digits, `_`, `.`, or `-`")
+    return (
+        paths.run_root / f"parser_observed_{output_tag}.ndjson",
+        paths.run_root / f"state_observed_{output_tag}.ndjson",
+    )
+
+
+def _target_pane_dimensions(*, target: str) -> tuple[int | None, int | None]:
+    """Return target pane dimensions when tmux can report them."""
+
+    try:
+        result = run_tmux(["display-message", "-p", "-t", target, "#{pane_width} #{pane_height}"])
+    except TmuxCommandError:
+        return None, None
+    if result.returncode != 0:
+        return None, None
+    parts = result.stdout.strip().split()
+    if len(parts) != 2:
+        return None, None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None, None
+
+
+def _next_snapshot_index(path: Path) -> int:
+    """Return the next source snapshot index for one NDJSON stream."""
+
+    if not path.is_file():
+        return 1
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()) + 1
+
+
+def _load_ndjson_payloads(path: Path) -> list[dict[str, Any]]:
+    """Load one NDJSON object stream."""
+
+    if not path.is_file():
+        return []
+    payloads: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError(f"Expected object row in `{path}`.")
+            payloads.append(payload)
+    return payloads
+
+
+def _sample_order_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Return sample/source-sample order from observed rows."""
+
+    order: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        sample_id = row.get("sample_id")
+        if isinstance(sample_id, str):
+            order.setdefault(sample_id, index)
+        source_sample_id = row.get("source_sample_id")
+        if isinstance(source_sample_id, str):
+            order.setdefault(source_sample_id, index)
+    return order
+
+
+def _rows_for_label(
+    *,
+    label: TerminalRecordLabel,
+    rows: list[dict[str, Any]],
+    sample_order: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Return observed rows covered by one sample/range label."""
+
+    return [
+        row for row in rows if _row_matches_label(label=label, row=row, sample_order=sample_order)
+    ]
+
+
+def _row_matches_label(
+    *,
+    label: TerminalRecordLabel,
+    row: dict[str, Any],
+    sample_order: dict[str, int],
+) -> bool:
+    """Return whether one observed row falls inside a label range."""
+
+    for key in ("sample_id", "source_sample_id"):
+        sample_id = row.get(key)
+        if isinstance(sample_id, str) and _sample_id_in_label_range(
+            sample_id=sample_id,
+            label=label,
+            sample_order=sample_order,
+        ):
+            return True
+    return False
+
+
+def _sample_id_in_label_range(
+    *,
+    sample_id: str,
+    label: TerminalRecordLabel,
+    sample_order: dict[str, int],
+) -> bool:
+    """Return whether one sample id is inside a label's inclusive range."""
+
+    if sample_id == label.sample_id:
+        return True
+    if label.sample_end_id is None:
+        return False
+    start = sample_order.get(label.sample_id)
+    end = sample_order.get(label.sample_end_id)
+    current = sample_order.get(sample_id)
+    if start is None or end is None or current is None:
+        return _sample_id_in_numeric_range(
+            sample_id=sample_id,
+            start_sample_id=label.sample_id,
+            end_sample_id=label.sample_end_id,
+        )
+    lower = min(start, end)
+    upper = max(start, end)
+    return lower <= current <= upper
+
+
+def _sample_id_in_numeric_range(
+    *,
+    sample_id: str,
+    start_sample_id: str,
+    end_sample_id: str,
+) -> bool:
+    """Return whether one sample id falls between two same-prefix ids."""
+
+    parsed_current = _parse_sample_id(sample_id)
+    parsed_start = _parse_sample_id(start_sample_id)
+    parsed_end = _parse_sample_id(end_sample_id)
+    if parsed_current is None or parsed_start is None or parsed_end is None:
+        return False
+    current_prefix, current_number = parsed_current
+    start_prefix, start_number = parsed_start
+    end_prefix, end_number = parsed_end
+    if current_prefix != start_prefix or current_prefix != end_prefix:
+        return False
+    lower = min(start_number, end_number)
+    upper = max(start_number, end_number)
+    return lower <= current_number <= upper
+
+
+def _parse_sample_id(sample_id: str) -> tuple[str, int] | None:
+    """Parse one sample identifier such as `s000001` or `d000001`."""
+
+    match = re.match(r"^([A-Za-z]+)(\d+)$", sample_id)
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+
+def _build_label_evidence(
+    *,
+    evidence_json: str | None,
+    evidence_notes: tuple[str, ...],
+) -> dict[str, Any]:
+    """Build one label evidence payload from CLI arguments."""
+
+    evidence: dict[str, Any] = {}
+    if evidence_json is not None:
+        payload = json.loads(evidence_json)
+        if not isinstance(payload, dict):
+            raise ValueError("--evidence-json must decode to a JSON object")
+        evidence.update(payload)
+    if evidence_notes:
+        existing_notes = evidence.get("notes", [])
+        if not isinstance(existing_notes, list):
+            raise ValueError("evidence.notes must be a list when present")
+        evidence["notes"] = [*existing_notes, *evidence_notes]
+    return evidence
 
 
 def _default_run_root(*, repo_root: Path, target_session: str) -> Path:
@@ -1024,6 +1516,36 @@ def _load_snapshots(path: Path) -> list[TerminalRecordPaneSnapshot]:
                     ts_utc=str(payload["ts_utc"]),
                     target_pane_id=str(payload["target_pane_id"]),
                     output_text=str(payload["output_text"]),
+                    target_pane_width=(
+                        int(payload["target_pane_width"])
+                        if payload.get("target_pane_width") is not None
+                        else None
+                    ),
+                    target_pane_height=(
+                        int(payload["target_pane_height"])
+                        if payload.get("target_pane_height") is not None
+                        else None
+                    ),
+                    capture_command=str(payload.get("capture_command", PANE_CAPTURE_COMMAND)),
+                    stream_kind=cast(
+                        Any,
+                        str(payload.get("stream_kind", "source")),
+                    ),
+                    source_sample_id=(
+                        str(payload["source_sample_id"])
+                        if payload.get("source_sample_id") is not None
+                        else None
+                    ),
+                    source_elapsed_seconds=(
+                        float(payload["source_elapsed_seconds"])
+                        if payload.get("source_elapsed_seconds") is not None
+                        else None
+                    ),
+                    output_text_sha256=(
+                        str(payload["output_text_sha256"])
+                        if payload.get("output_text_sha256") is not None
+                        else None
+                    ),
                 )
             )
     return snapshots

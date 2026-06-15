@@ -7,7 +7,7 @@ import logging
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
@@ -60,6 +60,11 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.registry_storage import (
     remove_live_agent_record,
+    resolve_known_managed_agent_records,
+)
+from houmao.agents.realm_controller.registry_models import (
+    LiveAgentRegistryRecordV2,
+    ManagedAgentRegistryRecordV3,
 )
 from houmao.passive_server.compatibility import (
     gateway_summary_from_status,
@@ -83,6 +88,9 @@ from houmao.passive_server.models import (
     DiscoveredAgentConflictResponse,
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
+    PassiveAgentAddressCandidate,
+    PassiveAgentAddressResolveResponse,
+    PassiveAgentGatewayAddress,
     PassiveAgentActionResponse,
     PassiveCurrentInstance,
     PassiveHeadlessLaunchRequest,
@@ -111,6 +119,45 @@ from houmao.server.models import (
 log = logging.getLogger(__name__)
 
 _GatewayProxyT = TypeVar("_GatewayProxyT")
+_AgentAddressStatus = Literal[
+    "offline",
+    "live_without_gateway",
+    "live_with_gateway",
+]
+
+
+def _address_candidate_from_record(
+    record: LiveAgentRegistryRecordV2 | ManagedAgentRegistryRecordV3,
+) -> PassiveAgentAddressCandidate:
+    """Build safe known-agent identity metadata from one registry record."""
+
+    lifecycle = getattr(record, "lifecycle", None)
+    lifecycle_state = str(lifecycle.state) if lifecycle is not None else "active"
+    relaunchable = bool(lifecycle.relaunchable) if lifecycle is not None else False
+    return PassiveAgentAddressCandidate(
+        agent_id=record.agent_id,
+        agent_name=record.agent_name,
+        lifecycle_state=lifecycle_state,
+        relaunchable=relaunchable,
+        tool=record.identity.tool,
+        backend=str(record.identity.backend),
+        manifest_path=record.runtime.manifest_path,
+        session_root=record.runtime.session_root,
+    )
+
+
+def _current_gateway_address(
+    record: LiveAgentRegistryRecordV2 | ManagedAgentRegistryRecordV3 | None,
+) -> PassiveAgentGatewayAddress | None:
+    """Return current gateway coordinates from a live record, if present."""
+
+    if record is None or record.gateway is None:
+        return None
+    return PassiveAgentGatewayAddress(
+        host=str(record.gateway.host),
+        port=record.gateway.port,
+        protocol_version=str(record.gateway.protocol_version),
+    )
 
 
 class PassiveServerService:
@@ -199,6 +246,83 @@ class PassiveServerService:
                 agent_ids=ids,
             )
         return None
+
+    def resolve_agent_address(self, agent_ref: str) -> PassiveAgentAddressResolveResponse:
+        """Resolve one durable agent address for AG-UI GUI attachment."""
+
+        known_records = list(
+            resolve_known_managed_agent_records(
+                agent_ref,
+                env=self.m_config.registry_helper_env(),
+            )
+        )
+        if not known_records:
+            live_by_id = self.m_discovery.index.get_by_id(agent_ref)
+            if live_by_id is not None:
+                known_records = [live_by_id.record]
+            else:
+                live_by_name = self.m_discovery.index.get_by_name(agent_ref)
+                if len(live_by_name) > 1:
+                    return PassiveAgentAddressResolveResponse(
+                        status="ambiguous",
+                        detail=(
+                            f"Ambiguous agent name: {len(live_by_name)} agents share this "
+                            "name. Disambiguate by agent_id."
+                        ),
+                        agent_ref=agent_ref,
+                        candidates=[
+                            _address_candidate_from_record(agent.record) for agent in live_by_name
+                        ],
+                    )
+                if len(live_by_name) == 1:
+                    known_records = [live_by_name[0].record]
+
+        if not known_records:
+            return PassiveAgentAddressResolveResponse(
+                status="unknown",
+                detail=f"Agent not found: {agent_ref}",
+                agent_ref=agent_ref,
+            )
+        if len(known_records) > 1:
+            return PassiveAgentAddressResolveResponse(
+                status="ambiguous",
+                detail=(
+                    f"Ambiguous agent name: {len(known_records)} known agents share this "
+                    "name. Disambiguate by agent_id."
+                ),
+                agent_ref=agent_ref,
+                candidates=[_address_candidate_from_record(record) for record in known_records],
+            )
+
+        record = known_records[0]
+        live_agent = self.m_discovery.index.get_by_id(record.agent_id)
+        gateway = _current_gateway_address(live_agent.record if live_agent is not None else None)
+        if live_agent is None:
+            status: _AgentAddressStatus = "offline"
+            detail = "Agent is known but no live gateway-capable session is currently discovered."
+        elif gateway is None:
+            status = "live_without_gateway"
+            detail = "Agent is live but has no current gateway coordinates."
+        else:
+            status = "live_with_gateway"
+            detail = "Agent is live and current gateway coordinates are available."
+
+        candidate = _address_candidate_from_record(record)
+        return PassiveAgentAddressResolveResponse(
+            status=status,
+            detail=detail,
+            agent_ref=agent_ref,
+            agent_id=candidate.agent_id,
+            agent_name=candidate.agent_name,
+            generation_id=record.generation_id,
+            lifecycle_state=candidate.lifecycle_state,
+            relaunchable=candidate.relaunchable,
+            tool=candidate.tool,
+            backend=candidate.backend,
+            manifest_path=candidate.manifest_path,
+            session_root=candidate.session_root,
+            gateway=gateway,
+        )
 
     # -- gateway proxy --------------------------------------------------------
 
@@ -905,6 +1029,7 @@ class PassiveServerService:
             remove_live_agent_record(
                 agent_id,
                 generation_id=resolved.record.generation_id,
+                env=self.m_config.registry_helper_env(),
             )
         except Exception as exc:
             log.warning("Error clearing registry for %s: %s", agent_id, exc)

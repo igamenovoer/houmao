@@ -8,6 +8,7 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyResult,
     LaunchPolicyStrategy,
     OperatorPromptMode,
+    SystemPromptBootstrapCapabilities,
 )
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "LaunchPolicyResult",
     "LaunchPolicyStrategy",
     "OperatorPromptMode",
+    "SystemPromptBootstrapCapabilities",
     "apply_launch_policy",
     "detect_tool_version",
 ]

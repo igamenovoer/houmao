@@ -24,7 +24,7 @@ flowchart TD
     U[User prompt] --> RT[Runtime<br/>send-prompt loop]
     RT --> TMUX[tmux pane capture<br/>or headless stdout]
     TMUX --> N[Normalize and strip ANSI]
-    N --> PP[Provider parser<br/>Claude or Codex]
+    N --> PP[Provider parser / detector profile<br/>Claude, Codex, or Kimi]
     PP --> SA[SurfaceAssessment]
     PP --> DP[DialogProjection]
     SA --> RM[Runtime monitor pipelines<br/>shared_tui_tracking + StreamStateReducer]
@@ -45,7 +45,7 @@ flowchart TD
 | `shared_tui_tracking/session.py` | standalone tracker session with internal Rx timers, detector profile resolution, and thread-safe live API |
 | `shared_tui_tracking/reducer.py` | `StreamStateReducer` compatibility wrapper for replay and batch reduction |
 | `shared_tui_tracking/detectors.py` | shared detector/profile contracts and compatibility exports |
-| `shared_tui_tracking/apps/<app_id>/` | per-tool detector profile implementations (Claude Code, Codex TUI, unsupported-tool fallback) |
+| `shared_tui_tracking/apps/<app_id>/` | per-tool detector profile implementations (Claude Code, Codex TUI, Kimi Code, unsupported-tool fallback) |
 | `backends/cao_rx_monitor.py` | legacy readiness/completion monitor pipelines for shadow-only sessions, post-submit evidence accumulation, stability timers, stalled recovery, and terminal result types |
 | `backends/cao_rest.py` | legacy poll loops, parser invocation, pipeline subscription, payload shaping, and error translation |
 | `backends/shadow_answer_association.py` | optional caller-side association helpers such as `TailRegexExtractAssociator` |

@@ -1,0 +1,32 @@
+{
+  "id": "kimi_tui_down_after_active",
+  "tool": "kimi",
+  "description": "Force a diagnostics-loss boundary by killing the tracked Kimi Code process mid-turn.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-long-prompt",
+      "text": "Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_active",
+      "name": "wait-for-active-surface",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "kill_supported_process",
+      "name": "kill-tracked-supported-process"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "allow-runtime-loss-sample",
+      "seconds": 1.0
+    }
+  ]
+}

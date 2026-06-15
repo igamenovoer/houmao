@@ -44,11 +44,12 @@ CredentialTargetKind = Literal["project", "agent_def_dir"]
 CredentialWriteOperation = Literal["add", "set"]
 CredentialLoginOperation = Literal["add", "set"]
 
-_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
+_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini", "kimi")
 _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude",
     "codex": "Codex",
     "gemini": "Gemini",
+    "kimi": "Kimi",
 }
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME = "claude_state.template.json"
@@ -60,10 +61,19 @@ _CLAUDE_VENDOR_LOGIN_FILE_SOURCES: frozenset[str] = frozenset(
         _CLAUDE_VENDOR_GLOBAL_STATE_FILENAME,
     }
 )
+_KIMI_CONFIG_FILENAME = "config.toml"
+_KIMI_CREDENTIAL_JSON_SOURCE = "credentials/kimi-code.json"
+_KIMI_CODE_HOME_FILE_SOURCES: frozenset[str] = frozenset(
+    {
+        _KIMI_CONFIG_FILENAME,
+        _KIMI_CREDENTIAL_JSON_SOURCE,
+    }
+)
 _PROVIDER_HOME_ENV_VARS: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
     "gemini": "GEMINI_CLI_HOME",
+    "kimi": "KIMI_CODE_HOME",
 }
 _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
     "claude": frozenset(
@@ -93,6 +103,17 @@ _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
             "GOOGLE_GENAI_USE_GCA",
             "GOOGLE_GENAI_USE_VERTEXAI",
             "GOOGLE_GEMINI_BASE_URL",
+        }
+    ),
+    "kimi": frozenset(
+        {
+            "KIMI_MODEL_NAME",
+            "KIMI_MODEL_API_KEY",
+            "KIMI_MODEL_PROVIDER_TYPE",
+            "KIMI_MODEL_BASE_URL",
+            "KIMI_CODE_BASE_URL",
+            "KIMI_CODE_OAUTH_HOST",
+            "KIMI_OAUTH_HOST",
         }
     ),
 }
@@ -160,6 +181,10 @@ def ensure_specialist_credential_bundle(
     google_api_key: str | None,
     use_vertex_ai: bool,
     gemini_oauth_creds: Path | None,
+    kimi_model_name: str | None,
+    kimi_config_toml: Path | None,
+    kimi_credential_json: Path | None,
+    kimi_code_home: Path | None,
 ) -> dict[str, object]:
     """Create, update, or reuse one project-backed credential for specialist creation."""
 
@@ -206,6 +231,21 @@ def ensure_specialist_credential_bundle(
         file_sources = (
             {"oauth_creds.json": gemini_oauth_creds} if gemini_oauth_creds is not None else {}
         )
+    elif tool == "kimi":
+        env_values = _compact_env_values(
+            {
+                "KIMI_MODEL_NAME": kimi_model_name,
+                "KIMI_MODEL_API_KEY": api_key,
+                "KIMI_MODEL_BASE_URL": base_url,
+            }
+        )
+        file_sources = _kimi_credential_file_sources(
+            config_toml=kimi_config_toml,
+            credential_json=kimi_credential_json,
+            code_home=kimi_code_home,
+        )
+        if kimi_code_home is not None:
+            clear_file_sources = set(_KIMI_CODE_HOME_FILE_SOURCES)
     else:
         raise click.ClickException(f"Unsupported specialist tool `{tool}`.")
 
@@ -472,6 +512,13 @@ def _build_tool_group(*, tool: str, project_only: bool, native_only: bool = Fals
         )
         tool_group.add_command(
             _build_gemini_login_command(project_only=project_only, native_only=native_only)
+        )
+    elif tool == "kimi":
+        tool_group.add_command(
+            _build_kimi_add_command(project_only=project_only, native_only=native_only)
+        )
+        tool_group.add_command(
+            _build_kimi_set_command(project_only=project_only, native_only=native_only)
         )
     else:
         raise click.ClickException(f"Unsupported credential tool `{tool}`.")
@@ -1275,6 +1322,294 @@ def _build_gemini_set_command(*, project_only: bool, native_only: bool = False) 
         plain="Update one Gemini credential.",
         project="Update one project-scoped Gemini credential.",
         native="Update one direct native-agent Gemini credential.",
+        project_only=project_only,
+        native_only=native_only,
+    )
+    return set_command
+
+
+def _build_kimi_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
+    """Build the Kimi `add` command."""
+
+    @click.command(name="add")
+    @_target_options(project_only, native_only=native_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option("--model-name", default=None, help="Value for `KIMI_MODEL_NAME`.")
+    @click.option("--api-key", default=None, help="Value for `KIMI_MODEL_API_KEY`.")
+    @click.option("--base-url", default=None, help="Value for `KIMI_MODEL_BASE_URL`.")
+    @click.option(
+        "--provider-type",
+        default=None,
+        help="Value for `KIMI_MODEL_PROVIDER_TYPE`.",
+    )
+    @click.option("--code-base-url", default=None, help="Value for `KIMI_CODE_BASE_URL`.")
+    @click.option("--code-oauth-host", default=None, help="Value for `KIMI_CODE_OAUTH_HOST`.")
+    @click.option("--oauth-host", default=None, help="Value for `KIMI_OAUTH_HOST`.")
+    @click.option(
+        "--disable-telemetry",
+        is_flag=True,
+        help="Store `KIMI_DISABLE_TELEMETRY=true` in the credential bundle env file.",
+    )
+    @click.option(
+        "--config-toml",
+        type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+        default=None,
+        help="Optional Kimi `config.toml` file.",
+    )
+    @click.option(
+        "--credential-json",
+        type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+        default=None,
+        help="Optional Kimi `credentials/kimi-code.json` file.",
+    )
+    @click.option(
+        "--code-home",
+        type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+        default=None,
+        help="Optional Kimi Code home to import `config.toml` and `credentials/kimi-code.json` from.",
+    )
+    def add_command(
+        name: str,
+        model_name: str | None,
+        api_key: str | None,
+        base_url: str | None,
+        provider_type: str | None,
+        code_base_url: str | None,
+        code_oauth_host: str | None,
+        oauth_host: str | None,
+        disable_telemetry: bool,
+        config_toml: Path | None,
+        credential_json: Path | None,
+        code_home: Path | None,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
+    ) -> None:
+        """Create one Kimi credential."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            native_only=native_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
+            allow_project_bootstrap=True,
+        )
+        emit(
+            _write_credential_bundle(
+                target=target,
+                tool="kimi",
+                name=name,
+                env_values=_compact_env_values(
+                    {
+                        "KIMI_MODEL_NAME": model_name,
+                        "KIMI_MODEL_API_KEY": api_key,
+                        "KIMI_MODEL_BASE_URL": base_url,
+                        "KIMI_MODEL_PROVIDER_TYPE": provider_type,
+                        "KIMI_CODE_BASE_URL": code_base_url,
+                        "KIMI_CODE_OAUTH_HOST": code_oauth_host,
+                        "KIMI_OAUTH_HOST": oauth_host,
+                        "KIMI_DISABLE_TELEMETRY": "true" if disable_telemetry else None,
+                    }
+                ),
+                file_sources=_kimi_credential_file_sources(
+                    config_toml=config_toml,
+                    credential_json=credential_json,
+                    code_home=code_home,
+                ),
+                require_any_input=True,
+                operation="add",
+                clear_env_names=set(),
+                clear_file_sources=set(),
+            )
+        )
+
+    add_command.__doc__ = _credential_command_doc(
+        plain="Create one Kimi credential.",
+        project="Create one project-scoped Kimi credential.",
+        native="Create one direct native-agent Kimi credential.",
+        project_only=project_only,
+        native_only=native_only,
+    )
+    return add_command
+
+
+def _build_kimi_set_command(*, project_only: bool, native_only: bool = False) -> click.Command:
+    """Build the Kimi `set` command."""
+
+    @click.command(name="set")
+    @_target_options(project_only, native_only=native_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option("--model-name", default=None, help="Value for `KIMI_MODEL_NAME`.")
+    @click.option("--api-key", default=None, help="Value for `KIMI_MODEL_API_KEY`.")
+    @click.option("--base-url", default=None, help="Value for `KIMI_MODEL_BASE_URL`.")
+    @click.option(
+        "--provider-type",
+        default=None,
+        help="Value for `KIMI_MODEL_PROVIDER_TYPE`.",
+    )
+    @click.option("--code-base-url", default=None, help="Value for `KIMI_CODE_BASE_URL`.")
+    @click.option("--code-oauth-host", default=None, help="Value for `KIMI_CODE_OAUTH_HOST`.")
+    @click.option("--oauth-host", default=None, help="Value for `KIMI_OAUTH_HOST`.")
+    @click.option(
+        "--disable-telemetry",
+        is_flag=True,
+        help="Store `KIMI_DISABLE_TELEMETRY=true` in the credential bundle env file.",
+    )
+    @click.option(
+        "--config-toml",
+        type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+        default=None,
+        help="Optional Kimi `config.toml` file.",
+    )
+    @click.option(
+        "--credential-json",
+        type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+        default=None,
+        help="Optional Kimi `credentials/kimi-code.json` file.",
+    )
+    @click.option(
+        "--code-home",
+        type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+        default=None,
+        help="Optional Kimi Code home to import `config.toml` and `credentials/kimi-code.json` from.",
+    )
+    @click.option(
+        "--clear-model-name",
+        is_flag=True,
+        help="Remove `KIMI_MODEL_NAME` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-api-key",
+        is_flag=True,
+        help="Remove `KIMI_MODEL_API_KEY` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-base-url",
+        is_flag=True,
+        help="Remove `KIMI_MODEL_BASE_URL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-provider-type",
+        is_flag=True,
+        help="Remove `KIMI_MODEL_PROVIDER_TYPE` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-code-base-url",
+        is_flag=True,
+        help="Remove `KIMI_CODE_BASE_URL` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-code-oauth-host",
+        is_flag=True,
+        help="Remove `KIMI_CODE_OAUTH_HOST` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-oauth-host",
+        is_flag=True,
+        help="Remove `KIMI_OAUTH_HOST` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-disable-telemetry",
+        is_flag=True,
+        help="Remove `KIMI_DISABLE_TELEMETRY` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-config-toml",
+        is_flag=True,
+        help="Remove `files/config.toml` from the credential bundle.",
+    )
+    @click.option(
+        "--clear-credential-json",
+        is_flag=True,
+        help="Remove `files/credentials/kimi-code.json` from the credential bundle.",
+    )
+    def set_command(
+        name: str,
+        model_name: str | None,
+        api_key: str | None,
+        base_url: str | None,
+        provider_type: str | None,
+        code_base_url: str | None,
+        code_oauth_host: str | None,
+        oauth_host: str | None,
+        disable_telemetry: bool,
+        config_toml: Path | None,
+        credential_json: Path | None,
+        code_home: Path | None,
+        clear_model_name: bool,
+        clear_api_key: bool,
+        clear_base_url: bool,
+        clear_provider_type: bool,
+        clear_code_base_url: bool,
+        clear_code_oauth_host: bool,
+        clear_oauth_host: bool,
+        clear_disable_telemetry: bool,
+        clear_config_toml: bool,
+        clear_credential_json: bool,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
+    ) -> None:
+        """Update one Kimi credential."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            native_only=native_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
+            allow_project_bootstrap=True,
+        )
+        emit(
+            _write_credential_bundle(
+                target=target,
+                tool="kimi",
+                name=name,
+                env_values=_compact_env_values(
+                    {
+                        "KIMI_MODEL_NAME": model_name,
+                        "KIMI_MODEL_API_KEY": api_key,
+                        "KIMI_MODEL_BASE_URL": base_url,
+                        "KIMI_MODEL_PROVIDER_TYPE": provider_type,
+                        "KIMI_CODE_BASE_URL": code_base_url,
+                        "KIMI_CODE_OAUTH_HOST": code_oauth_host,
+                        "KIMI_OAUTH_HOST": oauth_host,
+                        "KIMI_DISABLE_TELEMETRY": "true" if disable_telemetry else None,
+                    }
+                ),
+                file_sources=_kimi_credential_file_sources(
+                    config_toml=config_toml,
+                    credential_json=credential_json,
+                    code_home=code_home,
+                ),
+                require_any_input=True,
+                operation="set",
+                clear_env_names=_flagged_items(
+                    {
+                        "KIMI_MODEL_NAME": clear_model_name,
+                        "KIMI_MODEL_API_KEY": clear_api_key,
+                        "KIMI_MODEL_BASE_URL": clear_base_url,
+                        "KIMI_MODEL_PROVIDER_TYPE": clear_provider_type,
+                        "KIMI_CODE_BASE_URL": clear_code_base_url,
+                        "KIMI_CODE_OAUTH_HOST": clear_code_oauth_host,
+                        "KIMI_OAUTH_HOST": clear_oauth_host,
+                        "KIMI_DISABLE_TELEMETRY": clear_disable_telemetry,
+                    }
+                ),
+                clear_file_sources=_flagged_items(
+                    {
+                        _KIMI_CONFIG_FILENAME: clear_config_toml,
+                        _KIMI_CREDENTIAL_JSON_SOURCE: clear_credential_json,
+                    }
+                ),
+            )
+        )
+
+    set_command.__doc__ = _credential_command_doc(
+        plain="Update one Kimi credential.",
+        project="Update one project-scoped Kimi credential.",
+        native="Update one direct native-agent Kimi credential.",
         project_only=project_only,
         native_only=native_only,
     )
@@ -2427,6 +2762,42 @@ def _claude_credential_file_sources(
     if state_template_file is not None:
         file_sources[_CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME] = state_template_file
     file_sources.update(_resolve_claude_vendor_login_state_files(config_dir=config_dir))
+    return file_sources
+
+
+def _kimi_credential_file_sources(
+    *,
+    config_toml: Path | None,
+    credential_json: Path | None,
+    code_home: Path | None,
+) -> dict[str, Path]:
+    """Resolve Kimi credential file sources from optional inputs."""
+
+    if code_home is not None and (config_toml is not None or credential_json is not None):
+        raise click.ClickException(
+            "`--code-home` cannot be combined with `--config-toml` or `--credential-json`."
+        )
+
+    if code_home is not None:
+        resolved_home = code_home.resolve()
+        imported_sources: dict[str, Path] = {}
+        config_path = (resolved_home / _KIMI_CONFIG_FILENAME).resolve()
+        if config_path.is_file():
+            imported_sources[_KIMI_CONFIG_FILENAME] = config_path
+        credential_path = (resolved_home / _KIMI_CREDENTIAL_JSON_SOURCE).resolve()
+        if not credential_path.is_file():
+            raise click.ClickException(
+                "Kimi Code home does not contain the required OAuth credential file "
+                f"`{credential_path}`."
+            )
+        imported_sources[_KIMI_CREDENTIAL_JSON_SOURCE] = credential_path
+        return imported_sources
+
+    file_sources: dict[str, Path] = {}
+    if config_toml is not None:
+        file_sources[_KIMI_CONFIG_FILENAME] = config_toml
+    if credential_json is not None:
+        file_sources[_KIMI_CREDENTIAL_JSON_SOURCE] = credential_json
     return file_sources
 
 

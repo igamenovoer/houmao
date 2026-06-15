@@ -12,6 +12,8 @@ from typing import Any, Callable, Literal, TypeVar
 import click
 from pydantic import ValidationError
 
+from houmao.ag_ui.authoring import HoumaoAgUiValidationError, validate_ag_ui_event_sequence
+from houmao.ag_ui.models import AgUiEventPublishRequest
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
@@ -80,6 +82,7 @@ from ..managed_agents import (
     gateway_mail_notifier_disable,
     gateway_mail_notifier_enable,
     gateway_mail_notifier_status,
+    gateway_ag_ui_publish,
     gateway_interrupt,
     gateway_put_reminder,
     gateway_prompt,
@@ -450,6 +453,65 @@ def send_keys_gateway_command(
             escape_special_keys=escape_special_keys,
         )
     )
+
+
+@gateway_group.group(name="ag-ui")
+def gateway_ag_ui_group() -> None:
+    """Publish already-standard AG-UI events through live-only Houmao gateway fanout."""
+
+
+@gateway_ag_ui_group.command(name="publish")
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    help="AG-UI event batch JSON file, or `-` to read stdin.",
+)
+@click.option("--thread-id", default=None, help="Target AG-UI thread id.")
+@click.option("--run-id", default=None, help="Target AG-UI run id.")
+@click.option("--connection-id", default=None, help="Target AG-UI connection id.")
+@_current_session_option
+@_target_tmux_session_option
+@_gateway_pair_port_option(
+    help_text="Houmao pair authority port override for explicit AG-UI gateway publish"
+)
+@managed_agent_selector_options
+def publish_gateway_ag_ui_command(
+    input_path: str,
+    thread_id: str | None,
+    run_id: str | None,
+    connection_id: str | None,
+    current_session: bool,
+    target_tmux_session: str | None,
+    pair_port: int | None,
+    agent_id: str | None,
+    agent_name: str | None,
+) -> None:
+    """Validate and publish a standard AG-UI event batch to live Houmao gateway streams."""
+
+    try:
+        events_payload = _read_json_document(input_path)
+        events = validate_ag_ui_event_sequence(events_payload)
+        request_model = _publish_request_model(
+            events=events,
+            thread_id=thread_id,
+            run_id=run_id,
+            connection_id=connection_id,
+        )
+    except HoumaoAgUiValidationError as exc:
+        raise click.ClickException(_ag_ui_error_message(exc)) from exc
+    except (ValidationError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    target = _resolve_gateway_command_target(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        pair_port=pair_port,
+        current_session=current_session,
+        target_tmux_session=target_tmux_session,
+        operation_name="ag-ui publish",
+    )
+    emit(gateway_ag_ui_publish(target, request_model=request_model))
 
 
 @gateway_group.group(name="tui")
@@ -1354,6 +1416,61 @@ def _resolve_gateway_command_target(
             "`--current-session` is provided."
         )
     return _resolve_gateway_current_session_target(session_name=session_name)
+
+
+def _read_json_document(raw_input_path: str) -> Any:
+    """Read one JSON document from stdin or a file path."""
+
+    if raw_input_path == "-":
+        raw = click.get_text_stream("stdin").read()
+        source = "stdin"
+    else:
+        path = Path(raw_input_path)
+        source = str(path)
+        raw = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {source}: {exc}") from exc
+
+
+def _publish_request_model(
+    *,
+    events: list[dict[str, Any]],
+    thread_id: str | None,
+    run_id: str | None,
+    connection_id: str | None,
+) -> AgUiEventPublishRequest:
+    """Build one gateway publish request after validating optional routing options."""
+
+    normalized_thread_id = _normalize_optional_route_id("--thread-id", thread_id)
+    normalized_run_id = _normalize_optional_route_id("--run-id", run_id)
+    normalized_connection_id = _normalize_optional_route_id("--connection-id", connection_id)
+    if not events:
+        raise ValueError("AG-UI publish requires at least one event.")
+    return AgUiEventPublishRequest(
+        thread_id=normalized_thread_id,
+        run_id=normalized_run_id,
+        connection_id=normalized_connection_id,
+        events=events,
+    )
+
+
+def _normalize_optional_route_id(option_name: str, value: str | None) -> str | None:
+    """Normalize one optional AG-UI route id or reject a blank option value."""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"{option_name} must not be blank when provided.")
+    return stripped
+
+
+def _ag_ui_error_message(exc: HoumaoAgUiValidationError) -> str:
+    """Return one compact safe AG-UI validation error string."""
+
+    return json.dumps(exc.to_payload(), sort_keys=True)
 
 
 def _resolve_gateway_current_session_target(

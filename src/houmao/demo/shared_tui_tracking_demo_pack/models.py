@@ -15,7 +15,7 @@ from houmao.shared_tui_tracking.models import (
 )
 
 
-ToolName = Literal["claude", "codex"]
+ToolName = Literal["claude", "codex", "kimi"]
 InteractiveWatchStatus = Literal["starting", "running", "stopping", "stopped", "failed"]
 DemoWorkflowKind = Literal["recorded_capture", "live_watch"]
 DemoOwnedResourceRole = Literal["tool", "dashboard", "recorder"]

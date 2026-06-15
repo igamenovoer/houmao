@@ -25,6 +25,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
+from houmao.ag_ui.runtime import (
+    AgUiHeadlessArtifactObservation,
+    AgUiObservedRequestState,
+    AgUiTargetTransportFamily,
+    AgUiTuiObservation,
+    ag_ui_target_transport_family_for_backend,
+)
 from houmao.agents.agent_workspace import (
     AgentMemoryPaths,
     delete_memory_page,
@@ -177,6 +184,10 @@ from houmao.agents.realm_controller.manifest import (
 from houmao.agents.realm_controller.session_authority import resolve_manifest_session_authority
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, resume_runtime_session
 from houmao.agents.realm_controller.models import HeadlessTurnSessionSelection
+from houmao.agents.realm_controller.backends.headless_output import (
+    canonical_headless_event_artifact_path,
+    resolve_headless_provider,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     HEADLESS_AGENT_WINDOW_NAME,
     tmux_session_exists,
@@ -231,6 +242,58 @@ _GATEWAY_TMUX_WINDOW_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_ID"
 _GATEWAY_TMUX_WINDOW_INDEX_ENV_VAR = "HOUMAO_GATEWAY_TMUX_WINDOW_INDEX"
 _GATEWAY_TMUX_PANE_ID_ENV_VAR = "HOUMAO_GATEWAY_TMUX_PANE_ID"
 _MAIL_NOTIFIER_TEMPLATE_RESOURCE = "system_prompts/mailbox/mail-notifier.md"
+
+
+def _optional_row_text(value: object) -> str | None:
+    """Return a string database value when present."""
+
+    if value is None:
+        return None
+    return str(value)
+
+
+def _ag_ui_json_value_from_db_text(value: object) -> GatewayJsonValue:
+    """Parse one JSON database payload into a safe AG-UI-facing JSON value."""
+
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(str(value))
+    except json.JSONDecodeError:
+        return str(value)
+    return cast(GatewayJsonValue, parsed)
+
+
+def _ag_ui_tui_activity(state: HoumaoTerminalStateResponse) -> str:
+    """Build a compact AG-UI activity sentence from public TUI state."""
+
+    operator_state = state.operator_state
+    if operator_state is not None:
+        return operator_state.detail
+    return (
+        f"TUI turn phase: {state.turn.phase}; "
+        f"last turn result: {state.last_turn.result}; "
+        f"diagnostics: {state.diagnostics.availability}."
+    )
+
+
+def _ag_ui_tui_final_text(state: HoumaoTerminalStateResponse) -> str | None:
+    """Extract the best public final-text candidate from one TUI state."""
+
+    if state.turn.phase != "ready" or state.last_turn.result == "none":
+        return None
+    parsed_surface = state.parsed_surface
+    if parsed_surface is None:
+        return None
+    for candidate in (
+        parsed_surface.dialog_tail,
+        parsed_surface.dialog_text,
+        parsed_surface.normalized_projection_text,
+    ):
+        stripped = candidate.strip()
+        if stripped:
+            return stripped
+    return None
 
 
 @dataclass(frozen=True)
@@ -794,6 +857,7 @@ class _LocalHeadlessGatewayAdapter:
             "claude_headless",
             "codex_headless",
             "gemini_headless",
+            "kimi_headless",
         }:
             raise GatewayError(
                 "Local tmux gateway adapter only supports native tmux-backed backends, got "
@@ -914,7 +978,12 @@ class _ServerManagedHeadlessGatewayAdapter:
         """Initialize the server-managed headless execution adapter."""
 
         self.m_attach_contract = attach_contract
-        if attach_contract.backend not in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if attach_contract.backend not in {
+            "claude_headless",
+            "codex_headless",
+            "gemini_headless",
+            "kimi_headless",
+        }:
             raise GatewayError(
                 "Server-managed headless gateway adapter only supports native headless backends, "
                 f"got {attach_contract.backend!r}."
@@ -1082,6 +1151,7 @@ def _build_gateway_execution_adapter(
         "claude_headless",
         "codex_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         metadata = attach_contract.backend_metadata
         if (
@@ -1291,6 +1361,106 @@ class GatewayServiceRuntime:
 
         with self.m_lock:
             return self._refresh_status_snapshot(active_execution=self._active_execution_state())
+
+    def ag_ui_target_transport_family(self) -> AgUiTargetTransportFamily:
+        """Return the target transport family used by AG-UI run streaming."""
+
+        with self.m_lock:
+            return ag_ui_target_transport_family_for_backend(str(self.m_attach_contract.backend))
+
+    def ag_ui_request_state(self, request_id: str) -> AgUiObservedRequestState | None:
+        """Return a durable request-state snapshot for one admitted AG-UI run."""
+
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    request_id,
+                    request_kind,
+                    state,
+                    accepted_at_utc,
+                    started_at_utc,
+                    finished_at_utc,
+                    error_detail,
+                    result_json
+                FROM gateway_requests
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        result = _ag_ui_json_value_from_db_text(row[7])
+        return AgUiObservedRequestState(
+            request_id=str(row[0]),
+            request_kind=str(row[1]),
+            state=str(row[2]),
+            accepted_at_utc=str(row[3]),
+            started_at_utc=_optional_row_text(row[4]),
+            finished_at_utc=_optional_row_text(row[5]),
+            error_detail=_optional_row_text(row[6]),
+            result=result,
+        )
+
+    def ag_ui_headless_artifact(self, run_id: str) -> AgUiHeadlessArtifactObservation | None:
+        """Return the canonical headless artifact path for one AG-UI run id."""
+
+        with self.m_lock:
+            backend = str(self.m_attach_contract.backend)
+            manifest_path_value = self.m_attach_contract.manifest_path
+        if ag_ui_target_transport_family_for_backend(backend) != "headless":
+            return None
+        if manifest_path_value is None:
+            return None
+        try:
+            provider = resolve_headless_provider(backend=backend)
+        except ValueError:
+            return None
+        manifest_path = Path(manifest_path_value).expanduser().resolve()
+        turn_dir = (
+            manifest_path.parent / f"{manifest_path.stem}.turn-artifacts" / run_id
+        ).resolve()
+        canonical_path = canonical_headless_event_artifact_path(turn_dir=turn_dir)
+        return AgUiHeadlessArtifactObservation(
+            run_id=run_id,
+            turn_dir=turn_dir,
+            canonical_events_path=canonical_path,
+            provider=provider,
+            artifact_available=canonical_path.is_file(),
+        )
+
+    def ag_ui_tui_observation(self) -> AgUiTuiObservation:
+        """Return sanitized lower-fidelity TUI state for AG-UI run streaming."""
+
+        with self.m_lock:
+            tracking = self.m_tui_tracking
+            backend = str(self.m_attach_contract.backend)
+            attach_identity = self.m_attach_contract.attach_identity
+        base_status: GatewayJsonObject = {
+            "attachIdentity": attach_identity,
+            "backend": backend,
+            "targetTransportFamily": ag_ui_target_transport_family_for_backend(backend),
+        }
+        if tracking is None:
+            return AgUiTuiObservation(
+                available=False,
+                status=base_status,
+                activity="TUI observation is unavailable for this gateway target.",
+            )
+        state = tracking.current_state()
+        state_payload = cast(GatewayJsonObject, state.model_dump(mode="json"))
+        return AgUiTuiObservation(
+            available=True,
+            status={
+                **base_status,
+                "diagnosticsAvailability": state.diagnostics.availability,
+                "turnPhase": state.turn.phase,
+                "lastTurnResult": state.last_turn.result,
+            },
+            activity=_ag_ui_tui_activity(state),
+            final_text=_ag_ui_tui_final_text(state),
+            state=state_payload,
+        )
 
     def memory(self) -> GatewayMemorySummaryV1:
         """Return the managed-agent memory summary."""
@@ -1532,6 +1702,7 @@ class GatewayServiceRuntime:
             "claude_headless",
             "codex_headless",
             "gemini_headless",
+            "kimi_headless",
         }:
             raise HTTPException(
                 status_code=422,
@@ -1610,7 +1781,7 @@ class GatewayServiceRuntime:
                 )
             if (
                 self.m_attach_contract.backend
-                in {"claude_headless", "codex_headless", "gemini_headless"}
+                in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
                 and request_payload.kind == "submit_prompt"
                 and (
                     status.active_execution == "running"
@@ -2415,7 +2586,7 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
             return "tui"
-        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
             if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
@@ -2589,7 +2760,7 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
             return "tui"
-        if backend in {"claude_headless", "codex_headless", "gemini_headless"}:
+        if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
             if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
@@ -3271,6 +3442,10 @@ class GatewayServiceRuntime:
                 ]
             )
         elif tool == "gemini":
+            lines.append(
+                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
+            )
+        elif tool == "kimi":
             lines.append(
                 f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )
@@ -5363,6 +5538,18 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Disable the gateway mail notifier."""
 
         return runtime.delete_mail_notifier()
+
+    from houmao.ag_ui.routes import register_ag_ui_routes
+
+    runtime_paths = getattr(runtime, "m_paths", None)
+    ag_ui_event_log_path = (
+        runtime_paths.gateway_root / "ag_ui_events.jsonl" if runtime_paths is not None else None
+    )
+    register_ag_ui_routes(
+        app,
+        runtime=runtime,
+        event_log_path=ag_ui_event_log_path,
+    )
 
     return app
 

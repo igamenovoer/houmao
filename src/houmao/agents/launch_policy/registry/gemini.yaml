@@ -18,6 +18,14 @@ strategies:
         - Runtime-owned Gemini launch policy force-applies YOLO approval mode and disables full-process sandboxing for unattended startup.
         - Caller-supplied Gemini launch flags that would weaken unattended startup are canonicalized away before provider start and resume-control relaunch.
         - Gemini workspace settings copied into the runtime home are only patched when they would weaken the maintained unattended approval, sandbox, or tool-availability posture.
+    system_prompt_bootstrap:
+      native_system_prompt: false
+      provider_skills: true
+      startup_visible_skill_metadata: true
+      evidence:
+        - kind: source_reference
+          ref: src/houmao/project/assets/starter_agents/tools/gemini/adapter.yaml
+          note: Houmao-managed Gemini homes expose provider skills under GEMINI_CLI_HOME/.gemini/skills for startup discovery.
     evidence:
       - kind: source_reference
         ref: src/houmao/project/assets/starter_agents/tools/gemini/adapter.yaml

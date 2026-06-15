@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import (
@@ -38,6 +40,7 @@ def _make_service(tmp_path: Path) -> PassiveServerService:
     config = PassiveServerConfig(
         api_base_url="http://127.0.0.1:19891",
         runtime_root=tmp_path,
+        registry_root=tmp_path / "registry",
     )
     svc = PassiveServerService(config=config)
     return svc
@@ -572,3 +575,35 @@ class TestGatewayMailNotifier:
         result = svc.gateway_mail_notifier_status("alpha")
         assert isinstance(result, tuple)
         assert result[0] == 409
+
+
+class TestStopAgent:
+    """stop_agent() service method."""
+
+    def test_discovered_agent_remove_uses_configured_registry_root(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        svc = _make_service(tmp_path)
+        agent = _agent(agent_id="abc123", session_name="HOUMAO-alpha-abc123")
+        _populate_index(svc, [agent])
+        removed: list[tuple[str, str | None, dict[str, str] | None]] = []
+
+        import houmao.passive_server.service as service_module
+
+        monkeypatch.setattr(service_module, "kill_tmux_session", lambda **_kwargs: None)
+        monkeypatch.setattr(
+            service_module,
+            "remove_live_agent_record",
+            lambda agent_id, *, generation_id=None, env=None: removed.append(
+                (agent_id, generation_id, env)
+            ),
+        )
+
+        response = svc.stop_agent("abc123")
+
+        assert response.status == "ok"
+        assert removed == [
+            ("abc123", agent.record.generation_id, svc.m_config.registry_helper_env())
+        ]

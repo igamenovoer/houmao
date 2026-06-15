@@ -14,6 +14,10 @@ operator_prompt_mode = "unattended"
 [tools.codex]
 recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-codex-default.yaml"
 
+[tools.kimi]
+recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-kimi-default.yaml"
+operator_prompt_mode = "as_is"
+
 [evidence]
 sample_interval_seconds = 0.2
 runtime_observer_interval_seconds = 0.2
@@ -122,6 +126,24 @@ forbidden_terminal_results = ["known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_tui_down_after_active]
+required_labels = ["active", "tui_down"]
+required_terminal_result = "none"
+forbidden_terminal_results = ["success"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.kimi_explicit_success]
+required_labels = ["active", "ready_success"]
+required_terminal_result = "success"
+forbidden_terminal_results = ["known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.kimi_interrupted_after_active]
+required_labels = ["active", "ready_interrupted"]
+required_terminal_result = "interrupted"
+forbidden_terminal_results = ["success", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.kimi_tui_down_after_active]
 required_labels = ["active", "tui_down"]
 required_terminal_result = "none"
 forbidden_terminal_results = ["success"]

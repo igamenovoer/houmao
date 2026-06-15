@@ -185,7 +185,7 @@ class RegistryDiscoveryService:
             self.m_index.replace({})
             return
 
-        paths = global_registry_paths()
+        paths = global_registry_paths(env=self.m_config.registry_helper_env())
         if not paths.live_agents_dir.exists():
             self.m_index.replace({})
             return

@@ -22,6 +22,7 @@ _DEBUG_LOGGER_PREFIXES = (
     "houmao.shared_tui_tracking",
     "houmao.demo.shared_tui_tracking_demo_pack",
 )
+_SUPPORTED_TOOLS = ("claude", "codex", "kimi")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -257,7 +258,7 @@ def _build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--demo-config")
     validate.add_argument("--profile")
     validate.add_argument("--output-root")
-    validate.add_argument("--tool", choices=["claude", "codex"], default=None)
+    validate.add_argument("--tool", choices=_SUPPORTED_TOOLS, default=None)
     validate.add_argument("--observed-version", default=None)
     validate.add_argument("--settle-seconds", type=float, default=None)
     validate.add_argument("--labels-path", default=None)
@@ -289,7 +290,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--json", action="store_true")
 
     start = subparsers.add_parser("start", help="Start one live watch run")
-    start.add_argument("--tool", choices=["claude", "codex"], required=True)
+    start.add_argument("--tool", choices=_SUPPORTED_TOOLS, required=True)
     start.add_argument("--demo-config")
     start.add_argument("--profile")
     start.add_argument("--output-root")

@@ -1,0 +1,198 @@
+# Houmao AG-UI Workbench
+
+The AG-UI workbench is a standalone single-user local web application for testing Houmao AG-UI protocol behavior against already-running agents. It is intentionally outside the PyPI package and lives under `apps/ag-ui-workbench/`.
+
+The user runs a TypeScript Fastify server on the same host as Houmao, then opens the browser to that loopback port. Fastify is the GUI backend and owns host-side integrations such as AG-UI gateway access, target policy, Debug Agent relay behavior, tmux bridging, and presentation-session state. The browser frontend remains React/Dockview/RxJS and talks to the local server through private workbench APIs.
+
+## Commands
+
+Run from this directory:
+
+```bash
+bun install
+bun run dev
+bun run dev:bun
+bun run dev:vite
+bun run typecheck
+bun run build
+bun run start
+bun run e2e
+bun run e2e:real-agent-smoke
+```
+
+`bun run dev` starts the Fastify-backed local workbench server in development mode by bundling the server with esbuild and running that bundle under Node. This is the default development path and uses the Node-compatible tmux PTY backend. `bun run dev:bun` starts the same server source under Bun and uses Bun's native terminal PTY backend for tmux tabs when `Bun.Terminal` is available. Fastify is the user-facing origin in both modes, while Vite serves frontend assets and HMR behind that server. `bun run start` serves the built frontend from Fastify after `bun run build`. `bun run dev:vite` is a temporary legacy fallback that starts the old Vite-plugin host path directly while the migration remains in progress.
+
+The E2E scripts use Playwright from the Bun toolchain through `bunx playwright`. `bun run e2e` runs deterministic local tests only. `bun run e2e:real-agent-smoke` is a manual, opt-in live-agent smoke that requires `HMWB_REAL_AGENT_SMOKE=1`, `HMWB_PASSIVE_SERVER_URL`, and `HMWB_TEST_AGENT_NAME` or `HMWB_TEST_AGENT_ID`.
+
+## Targets
+
+Each pane accepts either a direct gateway base URL or a concrete AG-UI route URL. These examples normalize to the same route family:
+
+```text
+http://127.0.0.1:8765
+http://127.0.0.1:8765/v1/ag-ui
+http://127.0.0.1:8765/v1/ag-ui/runs
+http://127.0.0.1:8765/v1/ag-ui/connect
+```
+
+Future passive-server agent URLs are also accepted when they already include the agent-scoped AG-UI path:
+
+```text
+http://127.0.0.1:8080/houmao/agents/<agent_ref>/ag-ui
+http://127.0.0.1:8080/houmao/agents/<agent_ref>/ag-ui/runs
+```
+
+Browser requests go through the Fastify local server. AG-UI actions use the private `/__houmao_workbench/ag-ui/*` route family, where the server normalizes target URLs, applies the target policy, opens upstream Houmao AG-UI HTTP/SSE streams, and forwards bounded event bytes to the browser. The legacy `/__houmao_ag_ui_proxy` route remains as a migration fallback and status endpoint. The server allows loopback HTTP or HTTPS targets by default and rejects other hosts unless `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` lists an exact hostname or host:port value.
+
+## Agent Picker
+
+The toolbar `Agents` control opens a passive-server-backed list of discovered Houmao agents. The passive-server URL defaults to `http://127.0.0.1:9891`, matching the documented `houmao-passive-server serve` default. Click refresh to fetch `GET /houmao/agents`; rows show the discovered agent identity, tool, backend, tmux session, gateway availability, and mailbox availability.
+
+Double-clicking a row from the toolbar opens a new docked agent pane. Opening the picker from a pane's target form defaults to retargeting that pane instead. The picker also exposes Watch, Unwatch, and Open actions. Watch records interest in an agent/thread and starts a background AG-UI connect stream without requiring a visible pane. Open creates a pane for a watched target and renders events that this browser already received.
+
+The picker resolves a selected row through `GET /houmao/agents/<agent_ref>/resolve`. The pane stores the durable agent address (`agentId`, `agentName`, and passive-server URL) and treats the displayed AG-UI URL as the latest resolved gateway coordinate.
+
+If the agent is known but currently has no gateway, the pane can still be targeted. Press Connect to watch it; the watcher enters an offline or waiting state, resolves through the passive server with capped backoff, and attaches when a live gateway appears. If a connected discovered-agent stream ends, the watcher resolves the same agent address again instead of reusing a stale port. Manual AG-UI URL entry remains the direct fallback for low-level tests, third-party endpoints, remote passive servers, SSH-forwarded gateways, and any gateway coordinate that is valid from the passive server host but not directly reachable from the browser. Manual targets do not silently switch into agent-address reconnect mode.
+
+Closing a pane removes only the presentation surface when the target is watched. The background listener keeps running until Unwatch or Disconnect is used. Events published while no watcher is connected are lost for this browser because the Houmao gateway does not retain published GUI events.
+
+For non-loopback passive servers or gateways, set `HOUMAO_AG_UI_WORKBENCH_ALLOWED_HOSTS` to the exact hostname or host:port values before starting the workbench server.
+
+Validation flows:
+
+- GUI first: select a known offline agent, press Connect, then start the agent gateway; the pane should move from offline or waiting to connected.
+- Agent first: select a live discovered agent; the pane resolves the current gateway URL and connects directly.
+- Gateway restart: keep the discovered-agent pane targeted at the same agent; when the stream closes, the pane resolves the current gateway coordinates again and reconnects.
+- Manual direct URL: enter the AG-UI URL by hand; the pane uses that exact URL and reports ordinary request errors if the endpoint goes away.
+
+## Operator Workflows
+
+The workbench no longer creates a dedicated Operator tab. To act as an operator, either open a `tmux` tab and directly control a TUI session, or mark one discovered Houmao agent pane as the operator pane for orientation.
+
+The operator marker is UI metadata only. It does not change AG-UI request bodies, gateway routing, watched-target behavior, prompt delivery, event caching, tmux attachment, or managed-agent lifecycle behavior. Only panes that target a discovered Houmao agent can be marked as operator. If the marked pane closes or is retargeted away from a discovered Houmao agent, the marker is cleared.
+
+## Tmux Tabs
+
+The toolbar `tmux` control opens a docked tmux tab. The tab talks to the Fastify GUI backend through the local bridge:
+
+```text
+GET /__houmao_tmux/status
+GET /__houmao_tmux/sessions
+WS  /__houmao_tmux/attach
+```
+
+The host running the workbench dev server must have `tmux` available. If tmux is unavailable or has no sessions, the picker shows a deterministic empty or unavailable state instead of crashing the app.
+
+Real tmux attachment uses a runtime-selected server PTY backend. Node-backed server runs use `node-pty`; Bun-backed server runs use `Bun.Terminal` through `Bun.spawn(..., { terminal })`. Bun tmux attachment requires Bun 1.3.5 or newer. If the server cannot select a compatible PTY backend, the browser receives a deterministic tmux backend error instead of only `[tmux] attachment ended`.
+
+The tmux picker lists local tmux sessions with session name, window count, attached state, and created time. It joins that list with passive-server agent discovery by matching `tmux_session_name`, supports Fuse-powered search across tmux and Houmao metadata, and can filter to Houmao-managed agent sessions.
+
+Attachment is read-write by default. Enable Read only before attaching to start `tmux attach-session -r`; the browser terminal also suppresses stdin, and the host bridge rejects crafted input messages for read-only sockets.
+
+Mouse-wheel scroll commands are scoped to the WebSocket-bound tmux session and are handled as tmux copy-mode commands by the server, not as terminal input bytes.
+
+Closing or detaching a tmux tab closes only that browser attachment and kills only the `tmux attach-session` process created for the tab. It does not kill the tmux session, detach unrelated tmux clients, mutate shared-registry records, or send AG-UI detach, stop, restart, shutdown, interrupt, or memory-clear requests.
+
+The workbench persists the tmux tab layout and non-sensitive tab configuration such as selected session name, read-only mode, and Houmao-only filter. It does not persist tmux terminal output, terminal input, scrollback, WebSocket payloads, credentials, cookies, bearer tokens, authorization headers, mailbox content, memory content, or local file contents.
+
+For an opt-in real tmux attachment smoke, start the workbench with `bun run dev:bun`, create or choose a real tmux session, then run `scripts/demo/ag-ui-real-tmux-workbench-smoke/run_smoke.sh` from the repository root with `HMWB_WORKBENCH_URL` and `HMWB_TMUX_SESSION` set.
+
+## Debug Agent
+
+The toolbar `Debug Agent` control opens a local protocol playground. It does not create a managed Houmao agent, tmux session, passive-server registry record, gateway sidecar, mailbox, or credential binding. The pane has a white-box sender on the left and a normal AG-UI display on the right. The display connects through the same AG-UI client, SSE parser, reducer, diagnostics, and typed component renderers used by ordinary workbench panes.
+
+The debug relay runs in the Fastify GUI backend on the same host and port as the workbench. Its route family is local development/test surface only:
+
+```text
+GET    /__houmao_debug_agents/status
+GET    /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/capabilities
+POST   /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/connect
+POST   /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/runs
+POST   /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/events
+DELETE /__houmao_debug_agents/<debug_agent_id>/v1/ag-ui/connections/<connection_id>
+POST   /__houmao_debug_agents/<debug_agent_id>/components/<component_name>
+```
+
+Open a Debug Agent pane first, then copy the visible endpoint or curl command from the sender. A raw AG-UI event batch can be posted from an external shell like this:
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/v1/ag-ui/events' \
+  -H 'content-type: application/json' \
+  --data '{"threadId":"debug-agent-1-thread","events":[{"type":"TOOL_CALL_START","toolCallId":"bar-1","toolCallName":"houmao.graphic.template","parentMessageId":"debug-message"},{"type":"TOOL_CALL_ARGS","toolCallId":"bar-1","delta":"{\"schemaVersion\":3,\"figureType\":\"plotly2d\",\"renderer\":{\"preferred\":\"plotly\"},\"title\":\"Curl Bar Chart\",\"traces\":[{\"type\":\"bar\",\"data\":{\"x\":[\"A\",\"B\"],\"y\":[8,13]}}]}"},{"type":"TOOL_CALL_END","toolCallId":"bar-1"}]}'
+```
+
+The typed component convenience route validates application-layer payloads and wraps them into standard `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END` events before publishing:
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:5177/__houmao_debug_agents/debug-agent-1/components/houmao.graphic.template' \
+  -H 'content-type: application/json' \
+  --data '{"threadId":"debug-agent-1-thread","payload":{"schemaVersion":3,"figureType":"plotly2d","renderer":{"preferred":"plotly"},"title":"Curl Component Bar","traces":[{"type":"bar","data":{"x":["North","South"],"y":[42,28]}}]}}'
+```
+
+Replay is enabled by default for lab-only debug use. If a valid batch is posted before the display connects, the relay stores it in a bounded per-thread buffer and later replays it to the matching display connection. Publish responses identify this as `replay: "debug_thread_buffer"` and report `storedCount`. This intentionally differs from the live gateway. To reproduce gateway-like live-only behavior, turn off the pane replay checkbox or include `"replay": false`; the response reports `replay: "none"`, `storedCount: 0`, and a later display connection will not receive the earlier batch.
+
+Troubleshooting checks:
+
+- `deliveredCount = 0`: no active display stream matched the posted `threadId`, `runId`, or `connectionId`, or the display was disconnected when a live-only batch was posted.
+- Display connected but nothing rendered: confirm the event batch contains a complete tool-call sequence and that `TOOL_CALL_ARGS.delta` is a JSON string for a supported Houmao component.
+- Validation error: inspect `code`, `detail`, and `path` in the publish response; invalid batches are rejected before delivery.
+- Wrong host URL: external callers must reach the workbench host and port. The debug relay is served by Fastify; it is not available if the workbench server is stopped.
+
+## Presentation Sessions
+
+The local server owns a minimal presentation-session registry at `/__houmao_workbench/presentation-sessions`. The first implementation stores only session ids, optional pane ids, renderer-neutral kind labels, safe scalar metadata, and lifecycle diagnostics. It does not store large datasource rows in browser state and does not control Houmao agent lifecycle when sessions are created, disposed, or cleared.
+- Unknown component: use one of `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, or `houmao.dashboard`.
+
+## Lifecycle Boundary
+
+The GUI does not start, stop, restart, shut down, or interrupt Houmao agents. Connect on an agent pane marks the target watched and attaches a background AG-UI stream. Run submits one AG-UI `RunAgentInput`. Normal run submissions send empty `state`, `tools`, `context`, and `forwardedProps`; the workbench does not append pane dimensions, canvas size, renderer size, or scroll state as agent-visible context. Disconnect or Unwatch detaches the watched stream. Closing a watched pane does not detach the stream. If a connection ID is known, the workbench calls AG-UI detach; otherwise it only aborts its browser stream. Tmux tab attachment is separate from AG-UI lifecycle and managed-agent lifecycle.
+
+The workbench uses an RxJS runtime for long-lived gateway active-thread polling, active-thread mutation effects, and shared runtime state selection. React still owns short-lived prompt/editor state and xterm DOM refs, and raw AG-UI events or terminal bytes are not replayed through runtime subjects.
+
+When a discovered Houmao agent pane connects, the workbench sets the gateway's Houmao extension `active-thread` for that pane. Users can also click the active-thread control on an eligible agent pane to mark it explicitly. Background watchers, hidden panes, passive reconnects, and client-cache listeners do not update the active thread. When the active pane closes or is retargeted away, the workbench conditionally clears the gateway active thread only if it still matches that pane's thread. The gateway owns `last-sent-thread`; the workbench displays active-thread state but does not use last-sent state as a fallback destination.
+
+For tmux-controlled agents that publish AG-UI messages without prompt-provided routing, the gateway destination order is: message-specified destination, `active-thread`, then a Houmao-defined default sink. `active-thread` and `last-sent-thread` are volatile and process-local. `last-sent-thread` is bookkeeping refreshed after concrete non-sink publishes; it is not a fallback destination. The default sink is not agent-addressable; the current gateway behavior logs safe routing metadata, performs no GUI fanout, and returns a warning such as `default_sink_due_to_no_destination`.
+
+The workbench persists Dockview layout, passive-server URL, pane labels, target URLs, thread IDs, operator marker, Debug Agent IDs, Debug Agent replay setting, watched-target metadata, selected discovered-agent identity metadata, and tmux tab configuration in localStorage. It stores received AG-UI stream events for watched targets in an IndexedDB client cache with bounded per-target retention. It does not persist discovered-agent list responses, gateway-status payloads, prompt text, AG-UI request bodies, forwarded props, typed component request bodies, curl-posted event batches, credentials, authorization headers, mailbox content, memory content, tmux terminal output, tmux terminal input, terminal scrollback, or raw terminal content.
+
+## Typed Components
+
+Houmao typed components are application-layer payloads carried over standard AG-UI tool-call events. Agents should generate those events with `houmao-mgr internals ag-ui events render` rather than hand-writing raw AG-UI JSON.
+
+The renderer registry recognizes these Houmao component names:
+
+- `houmao.graphic.template`
+- `houmao.table`
+- `houmao.metric_grid`
+- `houmao.dashboard`
+
+Template graphics render through Plotly using schema version `3` `houmao.graphic.template` payloads with `figureType: "plotly2d"` and catalog-backed `traces[].type`. Tables, metric grids, and dashboards render as React components with typed payload validation. The compatibility `houmao_render_graphic` path remains available for sanitized SVG graphics. Unknown Houmao component names and invalid payloads render explicit fallback records, and the raw tool-call arguments remain visible in diagnostics. Typed component renderers do not inject raw HTML or raw SVG.
+
+Legacy `houmao.chart.bar`, `houmao.chart.line`, `houmao.chart.pie`, experimental schema version `1` template payloads, and schema version `2` `chartType` payloads are retired. Rewrite those payloads as schema version `3` `houmao.graphic.template` payloads with `figureType: "plotly2d"` and curated Plotly-backed `traces`.
+
+## Live Kimi Code Headless Check
+
+For live/manual validation of this change, use a Kimi Code headless Houmao agent through an already-running per-agent gateway. When fixture credentials are present, prefer `tests/fixtures/auth-bundles/kimi/personal-a-default/`.
+
+Start or discover the Kimi headless agent with the existing Houmao workflow, then point an operator or agent pane at the gateway URL, for example `http://127.0.0.1:<gateway_port>/v1/ag-ui`. The workbench should attach through AG-UI connect or submit one run through AG-UI runs without managing the Kimi headless process lifecycle.
+
+The deterministic Playwright fake-server smoke remains the required automated test path. The Kimi Code headless run is opt-in evidence for local real-agent validation.
+
+## Real-Agent GUI Graphics Smoke
+
+The maintained real-agent GUI smoke lives at `scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh`. It relaunches one existing managed test agent, selects it through the workbench agent picker, connects the pane, submits a nonce-labeled prompt through the GUI, and waits for a rendered Plotly-backed `houmao.graphic.template` chart. It records the optional nonce-labeled text marker when present, but the chart is the pass condition.
+
+Run from the repository root:
+
+```bash
+HMWB_REAL_AGENT_SMOKE=1 \
+HMWB_PASSIVE_SERVER_URL=http://127.0.0.1:9891 \
+HMWB_TEST_AGENT_NAME=<existing-test-agent-name> \
+scripts/demo/ag-ui-real-agent-gui-smoke/run_smoke.sh
+```
+
+Use `HMWB_REAL_AGENT_EVIDENCE_DIR=<path>` to choose where failure evidence is written. The default leaves the selected managed agent running; set `HMWB_REAL_AGENT_STOP_AFTER=1` only when the smoke owns that test agent.
+
+## Known Limits
+
+The first workbench version is a protocol harness, not an operator scheduler. It does not execute frontend tools, send multimodal input, manage credentials, export event logs, or use CopilotKit as its runtime path. Houmao typed components and generated graphics render through complete AG-UI tool-call sequences, with unsupported or invalid payloads shown as explicit fallback records.

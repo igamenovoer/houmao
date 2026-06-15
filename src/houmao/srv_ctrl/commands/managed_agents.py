@@ -14,6 +14,7 @@ import uuid
 import click
 from pydantic import ValidationError
 
+from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import resolve_live_mailbox_binding_from_manifest_path
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
@@ -186,11 +187,14 @@ from .common import (
     resolve_server_base_url,
 )
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "gemini_headless"})
+_HEADLESS_BACKENDS = frozenset(
+    {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
+)
 _SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
     "gemini": ("gemini",),
+    "kimi": ("kimi-code", "kimi"),
 }
 ManagedAgentListState = Literal["active", "stopped", "relaunching", "retired", "all"]
 
@@ -2507,6 +2511,33 @@ def gateway_send_keys(
     client = _require_live_gateway_client_for_controller(controller)
     try:
         return client.send_control_input(request_model)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from exc
+
+
+def gateway_ag_ui_publish(
+    target: ManagedAgentTarget,
+    *,
+    request_model: AgUiEventPublishRequest,
+) -> AgUiEventPublishResponse:
+    """Publish an already-standard AG-UI event batch to one live Houmao gateway."""
+
+    _raise_external_unsupported(
+        target,
+        operation="agents single ... gateway ag-ui publish",
+        hint="Generate events with `houmao-mgr ag-ui impl render` or `houmao-mgr ag-ui protocol tool-call render` and deliver them with endpoint-specific tooling for third-party endpoints.",
+    )
+    target = _local_gateway_target_for_passive_pair(target, operation="ag-ui publish")
+    if _target_uses_pair_api(target):
+        raise click.ClickException(
+            "AG-UI publish requires a live local Houmao gateway endpoint. "
+            "Remote pair API forwarding is unsupported for this command."
+        )
+
+    controller = _require_live_local_controller(target, operation="publish AG-UI events")
+    client = _require_live_gateway_client_for_controller(controller)
+    try:
+        return client.publish_ag_ui_events(request_model)
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from exc
 

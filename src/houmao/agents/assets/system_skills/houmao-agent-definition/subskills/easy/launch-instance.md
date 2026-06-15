@@ -53,7 +53,8 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
 - When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool supports it.
 - Add `--headless` only when the user explicitly asks for headless execution, when an existing selected profile stores headless posture, or when the selected tool/lane requires headless.
-- `--prompt-mode unattended` and other stored automation defaults do not imply headless launch.
+- Kimi supports TUI/local-interactive launch here when headless is omitted; Gemini is the selected-tool exception that requires `--headless`.
+- `--prompt-mode unattended` and other stored automation defaults do not imply headless launch. For Kimi, unattended prompt mode is the supported managed no-question control; do not add raw `--auto` or `--yolo` launch flags.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.
 - Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.
 - Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
@@ -72,6 +73,7 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - Do not route specialist-backed launch through retired root-level managed-agent launch paths.
 - Do not route profile-backed launch through retired root-level managed-agent launch paths.
 - Do not add `--headless` by default for TUI-capable tools.
+- Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
 - Do not invent optional launch flags that the user did not request.
 - Do not add `--gateway-background` unless the user explicitly requested background or detached gateway execution.
 - Do not teach preregistering the same-root ordinary per-agent mailbox address as the default precursor to mailbox-enabled project launch.

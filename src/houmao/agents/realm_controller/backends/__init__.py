@@ -5,6 +5,7 @@ from .codex_app_server import CodexAppServerSession, CodexSessionState
 from .codex_headless import CodexHeadlessSession
 from .gemini_headless import GeminiHeadlessSession
 from .headless_base import HeadlessSessionState
+from .kimi_headless import KimiHeadlessSession
 
 __all__ = [
     "ClaudeHeadlessSession",
@@ -13,4 +14,5 @@ __all__ = [
     "CodexSessionState",
     "GeminiHeadlessSession",
     "HeadlessSessionState",
+    "KimiHeadlessSession",
 ]

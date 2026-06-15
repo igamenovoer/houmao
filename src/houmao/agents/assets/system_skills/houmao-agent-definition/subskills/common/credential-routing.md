@@ -45,14 +45,12 @@ Failure reports must include a direct suggestion:
 
 ## Tool References
 
-Load only the selected tool's page:
+Load only the selected tool's credential-kind page:
 
-- Claude lookup: [../../references/credentials/claude-lookup.md](../../references/credentials/claude-lookup.md)
-- Codex lookup: [../../references/credentials/codex-lookup.md](../../references/credentials/codex-lookup.md)
-- Gemini lookup: [../../references/credentials/gemini-lookup.md](../../references/credentials/gemini-lookup.md)
-- Claude kinds menu: [../../references/credentials/claude-kinds.md](../../references/credentials/claude-kinds.md)
-- Codex kinds menu: [../../references/credentials/codex-kinds.md](../../references/credentials/codex-kinds.md)
-- Gemini kinds menu: [../../references/credentials/gemini-kinds.md](../../references/credentials/gemini-kinds.md)
+- Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
+- Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
+- Gemini: [../../../houmao-credential-mgr/references/gemini-credential-kinds.md](../../../houmao-credential-mgr/references/gemini-credential-kinds.md)
+- Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 ## Guardrails
 

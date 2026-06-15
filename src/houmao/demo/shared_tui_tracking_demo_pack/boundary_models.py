@@ -100,6 +100,7 @@ class DemoToolsConfigV1(_DemoConfigBoundaryModel):
 
     claude: DemoToolConfigV1
     codex: DemoToolConfigV1
+    kimi: DemoToolConfigV1
 
 
 class DemoToolsConfigOverrideV1(_DemoConfigBoundaryModel):
@@ -107,6 +108,7 @@ class DemoToolsConfigOverrideV1(_DemoConfigBoundaryModel):
 
     claude: DemoToolConfigOverrideV1 | None = None
     codex: DemoToolConfigOverrideV1 | None = None
+    kimi: DemoToolConfigOverrideV1 | None = None
 
 
 class DemoPathsConfigV1(_DemoConfigBoundaryModel):

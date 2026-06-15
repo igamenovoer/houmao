@@ -13,7 +13,7 @@ The canonical event artifact SHALL contain Houmao semantic events derived from t
 Unknown or unsupported provider event shapes SHALL be preserved as canonical passthrough events rather than causing the turn to fail solely because one event could not be classified.
 
 #### Scenario: One turn writes both raw and canonical artifacts
-- **WHEN** a managed Claude, Codex, or Gemini headless turn produces machine-readable stdout
+- **WHEN** a managed Claude, Codex, Kimi, or Gemini headless turn produces machine-readable stdout
 - **THEN** the runtime writes the raw provider stdout artifact for that turn unchanged
 - **AND THEN** it also writes a separate canonical normalized event artifact for that same turn
 
@@ -101,7 +101,7 @@ The system MAY adapt transport-specific framing such as top-level CLI envelope s
 - **AND THEN** neither surface falls back to raw provider JSON solely because it uses a different caller path
 
 ### Requirement: Canonical headless events normalize session identity and common execution semantics across providers
-The canonical headless event model SHALL normalize provider-specific machine-readable output into shared Houmao execution semantics across Claude, Codex, and Gemini.
+The canonical headless event model SHALL normalize provider-specific machine-readable output into shared Houmao execution semantics across Claude, Codex, Kimi, and Gemini.
 
 At minimum, the canonical model SHALL support normalized session identity, assistant output progression, tool lifecycle progression, completion semantics, and provider provenance.
 
@@ -116,3 +116,31 @@ For Codex, provider-owned thread identity SHALL map into the same canonical sess
 - **WHEN** any supported headless provider emits assistant output and tool lifecycle events during one turn
 - **THEN** the canonical event stream represents those updates using shared assistant and tool semantic categories
 - **AND THEN** downstream renderers can present them without provider-specific event tables
+
+### Requirement: Canonical headless output supports Kimi stream JSON
+For managed Kimi headless turns, the runtime SHALL preserve raw Kimi stdout and stderr artifacts while also emitting canonical Houmao semantic events derived from Kimi `stream-json` output.
+
+The canonical Kimi parser SHALL normalize Kimi assistant content, tool calls, tool results, and session resume metadata without requiring downstream consumers to parse Kimi-specific JSONL directly.
+
+Unknown Kimi event shapes SHALL be preserved as canonical passthrough or diagnostic events rather than causing the turn to fail solely because one event could not be classified.
+
+#### Scenario: Kimi assistant content becomes canonical assistant event
+- **WHEN** a managed Kimi headless turn emits `{"role":"assistant","content":"done"}` on stdout
+- **THEN** the canonical event artifact contains an `assistant` event with message `done`
+- **AND THEN** the raw stdout artifact still contains the original Kimi JSONL line unchanged
+
+#### Scenario: Kimi tool calls and tool results become canonical action events
+- **WHEN** a managed Kimi headless turn emits an assistant `tool_calls` payload followed by a `role:"tool"` payload with a matching `tool_call_id`
+- **THEN** the canonical event artifact contains an `action_request` event for the tool call
+- **AND THEN** it contains an `action_result` event for the tool result
+- **AND THEN** function arguments encoded as JSON strings are parsed into structured canonical arguments when possible
+
+#### Scenario: Kimi resume hint becomes canonical session identity
+- **WHEN** a managed Kimi headless turn emits a meta payload with `type:"session.resume_hint"` and a `session_id`
+- **THEN** the canonical event stream records that value as the turn's canonical session identity
+- **AND THEN** downstream consumers can recover the Kimi resume identity without provider-specific parsing
+
+#### Scenario: Kimi provider completion is not invented from missing usage data
+- **WHEN** a managed Kimi headless turn exits successfully after emitting assistant content and a resume hint but no provider completion or usage payload
+- **THEN** the canonical Kimi parser does not fabricate provider usage fields
+- **AND THEN** runtime turn completion remains derived from the existing process-exit completion path

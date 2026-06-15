@@ -40,6 +40,7 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_global_registry_root,
     resolve_live_agent_record,
     resolve_live_agent_records_by_terminal_session_name,
+    resolve_known_managed_agent_records,
     resolve_managed_agent_records_by_name,
     resolve_relaunchable_managed_agent_record_by_agent_id,
 )
@@ -306,6 +307,45 @@ def test_stopped_registry_record_is_relaunchable_and_not_live(
     cleanup_record = resolve_cleanup_managed_agent_record_by_agent_id(published.agent_id)
     assert cleanup_record is not None
     assert cleanup_record.runtime.session_root == "/tmp/runtime/session"
+
+
+def test_known_registry_resolution_includes_stopped_record_by_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    record = _sample_lifecycle_record(agent_name="gpu", lifecycle_state="stopped")
+    published = publish_live_agent_record(record)
+
+    matches = resolve_known_managed_agent_records(published.agent_id)
+
+    assert len(matches) == 1
+    assert matches[0].agent_id == published.agent_id
+    assert matches[0].lifecycle.state == "stopped"
+    assert resolve_live_agent_record(published.agent_id) is None
+
+
+def test_known_registry_resolution_reports_name_ambiguity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    first = _sample_lifecycle_record(
+        agent_name="gpu",
+        lifecycle_state="stopped",
+        generation_id="generation-a",
+    ).model_copy(update={"agent_id": "abc123"})
+    second = _sample_lifecycle_record(
+        agent_name="gpu",
+        lifecycle_state="stopped",
+        generation_id="generation-b",
+    ).model_copy(update={"agent_id": "def456"})
+    publish_live_agent_record(first)
+    publish_live_agent_record(second)
+
+    matches = resolve_known_managed_agent_records("gpu")
+
+    assert {match.agent_id for match in matches} == {"abc123", "def456"}
 
 
 def test_retired_registry_record_is_durable_but_not_relaunchable(

@@ -175,7 +175,7 @@ Operational note:
 
 - `chat_context=degraded` means the current context is recoverably unhealthy, not that the gateway must clear context. Ordinary prompt delivery can continue when the prompt-ready gates pass. An explicit clean-context request such as `chat_session.mode=new` still runs the reset workflow.
 - Compact/server degraded context is intentionally separate from `known_failure`: it blocks success while preserving readiness, but it does not imply a mandatory reset.
-- Degraded error labels belong to the detector's CLI tool. Do not reuse Codex-specific labels for Claude, Gemini, or other tools; only `unknown` is shared.
+- Degraded error labels belong to the detector's CLI tool. Do not reuse Codex-specific labels for Claude, Kimi, Gemini, or other tools; only `unknown` is shared.
 
 ### Settled success
 

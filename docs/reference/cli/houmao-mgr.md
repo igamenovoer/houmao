@@ -195,7 +195,7 @@ Ordinary project users manage credentials through `houmao-mgr project [--project
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Copilot, or Gemini homes.
+Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Kimi, Gemini, or Copilot homes.
 
 #### Subcommands
 
@@ -208,18 +208,19 @@ Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill s
 
 Operational notes:
 
-- `system-skills install` requires `--tool`; the value may be one supported tool or a comma-separated list such as `claude,codex,copilot,gemini`
+- `system-skills install` requires `--tool`; the value may be one supported tool or a comma-separated list such as `claude,codex,kimi,gemini,copilot`
 - `system-skills uninstall` also requires `--tool` and accepts the same single-tool or comma-separated tool syntax
 - `system-skills install --home` and `system-skills uninstall --home` are valid only when `--tool` names one tool; comma-separated multi-tool operations resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
-- when `--home` is omitted, the effective home resolves with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`), then the project-scoped default home
-- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.github` for Copilot, and `<cwd>` for Gemini
+- when `--home` is omitted, the effective home resolves with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`), then the project-scoped default home
+- the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.kimi-code` for Kimi, `<cwd>` for Gemini, and `<cwd>/.github` for Copilot
 - omitting both `--skill-set` and `--skill` selects the packaged CLI-default set list
 - repeatable `--skill-set` expands named system-skill sets; `--set` is no longer a supported install flag
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - `system-skills uninstall` does not accept install-selection flags; it removes all current known Houmao skill paths for the resolved home
 - repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
+- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, Kimi, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
+- Kimi output reports a discovery caveat because explicit `--home` or `KIMI_CODE_HOME` projection does not by itself make arbitrary `<KIMI_CODE_HOME>/skills` visible to Kimi Code unless `config.toml` includes that path in `extra_skill_dirs`
 - uninstall removes exact current Houmao skill paths and preserves unrelated user skills, parent roots, legacy paths, and obsolete install-state files
 - `status` discovers current packaged skill paths in the resolved home; `install` replaces selected current Houmao-owned skill destinations directly without install-state ownership checks
 - managed brain build and `agents self join` use the same packaged catalog internally; `agents self join` keeps the fixed managed-join selection, while managed brain build may use stored source/profile managed system-skill policy instead of the plain managed-launch default
@@ -273,7 +274,7 @@ houmao-mgr project
 | `status` | Report whether a project overlay was discovered under the selected overlay root, which catalog was found, and which agent-definition root is effective. |
 | `migrate` | Inspect or apply one supported project-structure migration into the current overlay layout. |
 | `skills` | Maintain canonical project-local custom skills under `.houmao/content/skills/`. |
-| `credentials` | Manage project-backed credentials for Claude, Codex, and Gemini in the selected project overlay. |
+| `credentials` | Manage project-backed credentials for Claude, Codex, Kimi, and Gemini in the selected project overlay. Credential login helper workflows remain maintained for Claude, Codex, and Gemini only. |
 | `specialist` | Higher-level specialist workflow persisted in `.houmao/catalog.sqlite` with file-backed payloads under `.houmao/content/`. |
 | `profile` | Specialist-backed reusable project profiles. |
 | `agents` | Launch, inspect, and stop project-managed agents from specialists or profiles. |
@@ -339,7 +340,7 @@ Project overlay notes:
 | `recipes list|get|add|set|remove` | **Canonical** low-level recipe administration. Manages named recipe files projected under `agents/presets/<name>.yaml`, including role selection, tool lane, skills, prompt mode, and selected auth bundle reference. |
 | `presets list|get|add|set|remove` | Compatibility alias for `recipes`. Operates on the same files under `agents/presets/<name>.yaml` and accepts the same flags. |
 | `launch-profiles list|get|add|set|remove` | Manage explicit recipe-backed reusable birth-time launch profiles projected under `agents/launch-profiles/<name>.yaml`. See the dedicated section below for the field set. |
-| `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. |
+| `tools <tool> get` | Inspect one tool subtree, including adapter, setup, and auth bundle summaries. Supported tool families include `claude`, `codex`, `kimi`, and `gemini`. |
 | `tools <tool> setups list|get|add|remove` | Inspect or clone setup bundles under `agents/tools/<tool>/setups/`. |
 
 Low-level boundary notes:
@@ -380,6 +381,13 @@ Low-level boundary notes:
 - `--state-template-file` remains optional Claude bootstrap state only and is not a credential-providing method.
 - See [Claude Vendor Login Files](../claude-vendor-login-files.md) for the file-handling rules and the local smoke-validation workflow.
 
+`project credentials kimi add|set` notes:
+
+- Kimi credential CRUD supports `list`, `get`, `add`, `set`, `rename`, and `remove`. Kimi does not have a maintained Houmao credential `login` helper; use explicit `add` or `set` inputs instead.
+- `add` and `set` accept env-model inputs `--api-key`, optional `--model-name`, optional `--base-url`, optional `--provider-type`, optional `--code-base-url`, optional `--code-oauth-host`, optional `--oauth-host`, and optional `--disable-telemetry`.
+- OAuth-backed Kimi Code material can be imported with `--code-home <dir>` or with direct file inputs `--config-toml <path>` and optional `--credential-json <path>`. `--code-home` cannot be combined with `--config-toml` or `--credential-json`.
+- `set` also accepts Kimi clear flags: `--clear-model-name`, `--clear-api-key`, `--clear-base-url`, `--clear-provider-type`, `--clear-code-base-url`, `--clear-code-oauth-host`, `--clear-oauth-host`, `--clear-disable-telemetry`, `--clear-config-toml`, and `--clear-credential-json`.
+
 #### `project`
 
 `project` is the higher-level project authoring and runtime-instance path.
@@ -401,6 +409,7 @@ Low-level boundary notes:
 - `--credential` is optional; when omitted, Houmao uses `<specialist-name>-creds` as the auth display name.
 - `--system-prompt` and `--system-prompt-file` are both optional; provide at most one.
 - `--no-unattended` opts out of the easy unattended default and persists `launch.prompt_mode: as_is` for that specialist.
+- For Kimi specialists, the default `launch.prompt_mode: unattended` is the supported managed no-question control for visible TUI launches as well as headless launches. Use `--no-unattended` only to preserve provider approval behavior, not to switch between TUI and headless posture.
 - repeatable `--env-set NAME=value` stores durable specialist-owned launch env under `launch.env_records`.
 - `--model` and `--reasoning-level` are the supported launch-owned model-selection surfaces. `--reasoning-level` is a tool/model-specific preset index rather than a portable `1..10` knob.
 - repeatable `--system-skill-set` and `--system-skill` store specialist-owned managed system-skill policy under `launch.system_skills`; selectors without `--system-skills-mode` infer `extend`, `--system-skills-mode replace` stores exact selection, and `--no-system-skills` stores disabled policy. Omitted policy keeps the managed-launch default.
@@ -408,7 +417,7 @@ Low-level boundary notes:
 - repeatable `--with-skill <dir>` is a convenience path that registers or updates one canonical project skill entry and then binds it to the specialist. Houmao treats the provided source directory as read-only input.
 - when the selected specialist name already exists, `specialist create` prompts before replacing the specialist-owned prompt and recipe projection and accepts `--yes` for non-interactive replacement.
 - If neither system-prompt option is supplied, the compiled role remains valid and the runtime treats it as having no startup prompt content.
-- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility recipe projected under `.houmao/agents/presets/`, including Gemini's headless-only easy lane.
+- maintained easy launch paths persist `launch.prompt_mode: unattended` by default in both the catalog-backed specialist launch payload and the generated compatibility recipe projected under `.houmao/agents/presets/`; Gemini remains the easy-lane required-headless exception, while Kimi can launch through the TUI/local-interactive path when headless posture is omitted.
 - specialist `--env-set` is separate from credential env and rejects auth-owned or Houmao-owned reserved env names.
 - Claude credential lanes use the same credential semantics in both `project credentials claude add|set` and `project specialist create --tool claude`, but the flag names differ: the dedicated credential surface uses unprefixed names (`--api-key`, `--auth-token`, `--oauth-token`, `--config-dir`, `--base-url`) while the easy-specialist surface uses prefixed names (`--api-key`, `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`, `--base-url`). Model selection on the easy surface is now unified under `--model` plus optional `--reasoning-level`, with `--claude-model` retained only as a compatibility alias for `--model`.
 - Claude auth bundle updates are patch-preserving: setting `--claude-oauth-token`, `--claude-config-dir`, or `--base-url` does not implicitly delete other stored Claude auth inputs, and refreshing `--claude-config-dir` replaces the imported vendor login files as one maintained set. `--claude-model` no longer writes auth-owned model env; it resolves into launch-owned model selection.
@@ -417,6 +426,7 @@ Low-level boundary notes:
 - Detailed vendor-native model tuning belongs in the relevant specialist or credential skill documentation rather than the core CLI reference.
 - Gemini credential lanes use the same contract in both `project credentials gemini add|set` and `project specialist create --tool gemini`: `--api-key`, optional `--base-url`, and optional `--oauth-creds` or `--gemini-oauth-creds`.
 - Gemini auth bundle updates are patch-preserving: setting `--base-url` or `--oauth-creds` does not implicitly delete other Gemini auth inputs that were already stored.
+- Kimi credential lanes use `KIMI_CODE_HOME` at runtime. OAuth-backed bundles store `config.toml` plus `credentials/kimi-code.json`; env-model bundles store allowlisted `KIMI_MODEL_*` values. `project credentials kimi add|set` accepts `--code-home` to import an existing Kimi Code home, or `--config-toml` plus `--credential-json` to copy files directly. `project specialist create --tool kimi` exposes matching `--kimi-code-home`, `--kimi-config-toml`, and `--kimi-credential-json` inputs, while common `--api-key` and `--base-url` map to `KIMI_MODEL_API_KEY` and `KIMI_MODEL_BASE_URL` for env-model bundles.
 - The project-local catalog is the source of truth; `agents/` under the active overlay root is a compatibility projection that is materialized as needed.
 
 `project specialist set` notes:
@@ -434,6 +444,7 @@ Low-level boundary notes:
 
 - `--name` and `--specialist` are required. The named profile targets exactly one existing specialist.
 - Optional birth-time defaults: `--agent-name`, `--agent-id`, `--workdir`, `--auth`, `--prompt-mode {unattended|as_is}`, `--model`, `--reasoning-level`, repeatable `--env-set NAME=value`, managed system-skill flags (`--system-skill-set`, `--system-skill`, `--system-skills-mode {inherit|extend|replace|none}`, `--no-system-skills`), mailbox flags (`--mail-transport {filesystem|stalwart}`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`), launch posture flags (`--headless`, `--no-gateway`, `--gateway-port`), relaunch chat-session flags (`--relaunch-chat-session-mode {new|tool_last_or_new|exact}`, `--relaunch-chat-session-id`), managed-header flags (`--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`), prompt-overlay flags (`--prompt-overlay-mode {append|replace}`, `--prompt-overlay-text`, `--prompt-overlay-file`), `--gateway-mail-notifier-appendix-text`, and memo-seed flags (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`).
+- For Kimi-backed profiles, `--prompt-mode unattended` is the supported managed no-question control and does not imply `--headless`. Use `--prompt-mode as_is` only when the provider's normal approval posture should remain in charge.
 - `project profile create` rejects an existing profile name by default. Passing `--yes` confirms same-lane replacement of an existing project profile; replacement uses create semantics, so omitted optional fields are cleared instead of preserved. `--yes` does not allow replacing an explicit launch profile with an project profile.
 - `project profile set --name <profile>` patches stored defaults on an existing project profile while preserving unspecified fields. It accepts the same stored-default field families as explicit `launch-profiles set`, including clear flags such as `--clear-agent-name`, `--clear-agent-id`, `--clear-workdir`, `--clear-auth`, `--clear-prompt-mode`, `--clear-env`, `--clear-system-skills`, `--clear-mailbox`, `--clear-headless`, `--clear-relaunch-chat-session`, `--clear-managed-header`, `--clear-managed-header-section`, `--clear-managed-header-sections`, `--clear-prompt-overlay`, `--clear-gateway-mail-notifier-appendix`, and `--clear-memo-seed`.
 - Easy-profile managed system-skill policy follows the shared launch-profile rules: omitted means inherit from the specialist/recipe source, selectors without mode infer `extend`, `replace` stores exact selection, and `none` disables current Houmao-owned system skills for future launches.
@@ -472,7 +483,8 @@ Low-level boundary notes:
 - `--no-gateway` is mutually exclusive with `--gateway-port`, `--gateway-background`, and any `--gateway-tui-*` override.
 - `--workdir` overrides only the launched agent runtime cwd; the selected project overlay, specialist source, runtime root, jobs root, and default mailbox root remain pinned to the selected project.
 - the command honors the stored specialist launch posture instead of injecting a separate prompt-mode policy at launch time.
-- Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied.
+- Gemini specialists remain headless-only here and fail fast unless `--headless` is supplied. Kimi specialists and Kimi-backed profiles can launch through the TUI/local-interactive path when `--headless` is omitted, and still honor explicit `--headless` for prompt-mode launch.
+- Kimi automation is selected through stored `launch.prompt_mode: unattended` or project/profile `--prompt-mode unattended`. Do not pass Kimi `--yolo` as a Houmao launch control, and ordinary managed Kimi TUI launch does not require raw `--auto` overrides.
 - repeatable `--env-set NAME=value|NAME` applies one-off env to the current live session, resolves inherited `NAME` bindings from the invoking shell, and does not survive relaunch.
 - `--mail-transport filesystem` requires `--mail-root` and optionally accepts `--mail-account-dir` for a symlink-backed private mailbox directory.
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.

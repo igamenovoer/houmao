@@ -1,0 +1,26 @@
+# Keep cross-platform checkouts stable. Git should not create CRLF-only diffs
+# when Windows and Linux developers edit the same project files.
+* text=auto eol=lf
+
+# Windows command files, if added later, should keep Windows-native endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets and archives must never be line-ending-normalized.
+*.7z binary !eol
+*.bz2 binary !eol
+*.db binary !eol
+*.enc binary !eol
+*.gif binary !eol
+*.gz binary !eol
+*.ico binary !eol
+*.jpeg binary !eol
+*.jpg binary !eol
+*.mp4 binary !eol
+*.pdf binary !eol
+*.png binary !eol
+*.sqlite binary !eol
+*.tgz binary !eol
+*.wasm binary !eol
+*.webm binary !eol
+*.zip binary !eol

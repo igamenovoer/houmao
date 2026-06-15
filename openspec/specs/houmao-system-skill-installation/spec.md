@@ -11,10 +11,10 @@ That packaged catalog SHALL identify:
 - an explicit `schema_version`,
 - the full inventory of current installable Houmao-owned skills,
 - the packaged asset subpath for each current skill,
-- exactly two installable named skill sets, `core` and `all`, whose members are explicit current skill names,
+- exactly three installable named skill sets, `core`, `extensions`, and `all`, whose members are explicit current skill names,
 - fixed auto-install set lists used by Houmao-managed homes and CLI default installation.
 
-The `core` set SHALL contain the closed automation and operator-control system-skill surface. The `all` set SHALL contain every `core` skill plus packaged utility skills.
+The `core` set SHALL contain the non-extension automation, operator-control, AG-UI interop, and workspace utility system-skill surface. The `extensions` set SHALL contain default-installed extension guidance such as graphing authoring. The `all` set SHALL contain every current packaged Houmao-owned skill.
 
 This change SHALL NOT require conditional rules, profile expansion, nested set expansion, aliases for removed set names, or other dynamic catalog evaluation beyond those fixed named sets and auto-install set lists.
 
@@ -22,19 +22,20 @@ The packaged current-skill catalog SHALL have one matching JSON Schema document,
 
 For the current maintained skill set, each packaged skill `asset_subpath` SHALL equal the skill's own directory name under the maintained asset root and SHALL NOT include a family namespace segment such as `mailbox/` or `project/`.
 
-Logical grouping of current skills MAY be expressed through documentation and set descriptions, but the installable named-set surface SHALL remain `core` and `all`.
+Logical grouping of current skills MAY be expressed through documentation and set descriptions, but the installable named-set surface SHALL remain `core`, `extensions`, and `all`.
 
 #### Scenario: Maintainer inspects the packaged current-skill catalog
 - **WHEN** a maintainer inspects the Houmao-owned packaged system-skill assets
 - **THEN** the current `houmao-*` skills are available from one maintained runtime asset root
 - **AND THEN** project starter assets remain in their own separate asset tree
-- **AND THEN** one authoritative packaged catalog file identifies the current installable skill inventory, fixed auto-install set lists, explicit `schema_version`, and exactly the `core` and `all` named sets
+- **AND THEN** one authoritative packaged catalog file identifies the current installable skill inventory, fixed auto-install set lists, explicit `schema_version`, and exactly the `core`, `extensions`, and `all` named sets
 - **AND THEN** each current packaged skill directory lives directly under that asset root using its skill name as the relative `asset_subpath`
 
-#### Scenario: Catalog exposes closed core and all sets
+#### Scenario: Catalog exposes core, extensions, and all sets
 - **WHEN** a maintainer inspects the packaged current-skill catalog
-- **THEN** the `core` set resolves the closed automation and operator-control skill surface
-- **AND THEN** the `all` set resolves every `core` skill plus packaged utility skills
+- **THEN** the `core` set resolves the non-extension baseline skill surface
+- **AND THEN** the `extensions` set resolves default-installed extension guidance
+- **AND THEN** the `all` set resolves every current packaged Houmao-owned system skill
 - **AND THEN** removed granular set names such as `user-control`, `mailbox-full`, `mailbox-core`, `agent-memory`, `agent-instance`, `agent-messaging`, `agent-gateway`, `touring`, `agent-inspect`, and `utils` are not current installable named sets
 
 #### Scenario: Loader rejects a schema-invalid packaged catalog
@@ -42,6 +43,29 @@ Logical grouping of current skills MAY be expressed through documentation and se
 - **AND WHEN** the normalized catalog payload violates the packaged JSON Schema
 - **THEN** catalog loading fails explicitly before set expansion or install resolution begins
 - **AND THEN** Houmao does not proceed to filesystem mutation from that invalid packaged catalog
+
+### Requirement: Packaged catalog uses the renamed AG-UI interop skill
+The packaged current-system-skill catalog SHALL include `houmao-interop-ag-ui` as a current installable Houmao-owned system skill.
+
+That packaged skill SHALL use `houmao-interop-ag-ui` as both its catalog key and packaged `asset_subpath`.
+
+The packaged catalog's `core` and `all` named sets SHALL include `houmao-interop-ag-ui` wherever the old AG-UI authoring skill was previously included.
+
+The packaged current-system-skill catalog SHALL NOT include `houmao-agent-ag-ui` as a current installable skill.
+
+The packaged catalog SHALL list `houmao-agent-ag-ui` as a known retired skill name so install and sync flows remove stale old-name projections from target tool homes.
+
+#### Scenario: Catalog exposes the renamed AG-UI interop skill
+- **WHEN** a maintainer inspects the packaged current-system-skill catalog
+- **THEN** the current installable skill inventory includes `houmao-interop-ag-ui`
+- **AND THEN** the `core` and `all` sets resolve `houmao-interop-ag-ui`
+- **AND THEN** the current installable skill inventory does not include `houmao-agent-ag-ui`
+
+#### Scenario: Installer removes stale old-name projection
+- **WHEN** a target Codex home contains `skills/houmao-agent-ag-ui`
+- **AND WHEN** Houmao installs or syncs the current system-skill selection for that home
+- **THEN** the operation removes the stale `skills/houmao-agent-ag-ui` retired projection
+- **AND THEN** it projects the current skill at `skills/houmao-interop-ag-ui`
 
 ### Requirement: Shared installer projects selected current Houmao-owned skills into target tool homes
 The system SHALL install only the selected current Houmao-owned skills into a target tool home through one shared installer contract used by both explicit operator installation and Houmao-managed runtime installation.
@@ -95,14 +119,14 @@ The shared installer SHALL support two selection modes for the current Houmao-ow
 - one or more current named skill sets,
 - one or more explicitly selected current skill names.
 
-The current installable named skill sets SHALL be `core` and `all`.
+The current installable named skill sets SHALL be `core`, `extensions`, and `all`.
 
 Whenever Houmao automatically installs its own current skills into a managed home, it SHALL use the packaged catalog's fixed auto-install set lists.
 
 The packaged catalog SHALL set:
 
-- `managed_launch_sets = ["core"]`
-- `managed_join_sets = ["core"]`
+- `managed_launch_sets = ["core", "extensions"]`
+- `managed_join_sets = ["core", "extensions"]`
 - `cli_default_sets = ["all"]`
 
 When installation input includes multiple named sets plus explicit skill names, the resolved install list SHALL preserve first occurrence order and SHALL contain each selected skill at most once.
@@ -112,17 +136,17 @@ That automatic or explicit selection SHALL NOT depend on conditional rule evalua
 #### Scenario: Managed brain construction uses the managed-launch auto-install set list
 - **WHEN** Houmao constructs a managed home that performs default Houmao-owned skill installation
 - **THEN** it installs the skill list resolved from the packaged current-skill catalog's `managed_launch_sets`
-- **AND THEN** that fixed list is `["core"]`
+- **AND THEN** that fixed list is `["core", "extensions"]`
 - **AND THEN** that automatic selection does not depend on a second mailbox-only default list or any removed granular set
 
 #### Scenario: Explicit installation resolves multiple named sets and explicit skills
-- **WHEN** an operator explicitly selects `core` or `all` plus one current Houmao-owned skill for installation
+- **WHEN** an operator explicitly selects `core`, `extensions`, or `all` plus one current Houmao-owned skill for installation
 - **THEN** the installer resolves the final install list by expanding the selected sets in order, appending the explicit skill, and deduplicating by first occurrence
 - **AND THEN** it does not silently replace that explicit selection with an internal auto-install set list
 
 #### Scenario: Unknown set fails explicit installation
 - **WHEN** an operator explicitly selects one named set for installation
-- **AND WHEN** that set name is not `core` or `all`
+- **AND WHEN** that set name is not `core`, `extensions`, or `all`
 - **THEN** the installation fails explicitly
 - **AND THEN** the installer does not guess another set or proceed with partial resolution
 
@@ -395,7 +419,7 @@ Each installable named set in the packaged current-system-skill catalog SHALL be
 
 If a packaged skill included in a named set references another packaged catalog skill as a routing target from its Markdown skill instructions or subskill pages, that referenced skill SHALL also be included in the same set.
 
-This closure requirement SHALL apply to every installable named set, including `core` and `all`.
+This closure requirement SHALL apply to every installable named set, including `core`, `extensions`, and `all`.
 
 #### Scenario: Catalog test catches an omitted internal routing target
 - **WHEN** a packaged skill in `core` references another catalog skill from its Markdown instructions
@@ -403,16 +427,16 @@ This closure requirement SHALL apply to every installable named set, including `
 - **THEN** catalog validation or regression coverage fails
 - **AND THEN** maintainers must either add the referenced skill to `core` or remove the routing reference
 
-### Requirement: Packaged utility skills are available through all
+### Requirement: Packaged workspace utility skill is available through core and all
 The packaged current-system-skill catalog SHALL include `houmao-utils-workspace-mgr` as a current installable utility skill.
 
-The `all` set SHALL include the current utility skill.
+The `core` and `all` sets SHALL include the current workspace utility skill.
 
-The `core` set SHALL exclude utility skills unless a future change explicitly promotes a utility into the managed core surface.
+The `core` set SHALL exclude extension skills.
 
 The packaged catalog's fixed `cli_default_sets` selection SHALL include `all`, so omitted-selection explicit CLI installs include the current utility skill by default.
 
-The packaged catalog's fixed `managed_launch_sets` and `managed_join_sets` selections SHALL include `core`, so managed launch and join do not install utility skills by default.
+The packaged catalog's fixed `managed_launch_sets` and `managed_join_sets` selections SHALL include `core` followed by `extensions`, so managed launch and join install the workspace utility skill and default extension guidance.
 
 #### Scenario: CLI default includes current utility skills
 - **WHEN** an operator installs system skills into an external tool home without selecting `--skill-set` or `--skill`
@@ -420,10 +444,11 @@ The packaged catalog's fixed `managed_launch_sets` and `managed_join_sets` selec
 - **AND THEN** the resolved skill list includes `houmao-utils-workspace-mgr`
 - **AND THEN** the resolved skill list does not include `houmao-utils-llm-wiki`
 
-#### Scenario: Managed auto-install excludes utility skills
+#### Scenario: Managed auto-install includes workspace utility and extensions
 - **WHEN** Houmao installs system skills into a managed launch or join home
-- **THEN** the installer resolves `core`
-- **AND THEN** the resolved skill list excludes `houmao-utils-workspace-mgr`
+- **THEN** the installer resolves `core` followed by `extensions`
+- **AND THEN** the resolved skill list includes `houmao-utils-workspace-mgr`
+- **AND THEN** the resolved skill list includes default extension guidance
 - **AND THEN** the resolved skill list excludes `houmao-utils-llm-wiki`
 
 ### Requirement: Packaged catalog marks unified agent definition as canonical
@@ -589,7 +614,7 @@ The packaged catalog's `core` named set SHALL include `houmao-operator-messaging
 
 The packaged catalog's `all` named set SHALL include `houmao-operator-messaging` because `all` includes every `core` skill plus packaged utility skills.
 
-The packaged catalog SHALL NOT add a dedicated named set for `houmao-operator-messaging`; the current installable named-set surface SHALL remain `core` and `all`.
+The packaged catalog SHALL NOT add a dedicated named set for `houmao-operator-messaging`; the current installable named-set surface SHALL remain `core`, `extensions`, and `all`.
 
 Because managed launch and managed join resolve `core`, and CLI-default installation resolves `all`, those fixed auto-install selections SHALL include `houmao-operator-messaging` through existing set membership.
 
@@ -625,3 +650,25 @@ System-skill install, sync, status, and uninstall workflows SHALL NOT treat `ski
 - **THEN** the stale LLM Wiki path is not reported as a current or retired Houmao-owned skill
 - **AND THEN** the stale LLM Wiki path is not removed by Houmao-owned system-skill cleanup
 
+### Requirement: System-skill policy does not control managed auto skills
+Houmao system-skill installation, status, sync, and removal workflows SHALL manage only catalog-known Houmao system skills.
+
+Managed auto skills SHALL remain outside system-skill catalog selection, named sets, CLI-default installation, managed-launch system-skill policy, and explicit uninstall behavior.
+
+Disabling or replacing system-skill selection for a managed launch SHALL NOT disable a required managed auto skill.
+
+#### Scenario: Disabled system-skill selection leaves auto skill eligible
+- **WHEN** managed launch resolves disabled system-skill installation for a home
+- **AND WHEN** launch policy requires `houmao-auto-system-prompt`
+- **THEN** system-skill installation resolves no system skills
+- **AND THEN** auto-skill projection remains eligible through the separate managed auto-skill projection path
+
+#### Scenario: System-skill uninstall does not remove auto skill by catalog sweep
+- **WHEN** an operator runs a Houmao system-skill uninstall workflow for a tool home
+- **THEN** the workflow targets catalog-known current or retired system-skill projections
+- **AND THEN** it does not treat `houmao-auto-system-prompt` as a system-skill catalog entry
+
+#### Scenario: System-skill status omits auto-skill inventory
+- **WHEN** an operator inspects system-skill status for a tool home
+- **THEN** the status reports catalog-known Houmao system skills
+- **AND THEN** it does not report `houmao-auto-system-prompt` as an installed system skill

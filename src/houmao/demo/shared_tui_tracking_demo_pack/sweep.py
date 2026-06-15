@@ -643,6 +643,8 @@ def _infer_tool_from_path(path: Path) -> ToolName:
         return "claude"
     if "codex" in lowered_parts:
         return "codex"
+    if "kimi" in lowered_parts:
+        return "kimi"
     raise ValueError(f"Could not infer tool name from fixture path: {path}")
 
 

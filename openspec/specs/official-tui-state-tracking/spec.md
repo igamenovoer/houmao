@@ -253,6 +253,33 @@ The system SHALL continue to report real draft prompt content as `surface.editin
 - **THEN** the tracked state reports `surface.editing_input=yes`
 - **AND THEN** the tracked state does not downgrade that draft to placeholder solely because the prompt line contains styling
 
+### Requirement: Claude style-classified suggestions preserve ready tracked state
+For supported Claude Code TUI sessions, when the selected tracked-TUI profile classifies the current prompt payload as ghost suggestion or placeholder content rather than user-authored draft input, the authoritative tracked state SHALL treat the prompt as non-editing.
+
+When no stronger active-turn evidence, modal overlay, blocked surface, or instability rule applies, that same snapshot SHALL remain eligible for ready tracked state with `surface.accepting_input=yes`, `surface.editing_input=no`, `surface.ready_posture=yes`, and `turn.phase=ready`.
+
+The tracked state SHALL NOT depend on exact ghost-suggestion wording to produce that ready posture. It SHALL depend on the selected profile's style-based prompt classification.
+
+Real user-authored draft input SHALL continue to report `surface.editing_input=yes` and SHALL NOT be downgraded to non-editing solely because Claude also displays a styled suggestion suffix.
+
+#### Scenario: Claude ghost suggestion is non-editing
+- **WHEN** the current Claude Code prompt line contains only style-classified ghost suggestion payload
+- **AND WHEN** no current active-turn evidence or modal overlay is visible
+- **THEN** the tracked state reports `surface.accepting_input=yes`
+- **AND THEN** the tracked state reports `surface.editing_input=no`
+- **AND THEN** the tracked state reports `surface.ready_posture=yes`
+- **AND THEN** the tracked state reports `turn.phase=ready`
+
+#### Scenario: Suggestion wording does not drive tracked readiness
+- **WHEN** two Claude Code snapshots show different ghost-suggestion text with the same profile-recognized suggestion styling
+- **THEN** both snapshots derive non-editing prompt posture from style-based classification
+- **AND THEN** the tracked state does not require either suggestion text to match a fixed phrase
+
+#### Scenario: Real draft still blocks ready editing posture
+- **WHEN** the operator has typed real draft input into the Claude Code prompt area
+- **THEN** the tracked state reports `surface.editing_input=yes`
+- **AND THEN** it does not classify that prompt as non-editing solely because a suggestion-style suffix is also visible
+
 ### Requirement: Live tracked state distinguishes transport, process, and parse outcomes explicitly
 The tracked-state contract SHALL expose low-level diagnostics separately from the simplified turn model.
 
@@ -591,4 +618,82 @@ The shared tracked-TUI contract SHALL NOT define one universal degraded error-ty
 - **WHEN** a tracked-TUI profile publishes degraded diagnostic metadata
 - **THEN** the shared tracking contract exposes diagnostic evidence only
 - **AND THEN** gateway automation selects context recovery only through explicit caller or automation policy
+
+### Requirement: Kimi official tracking support SHALL be verified from recorded evidence
+Before official live TUI tracking reports Kimi Code TUI as a maintained supported surface, Kimi parser and tracker behavior SHALL be verified against the labeled recorded Kimi signal corpus.
+
+The verification SHALL include public tracked-state output and any parser-owned sidecar state used to expose operator-facing Kimi readiness or approval posture.
+
+The verification SHALL include held-out Kimi test sessions that were not used during signal design or detector implementation.
+
+#### Scenario: Kimi official tracking is backed by replay validation
+- **WHEN** Kimi Code TUI is added to official supported TUI tracking
+- **THEN** the implementation includes replay-validation evidence from labeled Kimi captures
+- **AND THEN** supported Kimi state is not based only on source inspection, development captures, or one-off live observation
+
+#### Scenario: Kimi maintained support requires held-out validation
+- **WHEN** official Kimi tracking is declared maintained
+- **THEN** held-out Kimi test sessions pass replay validation for both high-rate and derived low-rate streams
+- **AND THEN** those held-out sessions were not used to tune the detector
+
+#### Scenario: Kimi approval tracking has recorded evidence
+- **WHEN** official Kimi tracking reports an approval prompt as operator-blocked
+- **THEN** that behavior is covered by at least one labeled recorded approval scenario
+- **AND THEN** replay validation confirms both parser state and public tracked-state posture for the approval range
+
+### Requirement: Official live TUI tracking supports Kimi Code TUI
+For tmux-backed Kimi Code TUI sessions, the official live TUI tracking path SHALL treat Kimi as a supported surface when a recognized Kimi TUI process is running in the tracked pane process tree.
+
+The maintained Kimi process-name set SHALL include `kimi-code` and `kimi`.
+
+When captured pane text is available for a recognized Kimi TUI process, the parser-owned sidecar path SHALL produce a supported `HoumaoParsedSurface` rather than reporting `unsupported_tool` solely because the tool is Kimi.
+
+The Kimi parser-owned sidecar path SHALL wrap Kimi-specific visible-surface analysis directly and SHALL NOT instantiate the Claude/Codex `ShadowParserStack` for Kimi.
+
+The parser-owned Kimi surface SHALL remain sidecar evidence. Shared tracker reduction SHALL continue using raw captured snapshot text as its input.
+
+#### Scenario: Kimi process is recognized as supported
+- **WHEN** a tracked tmux pane process tree contains a running process named `kimi-code`
+- **THEN** live TUI tracking treats the Kimi TUI process as up and supported
+- **AND THEN** the poll cycle can parse captured pane text instead of recording `unsupported_tool`
+
+#### Scenario: Kimi parser produces supported sidecar state
+- **WHEN** a recognized Kimi TUI pane is captured successfully
+- **THEN** the official parser path returns a `HoumaoParsedSurface` with supported availability
+- **AND THEN** the shared tracker still receives the raw captured snapshot text for authoritative state reduction
+
+#### Scenario: Kimi parser bypasses Claude Codex shadow stack
+- **WHEN** the official parser adapter parses a recognized Kimi TUI pane
+- **THEN** it uses the Kimi visible-surface parser path
+- **AND THEN** it does not require `ShadowParserStack(tool="kimi")` to exist
+
+### Requirement: Kimi Code parser maps visible surfaces to operator state
+The Kimi parser SHALL map visible Kimi TUI surfaces into the existing parser-owned operator state vocabulary.
+
+At minimum, the Kimi parser SHALL distinguish:
+
+- prompt-ready main chat surfaces
+- active response or tool-use surfaces
+- approval dialogs that require operator choice
+- startup or modal surfaces such as session picker, login, update, or unknown blocking prompts
+
+The parser SHALL classify approval dialogs as operator-blocked and SHALL expose dialog text that includes the command or question being approved when that text is visible.
+
+The parser SHALL NOT classify Kimi footer model metadata as active-turn evidence by itself.
+
+The parser SHALL classify recognized startup or modal surfaces that block normal prompt entry as unavailable for managed prompt submission until the blocker clears.
+
+#### Scenario: Kimi ready surface maps to ready state
+- **WHEN** the captured Kimi pane shows a prompt-ready main chat surface with no current blocker
+- **THEN** the parsed surface reports an idle or ready business state and freeform input mode
+
+#### Scenario: Kimi approval dialog maps to operator-blocked state
+- **WHEN** the captured Kimi pane shows `Run this command?` and approval or rejection choices
+- **THEN** the parsed surface reports an operator-blocked state with modal input context
+- **AND THEN** the parsed surface includes the visible approval dialog text
+
+#### Scenario: Kimi footer thinking text is not active by itself
+- **WHEN** the captured Kimi pane shows footer text containing `thinking`
+- **AND WHEN** no current active response, tool-use, or progress surface is visible
+- **THEN** the parser does not report active business state solely from that footer text
 

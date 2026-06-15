@@ -12,7 +12,9 @@ houmao-passive-server [OPTIONS] COMMAND [ARGS]...
 
 ## When to Use It
 
-Use `houmao-passive-server` when you need an HTTP authority for collecting, observing, or managing running Houmao agents from the shared registry. Typical operators still launch local agents through `houmao-mgr project agents launch` or adopt the current tmux session through `houmao-mgr agents self join`; passive-server then provides API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless turn handling.
+Use `houmao-passive-server` when you need a global HTTP authority for collecting, observing, or managing running Houmao agents from the shared registry. Typical operators still launch local agents through `houmao-mgr project agents launch` or adopt the current tmux session through `houmao-mgr agents self join`; passive-server then provides API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless turn handling.
+
+Passive-server is not a Houmao project-bound command. It can start from any directory without a `.houmao` project overlay, and its durable state and registry target come from explicit root configuration, environment variables, or global defaults.
 
 The packaged server/API command is `houmao-passive-server`. Historical standalone `houmao-server`, `houmao-cli`, and `/cao/*` workflows are removed from the maintained CLI/API surface.
 
@@ -30,7 +32,8 @@ houmao-passive-server serve [OPTIONS]
 |---|---:|---|
 | `--host TEXT` | `127.0.0.1` | Host address to bind. |
 | `--port INTEGER` | `9891` | Port to listen on. |
-| `--runtime-root PATH` | Project-aware default | Runtime root containing passive-server state and the shared registry pointers. When omitted, Houmao uses `HOUMAO_GLOBAL_RUNTIME_DIR` when set, otherwise project-aware local roots derived from the current working directory. |
+| `--runtime-root PATH` | Global default | Runtime root for passive-server process state and passive-server-owned headless records. Precedence is `--runtime-root`, then `HOUMAO_GLOBAL_RUNTIME_DIR`, then the global default runtime root. |
+| `--registry-root PATH` | Global default | Shared registry root used for discovery and passive-server-owned registry publish/remove calls. Precedence is `--registry-root`, then `HOUMAO_GLOBAL_REGISTRY_DIR`, then the global default registry root. |
 
 Example:
 
@@ -38,9 +41,37 @@ Example:
 houmao-passive-server serve --host 127.0.0.1 --port 9891
 ```
 
+Isolated CI or demo state usually sets both roots:
+
+```bash
+HOUMAO_GLOBAL_RUNTIME_DIR=/tmp/houmao-runtime \
+HOUMAO_GLOBAL_REGISTRY_DIR=/tmp/houmao-registry \
+houmao-passive-server serve
+```
+
+## Root Resolution
+
+Passive-server runtime state and shared-registry state are separate roots.
+
+Runtime root precedence is:
+
+1. `--runtime-root`
+2. `HOUMAO_GLOBAL_RUNTIME_DIR`
+3. the global default runtime root under the Houmao platform config home
+
+Registry root precedence is:
+
+1. `--registry-root`
+2. `HOUMAO_GLOBAL_REGISTRY_DIR`
+3. the global default registry root under the Houmao platform config home
+
+Use `--runtime-root` or `HOUMAO_GLOBAL_RUNTIME_DIR` when you need to isolate passive-server process metadata and passive-server-owned headless state. Use `--registry-root` or `HOUMAO_GLOBAL_REGISTRY_DIR` when you need to isolate the shared registry that passive-server scans and mutates.
+
 ## Discovery Model
 
-Passive-server is registry-driven. It reads shared registry records for agents launched, joined, or managed by Houmao, then resolves those records into API targets. A discovered agent may expose local tmux authority, a live gateway, mailbox bindings, managed memory, or passive-server-owned headless authority depending on how that agent was created.
+Passive-server is registry-driven. It scans the configured shared registry root for agents launched, joined, or managed by Houmao, then resolves those records into API targets. A discovered agent may expose local tmux authority, a live gateway, mailbox bindings, managed memory, or passive-server-owned headless authority depending on how that agent was created.
+
+Agents are discoverable only when their launching authority and passive-server use the same shared registry root. For example, an agent launched with `HOUMAO_GLOBAL_REGISTRY_DIR=/tmp/a` will not appear in a passive-server that uses `--registry-root /tmp/b`.
 
 Agent routes use `{agent_ref}` for either an exact agent id or an unambiguous agent name. Missing agents return `404`; ambiguous names return `409`.
 
@@ -149,7 +180,7 @@ Mail routes proxy through the agent gateway.
 
 ### Passive-Server-Owned Headless Agents
 
-Passive-server can own native headless agents and recover their authority records on restart.
+Passive-server can own native headless agents and recover their authority records on restart. Maintained native headless backends are `claude_headless`, `codex_headless`, `kimi_headless`, and `gemini_headless`.
 
 | Method | Path | Description |
 |---|---|---|
@@ -194,6 +225,15 @@ Passive-server stores listener metadata and server-owned headless state under th
               record.json
               stdout.jsonl
               stderr.txt
+```
+
+Passive-server reads and writes shared registry records under the selected registry root:
+
+```text
+<registry-root>/
+  live_agents/
+    <agent-id>/
+      record.json
 ```
 
 ## See Also

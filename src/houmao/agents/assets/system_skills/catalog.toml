@@ -7,6 +7,8 @@ retired_skill_names = [
   "houmao-agent-loop-pairwise-v4",
   "houmao-agent-loop-pairwise-v5",
   "houmao-agent-loop-generic",
+  "houmao-agent-ag-ui",
+  "houmao-utils-graphing",
 ]
 
 [skills.houmao-process-emails-via-gateway]
@@ -24,6 +26,10 @@ description = "Advanced Houmao workflow composition skill layered on top of dire
 [skills.houmao-utils-workspace-mgr]
 asset_subpath = "houmao-utils-workspace-mgr"
 description = "Utility skill for planning, creating, validating, and summarizing multi-agent workspace layouts."
+
+[skills.houmao-ext-graphing]
+asset_subpath = "houmao-ext-graphing"
+description = "Extension skill for authoring built-in Plotly.js and Vega-Lite graphing payloads."
 
 [skills.houmao-touring]
 asset_subpath = "houmao-touring"
@@ -81,6 +87,10 @@ description = "Managed agent communication and control skill."
 asset_subpath = "houmao-agent-gateway"
 description = "Managed agent gateway lifecycle and gateway-only control skill."
 
+[skills.houmao-interop-ag-ui]
+asset_subpath = "houmao-interop-ag-ui"
+description = "Managed agent AG-UI protocol event validation, rendering, gateway publishing, and GUI interop skill."
+
 [sets.core]
 description = "Closed core control and automation system-skill set."
 skills = [
@@ -102,10 +112,17 @@ skills = [
   "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
+  "houmao-interop-ag-ui",
+]
+
+[sets.extensions]
+description = "Default-installed extension system-skill set."
+skills = [
+  "houmao-ext-graphing",
 ]
 
 [sets.all]
-description = "All packaged Houmao system skills, including utility skills."
+description = "All packaged Houmao system skills, including utility and extension skills."
 skills = [
   "houmao-process-emails-via-gateway",
   "houmao-agent-email-comms",
@@ -125,9 +142,11 @@ skills = [
   "houmao-operator-messaging",
   "houmao-agent-messaging",
   "houmao-agent-gateway",
+  "houmao-interop-ag-ui",
+  "houmao-ext-graphing",
 ]
 
 [auto_install]
-managed_launch_sets = ["core"]
-managed_join_sets = ["core"]
+managed_launch_sets = ["core", "extensions"]
+managed_join_sets = ["core", "extensions"]
 cli_default_sets = ["all"]

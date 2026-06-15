@@ -20,6 +20,7 @@ BackendKind = Literal[
     "codex_app_server",
     "claude_headless",
     "gemini_headless",
+    "kimi_headless",
     "cao_rest",
     "houmao_server_rest",
 ]
@@ -27,6 +28,7 @@ CaoParsingMode = Literal["cao_only", "shadow_only"]
 RoleInjectionMethod = Literal[
     "native_developer_instructions",
     "native_append_system_prompt",
+    "auto_skill_system_prompt",
     "bootstrap_message",
     "cao_profile",
 ]

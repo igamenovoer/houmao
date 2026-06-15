@@ -45,7 +45,11 @@ _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
     "gemini": ("gemini",),
+    "kimi": ("kimi-code", "kimi"),
 }
+_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY = "kimi_tui_auto_mode_refresh"
+_KIMI_TUI_AUTO_MODE_COMMAND = "/auto on"
+_KIMI_RESUME_CONFLICT_FLAGS = frozenset({"--auto", "--plan", "--yolo", "-y"})
 _POST_PASTE_SUBMIT_DELAY_SECONDS = 0.3
 _LOCAL_INTERACTIVE_MAIL_PROMPT_TIMEOUT_SECONDS = 10.0
 _LOCAL_INTERACTIVE_MAIL_PROMPT_POLL_INTERVAL_SECONDS = 0.5
@@ -81,6 +85,11 @@ def _tui_relaunch_chat_session_args(
             return ["--resume", "latest"]
         assert selection.session_id is not None
         return ["--resume", selection.session_id]
+    if tool == "kimi":
+        if selection.mode == "tool_last_or_new":
+            return ["--continue"]
+        assert selection.session_id is not None
+        return ["--session", selection.session_id]
     raise BackendExecutionError(
         f"Chat-session continuation is unsupported for local interactive tool {tool!r}."
     )
@@ -362,6 +371,7 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             )
 
         self._wait_for_provider_tui(timeout_seconds=10.0, poll_interval_seconds=0.2)
+        self._apply_kimi_unattended_auto_mode_refresh()
 
     def _prepare_tool_home(self) -> None:
         """Apply tool-specific runtime-home bootstrap before launch."""
@@ -385,9 +395,12 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             and self._plan.role_injection.prompt
         ):
             command.extend(["--append-system-prompt", self._plan.role_injection.prompt])
-        command.extend(
-            _tui_relaunch_chat_session_args(tool=self._plan.tool, selection=chat_session)
+        relaunch_args = _tui_relaunch_chat_session_args(
+            tool=self._plan.tool,
+            selection=chat_session,
         )
+        command.extend(relaunch_args)
+        _validate_kimi_tui_relaunch_args(tool=self._plan.tool, command=command)
         return command
 
     def _apply_startup_bootstrap(self) -> None:
@@ -397,6 +410,18 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         time.sleep(0.2)
         self._submit_semantic_prompt(bootstrap)
         self._state.role_bootstrap_applied = True
+
+    def _apply_kimi_unattended_auto_mode_refresh(self) -> None:
+        """Refresh Kimi TUI auto permission mode when launch policy requires it."""
+
+        if not _plan_requires_kimi_unattended_auto_mode_refresh(self._plan):
+            return
+        try:
+            self._submit_semantic_prompt(_KIMI_TUI_AUTO_MODE_COMMAND)
+        except BackendExecutionError as exc:
+            raise BackendExecutionError(
+                f"Kimi unattended auto-mode setup failed while submitting `/auto on`: {exc}"
+            ) from exc
 
     def _submit_runtime_prompt(self, prompt: str) -> None:
         """Submit one runtime-owned prompt after any launch-time bootstrap."""
@@ -632,3 +657,54 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
         except TmuxCommandError:
             return
         self._state.tmux_session_name = None
+
+
+def _validate_kimi_tui_relaunch_args(*, tool: str, command: list[str]) -> None:
+    """Reject Kimi TUI resume startup combinations that Kimi rejects natively."""
+
+    if tool != "kimi":
+        return
+    if not _args_include_kimi_resume_selector(command):
+        return
+    conflict = next((arg for arg in command if _kimi_resume_conflict_flag(arg)), None)
+    if conflict is None:
+        return
+    raise BackendExecutionError(
+        "Unsupported Kimi TUI relaunch arguments: Kimi cannot combine "
+        "`--continue` or `--session <session_id>` with `--auto`, `--yolo`, or `--plan`."
+    )
+
+
+def _args_include_kimi_resume_selector(args: list[str]) -> bool:
+    """Return whether Kimi startup args resume a provider-native chat."""
+
+    return any(
+        arg == "--continue" or arg == "--session" or arg.startswith("--session=") for arg in args
+    )
+
+
+def _kimi_resume_conflict_flag(arg: str) -> bool:
+    """Return whether one Kimi arg conflicts with resumed TUI startup."""
+
+    return arg in _KIMI_RESUME_CONFLICT_FLAGS or any(
+        arg.startswith(f"{flag}=") for flag in _KIMI_RESUME_CONFLICT_FLAGS if flag.startswith("--")
+    )
+
+
+def _plan_requires_kimi_unattended_auto_mode_refresh(launch_plan: LaunchPlan) -> bool:
+    """Return whether one launch plan requires Kimi TUI auto-mode refresh."""
+
+    if launch_plan.backend != "local_interactive" or launch_plan.tool != "kimi":
+        return False
+    metadata = launch_plan.metadata.get(_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY)
+    if isinstance(metadata, dict):
+        return (
+            metadata.get("enabled") is True
+            and metadata.get("command") == _KIMI_TUI_AUTO_MODE_COMMAND
+        )
+    provenance = launch_plan.launch_policy_provenance
+    return (
+        provenance is not None
+        and provenance.requested_operator_prompt_mode == "unattended"
+        and provenance.selected_strategy_id.startswith("kimi-tui-unattended-")
+    )

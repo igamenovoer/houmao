@@ -65,6 +65,13 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | `gemini.canonicalize_unattended_launch_inputs` | Strips caller-supplied `--yolo`, `--approval-mode`, and `--sandbox` overrides so the maintained unattended Gemini posture can be re-applied deterministically. |
 | `gemini.ensure_unattended_runtime_state` | Repairs or patches `.gemini/settings.json` only when copied runtime-home settings would weaken unattended Gemini approval, sandbox, or tool-availability posture. |
 
+### Kimi Hooks
+
+| Hook | Description |
+|---|---|
+| `kimi.canonicalize_unattended_launch_inputs` | Strips caller-supplied Kimi prompt-mode-owned args such as `-p`, `--prompt`, `--output-format`, `--session`, `--continue`, `--skills-dir`, `--auto`, `--yolo`, and `--plan` before the `kimi_headless` backend builds the final command. |
+| `kimi.canonicalize_unattended_tui_launch_inputs` | Strips caller-supplied Kimi TUI permission and session-startup flags such as `--session`, `--resume`, `--continue`, `--auto`, `--yolo`, and `--plan` before the `raw_launch` strategy applies the maintained TUI unattended posture. |
+
 Hooks run within a provider state mutation lock for thread-safe file access.
 
 ## Gemini Unattended Posture
@@ -72,6 +79,19 @@ Hooks run within a provider state mutation lock for thread-safe file access.
 Maintained Gemini unattended startup is owned by launch policy rather than by copied setup defaults. For `gemini_headless`, the policy engine force-applies `--approval-mode=yolo` and `--sandbox=false` so non-interactive Gemini keeps shell and file-mutation tools available instead of falling back to Gemini CLI's default headless read-only posture.
 
 This ownership is authoritative for the unattended path. If adapter defaults, recipe overrides, direct launch args, or copied `.gemini/settings.json` content request a weaker approval mode, enable sandboxing, or restrict the built-in tool registry, launch policy replaces or repairs those owned surfaces before provider start. Non-unattended Gemini launches remain `as_is`.
+
+## Kimi Unattended Posture
+
+Maintained Kimi unattended startup is version-scoped to Kimi Code 0.11.0 and has two backend contracts:
+
+- `kimi_headless` owns prompt-mode command placement. Exact resume uses `--session <session_id>`, latest resume uses `--continue`, the prompt value is placed immediately after `-p`, output format is `stream-json`, and managed skills are loaded with `--skills-dir <KIMI_CODE_HOME>/skills`. Kimi prompt mode rejects `--auto`, `--yolo`, and `--plan` when combined with `-p`, so the strategy removes those conflicting inputs instead of adding an approval flag.
+- Kimi TUI launch uses the `raw_launch` launch-policy surface, which maps to the run-phase `local_interactive` backend. The strategy sets `default_permission_mode = "auto"` in the managed `config.toml` before provider start. The local-interactive runtime then submits Kimi's `/auto on` command after TUI readiness and before Houmao role bootstrap or workload prompts when unattended mode is active.
+
+The TUI strategy does not implement unattended mode by adding a persistent `--auto` launch argument. Kimi rejects `--auto`, `--yolo`, and `--plan` when startup also uses `--continue` or `--session <session_id>`, so Houmao preserves valid resume commands and refreshes auto mode inside the ready TUI. `as_is` Kimi TUI launches skip the config write and skip `/auto on`.
+
+Kimi auto permission mode is the provider-native no-question posture: normal tool approvals are automatic and `AskUserQuestion` requests are denied so the agent must decide and continue. It does not bypass explicit Kimi hard-deny policies or user-configured deny rules.
+
+Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao can project `houmao-auto-system-prompt` into managed Kimi homes and make the skill reachable through Kimi skill configuration, but users may need to invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins when automatic skill startup has not loaded the Houmao system prompt.
 
 ## Versioned Registry
 
@@ -81,6 +101,8 @@ The registry stores strategies in per-tool YAML files under `agents/launch_polic
 agents/launch_policy/registry/
   claude.yaml     # strategies for Claude Code
   codex.yaml      # strategies for Codex CLI
+  gemini.yaml     # strategies for Gemini CLI
+  kimi.yaml       # strategies for Kimi Code
 ```
 
 Each file enforces `schema_version: 1` and contains one or more strategy definitions. Multiple strategies can coexist in one file with different `supported_versions` ranges — the resolution logic selects the unique matching strategy for the detected tool version.

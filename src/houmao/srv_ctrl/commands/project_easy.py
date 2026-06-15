@@ -798,6 +798,29 @@ def easy_specialist_group() -> None:
     help="Optional Gemini `oauth_creds.json` file.",
 )
 @click.option(
+    "--kimi-model-name",
+    default=None,
+    help="Optional Kimi env-model credential value for `KIMI_MODEL_NAME`.",
+)
+@click.option(
+    "--kimi-config-toml",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Optional Kimi `config.toml` file.",
+)
+@click.option(
+    "--kimi-credential-json",
+    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
+    default=None,
+    help="Optional Kimi `credentials/kimi-code.json` file.",
+)
+@click.option(
+    "--kimi-code-home",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Optional Kimi Code home to import `config.toml` and `credentials/kimi-code.json` from.",
+)
+@click.option(
     "--skill",
     "skill_names",
     multiple=True,
@@ -871,6 +894,10 @@ def create_easy_specialist_command(
     google_api_key: str | None,
     use_vertex_ai: bool,
     gemini_oauth_creds: Path | None,
+    kimi_model_name: str | None,
+    kimi_config_toml: Path | None,
+    kimi_credential_json: Path | None,
+    kimi_code_home: Path | None,
     skill_names: tuple[str, ...],
     skill_dirs: tuple[Path, ...],
     env_set: tuple[str, ...],
@@ -965,6 +992,14 @@ def create_easy_specialist_command(
         model_name=resolved_model_name,
         reasoning_level=reasoning_level,
     )
+    resolved_kimi_model_name = kimi_model_name
+    if (
+        tool_name == "kimi"
+        and resolved_kimi_model_name is None
+        and api_key is not None
+        and resolved_model_name is not None
+    ):
+        resolved_kimi_model_name = resolved_model_name
     auth_result = ensure_specialist_credential_bundle(
         overlay=overlay,
         tool=tool_name,
@@ -980,9 +1015,15 @@ def create_easy_specialist_command(
         google_api_key=google_api_key,
         use_vertex_ai=use_vertex_ai,
         gemini_oauth_creds=gemini_oauth_creds,
+        kimi_model_name=resolved_kimi_model_name,
+        kimi_config_toml=kimi_config_toml,
+        kimi_credential_json=kimi_credential_json,
+        kimi_code_home=kimi_code_home,
     )
     prompt_mode = (
-        "as_is" if no_unattended or tool_name not in {"claude", "codex", "gemini"} else "unattended"
+        "as_is"
+        if no_unattended or tool_name not in {"claude", "codex", "gemini", "kimi"}
+        else "unattended"
     )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
     model_payload = _model_mapping_payload(resolved_model_config)
@@ -1978,6 +2019,16 @@ def launch_easy_instance_command(
             raise click.ClickException("`project agents launch --specialist` requires `--name`.")
         resolved_auth = _optional_non_empty_value(auth)
         working_directory = (workdir or Path.cwd()).resolve()
+        specialist_launch_payload = getattr(specialist_metadata, "launch_payload", {})
+        specialist_prompt_mode = (
+            specialist_launch_payload.get("prompt_mode")
+            if isinstance(specialist_launch_payload, dict)
+            else None
+        )
+        operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
+            specialist_prompt_mode,
+            source=f"project specialist `{getattr(specialist_metadata, 'name', specialist)}`",
+        )
 
     if specialist_metadata.tool == "gemini" and not resolved_headless:
         raise click.ClickException(

@@ -84,6 +84,11 @@ from houmao.shared_tui_tracking.apps.codex_tui.profile import (  # noqa: E402
     CodexTuiSignalDetector,
     FallbackCodexTuiSignalDetector,
 )
+from houmao.shared_tui_tracking.apps.kimi_code.profile import (  # noqa: E402
+    FallbackKimiCodeSignalDetector,
+    KimiCodeSignalDetector,
+    KimiCodeSignalDetectorV0_11_X,
+)
 from houmao.shared_tui_tracking.apps.unsupported_tool.profile import (  # noqa: E402
     FallbackTrackedTurnSignalDetector,
 )
@@ -97,7 +102,10 @@ __all__ = [
     "CodexTuiSignalDetector",
     "FallbackCodexTuiSignalDetector",
     "FallbackClaudeDetector",
+    "FallbackKimiCodeSignalDetector",
     "FallbackTrackedTurnSignalDetector",
+    "KimiCodeSignalDetector",
+    "KimiCodeSignalDetectorV0_11_X",
     "select_claude_detector",
     "select_tracked_turn_signal_detector",
 ]

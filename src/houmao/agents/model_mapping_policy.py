@@ -24,6 +24,8 @@ from houmao.agents.model_selection import ModelConfig
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
 _GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
+_KIMI_CONFIG_FILENAME = "config.toml"
+_KIMI_ENV_MODEL_NAME = "KIMI_MODEL_NAME"
 _CODEX_CURRENT_CODING_MODEL_PREFIXES = (
     "gpt-5.4",
     "gpt-5.3-codex",
@@ -218,6 +220,22 @@ def project_model_name(
             "value": stripped_model_name,
         }
 
+    if tool == "kimi":
+        if env_exports is not None and _KIMI_ENV_MODEL_NAME in env_exports:
+            env_exports[_KIMI_ENV_MODEL_NAME] = stripped_model_name
+            return {
+                "surface": "env",
+                "env_var": _KIMI_ENV_MODEL_NAME,
+                "value": stripped_model_name,
+            }
+        projection = {
+            "surface": "cli_arg",
+            "arg": "--model",
+            "value": stripped_model_name,
+        }
+        _attach_provider_cli_args_metadata(projection, ["--model", stripped_model_name])
+        return projection
+
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
 
@@ -395,6 +413,9 @@ def _resolve_reasoning_ladder(
 
     if tool == "gemini":
         return _resolve_gemini_reasoning_ladder(model_name=model_name)
+
+    if tool == "kimi":
+        raise ValueError("Kimi model-mapping does not support launch-owned reasoning levels.")
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
@@ -710,6 +731,8 @@ def _mutated_model_config_paths(
         return (home_path / _CODEX_CONFIG_FILENAME,)
     if tool == "gemini":
         return (home_path / _GEMINI_SETTINGS_PATH,)
+    if tool == "kimi":
+        return ()
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
 

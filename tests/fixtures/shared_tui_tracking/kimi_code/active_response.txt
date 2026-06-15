@@ -1,0 +1,10 @@
+User: summarize the current status
+
+⠋ working...
+Reading project files and preparing a concise answer.
+
+╭────────────────────────────────────────╮
+│ >                                      │
+╰────────────────────────────────────────╯
+Kimi-k2.6 thinking  /model: switch model
+context: 0.1%

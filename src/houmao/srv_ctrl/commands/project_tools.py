@@ -258,3 +258,54 @@ def remove_gemini_project_setup_command(name: str) -> None:
     """Remove one project-local Gemini setup bundle."""
 
     _emit_tool_setup_remove(tool="gemini", name=name)
+
+
+@project_tools_group.group(name="kimi")
+def kimi_tool_group() -> None:
+    """Manage the project-local Kimi tool subtree."""
+
+
+@kimi_tool_group.command(name="get")
+def get_kimi_project_tool_command() -> None:
+    """Inspect the project-local Kimi tool subtree."""
+
+    _emit_tool_get(tool="kimi")
+
+
+@kimi_tool_group.group(name="setups")
+def kimi_tool_setups_group() -> None:
+    """Manage Kimi setup bundles under `.houmao/agents/tools/kimi/setups/`."""
+
+
+@kimi_tool_setups_group.command(name="list")
+def list_kimi_project_setups_command() -> None:
+    """List project-local Kimi setup bundles."""
+
+    _emit_tool_setup_list(tool="kimi")
+
+
+@kimi_tool_setups_group.command(name="get")
+@click.option("--name", required=True, help="Setup bundle name.")
+def get_kimi_project_setup_command(name: str) -> None:
+    """Inspect one project-local Kimi setup bundle."""
+
+    _emit_tool_setup_get(tool="kimi", name=name)
+
+
+@kimi_tool_setups_group.command(name="add")
+@click.option("--name", required=True, help="New setup bundle name.")
+@click.option(
+    "--from", "source_name", default="default", show_default=True, help="Source setup name."
+)
+def add_kimi_project_setup_command(name: str, source_name: str) -> None:
+    """Clone one project-local Kimi setup bundle."""
+
+    _emit_tool_setup_add(tool="kimi", name=name, source_name=source_name)
+
+
+@kimi_tool_setups_group.command(name="remove")
+@click.option("--name", required=True, help="Setup bundle name to remove.")
+def remove_kimi_project_setup_command(name: str) -> None:
+    """Remove one project-local Kimi setup bundle."""
+
+    _emit_tool_setup_remove(tool="kimi", name=name)

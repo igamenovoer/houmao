@@ -21,6 +21,18 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
     "codex_app_server": ("app-server",),
     "claude_headless": ("-p", "--append-system-prompt", "--output-format", "--resume"),
     "gemini_headless": ("-p", "--output-format", "--resume"),
+    "kimi_headless": (
+        "-p",
+        "--prompt",
+        "--output-format",
+        "--session",
+        "--resume",
+        "--continue",
+        "--skills-dir",
+        "--auto",
+        "--yolo",
+        "--plan",
+    ),
     "cao_rest": (),
 }
 _UNSUPPORTED_OVERRIDE_BACKENDS: Final[frozenset[SupportedLaunchBackend]] = frozenset({"cao_rest"})

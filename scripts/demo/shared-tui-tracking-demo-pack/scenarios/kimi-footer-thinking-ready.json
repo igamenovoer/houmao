@@ -1,0 +1,38 @@
+{
+  "id": "kimi_footer_thinking_ready",
+  "tool": "kimi",
+  "description": "Capture Kimi Code footer thinking evidence returning to ready after a short turn.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-prompt",
+      "text": "Think briefly, then reply with exactly KIMI_READY.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_active",
+      "name": "wait-for-thinking-evidence",
+      "timeout_seconds": 30.0
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-ready-token",
+      "pattern": "KIMI_READY",
+      "timeout_seconds": 45.0
+    },
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-final-ready"
+    },
+    {
+      "action": "wait_seconds",
+      "name": "settle-ready-surface",
+      "seconds": 1.0
+    }
+  ]
+}

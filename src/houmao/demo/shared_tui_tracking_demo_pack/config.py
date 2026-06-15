@@ -354,7 +354,7 @@ def _parse_tools(payload: dict[str, Any]) -> dict[ToolName, DemoToolConfig]:
     """Parse tool defaults from raw config."""
 
     tools: dict[ToolName, DemoToolConfig] = {}
-    for tool_name in ("claude", "codex"):
+    for tool_name in ("claude", "codex", "kimi"):
         tool_payload = _require_mapping(payload.get(tool_name), context=f"tools.{tool_name}")
         raw_launch_overrides = tool_payload.get("launch_overrides")
         launch_overrides = (

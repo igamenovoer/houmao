@@ -29,7 +29,7 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 For `create`, use the CLI-owned config draft before running the maintained command:
 
 ```text
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
 ```
 
 The `project.specialist` config draft is intentionally minimal. Its JSON intent must contain a top-level `fields` object whose only draft fields are `name`, `tool`, and `credential`. For prompt content, setup changes, model/reasoning, skills, env records, system-skill policy, mailbox posture, or credential material, use the maintained `project specialist create|set` command fields directly instead of adding them to the draft intent.
@@ -41,11 +41,11 @@ For `set`, keep the maintained patch command explicit and include only the user-
 Common specialist inputs:
 
 - `--name`
-- `--tool claude|codex|gemini|...`
+- `--tool claude|codex|kimi|gemini`
 - `--credential <name>`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
-- `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference
+- `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference. For Kimi TUI automation, keep the default unattended prompt mode instead of adding raw Kimi permission flags.
 - `--model`
 - `--reasoning-level`
 - repeatable `--with-skill <dir>`
@@ -57,6 +57,7 @@ Tool-specific auth inputs:
 - Claude optional bootstrap state: `--claude-state-template-file`; this is optional bootstrap state and not a credential-providing method
 - Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
 - Gemini: `--api-key`, optional `--base-url`, optional `--google-api-key`, optional `--use-vertex-ai`, optional `--gemini-oauth-creds`
+- Kimi: `--api-key`, optional `--base-url`, optional `--kimi-model-name`, optional `--provider-type`, optional `--kimi-code-home`, optional `--kimi-config-toml`, optional `--kimi-credential-json`
 
 ## Credential Discovery During Create
 
@@ -76,11 +77,12 @@ The supported modes are:
 - Auto Credentials Mode
 - No Discovery Mode
 
-Load only the selected tool reference when needed:
+Load only the selected tool credential-kind reference when needed:
 
-- Claude: [../../references/credentials/claude-lookup.md](../../references/credentials/claude-lookup.md) or [../../references/credentials/claude-kinds.md](../../references/credentials/claude-kinds.md)
-- Codex: [../../references/credentials/codex-lookup.md](../../references/credentials/codex-lookup.md) or [../../references/credentials/codex-kinds.md](../../references/credentials/codex-kinds.md)
-- Gemini: [../../references/credentials/gemini-lookup.md](../../references/credentials/gemini-lookup.md) or [../../references/credentials/gemini-kinds.md](../../references/credentials/gemini-kinds.md)
+- Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
+- Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
+- Gemini: [../../../houmao-credential-mgr/references/gemini-credential-kinds.md](../../../houmao-credential-mgr/references/gemini-credential-kinds.md)
+- Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 For Claude vendor-login files, normalize reuse requests to `--claude-config-dir <claude-config-root>`. If the user points at `.credentials.json`, use its parent directory.
 
@@ -118,3 +120,4 @@ Common update and clear inputs:
 - Do not infer auth identity from `.houmao/` auth directory names.
 - Do not hand-author specialist config YAML skeletons; use `internals config-drafts generate` for supported minimal specialist config authoring.
 - Do not pass model, env, mailbox, prompt, skill, or credential material fields to `project.specialist` config drafts.
+- Do not add raw Kimi `--auto` or `--yolo` launch flags to specialists; use prompt mode for managed automation.

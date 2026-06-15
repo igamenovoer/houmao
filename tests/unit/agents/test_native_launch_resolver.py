@@ -167,6 +167,93 @@ def test_resolve_native_launch_target_honors_explicit_agent_def_dir(tmp_path: Pa
     assert target.role_prompt_path == role_prompt_path.resolve()
 
 
+def test_resolve_native_launch_target_ignores_unselected_invalid_preset_for_explicit_path(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = (tmp_path / "source" / ".houmao" / "agents").resolve()
+    selected_preset_path = agent_def_dir / "presets" / "selected-codex-default.yaml"
+    stale_preset_path = agent_def_dir / "presets" / "unused-kimi-default.yaml"
+    selected_preset_path.parent.mkdir(parents=True, exist_ok=True)
+    selected_preset_path.write_text(
+        "\n".join(
+            [
+                "role: selected",
+                "tool: codex",
+                "setup: default",
+                "skills: []",
+                "auth: demo-default",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    stale_preset_path.write_text(
+        "\n".join(
+            [
+                "role: unused-kimi",
+                "tool: kimi",
+                "setup: default",
+                "skills: []",
+                "auth: demo-default",
+                "launch:",
+                "  system_skills:",
+                "    mode: extend",
+                "    skills:",
+                "    - houmao-agent-ag-ui",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    role_prompt_path = agent_def_dir / "roles" / "selected" / "system-prompt.md"
+    role_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    role_prompt_path.write_text("Selected prompt\n", encoding="utf-8")
+
+    target = resolve_native_launch_target(
+        selector=str(selected_preset_path),
+        provider="codex",
+        working_directory=(tmp_path / "runtime-workdir").resolve(),
+        agent_def_dir=agent_def_dir,
+    )
+
+    assert target.recipe_path == selected_preset_path.resolve()
+    assert target.role_prompt == "Selected prompt"
+
+
+def test_resolve_native_launch_target_fails_for_selected_invalid_system_skill(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = (tmp_path / "source" / ".houmao" / "agents").resolve()
+    preset_path = agent_def_dir / "presets" / "unused-kimi-default.yaml"
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+    preset_path.write_text(
+        "\n".join(
+            [
+                "role: unused-kimi",
+                "tool: kimi",
+                "setup: default",
+                "skills: []",
+                "auth: demo-default",
+                "launch:",
+                "  system_skills:",
+                "    mode: extend",
+                "    skills:",
+                "    - houmao-agent-ag-ui",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="houmao-agent-ag-ui"):
+        resolve_native_launch_target(
+            selector=str(preset_path),
+            provider="kimi",
+            working_directory=(tmp_path / "runtime-workdir").resolve(),
+            agent_def_dir=agent_def_dir,
+        )
+
+
 def test_resolve_native_launch_target_requires_role_prompt_for_preset(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

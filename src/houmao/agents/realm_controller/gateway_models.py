@@ -142,6 +142,7 @@ def _validate_gateway_backend_metadata_shape(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         if not isinstance(backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
             raise ValueError(

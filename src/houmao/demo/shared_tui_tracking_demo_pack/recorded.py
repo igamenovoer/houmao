@@ -77,10 +77,12 @@ _SUBMIT_KEY_DELAY_SECONDS = 0.2
 _INTERRUPT_SEQUENCE_BY_TOOL: dict[ToolName, tuple[str, ...]] = {
     "claude": ("<[Escape]>",),
     "codex": ("<[Escape]>",),
+    "kimi": ("<[Escape]>",),
 }
 _CLOSE_SEQUENCE_BY_TOOL: dict[ToolName, tuple[str, ...]] = {
     "claude": ("<[C-c]>",),
     "codex": ("<[C-c]>",),
+    "kimi": ("<[C-c]>",),
 }
 _GRACEFUL_CLOSE_TIMEOUT_SECONDS = 2.0
 _GRACEFUL_CLOSE_POLL_SECONDS = 0.2

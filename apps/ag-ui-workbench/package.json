@@ -1,0 +1,45 @@
+{
+  "name": "@houmao/ag-ui-workbench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "esbuild src/server/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=src/server/.manual-workbench-server.mjs && node src/server/.manual-workbench-server.mjs --dev",
+    "dev:bun": "bun run src/server/cli.ts --dev",
+    "dev:vite": "vite --host 127.0.0.1",
+    "dev:legacy-vite": "vite --host 127.0.0.1",
+    "start": "esbuild src/server/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=src/server/.manual-workbench-server.mjs && node src/server/.manual-workbench-server.mjs --static",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "e2e": "bunx playwright test --config=playwright.config.ts",
+    "e2e:real-agent-smoke": "bunx playwright test --config=playwright.real-agent.config.ts"
+  },
+  "dependencies": {
+    "@ag-ui/core": "^0.0.55",
+    "@fastify/static": "^8.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "dockview-react": "^6.6.1",
+    "fastify": "^5.6.2",
+    "fuse.js": "^7.4.2",
+    "lucide-react": "^0.468.0",
+    "node-pty": "^1.1.0",
+    "plotly.js-dist-min": "^3.6.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "rxjs": "^7.8.2",
+    "vega": "^6.2.0",
+    "vega-embed": "^7.1.0",
+    "vega-lite": "^6.4.3",
+    "vite": "^6.0.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.8.0"
+  }
+}

@@ -151,6 +151,38 @@ For prompt-payload interpretation, a selected profile MAY treat foreground/backg
 - **THEN** those variants remain owned by the selected app detector profile
 - **AND THEN** the shared registry does not grow separate top-level entries for those behavior variants in this change
 
+### Requirement: Claude prompt behavior distinguishes ghost suggestions by style rather than text
+For Claude Code profiles that support prompt-payload style analysis, the selected profile SHALL distinguish prompt-line ghost suggestion payloads from user-authored draft input using raw rendering and style evidence from the current prompt region rather than exact suggestion text.
+
+A Claude prompt payload SHALL be eligible for ghost-suggestion classification only when the profile recognizes the payload's non-space characters as rendered wholly in a suggestion style that is visually distinct from ordinary typed prompt text, such as a profile-owned darker or lower-contrast foreground style.
+
+The selected profile SHALL classify such a pure ghost-suggestion payload as placeholder or suggestion content rather than draft input.
+
+The selected profile SHALL classify any prompt payload containing ordinary typed-payload style as draft input, including mixed prompt lines where an operator-typed prefix is followed by a styled suggestion suffix.
+
+The selected profile SHALL remain conservative for unrecognized prompt styling and SHALL NOT classify a non-empty prompt payload as a ghost suggestion solely because the payload text matches a known suggestion phrase.
+
+#### Scenario: Darker arbitrary suggestion text is placeholder content
+- **WHEN** the Claude Code prompt line shows a non-empty payload rendered wholly in the profile-recognized darker ghost-suggestion style
+- **AND WHEN** the payload text is arbitrary suggestion text rather than a fixed literal
+- **THEN** the selected Claude profile classifies the prompt payload as placeholder or suggestion content
+- **AND THEN** it does not expose that payload as user-authored draft text
+
+#### Scenario: Changed suggestion wording still classifies from style
+- **WHEN** Claude Code changes the visible auto-suggestion wording while preserving the same profile-recognized ghost-suggestion rendering style
+- **THEN** the selected Claude profile continues to classify the prompt payload from style evidence
+- **AND THEN** it does not require a literal match for the old suggestion text
+
+#### Scenario: Mixed typed prefix and suggestion suffix remains a draft
+- **WHEN** the Claude Code prompt line contains an ordinary typed-payload span and a darker styled suggestion span
+- **THEN** the selected Claude profile classifies the prompt payload as draft input
+- **AND THEN** the shared tracker can preserve the safety rule that user-authored draft input blocks prompt injection
+
+#### Scenario: Unrecognized styled payload degrades conservatively
+- **WHEN** the Claude Code prompt line contains non-empty payload text with styling that is neither ordinary typed-payload style nor a profile-recognized ghost-suggestion style
+- **THEN** the selected Claude profile does not classify that payload as a ghost suggestion
+- **AND THEN** it may report an unknown prompt presentation rather than manufacturing prompt readiness
+
 ### Requirement: Tracker app identifiers describe interactive TUI surface families
 Tracker app identifiers under the shared profile contract SHALL describe interactive TUI surface families rather than runtime backend names.
 
@@ -196,3 +228,86 @@ Profile-specific frame details such as latest-turn-region signatures MAY remain 
 - **WHEN** a selected profile derives temporal lifecycle evidence from recent frames
 - **THEN** it emits that evidence through a separate temporal-hint callback instead of overloading single-snapshot `DetectedTurnSignals`
 - **AND THEN** the shared tracker can trace snapshot facts and temporal hints as distinct inputs before merging them
+
+### Requirement: Kimi signal profiles SHALL be derived from recorded signal contracts
+The Kimi Code TUI signal profile SHALL be implemented from the recorded Kimi signal corpus and change-local signal contract artifacts.
+
+The Kimi signal contract SHALL combine live capture evidence with Kimi TUI source-code investigation. Detector rules SHALL identify whether each relied-on signal is source-backed component structure, source-backed styling, temporal behavior observed in capture, or bounded semantics within a known source-backed region.
+
+The profile SHALL prefer minimal stable signals in this order:
+
+1. explicit input events and timing
+2. structural anchors in the current surface
+3. ANSI/style facts
+4. temporal behavior over recent frames
+5. bounded semantic tokens inside known visual regions
+6. exact string fragments only as diagnostic or fallback evidence
+
+The profile SHALL scope activity and terminal evidence to current-turn or live-edge regions so stale transcript text does not control current state.
+
+#### Scenario: Kimi detector uses structural and style anchors
+- **WHEN** the Kimi profile classifies a ready editor or approval dialog
+- **THEN** it uses structural anchors and style-aware facts documented in the signal contract
+- **AND THEN** it does not depend primarily on one full exact text sentence from Kimi output
+
+#### Scenario: Kimi detector ignores stale transcript activity
+- **WHEN** older Kimi activity rows remain visible above the current ready editor region
+- **THEN** the Kimi profile does not emit current active-turn evidence from those stale rows alone
+
+#### Scenario: Kimi footer metadata does not imply active state
+- **WHEN** a Kimi snapshot contains footer model metadata with `thinking`
+- **AND WHEN** the current-turn region has no active response, tool, or spinner evidence
+- **THEN** the Kimi profile does not emit active-turn evidence solely from that footer text
+
+### Requirement: Kimi profile implementation SHALL pass recorded validation before maintained support
+The Kimi shared TUI tracking profile SHALL pass the labeled Kimi recorded-validation corpus for both high-rate and derived low-rate streams before it is treated as a maintained profile.
+
+The validation gate SHALL include ready, draft, active, completed, approval-blocked, approval-rejected, interrupted, and footer-metadata scenarios across at least 5 development live sessions and at least 3 held-out test live sessions.
+
+Held-out test sessions SHALL NOT be used to choose detector rules, tune temporal thresholds, or revise the Kimi signal contract before the acceptance run.
+
+#### Scenario: Kimi profile passes required scenario families
+- **WHEN** Kimi profile implementation is complete
+- **THEN** recorded validation passes for the required Kimi scenario families
+- **AND THEN** both high-rate and derived low-rate replay outputs match the labeled public tracked-state expectations for development and held-out test sessions
+
+#### Scenario: Held-out sessions guard against overfit detector rules
+- **WHEN** Kimi detector rules pass the development corpus but fail held-out Kimi sessions
+- **THEN** the Kimi profile is not treated as maintained
+- **AND THEN** implementation must revise the signal contract or collect additional evidence before claiming maintained support
+
+#### Scenario: Missing Kimi corpus prevents maintained-profile claim
+- **WHEN** no labeled Kimi corpus exists for a required scenario family
+- **THEN** the Kimi profile is not treated as maintained for that scenario family
+- **AND THEN** implementation must either add the missing capture evidence or narrow its maintained support claim
+
+### Requirement: Kimi Code TUI has a versioned shared signal profile
+The shared versioned TUI profile registry SHALL include a Kimi Code TUI app family identified as `kimi_code`.
+
+The Kimi app profile SHALL convert raw Kimi TUI snapshot text into normalized shared tracker signals for prompt readiness, draft editing, active-turn evidence, success-candidate posture, approval-blocked posture, interruption, and known terminal failure families when those families are specifically recognized.
+
+The profile SHALL resolve observed Kimi versions through the same versioned profile selection contract used by other supported TUI apps.
+
+The maintained Kimi Code profile SHALL be source-backed by the captured Kimi `0.11.x` signal corpus. Additional Kimi version families SHALL only be marked maintained when labeled corpus evidence exists for those versions.
+
+#### Scenario: Kimi tool resolves to Kimi tracker app id
+- **WHEN** the shared tracker is constructed for tool `kimi`
+- **THEN** the tracker resolves the supported TUI app family as `kimi_code`
+- **AND THEN** it does not use the `kimi_headless` backend name as the tracker app id
+
+#### Scenario: Kimi idle snapshot emits ready posture
+- **WHEN** the Kimi profile receives a raw snapshot with the Kimi editor prompt ready and no current active or blocking surface
+- **THEN** it emits normalized ready-posture signals for the shared tracker
+
+#### Scenario: Kimi approval snapshot emits blocked posture
+- **WHEN** the Kimi profile receives a raw snapshot with a current command approval dialog
+- **THEN** it emits normalized blocking evidence rather than ready-posture evidence
+
+#### Scenario: Kimi active snapshot emits active evidence
+- **WHEN** the Kimi profile receives a raw snapshot with current response activity, spinner evidence, or a current tool-use surface
+- **THEN** it emits normalized active-turn evidence for the shared tracker
+
+#### Scenario: Kimi footer thinking text is ignored as activity evidence
+- **WHEN** the Kimi profile receives a raw snapshot whose only thinking-like text is footer model metadata
+- **THEN** it does not emit active-turn evidence solely from that footer text
+

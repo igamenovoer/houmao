@@ -20,6 +20,14 @@ strategies:
         - Runtime-owned settings.json and .claude.json state may be created or patched in a fresh isolated CLAUDE_CONFIG_DIR.
         - Projected Claude vendor login files are preserved; provider state mutation owns only unattended bootstrap and trust keys.
         - Template-derived .claude.json content is optional and preserved when present.
+    system_prompt_bootstrap:
+      native_system_prompt: true
+      provider_skills: true
+      startup_visible_skill_metadata: false
+      evidence:
+        - kind: live_probe
+          ref: claude --help
+          note: Maintained Claude launches use the native --append-system-prompt instruction surface.
     evidence:
       - kind: source_reference
         ref: magic-context/skills/cli-agents/claude-code-install/references/skip-login-config.md

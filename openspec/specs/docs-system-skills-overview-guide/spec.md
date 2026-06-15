@@ -79,6 +79,28 @@ The guide SHALL NOT restate the full CLI reference content; it SHALL keep the re
 - **THEN** the guide lists `houmao-adv-usage-pattern` as the packaged advanced-usage skill
 - **AND THEN** it describes that skill as the entrypoint for supported multi-skill usage patterns rather than as a replacement for the direct-operation skills
 
+### Requirement: Overview guide lists the renamed AG-UI interop skill
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-interop-ag-ui` as one of the currently shipped packaged Houmao-owned system skills.
+
+The guide SHALL describe `houmao-interop-ag-ui` as the AG-UI protocol and gateway interop skill for standard event validation, protocol event rendering, generic implementation rendering, gateway publishing, GUI delivery interpretation, endpoint boundaries, routing, and UI payload safety.
+
+The guide SHALL distinguish built-in Plotly.js and Vega-Lite graphing authoring as the responsibility of `houmao-ext-graphing`, while `houmao-interop-ag-ui` covers AG-UI protocol validation, implementation rendering for already-chosen payloads, gateway publishing, and delivery-result interpretation.
+
+The guide SHALL NOT list `houmao-agent-ag-ui` as a current packaged skill.
+
+If the guide mentions retired names, it SHALL identify `houmao-agent-ag-ui` only as the retired previous name for `houmao-interop-ag-ui`.
+
+#### Scenario: Reader sees the renamed AG-UI interop skill
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the guide lists `houmao-interop-ag-ui` among the packaged Houmao-owned system skills
+- **AND THEN** it describes the skill as AG-UI protocol and gateway interop guidance
+- **AND THEN** it distinguishes built-in graphing authoring from AG-UI interop delivery guidance
+
+#### Scenario: Guide does not present the old name as current
+- **WHEN** a reader checks the current packaged skill list in the overview guide
+- **THEN** the guide does not list `houmao-agent-ag-ui` as a current packaged skill
+- **AND THEN** any mention of `houmao-agent-ag-ui` identifies it as the retired previous name
+
 ### Requirement: System-skills overview guide lists the manual guided touring skill
 The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-touring` as one of the currently shipped packaged Houmao-owned system skills.
 
@@ -158,21 +180,21 @@ The row for `houmao-agent-loop-pairwise-v4` SHALL describe it as the template-dr
 - **THEN** the catalog table contains a row for `houmao-agent-loop-pairwise-v4`
 - **AND THEN** the row describes template-driven pairwise planning with strict document templates and coverage audits
 
-### Requirement: Overview guide narrative count matches the catalog
+### Requirement: System-skills overview guide avoids stale counts
 The overview guide narrative SHALL NOT state a frozen skill count that does not match the current `catalog.toml` entry count and the resolved `[auto_install]` set contents.
 
 Where the guide references how many skills exist, how many are auto-installed by `agents launch` or `agents join`, or how many are installed by `system-skills install` when no `--skill-set` or `--skill` is supplied, those numbers SHALL be computed from the current catalog rather than copied as literal text.
 
-The guide SHALL describe managed launch and join as resolving `core`, and omitted-selection CLI installs as resolving `all`.
+The guide SHALL describe managed launch and join as resolving `core` plus `extensions`, and omitted-selection CLI installs as resolving `all`.
 
-#### Scenario: Overview narrative stays consistent with the catalog
+#### Scenario: Overview avoids stale skill counts
 - **WHEN** a reader reads the overview guide paragraphs that introduce the packaged system skills
 - **THEN** those paragraphs do not assert a total skill count that contradicts `catalog.toml`
 - **AND THEN** they do not assert an auto-install skill count that contradicts the resolved `managed_launch_sets`, `managed_join_sets`, or `cli_default_sets` expansions
 
-#### Scenario: Overview auto-install wording tracks core and all
+#### Scenario: Overview auto-install wording tracks core, extensions, and all
 - **WHEN** a reader inspects the auto-install guidance in the overview guide
-- **THEN** the guide states that managed launch and join use `core`
+- **THEN** the guide states that managed launch and join use `core` plus `extensions`
 - **AND THEN** it states that omitted-selection `houmao-mgr system-skills install` uses `all`
 - **AND THEN** it does not describe removed granular set names as current installable sets
 
@@ -243,16 +265,16 @@ The guide SHALL explain the removal boundary at a narrative level: uninstall rem
 - **THEN** the guide states that unrelated user skills, parent roots, legacy paths, and obsolete install-state files are outside the uninstall deletion boundary
 
 ### Requirement: System-skills overview guide explains organization groups and installable sets
-The system-skills overview guide SHALL explain that automation, control, and utils are organization groups used for documentation readability.
+The system-skills overview guide SHALL explain that automation, control, utils, and extensions are organization groups used for documentation readability.
 
-The guide SHALL explain that the current installable named sets are only `core` and `all`.
+The guide SHALL explain that the current installable named sets are `core`, `extensions`, and `all`.
 
-The guide SHALL state that `core` is the managed launch/join default and `all` is the omitted-selection CLI install default.
+The guide SHALL state that `core` is the non-extension baseline, `extensions` contains default-installed extension skills, managed launch and managed join install `core` plus `extensions`, and `all` is the omitted-selection CLI install default.
 
-#### Scenario: Reader understands groups versus sets
+#### Scenario: Reader distinguishes organization groups from installable sets
 - **WHEN** a reader opens the system-skills overview guide
-- **THEN** they can distinguish automation/control/utils organization groups from the installable `core` and `all` set names
-- **AND THEN** install examples use `core`, `all`, or explicit skill names
+- **THEN** they can distinguish automation/control/utils/extensions organization groups from the installable `core`, `extensions`, and `all` set names
+- **AND THEN** install examples use `core`, `extensions`, `all`, or explicit skill names
 
 ### Requirement: System-skills overview guide includes the workspace manager utility skill
 The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-utils-workspace-mgr` as one of the currently shipped packaged Houmao-owned system skills.
@@ -372,3 +394,78 @@ The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL
 - **THEN** the packaged skills table does not contain `houmao-utils-llm-wiki`
 - **AND THEN** install examples do not use `houmao-utils-llm-wiki`
 
+### Requirement: System-skills overview explains Kimi reachability constraints
+
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL mention Kimi as a supported explicit external-home installation target for Houmao-owned system skills.
+
+The guide SHALL explain Kimi home resolution at a narrative level: omitted-home installs use `KIMI_CODE_HOME` when set, otherwise `<cwd>/.kimi-code`, and projected skills land under the resolved home's `skills/` directory.
+
+The guide SHALL distinguish Kimi projection from Kimi discovery. It SHALL state that project `.kimi-code/skills` is a Kimi project discovery root when Kimi runs from that project, but arbitrary `<KIMI_CODE_HOME>/skills` projections are not automatically discovered by current Kimi Code unless Kimi configuration includes them.
+
+The guide SHALL explain that Houmao-managed Kimi TUI launches make managed projected skills reachable through Kimi `extra_skill_dirs`, while Kimi headless prompt mode may use `--skills-dir` as a headless launch-policy detail.
+
+The guide SHALL use Kimi-priority ordering in provider/tool installation examples and prose. When the guide lists all system-skill installation targets, launch-capable providers SHALL appear as Claude, Codex, Kimi, then Gemini, followed by Copilot as the skill-install-only target. When the guide shows a short three-tool launch-provider install example, it SHALL use `claude,codex,kimi`.
+
+When the guide discusses Kimi skill reachability, it SHALL warn that Kimi Code 0.11.0 does not expose a native system-prompt flag. The warning SHALL state that `houmao-auto-system-prompt` may need manual invocation before substantive Kimi chat begins when automatic skill startup has not loaded the Houmao system prompt.
+
+#### Scenario: Reader sees Kimi in explicit install guidance
+
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the guide includes Kimi in explicit external install guidance for `houmao-mgr system-skills install`
+- **AND THEN** it explains the omitted-home default and projected `skills/` path for Kimi
+
+#### Scenario: Reader understands Kimi discovery caveat
+
+- **WHEN** a reader reviews Kimi system-skill guidance
+- **THEN** the guide distinguishes files projected under a resolved Kimi home from directories Kimi Code scans automatically
+- **AND THEN** it tells the reader that arbitrary `KIMI_CODE_HOME` skill projections require Kimi configuration or a native discovery root to be reachable
+
+#### Scenario: Reader sees managed Kimi TUI skill reachability
+
+- **WHEN** a reader checks managed-home auto-install guidance
+- **THEN** the guide states that managed Kimi TUI launches use Kimi-supported additive configuration for projected skills
+- **AND THEN** it does not say that managed Kimi TUI launches rely on a `--skills-dir` argument
+
+#### Scenario: Reader sees Kimi-priority install examples
+
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** multi-tool install examples that include Gemini also include Kimi before Gemini
+- **AND THEN** Copilot is only included when the example is about system-skill installation targets
+
+#### Scenario: Reader sees Kimi auto system-prompt caveat
+
+- **WHEN** a reader reviews Kimi system-skill reachability guidance
+- **THEN** the guide states that Kimi Code 0.11.0 lacks a native system-prompt flag
+- **AND THEN** it tells readers that `houmao-auto-system-prompt` may need manual invocation before substantive Kimi chat begins
+
+### Requirement: System-skills overview guide lists the graphing extension skill
+The getting-started guide `docs/getting-started/system-skills-overview.md` SHALL list `houmao-ext-graphing` as one of the currently shipped packaged Houmao-owned system skills.
+
+The guide SHALL describe `houmao-ext-graphing` as the extension skill for built-in Plotly.js templated graphics and Vega-Lite freeform graphics authoring over Houmao AG-UI implementation schemas.
+
+The guide SHALL NOT list `houmao-utils-graphing` as a current packaged skill.
+
+The guide SHALL describe `houmao-ext-graphing` as part of the `extensions` group and current `extensions` named set.
+
+#### Scenario: Reader sees the graphing extension in the narrative guide
+- **WHEN** a reader opens `docs/getting-started/system-skills-overview.md`
+- **THEN** the guide lists `houmao-ext-graphing` among the packaged Houmao-owned system skills
+- **AND THEN** it describes Plotly.js and Vega-Lite graphing authoring as that extension skill's responsibility
+- **AND THEN** it does not list `houmao-utils-graphing` as current
+
+### Requirement: System-skills overview guide explains extension routing boundary
+The getting-started guide SHALL explain that extension skills may be installed by default but remain ignorable by users who do not want that guidance.
+
+The guide SHALL state that non-extension skills do not depend on or route to extension skills.
+
+The guide SHALL distinguish `houmao-ext-graphing` from `houmao-interop-ag-ui` by stating that graphing authors payloads while interop validates, renders, publishes, and interprets AG-UI delivery for already-chosen payloads and rendered events.
+
+#### Scenario: Reader understands default-installed extensions are optional guidance
+- **WHEN** a reader compares `core` and `extensions` in the overview guide
+- **THEN** the guide explains that extensions are default-installed through the default set selection
+- **AND THEN** it explains that core and other non-extension skills remain usable when extension guidance is ignored
+
+#### Scenario: Reader can distinguish graphing from interop
+- **WHEN** a reader compares the `houmao-ext-graphing` and `houmao-interop-ag-ui` rows
+- **THEN** the graphing row covers built-in graphing payload authoring
+- **AND THEN** the interop row covers AG-UI protocol, implementation rendering for already-chosen payloads, gateway publishing, and delivery-result interpretation

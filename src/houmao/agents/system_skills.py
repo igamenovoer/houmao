@@ -19,6 +19,7 @@ SYSTEM_SKILL_CATALOG_FILENAME = "catalog.toml"
 SYSTEM_SKILL_SCHEMA_FILENAME = "catalog.schema.json"
 
 SYSTEM_SKILL_SET_CORE = "core"
+SYSTEM_SKILL_SET_EXTENSIONS = "extensions"
 SYSTEM_SKILL_SET_ALL = "all"
 SYSTEM_SKILL_TOURING = "houmao-touring"
 SYSTEM_SKILL_SPECIALIST_MGR = "houmao-specialist-mgr"
@@ -29,15 +30,18 @@ SYSTEM_SKILL_AGENT_INSPECT = "houmao-agent-inspect"
 SYSTEM_SKILL_OPERATOR_MESSAGING = "houmao-operator-messaging"
 SYSTEM_SKILL_AGENT_MESSAGING = "houmao-agent-messaging"
 SYSTEM_SKILL_AGENT_GATEWAY = "houmao-agent-gateway"
+SYSTEM_SKILL_INTEROP_AG_UI = "houmao-interop-ag-ui"
 SYSTEM_SKILL_MEMORY_MGR = "houmao-memory-mgr"
 SYSTEM_SKILL_AGENT_LOOP_PRO = "houmao-agent-loop-pro"
 SYSTEM_SKILL_UTILS_WORKSPACE_MGR = "houmao-utils-workspace-mgr"
+SYSTEM_SKILL_EXT_GRAPHING = "houmao-ext-graphing"
 
 _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
     "codex": "skills",
     "copilot": "skills",
     "gemini": ".gemini/skills",
+    "kimi": "skills",
 }
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
 SystemSkillProjectionMode = Literal["copy", "symlink"]

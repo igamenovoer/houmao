@@ -1,0 +1,102 @@
+schema_version: 1
+tool: kimi
+strategies:
+  - strategy_id: kimi-unattended-0.10.x
+    operator_prompt_mode: unattended
+    backends:
+      - kimi_headless
+    supported_versions: ">=0.10.0,<0.12.0"
+    minimal_inputs:
+      credential_forms:
+        - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
+        - KIMI_MODEL_NAME plus KIMI_MODEL_API_KEY env-model credential material
+      requires_user_prepared_state: false
+      notes:
+        - This strategy declares Kimi prompt-mode startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
+        - Kimi prompt mode internally uses auto permission handling and rejects --auto, --yolo, and --plan when combined with -p.
+        - Houmao owns prompt placement, output format, session selectors, and managed --skills-dir injection for kimi_headless turns.
+    system_prompt_bootstrap:
+      native_system_prompt: false
+      provider_skills: true
+      startup_visible_skill_metadata: true
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/kimi-code/packages/agent-core/src/skill/registry.ts
+          note: Kimi startup prompt lists discovered skill metadata, which gives Houmao auto skills a startup-visible trigger channel.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
+        note: Local Kimi source declares -p, --output-format stream-json, --session, --continue, --model, and --skills-dir prompt-mode options.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/run-prompt.ts
+        note: Local Kimi source emits session.resume_hint meta events and resolves exact or latest prompt sessions by working directory.
+      - kind: live_probe
+        ref: /home/huangzhe/.kimi-code/bin/kimi --version
+        note: Installed Kimi Code 0.11.0 still exposes -p, --output-format stream-json, and --skills-dir prompt-mode options matching the local source contract.
+    owned_paths:
+      - path: config.toml
+        keys:
+          - default_model
+          - providers.<managed-provider>
+          - models.<model-alias>
+      - path: credentials/kimi-code.json
+        keys:
+          - access_token
+          - refresh_token
+          - expires_at
+    actions:
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.canonicalize_unattended_launch_inputs
+  - strategy_id: kimi-tui-unattended-0.10.x
+    operator_prompt_mode: unattended
+    backends:
+      - raw_launch
+    supported_versions: ">=0.10.0,<0.12.0"
+    minimal_inputs:
+      credential_forms:
+        - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
+        - KIMI_MODEL_NAME plus KIMI_MODEL_API_KEY env-model credential material
+      requires_user_prepared_state: false
+      notes:
+        - This strategy declares Kimi TUI startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
+        - Kimi TUI unattended launch uses default_permission_mode = auto plus a runtime /auto on refresh, not a persistent --auto launch flag.
+        - Houmao owns low-level Kimi permission and provider-session startup flags for unattended local-interactive launch; relaunch policy appends --continue or --session only when needed.
+    system_prompt_bootstrap:
+      native_system_prompt: false
+      provider_skills: true
+      startup_visible_skill_metadata: true
+      evidence:
+        - kind: source_reference
+          ref: extern/orphan/kimi-code/packages/agent-core/src/skill/registry.ts
+          note: Kimi startup prompt lists discovered skill metadata, which gives Houmao auto skills a startup-visible trigger channel.
+    evidence:
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/commands.ts
+        note: Local Kimi source declares --auto, --yolo, --plan, --continue, and --session TUI startup flags.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/options.ts
+        note: Local Kimi source rejects --auto, --yolo, and --plan when TUI startup resumes with --continue or --session.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/packages/node-sdk/test/create-session-transport.test.ts
+        note: Local Kimi tests show config.toml default_permission_mode = "auto" applies auto permission mode to new sessions.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/apps/kimi-code/src/tui/commands/config.ts
+        note: Local Kimi TUI /auto on command calls session.setPermission("auto") and updates permissionMode to auto.
+      - kind: source_reference
+        ref: extern/orphan/kimi-code/packages/agent-core/src/agent/permission/policies/auto-mode-ask-user-question-deny.ts
+        note: Local Kimi source denies AskUserQuestion while auto permission mode is active.
+    owned_paths:
+      - path: config.toml
+        keys:
+          - default_permission_mode
+    actions:
+      - kind: provider_hook.call
+        params:
+          hook_id: kimi.canonicalize_unattended_tui_launch_inputs
+      - kind: toml.set
+        params:
+          path: config.toml
+          key_path:
+            - default_permission_mode
+          value: auto

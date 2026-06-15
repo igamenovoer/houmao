@@ -68,13 +68,15 @@ Prioritize questions whose answers affect generated process, contracts, runtime 
 
 Before asking the first clarification question, show a provisional high-level visual summary from the current intention source:
 
-- an agent architecture Mermaid diagram that shows participant roles or concrete agents and their communication routes;
-- a loop structure Mermaid diagram that shows major phases, events, handoffs, ticks, terminal posture, and recovery path when known.
+- an agent architecture ASCII/text diagram that shows participant roles or concrete agents and their communication routes;
+- a loop structure ASCII/text diagram that shows major phases, events, handoffs, ticks, terminal posture, and recovery path when known.
 
 Rules:
 
-- Use fenced `mermaid` code blocks.
-- Prefer `flowchart` for architecture and `sequenceDiagram` or `stateDiagram-v2` for loop structure.
+- Use fenced `text` code blocks or plain monospaced text.
+- Prefer simple ASCII characters such as `+---+`, `|`, and `->` so provider TUI chat can display the diagram without Mermaid rendering support.
+- Do not use fenced `mermaid` code blocks for chat visual summaries.
+- This chat-output rule does not change generated execplan artifact requirements; generated Markdown files may still use Mermaid where their generation guidance requires it.
 - Mark unknown or unclear parts as `Unknown` or `TBD`; do not invent missing intent.
 - Keep diagrams high level enough to fit in the clarification turn.
 - Update the diagrams in the final coverage summary when accepted answers materially change architecture or loop structure.
@@ -103,7 +105,7 @@ Weak questions ask about wording, local headings, or template placement without 
 
 1. Read current intention source, project context, and existing ADRs.
 2. Apply `clarification-protocol.md` to build an internal coverage map and question queue.
-3. Show the provisional high-level Mermaid agent architecture and loop structure diagrams.
+3. Show the provisional high-level ASCII/text agent architecture and loop structure diagrams.
 4. Ask at most five accepted questions per session, exactly one at a time.
 5. Include a recommended or suggested answer when context supports one.
 6. If the answer is discoverable from current intention or ADRs, use that source instead of asking.

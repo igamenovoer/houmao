@@ -7,6 +7,7 @@ import click
 from houmao.agents.realm_controller.errors import BrainLaunchRuntimeError
 from houmao.version import get_version
 
+from .ag_ui_authoring import ag_ui_authoring_group
 from .admin import admin_group
 from .agents import agents_group
 from .internals import internals_group
@@ -33,6 +34,7 @@ def cli(ctx: click.Context, print_style: str | None) -> None:
 
 
 cli.add_command(admin_group)
+cli.add_command(ag_ui_authoring_group)
 cli.add_command(agents_group)
 cli.add_command(internals_group)
 cli.add_command(mailbox_group)
@@ -52,8 +54,7 @@ def _render_uncaught_exception(exc: Exception) -> click.ClickException:
         )
     else:
         message = (
-            "Unexpected internal error while running `houmao-mgr` "
-            f"(exception: {exception_name})."
+            f"Unexpected internal error while running `houmao-mgr` (exception: {exception_name})."
         )
     return click.ClickException(message)
 

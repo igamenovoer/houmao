@@ -113,7 +113,7 @@ from .project_aware_wording import (
     describe_overlay_root_selection_source,
 )
 
-_SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini")
+_SUPPORTED_PROJECT_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini", "kimi")
 _LaunchProfileStoreOperation = Literal["create", "patch", "replace"]
 _RELAUNCH_CHAT_SESSION_MODES: tuple[str, ...] = ("new", "tool_last_or_new", "exact")
 

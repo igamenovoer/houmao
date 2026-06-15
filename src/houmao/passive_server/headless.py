@@ -62,7 +62,9 @@ from houmao.server.models import HoumaoHeadlessTurnEvent
 
 log = logging.getLogger(__name__)
 
-_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "gemini_headless"})
+_HEADLESS_BACKENDS = frozenset(
+    {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
+)
 
 
 def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
@@ -224,7 +226,7 @@ class HeadlessAgentService:
                 },
             )
         backend = cast(
-            Literal["claude_headless", "codex_headless", "gemini_headless"],
+            Literal["claude_headless", "codex_headless", "gemini_headless", "kimi_headless"],
             resolved_backend,
         )
 
@@ -578,7 +580,7 @@ class HeadlessAgentService:
         # Clear shared registry
         agent_id = authority.agent_id or tracked_agent_id
         try:
-            remove_live_agent_record(agent_id)
+            remove_live_agent_record(agent_id, env=self.m_config.registry_helper_env())
         except Exception as exc:
             log.warning("Error clearing registry for %s: %s", tracked_agent_id, exc)
 
@@ -929,14 +931,14 @@ class HeadlessAgentService:
             raise SessionManifestError(
                 "Managed runtime controller could not build a shared-registry record."
             )
-        publish_live_agent_record(record)
+        publish_live_agent_record(record, env=self.m_config.registry_helper_env())
 
     def _delete_authority(self, authority: ManagedHeadlessAuthorityRecord) -> None:
         """Remove one stale managed authority from registry and local storage."""
 
         agent_id = authority.agent_id or authority.tracked_agent_id
         try:
-            remove_live_agent_record(agent_id)
+            remove_live_agent_record(agent_id, env=self.m_config.registry_helper_env())
         except Exception as exc:
             log.warning("Error clearing shared registry for stale agent %s: %s", agent_id, exc)
         self.m_store.delete_agent(tracked_agent_id=authority.tracked_agent_id)

@@ -4,6 +4,32 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [1.1.0] - 2026-06-15
+
+### Added
+
+- **AG-UI integration and workbench**: agents can now author AG-UI messages, attach per-agent AG-UI destinations, stream runs and graphics, and inspect them through a Fastify-backed workbench with agent discovery, tmux tabs, agent picking, debug-agent flows, and client-side event caching.
+- **Template graphics and renderer guidance**: AG-UI support now includes Plotly 2D template graphics, Vega-Lite graphics, generated Plotly trace metadata, and docs/examples for custom browser renderers.
+- **Kimi Code runtime support**: Houmao now includes Kimi headless and TUI launch/runtime support, TUI signal profiles, fixture credentials, starter agent assets, shared TUI tracking scenarios, and a manual Kimi writer-team demo.
+- **Automatic and extension skills**: managed agents can receive auto system-prompt skill guidance, and the graphing helper is now the default-installed `houmao-ext-graphing` extension skill rather than a utility skill.
+
+### Changed
+
+- **Passive server no longer requires a project overlay**: passive-server lifecycle, discovery, and headless management flows now work through direct server configuration and maintained `houmao-passive-server` surfaces.
+- **System skill routing was tightened**: loop clarify commands now use ASCII diagrams for in-TUI chat while keeping artifacts renderable Markdown, AG-UI protocol and implementation guidance are split, and non-extension skills avoid depending on optional extension skills.
+- **Docs and OpenSpec state were synchronized**: README, getting-started docs, CLI references, gateway docs, run-phase docs, and archived change artifacts now match the current implementation and system-skill catalog.
+
+### Fixed
+
+- **Workbench and tmux attachment reliability**: the AG-UI workbench now handles tmux refresh/startup graphics and attachment state more consistently across browser and real-agent smoke flows.
+- **Launch policy value preservation**: launch policy handling now preserves float TOML values instead of coercing them through the wrong shape.
+- **Claude suggestion detection**: gateway context recovery now treats Claude ghost suggestions as non-editing states so notifier flows are not blocked by stale suggestion UI.
+
+### Notes
+
+- This release bumps the minor segment for the AG-UI workbench and messaging stack, Kimi runtime support, auto/extension skill surfaces, and the refreshed documentation/spec baseline.
+- The `gh release create v1.1.0` event triggers `pypi-release.yml`, `docs.yml`, and the stable tool-skills sync workflow dispatch.
+
 ## [1.0.0] - 2026-06-03
 
 ### Added

@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+import hashlib
 from typing import Any
 
 from pydantic import ValidationError
@@ -137,6 +138,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
             if request.launch_plan.launch_policy_provenance is not None
             else None
         ),
+        "system_prompt": _build_manifest_system_prompt_section(request=request),
         "backend_state": dict(request.backend_state),
     }
 
@@ -151,6 +153,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         payload["headless"] = {
             "session_id": request.backend_state.get("session_id"),
@@ -223,6 +226,22 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         payload,
         context="session_manifest.v4 validation failed",
     ).model_dump(mode="json")
+
+
+def _build_manifest_system_prompt_section(
+    *,
+    request: SessionManifestRequest,
+) -> dict[str, str]:
+    """Build the read-only effective system-prompt manifest section."""
+
+    prompt = request.launch_plan.role_injection.prompt
+    return {
+        "format": "text",
+        "role_name": request.launch_plan.role_injection.role_name,
+        "text": prompt,
+        "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "source": "launch_plan.role_injection.prompt",
+    }
 
 
 def write_session_manifest(path: Path, payload: dict[str, Any]) -> SessionManifestHandle:
@@ -350,6 +369,7 @@ def _resolve_manifest_identity(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
     }:
         if tmux_session_name is None:
             tmux_session_name = _optional_non_empty_str(
@@ -450,6 +470,7 @@ def _build_manifest_interactive_section(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest",
         "houmao_server_rest",
     }:
@@ -462,7 +483,13 @@ def _build_manifest_interactive_section(
         "role_bootstrap_applied": (
             bool(request.backend_state.get("role_bootstrap_applied", False))
             if request.launch_plan.backend
-            in {"local_interactive", "codex_headless", "claude_headless", "gemini_headless"}
+            in {
+                "local_interactive",
+                "codex_headless",
+                "claude_headless",
+                "gemini_headless",
+                "kimi_headless",
+            }
             else None
         ),
         "terminal_id": _optional_non_empty_str(request.backend_state.get("terminal_id")),
@@ -513,6 +540,7 @@ def _build_manifest_gateway_authority(
         "codex_headless",
         "claude_headless",
         "gemini_headless",
+        "kimi_headless",
         "cao_rest",
         "houmao_server_rest",
     }:

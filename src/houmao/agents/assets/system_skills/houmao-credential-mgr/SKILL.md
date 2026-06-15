@@ -29,7 +29,7 @@ Available functionality:
 
 - `list` and `get` credentials with safe inspection posture.
 - `add` and `set` credential bundle contents for supported tool families.
-- `login` through maintained provider login/import workflows.
+- `login` through maintained Claude, Codex, and Gemini provider login/import workflows.
 - `rename` or `remove` one existing credential.
 - Choose project-backed versus direct native-agent targets.
 
@@ -39,6 +39,7 @@ Common starting prompts:
 - `$houmao-credential-mgr list codex credentials`
 - `$houmao-credential-mgr add claude credential`
 - `$houmao-credential-mgr login gemini`
+- `$houmao-credential-mgr add kimi credential`
 
 Related skills and boundaries:
 
@@ -98,8 +99,10 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
    - project lane: `project credentials <tool> <verb>`
    - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
-   - supported tools: `claude`, `codex`, `gemini`
-   - supported verbs: `add`, `set`, `login`, `list`, `get`, `rename`, `remove`
+   - supported CRUD tools: `claude`, `codex`, `kimi`, `gemini`
+   - supported login-helper tools: `claude`, `codex`, `gemini`
+   - supported CRUD verbs: `add`, `set`, `list`, `get`, `rename`, `remove`
+   - supported login-helper verb: `login`
 8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
 10. Load exactly one action page:
    - `actions/list.md`
@@ -142,10 +145,10 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Do not scan env vars, tool homes, home directories, or unrelated filesystem locations to infer missing credential inputs unless the user explicitly asks for that narrower inspection.
 - Do not print raw secret values or raw auth-file contents when `get` already provides safe redacted inspection.
 - Do not hand-roll provider-login temp directories, manual provider command invocation, auth-file copying, or temp cleanup when maintained project or internal native-agent credential login commands own that workflow.
+- Do not present Kimi as having a maintained credential login helper; Kimi credential work in this skill is CRUD-only.
 - Do not treat changing a project profile or native launch dossier `--auth` override as credential CRUD.
 - Do not imply that project-backed rename changes underlying bundle identity; it is metadata-only rename.
 - Do not imply that direct-dir rename is a no-op for maintained references; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
-- Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.
 - Do not invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.
 - Do not skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
 - Do not probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
@@ -156,3 +159,4 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - `references/claude-credential-kinds.md` — explanatory credential-kind notes for Claude when a user needs help choosing input material
 - `references/codex-credential-kinds.md` — explanatory credential-kind notes for Codex when a user needs help choosing input material
 - `references/gemini-credential-kinds.md` — explanatory credential-kind notes for Gemini when a user needs help choosing input material
+- `references/kimi-credential-kinds.md` — explanatory credential-kind notes for Kimi when a user needs help choosing input material

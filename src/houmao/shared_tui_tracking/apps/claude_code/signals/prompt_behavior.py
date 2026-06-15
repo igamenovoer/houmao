@@ -13,6 +13,8 @@ PromptKind = Literal["placeholder", "draft", "empty", "unknown"]
 _CLAUDE_PROMPT_RE = re.compile(r"^\s*❯(.*)$")
 _ANSI_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 _PROMPT_REGION_RADIUS = 2
+_GHOST_SUGGESTION_FOREGROUND_CODES = frozenset({231})
+_GHOST_SUGGESTION_BACKGROUND_CODES = frozenset({237})
 _NEUTRAL_SIMPLE_COLOR_CODES = frozenset(
     {
         30,
@@ -93,6 +95,18 @@ class _PromptPayloadRenderState:
     payload_text: str
     any_plain: bool
     any_dim: bool
+    all_ghost_suggestion: bool
+
+
+@dataclass(frozen=True)
+class _PromptStyleState:
+    """Current SGR style state while scanning one Claude prompt line."""
+
+    active_dim: bool = False
+    active_inverse: bool = False
+    active_other_style: bool = False
+    foreground_color: int | None = None
+    background_color: int | None = None
 
 
 class ClaudePromptBehaviorVariantV2_1_X:
@@ -120,6 +134,12 @@ class ClaudePromptBehaviorVariantV2_1_X:
             )
         if render_state.any_plain:
             return PromptClassification(kind="draft", prompt_text=render_state.payload_text)
+        if render_state.all_ghost_suggestion:
+            return PromptClassification(
+                kind="placeholder",
+                prompt_text=None,
+                notes=("ghost_suggestion_style",),
+            )
         if render_state.any_dim:
             return PromptClassification(kind="placeholder", prompt_text=None)
         return PromptClassification(
@@ -215,12 +235,11 @@ def _prompt_payload_render_state(
     if raw_prompt_line is None or snapshot.payload_text is None:
         return None
 
-    active_dim = False
-    active_inverse = False
-    active_other_style = False
+    style_state = _PromptStyleState()
     payload_chars: list[str] = []
     payload_plain_flags: list[bool] = []
     payload_dim_flags: list[bool] = []
+    payload_ghost_suggestion_flags: list[bool] = []
     seen_prompt = False
     skipped_prompt_gap = False
     index = 0
@@ -228,12 +247,7 @@ def _prompt_payload_render_state(
     while index < len(raw_prompt_line):
         sgr_match = _ANSI_SGR_RE.match(raw_prompt_line, index)
         if sgr_match is not None:
-            active_dim, active_inverse, active_other_style = _apply_sgr_codes(
-                sgr_match.group(1),
-                active_dim=active_dim,
-                active_inverse=active_inverse,
-                active_other_style=active_other_style,
-            )
+            style_state = _apply_sgr_codes(sgr_match.group(1), style_state=style_state)
             index = sgr_match.end()
             continue
 
@@ -248,8 +262,17 @@ def _prompt_payload_render_state(
         skipped_prompt_gap = True
         payload_chars.append(char)
         if not char.isspace():
-            payload_dim_flags.append(active_dim)
-            payload_plain_flags.append(not (active_dim or active_inverse or active_other_style))
+            ghost_suggestion = _is_ghost_suggestion_style(style_state)
+            payload_dim_flags.append(style_state.active_dim)
+            payload_ghost_suggestion_flags.append(ghost_suggestion)
+            payload_plain_flags.append(
+                not (
+                    style_state.active_dim
+                    or style_state.active_inverse
+                    or style_state.active_other_style
+                    or ghost_suggestion
+                )
+            )
 
     if not payload_chars:
         return None
@@ -263,22 +286,23 @@ def _prompt_payload_render_state(
         payload_text=payload_text,
         any_plain=any(payload_plain_flags),
         any_dim=any(payload_dim_flags),
+        all_ghost_suggestion=all(payload_ghost_suggestion_flags),
     )
 
 
 def _apply_sgr_codes(
     codes_text: str,
     *,
-    active_dim: bool,
-    active_inverse: bool,
-    active_other_style: bool,
-) -> tuple[bool, bool, bool]:
+    style_state: _PromptStyleState,
+) -> _PromptStyleState:
     """Return the next style state after applying one SGR escape."""
 
     codes = [int(item) if item else 0 for item in codes_text.split(";")] if codes_text else [0]
-    next_dim = active_dim
-    next_inverse = active_inverse
-    next_other_style = active_other_style
+    next_dim = style_state.active_dim
+    next_inverse = style_state.active_inverse
+    next_other_style = style_state.active_other_style
+    next_foreground_color = style_state.foreground_color
+    next_background_color = style_state.background_color
     index = 0
     while index < len(codes):
         code = codes[index]
@@ -286,6 +310,8 @@ def _apply_sgr_codes(
             next_dim = False
             next_inverse = False
             next_other_style = False
+            next_foreground_color = None
+            next_background_color = None
             index += 1
             continue
         if code == 2:
@@ -305,14 +331,86 @@ def _apply_sgr_codes(
             index += 1
             continue
         if code in _NEUTRAL_SIMPLE_COLOR_CODES:
+            next_foreground_color, next_background_color = _apply_simple_color_code(
+                code=code,
+                foreground_color=next_foreground_color,
+                background_color=next_background_color,
+            )
             index += 1
             continue
         if code in {38, 48}:
+            next_foreground_color, next_background_color = _apply_extended_color_code(
+                codes=codes,
+                start_index=index,
+                foreground_color=next_foreground_color,
+                background_color=next_background_color,
+            )
             index += _extended_color_code_width(codes=codes, start_index=index)
             continue
         next_other_style = True
         index += 1
-    return next_dim, next_inverse, next_other_style
+    return _PromptStyleState(
+        active_dim=next_dim,
+        active_inverse=next_inverse,
+        active_other_style=next_other_style,
+        foreground_color=next_foreground_color,
+        background_color=next_background_color,
+    )
+
+
+def _apply_simple_color_code(
+    *,
+    code: int,
+    foreground_color: int | None,
+    background_color: int | None,
+) -> tuple[int | None, int | None]:
+    """Return foreground/background state after one simple SGR color code."""
+
+    if code == 39:
+        return None, background_color
+    if code == 49:
+        return foreground_color, None
+    if 30 <= code <= 37 or 90 <= code <= 97:
+        return code, background_color
+    if 40 <= code <= 47 or 100 <= code <= 107:
+        return foreground_color, code
+    return foreground_color, background_color
+
+
+def _apply_extended_color_code(
+    *,
+    codes: list[int],
+    start_index: int,
+    foreground_color: int | None,
+    background_color: int | None,
+) -> tuple[int | None, int | None]:
+    """Return foreground/background state after one extended SGR color code."""
+
+    if start_index + 2 >= len(codes):
+        return foreground_color, background_color
+
+    mode = codes[start_index + 1]
+    if mode != 5:
+        if codes[start_index] == 38:
+            return None, background_color
+        return foreground_color, None
+
+    color_code = codes[start_index + 2]
+    if codes[start_index] == 38:
+        return color_code, background_color
+    return foreground_color, color_code
+
+
+def _is_ghost_suggestion_style(style_state: _PromptStyleState) -> bool:
+    """Return whether the current style matches Claude's ghost suggestion payload."""
+
+    return (
+        not style_state.active_dim
+        and not style_state.active_inverse
+        and not style_state.active_other_style
+        and style_state.foreground_color in _GHOST_SUGGESTION_FOREGROUND_CODES
+        and style_state.background_color in _GHOST_SUGGESTION_BACKGROUND_CODES
+    )
 
 
 def _extended_color_code_width(*, codes: list[int], start_index: int) -> int:

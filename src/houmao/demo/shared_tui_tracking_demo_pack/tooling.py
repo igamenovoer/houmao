@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 _COMMANDS_BY_TOOL: dict[ToolName, tuple[list[str], ...]] = {
     "claude": (["claude", "--version"], ["claude-yunwu", "--version"]),
     "codex": (["codex", "--version"],),
+    "kimi": (["kimi", "--version"], ["kimi-code", "--version"]),
 }
 _PROCESS_PATTERNS_BY_TOOL: dict[ToolName, tuple[re.Pattern[str], ...]] = {
     "claude": (
@@ -45,6 +46,10 @@ _PROCESS_PATTERNS_BY_TOOL: dict[ToolName, tuple[re.Pattern[str], ...]] = {
     "codex": (
         re.compile(r"(^|/)(codex)(\s|$)"),
         re.compile(r"codex-cli"),
+    ),
+    "kimi": (
+        re.compile(r"(^|/)(kimi)(\s|$)"),
+        re.compile(r"(^|/)(kimi-code)(\s|$)"),
     ),
 }
 

@@ -287,12 +287,16 @@ The CLI reference page `docs/reference/cli/houmao-passive-server.md` SHALL be re
 
 - when to use passive-server as the maintained server API surface,
 - the registry-driven discovery and observation model,
+- passive-server as a global service over the shared registry rather than a Houmao project-bound command,
 - the route families and capabilities available through the passive-server REST API,
 - operational guidance for starting, configuring, and using passive-server in distributed agent coordination setups,
 - the `serve` command with all current options,
+- runtime-root and registry-root resolution, including `--runtime-root`, `--registry-root`, `HOUMAO_GLOBAL_RUNTIME_DIR`, `HOUMAO_GLOBAL_REGISTRY_DIR`, and global defaults,
 - which `houmao-mgr` commands can target passive-server through supported pair-authority options.
 
 The page SHALL NOT instruct users to choose standalone `houmao-server` as a maintained alternative.
+
+The page SHALL NOT state that a Houmao project overlay is required to start `houmao-passive-server serve`.
 
 #### Scenario: Reader understands when to use passive-server
 - **WHEN** a reader opens the `houmao-passive-server` reference
@@ -303,6 +307,11 @@ The page SHALL NOT instruct users to choose standalone `houmao-server` as a main
 - **WHEN** a reader needs to integrate with the passive-server
 - **THEN** the page documents the available REST routes and their response contracts
 - **AND THEN** the page notes which `houmao-mgr` commands are compatible with the passive-server
+
+#### Scenario: Reader understands global-service root configuration
+- **WHEN** a reader opens the `houmao-passive-server` reference
+- **THEN** the page explains that `houmao-passive-server serve` can start without a Houmao project overlay
+- **AND THEN** the page explains how to use `--registry-root` or `HOUMAO_GLOBAL_REGISTRY_DIR` when CI or tests need an isolated shared registry
 
 ### Requirement: CLI reference distinguishes Claude credential inputs from the optional state template
 The `houmao-mgr` CLI reference SHALL describe Claude credential-providing inputs separately from the optional Claude state-template input on both maintained credential-management surfaces and the easy-specialist surface:
@@ -581,7 +590,7 @@ That coverage SHALL explain that single-tool JSON output keeps the scalar instal
 #### Scenario: Reader sees comma-separated multi-tool install syntax
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
 - **THEN** the page documents that `system-skills install --tool` accepts comma-separated supported tools
-- **AND THEN** it shows an example such as `houmao-mgr system-skills install --tool claude,codex,copilot,gemini`
+- **AND THEN** it shows an example such as `houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot`
 
 #### Scenario: Reader sees explicit skill-set flag naming
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
@@ -1110,7 +1119,7 @@ That page SHALL document:
 
 #### Scenario: Reader sees Copilot in system-skills home resolution
 - **WHEN** a reader opens `docs/reference/cli/system-skills.md`
-- **THEN** the page lists Copilot alongside Claude, Codex, and Gemini in the supported tool-home resolution coverage
+- **THEN** the page lists Copilot alongside Claude, Codex, Kimi, and Gemini in the supported tool-home resolution coverage
 - **AND THEN** it identifies `COPILOT_HOME` and `<cwd>/.github` as Copilot's env and project-default home inputs
 
 #### Scenario: Reader understands Copilot projection paths
@@ -1141,7 +1150,7 @@ When the reference documents `--clear-memo-seed`, it SHALL distinguish removing 
 - **AND THEN** it does not state that pages are cleared for memo-only seeds
 
 ### Requirement: CLI reference documents system-skills uninstall
-The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Copilot, and Gemini homes.
+The CLI reference pages `docs/reference/cli/system-skills.md`, `docs/reference/cli/houmao-mgr.md`, and `docs/reference/cli.md` SHALL document `houmao-mgr system-skills uninstall` as the supported command for removing current Houmao-owned system skills from resolved Claude, Codex, Kimi, Gemini, and Copilot homes.
 
 That coverage SHALL state that `system-skills uninstall` requires `--tool` with either one supported tool identifier or a comma-separated list of supported tool identifiers.
 
@@ -1382,3 +1391,96 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL NOT describe 
 - **THEN** no example uses `--skill houmao-utils-llm-wiki`
 - **AND THEN** no current inventory or set listing includes `houmao-utils-llm-wiki`
 
+### Requirement: CLI reference documents corrected Kimi system-skill and launch behavior
+
+Repo-owned CLI reference docs SHALL document Kimi as a supported system-skills target wherever the `system-skills` reference lists supported tools, effective home env vars, project defaults, projection roots, status behavior, install behavior, and uninstall behavior.
+
+The `system-skills` reference SHALL explain that Kimi omitted-home resolution uses `KIMI_CODE_HOME` before the project default `<cwd>/.kimi-code`, and that Kimi system skills project under `<effective-home>/skills/`.
+
+The `system-skills` reference SHALL distinguish Kimi projection from Kimi discovery. It SHALL explain that arbitrary `<KIMI_CODE_HOME>/skills` paths are not automatically discovered by current Kimi Code, that project `.kimi-code/skills` is a Kimi project discovery root when Kimi runs from that project, and that managed Kimi TUI launches use Kimi `extra_skill_dirs` generated by managed runtime preparation rather than TUI `--skills-dir`.
+
+CLI reference material for project agents launch SHALL describe Kimi as a TUI/local-interactive-capable provider when headless posture is omitted, while preserving Gemini as the required-headless exception.
+
+CLI reference material for project and internal credential commands SHALL include Kimi credential add/set/list/get/rename/remove surfaces and Kimi-specific credential flags. It SHALL NOT document a Kimi credential login helper unless the maintained CLI exposes one.
+
+#### Scenario: Reader sees Kimi in system-skills supported tools
+
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page lists Kimi alongside the other supported `system-skills` tools
+- **AND THEN** it documents `KIMI_CODE_HOME`, `<cwd>/.kimi-code`, and `<effective-home>/skills/` for Kimi
+
+#### Scenario: Reader sees Kimi projection versus discovery caveat
+
+- **WHEN** a reader checks Kimi effective-home guidance in the `system-skills` reference
+- **THEN** the page states that `system-skills install --tool kimi` projects files into the resolved Kimi home
+- **AND THEN** it does not claim that arbitrary `<KIMI_CODE_HOME>/skills` paths are auto-discovered by Kimi Code
+- **AND THEN** it explains that managed Kimi TUI skill reachability is handled through Kimi `extra_skill_dirs`
+
+#### Scenario: Reader sees Kimi TUI launch posture
+
+- **WHEN** a reader checks project agents launch reference material
+- **THEN** Kimi specialists and profiles are described as able to use TUI/local-interactive launch posture when headless is omitted
+- **AND THEN** Gemini remains documented as the project easy launch surface's required-headless exception
+
+#### Scenario: Reader sees Kimi credential CRUD without a login helper
+
+- **WHEN** a reader checks credential command reference material
+- **THEN** Kimi appears in credential CRUD coverage with Kimi-specific credential flags
+- **AND THEN** Kimi is not shown in login-helper examples or login-helper support tables unless the CLI implements a maintained Kimi login helper
+
+### Requirement: CLI reference points Kimi automation at unattended prompt mode
+The CLI reference SHALL document `launch.prompt_mode: unattended` and the corresponding project/profile prompt-mode flags as the supported Houmao-facing way to run Kimi Code without permission dialogs or user questions.
+
+The CLI reference SHALL NOT present Kimi `--yolo` as a current Houmao launch option for achieving unattended behavior.
+
+The CLI reference MAY mention Kimi provider-native `--auto` only as implementation background or low-level provider behavior, not as the recommended Houmao managed launch control.
+
+#### Scenario: Reader finds supported Kimi no-question launch control
+- **WHEN** a reader looks up how to run a Kimi managed agent automatically
+- **THEN** the CLI reference points them to `launch.prompt_mode: unattended` or the matching project/profile prompt-mode CLI controls
+- **AND THEN** it does not instruct them to pass `--yolo`
+
+#### Scenario: Reader does not need raw Kimi flags for managed launch
+- **WHEN** a reader looks up Kimi project specialist or project profile launch options
+- **THEN** the reference describes prompt mode as the managed automation control
+- **AND THEN** it does not require raw launch overrides with Kimi `--auto` for ordinary managed unattended launch
+
+### Requirement: CLI reference documents the graphing extension skill
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL describe `houmao-ext-graphing` as a packaged Houmao-owned system skill.
+
+That page SHALL describe `houmao-ext-graphing` as the extension skill for built-in Plotly.js templated graphics and Vega-Lite freeform graphics authoring over Houmao AG-UI implementation schemas.
+
+The page SHALL NOT describe `houmao-utils-graphing` as a current packaged skill, current set member, install example, status result, or uninstall target except as a retired skill projection that may be removed.
+
+#### Scenario: Reader sees the graphing extension in the system-skills reference
+- **WHEN** a reader opens `docs/reference/cli/system-skills.md`
+- **THEN** the page lists `houmao-ext-graphing` as a current packaged skill
+- **AND THEN** it describes the skill as extension graphing authoring guidance
+- **AND THEN** it does not list `houmao-utils-graphing` as current
+
+### Requirement: CLI reference documents extensions set behavior
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL document `core`, `extensions`, and `all` as the current installable named sets.
+
+The page SHALL state that managed launch and managed join auto-install `core` plus `extensions`.
+
+The page SHALL state that omitted-selection `houmao-mgr system-skills install` resolves `all`.
+
+The page SHALL explain that `core` is the non-extension baseline, `extensions` contains default-installed extension skills, and `all` includes both core and extension skills.
+
+#### Scenario: Reader sees current named sets and defaults
+- **WHEN** a reader checks install-selection behavior in `docs/reference/cli/system-skills.md`
+- **THEN** the page documents `core`, `extensions`, and `all`
+- **AND THEN** it documents `managed_launch_sets = ["core", "extensions"]`, `managed_join_sets = ["core", "extensions"]`, and `cli_default_sets = ["all"]`
+
+#### Scenario: Reader understands explicit core excludes extensions
+- **WHEN** the CLI reference shows resolved set examples
+- **THEN** the `core` example does not include `houmao-ext-graphing`
+- **AND THEN** the `extensions` or `all` example includes `houmao-ext-graphing`
+
+### Requirement: CLI reference explains retired graphing utility cleanup
+The CLI reference page `docs/reference/cli/system-skills.md` SHALL explain that known retired Houmao skill projections, including `houmao-utils-graphing`, may be removed during current install or uninstall operations.
+
+#### Scenario: Reader understands old graphing utility removal
+- **WHEN** a reader checks install or uninstall cleanup semantics
+- **THEN** the page explains that `houmao-utils-graphing` is a retired projection name
+- **AND THEN** the page explains that current install or uninstall operations may remove that stale Houmao-owned projection

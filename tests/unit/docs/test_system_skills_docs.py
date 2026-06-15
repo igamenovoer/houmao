@@ -46,7 +46,7 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "Use Houmao's own installer when `npx` is unavailable" in overview
     assert "named sets, subset skills, explicit homes, symlink/copy projection" in overview
     assert "Managed launch and join are separate from these explicit user-driven" in overview
-    assert "Managed launch defaults to the same `core` selection" in overview
+    assert "Managed launch defaults to the same `core` plus `extensions` selection" in overview
     assert "managed system-skill policy that extends, replaces, or disables" in overview
     assert "uses the catalog's `all` set" in overview
     assert "Every current packaged Houmao system skill supports explicit skill-level help" in (
@@ -58,6 +58,13 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert '"help me send mail to this agent"' in overview
     assert "teaches Houmao in stages" in overview
     assert "offers stage-aware next actions" in overview
+    assert "`houmao-interop-ag-ui`" in overview
+    assert "`houmao-ext-graphing`" in overview
+    assert "Built-in graphing authoring for Houmao AG-UI implementations" in overview
+    assert "Extension skills are installed by default but remain optional guidance" in overview
+    assert "Authoring built-in Plotly.js `templated-graphics` or Vega-Lite" in overview
+    assert "`houmao-utils-graphing`" not in overview
+    assert "`houmao-agent-ag-ui`" not in overview
 
     assert "This page documents `houmao-mgr system-skills` command behavior" in cli_reference
     assert f"npx skills add {system_skills_collection}" in cli_reference
@@ -69,6 +76,14 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "├── status --tool <tool> [--home <path>]" in cli_reference
     assert "├── install --tool <tool>[,<tool>...]" in cli_reference
     assert "└── uninstall --tool <tool>[,<tool>...]" in cli_reference
+    assert "`houmao-ext-graphing` for extension-owned built-in Plotly.js" in cli_reference
+    assert (
+        "pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing"
+        in (cli_reference)
+    )
+    assert "- utils: `houmao-utils-workspace-mgr`" in cli_reference
+    assert "- extensions: `houmao-ext-graphing`" in cli_reference
+    assert "including old loop names and `houmao-utils-graphing`" in cli_reference
 
 
 def test_readme_uses_agent_first_onboarding() -> None:

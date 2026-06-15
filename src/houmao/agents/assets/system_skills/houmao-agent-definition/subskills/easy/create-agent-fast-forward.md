@@ -47,8 +47,8 @@ This workflow creates or selects a specialist, creates or updates a project prof
 - managed-agent identity: `--agent-name`, `--agent-id`
 - default filesystem mailbox posture: `--mail-transport filesystem`, `--mail-principal-id HOUMAO-<agent-name>`, `--mail-address <agent-name>@houmao.localhost`, `--mail-root <selected-root>`
 - workdir: `--workdir`
-- prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution
-- launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane
+- prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution. For Kimi, prompt mode is the managed no-question control and should not be replaced with raw `--auto` or `--yolo` launch flags
+- launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane; Kimi is TUI/local-interactive capable here and Gemini remains the selected-tool required-headless exception
 - model: `--model`
 - reasoning: `--reasoning-level`
 - env: repeatable `--env-set NAME=value`
@@ -64,7 +64,7 @@ This workflow creates or selects a specialist, creates or updates a project prof
 
 ```text
 <chosen houmao-mgr launcher> project specialist get --name <specialist>
-<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"claude","credential":"kimi-coding"}}'
+<chosen houmao-mgr launcher> internals config-drafts generate --id project.specialist --intent '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}'
 <chosen houmao-mgr launcher> project profile get --name <profile>
 <chosen houmao-mgr launcher> internals config-drafts generate --id project.profile --intent '{"fields":{"name":"reviewer-fast","specialist":"reviewer","credential":"reviewer-creds"}}'
 ```
@@ -119,6 +119,7 @@ Report:
 - Do not persist profile `--headless` or include launch-command `--headless` by default for TUI-capable tools.
 - Do not persist profile `--prompt-mode` unless prompt mode is explicit in the user request or recovered explicit context.
 - Do not treat unattended prompt mode as evidence that headless launch was requested.
+- Do not add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
 - When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
 - Do not continue if defaulting finds no Houmao target or no registered credentials; report the suggested fix.
 - Do not skip default mailbox setup merely because the user did not mention mailbox; initialize the mailbox root and store default filesystem mailbox posture on the profile.

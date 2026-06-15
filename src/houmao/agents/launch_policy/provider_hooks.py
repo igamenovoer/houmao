@@ -1,8 +1,9 @@
-"""Provider-specific launch-policy hooks for Claude, Codex, and Gemini."""
+"""Provider-specific launch-policy hooks for Claude, Codex, Gemini, and Kimi."""
 
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 import tomllib
@@ -66,6 +67,12 @@ def run_provider_hook(
         return
     if hook_id == "gemini.ensure_unattended_runtime_state":
         _gemini_ensure_unattended_runtime_state(request)
+        return
+    if hook_id == "kimi.canonicalize_unattended_launch_inputs":
+        _kimi_canonicalize_unattended_launch_inputs(args)
+        return
+    if hook_id == "kimi.canonicalize_unattended_tui_launch_inputs":
+        _kimi_canonicalize_unattended_tui_launch_inputs(args)
         return
     raise LaunchPolicyError(f"Unknown provider hook `{hook_id}`.")
 
@@ -160,7 +167,7 @@ def set_toml_key(
     *,
     path: Path,
     key_path: tuple[str, ...],
-    value: str | bool | int,
+    value: str | bool | int | list[str],
     repair_invalid: bool = False,
 ) -> None:
     """Set one TOML key path using a minimal writer."""
@@ -404,6 +411,78 @@ def canonicalize_gemini_unattended_launch_args(args: list[str]) -> None:
     args[:] = canonicalized
 
 
+def canonicalize_kimi_unattended_launch_args(args: list[str]) -> None:
+    """Strip caller overrides that target Kimi prompt-mode-owned surfaces."""
+
+    flags_with_values = {
+        "-S",
+        "--session",
+        "-r",
+        "--resume",
+        "-p",
+        "--prompt",
+        "--output-format",
+        "--skills-dir",
+    }
+    scalar_flags = {"-C", "--continue", "--auto", "--yolo", "--plan"}
+    canonicalized: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        next_token = args[index + 1] if index + 1 < len(args) else None
+
+        if token in scalar_flags:
+            index += 1
+            continue
+        if any(token.startswith(f"{flag}=") for flag in flags_with_values):
+            index += 1
+            continue
+        if token in flags_with_values:
+            index += 1
+            if next_token is not None and not next_token.startswith("-"):
+                index += 1
+            continue
+
+        canonicalized.append(token)
+        index += 1
+
+    args[:] = canonicalized
+
+
+def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
+    """Strip caller overrides that target Kimi TUI unattended startup surfaces."""
+
+    flags_with_values = {
+        "-S",
+        "--session",
+        "-r",
+        "--resume",
+    }
+    scalar_flags = {"-C", "--continue", "--auto", "--yolo", "-y", "--plan"}
+    canonicalized: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        next_token = args[index + 1] if index + 1 < len(args) else None
+
+        if token in scalar_flags:
+            index += 1
+            continue
+        if any(token.startswith(f"{flag}=") for flag in flags_with_values):
+            index += 1
+            continue
+        if token in flags_with_values:
+            index += 1
+            if next_token is not None and not next_token.startswith("-"):
+                index += 1
+            continue
+
+        canonicalized.append(token)
+        index += 1
+
+    args[:] = canonicalized
+
+
 def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
     """Seed API-key approval state without storing the full key value."""
 
@@ -474,6 +553,22 @@ def _gemini_canonicalize_unattended_launch_inputs(args: list[str] | None) -> Non
     if args is None:
         return
     canonicalize_gemini_unattended_launch_args(args)
+
+
+def _kimi_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
+    """Canonicalize caller launch args for the Kimi unattended strategy."""
+
+    if args is None:
+        return
+    canonicalize_kimi_unattended_launch_args(args)
+
+
+def _kimi_canonicalize_unattended_tui_launch_inputs(args: list[str] | None) -> None:
+    """Canonicalize caller launch args for the Kimi unattended TUI strategy."""
+
+    if args is None:
+        return
+    canonicalize_kimi_tui_unattended_launch_args(args)
 
 
 def _codex_validate_credential_readiness(request: LaunchPolicyRequest) -> None:
@@ -758,12 +853,16 @@ def _toml_key_literal(value: str) -> str:
 
 
 def _toml_value_literal(value: object) -> str:
-    """Render one supported TOML scalar."""
+    """Render one supported TOML value."""
 
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise LaunchPolicyError(f"Unsupported TOML scalar value: {value!r}")
+        return repr(value)
     if isinstance(value, str):
         escaped = (
             value.replace("\\", "\\\\")
@@ -773,4 +872,6 @@ def _toml_value_literal(value: object) -> str:
             .replace("\t", "\\t")
         )
         return f'"{escaped}"'
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return "[" + ", ".join(_toml_value_literal(item) for item in value) + "]"
     raise LaunchPolicyError(f"Unsupported TOML scalar value: {value!r}")

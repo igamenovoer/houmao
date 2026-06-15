@@ -54,6 +54,7 @@ Framework: `pytest` (with some `unittest` compatibility). Follow file naming fro
 - `tests/manual/manual_*.py`
 
 Keep unit tests deterministic and isolated; prefer fixtures over network access. Run `pixi run test` before opening a PR, and add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
+For browser checks, Playwright is available from the Bun global toolchain. Use `bunx playwright ...` for CLI commands, or run small Bun scripts that import `playwright`; the installed Playwright browser bundle can launch Chromium headlessly.
 When testing agent flows against local fixture credentials, prefer `tests/fixtures/auth-bundles/claude/kimi-coding/` for Claude Code, `tests/fixtures/auth-bundles/codex/yunwu-openai/` for Codex, and `tests/fixtures/auth-bundles/gemini/personal-a-default/` for Gemini by default unless the task explicitly requires a different auth bundle. For Gemini agent testing, prefer OAuth mode over API-key mode unless the task explicitly needs the API-key lane.
 When testing TUI agents automatically, default to unattended mode unless the task explicitly requests interactive or `as_is` behavior.
 

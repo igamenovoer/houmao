@@ -120,13 +120,25 @@ The introductory content SHALL be condensed from four subsections (What It Is, C
 
 ### Requirement: README What It Is section acknowledges Copilot system-skills target
 
-The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three launch-capable tools (`claude`, `codex`, `gemini`). The mention SHALL use a qualifier that makes clear Copilot is a skill-install surface, not a launch backend.
+The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three primary launch-capable tools (`claude`, `codex`, `kimi`). The mention SHALL use a qualifier that makes clear Copilot is a skill-install surface, not a launch backend.
+
+When the README opening paragraph or nearby first-screen prose mentions all maintained launch-capable providers, it SHALL order them as `claude`, `codex`, `kimi`, then `gemini`.
+
+The README SHALL include a Kimi Code warning that names Kimi Code 0.11.0 and states that this version does not expose a native system-prompt flag. The warning SHALL tell readers that Kimi Code users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when the Houmao system prompt is not confirmed loaded.
 
 #### Scenario: Reader understands Copilot scope
 
 - **WHEN** a reader reads the README "What It Is" section
-- **THEN** they see that Houmao manages `claude`, `codex`, and `gemini` as launch backends and additionally supports `copilot` for system-skill installation
+- **THEN** they see that Houmao manages `claude`, `codex`, and `kimi` as the primary launch backend examples
+- **AND THEN** they see Gemini only after Kimi when a complete launch-provider list appears
+- **AND THEN** they see that Houmao additionally supports `copilot` for system-skill installation
 - **AND THEN** they do not conclude that Copilot is a launch backend
+
+#### Scenario: Reader sees Kimi system-prompt caveat
+
+- **WHEN** a reader scans the README Kimi provider guidance
+- **THEN** they see that Kimi Code 0.11.0 does not expose a native system-prompt flag
+- **AND THEN** they see that `houmao-auto-system-prompt` may need manual invocation before substantive Kimi chat begins
 
 ### Requirement: README demos section includes writer-team example
 
@@ -208,4 +220,3 @@ After the first usage example, the README SHALL introduce the core model in comp
 - **WHEN** a reader reaches the concept section
 - **THEN** they can distinguish the user's CLI agent from Houmao-managed agents
 - **AND THEN** they understand how specialists, project profiles, gateways, mailboxes, and loops fit together
-

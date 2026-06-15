@@ -16,6 +16,7 @@ _DEMO_INPUTS_SOURCE = _WORKSPACE_ROOT / "scripts/demo/shared-tui-tracking-demo-p
 _FIXTURE_AUTH_RELATIVE_BY_TOOL = {
     "claude": Path("tests/fixtures/auth-bundles/claude/kimi-coding"),
     "codex": Path("tests/fixtures/auth-bundles/codex/yunwu-openai"),
+    "kimi": Path("tests/fixtures/auth-bundles/kimi/personal-a-default"),
 }
 
 
@@ -32,12 +33,14 @@ def _seed_fixture_auth_bundle(repo_root: Path, *, tool: str) -> Path:
     env_path = env_dir / "vars.env"
     if tool == "claude":
         env_path.write_text("ANTHROPIC_API_KEY=test-key\n", encoding="utf-8")
-    else:
+    elif tool == "codex":
         env_path.write_text("OPENAI_API_KEY=test-key\n", encoding="utf-8")
+    else:
+        env_path.write_text("KIMI_MODEL_API_KEY=test-key\n", encoding="utf-8")
     return fixture_root
 
 
-@pytest.mark.parametrize("tool", ["claude", "codex"])
+@pytest.mark.parametrize("tool", ["claude", "codex", "kimi"])
 def test_materialize_generated_agent_tree_projects_default_auth_alias(
     tmp_path: Path,
     tool: str,
@@ -67,7 +70,7 @@ def test_materialize_generated_agent_tree_projects_default_auth_alias(
     assert auth_default.resolve() == fixture_auth_root.resolve()
 
 
-@pytest.mark.parametrize("tool", ["claude", "codex"])
+@pytest.mark.parametrize("tool", ["claude", "codex", "kimi"])
 def test_materialize_generated_agent_tree_requires_host_local_auth_bundle(
     tmp_path: Path,
     tool: str,

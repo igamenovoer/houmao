@@ -24,6 +24,7 @@ from houmao.agents.launch_policy.models import (
     MinimalInputContract,
     OperatorPromptMode,
     OwnedPathSpec,
+    SystemPromptBootstrapCapabilities,
     SupportedVersionSpec,
     StrategyEvidence,
     ToolVersion,
@@ -44,6 +45,7 @@ _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "codex_app_server",
     "claude_headless",
     "gemini_headless",
+    "kimi_headless",
     "cao_rest",
 )
 _EVIDENCE_KINDS: tuple[Literal["official_docs", "source_reference", "live_probe"], ...] = (
@@ -74,6 +76,8 @@ _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
         "codex.canonicalize_unattended_launch_inputs",
         "codex.append_unattended_cli_overrides",
         "gemini.canonicalize_unattended_launch_inputs",
+        "kimi.canonicalize_unattended_launch_inputs",
+        "kimi.canonicalize_unattended_tui_launch_inputs",
     }
 )
 
@@ -260,7 +264,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
     )
     if operator_prompt_mode_raw not in _OPERATOR_PROMPT_MODES:
         raise LaunchPolicyError(f"{source}.operator_prompt_mode must be `as_is` or `unattended`.")
-    operator_prompt_mode = cast(OperatorPromptMode, operator_prompt_mode_raw)
+    operator_prompt_mode = operator_prompt_mode_raw
 
     backends_payload = payload.get("backends")
     if not isinstance(backends_payload, list) or not backends_payload:
@@ -272,7 +276,7 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
             raise LaunchPolicyError(
                 f"{source}.backends contains unsupported backend `{backend_raw}`."
             )
-        parsed_backends.append(cast(LaunchSurface, backend_raw))
+        parsed_backends.append(backend_raw)
     backends = tuple(parsed_backends)
 
     supported_versions_raw = payload.get("supported_versions")
@@ -306,6 +310,14 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         notes=tuple(notes_payload),
     )
 
+    system_prompt_bootstrap_payload = payload.get("system_prompt_bootstrap")
+    if not isinstance(system_prompt_bootstrap_payload, dict):
+        raise LaunchPolicyError(f"{source}.system_prompt_bootstrap must be a mapping.")
+    system_prompt_bootstrap = _parse_system_prompt_bootstrap(
+        payload=system_prompt_bootstrap_payload,
+        source=f"{source}.system_prompt_bootstrap",
+    )
+
     evidence_payload = payload.get("evidence")
     if not isinstance(evidence_payload, list) or not evidence_payload:
         raise LaunchPolicyError(f"{source}.evidence must be a non-empty list.")
@@ -334,9 +346,47 @@ def _parse_strategy(*, payload: object, source: str) -> LaunchPolicyStrategy:
         backends=backends,
         supported_versions=supported_versions,
         minimal_inputs=minimal_inputs,
+        system_prompt_bootstrap=system_prompt_bootstrap,
         evidence=evidence,
         owned_paths=owned_paths,
         actions=actions,
+    )
+
+
+def _parse_system_prompt_bootstrap(
+    *,
+    payload: Mapping[str, Any],
+    source: str,
+) -> SystemPromptBootstrapCapabilities:
+    """Parse system-prompt bootstrap capability metadata."""
+
+    native_system_prompt = payload.get("native_system_prompt")
+    provider_skills = payload.get("provider_skills")
+    startup_visible_skill_metadata = payload.get("startup_visible_skill_metadata")
+    for key, value in (
+        ("native_system_prompt", native_system_prompt),
+        ("provider_skills", provider_skills),
+        ("startup_visible_skill_metadata", startup_visible_skill_metadata),
+    ):
+        if not isinstance(value, bool):
+            raise LaunchPolicyError(f"{source}.{key} must be a boolean.")
+
+    evidence_payload = payload.get("evidence", [])
+    if not isinstance(evidence_payload, list):
+        raise LaunchPolicyError(f"{source}.evidence must be a list when present.")
+    evidence = tuple(
+        _parse_evidence(item=item, source=f"{source}.evidence") for item in evidence_payload
+    )
+    if startup_visible_skill_metadata and not evidence:
+        raise LaunchPolicyError(
+            f"{source}.evidence must describe startup-visible skill metadata support."
+        )
+
+    return SystemPromptBootstrapCapabilities(
+        native_system_prompt=cast(bool, native_system_prompt),
+        provider_skills=cast(bool, provider_skills),
+        startup_visible_skill_metadata=cast(bool, startup_visible_skill_metadata),
+        evidence=evidence,
     )
 
 
@@ -349,7 +399,7 @@ def _parse_evidence(*, item: object, source: str) -> StrategyEvidence:
     if kind_raw not in _EVIDENCE_KINDS:
         raise LaunchPolicyError(f"{source}.kind is unsupported: `{kind_raw}`.")
     return StrategyEvidence(
-        kind=cast(Literal["official_docs", "source_reference", "live_probe"], kind_raw),
+        kind=kind_raw,
         ref=_require_non_blank_str(item, "ref", source=source),
         note=_require_non_blank_str(item, "note", source=source),
     )
@@ -383,17 +433,7 @@ def _parse_action(*, item: object, source: str) -> LaunchPolicyAction:
     if not isinstance(params, dict):
         raise LaunchPolicyError(f"{source}.params must be a mapping.")
     return LaunchPolicyAction(
-        kind=cast(
-            Literal[
-                "cli_arg.ensure_present",
-                "cli_arg.ensure_absent",
-                "json.set",
-                "toml.set",
-                "validate.reject_conflicting_launch_args",
-                "provider_hook.call",
-            ],
-            kind_raw,
-        ),
+        kind=kind_raw,
         params=params,
     )
 

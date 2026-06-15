@@ -115,71 +115,86 @@ At minimum, this requirement SHALL apply to:
 
 ### Requirement: Quickstart guide covers build and launch
 
-The getting-started section SHALL include a quickstart page showing how to build a brain home and start, prompt, and stop a session using the current `houmao-mgr` managed-agent workflow, derived from the CLI command groups in `srv_ctrl/commands/`.
+The getting-started section SHALL include a quickstart page that teaches the current recommended first-run Houmao workflow as agent-driven use through installed Houmao system skills. The page SHALL help a reader start from their existing CLI-agent surface, install or project Houmao system skills, invoke `houmao-touring`, and ask that agent for a useful managed-agent outcome.
 
 The quickstart SHALL:
 
-- present the `houmao-mgr agents join` adoption workflow as the simplest entry point before the build-and-launch workflow,
-- start the build-based workflow with `houmao-mgr project init`,
-- use `houmao-mgr project specialist create ...` as the primary project-local authoring path before falling back to `project agents ...` for low-level maintenance,
-- describe `--credential` as optional for the higher-level specialist workflow and explain the derived default naming behavior when the example relies on it,
-- avoid describing `--system-prompt` as required for the higher-level specialist workflow,
-- use project-local default agent-definition resolution rooted at `.houmao/houmao-config.toml` for the build-based workflow rather than instructing readers to manually copy `.agentsys/agents`,
-- use `houmao-mgr brains build` when teaching build-phase concepts,
-- use `houmao-mgr agents launch --agents <selector> --agent-name <name>` for the primary managed launch path,
-- mention `houmao-mgr agents launch --launch-profile <name>` as the saved-launch-profile alternative and link readers to `docs/getting-started/launch-profiles.md` for the shared conceptual model and to `docs/reference/cli/houmao-mgr.md` for the canonical CLI options,
-- show follow-up control targeted by `--agent-name` or `--agent-id`,
-- use `houmao-mgr agents stop` for shutdown,
-- avoid presenting `--manifest`, `--session-id`, or `agents terminate` as the primary `houmao-mgr` workflow,
-- present both workflows completely without truncation (added requirement),
-- describe the canonical low-level source object as a recipe and use `internals native-agent recipes ...` when teaching named source authoring inspection, while preserving `project agents presets ...` as the compatibility alias when the example relies on the legacy verb explicitly.
+- present the user's current CLI agent as the primary operator of Houmao workflows,
+- explain that Houmao system skills guide that CLI agent toward maintained `houmao-mgr` command surfaces,
+- show the preferred installed-user setup path with `uv tool install houmao`, `tmux` verification, and `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet access are available,
+- show the Houmao-owned `houmao-mgr system-skills install --tool <tool>[,<tool>...]` path for offline, installed-package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup needs,
+- include a from-source note that source checkout commands use `pixi run houmao-mgr ...` while installed users use `houmao-mgr ...`,
+- instruct the reader to start Claude Code, Codex, Kimi, Gemini, or another supported CLI-agent surface from the target project directory and ask for `$houmao-touring start a guided tour`,
+- include a first useful agent-mediated prompt that asks the user's CLI agent to create or select a specialist, prepare a reusable project profile when useful, launch a managed agent, send an initial prompt, inspect the result, and stop or leave the agent running according to the user's instruction,
+- explain the resulting concepts in user-facing terms: project overlay, specialist, project profile, managed agent, gateway, messaging, inspection, memory, mailbox, and loop follow-up,
+- state that manual command examples are the underlying machinery the agent may run, manual fallback for debugging, or source-developer reference rather than the primary first-run path,
+- preserve direct command examples for project initialization, specialist/profile authoring, launch, prompt or gateway-backed communication, inspection, and stop in a compact fallback or reference section,
+- preserve `agents self join` as the supported adoption workflow for an already-running provider TUI and position it after the primary agent-driven path,
+- keep the `agents self join` Mermaid sequence diagram or an equivalent diagram illustrating adoption from provider TUI to managed-agent registry/gateway artifacts,
+- use current supported command surfaces such as `houmao-mgr project init`, `houmao-mgr project specialist ...`, `houmao-mgr project profile ...`, `houmao-mgr project agents launch|stop`, `houmao-mgr agents single ...`, `houmao-mgr agents self ...`, and `houmao-mgr system-skills ...`,
+- avoid presenting retired or removed surfaces such as `houmao-cli`, standalone `houmao-server`, standalone CAO launcher workflows, `agents terminate`, or manual `.agentsys` setup as current first-run guidance,
+- link to `docs/getting-started/system-skills-overview.md`, `docs/getting-started/easy-specialists.md`, `docs/getting-started/launch-profiles.md`, `docs/getting-started/managed-memory-dirs.md`, gateway and mailbox references when those concepts appear, and `docs/reference/cli/houmao-mgr.md` or dedicated CLI reference pages for flag-level details.
 
-The quickstart section covering `agents join` SHALL include a Mermaid sequence diagram illustrating the join pipeline: operator starts a provider TUI in tmux, runs `agents join`, and Houmao wraps the session with manifest, gateway, and registry artifacts.
+The getting-started overview and quickstart SHALL present Kimi Code as a primary supported provider alongside Claude and Codex. Neutral provider lists SHALL order maintained launch-capable providers as Claude, Codex, Kimi, then Gemini; compact three-provider examples and diagrams SHALL use Claude, Codex, and Kimi.
 
-#### Scenario: Quickstart presents agents join as the simplest entry point
+Getting-started docs that introduce Kimi Code SHALL include a Kimi Code 0.11.0 warning that this version does not expose a native system-prompt flag. The warning SHALL tell readers to invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins when the Houmao system prompt has not been confirmed loaded.
 
-- **WHEN** a reader opens the quickstart section
-- **THEN** the first workflow shown is `houmao-mgr agents join` adopting an existing tmux-backed provider session
-- **AND THEN** the join workflow appears before the build-and-launch workflow
-- **AND THEN** the join section includes a Mermaid sequence diagram showing the adoption flow
+#### Scenario: Quickstart starts with the agent-driven path
 
-#### Scenario: Build-based quickstart uses the higher-level project authoring path
-- **WHEN** a reader follows the build-based quickstart workflow
-- **THEN** the first setup command is `houmao-mgr project init`
-- **AND THEN** the workflow uses `houmao-mgr project specialist create ...` as the primary project-local authoring path
-- **AND THEN** the quickstart explains the derived default credential naming when `--credential` is omitted
-- **AND THEN** the workflow does not describe `--system-prompt` as required for specialist creation
-- **AND THEN** the workflow does not tell the reader to manually copy or assemble `.agentsys/agents` before build or launch
+- **WHEN** a new reader opens `docs/getting-started/quickstart.md`
+- **THEN** the first workflow teaches them to install Houmao and Houmao system skills, start their CLI agent in the target project, and invoke `houmao-touring`
+- **AND THEN** the page presents manual `houmao-mgr` command sequences only after the agent-driven entrypoint is established
 
-#### Scenario: Quickstart uses current managed-agent selectors
+#### Scenario: Reader sees a first useful managed-agent outcome
 
-- **WHEN** a reader follows the quickstart command examples
-- **THEN** the page shows `houmao-mgr` commands that target managed agents with `--agents`, `--agent-name`, or `--agent-id`
-- **AND THEN** the page does not instruct the reader to use `--session-id` for the main managed-agent flow
+- **WHEN** a reader follows the primary quickstart workflow
+- **THEN** they see an outcome-oriented prompt they can give to their CLI agent
+- **AND THEN** the prompt covers creating or selecting a specialist, preparing a project profile when useful, launching a managed agent, prompting it, inspecting the result, and handling stop or follow-up
+- **AND THEN** the page explains those steps as Houmao outcomes rather than requiring the reader to type every command manually
 
-#### Scenario: Quickstart uses current stop command
+#### Scenario: Source checkout readers understand launcher translation
 
-- **WHEN** a reader reaches the shutdown step
-- **THEN** the page documents `houmao-mgr agents stop`
-- **AND THEN** the page does not describe `houmao-mgr agents terminate` as the supported shutdown command
+- **WHEN** a source checkout reader follows the quickstart
+- **THEN** the page explains that installed-user examples using `houmao-mgr ...` translate to `pixi run houmao-mgr ...` in the source checkout
+- **AND THEN** the page does not require installed users to run `pixi install && pixi shell`
 
-#### Scenario: Both workflows are complete and untruncated
+#### Scenario: Manual fallback uses maintained command surfaces
 
-- **WHEN** a reader reaches the end of either workflow
-- **THEN** the workflow completes with a shutdown step and optional next-steps links
-- **AND THEN** no section is cut off mid-content
+- **WHEN** a reader reaches the manual fallback or underlying-machinery section
+- **THEN** the examples use maintained `houmao-mgr` command families for project setup, specialist/profile authoring, launch, prompt or gateway communication, inspection, stop, system-skill installation, and join
+- **AND THEN** the examples do not use removed or retired command surfaces as recommended current guidance
 
-#### Scenario: Quickstart mentions `agents launch --launch-profile` and links to the launch-profiles guide
+#### Scenario: Join is documented as adoption
 
-- **WHEN** a reader reaches the managed-launch step in the build-based workflow
-- **THEN** the quickstart shows `houmao-mgr agents launch --launch-profile <name>` as the saved-profile alternative to `--agents <selector>`
-- **AND THEN** the page links to `docs/getting-started/launch-profiles.md` for the shared conceptual model
+- **WHEN** a reader already has a provider TUI running in tmux
+- **THEN** the quickstart provides an `agents self join` adoption workflow
+- **AND THEN** that workflow appears after the primary agent-driven first-run path
+- **AND THEN** it includes a Mermaid sequence diagram or equivalent visual showing Houmao wrapping the existing provider session with managed-agent artifacts
 
-#### Scenario: Quickstart uses recipes vocabulary for low-level source authoring
+### Requirement: Quickstart covers both workflows end-to-end without truncation
 
-- **WHEN** a reader reaches the inspection step in the build-based workflow
-- **THEN** the example commands use `internals native-agent recipes get` for canonical recipe inspection
-- **AND THEN** any reference to `project agents presets ...` is described as a compatibility alias rather than as the canonical authoring surface
+The quickstart page at `docs/getting-started/quickstart.md` SHALL present the primary agent-driven workflow and the secondary provider-session adoption workflow completely:
+
+- **Primary workflow (Agent-driven first run)**: from installing Houmao and system skills through invoking `houmao-touring`, requesting a first managed-agent outcome, understanding created project/runtime concepts, and choosing stop or follow-up.
+- **Secondary workflow (Join)**: from an already-running provider TUI in tmux through `agents self join`, managed-agent control, inspection, and stop or cleanup.
+
+Manual fallback command sections SHALL be complete enough for a reader to understand the underlying maintained commands without being cut off mid-flow.
+
+#### Scenario: Primary workflow is complete
+
+- **WHEN** a reader follows the primary agent-driven workflow in the quickstart
+- **THEN** they can reach a first managed-agent outcome without encountering a truncated section
+- **AND THEN** they can find next links for deeper specialist, profile, system-skill, gateway, mailbox, memory, and CLI reference material
+
+#### Scenario: Join workflow is complete
+
+- **WHEN** a reader follows the secondary join workflow in the quickstart
+- **THEN** they can complete the provider TUI adoption, inspect or prompt the managed agent, and stop or clean up the managed agent without encountering a truncated section
+
+#### Scenario: Manual fallback is complete enough for debugging
+
+- **WHEN** a reader needs to debug or manually reproduce what the agent-driven path does
+- **THEN** the quickstart includes compact maintained command examples or links for each major stage rather than ending mid-command sequence
 
 ### Requirement: README documents agents join as a first-class adoption path
 
@@ -242,25 +257,6 @@ The getting-started documentation SHALL point readers to `scripts/demo/minimal-a
 
 - **WHEN** a reader follows the getting-started quickstart for preset-backed build and launch
 - **THEN** the page points them to `scripts/demo/minimal-agent-launch/` as the maintained minimal end-to-end example for local launch
-
-### Requirement: Quickstart covers both workflows end-to-end without truncation
-
-The quickstart page at `docs/getting-started/quickstart.md` SHALL present both workflows completely:
-
-- **Workflow 1 (Join)**: from `agents join` through to managed agent control, with no truncation.
-- **Workflow 2 (Build from `.houmao/` overlay)**: from `project init` through `project specialist create`, `agents launch`, prompt/control, and `agents stop`, with no truncation.
-
-Each workflow SHALL include all steps needed for a reader to complete the workflow without guessing or consulting other pages.
-
-#### Scenario: Workflow 1 is complete
-
-- **WHEN** a reader follows Workflow 1 (Join) in the quickstart
-- **THEN** they can complete the entire join → control → stop cycle without encountering a truncated section
-
-#### Scenario: Workflow 2 is complete
-
-- **WHEN** a reader follows Workflow 2 (Build) in the quickstart
-- **THEN** they can complete the entire init → specialist create → launch → prompt → stop cycle without encountering a truncated section
 
 ### Requirement: Getting-started links to easy-specialist guide
 
@@ -354,4 +350,3 @@ When the docs describe project skill storage modes, they SHALL explain that:
 - **WHEN** a reader already has one older project overlay that predates the current project layout
 - **THEN** the getting-started docs direct them to `houmao-mgr project migrate`
 - **AND THEN** the docs do not imply that ordinary project commands will silently upgrade that overlay in place
-

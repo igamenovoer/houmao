@@ -63,6 +63,7 @@ scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh start --tool claud
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh attach
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh watch-gateway --follow
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier status
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh ag-ui-smoke
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh send
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh inspect
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh verify
@@ -78,7 +79,10 @@ scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier on --seco
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier off
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh notifier set-interval --seconds 5
 scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh send --body-file path/to/message.md
+scripts/demo/single-agent-gateway-wakeup-headless/run_demo.sh ag-ui-smoke --abort-after-run-start
 ```
+
+The AG-UI text smoke belongs in this demo pack because the pack already owns the maintained headless launch, gateway attach, isolated output root, fixture auth-bundle import, and cleanup flow. `ag-ui-smoke` posts AG-UI `RunAgentInput` JSON to the live per-agent gateway `POST /v1/ag-ui/runs` route, records stream events and durable gateway request state under `outputs/evidence/`, and verifies that stream abort does not enqueue an interrupt request when `--abort-after-run-start` is used.
 
 Matrix run across all supported tools:
 

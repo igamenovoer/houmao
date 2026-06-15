@@ -19,15 +19,15 @@ At minimum, that command family SHALL include:
 ### Requirement: `houmao-mgr system-skills list` reports the current installable Houmao-owned skill inventory and named sets
 `houmao-mgr system-skills list` SHALL report the current installable Houmao-owned skill inventory and the current named skill sets from the packaged catalog.
 
-The reported current named skill sets SHALL be `core` and `all`.
+The reported current named skill sets SHALL be `core`, `extensions`, and `all`.
 
 That output SHALL identify the configured CLI default set list and the fixed internal auto-install set lists.
 
-#### Scenario: List reports core and all with default set markers
+#### Scenario: List reports core, extensions, and all with default set markers
 - **WHEN** an operator runs `houmao-mgr system-skills list`
 - **THEN** the command reports the current installable Houmao-owned skill names
-- **AND THEN** it reports `core` and `all` as the current named skill sets
-- **AND THEN** it identifies `managed_launch_sets = ["core"]`, `managed_join_sets = ["core"]`, and `cli_default_sets = ["all"]`
+- **AND THEN** it reports `core`, `extensions`, and `all` as the current named skill sets
+- **AND THEN** it identifies `managed_launch_sets = ["core", "extensions"]`, `managed_join_sets = ["core", "extensions"]`, and `cli_default_sets = ["all"]`
 
 ### Requirement: `houmao-mgr system-skills install` targets an explicit tool home and set-based selection
 `houmao-mgr system-skills install` SHALL require a supported tool identifier or a comma-separated list of supported tool identifiers through `--tool`.
@@ -37,7 +37,7 @@ The command SHALL support these selection inputs:
 - repeatable `--skill-set <name>` for current named system-skill set selection,
 - repeatable `--skill <name>` for explicit current-skill selection.
 
-The current named system-skill sets accepted by `--skill-set` SHALL be `core` and `all`.
+The current named system-skill sets accepted by `--skill-set` SHALL be `core`, `extensions`, and `all`.
 
 When neither `--skill-set` nor `--skill` is provided, the command SHALL use the CLI default set list from the packaged catalog, which resolves `all` in this change.
 
@@ -49,17 +49,50 @@ For multi-tool installs, the command SHALL apply the same selected sets, explici
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home`
 - **AND WHEN** no `--skill-set` or `--skill` is supplied
 - **THEN** the command installs the current Houmao-owned skill list resolved from `cli_default_sets = ["all"]`
-- **AND THEN** the resolved list includes current utility skills
+- **AND THEN** the resolved list includes current extension skills
 
 #### Scenario: Explicit core install is accepted
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool gemini --home /tmp/gemini-home --skill-set core`
 - **THEN** the command installs the current Houmao-owned skill list resolved from `core`
-- **AND THEN** the resolved list excludes utility skills that are only in `all`
+- **AND THEN** the resolved list excludes extension skills that are only in `extensions` or `all`
+
+#### Scenario: Explicit extensions install is accepted
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --home /tmp/codex-home --skill-set extensions`
+- **THEN** the command installs the current Houmao-owned skill list resolved from `extensions`
+- **AND THEN** the resolved list includes `houmao-ext-graphing`
 
 #### Scenario: Removed granular set names are rejected
 - **WHEN** an operator runs `houmao-mgr system-skills install --tool codex --skill-set user-control`
 - **THEN** the command fails explicitly before installing any selected skill
 - **AND THEN** the error treats `user-control` as an unknown set rather than mapping it to `core`
+
+### Requirement: `houmao-mgr system-skills` surfaces the renamed AG-UI interop skill
+`houmao-mgr system-skills` SHALL use the current packaged system-skill inventory when reporting, installing, and inspecting Houmao-owned skills.
+
+That current inventory SHALL surface `houmao-interop-ag-ui` as the installable AG-UI interop skill.
+
+The command output SHALL NOT report `houmao-agent-ag-ui` as a current installable skill after the rename.
+
+When `system-skills install` resolves a selection that includes the renamed skill, the reported installed skill names and later `system-skills status` output SHALL use `houmao-interop-ag-ui`.
+
+If a target tool home contains a stale retired `houmao-agent-ag-ui` projection, install output SHALL report that retired projection removal through the existing retired-skill reporting fields.
+
+#### Scenario: List reports the renamed AG-UI interop skill
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-interop-ag-ui` in the current Houmao-owned skill inventory
+- **AND THEN** it does not report `houmao-agent-ag-ui` as a current installable skill
+- **AND THEN** it reports `houmao-agent-ag-ui` only as a retired skill name when retired names are included in the output
+
+#### Scenario: Install and status report the renamed skill
+- **WHEN** an operator installs the CLI default system-skill selection into a target Codex home
+- **THEN** the install result reports `houmao-interop-ag-ui` in the resolved current skill list
+- **AND THEN** the target home contains `skills/houmao-interop-ag-ui/SKILL.md`
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-interop-ag-ui` as installed
+
+#### Scenario: Install reports stale old-name removal
+- **WHEN** an operator installs current system skills into a tool home that already contains `houmao-agent-ag-ui`
+- **THEN** the install result reports `houmao-agent-ag-ui` as a removed retired skill
+- **AND THEN** the target home no longer contains the old `houmao-agent-ag-ui` projection
 
 ### Requirement: `houmao-mgr system-skills` surfaces the renamed specialist-management skill in current inventory
 `houmao-mgr system-skills` SHALL use the current packaged system-skill inventory when reporting, installing, and inspecting Houmao-owned skills.
@@ -517,7 +550,7 @@ At minimum, each single-tool uninstall result SHALL report removed skill names, 
 - **AND THEN** it removes current catalog-known Houmao system-skill projection paths from that home
 
 #### Scenario: Uninstall supports comma-separated multi-tool homes
-- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini` from `/workspace/repo`
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool claude,codex,kimi,gemini,copilot` from `/workspace/repo`
 - **AND WHEN** no tool-native home env vars are set
 - **AND WHEN** no `--home` is supplied
 - **THEN** the command resolves `/workspace/repo/.claude`, `/workspace/repo/.codex`, `/workspace/repo/.github`, and `/workspace/repo` as the target homes
@@ -675,3 +708,86 @@ The command family SHALL NOT report stale `houmao-utils-llm-wiki` projection pat
 - **THEN** the command does not report `houmao-utils-llm-wiki` as an installed current skill
 - **AND THEN** the command does not report `houmao-utils-llm-wiki` as a retired leftover
 
+### Requirement: `houmao-mgr system-skills` supports Kimi projection without overstating discovery
+
+`houmao-mgr system-skills install`, `status`, and `uninstall` SHALL accept `kimi` as a supported `--tool` value.
+
+For Kimi, omitted-home resolution SHALL use this precedence:
+
+1. explicit `--home`
+2. `KIMI_CODE_HOME`
+3. `<cwd>/.kimi-code`
+
+For Kimi, Houmao-owned skills SHALL project under `<effective-home>/skills/`.
+
+Plain install, status, and uninstall output for Kimi SHALL distinguish the effective home from the projected skill paths. The output and documentation SHALL NOT claim that arbitrary `<KIMI_CODE_HOME>/skills` paths are automatically discovered by Kimi Code.
+
+When omitted-home Kimi resolution chooses `<cwd>/.kimi-code`, the command MAY describe the projection as project-local Kimi skill material for Kimi runs whose project discovery includes that `.kimi-code/skills` root.
+
+Manual `system-skills install --tool kimi` SHALL remain a projection command and SHALL NOT rewrite Kimi `config.toml` for arbitrary external homes. Managed Kimi runtime homes SHALL rely on brain construction or launch preparation to add managed projected skill roots through Kimi `extra_skill_dirs`.
+
+#### Scenario: Omitted-home Kimi install uses the project `.kimi-code` home
+
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool kimi --skill houmao-agent-definition` from `/workspace/repo`
+- **AND WHEN** no `KIMI_CODE_HOME` is set
+- **AND WHEN** no `--home` is supplied
+- **THEN** the command uses `/workspace/repo/.kimi-code` as the effective Kimi home
+- **AND THEN** the selected skill is projected under `/workspace/repo/.kimi-code/skills/houmao-agent-definition/`
+
+#### Scenario: Kimi status honors `KIMI_CODE_HOME`
+
+- **WHEN** `KIMI_CODE_HOME=/tmp/kimi-home`
+- **AND WHEN** an operator runs `houmao-mgr system-skills status --tool kimi`
+- **THEN** the command inspects `/tmp/kimi-home` as the effective Kimi home
+- **AND THEN** it reports discovered Houmao-owned skill projections under `/tmp/kimi-home/skills/`
+- **AND THEN** it does not report that Kimi Code necessarily auto-discovers that path
+
+#### Scenario: Explicit Kimi home remains a projection target
+
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool kimi --home /tmp/external-kimi-home --skill houmao-credential-mgr`
+- **THEN** the command projects the selected skill under `/tmp/external-kimi-home/skills/houmao-credential-mgr/`
+- **AND THEN** the command does not mutate `/tmp/external-kimi-home/config.toml`
+- **AND THEN** the output does not imply that this explicit home is automatically part of Kimi Code's native skill discovery
+
+#### Scenario: Multi-tool install accepts Kimi
+
+- **WHEN** an operator runs `houmao-mgr system-skills install --tool codex,kimi --skill houmao-agent-messaging` from `/workspace/repo`
+- **AND WHEN** no relevant tool-home env vars are set
+- **THEN** the command installs Codex skill material under `/workspace/repo/.codex/skills/`
+- **AND THEN** it installs Kimi skill material under `/workspace/repo/.kimi-code/skills/`
+- **AND THEN** the structured result contains one installation entry for each selected tool
+
+#### Scenario: Kimi uninstall removes only projected Houmao-owned skills
+
+- **WHEN** an operator runs `houmao-mgr system-skills uninstall --tool kimi --home /tmp/kimi-home`
+- **AND WHEN** `/tmp/kimi-home/skills/houmao-agent-definition/` exists
+- **THEN** the command removes the current catalog-known Houmao-owned Kimi skill projection paths under `/tmp/kimi-home/skills/`
+- **AND THEN** it leaves unrelated user skills, parent skill roots, and Kimi config files in place
+
+### Requirement: `houmao-mgr system-skills` surfaces the graphing extension skill
+`houmao-mgr system-skills` SHALL use the current packaged system-skill inventory when reporting, installing, and inspecting Houmao-owned skills.
+
+That current inventory SHALL surface `houmao-ext-graphing` as the installable graphing extension skill.
+
+The command output SHALL NOT report `houmao-utils-graphing` as a current installable skill after the rename.
+
+When `system-skills install` resolves a selection that includes the graphing extension, the reported installed skill names and later `system-skills status` output SHALL use `houmao-ext-graphing`.
+
+If a target tool home contains a stale retired `houmao-utils-graphing` projection, install output SHALL report that retired projection removal through the existing retired-skill reporting fields.
+
+#### Scenario: List reports the graphing extension skill
+- **WHEN** an operator runs `houmao-mgr system-skills list`
+- **THEN** the command reports `houmao-ext-graphing` in the current Houmao-owned skill inventory
+- **AND THEN** it does not report `houmao-utils-graphing` as a current installable skill
+- **AND THEN** it reports `houmao-utils-graphing` only as a retired skill name when retired names are included in the output
+
+#### Scenario: Install and status report the graphing extension
+- **WHEN** an operator installs a selection that includes the graphing extension into a target Codex home
+- **THEN** the install result reports `houmao-ext-graphing` in the resolved current skill list
+- **AND THEN** the target home contains `skills/houmao-ext-graphing/SKILL.md`
+- **AND THEN** a later `houmao-mgr system-skills status` for that home reports `houmao-ext-graphing` as installed
+
+#### Scenario: Install reports stale graphing utility removal
+- **WHEN** an operator installs current system skills into a tool home that already contains `houmao-utils-graphing`
+- **THEN** the install result reports `houmao-utils-graphing` as a removed retired skill
+- **AND THEN** the target home no longer contains the old `houmao-utils-graphing` projection

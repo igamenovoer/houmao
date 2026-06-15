@@ -7,6 +7,11 @@ import tomllib
 import pytest
 import yaml
 
+from houmao.agents.auto_skills import (
+    AUTO_SKILL_SYSTEM_PROMPT,
+    AUTO_SKILL_SYSTEM_PROMPT_REASON,
+    prompt_sha256,
+)
 from houmao.agents.brain_builder import (
     BuildError,
     BuildRequest,
@@ -19,6 +24,7 @@ from houmao.agents.launch_overrides import LaunchArgsSection, LaunchOverrides
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxDeclarativeConfig
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.system_skills import (
+    SYSTEM_SKILL_EXT_GRAPHING,
     SYSTEM_SKILL_UTILS_WORKSPACE_MGR,
     SystemSkillCatalogError,
     SystemSkillSelectionPolicy,
@@ -228,6 +234,77 @@ auth_projection:
     )
 
 
+def _seed_kimi_repo(agent_def_dir: Path) -> None:
+    _write(
+        agent_def_dir / "tools/kimi/adapter.yaml",
+        """
+schema_version: 1
+tool: kimi
+home_selector:
+  env_var: KIMI_CODE_HOME
+launch:
+  executable: kimi
+  args: []
+  default_tool_params: {}
+  metadata:
+    tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: symlink
+auth_projection:
+  files_dir: files
+  file_mappings:
+    - source: config.toml
+      destination: config.toml
+      mode: copy
+      required: false
+    - source: credentials/kimi-code.json
+      destination: credentials/kimi-code.json
+      mode: copy
+      required: false
+  env:
+    source: env/vars.env
+    allowlist:
+      - KIMI_MODEL_NAME
+      - KIMI_MODEL_API_KEY
+      - KIMI_MODEL_PROVIDER_TYPE
+      - KIMI_MODEL_BASE_URL
+      - KIMI_CODE_BASE_URL
+      - KIMI_CODE_OAUTH_HOST
+      - KIMI_OAUTH_HOST
+      - KIMI_DISABLE_TELEMETRY
+""".strip()
+        + "\n",
+    )
+    _write(agent_def_dir / "skills/skill-a/SKILL.md", "# skill-a\n")
+    _write(agent_def_dir / "tools/kimi/setups/default/README.md", "Kimi setup\n")
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/config.toml",
+        'default_model = "kimi-code/default"\n',
+    )
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/credentials/kimi-code.json",
+        '{"access_token": "secret"}\n',
+    )
+    _write(agent_def_dir / "tools/kimi/auth/oauth/env/vars.env", "\n")
+    _write(
+        agent_def_dir / "tools/kimi/auth/env-model/env/vars.env",
+        "\n".join(
+            [
+                "KIMI_MODEL_NAME=kimi-code/baseline",
+                "KIMI_MODEL_API_KEY=sk-kimi",
+                "KIMI_MODEL_BASE_URL=https://kimi.example.test",
+                "NOT_ALLOWLISTED=do-not-export",
+            ]
+        )
+        + "\n",
+    )
+
+
 def test_build_brain_home_projects_selected_components_and_manifest(
     tmp_path: Path,
 ) -> None:
@@ -280,6 +357,8 @@ def test_build_brain_home_projects_selected_components_and_manifest(
     assert (home / "skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-messaging/SKILL.md").is_file()
     assert (home / "skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert (home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
+    assert (home / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
     assert not (home / "skills/.system/mailbox").exists()
     assert not (home / "skills/skill-b").exists()
     installed_records = discover_installed_system_skills(tool="codex", home_path=home)
@@ -288,6 +367,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-agent-email-comms",
         "houmao-adv-usage-pattern",
         "houmao-utils-workspace-mgr",
+        "houmao-ext-graphing",
         "houmao-touring",
         "houmao-mailbox-mgr",
         "houmao-memory-mgr",
@@ -302,6 +382,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-operator-messaging",
         "houmao-agent-messaging",
         "houmao-agent-gateway",
+        "houmao-interop-ag-ui",
     )
 
     # Credential file projection and env contract setup.
@@ -533,6 +614,47 @@ def test_build_brain_home_rejects_private_system_skill_name_collision(tmp_path: 
                 config_profile="default",
                 credential_profile="personal-a",
                 home_id="codex-home-private-system-skill-collision",
+            )
+        )
+
+
+@pytest.mark.parametrize("collision_kind", ["registered", "private"])
+def test_build_brain_home_rejects_auto_skill_name_collisions(
+    tmp_path: Path,
+    collision_kind: str,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_repo(agent_def_dir)
+    private_skills: tuple[PrivateSkillProjection, ...] = ()
+    selected_skills = ["skill-a"]
+    if collision_kind == "registered":
+        _write(agent_def_dir / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md", "# collision\n")
+        selected_skills = [AUTO_SKILL_SYSTEM_PROMPT]
+    else:
+        private_skill = tmp_path / "private" / AUTO_SKILL_SYSTEM_PROMPT
+        _write(private_skill / "SKILL.md", "# collision\n")
+        private_skills = (
+            PrivateSkillProjection(
+                name=AUTO_SKILL_SYSTEM_PROMPT,
+                source_path=private_skill,
+                mode="copy",
+            ),
+        )
+
+    with pytest.raises(BuildError, match="reserved Houmao auto-skill names"):
+        build_brain_home(
+            BuildRequest(
+                agent_def_dir=agent_def_dir,
+                runtime_root=agent_def_dir / "tmp/agents-runtime",
+                tool="codex",
+                skills=selected_skills,
+                private_skills=private_skills,
+                config_profile="default",
+                credential_profile="personal-a",
+                required_auto_skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
+                role_prompt_override="Managed prompt.",
+                home_id=f"codex-home-auto-skill-collision-{collision_kind}",
             )
         )
 
@@ -1040,6 +1162,7 @@ def test_build_brain_home_projects_gemini_skills_under_gemini_root_and_injects_o
     assert (result.home_path / ".gemini/skills/houmao-agent-inspect/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-operator-messaging/SKILL.md").is_file()
     assert (result.home_path / ".gemini/skills/houmao-agent-gateway/SKILL.md").is_file()
+    assert (result.home_path / f".gemini/skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
     assert not (result.home_path / ".gemini/skills/mailbox").exists()
     assert (result.home_path / ".gemini/oauth_creds.json").is_symlink()
     assert "export GOOGLE_GENAI_USE_GCA=true" in launch_script
@@ -1148,6 +1271,256 @@ def test_build_brain_home_gemini_preserves_explicit_api_key_and_base_url_with_oa
     assert "export GOOGLE_GEMINI_BASE_URL=https://gemini.example.test" in launch_script
     assert "GOOGLE_GENAI_USE_GCA=true" not in launch_script
     assert manifest["runtime"]["launch_contract"]["env_records"] == {}
+
+
+def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth",
+            home_id="kimi-home-oauth",
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert (result.home_path / "skills/skill-a").is_symlink()
+    assert (result.home_path / "skills/houmao-agent-email-comms/SKILL.md").is_file()
+    assert (result.home_path / f"skills/{SYSTEM_SKILL_EXT_GRAPHING}/SKILL.md").is_file()
+    config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    assert config_payload["default_model"] == "kimi-code/default"
+    assert config_payload["extra_skill_dirs"] == [str((result.home_path / "skills").resolve())]
+    assert (result.home_path / "credentials/kimi-code.json").read_text(encoding="utf-8") == (
+        '{"access_token": "secret"}\n'
+    )
+    assert "export KIMI_CODE_HOME=" in launch_script
+    assert "KIMI_MODEL_API_KEY" not in launch_script
+    projected_destinations = [
+        Path(item["destination"]).relative_to(result.home_path).as_posix()
+        for item in manifest["credentials"]["projected_files"]
+    ]
+    assert projected_destinations == [
+        "config.toml",
+        "credentials/kimi-code.json",
+    ]
+    kimi_extra_skill_dirs = manifest["runtime"]["launch_contract"]["construction_provenance"][
+        "kimi_extra_skill_dirs"
+    ]
+    assert kimi_extra_skill_dirs["projected_skill_root"] == str(
+        (result.home_path / "skills").resolve()
+    )
+    assert kimi_extra_skill_dirs["added"] is True
+    assert kimi_extra_skill_dirs["value"] == [str((result.home_path / "skills").resolve())]
+
+
+@pytest.mark.parametrize(
+    ("profile_policy", "expected_system_skill_names"),
+    [
+        (SystemSkillSelectionPolicy(mode="none"), ()),
+        (
+            SystemSkillSelectionPolicy(
+                mode="replace",
+                skill_names=(SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+            ),
+            (SYSTEM_SKILL_UTILS_WORKSPACE_MGR,),
+        ),
+    ],
+)
+def test_build_brain_home_projects_required_auto_skill_independent_from_system_skill_policy(
+    tmp_path: Path,
+    profile_policy: SystemSkillSelectionPolicy,
+    expected_system_skill_names: tuple[str, ...],
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+    prompt_text = "Use this Houmao role prompt as standing instruction."
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=[],
+            config_profile="default",
+            credential_profile="oauth",
+            launch_profile_system_skill_policy=profile_policy,
+            required_auto_skill_names=(AUTO_SKILL_SYSTEM_PROMPT,),
+            role_prompt_override=prompt_text,
+            home_id=f"kimi-home-auto-skill-{profile_policy.mode}",
+        )
+    )
+
+    managed_skill_root = str((result.home_path / "skills").resolve())
+    config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    construction_provenance = manifest["runtime"]["launch_contract"]["construction_provenance"]
+    auto_skill_provenance = construction_provenance["auto_skills"]
+    system_skill_provenance = construction_provenance["system_skills"]
+
+    assert (result.home_path / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md").is_file()
+    assert config_payload["extra_skill_dirs"] == [managed_skill_root]
+    assert construction_provenance["kimi_extra_skill_dirs"] == {
+        "path": str(result.home_path / "config.toml"),
+        "key_path": ["extra_skill_dirs"],
+        "projected_skill_root": managed_skill_root,
+        "added": True,
+        "value": [managed_skill_root],
+    }
+    assert auto_skill_provenance["state"] == "projected"
+    assert auto_skill_provenance["applied"] is False
+    assert auto_skill_provenance["selected_skill_names"] == [AUTO_SKILL_SYSTEM_PROMPT]
+    assert auto_skill_provenance["reason"] == AUTO_SKILL_SYSTEM_PROMPT_REASON
+    assert auto_skill_provenance["projected_relative_dirs"] == [
+        f"skills/{AUTO_SKILL_SYSTEM_PROMPT}"
+    ]
+    assert auto_skill_provenance["destination_root"] == "skills"
+    assert auto_skill_provenance["prompt_reference"] == "brain_manifest.inputs.role_prompt_text"
+    assert auto_skill_provenance["prompt_sha256"] == prompt_sha256(prompt_text)
+    assert system_skill_provenance["resolved_skills"] == list(expected_system_skill_names)
+    for skill_name in expected_system_skill_names:
+        assert (result.home_path / f"skills/{skill_name}/SKILL.md").is_file()
+    if not expected_system_skill_names:
+        assert not (result.home_path / f"skills/{SYSTEM_SKILL_UTILS_WORKSPACE_MGR}").exists()
+
+
+def test_build_brain_home_preserves_kimi_extra_skill_dirs_without_duplicates(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+    _write(
+        agent_def_dir / "tools/kimi/auth/oauth/files/config.toml",
+        "\n".join(
+            [
+                'default_model = "kimi-code/default"',
+                'extra_skill_dirs = ["/custom/skills"]',
+                "",
+                "[ui]",
+                'theme = "dark"',
+                "",
+            ]
+        ),
+    )
+
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=agent_def_dir / "tmp/agents-runtime",
+        tool="kimi",
+        skills=["skill-a"],
+        config_profile="default",
+        credential_profile="oauth",
+        home_id="kimi-home-extra-skill-dirs",
+    )
+    first_result = build_brain_home(request)
+    second_result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=request.agent_def_dir,
+            runtime_root=request.runtime_root,
+            tool=request.tool,
+            skills=request.skills,
+            config_profile=request.config_profile,
+            credential_profile=request.credential_profile,
+            home_id=request.home_id,
+            reuse_home=True,
+        )
+    )
+
+    assert second_result.home_path == first_result.home_path
+    config_payload = tomllib.loads(
+        (second_result.home_path / "config.toml").read_text(encoding="utf-8")
+    )
+    managed_skill_root = str((second_result.home_path / "skills").resolve())
+    assert config_payload["default_model"] == "kimi-code/default"
+    assert config_payload["ui"]["theme"] == "dark"
+    assert config_payload["extra_skill_dirs"] == ["/custom/skills", managed_skill_root]
+    assert config_payload["extra_skill_dirs"].count(managed_skill_root) == 1
+
+
+def test_build_brain_home_projects_kimi_oauth_model_selection_as_cli_args(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="oauth",
+            home_id="kimi-home-oauth-model",
+            preset_model_config=ModelConfig(name="kimi-code/kimi-for-coding"),
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(result.manifest_path.read_text(encoding="utf-8"))
+    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
+
+    assert "--launch-arg --model --launch-arg kimi-code/kimi-for-coding" in launch_script
+    assert model_selection["provider_cli_args"] == {
+        "tool": "kimi",
+        "args": ["--model", "kimi-code/kimi-for-coding"],
+    }
+    assert model_selection["native_projection"]["model"] == {
+        "surface": "cli_arg",
+        "arg": "--model",
+        "value": "kimi-code/kimi-for-coding",
+        "cli_args": ["--model", "kimi-code/kimi-for-coding"],
+    }
+
+
+def test_build_brain_home_projects_kimi_env_model_override_through_env(
+    tmp_path: Path,
+) -> None:
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir(parents=True)
+    _seed_kimi_repo(agent_def_dir)
+
+    result = build_brain_home(
+        BuildRequest(
+            agent_def_dir=agent_def_dir,
+            runtime_root=agent_def_dir / "tmp/agents-runtime",
+            tool="kimi",
+            skills=["skill-a"],
+            config_profile="default",
+            credential_profile="env-model",
+            home_id="kimi-home-env-model",
+            direct_model_config=ModelConfig(name="kimi-code/override"),
+        )
+    )
+
+    launch_script = (result.home_path / "launch.sh").read_text(encoding="utf-8")
+    manifest_text = result.manifest_path.read_text(encoding="utf-8")
+    manifest = yaml.safe_load(manifest_text)
+    model_selection = manifest["runtime"]["launch_contract"]["model_selection"]
+
+    assert "export KIMI_MODEL_NAME=kimi-code/override" in launch_script
+    assert "export KIMI_MODEL_API_KEY=sk-kimi" in launch_script
+    assert "export KIMI_MODEL_BASE_URL=https://kimi.example.test" in launch_script
+    assert "NOT_ALLOWLISTED" not in launch_script
+    assert "NOT_ALLOWLISTED" not in manifest_text
+    assert "sk-kimi" not in manifest_text
+    assert model_selection["provider_cli_args"] is None
+    assert model_selection["native_projection"]["model"] == {
+        "surface": "env",
+        "env_var": "KIMI_MODEL_NAME",
+        "value": "kimi-code/override",
+    }
 
 
 def test_build_brain_home_supports_launch_overrides(tmp_path: Path) -> None:

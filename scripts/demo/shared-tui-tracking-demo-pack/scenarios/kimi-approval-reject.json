@@ -1,0 +1,35 @@
+{
+  "id": "kimi_approval_reject",
+  "tool": "kimi",
+  "description": "Drive Kimi Code to an approval surface and reject the proposed tool action.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-approval-prompt",
+      "text": "Use a shell command to print the current working directory, but ask before running it.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-approval-surface",
+      "pattern": "(?i)(approve|allow|run|yes|no)",
+      "timeout_seconds": 45.0
+    },
+    {
+      "action": "send_text",
+      "name": "reject-approval",
+      "text": "n",
+      "submit": true
+    },
+    {
+      "action": "wait_seconds",
+      "name": "hold-rejection-surface",
+      "seconds": 1.0
+    }
+  ]
+}

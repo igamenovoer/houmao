@@ -36,16 +36,16 @@ That command points at `tool-skills/houmao`, not at the full Houmao source repos
 Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when the install needs Houmao-specific projection behavior such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,copilot,gemini
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
 houmao-mgr system-skills install --tool codex --skill-set core
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
 ```
 
-Managed launch and join are separate from these explicit user-driven installation choices. `agents self join` still auto-installs the catalog's `core` set into adopted managed homes. Managed launch defaults to the same `core` selection, but specialists, recipes, and launch profiles can now store a managed system-skill policy that extends, replaces, or disables that selection for future managed homes. Omitted-selection `houmao-mgr system-skills install` remains the explicit external/project-home installer and uses the catalog's `all` set.
+Managed launch and join are separate from these explicit user-driven installation choices. `agents self join` auto-installs the catalog's `core` plus `extensions` sets into adopted managed homes. Managed launch defaults to the same `core` plus `extensions` selection, but specialists, recipes, and launch profiles can store a managed system-skill policy that extends, replaces, or disables that selection for future managed homes. Omitted-selection `houmao-mgr system-skills install` remains the explicit external/project-home installer and uses the catalog's `all` set.
 
 ## The Packaged Skills
 
-Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into three organization groups: **automation** for autonomous agent operation, mailbox/gateway/memory behavior, messaging, and inspection; **control** for operator-facing project, specialist, credential, definition, lifecycle, touring, and loop workflows; and **utils** for workspace utility workflows.
+Houmao currently ships the set of system skills declared in `src/houmao/agents/assets/system_skills/catalog.toml`. They split into four organization groups: **automation** for autonomous agent operation, mailbox/gateway/memory behavior, messaging, and inspection; **control** for operator-facing project, specialist, credential, definition, lifecycle, touring, and loop workflows; **utils** for workspace utility workflows; and **extensions** for default-installed but ignorable optional guidance such as built-in graphing authoring.
 
 ### Control: Guided Touring
 
@@ -60,7 +60,7 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 | `houmao-project-mgr` | Project overlay lifecycle, `.houmao/` layout explanation, project-aware command-effect guidance, and project-scoped easy-instance inspection or stop routing. | `houmao-mgr project init`, `houmao-mgr project status`, `houmao-mgr project agents list|get|stop` |
 | `houmao-agent-definition` | Canonical pre-launch agent-definition workflows through subcommands: `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`. Loose profile wording defaults to `profiles`; use `launch-dossiers` only for raw, recipe-backed, or exact `internals native-agent launch-dossiers` requests. | `houmao-mgr internals native-agent roles ...`, `houmao-mgr internals native-agent recipes ...`, `houmao-mgr internals native-agent launch-dossiers ...`, `houmao-mgr project specialist ...`, `houmao-mgr project profile ...`, `houmao-mgr project agents launch|stop` |
 | `houmao-specialist-mgr` | Compatibility wrapper for older prompts and installed homes. It redirects specialist, profile, old ready-profile, easy launch, or easy stop requests to `houmao-agent-definition` subcommands. | No independent command ownership |
-| `houmao-credential-mgr` | Add, update, inspect, rename, and remove credentials for Claude, Codex, and Gemini in either a selected Houmao project or a direct native-agent root. Manages credential contents and names, not stored profile-level auth overrides. | `houmao-mgr project [--project-dir <dir>] credentials <tool> list|get|add|set|rename|remove` / `houmao-mgr internals native-agent credentials <tool> ... --native-agent-root <path>` |
+| `houmao-credential-mgr` | Add, update, inspect, rename, and remove credentials for Claude, Codex, Kimi, and Gemini in either a selected Houmao project or a direct native-agent root. Login-helper workflows remain maintained for Claude, Codex, and Gemini only; Kimi credential work uses explicit CRUD inputs. | `houmao-mgr project [--project-dir <dir>] credentials <tool> list|get|add|set|rename|remove` / `houmao-mgr internals native-agent credentials <tool> ... --native-agent-root <path>` |
 
 ### Control: Agent definition and instance management
 
@@ -76,6 +76,7 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 | `houmao-operator-messaging` | Manual operator messaging layer for clarifying operator intent, selecting one or more managed-agent targets, dispatching by prompt by default, and using mailbox only when the operator asks for mail-style delivery. Use it only when the operator explicitly selects this clarification/dispatch surface. | Routes prompt packets through `houmao-agent-messaging` and mailbox packets through `houmao-agent-email-comms`; recommends loop skills for durable orchestration |
 | `houmao-agent-messaging` | Communicate with already-running managed agents — synchronous prompt and interrupt, queued gateway requests, raw `send-keys`, mailbox routing, reset-context guidance, and request-scoped headless execution overrides through `--model` plus optional `--reasoning-level`. Routes by **communication intent**, not by one hardcoded transport. Prefers live gateway-backed delivery when available. | `houmao-mgr agents single ... prompt|interrupt`, `houmao-mgr agents self prompt|interrupt`, scoped gateway/turn/mail resolve-live |
 | `houmao-agent-gateway` | Live gateway lifecycle, manifest-first discovery from selected-agent or current-session scope, gateway-only control surfaces, ranked direct reminders, and gateway mail-notifier behavior. Distinct from `houmao-agent-messaging` because it focuses on the gateway sidecar itself, not the messages going through it. | `houmao-mgr agents single ... gateway ...`, `houmao-mgr agents self gateway ...` |
+| `houmao-interop-ag-ui` | AG-UI protocol validation and framing, implementation rendering for already-chosen payloads, gateway publishing, GUI delivery interpretation, and UI payload safety for visual agent output. It keeps AG-UI as the event wire protocol and treats Houmao implementation schemas as application-layer contracts. It does not depend on extension skills. | `houmao-mgr ag-ui protocol ...` for schema-agnostic event validation and framing; `houmao-mgr ag-ui impl ...` for generic Houmao schema discovery, payload validation, and implementation rendering; `houmao-mgr agents single/self ... gateway ag-ui publish` for Houmao gateway delivery |
 | `houmao-mailbox-mgr` | Mailbox administration for filesystem mailbox roots, project mailbox roots, structural mailbox inspection, and late filesystem mailbox binding on existing local managed agents. This is the mailbox-admin skill, not the ordinary mailbox-participation skill. | `houmao-mgr mailbox ...`, `houmao-mgr project mailbox ...`, `houmao-mgr agents single ... mailbox ...`, `houmao-mgr agents self mailbox ...` |
 | `houmao-memory-mgr` | Managed-agent memory work: reading, editing, appending, pruning, and organizing the fixed `houmao-memo.md` file and contained `pages/` files while preserving authored memo links across relaunch, reset, and `recover_and_continue` flows. | `houmao-mgr agents single ... memory ...`, `houmao-mgr agents self memory ...` |
 | `houmao-agent-email-comms` | Unified ordinary shared-mailbox operations and no-gateway fallback guidance. Covers gateway-backed `/v1/mail/*` work, transport-local context, and the no-gateway fallback path. The canonical mailbox-operations skill paired with scoped managed-agent mail. | `houmao-mgr agents single ... mail ...`, `houmao-mgr agents self mail ...` |
@@ -86,7 +87,15 @@ Houmao currently ships the set of system skills declared in `src/houmao/agents/a
 
 | Skill | What it enables | Canonical CLI routing |
 |---|---|---|
-| `houmao-utils-workspace-mgr` | Multi-agent workspace planning, creation, validation, and summarization: dry-run plans, untracked task-scoped in-repo workspace collections, out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, safe local-state symlinks, tracked submodule materialization, launch-profile cwd updates, project-command readiness checks, and optional memo-seed workspace rules. This is a utility skill, not a managed-agent lifecycle or messaging control surface. | Installed through `houmao-mgr system-skills install --tool <tool> --skill-set all` or `--skill houmao-utils-workspace-mgr`; it prepares and validates Houmao-standard workspace structure before agents are launched |
+| `houmao-utils-workspace-mgr` | Multi-agent workspace planning, creation, validation, and summarization: dry-run plans, untracked task-scoped in-repo workspace collections, out-of-repo standard workspace layouts, per-agent Git worktrees, local-only shared repos, safe local-state symlinks, tracked submodule materialization, launch-profile cwd updates, project-command readiness checks, and optional memo-seed workspace rules. This is a utility skill, not a managed-agent lifecycle or messaging control surface. | Included in `core` and `all`; explicit installs can select it with `--skill-set core`, `--skill-set all`, or `--skill houmao-utils-workspace-mgr`. It prepares and validates Houmao-standard workspace structure before agents are launched |
+
+### Extensions
+
+Extension skills are installed by default but remain optional guidance. Non-extension skills do not depend on or route to extension skills, so users can ignore extension workflows without breaking core skill behavior.
+
+| Skill | What it enables | Canonical CLI routing |
+|---|---|---|
+| `houmao-ext-graphing` | Built-in graphing authoring for Houmao AG-UI implementations: Plotly.js `templated-graphics`, Vega-Lite `freeform-graphics`, schema discovery, payload validation, implementation rendering, and graphing-specific repair. This extension owns graphing payload construction for the built-in Plotly.js and Vega-Lite implementation layers; `houmao-interop-ag-ui` owns AG-UI protocol validation, generic implementation rendering, gateway publishing, and delivery-result interpretation for already-chosen payloads and rendered events. | `houmao-mgr ag-ui impl templated-graphics list`, `houmao-mgr ag-ui impl freeform-graphics list`, `houmao-mgr ag-ui impl catalog houmao.graphic.template traces`, and `houmao-mgr ag-ui impl validate|render` for built-in graphing payloads |
 
 ### Control: Loop authoring and master-run control
 
@@ -111,21 +120,21 @@ All commands accept NetworkX node-link JSON via `--input` and emit structured re
 
 ## Auto-Install vs Explicit Install
 
-The catalog exposes two installable sets so internal skill routing does not point at missing skills:
+The catalog exposes three installable sets. `core` is the non-extension baseline, `extensions` contains default-installed extension guidance, and `all` is the explicit CLI-default umbrella set.
 
-| Install path | Set | Meaning |
+| Install path | Set list | Meaning |
 |---|---|---|
-| Managed launch / join | `core` | The closed automation and control surface for managed agents |
+| Managed launch / join | `core` + `extensions` | Non-extension baseline plus default-installed extension guidance |
 | CLI default | `all` | All current packaged skills |
 
-The skills are still organized conceptually into three groups. Automation covers mailbox rounds, direct mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control. Control covers touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration. Utils covers `houmao-utils-workspace-mgr`.
+The skills are still organized conceptually into four groups. Automation covers mailbox rounds, direct mailbox operations, managed memory, advanced workflow patterns, read-only inspection, operator messaging, managed-agent messaging, and gateway/reminder control. Control covers touring, project overlays, agent definitions and profiles, credentials, live-agent lifecycle, and loop orchestration. Utils covers `houmao-utils-workspace-mgr`. Extensions covers `houmao-ext-graphing`.
 
 The catalog source of truth lives at `src/houmao/agents/assets/system_skills/catalog.toml`:
 
 ```toml
 [auto_install]
-managed_launch_sets = ["core"]
-managed_join_sets   = ["core"]
+managed_launch_sets = ["core", "extensions"]
+managed_join_sets   = ["core", "extensions"]
 cli_default_sets    = ["all"]
 ```
 
@@ -133,35 +142,42 @@ The named sets resolve as:
 
 | Set | Skills it expands to |
 |---|---|
-| `core` | The closed managed-launch selection: automation and operator-control skills plus `houmao-utils-workspace-mgr` for workspace preparation workflows that core skills route to |
-| `all` | All current packaged Houmao-owned skills; currently the same skill list as `core` |
+| `core` | The non-extension baseline: automation, operator-control, loop, AG-UI interop, and workspace utility guidance |
+| `extensions` | Default-installed extension guidance such as `houmao-ext-graphing` |
+| `all` | All current packaged Houmao-owned skills, including `core` and `extensions` members |
 
 Managed launch stores policy separately from explicit `system-skills install`. A source recipe or specialist may record:
 
 ```yaml
 launch:
   system_skills:
-    mode: extend
-    skills:
-      - houmao-utils-workspace-mgr
+    mode: replace
+    sets:
+      - core
 ```
 
-Source policies use `default`, `extend`, `replace`, or `none`; omitted source policy is `default`, which expands the catalog's `managed_launch_sets`. Launch profiles use `inherit`, `extend`, `replace`, or `none`; omitted profile policy is `inherit`, which uses the source's effective selection. On reused managed homes, the managed-home sync removes exact catalog-known Houmao system-skill paths that are no longer selected while preserving unrelated user skill paths.
+This example records a core-only policy that excludes default extension guidance. Source policies use `default`, `extend`, `replace`, or `none`; omitted source policy is `default`, which expands the catalog's `managed_launch_sets` (`core` plus `extensions`). Use `replace` for core-only or narrow exact selections, and use `extend` only when a source should append selectors over the packaged default. Launch profiles use `inherit`, `extend`, `replace`, or `none`; omitted profile policy is `inherit`, which uses the source's effective selection. On reused managed homes, the managed-home sync removes exact catalog-known Houmao system-skill paths that are no longer selected while preserving unrelated user skill paths.
 
 ### How to install the CLI-default set
 
 To prepare an external tool home with the CLI-default selection, omit both `--skill-set` and `--skill`, or pass `--skill-set all` explicitly:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,copilot,gemini
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
 houmao-mgr system-skills install --tool claude --home ~/.claude
 houmao-mgr system-skills install --tool copilot
 houmao-mgr system-skills install --tool copilot --home ~/.copilot
+houmao-mgr system-skills install --tool kimi
+houmao-mgr system-skills install --tool kimi --home ~/.kimi-code
 ```
 
-When `--home` is omitted, the effective home resolves through tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `GEMINI_CLI_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.github` for Copilot, `<cwd>` for Gemini). Comma-separated multi-tool installs must omit `--home` so each selected tool resolves independently. The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`. Use a single-tool command with `--home ~/.copilot` when you want a personal Copilot CLI skill install instead of a repository-local Copilot skill install.
+When `--home` is omitted, the effective home resolves through tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.kimi-code` for Kimi, `<cwd>` for Gemini, `<cwd>/.github` for Copilot). Comma-separated multi-tool installs must omit `--home` so each selected tool resolves independently. The default Kimi home is `<cwd>/.kimi-code`, so omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`. The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`.
 
 Copilot repository skills can be discovered by Copilot surfaces that read `.github/skills/`, but discovery is not the same as runtime reachability. The Houmao system skills still route to `houmao-mgr` and often inspect or mutate local project, tmux, gateway, mailbox, and managed-agent resources; those operations require a local or otherwise provisioned environment where those resources are available.
+
+Kimi explicit installs have a similar projection-versus-discovery boundary. `system-skills install --tool kimi` places files under the resolved Kimi home `skills/` directory and reports that path, but current Kimi Code only discovers project `.kimi-code/skills` automatically or paths named in `extra_skill_dirs`. Managed Kimi homes add the managed projected skill root to `config.toml` `extra_skill_dirs`; local-interactive Kimi launches use that config, while Kimi headless prompt mode may use `--skills-dir` as a launch-policy detail.
+
+Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not loaded the Houmao system prompt.
 
 For named-set or explicit-skill installs, repeat `--skill-set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
 
@@ -169,7 +185,9 @@ Use `--skill-set core` when the target home should receive the managed-launch se
 
 ```bash
 houmao-mgr system-skills install --tool codex --skill-set core
+houmao-mgr system-skills install --tool codex --skill-set extensions
 houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
+houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing
 ```
 
 ### How to remove installed system skills
@@ -179,7 +197,8 @@ To remove Houmao-owned system skills from an external or project-scoped tool hom
 ```bash
 houmao-mgr system-skills uninstall --tool codex
 houmao-mgr system-skills uninstall --tool codex --home ~/.codex
-houmao-mgr system-skills uninstall --tool claude,codex,copilot,gemini
+houmao-mgr system-skills uninstall --tool claude,codex,kimi,gemini,copilot
+houmao-mgr system-skills uninstall --tool kimi
 ```
 
 Uninstall intentionally does **not** mirror install selection. It removes all current catalog-known Houmao system-skill paths for the resolved tool home, whether those paths are copied directories, symlinks, or files. It leaves parent skill roots, unrelated user skills, legacy family-namespaced paths, unrecognized `houmao-*` paths, and obsolete install-state files in place.
@@ -192,7 +211,7 @@ Two short heuristics help decide which skill applies to a task that an agent or 
 
 **By entry style.** When the user explicitly asks for a first-run guided tour or wants help re-orienting from current Houmao state, start with `houmao-touring`. It is the manual guided entrypoint that inspects current posture, offers stage-aware next actions, and teaches beginner setup, intermediate live operation, and advanced coordination rather than flattening every function into one broad reference surface.
 
-**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is before launch* belongs to `houmao-agent-definition`: use `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, or `create-agent-fast-forward`. Ordinary profile wording means `profiles`; `launch-dossiers` is the explicit recipe-backed low-level route. Credential bundle contents belong to `houmao-credential-mgr`. Inspecting *what one live managed agent is doing right now* - liveness, screen posture, mailbox posture, logs, artifacts, or tmux backing - belongs to `houmao-agent-inspect`. Editing the per-agent `houmao-memo.md` file or contained `pages/` files belongs to `houmao-memory-mgr`. Planning, creating, validating, or summarizing a multi-agent workspace before launch belongs to `houmao-utils-workspace-mgr`. Administering *mailbox authority itself* - mailbox roots, mailbox registrations, and late mailbox binding - belongs to `houmao-mailbox-mgr`. Clarifying operator intent and dispatching one or more prompt-by-default or mailbox-on-request packets belongs to `houmao-operator-messaging`. Driving *what a live agent does* - sending it a prompt, attaching a gateway, or participating in mailbox workflows - belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`. Lightweight Markdown/direct-SQL loop packages belong to `houmao-agent-loop-lite`; topology-rich schema/harness loop packages belong to `houmao-agent-loop-pro`.
+**By concern.** Project overlay lifecycle, `.houmao/` layout, project-aware side effects, and project-scoped easy-instance inspection belong to `houmao-project-mgr`. Authoring and inspecting *what an agent is before launch* belongs to `houmao-agent-definition`: use `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, or `create-agent-fast-forward`. Ordinary profile wording means `profiles`; `launch-dossiers` is the explicit recipe-backed low-level route. Credential bundle contents belong to `houmao-credential-mgr`. Inspecting *what one live managed agent is doing right now* - liveness, screen posture, mailbox posture, logs, artifacts, or tmux backing - belongs to `houmao-agent-inspect`. Editing the per-agent `houmao-memo.md` file or contained `pages/` files belongs to `houmao-memory-mgr`. Planning, creating, validating, or summarizing a multi-agent workspace before launch belongs to `houmao-utils-workspace-mgr`. Authoring built-in Plotly.js `templated-graphics` or Vega-Lite `freeform-graphics` payloads belongs to the optional `houmao-ext-graphing` extension; validating AG-UI events, rendering already-chosen implementation payloads, or publishing rendered events to the gateway belongs to `houmao-interop-ag-ui`. Administering *mailbox authority itself* - mailbox roots, mailbox registrations, and late mailbox binding - belongs to `houmao-mailbox-mgr`. Clarifying operator intent and dispatching one or more prompt-by-default or mailbox-on-request packets belongs to `houmao-operator-messaging`. Driving *what a live agent does* - sending it a prompt, attaching a gateway, or participating in mailbox workflows - belongs to `houmao-agent-messaging`, `houmao-agent-gateway`, `houmao-agent-email-comms`, or `houmao-process-emails-via-gateway`. Lightweight Markdown/direct-SQL loop packages belong to `houmao-agent-loop-lite`; topology-rich schema/harness loop packages belong to `houmao-agent-loop-pro`.
 
 **By transport and boundary.** When the task is "inspect this running agent," start with `houmao-agent-inspect` and let it choose summary state, managed detail, gateway TUI tracking, mailbox posture, logs, artifacts, or tmux peek in that order. When the task is "edit this agent's memo" or "add/remove something from the agent memo," use `houmao-memory-mgr`. When the task is "clarify this operator instruction and dispatch it to agents," use `houmao-operator-messaging`. When the task is "communicate with this running agent," start with `houmao-agent-messaging` and let it route by intent. When the task is "do something to the gateway sidecar itself" (attach, detach, watch its TUI tracker, change its mail-notifier polling), use `houmao-agent-gateway`. When the task is "manage mailbox roots, mailbox registrations, or late mailbox binding," use `houmao-mailbox-mgr`. When the task is "handle ordinary mail," use `houmao-agent-email-comms`. When the task is "process the mailbox work the notifier just reported," use the round-oriented `houmao-process-emails-via-gateway`. When the task is "use a supported multi-skill mailbox or gateway composition such as self-wakeup through self-mail," use `houmao-adv-usage-pattern`. When the task is "what project is active here?" or "what changes for other subcommands when `.houmao/` exists?", use `houmao-project-mgr`.
 

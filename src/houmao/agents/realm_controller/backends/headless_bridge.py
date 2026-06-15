@@ -152,7 +152,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     """Parse the headless bridge CLI arguments."""
 
     parser = argparse.ArgumentParser(prog="houmao-headless-bridge")
-    parser.add_argument("--provider", required=True, choices=("claude", "codex", "gemini"))
+    parser.add_argument(
+        "--provider",
+        required=True,
+        choices=("claude", "codex", "gemini", "kimi"),
+    )
     parser.add_argument("--output-format", required=True)
     parser.add_argument("--turn-index", required=True, type=int)
     parser.add_argument("--turn-dir", required=True, type=Path)

@@ -13,6 +13,7 @@ _GENERATED_AGENT_DEF_RELATIVE = Path(".houmao/agents")
 _FIXTURE_AUTH_SOURCE_BY_TOOL: dict[ToolName, Path] = {
     "claude": Path("tests/fixtures/auth-bundles/claude/kimi-coding"),
     "codex": Path("tests/fixtures/auth-bundles/codex/yunwu-openai"),
+    "kimi": Path("tests/fixtures/auth-bundles/kimi/personal-a-default"),
 }
 
 

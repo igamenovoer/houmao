@@ -7,6 +7,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
     DiscoveredAgent,
@@ -170,10 +173,18 @@ def _write_record(registry_root: Path, record: LiveAgentRegistryRecordV2) -> Non
 class TestRegistryDiscoveryScan:
     """Tests for the scan logic."""
 
-    def _make_service(self, tmp_path: Path) -> RegistryDiscoveryService:
+    def _make_service(
+        self,
+        tmp_path: Path,
+        *,
+        registry_root: Path | None = None,
+    ) -> RegistryDiscoveryService:
         """Create a service pointing at a tmp registry root."""
 
-        config = PassiveServerConfig(runtime_root=tmp_path)
+        config = PassiveServerConfig(
+            runtime_root=tmp_path / "runtime",
+            registry_root=registry_root or tmp_path / "registry",
+        )
         return RegistryDiscoveryService(config)
 
     def test_fresh_live_agent_is_discovered(self, tmp_path: Path) -> None:
@@ -335,3 +346,37 @@ class TestRegistryDiscoveryScan:
             svc.scan_once()
 
         assert svc.index.list_all() == []
+
+    def test_custom_registry_root_controls_discovery(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        configured_registry_root = tmp_path / "configured-registry"
+        ambient_registry_root = tmp_path / "ambient-registry"
+        monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(ambient_registry_root))
+        configured_record = _make_record(
+            agent_id="configured1",
+            agent_name="HOUMAO-configured",
+            session_name="HOUMAO-configured-configured1",
+        )
+        ambient_record = _make_record(
+            agent_id="ambient1",
+            agent_name="HOUMAO-ambient",
+            session_name="HOUMAO-ambient-ambient1",
+        )
+        _write_record(configured_registry_root, configured_record)
+        _write_record(ambient_registry_root, ambient_record)
+        svc = self._make_service(tmp_path, registry_root=configured_registry_root)
+
+        with patch(
+            "houmao.passive_server.discovery._get_live_tmux_session_names",
+            return_value={
+                "HOUMAO-configured-configured1",
+                "HOUMAO-ambient-ambient1",
+            },
+        ):
+            svc.scan_once()
+
+        assert svc.index.get_by_id("configured1") is not None
+        assert svc.index.get_by_id("ambient1") is None

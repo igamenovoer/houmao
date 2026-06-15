@@ -323,16 +323,16 @@ The five skills identified SHALL be `houmao-agent-loop-pairwise`, `houmao-agent-
 - **THEN** that sentence says five, not four
 - **AND THEN** the table or list shows `houmao-agent-loop-pairwise-v4` alongside the other four loop skills
 
-### Requirement: README explains current core and all set surface
-The README system-skills subsection SHALL explain that the current installable named sets are `core` and `all`.
+### Requirement: README explains current core, extensions, and all set surface
+The README system-skills subsection SHALL explain that the current installable named sets are `core`, `extensions`, and `all`.
 
-The README SHALL explain that `core` is used for managed launch and join defaults, and `all` is used by `houmao-mgr system-skills install` when no `--skill-set` or `--skill` is supplied.
+The README SHALL explain that `core` plus `extensions` is used for managed launch and join defaults, and `all` is used by `houmao-mgr system-skills install` when no `--skill-set` or `--skill` is supplied.
 
-The README MAY organize skills as automation, control, and utils for readability, but SHALL NOT present those organization groups as installable set names.
+The README MAY organize skills as automation, control, utils, and extensions for readability, but SHALL NOT present organization groups other than the declared `extensions` set as installable set names.
 
 #### Scenario: Reader sees current set names from README
 - **WHEN** a reader scans the README system-skills subsection
-- **THEN** they see `core` and `all` as the supported named set surface
+- **THEN** they see `core`, `extensions`, and `all` as the supported named set surface
 - **AND THEN** they do not see removed granular set names presented as current installable sets
 
 ### Requirement: README system-skills table lists the workspace-manager utility skill
@@ -437,4 +437,3 @@ The README SHALL distinguish skill-level help from the `houmao-mgr system-skills
 - **THEN** they see that installed skills can answer explicit read-only help requests
 - **AND THEN** they see at least one `$<skill> help` example
 - **AND THEN** the README does not imply that help runs commands or mutates Houmao state
-

@@ -32,11 +32,13 @@ from houmao.terminal_record.service import (
     _build_recorder_shell_command,
     add_terminal_record_label,
     analyze_terminal_record,
+    derive_terminal_record_stream,
     parse_asciinema_cast_input_events,
     resolve_terminal_record_target,
     start_terminal_record,
     status_terminal_record,
     stop_terminal_record,
+    validate_terminal_record,
 )
 
 
@@ -278,6 +280,68 @@ def test_start_terminal_record_persists_manifest_and_attach_command(
     ]
 
 
+def test_start_terminal_record_accepts_kimi_tool_and_duration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "kimi-run-001"
+
+    class _DummyProcess:
+        def __init__(self) -> None:
+            self.pid = 4321
+
+    def _fake_wait(live_state_path: Path) -> None:
+        state = load_live_state(live_state_path)
+        save_live_state(
+            live_state_path,
+            TerminalRecordLiveState(
+                schema_version=state.schema_version,
+                run_id=state.run_id,
+                mode=state.mode,
+                status="running",
+                repo_root=state.repo_root,
+                run_root=state.run_root,
+                manifest_path=state.manifest_path,
+                controller_pid=4321,
+                target_session_name=state.target_session_name,
+                target_pane_id=state.target_pane_id,
+                stop_requested_at_utc=state.stop_requested_at_utc,
+                last_error=None,
+                updated_at_utc=now_utc_iso(),
+            ),
+        )
+
+    monkeypatch.setattr(terminal_record_service, "ensure_tmux_available", lambda: None)
+    monkeypatch.setattr(terminal_record_service, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        terminal_record_service,
+        "resolve_terminal_record_target",
+        lambda *, target_session, target_pane: _target(),
+    )
+    monkeypatch.setattr(terminal_record_service, "_wait_for_controller", _fake_wait)
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *args, **kwargs: _DummyProcess(),
+    )
+
+    result = start_terminal_record(
+        mode="passive",
+        target_session="HOUMAO-kimi",
+        target_pane="%1",
+        tool="kimi",
+        run_root=run_root,
+        sample_interval_seconds=0.1,
+        duration_seconds=12.5,
+    )
+
+    manifest = load_manifest(run_root / "manifest.json")
+    assert result["status"] == "running"
+    assert manifest.tool == "kimi"
+    assert manifest.sample_interval_seconds == 0.1
+    assert manifest.duration_seconds == 12.5
+
+
 def test_status_terminal_record_reports_controller_liveness(tmp_path: Path) -> None:
     run_root = tmp_path / "run-002"
     paths = _write_run_artifacts(run_root=run_root, mode="passive", status="running")
@@ -401,6 +465,11 @@ def test_capture_snapshot_appends_incrementing_samples(
         "capture_tmux_pane",
         lambda *, target: next(outputs),
     )
+    monkeypatch.setattr(
+        terminal_record_service,
+        "_target_pane_dimensions",
+        lambda *, target: (120, 40),
+    )
 
     controller._capture_snapshot()
     controller._capture_snapshot()
@@ -408,6 +477,11 @@ def test_capture_snapshot_appends_incrementing_samples(
     snapshots = _read_ndjson(paths.pane_snapshots_path)
     assert [item["sample_id"] for item in snapshots] == ["s000001", "s000002"]
     assert [item["output_text"] for item in snapshots] == ["first frame", "second frame"]
+    assert snapshots[0]["target_pane_width"] == 120
+    assert snapshots[0]["target_pane_height"] == 40
+    assert snapshots[0]["capture_command"] == "tmux capture-pane -p -e -S -"
+    assert snapshots[0]["stream_kind"] == "source"
+    assert snapshots[0]["output_text_sha256"] is not None
 
 
 def test_finalize_active_controller_updates_manifest_and_live_state(
@@ -518,6 +592,145 @@ def test_analyze_terminal_record_emits_parser_and_state_observations(tmp_path: P
     assert state_payload["readiness_state"] == "ready"
     assert state_payload["completion_state"] == "inactive"
     assert state_payload["sample_id"] == "s000001"
+
+
+def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
+    run_root = tmp_path / "run-kimi-analyze"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    fixture_text = (
+        "╭────────────────────╮\n"
+        "│ >                  │\n"
+        "╰────────────────────╯\n"
+        "Kimi-k2.6 thinking  /model: switch model\n"
+        "context: 0.0%\n"
+    )
+    paths.pane_snapshots_path.write_text(
+        json.dumps(
+            {
+                "sample_id": "s000001",
+                "elapsed_seconds": 0.0,
+                "ts_utc": "2026-03-19T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": fixture_text,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = analyze_terminal_record(run_root=run_root, tool=None)
+
+    parser_payload = _read_ndjson(paths.parser_observed_path)[0]
+    state_payload = _read_ndjson(paths.state_observed_path)[0]
+
+    assert result["tool"] == "kimi"
+    assert parser_payload["business_state"] == "idle"
+    assert parser_payload["input_mode"] == "freeform"
+    assert parser_payload["ui_context"] == "normal_prompt"
+    assert parser_payload["footer_model_thinking"] is True
+    assert state_payload["detector_name"] == "kimi_code"
+    assert state_payload["surface_accepting_input"] == "yes"
+    assert state_payload["surface_ready_posture"] == "yes"
+    assert state_payload["turn_phase"] == "ready"
+
+
+def test_derive_terminal_record_stream_preserves_source_mapping(tmp_path: Path) -> None:
+    run_root = tmp_path / "run-derive"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    rows = []
+    for index in range(10):
+        rows.append(
+            {
+                "sample_id": f"s{index + 1:06d}",
+                "elapsed_seconds": index / 10,
+                "ts_utc": "2026-03-19T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": f"frame {index + 1}",
+            }
+        )
+    paths.pane_snapshots_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = derive_terminal_record_stream(run_root=run_root, target_sample_interval_seconds=0.5)
+    derived_rows = _read_ndjson(paths.derived_2fps_snapshots_path)
+
+    assert result["derived_sample_count"] == 3
+    assert [item["sample_id"] for item in derived_rows] == ["d000001", "d000002", "d000003"]
+    assert [item["source_sample_id"] for item in derived_rows] == [
+        "s000001",
+        "s000006",
+        "s000010",
+    ]
+    assert all(item["stream_kind"] == "derived" for item in derived_rows)
+
+
+def test_validate_terminal_record_compares_labels_to_observed_state(tmp_path: Path) -> None:
+    run_root = tmp_path / "run-validate"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    paths.state_observed_path.write_text(
+        "\n".join(
+            json.dumps(row, sort_keys=True)
+            for row in [
+                {
+                    "sample_id": "s000001",
+                    "elapsed_seconds": 0.0,
+                    "source_sample_id": None,
+                    "diagnostics_availability": "available",
+                    "surface_accepting_input": "yes",
+                    "surface_editing_input": "no",
+                    "surface_ready_posture": "yes",
+                    "turn_phase": "ready",
+                    "last_turn_result": "none",
+                    "last_turn_source": "none",
+                    "business_state": "idle",
+                    "input_mode": "freeform",
+                    "ui_context": "normal_prompt",
+                },
+                {
+                    "sample_id": "s000002",
+                    "elapsed_seconds": 0.1,
+                    "source_sample_id": None,
+                    "diagnostics_availability": "available",
+                    "surface_accepting_input": "no",
+                    "surface_editing_input": "no",
+                    "surface_ready_posture": "no",
+                    "turn_phase": "active",
+                    "last_turn_result": "none",
+                    "last_turn_source": "surface_inference",
+                    "business_state": "working",
+                    "input_mode": "none",
+                    "ui_context": "normal_prompt",
+                },
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    paths.parser_observed_path.write_text("", encoding="utf-8")
+    add_terminal_record_label(
+        run_root=run_root,
+        output_dir=None,
+        label_id="ready",
+        sample_id="s000001",
+        sample_end_id=None,
+        scenario_id="kimi-validation",
+        expectations={
+            "diagnostics_availability": "available",
+            "turn_phase": "ready",
+            "business_state": "idle",
+        },
+        note="ready editor",
+        evidence={"notes": ["editor box and empty prompt"]},
+    )
+
+    result = validate_terminal_record(run_root=run_root)
+
+    assert result["passed"] is True
+    assert result["failure_count"] == 0
+    assert result["checked_sample_count"] == 1
 
 
 def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path: Path) -> None:

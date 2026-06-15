@@ -1,18 +1,18 @@
 # Houmao Docs
 
-Houmao is a framework and CLI toolkit for building and running teams of CLI-based AI agents (`claude`, `codex`, `gemini`) as real tmux-backed processes — each with its own isolated disk state, native TUI, and gateway sidecar. Houmao also supports `copilot` as a system-skill install target. This site covers the full reference, getting-started guides, and developer internals for installed users, with additional material for contributors.
+Houmao is a framework and CLI toolkit for building and running teams of CLI-based AI agents (`claude`, `codex`, `kimi`, `gemini`) as real tmux-backed processes — each with its own isolated disk state, native TUI or maintained headless lane, and gateway sidecar. Houmao also supports `copilot` as a system-skill install target. This site covers the full reference, getting-started guides, and developer internals for installed users, with additional material for contributors.
 
 | Who you are | Where to start |
 |---|---|
 | **Installed user** (`uv tool install houmao`) | Install system skills with `npx skills add igamenovoer/tool-skills/houmao` when `npx` and internet are available; use [`houmao-mgr system-skills install`](reference/cli/system-skills.md) for offline/package-local or customized installs. Then start your agent and invoke `houmao-touring` or ask `$houmao-touring help`. |
-| **From-source developer** (`pixi install && pixi shell`) | [Quickstart](getting-started/quickstart.md) - covers `agents self join` and project-overlay build/launch with `pixi run` |
+| **From-source developer** (`pixi install`) | [Quickstart](getting-started/quickstart.md) - agent-driven first-run guide with source-checkout `pixi run houmao-mgr ...` launcher notes |
 | **Contributor to Houmao** | [CLAUDE.md](https://github.com/igamenovoer/houmao/blob/main/CLAUDE.md) or [AGENTS.md](https://github.com/igamenovoer/houmao/blob/main/AGENTS.md) for repo conventions and development commands |
 
 ## Getting Started
 
 - [Architecture Overview](getting-started/overview.md): Two-phase lifecycle, backend model, and high-level design.
 - [Agent Definitions](getting-started/agent-definitions.md): Agent definition directory layout — tools, roles, recipes, launch profiles, and skills.
-- [Quickstart](getting-started/quickstart.md): Build a brain and start your first session.
+- [Quickstart](getting-started/quickstart.md): Start with Houmao system skills, invoke `houmao-touring`, and run your first managed-agent workflow through your CLI agent.
 - [Easy Specialists](getting-started/easy-specialists.md): The easy lane — specialists, optional project profiles, and instances.
 - [Launch Profiles](getting-started/launch-profiles.md): Reusable birth-time launch configuration — project profiles, native launch dossiers, and the precedence chain.
 - [Managed Agent Memory](getting-started/managed-memory-dirs.md): Per-agent memory roots, free-form memo files, pages, the default memo cue, and the `houmao-memory-mgr` skill.

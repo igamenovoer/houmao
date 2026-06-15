@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from houmao.ag_ui.capabilities import build_ag_ui_capabilities
+from houmao.ag_ui.connection import AgUiConnectionRecord
+from houmao.ag_ui.state import build_houmao_state_snapshot
+from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+
+
+def _status(**overrides: object) -> GatewayStatusV1:
+    """Return one healthy gateway status sample."""
+
+    values: dict[str, object] = {
+        "attach_identity": "agent-1",
+        "backend": "local_interactive",
+        "tmux_session_name": "tmux-agent-1",
+        "gateway_health": "healthy",
+        "managed_agent_connectivity": "connected",
+        "managed_agent_recovery": "idle",
+        "request_admission": "open",
+        "terminal_surface_eligibility": "ready",
+        "active_execution": "idle",
+        "execution_mode": "detached_process",
+        "queue_depth": 0,
+        "gateway_host": "127.0.0.1",
+        "gateway_port": 43123,
+        "managed_agent_instance_epoch": 1,
+        "managed_agent_instance_id": "instance-1",
+    }
+    values.update(overrides)
+    return GatewayStatusV1.model_validate(values)
+
+
+@dataclass
+class _Runtime:
+    """Small runtime fake that exposes gateway status only."""
+
+    status_payload: object
+
+    def status(self) -> object:
+        """Return the configured fake status."""
+
+        return self.status_payload
+
+
+def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
+    response = build_ag_ui_capabilities(_Runtime(_status()))
+    dumped = response.model_dump(mode="json", by_alias=True)
+
+    capabilities = dumped["capabilities"]
+    assert capabilities["transport"]["streaming"] is True
+    assert capabilities["transport"]["websocket"] is False
+    assert capabilities["transport"]["httpBinary"] is False
+    assert capabilities["transport"]["resumable"] is False
+    assert capabilities["state"]["snapshots"] is True
+    assert capabilities["state"]["deltas"] is False
+    assert capabilities["tools"]["supported"] is False
+    assert capabilities["tools"]["clientProvided"] is False
+    assert capabilities["multimodal"]["input"]["image"] is False
+    assert capabilities["multimodal"]["input"]["file"] is False
+    assert capabilities["multimodal"]["output"]["image"] is False
+    assert capabilities["custom"]["houmao"]["replaySupport"] == "current_snapshot_only"
+    assert capabilities["custom"]["houmao"]["publishedEvents"] == {
+        "delivery": "live_only_fanout",
+        "storedCount": 0,
+        "cacheOwner": "client",
+        "missedEventRecovery": "none",
+    }
+    ag_ui_protocol = capabilities["custom"]["houmao"]["agUiProtocol"]
+    assert ag_ui_protocol["eventValidation"]["cli"] == ("houmao-mgr ag-ui protocol events validate")
+    assert ag_ui_protocol["eventFraming"]["formats"] == ["json", "jsonl", "sse"]
+    assert ag_ui_protocol["toolCallRendering"]["schemaAgnostic"] is True
+    assert ag_ui_protocol["toolCallRendering"]["requiresHoumaoImplementationSchema"] is False
+    assert ag_ui_protocol["publishedEvents"]["delivery"] == "live_only_fanout"
+    ag_ui_impl = capabilities["custom"]["houmao"]["agUiImpl"]
+    assert ag_ui_impl["owner"] == "houmao"
+    assert ag_ui_impl["protocolBinding"] == "ag-ui-tool-call-json-args"
+    assert ag_ui_impl["frontendSpecificImplementations"]["transportSupported"] is True
+    assert ag_ui_impl["frontendSpecificImplementations"]["payloadSemanticsValidatedByHoumao"] is (
+        False
+    )
+    assert ag_ui_impl["frontendSpecificImplementations"]["renderSupportRequiresFrontend"] is True
+    assert ag_ui_impl["knownImplementations"] == [
+        "houmao.graphic.template",
+        "houmao.graphic.vegalite",
+        "houmao.table",
+        "houmao.metric_grid",
+        "houmao.dashboard",
+    ]
+    template_impl = ag_ui_impl["categories"]["templated-graphics"][0]
+    assert template_impl["name"] == "houmao.graphic.template"
+    assert template_impl["backend"] == "plotly"
+    assert template_impl["renderer"] == "plotly.js"
+    assert template_impl["plotly"]["renderer"] == "plotly.js"
+    assert "heatmap" in template_impl["plotly"]["traceTypes"]
+    vegalite_impl = ag_ui_impl["categories"]["freeform-graphics"][0]
+    assert vegalite_impl["name"] == "houmao.graphic.vegalite"
+    assert vegalite_impl["backend"] == "vega-lite"
+    assert vegalite_impl["vegaLite"]["renderer"] == "vega-embed"
+    assert vegalite_impl["vegaLite"]["remoteData"] == "disabled"
+    assert {schema["name"] for schema in ag_ui_impl["categories"]["new-component"]} == {
+        "houmao.table",
+        "houmao.metric_grid",
+        "houmao.dashboard",
+    }
+    template_graphics = capabilities["custom"]["houmao"]["presentation"]["templateGraphics"]
+    assert template_graphics["toolName"] == "houmao.graphic.template"
+    assert template_graphics["schemaVersion"] == 3
+    assert template_graphics["figureType"] == "plotly2d"
+    assert "heatmap" in template_graphics["traceTypes"]
+    assert "box" in template_graphics["traceTypes"]
+    assert "sankey" in template_graphics["traceTypes"]
+    assert "table" in template_graphics["traceTypes"]
+    assert "treemap" in template_graphics["traceTypes"]
+    assert "scatterpolar" in template_graphics["traceTypes"]
+    assert "candlestick" in template_graphics["traceTypes"]
+    assert "chartTypes" not in template_graphics
+    assert template_graphics["excludedTraceTypes"]["scatter3d"] == "true_3d_scene_trace"
+    assert template_graphics["excludedTraceTypes"]["surface"] == "true_3d_scene_trace"
+    assert template_graphics["plotlyBundle"]["id"] == "plotly.js-dist-min"
+    assert "sankey" in template_graphics["plotlyBundle"]["registeredTraceTypes"]
+    assert template_graphics["renderers"] == ["plotly"]
+    assert template_graphics["defaultRenderer"] == "plotly"
+    assert template_graphics["mapPolicy"] == "offline_only_no_remote_tiles_styles_or_tokens"
+    assert template_graphics["extraPolicy"]["rendererScoped"] is True
+    assert template_graphics["extraPolicy"]["requiredForRendering"] is False
+    assert template_graphics["extraPolicy"]["supportedRendererKeys"] == ["plotly"]
+    assert template_graphics["datasourceBindings"]["vocabularySupported"] is True
+    assert template_graphics["datasourceBindings"]["materializationSupported"] is False
+    assert template_graphics["datasourceBindings"]["declaredThrough"] == [
+        "dataRefs",
+        "traces[].source",
+    ]
+    assert template_graphics["datasourceBindings"]["bindingStyle"] == "field_path"
+    assert "data.node.label" in template_graphics["datasourceBindings"]["exampleBindingPaths"]
+    assert "data.link.value" in template_graphics["datasourceBindings"]["exampleBindingPaths"]
+    assert "data.header.values" in template_graphics["datasourceBindings"]["exampleBindingPaths"]
+    assert template_graphics["datasourceBindings"]["limits"] == {
+        "materializedRows": None,
+        "rowUpdateModes": [],
+        "refresh": False,
+    }
+    assert template_graphics["rawPlotlyDsl"] is False
+    assert template_graphics["rawVegaLiteDsl"] is False
+    vega_dsl = capabilities["custom"]["houmao"]["presentation"]["vegaDsl"]
+    assert vega_dsl["supported"] is True
+    assert vega_dsl["toolNames"] == ["houmao.graphic.vegalite"]
+    assert vega_dsl["schemaVersion"] == 1
+    assert vega_dsl["libraries"][0]["name"] == "vega-lite"
+    assert vega_dsl["libraries"][0]["majorVersions"] == ["6"]
+    assert vega_dsl["libraries"][0]["pythonAuthoring"] == ["altair"]
+    assert vega_dsl["renderer"] == "vega-embed"
+    assert vega_dsl["remoteData"] == "disabled"
+    assert vega_dsl["inlineData"] is True
+    assert vega_dsl["preflight"] == {"pythonCompile": False, "browserCompile": True}
+
+    houmao = dumped["houmao"]
+    assert houmao["features"]["httpSse"] is True
+    assert houmao["features"]["guiConnect"] is True
+    assert houmao["features"]["textInputParsing"] is True
+    assert houmao["features"]["stateSnapshots"] is True
+    assert houmao["features"]["taskRunSubmission"] is True
+    assert houmao["features"]["stateDeltas"] is False
+    assert houmao["features"]["frontendToolExecution"] is False
+    assert houmao["features"]["generatedGraphics"] is False
+    assert houmao["features"]["openGenerativeUi"] is False
+    assert houmao["features"]["multimodalInput"] is False
+    assert houmao["agentLifecycleManagedByGui"] is False
+    assert (
+        "does not start, stop, restart, abort, interrupt, or shut down"
+        in houmao["lifecycleBoundary"]
+    )
+    assert houmao["replaySupport"] == "current_snapshot_only"
+    assert houmao["publishedEvents"] == {
+        "delivery": "live_only_fanout",
+        "storedCount": 0,
+        "cacheOwner": "client",
+        "missedEventRecovery": "none",
+    }
+
+
+def test_capabilities_can_report_snapshot_only_when_replay_is_disabled() -> None:
+    response = build_ag_ui_capabilities(_Runtime(_status()), replay_enabled=False)
+    dumped = response.model_dump(mode="json", by_alias=True)
+
+    assert dumped["capabilities"]["transport"]["resumable"] is False
+    assert dumped["capabilities"]["custom"]["houmao"]["replaySupport"] == "current_snapshot_only"
+    assert dumped["houmao"]["replaySupport"] == "current_snapshot_only"
+
+
+def test_capabilities_report_headless_graphics_tool_metadata() -> None:
+    response = build_ag_ui_capabilities(_Runtime(_status(backend="codex_headless")))
+    dumped = response.model_dump(mode="json", by_alias=True)
+
+    assert dumped["houmao"]["features"]["taskRunSubmission"] is True
+    assert dumped["houmao"]["features"]["generatedGraphics"] is True
+    assert dumped["houmao"]["gateway"]["graphicsToolName"] == "houmao_render_graphic"
+    assert dumped["capabilities"]["tools"]["supported"] is True
+    assert dumped["capabilities"]["tools"]["items"][0]["name"] == "houmao_render_graphic"
+    assert dumped["capabilities"]["tools"]["items"][1]["name"] == "houmao.graphic.template"
+    assert dumped["capabilities"]["tools"]["items"][1]["parameters"]["required"] == [
+        "schemaVersion",
+        "figureType",
+        "title",
+        "traces",
+    ]
+    assert (
+        dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"]["schemaVersion"][
+            "const"
+        ]
+        == 3
+    )
+    assert (
+        dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"]["figureType"][
+            "const"
+        ]
+        == "plotly2d"
+    )
+    assert dumped["capabilities"]["tools"]["items"][2]["name"] == "houmao.graphic.vegalite"
+    assert dumped["capabilities"]["tools"]["items"][2]["parameters"]["required"] == [
+        "schemaVersion",
+        "library",
+        "specVersion",
+        "title",
+        "spec",
+    ]
+    assert dumped["capabilities"]["tools"]["clientProvided"] is False
+    assert dumped["capabilities"]["custom"]["houmao"]["graphics"]["toolName"] == (
+        "houmao_render_graphic"
+    )
+    assert dumped["capabilities"]["custom"]["houmao"]["agUiImpl"]["generatedGraphics"] is True
+    assert dumped["capabilities"]["custom"]["houmao"]["agUiImpl"]["graphicsToolName"] == (
+        "houmao_render_graphic"
+    )
+    assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["templateGraphics"][
+        "renderers"
+    ] == ["plotly"]
+    assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["vegaDsl"]["toolNames"] == [
+        "houmao.graphic.vegalite"
+    ]
+
+
+def test_state_snapshot_includes_connection_and_compact_gateway_status() -> None:
+    connection = AgUiConnectionRecord(
+        connection_id="agui-1",
+        thread_id="thread-1",
+        run_id="run-1",
+        parent_run_id="run-parent",
+        last_seen_event_id="event-9",
+        created_at_utc=datetime(2026, 6, 8, 1, 2, 3, tzinfo=UTC),
+    )
+
+    snapshot = build_houmao_state_snapshot(status=_status(queue_depth=3), connection=connection)
+    houmao = snapshot["houmao"]
+    assert isinstance(houmao, dict)
+    assert houmao["connection"] == {
+        "connectionId": "agui-1",
+        "threadId": "thread-1",
+        "runId": "run-1",
+        "createdAtUtc": "2026-06-08T01:02:03Z",
+        "detached": False,
+        "parentRunId": "run-parent",
+        "lastSeenEventId": "event-9",
+    }
+    assert houmao["gateway"]["availability"] == "healthy"
+    assert houmao["gateway"]["managedAgentConnectivity"] == "connected"
+    assert houmao["gateway"]["targetTransportFamily"] == "tmux"
+    assert houmao["activeExecution"] == {
+        "state": "idle",
+        "queueDepth": 3,
+        "requestAdmission": "open",
+    }
+
+
+class _SensitiveStatus:
+    """Status-like object with extra sensitive fields the sanitizer must ignore."""
+
+    attach_identity = "agent-1"
+    backend = "cao_rest"
+    tmux_session_name = "tmux-agent-1"
+    gateway_health = "healthy"
+    managed_agent_connectivity = "connected"
+    managed_agent_recovery = "idle"
+    request_admission = "open"
+    terminal_surface_eligibility = "ready"
+    active_execution = "running"
+    execution_mode = "detached_process"
+    queue_depth = 1
+    gateway_host = "127.0.0.1"
+    gateway_port = 43123
+    gateway_tmux_window_id = None
+    gateway_tmux_window_index = None
+    gateway_tmux_pane_id = None
+    managed_agent_instance_epoch = 2
+    managed_agent_instance_id = "term-1"
+    mailbox_message_content = "mailbox body secret"
+    memory_page_content = "memory page secret"
+    raw_terminal_history = "terminal scrollback secret"
+    credentials = {"authorization": "Bearer secret-token", "cookies": "session=secret"}
+    raw_prompt_text = "raw prompt secret"
+    forwarded_props = {"authorization": "Bearer unmanaged-secret"}
+
+
+def test_state_snapshot_omits_sensitive_runtime_state() -> None:
+    connection = AgUiConnectionRecord(
+        connection_id="agui-1",
+        thread_id="thread-1",
+        run_id="run-1",
+        created_at_utc=datetime(2026, 6, 8, tzinfo=UTC),
+    )
+
+    snapshot = build_houmao_state_snapshot(status=_SensitiveStatus(), connection=connection)
+    rendered = json.dumps(snapshot, sort_keys=True)
+
+    assert "mailbox body secret" not in rendered
+    assert "memory page secret" not in rendered
+    assert "terminal scrollback secret" not in rendered
+    assert "secret-token" not in rendered
+    assert "cookies" not in rendered
+    assert "raw prompt secret" not in rendered
+    assert "unmanaged-secret" not in rendered
+    assert snapshot["houmao"]["gateway"]["targetTransportFamily"] == "http_rest"

@@ -24,8 +24,14 @@ The endpoint SHALL reject invalid launch inputs with HTTP 422, call `start_runti
 - **AND THEN** the response body explains the validation failure
 
 #### Scenario: Unsupported backend returns 422
-- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, or `gemini_headless`
+- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `kimi_headless`, or `gemini_headless`
 - **THEN** the response status code is 422
+
+#### Scenario: Successful Kimi headless launch
+- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with valid Kimi tool inputs that resolve to `kimi_headless`
+- **THEN** the response status code is 200
+- **AND THEN** the response body contains `tracked_agent_id`, `manifest_path`, `session_root`, and `detail`
+- **AND THEN** the launched Kimi agent can accept later managed turn submissions through the passive server
 
 ### Requirement: Passive server headless launch publishes shared-registry state
 `POST /houmao/agents/headless/launches` SHALL explicitly publish a `LiveAgentRegistryRecordV2` for the launched headless agent after `start_runtime_session()` succeeds and before the launch is reported as successful.

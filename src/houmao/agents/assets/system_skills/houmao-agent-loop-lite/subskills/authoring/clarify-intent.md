@@ -15,6 +15,16 @@ Require:
 - `<loop-dir>/intention/README.md`
 - `<loop-dir>/intention/loop-overview.md`
 
+## Chat Visuals
+
+When showing participants, routes, phases, unknowns, coverage, or loop shape directly in the chat session:
+
+- Use fenced `text` code blocks or plain monospaced ASCII/text diagrams.
+- Prefer simple ASCII characters such as `+---+`, `|`, and `->` so provider TUI chat can display the diagram without Mermaid rendering support.
+- Do not use fenced `mermaid` code blocks for chat visual summaries.
+- This chat-output rule does not change generated lite execplan artifact behavior.
+- Mark unknown or unclear parts as `Unknown` or `TBD`; do not invent missing intent.
+
 ## Actions
 
 1. Read intention Markdown and existing accepted decisions when present.
