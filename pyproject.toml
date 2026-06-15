@@ -1,6 +1,6 @@
 [project]
 name = "Houmao"
-version = "1.1.0+local.20260615.gc5651eb7"
+version = "1.1.1"
 description = "Framework and CLI toolkit for orchestrating teams of loosely-coupled AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
