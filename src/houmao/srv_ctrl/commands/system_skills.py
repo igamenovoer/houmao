@@ -35,6 +35,26 @@ _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL: dict[str, Path] = {
     "gemini": Path("."),
     "kimi": Path(".kimi-code"),
 }
+_SYSTEM_SKILLS_UNIVERSAL_TARGET = "universal"
+_SUPPORTED_SYSTEM_SKILLS_TARGETS: tuple[str, ...] = (
+    "claude",
+    "codex",
+    "copilot",
+    "gemini",
+    "kimi",
+    _SYSTEM_SKILLS_UNIVERSAL_TARGET,
+)
+_SYSTEM_SKILLS_TARGET_HELP = (
+    "Supported target (`claude`, `codex`, `copilot`, `gemini`, `kimi`, or `universal`). "
+    "`kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is "
+    "being wound down. `universal` installs under `.agents/skills` and defaults to "
+    "`~/.agents/skills`."
+)
+_SYSTEM_SKILLS_HOME_HELP = (
+    "Optional target home override. Defaults to the target-native env redirect or "
+    "project-scoped home; for `universal`, defaults to `~/.agents` and the skill root is "
+    "`<home>/skills`."
+)
 
 
 @click.group(name="system-skills")
@@ -79,12 +99,12 @@ def list_system_skills_command() -> None:
 @click.option(
     "--tool",
     required=True,
-    help="Supported tool identifier (`claude`, `codex`, `copilot`, `gemini`, or `kimi`).",
+    help=_SYSTEM_SKILLS_TARGET_HELP,
 )
 @click.option(
     "--home",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
+    help=_SYSTEM_SKILLS_HOME_HELP,
 )
 def status_system_skills_command(tool: str, home: Path | None) -> None:
     """Show live Houmao-owned system-skill state for one resolved tool home."""
@@ -128,12 +148,12 @@ def status_system_skills_command(tool: str, home: Path | None) -> None:
 @click.option(
     "--tool",
     required=True,
-    help="Supported tool identifier (`claude`, `codex`, `copilot`, `gemini`, or `kimi`).",
+    help=_SYSTEM_SKILLS_TARGET_HELP,
 )
 @click.option(
     "--home",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
+    help=_SYSTEM_SKILLS_HOME_HELP,
 )
 @click.option(
     "--skill-set",
@@ -200,12 +220,12 @@ def install_system_skills_command(
 @click.option(
     "--tool",
     required=True,
-    help="Supported tool identifier (`claude`, `codex`, `copilot`, `gemini`, or `kimi`).",
+    help=_SYSTEM_SKILLS_TARGET_HELP,
 )
 @click.option(
     "--home",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    help="Optional tool home override. Defaults to tool-native env redirect or the project-scoped tool home.",
+    help=_SYSTEM_SKILLS_HOME_HELP,
 )
 def uninstall_system_skills_command(tool: str, home: Path | None) -> None:
     """Remove all current Houmao-owned system skills from resolved tool homes."""
@@ -339,22 +359,36 @@ def _resolve_effective_system_skills_home(*, tool: str, home: Path | None) -> Pa
     if home is not None:
         return home.expanduser().resolve()
 
-    env_var_name = _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL[tool]
+    if tool == _SYSTEM_SKILLS_UNIVERSAL_TARGET:
+        return (Path.home() / ".agents").expanduser().resolve()
+
+    env_var_name = _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL.get(tool)
+    if env_var_name is None:
+        raise click.ClickException(f"Unsupported system-skill target `{tool}`.")
     env_value = os.environ.get(env_var_name)
     if env_value is not None and env_value.strip():
         return Path(env_value.strip()).expanduser().resolve()
 
-    project_default = _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL[tool]
+    project_default = _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL.get(tool)
+    if project_default is None:
+        raise click.ClickException(f"Unsupported system-skill target `{tool}`.")
     return (Path.cwd().resolve() / project_default).resolve()
 
 
 def _validate_supported_system_skills_tool(tool: str) -> None:
     """Fail fast when the operator selects an unsupported tool."""
 
-    if tool in _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL:
+    if tool in _SUPPORTED_SYSTEM_SKILLS_TARGETS:
         return
-    supported = ", ".join(f"`{name}`" for name in sorted(_SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL))
-    raise click.ClickException(f"Unsupported tool `{tool}`. Expected one of: {supported}.")
+    if tool == "kimi-code":
+        raise click.ClickException(
+            "Unsupported system-skill target `kimi-code`. Use `kimi` for Kimi Code CLI; "
+            "legacy MoonshotAI `kimi-cli` is not supported by this target."
+        )
+    supported = ", ".join(f"`{name}`" for name in _SUPPORTED_SYSTEM_SKILLS_TARGETS)
+    raise click.ClickException(
+        f"Unsupported system-skill target `{tool}`. Expected one of: {supported}."
+    )
 
 
 def _render_system_skills_list_plain(payload: object) -> None:
@@ -472,7 +506,7 @@ def _render_system_skills_install_plain(payload: object) -> None:
         root_label="Skill root",
         path_label="Projected path",
         indent="",
-        prefer_single_path=True,
+        prefer_single_path=payload.get("tool") != _SYSTEM_SKILLS_UNIVERSAL_TARGET,
     )
     projection_mode = payload.get("projection_mode")
     if projection_mode is not None:
@@ -596,8 +630,8 @@ def _render_kimi_discovery_note_for_tool(tool: object, *, indent: str = "") -> N
         return
     click.echo(
         f"{indent}Kimi discovery: this command projects files only; Kimi Code discovers "
-        "project `.kimi-code/skills` or configured `extra_skill_dirs`, not arbitrary "
-        "`KIMI_CODE_HOME/skills` automatically."
+        "the projected `skills/` path when a later launch uses the same `KIMI_CODE_HOME`, "
+        "passes it with `--skills-dir`, or includes it through `extra_skill_dirs`."
     )
 
 

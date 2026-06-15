@@ -36,7 +36,7 @@ That command points at `tool-skills/houmao`, not at the full Houmao source repos
 Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when the install needs Houmao-specific projection behavior such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot,universal
 houmao-mgr system-skills install --tool codex --skill-set core
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
 ```
@@ -163,19 +163,21 @@ This example records a core-only policy that excludes default extension guidance
 To prepare an external tool home with the CLI-default selection, omit both `--skill-set` and `--skill`, or pass `--skill-set all` explicitly:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot,universal
 houmao-mgr system-skills install --tool claude --home ~/.claude
 houmao-mgr system-skills install --tool copilot
 houmao-mgr system-skills install --tool copilot --home ~/.copilot
 houmao-mgr system-skills install --tool kimi
 houmao-mgr system-skills install --tool kimi --home ~/.kimi-code
+houmao-mgr system-skills install --tool universal
+houmao-mgr system-skills install --tool universal --home ~/.agents
 ```
 
-When `--home` is omitted, the effective home resolves through tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.kimi-code` for Kimi, `<cwd>` for Gemini, `<cwd>/.github` for Copilot). Comma-separated multi-tool installs must omit `--home` so each selected tool resolves independently. The default Kimi home is `<cwd>/.kimi-code`, so omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`. The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`.
+When `--home` is omitted, tool targets resolve through tool-native env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`) → project-scoped default (`<cwd>/.claude`, `<cwd>/.codex`, `<cwd>/.kimi-code` for Kimi, `<cwd>` for Gemini, `<cwd>/.github` for Copilot), while `universal` resolves to `~/.agents`. Comma-separated multi-target installs must omit `--home` so each selected target resolves independently. The default Kimi home is `<cwd>/.kimi-code`, so omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`. The `kimi` target means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is being wound down in favor of Kimi Code CLI. The default Gemini root is the project cwd because Gemini's own state lives under `<cwd>/.gemini/`; omitted-home Gemini installs land under `<cwd>/.gemini/skills/`. The default Copilot home is `<cwd>/.github`, so omitted-home Copilot installs land under `<cwd>/.github/skills/`. The default Universal home is `~/.agents`, so omitted-home Universal installs land under `~/.agents/skills/`.
 
 Copilot repository skills can be discovered by Copilot surfaces that read `.github/skills/`, but discovery is not the same as runtime reachability. The Houmao system skills still route to `houmao-mgr` and often inspect or mutate local project, tmux, gateway, mailbox, and managed-agent resources; those operations require a local or otherwise provisioned environment where those resources are available.
 
-Kimi explicit installs have a similar projection-versus-discovery boundary. `system-skills install --tool kimi` places files under the resolved Kimi home `skills/` directory and reports that path, but current Kimi Code only discovers project `.kimi-code/skills` automatically or paths named in `extra_skill_dirs`. Managed Kimi homes add the managed projected skill root to `config.toml` `extra_skill_dirs`; local-interactive Kimi launches use that config, while Kimi headless prompt mode may use `--skills-dir` as a launch-policy detail.
+Kimi explicit installs have a projection-versus-discovery boundary. `system-skills install --tool kimi` places files under the resolved Kimi Code home `skills/` directory and reports that path. Kimi Code discovers those files when a later launch uses the same path as `KIMI_CODE_HOME`, passes it with `--skills-dir`, or includes it through `extra_skill_dirs`. Managed Kimi homes add the managed projected skill root to `config.toml` `extra_skill_dirs`; local-interactive Kimi launches use that config, while Kimi headless prompt mode may use `--skills-dir` as a launch-policy detail.
 
 Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not loaded the Houmao system prompt.
 
@@ -197,7 +199,7 @@ To remove Houmao-owned system skills from an external or project-scoped tool hom
 ```bash
 houmao-mgr system-skills uninstall --tool codex
 houmao-mgr system-skills uninstall --tool codex --home ~/.codex
-houmao-mgr system-skills uninstall --tool claude,codex,kimi,gemini,copilot
+houmao-mgr system-skills uninstall --tool claude,codex,kimi,gemini,copilot,universal
 houmao-mgr system-skills uninstall --tool kimi
 ```
 

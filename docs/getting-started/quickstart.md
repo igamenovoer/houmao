@@ -23,7 +23,7 @@ npx skills add igamenovoer/tool-skills/houmao
 Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need explicit projection behavior such as named sets, subset skills, explicit homes, symlink/copy mode, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
+houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot,universal
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
 ```
 

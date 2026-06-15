@@ -169,8 +169,9 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert catalog.auto_install.cli_default_sets == (SYSTEM_SKILL_SET_ALL,)
 
 
-def test_system_skills_destination_supports_kimi_home_skills_root() -> None:
+def test_system_skills_destination_supports_kimi_and_universal_skills_roots() -> None:
     assert system_skills_destination_for_tool("kimi") == "skills"
+    assert system_skills_destination_for_tool("universal") == "skills"
 
 
 def test_interop_ag_ui_packaged_asset_contract() -> None:
@@ -1130,6 +1131,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     manage_credentials_path = home_path / "skills/houmao-credential-mgr/SKILL.md"
     manage_credentials_actions = home_path / "skills/houmao-credential-mgr/actions"
     manage_credentials_references = home_path / "skills/houmao-credential-mgr/references"
+    manage_credentials_subskills = home_path / "skills/houmao-credential-mgr/subskills"
     memory_path = home_path / "skills/houmao-memory-mgr/SKILL.md"
     manage_agent_definition_path = home_path / "skills/houmao-agent-definition/SKILL.md"
     manage_agent_definition_agents = home_path / "skills/houmao-agent-definition/agents"
@@ -1292,7 +1294,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     credentials_get_action_path = manage_credentials_actions / "get.md"
     credentials_add_action_path = manage_credentials_actions / "add.md"
     credentials_set_action_path = manage_credentials_actions / "set.md"
+    credentials_login_action_path = manage_credentials_actions / "login.md"
     credentials_remove_action_path = manage_credentials_actions / "remove.md"
+    credentials_kimi_login_subskill_path = (
+        manage_credentials_subskills / "kimi-code-login-handling.md"
+    )
     definition_create_action_path = manage_agent_definition_actions / "create.md"
     definition_list_action_path = manage_agent_definition_actions / "list.md"
     definition_get_action_path = manage_agent_definition_actions / "get.md"
@@ -1300,6 +1306,10 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     definition_remove_action_path = manage_agent_definition_actions / "remove.md"
     credentials_get_action = credentials_get_action_path.read_text(encoding="utf-8")
     credentials_set_action = credentials_set_action_path.read_text(encoding="utf-8")
+    credentials_login_action = credentials_login_action_path.read_text(encoding="utf-8")
+    credentials_kimi_login_subskill = credentials_kimi_login_subskill_path.read_text(
+        encoding="utf-8"
+    )
     definition_get_action = definition_get_action_path.read_text(encoding="utf-8")
     definition_set_action = definition_set_action_path.read_text(encoding="utf-8")
     assert "command -v houmao-mgr" in project_mgr_skill
@@ -1472,6 +1482,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "actions/add.md" in manage_credentials_skill
     assert "actions/set.md" in manage_credentials_skill
     assert "actions/remove.md" in manage_credentials_skill
+    assert "subskills/kimi-code-login-handling.md" in manage_credentials_skill
     assert "project credentials <tool> <verb>" in manage_credentials_skill
     assert "internals native-agent credentials <tool> <verb>" in manage_credentials_skill
     assert "project profile ..." in manage_credentials_skill
@@ -1485,7 +1496,9 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert credentials_get_action_path.is_file()
     assert credentials_add_action_path.is_file()
     assert credentials_set_action_path.is_file()
+    assert credentials_login_action_path.is_file()
     assert credentials_remove_action_path.is_file()
+    assert credentials_kimi_login_subskill_path.is_file()
     assert (
         "Use the `houmao-mgr` launcher already chosen by the top-level skill."
         in credentials_get_action
@@ -1504,6 +1517,40 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
         "Do not continue with set when the user has not provided any explicit supported change"
         in credentials_set_action
     )
+    assert "dedicated tmux session" in credentials_login_action
+    assert "tmux new-session -d -s" in credentials_login_action
+    assert 'proxy_env_args+=(-e "${name}=${!name}")' in credentials_login_action
+    assert "Do not add `--inherit-auth-env` for ordinary proxy preservation" in (
+        credentials_login_action
+    )
+    assert "maintained Houmao credential login command owns temp-home creation" in (
+        credentials_login_action
+    )
+    assert "../subskills/kimi-code-login-handling.md" in credentials_login_action
+    assert "Do not run or invent a maintained Kimi login helper" in credentials_login_action
+    for proxy_name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ):
+        assert proxy_name in credentials_login_action
+        assert proxy_name in credentials_kimi_login_subskill
+    assert "command -v kimi || command -v kimi-code" in credentials_kimi_login_subskill
+    assert "KIMI_CODE_HOME" in credentials_kimi_login_subskill
+    assert "tmux new-session -d -s" in credentials_kimi_login_subskill
+    assert 'proxy_env_args+=(-e "${name}=${!name}")' in credentials_kimi_login_subskill
+    assert "kimi login" in credentials_kimi_login_subskill
+    assert "credentials/kimi-code.json" in credentials_kimi_login_subskill
+    assert "--code-home" in credentials_kimi_login_subskill
+    assert "KIMI_CODE_OAUTH_HOST" in credentials_kimi_login_subskill
+    assert "KIMI_OAUTH_HOST" in credentials_kimi_login_subskill
+    assert "KIMI_CODE_BASE_URL" in credentials_kimi_login_subskill
+    assert "kimi-code-env-<hash>.json" in credentials_kimi_login_subskill
     assert "command -v houmao-mgr" in manage_agent_definition_skill
     assert "uv tool run --from houmao houmao-mgr" in manage_agent_definition_skill
     assert ".venv/bin/houmao-mgr" in manage_agent_definition_skill
@@ -1762,7 +1809,11 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     kimi_reference = kimi_reference_path.read_text(encoding="utf-8")
 
     assert "CLAUDE_CODE_OAUTH_TOKEN" in claude_reference
+    assert "claude setup-token" in claude_reference
+    assert "Long-Lived Claude Code OAuth Token (Preferred Default)" in claude_reference
     assert "--oauth-token" in claude_reference
+    assert "Do not use `--auth-token` for `CLAUDE_CODE_OAUTH_TOKEN`." in claude_reference
+    assert "Auth Token (Bearer Token)" in claude_reference
     assert "--config-dir" in claude_reference
     assert ".credentials.json" in claude_reference
     assert "optional bootstrap state" in claude_reference
@@ -1780,9 +1831,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert deprecated_fixture_root not in gemini_reference
 
     assert "Existing Kimi Code Home" in kimi_reference
+    assert "Fresh Default Kimi Code OAuth Login" in kimi_reference
     assert "--code-home" in kimi_reference
     assert "config.toml" in kimi_reference
     assert "credential-json" in kimi_reference
+    assert "../subskills/kimi-code-login-handling.md" in kimi_reference
+    assert "Kimi Platform API key" in kimi_reference
+    assert "kimi-code-env-<hash>.json" in kimi_reference
     assert deprecated_fixture_root not in kimi_reference
 
 
@@ -2083,6 +2138,85 @@ def test_install_system_skills_for_home_supports_copilot_symlink_projection(
     )
     assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
     _assert_no_install_state_written(home_path)
+
+
+def test_install_system_skills_for_home_projects_universal_selected_skills_and_status(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "agents-home").resolve()
+
+    result = install_system_skills_for_home(
+        tool="universal",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
+    )
+
+    installed_records = discover_installed_system_skills(tool="universal", home_path=home_path)
+
+    assert result.tool == "universal"
+    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
+    assert result.projection_mode == "copy"
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
+        "skills/houmao-specialist-mgr",
+    )
+    assert tuple(record.projection_mode for record in installed_records) == ("copy",)
+    _assert_no_install_state_written(home_path)
+
+
+def test_install_system_skills_for_home_supports_universal_symlink_projection(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "agents-home").resolve()
+
+    result = install_system_skills_for_home(
+        tool="universal",
+        home_path=home_path,
+        skill_names=("houmao-specialist-mgr",),
+        projection_mode="symlink",
+    )
+
+    installed_skill_dir = home_path / "skills/houmao-specialist-mgr"
+    installed_records = discover_installed_system_skills(tool="universal", home_path=home_path)
+
+    assert result.projected_relative_dirs == ("skills/houmao-specialist-mgr",)
+    assert result.projection_mode == "symlink"
+    assert installed_skill_dir.is_symlink()
+    assert installed_skill_dir.readlink().is_absolute()
+    assert installed_skill_dir.readlink() == _packaged_skill_asset_root("houmao-specialist-mgr")
+    assert (installed_skill_dir / "SKILL.md").is_file()
+    assert tuple(record.name for record in installed_records) == ("houmao-specialist-mgr",)
+    assert tuple(record.projected_relative_dir for record in installed_records) == (
+        "skills/houmao-specialist-mgr",
+    )
+    assert tuple(record.projection_mode for record in installed_records) == ("symlink",)
+    _assert_no_install_state_written(home_path)
+
+
+def test_uninstall_system_skills_for_home_targets_universal_skills_root_only(
+    tmp_path: Path,
+) -> None:
+    home_path = (tmp_path / "agents-home").resolve()
+    universal_skill_path = home_path / "skills/houmao-specialist-mgr/SKILL.md"
+    universal_retired_path = home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}/SKILL.md"
+    codex_skill_path = tmp_path / ".codex/skills/houmao-specialist-mgr/SKILL.md"
+    _write(universal_skill_path, "universal skill\n")
+    _write(universal_retired_path, "retired universal skill\n")
+    _write(codex_skill_path, "codex skill\n")
+
+    result = uninstall_system_skills_for_home(tool="universal", home_path=home_path)
+
+    assert result.tool == "universal"
+    assert result.removed_skill_names == ("houmao-specialist-mgr",)
+    assert result.removed_projected_relative_dirs == ("skills/houmao-specialist-mgr",)
+    assert result.removed_retired_skill_names == (RETIRED_AGENT_AG_UI_SKILL,)
+    assert result.removed_retired_projected_relative_dirs == (
+        f"skills/{RETIRED_AGENT_AG_UI_SKILL}",
+    )
+    assert not (home_path / "skills/houmao-specialist-mgr").exists()
+    assert not (home_path / f"skills/{RETIRED_AGENT_AG_UI_SKILL}").exists()
+    assert codex_skill_path.is_file()
 
 
 def test_install_system_skills_for_home_rejects_symlink_projection_without_filesystem_asset(

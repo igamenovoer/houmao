@@ -50,6 +50,8 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router 
 - `remove`
 - `login`
 
+The top-level `SKILL.md` SHALL also route explicit Kimi Code login/import requests to local Kimi Code login-handling guidance without adding Kimi to the maintained credential login-helper tool list.
+
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `project specialist create|list|get|remove`
@@ -78,11 +80,12 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **THEN** the skill marks specialist CRUD, managed-agent lifecycle work, mailbox cleanup, and direct file editing as outside the packaged skill scope
 - **AND THEN** it does not present those actions as part of the supported credential-management guidance
 
-#### Scenario: Kimi credential work is CRUD-only
+#### Scenario: Kimi credential work uses CRUD plus Kimi Code login handling
 
 - **WHEN** an agent reads `houmao-credential-mgr` guidance for tool `kimi`
 - **THEN** the skill presents `list`, `get`, `add`, `set`, `rename`, and `remove` as supported credential actions
-- **AND THEN** it does not present a Kimi credential `login` helper unless a maintained Kimi login helper is added in a later change
+- **AND THEN** it may route an explicit Kimi Code login/import request to Kimi-specific login-handling guidance that ends in an existing `add` or `set --code-home` import command
+- **AND THEN** it does not present a `houmao-mgr project credentials kimi login` or `houmao-mgr internals native-agent credentials kimi login` helper unless a maintained Kimi login helper is added in a later change
 
 ### Requirement: `houmao-credential-mgr` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-credential-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
@@ -228,6 +231,21 @@ The skill SHALL instruct agents to use:
 - `houmao-mgr internals native-agent credentials <tool> login --native-agent-root <path> --name <name>` when the user explicitly targets a direct native-agent credential root,
 - the explicit update option only when the user intends to replace an existing credential.
 
+The skill SHALL instruct agents to run provider credential login helper commands in a dedicated tmux session by default so the agent or operator can attach to, inspect, and interact with provider browser, device-code, console, or paste-back authentication steps.
+
+The skill SHALL instruct agents to propagate the invoking shell's ambient proxy environment into the tmux login session by default. At minimum, when set in the current environment, the guidance SHALL carry these variables into the tmux session with explicit tmux environment arguments or an equivalent current-env-preserving tmux setup:
+
+- `HTTP_PROXY`
+- `HTTPS_PROXY`
+- `ALL_PROXY`
+- `NO_PROXY`
+- `http_proxy`
+- `https_proxy`
+- `all_proxy`
+- `no_proxy`
+
+The skill SHALL explain that `--inherit-auth-env` preserves provider auth-related variables for the maintained login command and SHALL NOT present that flag as the mechanism for ordinary proxy inheritance.
+
 The skill SHALL explain that the command creates an isolated temporary provider home, invokes the installed provider CLI with inherited stdio, imports the expected auth artifact into Houmao storage, and deletes the temporary provider home after a successful import by default.
 
 The skill SHALL tell agents not to hand-roll this workflow by manually creating provider home directories, running provider login commands, copying auth files into credential storage, or deleting temp directories outside the supported project or internal native-agent credential login surfaces unless the user explicitly asks for a lower-level recovery workflow after a failed login attempt.
@@ -254,6 +272,76 @@ The skill SHALL tell agents not to hand-roll this workflow by manually creating 
 - **THEN** the skill states that the supported credential login command owns the temporary provider home lifecycle
 - **AND THEN** it states that successful imports delete the temp home by default while failed attempts preserve and report it for recovery
 
+#### Scenario: Login helper runs in tmux with proxy variables
+- **WHEN** an agent follows the login workflow guidance for Claude, Codex, or Gemini
+- **AND WHEN** tmux is available
+- **THEN** the skill directs the agent to start the maintained Houmao credential login command in a dedicated tmux session
+- **AND THEN** the tmux session inherits any set uppercase and lowercase proxy variables from the invoking shell
+
+#### Scenario: Proxy preservation does not require auth-env inheritance
+- **WHEN** an agent follows the login workflow guidance with proxy variables set
+- **THEN** the skill preserves proxy variables through the tmux session setup
+- **AND THEN** it does not tell the agent to add `--inherit-auth-env` unless the user explicitly wants ambient provider auth variables preserved for the login command
+
+### Requirement: `houmao-credential-mgr` provides Kimi Code login-handling guidance
+The packaged `houmao-credential-mgr` skill SHALL include local Kimi Code login-handling guidance for requests to obtain a fresh default Kimi Code OAuth login and import it into Houmao Kimi credential storage.
+
+The guidance SHALL explain that `kimi login` is the Kimi Code CLI OAuth device-code login command and SHALL distinguish it from the Kimi TUI `/login` flow, which can also collect Kimi Platform API keys.
+
+The guidance SHALL tell agents to run `kimi login` in a dedicated tmux session by default, with an isolated temporary `KIMI_CODE_HOME`, when the user asks for a new Kimi Code OAuth credential and the required Houmao credential name and target are known.
+
+The guidance SHALL instruct agents to preserve the current shell's proxy environment in the tmux session by passing set proxy variables explicitly with tmux environment arguments. At minimum, when set in the current environment, the guidance SHALL carry these variables into the tmux session:
+
+- `HTTP_PROXY`
+- `HTTPS_PROXY`
+- `ALL_PROXY`
+- `NO_PROXY`
+- `http_proxy`
+- `https_proxy`
+- `all_proxy`
+- `no_proxy`
+
+The guidance SHALL use the existing Kimi credential import surfaces after successful default OAuth login:
+
+- `houmao-mgr project [--project-dir <dir>] credentials kimi add --name <name> --code-home <temp-kimi-home>` for create-only project import,
+- `houmao-mgr project [--project-dir <dir>] credentials kimi set --name <name> --code-home <temp-kimi-home>` when the user explicitly intends to update an existing project credential,
+- `houmao-mgr internals native-agent credentials kimi add --native-agent-root <path> --name <name> --code-home <temp-kimi-home>` for create-only direct native-agent import,
+- `houmao-mgr internals native-agent credentials kimi set --native-agent-root <path> --name <name> --code-home <temp-kimi-home>` when the user explicitly intends to update an existing direct native-agent credential.
+
+The guidance SHALL verify that `<temp-kimi-home>/credentials/kimi-code.json` exists before importing with `--code-home`.
+
+The guidance SHALL preserve and report the temp Kimi Code home path when `kimi login` fails, is cancelled, or does not create the expected default credential file.
+
+The guidance SHALL constrain automatic import guidance to the default Kimi Code OAuth token file shape that Houmao already imports as `credentials/kimi-code.json`. When the user explicitly needs `KIMI_CODE_OAUTH_HOST`, `KIMI_OAUTH_HOST`, or `KIMI_CODE_BASE_URL` for a non-default Kimi Code environment, the guidance SHALL warn that current Houmao `--code-home` import does not preserve arbitrary scoped OAuth token filenames and SHALL ask before proceeding with any lower-level recovery path.
+
+The guidance SHALL NOT print proxy values, raw token JSON, raw API keys, or raw credential-file contents.
+
+The guidance SHALL NOT tell agents to use `--inherit-auth-env` for Kimi proxy preservation.
+
+#### Scenario: Default project Kimi Code OAuth login imports through code-home
+- **WHEN** the user asks the installed skill to log in to Kimi Code OAuth for the current project as credential `kimi-coding`
+- **AND WHEN** the user has not asked to update an existing credential
+- **AND WHEN** tmux is available
+- **THEN** the skill directs the agent to run `KIMI_CODE_HOME=<temp-kimi-home> kimi login` in a dedicated tmux session with set proxy variables forwarded
+- **AND THEN** after successful login it imports through `houmao-mgr project credentials kimi add --name kimi-coding --code-home <temp-kimi-home>`
+- **AND THEN** it does not call or invent `houmao-mgr project credentials kimi login`
+
+#### Scenario: Explicit native Kimi Code OAuth update uses set
+- **WHEN** the user asks to replace a Kimi credential under native-agent root `tests/fixtures/plain-agent-def` with a fresh Kimi Code OAuth login
+- **THEN** the skill directs the agent to complete `kimi login` with an isolated temporary `KIMI_CODE_HOME`
+- **AND THEN** it imports through `houmao-mgr internals native-agent credentials kimi set --native-agent-root tests/fixtures/plain-agent-def --name <name> --code-home <temp-kimi-home>`
+- **AND THEN** it does not use create-only `add` for the explicit replacement
+
+#### Scenario: Kimi login temp home is preserved on missing credential file
+- **WHEN** `kimi login` exits unsuccessfully or the temp home does not contain `credentials/kimi-code.json`
+- **THEN** the skill reports the preserved temporary `KIMI_CODE_HOME` path as recovery context
+- **AND THEN** it does not import an incomplete Kimi credential into Houmao storage
+
+#### Scenario: Non-default Kimi Code OAuth endpoints are not overpromised
+- **WHEN** the user asks to log in to Kimi Code with explicit `KIMI_CODE_OAUTH_HOST`, `KIMI_OAUTH_HOST`, or `KIMI_CODE_BASE_URL`
+- **THEN** the skill warns that Kimi may create a scoped OAuth token filename that current Houmao Kimi `--code-home` import does not preserve
+- **AND THEN** it does not promise that the imported credential will work for that scoped environment unless supported import behavior is added by a later change
+
 ### Requirement: `houmao-credential-mgr` ships per-tool credential kinds references and cites them when asking the user for missing auth inputs
 
 The packaged `houmao-credential-mgr` skill SHALL ship a `references/` directory under `src/houmao/agents/assets/system_skills/houmao-credential-mgr/` and four per-tool credential kinds reference pages inside that directory:
@@ -265,7 +353,7 @@ The packaged `houmao-credential-mgr` skill SHALL ship a `references/` directory 
 
 Each kinds reference page SHALL enumerate the user-facing credential kinds the selected tool accepts through `houmao-mgr project credentials <tool> add` and `houmao-mgr internals native-agent credentials <tool> add --native-agent-root <path>`, including at minimum the following kinds per tool:
 
-- Claude: API key, auth token, OAuth token, and a vendor-login config-directory kind that carries `.credentials.json` plus companion `.claude.json` when present.
+- Claude: a long-lived Claude Code OAuth token generated by `claude setup-token` and stored as `CLAUDE_CODE_OAUTH_TOKEN`, API key, auth token, OAuth token, and a vendor-login config-directory kind that carries `.credentials.json` plus companion `.claude.json` when present.
 - Codex: API key, and a cached login state kind that carries an `auth.json` file.
 - Gemini: API key, a Vertex AI kind that pairs a Google API key with the Vertex AI selector, and an OAuth creds kind that carries an `.gemini/oauth_creds.json` file.
 - Kimi: API key or provider-routing material that may include model name, base URL, provider type, Kimi Code base URL, Kimi Code OAuth host, OAuth host, telemetry disablement, `config.toml`, or credential JSON inputs according to the maintained Kimi credential CLI.
@@ -284,6 +372,12 @@ The `houmao-credential-mgr/actions/add.md` step that asks the user for missing a
 The `houmao-credential-mgr/SKILL.md` top-level file SHALL list the four kinds references as the credential kinds menu surface.
 
 The kinds reference pages SHALL use flag spellings that match the `houmao-credential-mgr` command surface rather than the `houmao-specialist-mgr` create-command spellings.
+
+The Claude kinds reference SHALL identify the long-lived Claude Code token generated by `claude setup-token` as the preferred default when the user wants to create a new Claude credential but has not specified a credential kind.
+
+The Claude kinds reference SHALL map the `claude setup-token` output to the existing credential-manager `--oauth-token` flag and `CLAUDE_CODE_OAUTH_TOKEN` environment value.
+
+The Claude kinds reference SHALL describe `ANTHROPIC_AUTH_TOKEN` / `--auth-token` as a distinct bearer-token lane for explicit Anthropic auth-token or gateway/proxy-token use, not as the preferred unspecified Claude Code subscription credential lane.
 
 #### Scenario: Selected tool loads only its own kinds reference when asking the user
 
@@ -308,6 +402,36 @@ The kinds reference pages SHALL use flag spellings that match the `houmao-creden
 - **WHEN** the Kimi kinds reference for `houmao-credential-mgr` is presented to the user
 - **THEN** it describes the Kimi credential inputs accepted by the maintained credential add/set surfaces
 - **AND THEN** it maps those inputs to credential-manager flag spellings such as `--api-key`, `--model-name`, `--base-url`, `--provider-type`, `--code-base-url`, `--code-oauth-host`, `--oauth-host`, `--disable-telemetry`, `--config-toml`, or `--credential-json`
+
+#### Scenario: Unspecified Claude creation prefers setup-token
+- **WHEN** a user asks the installed skill to create a new Claude credential
+- **AND WHEN** the user has not specified API key, bearer auth token, existing vendor config directory, or another credential kind
+- **THEN** the Claude kinds guidance presents `claude setup-token` and `--oauth-token` / `CLAUDE_CODE_OAUTH_TOKEN` as the preferred default path
+- **AND THEN** it does not prefer `ANTHROPIC_AUTH_TOKEN` or vendor-login import ahead of the long-lived Claude Code token lane
+
+#### Scenario: Claude bearer-token lane remains explicit
+- **WHEN** a user provides or asks for `ANTHROPIC_AUTH_TOKEN`
+- **THEN** the Claude kinds guidance maps that material to `--auth-token`
+- **AND THEN** it distinguishes that bearer-token lane from the `CLAUDE_CODE_OAUTH_TOKEN` lane generated by `claude setup-token`
+
+### Requirement: Kimi credential-kind guidance references Kimi Code login handling
+The Kimi credential kinds reference SHALL continue to enumerate the maintained Kimi CRUD input kinds accepted by `credentials kimi add` and `credentials kimi set`.
+
+The Kimi credential kinds reference SHALL describe default Kimi Code OAuth login as a workflow that creates a Kimi Code home and then imports it with `--code-home`, not as a direct credential value pasted into `add`.
+
+The Kimi credential kinds reference SHALL link or point to the Kimi Code login-handling guidance when the user wants a fresh default Kimi Code OAuth login.
+
+The Kimi credential kinds reference SHALL keep Kimi Platform API key handling separate from `kimi login` and SHALL map API-key material to the existing `--api-key` and related model/provider flags.
+
+#### Scenario: Kimi reference points fresh OAuth login to login handling
+- **WHEN** an agent reads the Kimi credential kinds reference for a user who wants a fresh Kimi Code OAuth login
+- **THEN** the reference directs the agent to the Kimi Code login-handling guidance and the `--code-home` import path
+- **AND THEN** it does not claim that `credentials kimi add` can itself perform the device-code login
+
+#### Scenario: Kimi API key remains a CRUD input
+- **WHEN** a user provides a Kimi Platform or compatible provider API key
+- **THEN** the Kimi credential kinds reference maps that material to `--api-key` and optional Kimi model/provider modifiers
+- **AND THEN** it does not route API-key storage through `kimi login`
 
 ### Requirement: `houmao-credential-mgr` uses direct command snippets for credential workflows
 The packaged `houmao-credential-mgr` skill SHALL document supported credential commands as fenced `bash` snippets.
@@ -347,7 +471,7 @@ The packaged `houmao-credential-mgr` action pages for `list`, `get`, `add`, `set
 
 Kimi `add` and `set` guidance SHALL describe only documented Kimi credential flags and SHALL NOT invent provider-neutral flags that the CLI does not support.
 
-Kimi `login` guidance SHALL state that Kimi does not have a maintained Houmao credential login helper in this change.
+Kimi `login` guidance SHALL state that Kimi does not have a maintained Houmao credential login helper in this change and may route explicit Kimi Code OAuth login/import requests to the local Kimi Code login-handling workflow.
 
 #### Scenario: Add guidance offers Kimi credential inputs
 
@@ -361,9 +485,9 @@ Kimi `login` guidance SHALL state that Kimi does not have a maintained Houmao cr
 - **THEN** the `set` action can route to the Kimi credential set command for the selected target
 - **AND THEN** the guidance presents Kimi-specific update flags from the maintained CLI surface
 
-#### Scenario: Login guidance excludes Kimi helper workflow
+#### Scenario: Login guidance excludes Kimi helper workflow while routing Kimi Code login handling
 
 - **WHEN** a user asks the installed skill to log in to Kimi through Houmao credential helpers
 - **THEN** the skill explains that no maintained Kimi credential login helper is available in this change
+- **AND THEN** it may route a default Kimi Code OAuth login/import request to local Kimi Code login-handling guidance
 - **AND THEN** it does not direct the agent to run a Claude, Codex, or Gemini login helper for Kimi
-

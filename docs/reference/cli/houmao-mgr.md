@@ -195,7 +195,7 @@ Ordinary project users manage credentials through `houmao-mgr project [--project
 houmao-mgr system-skills [OPTIONS] COMMAND [ARGS]...
 ```
 
-Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Kimi, Gemini, or Copilot homes.
+Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill set for resolved Claude, Codex, Kimi Code, Gemini, or Copilot homes, or for the cross-client `universal` Agent Skills target.
 
 #### Subcommands
 
@@ -208,19 +208,21 @@ Install, remove, or inspect the packaged current Houmao-owned `houmao-*` skill s
 
 Operational notes:
 
-- `system-skills install` requires `--tool`; the value may be one supported tool or a comma-separated list such as `claude,codex,kimi,gemini,copilot`
+- `system-skills install` requires `--tool`; the value may be one supported target or a comma-separated list such as `claude,codex,kimi,gemini,copilot,universal`
 - `system-skills uninstall` also requires `--tool` and accepts the same single-tool or comma-separated tool syntax
 - `system-skills install --home` and `system-skills uninstall --home` are valid only when `--tool` names one tool; comma-separated multi-tool operations resolve each home independently
 - `system-skills status` requires `--tool` and accepts optional `--home`
-- when `--home` is omitted, the effective home resolves with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`), then the project-scoped default home
+- when `--home` is omitted, tool-specific targets resolve with precedence tool-native home env var (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`), then the project-scoped default home; `universal` resolves to `~/.agents`
 - the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.kimi-code` for Kimi, `<cwd>` for Gemini, and `<cwd>/.github` for Copilot
+- `kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is being wound down in favor of Kimi Code CLI
+- `universal --home <path>` treats `<path>` as the `.agents` root that contains `skills/`; omitted-home universal installs land under `~/.agents/skills/`
 - omitting both `--skill-set` and `--skill` selects the packaged CLI-default set list
 - repeatable `--skill-set` expands named system-skill sets; `--set` is no longer a supported install flag
 - optional `--symlink` installs the selected packaged skills as absolute-target directory symlinks instead of copied trees
 - `system-skills uninstall` does not accept install-selection flags; it removes all current known Houmao skill paths for the resolved home
 - repeated skill sets expand in order, explicit skills append after sets, and the final list is deduplicated by first occurrence
-- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, Kimi, and Copilot use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
-- Kimi output reports a discovery caveat because explicit `--home` or `KIMI_CODE_HOME` projection does not by itself make arbitrary `<KIMI_CODE_HOME>/skills` visible to Kimi Code unless `config.toml` includes that path in `extra_skill_dirs`
+- the installer preserves flat visible Houmao-owned skill paths: Claude, Codex, Kimi, Copilot, and Universal use `skills/houmao-...`, and Gemini uses `.gemini/skills/houmao-...`
+- Kimi output reports a discovery caveat because `--home` places files; Kimi Code discovers them when a later launch uses the same `KIMI_CODE_HOME`, passes the path with `--skills-dir`, or includes it through `extra_skill_dirs`
 - uninstall removes exact current Houmao skill paths and preserves unrelated user skills, parent roots, legacy paths, and obsolete install-state files
 - `status` discovers current packaged skill paths in the resolved home; `install` replaces selected current Houmao-owned skill destinations directly without install-state ownership checks
 - managed brain build and `agents self join` use the same packaged catalog internally; `agents self join` keeps the fixed managed-join selection, while managed brain build may use stored source/profile managed system-skill policy instead of the plain managed-launch default
