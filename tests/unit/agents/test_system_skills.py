@@ -132,7 +132,7 @@ def test_load_system_skill_catalog_reports_named_sets_and_auto_install_defaults(
     assert "Manual operator messaging skill" in (
         catalog.skills[SYSTEM_SKILL_OPERATOR_MESSAGING].description or ""
     )
-    assert "AG-UI component authoring" in (
+    assert "AG-UI implementation authoring" in (
         catalog.skills[SYSTEM_SKILL_INTEROP_AG_UI].description or ""
     )
     assert catalog.retired_skill_names == RETIRED_SYSTEM_SKILLS
@@ -161,9 +161,10 @@ def test_interop_ag_ui_packaged_asset_contract() -> None:
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
 
     assert "name: houmao-interop-ag-ui" in skill_text
-    assert "Typed Houmao components are an application-layer protocol" in skill_text
-    assert "houmao-mgr internals ag-ui components list" in skill_text
-    assert "houmao-mgr internals ag-ui events render" in skill_text
+    assert "Typed Houmao implementations are application-layer contracts" in skill_text
+    assert "houmao-mgr ag-ui impl list" in skill_text
+    assert "houmao-mgr ag-ui protocol events validate" in skill_text
+    assert "houmao-mgr ag-ui impl render" in skill_text
     assert "houmao-mgr agents self gateway ag-ui publish" in skill_text
     assert "This command intentionally has no `--endpoint` option" in skill_text
     assert "Do not include credentials, tokens, cookies" in skill_text

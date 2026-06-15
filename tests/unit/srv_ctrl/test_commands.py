@@ -99,6 +99,7 @@ def _decode_json_stream(output: str) -> list[dict[str, object]]:
 def test_top_level_command_inventory_exposes_new_native_surface() -> None:
     assert set(cli.commands.keys()) == {
         "admin",
+        "ag-ui",
         "agents",
         "internals",
         "mailbox",
@@ -112,6 +113,7 @@ def test_bare_invocation_prints_help() -> None:
 
     assert result.exit_code == 0
     assert "Usage: houmao-mgr" in result.output
+    assert "ag-ui" in result.output
     assert "agents" in result.output
     assert "internals" in result.output
     assert "mailbox" in result.output

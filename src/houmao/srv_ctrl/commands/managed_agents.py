@@ -2525,7 +2525,7 @@ def gateway_ag_ui_publish(
     _raise_external_unsupported(
         target,
         operation="agents single ... gateway ag-ui publish",
-        hint="Generate events with `houmao-mgr internals ag-ui events render` and deliver them with endpoint-specific tooling for third-party endpoints.",
+        hint="Generate events with `houmao-mgr ag-ui impl render` or `houmao-mgr ag-ui protocol tool-call render` and deliver them with endpoint-specific tooling for third-party endpoints.",
     )
     target = _local_gateway_target_for_passive_pair(target, operation="ag-ui publish")
     if _target_uses_pair_api(target):

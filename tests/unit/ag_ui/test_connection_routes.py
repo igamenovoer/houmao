@@ -582,7 +582,9 @@ def test_destination_state_starts_empty_sets_and_conditionally_clears_active_thr
     assert state["lastSentThread"]["threadId"] == "thread-sent"
 
 
-def test_events_route_uses_active_thread_after_explicit_destination_and_refreshes_last_sent() -> None:
+def test_events_route_uses_active_thread_after_explicit_destination_and_refreshes_last_sent() -> (
+    None
+):
     runtime = _SpyRuntime()
     app = FastAPI()
     register_ag_ui_routes(app, runtime=runtime)
@@ -625,7 +627,9 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
     client = TestClient(app)
     events = _template_chart_events()
 
-    initial_sent = client.post("/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events})
+    initial_sent = client.post(
+        "/v1/ag-ui/events", json={"threadId": "thread-sent", "events": events}
+    )
     assert initial_sent.status_code == 200
     active = client.put(
         "/v1/ag-ui/active-thread",
@@ -633,14 +637,17 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
     )
     assert active.status_code == 200
 
-    explicit = client.post("/v1/ag-ui/events", json={"threadId": "thread-explicit", "events": events})
+    explicit = client.post(
+        "/v1/ag-ui/events", json={"threadId": "thread-explicit", "events": events}
+    )
     assert explicit.status_code == 200
     explicit_body = explicit.json()
     assert explicit_body["threadId"] == "thread-explicit"
     assert "destinationKind" not in explicit_body
-    assert client.get("/v1/ag-ui/destination").json()["lastSentThread"][
-        "threadId"
-    ] == "thread-explicit"
+    assert (
+        client.get("/v1/ag-ui/destination").json()["lastSentThread"]["threadId"]
+        == "thread-explicit"
+    )
 
     connection = client.post(
         "/v1/ag-ui/events",
@@ -654,8 +661,7 @@ def test_events_route_uses_message_connection_and_event_destination_precedence()
     assert state_after_connection["source"] == "connection"
 
     event_routed_events = [
-        {**event, "threadId": "thread-event"}
-        for event in _template_chart_events()
+        {**event, "threadId": "thread-event"} for event in _template_chart_events()
     ]
     event_routed = client.post("/v1/ag-ui/events", json={"events": event_routed_events})
     assert event_routed.status_code == 200

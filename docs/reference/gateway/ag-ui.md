@@ -76,7 +76,7 @@ The publish response reports:
 
 `deliveredCount: 0` means no matching live GUI stream received the events. A later GUI connection will not recover that missed batch from the gateway. A GUI that needs durable display history must keep a listener connected for the interested target and cache events client-side.
 
-The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gateway validates standard AG-UI event shapes, batch limits, route conflicts, and locally checkable tool-call ordering. It does not inspect Houmao component schemas or payload semantics. Generate Houmao typed component events with `houmao-mgr internals ag-ui events render`, and publish them with `houmao-mgr agents self gateway ag-ui publish` or `houmao-mgr agents single ... gateway ag-ui publish`.
+The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gateway validates standard AG-UI event shapes, batch limits, route conflicts, and locally checkable tool-call ordering. It does not inspect Houmao implementation schemas or payload semantics. Generate Houmao typed implementation events with `houmao-mgr ag-ui impl render`, and publish them with `houmao-mgr agents self gateway ag-ui publish` or `houmao-mgr agents single ... gateway ag-ui publish`.
 
 ## Capability Discovery
 
@@ -84,7 +84,7 @@ The publish batch is bounded to 100 events and 256 KiB of encoded JSON. The gate
 curl "$GATEWAY_URL/v1/ag-ui/capabilities"
 ```
 
-Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. Capabilities include `custom.houmao.presentation.templateGraphics` metadata for Layer 1 Plotly-backed template graphics and `custom.houmao.presentation.vegaDsl` metadata for Layer 2 Vega-Lite DSL graphics. `templateGraphics` advertises schema version `3`, `figureType: "plotly2d"`, supported Plotly 2D trace types, excluded true 3D traces, the Plotly bundle id, the offline map policy, and datasource binding vocabulary versus materialization support. `templateGraphics.rawPlotlyDsl` and `templateGraphics.rawVegaLiteDsl` remain `false`; raw Plotly figures and raw Vega-Lite specs do not belong inside Layer 1. The `vegaDsl` block reports the `houmao.graphic.vegalite` tool name, supported Vega-Lite major versions, `vega-embed` browser rendering, disabled remote-data loading, inline-data support, optional Altair authoring, and `preflight.pythonCompile: false`. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
+Capabilities are conservative. The gateway currently reports HTTP SSE streaming, text input, state snapshots, and generated graphics when the backend can expose structured headless artifacts. Houmao custom metadata separates `custom.houmao.agUiProtocol` from `custom.houmao.agUiImpl`. The protocol block describes standard AG-UI event validation, event framing formats, schema-agnostic tool-call rendering, and live-only publish semantics. The impl block describes Houmao-owned implementation contracts grouped under `templated-graphics`, `freeform-graphics`, and `new-component`. `templated-graphics` currently identifies the Plotly-backed `houmao.graphic.template` schema. `freeform-graphics` currently identifies the Vega-Lite `houmao.graphic.vegalite` schema. `new-component` covers table, metric, dashboard, and frontend-specific custom tool calls. The older `custom.houmao.presentation.templateGraphics` and `custom.houmao.presentation.vegaDsl` blocks remain for compatibility. The gateway does not report state deltas, frontend tool execution, Open Generative UI support, or resumable replay for published GUI events.
 
 Capabilities report `transport.resumable: false` and Houmao `replaySupport: "current_snapshot_only"` for published GUI events. `POST /v1/ag-ui/connect` emits a fresh `STATE_SNAPSHOT` and then future live fanout events. Clients should not send browser cache cursors as `lastSeenEventId` expecting the gateway to recover missed published events.
 
@@ -118,9 +118,9 @@ The AG-UI mapper recognizes graphics only from explicit structured canonical `ac
 
 ## Typed Component Contract
 
-Houmao typed components are application-layer payloads carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. The legacy fixed chart names `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` are retired and must be rewritten as `houmao.graphic.template` payloads.
+Houmao typed implementations are application-layer payload contracts carried inside standard AG-UI tool-call events. The current names are `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. The legacy fixed chart names `houmao.chart.bar`, `houmao.chart.line`, and `houmao.chart.pie` are retired and must be rewritten as `houmao.graphic.template` payloads.
 
-Use `houmao-mgr internals ag-ui components list` and `houmao-mgr internals ag-ui components schema <component>` to discover schemas. Use `houmao-mgr internals ag-ui components traces` to list supported and excluded Plotly template trace types directly. Use `houmao-mgr internals ag-ui components validate <component> --input payload.json` before rendering. Choose the least powerful graphics layer that satisfies the request: use Layer 1 `houmao.graphic.template` for supported Plotly 2D trace families such as bar, scatter, heatmap, box, violin, financial, polar, treemap, table, and Sankey charts, and use Layer 2 `houmao.graphic.vegalite` only when the chart needs Vega-Lite grammar, custom declarative composition, layering, or interactions. The GUI version owns renderer compatibility for these Houmao component payloads and should show an unknown-component fallback when it receives a component name or schema version it does not understand.
+Use `houmao-mgr ag-ui impl list` and `houmao-mgr ag-ui impl schema <implementation>` to discover schemas. Use `houmao-mgr ag-ui impl templated-graphics list` and `houmao-mgr ag-ui impl freeform-graphics list` to list graphics schemas by layer. Use `houmao-mgr ag-ui impl catalog houmao.graphic.template traces` to list supported and excluded Plotly template trace types directly. Use `houmao-mgr ag-ui impl validate <implementation> --input payload.json` before rendering. Choose the least powerful graphics layer that satisfies the request: use Layer 1 `houmao.graphic.template` for supported Plotly 2D trace families such as bar, scatter, heatmap, box, violin, financial, polar, treemap, table, and Sankey charts, and use Layer 2 `houmao.graphic.vegalite` only when the chart needs Vega-Lite grammar, custom declarative composition, layering, or interactions. Use `houmao-mgr ag-ui impl new-component render --tool-name ... --args payload.json` only when the caller knows the frontend-specific implementation contract. Protocol validity alone does not imply GUI render support. The GUI version owns renderer compatibility for these Houmao implementation payloads and should show an unknown-component fallback when it receives an implementation name or schema version it does not understand.
 
 ### Layer 1 Template Graphics
 
@@ -208,8 +208,8 @@ Migration note: previous experimental schema version `1` template payloads using
 Agents should generate template graphic events through the authoring helpers:
 
 ```bash
-houmao-mgr internals ag-ui components validate houmao.graphic.template --input payload.json
-houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json > events.json
+houmao-mgr ag-ui impl validate houmao.graphic.template --input payload.json
+houmao-mgr ag-ui impl render houmao.graphic.template --input payload.json > events.json
 ```
 
 ### Layer 2 Vega-Lite Graphics
@@ -266,8 +266,8 @@ spec = chart.to_dict()
 Validate and render Layer 2 payloads through the same authoring surface:
 
 ```bash
-houmao-mgr internals ag-ui components validate houmao.graphic.vegalite --input payload.json
-houmao-mgr internals ag-ui events render houmao.graphic.vegalite --input payload.json > events.json
+houmao-mgr ag-ui impl validate houmao.graphic.vegalite --input payload.json
+houmao-mgr ag-ui impl render houmao.graphic.vegalite --input payload.json > events.json
 ```
 
 Safety policy: `houmao.graphic.vegalite` accepts inline JSON data and known Vega-Lite v6 `$schema` URLs such as the Altair-emitted schema URL. It rejects remote `data.url`, other URL-loading fields, arbitrary HTTP(S) strings outside the allowed schema marker, script tags, JavaScript URLs, iframes, scriptable SVG content, non-JSON `spec` values, unsupported `specVersion` values, and oversized payloads. The workbench also disables external loading in `vega-embed` and shows an invalid-component fallback for malformed specs, compile errors, runtime errors, or rejected remote-loading shapes.

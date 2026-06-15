@@ -174,7 +174,7 @@ def test_system_skills_list_reports_sets_and_auto_install_defaults() -> None:
         in skill_descriptions["houmao-agent-definition"]
     )
     assert "Compatibility wrapper" in skill_descriptions["houmao-specialist-mgr"]
-    assert "AG-UI component authoring" in skill_descriptions["houmao-interop-ag-ui"]
+    assert "AG-UI implementation authoring" in skill_descriptions["houmao-interop-ag-ui"]
     core_record = next(record for record in payload["sets"] if record["name"] == "core")
     assert core_record["skills"] == _DEFAULT_RESOLVED_SKILLS
     all_record = next(record for record in payload["sets"] if record["name"] == "all")

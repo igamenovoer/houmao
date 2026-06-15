@@ -8,12 +8,18 @@ from houmao.ag_ui.authoring import (
     HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES,
     HoumaoAgUiValidationError,
     component_schema_payload,
+    implementation_category_payload,
+    implementation_schema_payload,
     list_component_summaries,
+    list_implementation_summaries,
     render_component_events,
     render_events_as_jsonl,
     render_events_as_sse,
+    render_implementation_events,
+    render_protocol_tool_call_events,
     validate_ag_ui_event_sequence,
     validate_component_payload,
+    validate_implementation_payload,
 )
 from houmao.ag_ui.plotly_trace_catalog import PLOTLY_2D_TRACE_CATALOG, PLOTLY_2D_TRACE_TYPES
 
@@ -100,6 +106,26 @@ def test_component_registry_exposes_current_schemas_and_examples() -> None:
     assert "schema" in vegalite_schema
 
 
+def test_implementation_registry_exposes_layered_graphics_categories() -> None:
+    summaries = list_implementation_summaries()
+    names = {summary["name"] for summary in summaries}
+
+    assert names == {summary["name"] for summary in list_component_summaries()}
+    template_schema = implementation_schema_payload("houmao.graphic.template")
+    assert template_schema["category"] == "templated-graphics"
+    assert template_schema["backend"] == "plotly"
+    assert template_schema["renderer"] == "plotly.js"
+    assert template_schema["protocolBinding"] == "tool-call-json-args"
+
+    templated = implementation_category_payload("templated-graphics")
+    freeform = implementation_category_payload("freeform-graphics")
+    assert [schema["name"] for schema in templated["schemas"]] == ["houmao.graphic.template"]
+    assert templated["schemas"][0]["catalogs"] == ["traces"]
+    assert [schema["name"] for schema in freeform["schemas"]] == ["houmao.graphic.vegalite"]
+    assert freeform["schemas"][0]["backend"] == "vega-lite"
+    assert "heatmap" not in {schema["name"] for schema in templated["schemas"]}
+
+
 def test_valid_examples_validate_offline() -> None:
     for summary in list_component_summaries():
         schema = component_schema_payload(str(summary["name"]))
@@ -153,18 +179,18 @@ def test_template_graphic_accepts_datasource_binding_vocabulary() -> None:
             }
         ],
         "traces": [
-                {
-                    "type": "bar",
-                    "name": "Builds",
-                    "source": {
-                        "dataRef": "builds",
-                        "bindings": {
-                            "data.x": {"column": "status"},
-                            "data.y": {"column": "count"},
-                        },
+            {
+                "type": "bar",
+                "name": "Builds",
+                "source": {
+                    "dataRef": "builds",
+                    "bindings": {
+                        "data.x": {"column": "status"},
+                        "data.y": {"column": "count"},
                     },
-                }
-            ],
+                },
+            }
+        ],
     }
 
     validated = validate_component_payload("houmao.graphic.template", payload)
@@ -208,12 +234,12 @@ def test_template_graphic_rejects_invalid_datasource_binding_path() -> None:
 def test_template_graphic_validates_safe_plotly_extra() -> None:
     payload = _template_payload("bar")
     payload["extra"] = {
-            "plotly": {
-                "layout": {"bargap": 0.24, "margin": {"l": 48, "r": 12, "t": 36, "b": 44}},
-                "config": {"responsive": True},
-                "style": {"line": {"shape": "spline"}},
-            }
+        "plotly": {
+            "layout": {"bargap": 0.24, "margin": {"l": 48, "r": 12, "t": 36, "b": 44}},
+            "config": {"responsive": True},
+            "style": {"line": {"shape": "spline"}},
         }
+    }
 
     validated = validate_component_payload("houmao.graphic.template", payload)
 
@@ -366,7 +392,7 @@ def test_retired_fixed_chart_components_are_unsupported() -> None:
     for component in ("houmao.chart.bar", "houmao.chart.line", "houmao.chart.pie"):
         with pytest.raises(HoumaoAgUiValidationError) as schema_raised:
             component_schema_payload(component)
-        assert "Retired Houmao AG-UI component" in str(schema_raised.value)
+        assert "Retired Houmao AG-UI implementation" in str(schema_raised.value)
 
         with pytest.raises(HoumaoAgUiValidationError) as validate_raised:
             validate_component_payload(component, {"schemaVersion": 1})
@@ -374,8 +400,8 @@ def test_retired_fixed_chart_components_are_unsupported() -> None:
 
 
 def test_template_graphic_renders_to_standard_tool_call_events() -> None:
-    events = render_component_events(
-        component="houmao.graphic.template",
+    events = render_implementation_events(
+        implementation="houmao.graphic.template",
         payload=_template_payload("scatter"),
         message_id="message-1",
         tool_call_id="tool-1",
@@ -394,6 +420,29 @@ def test_template_graphic_renders_to_standard_tool_call_events() -> None:
     assert args["renderer"]["preferred"] == "plotly"
     assert "dataRefs" not in args
     assert validate_ag_ui_event_sequence(events) == events
+
+
+def test_protocol_tool_call_renderer_is_schema_agnostic() -> None:
+    events = render_protocol_tool_call_events(
+        tool_name="myapp.graphic.timeline",
+        args={"schemaVersion": 1, "items": [{"label": "A", "start": 1, "end": 2}]},
+        message_id="message-custom",
+        tool_call_id="tool-custom",
+    )
+
+    assert events[0]["toolCallName"] == "myapp.graphic.timeline"
+    assert json.loads(str(events[1]["delta"]))["items"][0]["label"] == "A"
+    assert validate_ag_ui_event_sequence(events) == events
+
+
+def test_protocol_tool_call_renderer_rejects_invalid_protocol_inputs() -> None:
+    with pytest.raises(HoumaoAgUiValidationError) as name_raised:
+        render_protocol_tool_call_events(tool_name="../bad", args={})
+    assert name_raised.value.to_payload()["fieldPaths"] == ["toolName"]
+
+    with pytest.raises(HoumaoAgUiValidationError) as args_raised:
+        render_protocol_tool_call_events(tool_name="myapp.good", args=[])
+    assert args_raised.value.to_payload()["fieldPaths"] == ["args"]
 
 
 def test_vegalite_graphic_validates_and_renders_to_standard_tool_call_events() -> None:
@@ -546,8 +595,21 @@ def test_invalid_table_payload_reports_field_path_without_raw_values() -> None:
 
     diagnostic = raised.value.to_payload()
     assert diagnostic["component"] == "houmao.table"
+    assert diagnostic["implementation"] == "houmao.table"
     assert "private-value" not in json.dumps(diagnostic)
     assert diagnostic["fieldPaths"]
+
+
+def test_validate_implementation_payload_keeps_component_alias_compatible() -> None:
+    payload = {
+        "schemaVersion": 1,
+        "title": "Build Health",
+        "metrics": [{"label": "Pass rate", "value": "98%"}],
+    }
+
+    assert validate_implementation_payload("houmao.metric_grid", payload) == (
+        validate_component_payload("houmao.metric_grid", payload)
+    )
 
 
 def test_event_sequence_validation_rejects_args_before_start() -> None:

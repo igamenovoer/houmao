@@ -1,4 +1,4 @@
-"""Houmao AG-UI component authoring and event validation helpers."""
+"""Houmao AG-UI implementation authoring and protocol validation helpers."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from houmao.ag_ui.plotly_trace_catalog import (
     PLOTLY_TRACE_CATALOG_POLICY,
     PLOTLY_TRACE_CATALOG_VERSION,
 )
-from houmao.ag_ui.state import JsonObject
+from houmao.ag_ui.state import JsonObject, JsonValue
 
 HOUMAO_AG_UI_SCHEMA_VERSION = 1
 """Current schema version for existing non-graphic Houmao component payloads."""
@@ -123,6 +123,7 @@ _VEGALITE_SCHEMA_URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _RENDERER_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_TOOL_CALL_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,127}$")
 _TEMPLATE_GRAPHIC_LEGACY_KEYS = frozenset({"data", "encoding", "interactions", "style"})
 _PLOTLY_EXTRA_DISALLOWED_KEYS = frozenset(
     {
@@ -191,6 +192,7 @@ class HoumaoAgUiValidationError(ValueError):
         }
         if self.component is not None:
             payload["component"] = self.component
+            payload["implementation"] = self.component
         if self.event_index is not None:
             payload["eventIndex"] = self.event_index
         if self.field_paths:
@@ -396,7 +398,6 @@ class TemplateGraphicTraceSource(_HoumaoAgUiAuthoringModel):
         """Require a non-empty datasource id."""
 
         return _non_blank_text(value, field_name="source.dataRef")
-
 
     @field_validator("bindings")
     @classmethod
@@ -609,32 +610,70 @@ class HoumaoDashboardPayload(_VersionedComponentPayload):
 ComponentPayloadModel: TypeAlias = type[_HoumaoAgUiAuthoringModel]
 """Concrete Pydantic model class for one Houmao component payload."""
 
+ImplementationPayloadModel: TypeAlias = ComponentPayloadModel
+"""Concrete Pydantic model class for one Houmao implementation payload."""
+
 
 @dataclass(frozen=True)
-class HoumaoAgUiComponentSpec:
-    """Registry entry for one Houmao AG-UI component schema."""
+class HoumaoAgUiImplementationSpec:
+    """Registry entry for one Houmao AG-UI implementation schema."""
 
     name: HoumaoAgUiComponentName
     schema_version: int
     description: str
-    model: ComponentPayloadModel
+    model: ImplementationPayloadModel
     example: JsonObject
+    category: str
+    kind: str
+    backend: str | None = None
+    renderer: str | None = None
+    catalogs: tuple[str, ...] = ()
     metadata: JsonObject | None = None
 
     def to_summary(self) -> JsonObject:
-        """Return compact component metadata."""
+        """Return compact implementation metadata."""
 
-        return {
+        summary: JsonObject = {
             "name": self.name,
             "schemaVersion": self.schema_version,
             "description": self.description,
+            "category": self.category,
+            "kind": self.kind,
         }
+        if self.backend is not None:
+            summary["backend"] = self.backend
+        if self.renderer is not None:
+            summary["renderer"] = self.renderer
+        if self.catalogs:
+            summary["catalogs"] = list(self.catalogs)
+        return summary
+
+    def to_graphics_category_payload(self) -> JsonObject:
+        """Return one category-specific graphics discovery entry."""
+
+        payload: JsonObject = {
+            "name": self.name,
+            "schemaVersion": self.schema_version,
+            "kind": self.kind,
+            "catalogs": list(self.catalogs),
+        }
+        if self.category == "templated-graphics":
+            payload["layer"] = 1
+        elif self.category == "freeform-graphics":
+            payload["layer"] = 2
+        if self.backend is not None:
+            payload["backend"] = self.backend
+        if self.renderer is not None:
+            payload["renderer"] = self.renderer
+        return payload
 
     def to_schema_payload(self) -> JsonObject:
-        """Return the JSON Schema-compatible component schema payload."""
+        """Return the JSON Schema-compatible implementation schema payload."""
 
         payload: JsonObject = {
             **self.to_summary(),
+            "owner": "houmao",
+            "protocolBinding": "tool-call-json-args",
             "schema": cast(JsonObject, self.model.model_json_schema(by_alias=True)),
             "example": self.example,
             "protocol": "houmao.application.ag-ui",
@@ -644,12 +683,21 @@ class HoumaoAgUiComponentSpec:
         return payload
 
 
-_COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
-    HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
+HoumaoAgUiComponentSpec = HoumaoAgUiImplementationSpec
+"""Compatibility alias for the previous component registry type name."""
+
+
+_IMPLEMENTATION_SPECS: dict[str, HoumaoAgUiImplementationSpec] = {
+    HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME: HoumaoAgUiImplementationSpec(
         name=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
         schema_version=HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
         description=("Display standardized Layer 1 Plotly 2D template graphics."),
         model=HoumaoTemplateGraphicPayload,
+        category="templated-graphics",
+        kind="plotly2d-template",
+        backend="plotly",
+        renderer="plotly.js",
+        catalogs=("traces",),
         example={
             "schemaVersion": 3,
             "figureType": "plotly2d",
@@ -688,11 +736,15 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
             }
         },
     ),
-    HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME: HoumaoAgUiComponentSpec(
+    HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME: HoumaoAgUiImplementationSpec(
         name=HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
         schema_version=HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION,
         description="Display a Layer 2 declarative Vega-Lite v6 graphic.",
         model=HoumaoVegaLiteGraphicPayload,
+        category="freeform-graphics",
+        kind="vega-lite-dsl",
+        backend="vega-lite",
+        renderer="vega-embed",
         example={
             "schemaVersion": 1,
             "library": "vega-lite",
@@ -716,11 +768,13 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
             "display": {"height": 360, "caption": "Current queue status."},
         },
     ),
-    "houmao.table": HoumaoAgUiComponentSpec(
+    "houmao.table": HoumaoAgUiImplementationSpec(
         name="houmao.table",
         schema_version=HOUMAO_AG_UI_SCHEMA_VERSION,
         description="Display rows against a declared set of columns.",
         model=HoumaoTablePayload,
+        category="new-component",
+        kind="table",
         example={
             "schemaVersion": 1,
             "title": "Top Issues",
@@ -734,11 +788,13 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
             ],
         },
     ),
-    "houmao.metric_grid": HoumaoAgUiComponentSpec(
+    "houmao.metric_grid": HoumaoAgUiImplementationSpec(
         name="houmao.metric_grid",
         schema_version=HOUMAO_AG_UI_SCHEMA_VERSION,
         description="Display a compact grid of labeled KPI values.",
         model=HoumaoMetricGridPayload,
+        category="new-component",
+        kind="metric-grid",
         example={
             "schemaVersion": 1,
             "title": "Build Health",
@@ -748,11 +804,13 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
             ],
         },
     ),
-    "houmao.dashboard": HoumaoAgUiComponentSpec(
+    "houmao.dashboard": HoumaoAgUiImplementationSpec(
         name="houmao.dashboard",
         schema_version=HOUMAO_AG_UI_SCHEMA_VERSION,
         description=("Compose Houmao graphic, table, and metric components into one layout."),
         model=HoumaoDashboardPayload,
+        category="new-component",
+        kind="dashboard",
         example={
             "schemaVersion": 1,
             "title": "Release Dashboard",
@@ -782,45 +840,78 @@ _COMPONENT_SPECS: dict[str, HoumaoAgUiComponentSpec] = {
     ),
 }
 
+_COMPONENT_SPECS = _IMPLEMENTATION_SPECS
+"""Compatibility alias for the previous component registry name."""
+
+
+def list_implementation_summaries() -> list[JsonObject]:
+    """Return all supported implementation summaries."""
+
+    return [spec.to_summary() for spec in _IMPLEMENTATION_SPECS.values()]
+
 
 def list_component_summaries() -> list[JsonObject]:
     """Return all supported component summaries."""
 
-    return [spec.to_summary() for spec in _COMPONENT_SPECS.values()]
+    return list_implementation_summaries()
 
 
-def get_component_spec(component: str) -> HoumaoAgUiComponentSpec:
-    """Return one component spec or raise a safe validation error."""
+def implementation_category_payload(category: str) -> JsonObject:
+    """Return implementation schemas for one discovery category."""
 
-    if component in HOUMAO_RETIRED_FIXED_CHART_COMPONENTS:
+    schemas = [
+        spec.to_graphics_category_payload()
+        for spec in _IMPLEMENTATION_SPECS.values()
+        if spec.category == category
+    ]
+    return {"category": category, "schemas": cast(JsonValue, schemas)}
+
+
+def get_implementation_spec(implementation: str) -> HoumaoAgUiImplementationSpec:
+    """Return one implementation spec or raise a safe validation error."""
+
+    if implementation in HOUMAO_RETIRED_FIXED_CHART_COMPONENTS:
         raise HoumaoAgUiValidationError(
-            f"Retired Houmao AG-UI component `{component}` is no longer supported.",
-            component=component,
+            f"Retired Houmao AG-UI implementation `{implementation}` is no longer supported.",
+            component=implementation,
             repair_hint=(
                 "Rewrite fixed chart payloads as schema version 3 "
                 "`houmao.graphic.template` payloads."
             ),
         )
-    spec = _COMPONENT_SPECS.get(component)
+    spec = _IMPLEMENTATION_SPECS.get(implementation)
     if spec is None:
         raise HoumaoAgUiValidationError(
-            f"Unknown Houmao AG-UI component `{component}`.",
-            component=component,
-            repair_hint="Run `houmao-mgr internals ag-ui components list`.",
+            f"Unknown Houmao AG-UI implementation `{implementation}`.",
+            component=implementation,
+            repair_hint="Run `houmao-mgr ag-ui impl list`.",
         )
     return spec
+
+
+def get_component_spec(component: str) -> HoumaoAgUiComponentSpec:
+    """Return one component spec or raise a safe validation error."""
+
+    return get_implementation_spec(component)
+
+
+def implementation_schema_payload(implementation: str) -> JsonObject:
+    """Return JSON Schema-compatible metadata for one implementation."""
+
+    return get_implementation_spec(implementation).to_schema_payload()
 
 
 def component_schema_payload(component: str) -> JsonObject:
     """Return JSON Schema-compatible metadata for one component."""
 
-    return get_component_spec(component).to_schema_payload()
+    return implementation_schema_payload(component)
 
 
 def template_graphic_trace_catalog_payload() -> JsonObject:
     """Return discoverable Plotly 2D trace catalog metadata."""
 
     return {
+        "implementation": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
         "component": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
         "schemaVersion": HOUMAO_TEMPLATE_GRAPHIC_SCHEMA_VERSION,
         "figureType": HOUMAO_TEMPLATE_GRAPHIC_FIGURE_TYPE,
@@ -831,42 +922,48 @@ def template_graphic_trace_catalog_payload() -> JsonObject:
     }
 
 
-def validate_component_payload(component: str, payload: object) -> JsonObject:
-    """Validate one component payload and return its normalized JSON object."""
+def validate_implementation_payload(implementation: str, payload: object) -> JsonObject:
+    """Validate one implementation payload and return its normalized JSON object."""
 
-    spec = get_component_spec(component)
+    spec = get_implementation_spec(implementation)
     try:
         _reject_unsafe_payload_tree(payload)
-        if component == HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME:
+        if implementation == HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME:
             _prevalidate_template_graphic_payload(payload)
-        elif component == HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME:
+        elif implementation == HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME:
             _prevalidate_vegalite_graphic_payload(payload)
-        elif component == "houmao.dashboard":
+        elif implementation == "houmao.dashboard":
             _prevalidate_dashboard_payload(payload)
         validated = spec.model.model_validate(payload)
         normalized = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
-        if component == "houmao.dashboard":
+        if implementation == "houmao.dashboard":
             _normalize_dashboard_child_payloads(normalized)
     except HoumaoAgUiValidationError:
         raise
     except ValidationError as exc:
-        if component == HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME:
+        if implementation == HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME:
             template_error = _template_validation_error_payload(exc)
             if template_error is not None:
                 raise template_error from exc
         raise HoumaoAgUiValidationError(
-            f"Payload does not match `{component}` schema.",
-            component=component,
+            f"Payload does not match `{implementation}` schema.",
+            component=implementation,
             field_paths=_validation_error_paths(exc),
-            repair_hint=f"Inspect the schema with `houmao-mgr internals ag-ui components schema {component}`.",
+            repair_hint=f"Inspect the schema with `houmao-mgr ag-ui impl schema {implementation}`.",
         ) from exc
     except ValueError as exc:
         raise HoumaoAgUiValidationError(
             str(exc),
-            component=component,
-            repair_hint="Remove unsafe inline content and use typed component fields.",
+            component=implementation,
+            repair_hint="Remove unsafe inline content and use typed implementation fields.",
         ) from exc
     return cast(JsonObject, normalized)
+
+
+def validate_component_payload(component: str, payload: object) -> JsonObject:
+    """Validate one component payload and return its normalized JSON object."""
+
+    return validate_implementation_payload(component, payload)
 
 
 def _template_validation_error_payload(exc: ValidationError) -> HoumaoAgUiValidationError | None:
@@ -892,8 +989,54 @@ def _template_validation_error_payload(exc: ValidationError) -> HoumaoAgUiValida
         field_paths=(field_path,),
         repair_hint=(
             "Inspect the Plotly 2D trace catalog with "
-            "`houmao-mgr internals ag-ui components schema houmao.graphic.template`."
+            "`houmao-mgr ag-ui impl schema houmao.graphic.template`."
         ),
+    )
+
+
+def render_protocol_tool_call_events(
+    *,
+    tool_name: str,
+    args: object,
+    message_id: str | None = None,
+    tool_call_id: str | None = None,
+) -> list[AgUiEventPayload]:
+    """Render one JSON argument object as standard AG-UI tool-call events."""
+
+    resolved_tool_name = _safe_tool_call_name(tool_name)
+    normalized = _normalize_tool_call_args(args)
+    digest = _payload_digest(tool_name=resolved_tool_name, payload=normalized)
+    resolved_tool_call_id = tool_call_id or f"houmao-tool-{digest}"
+    resolved_message_id = message_id or f"houmao-message-{digest}"
+    args_json = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    events = [
+        ToolCallStartEvent(
+            tool_call_id=resolved_tool_call_id,
+            tool_call_name=resolved_tool_name,
+            parent_message_id=resolved_message_id,
+        ),
+        ToolCallArgsEvent(tool_call_id=resolved_tool_call_id, delta=args_json),
+        ToolCallEndEvent(tool_call_id=resolved_tool_call_id),
+    ]
+    payloads = [event.model_dump(mode="json", by_alias=True, exclude_none=True) for event in events]
+    return validate_ag_ui_event_sequence(payloads)
+
+
+def render_implementation_events(
+    *,
+    implementation: str,
+    payload: object,
+    message_id: str | None = None,
+    tool_call_id: str | None = None,
+) -> list[AgUiEventPayload]:
+    """Render one validated implementation payload as standard AG-UI tool-call events."""
+
+    normalized = validate_implementation_payload(implementation, payload)
+    return render_protocol_tool_call_events(
+        tool_name=implementation,
+        args=normalized,
+        message_id=message_id,
+        tool_call_id=tool_call_id,
     )
 
 
@@ -906,21 +1049,12 @@ def render_component_events(
 ) -> list[AgUiEventPayload]:
     """Render one validated component payload as standard AG-UI tool-call events."""
 
-    normalized = validate_component_payload(component, payload)
-    digest = _payload_digest(component=component, payload=normalized)
-    resolved_tool_call_id = tool_call_id or f"houmao-tool-{digest}"
-    resolved_message_id = message_id or f"houmao-message-{digest}"
-    args_json = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
-    events = [
-        ToolCallStartEvent(
-            tool_call_id=resolved_tool_call_id,
-            tool_call_name=component,
-            parent_message_id=resolved_message_id,
-        ),
-        ToolCallArgsEvent(tool_call_id=resolved_tool_call_id, delta=args_json),
-        ToolCallEndEvent(tool_call_id=resolved_tool_call_id),
-    ]
-    return [event.model_dump(mode="json", by_alias=True, exclude_none=True) for event in events]
+    return render_implementation_events(
+        implementation=component,
+        payload=payload,
+        message_id=message_id,
+        tool_call_id=tool_call_id,
+    )
 
 
 def validate_ag_ui_event_sequence(
@@ -1054,10 +1188,57 @@ def _validate_tool_call_order(
         active_tool_ids.discard(tool_call_id)
 
 
-def _payload_digest(*, component: str, payload: JsonObject) -> str:
+def _safe_tool_call_name(tool_name: str) -> str:
+    """Return a safe AG-UI tool-call name."""
+
+    stripped = tool_name.strip()
+    if not stripped:
+        raise HoumaoAgUiValidationError(
+            "AG-UI tool-call name must not be empty.",
+            field_paths=("toolName",),
+        )
+    if _TOOL_CALL_NAME_PATTERN.fullmatch(stripped) is None:
+        raise HoumaoAgUiValidationError(
+            "AG-UI tool-call name contains unsupported characters.",
+            field_paths=("toolName",),
+            repair_hint="Use letters, numbers, dots, underscores, hyphens, or colons.",
+        )
+    return stripped
+
+
+def _normalize_tool_call_args(args: object) -> JsonObject:
+    """Return one JSON object suitable for AG-UI tool-call args."""
+
+    if not isinstance(args, Mapping):
+        raise HoumaoAgUiValidationError(
+            "AG-UI tool-call args must be a JSON object.",
+            field_paths=("args",),
+        )
+    try:
+        rendered = json.dumps(args, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise HoumaoAgUiValidationError(
+            "AG-UI tool-call args must be JSON serializable.",
+            field_paths=("args",),
+            repair_hint="Use plain JSON values only.",
+        ) from exc
+    encoded_size = len(rendered.encode("utf-8"))
+    if encoded_size > HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES:
+        raise HoumaoAgUiValidationError(
+            (
+                f"AG-UI tool-call args are {encoded_size} bytes, above the limit of "
+                f"{HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES}."
+            ),
+            field_paths=("args",),
+            repair_hint="Reduce payload size or split the component into smaller tool calls.",
+        )
+    return cast(JsonObject, json.loads(rendered))
+
+
+def _payload_digest(*, tool_name: str, payload: JsonObject) -> str:
     """Return a short deterministic digest for generated ids."""
 
-    payload_json = json.dumps({"component": component, "payload": payload}, sort_keys=True)
+    payload_json = json.dumps({"toolName": tool_name, "payload": payload}, sort_keys=True)
     return sha256(payload_json.encode("utf-8")).hexdigest()[:12]
 
 
@@ -1325,8 +1506,7 @@ def _prevalidate_template_graphic_payload(payload: object) -> None:
             component=HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
             field_paths=("chartType",),
             repair_hint=(
-                "Use `figureType: \"plotly2d\"` and choose Plotly families with "
-                "`traces[].type`."
+                'Use `figureType: "plotly2d"` and choose Plotly families with `traces[].type`.'
             ),
         )
 
@@ -1649,14 +1829,21 @@ __all__ = [
     "HoumaoAgUiValidationError",
     "component_schema_payload",
     "get_component_spec",
+    "get_implementation_spec",
+    "implementation_category_payload",
+    "implementation_schema_payload",
     "list_component_summaries",
+    "list_implementation_summaries",
     "render_component_events",
     "render_events_as_json",
     "render_events_as_jsonl",
     "render_events_as_sse",
+    "render_implementation_events",
+    "render_protocol_tool_call_events",
     "parse_ag_ui_event_payloads",
     "template_graphic_trace_catalog_payload",
     "validate_ag_ui_event_sequence",
     "validate_component_payload",
+    "validate_implementation_payload",
     "validation_error_payload",
 ]

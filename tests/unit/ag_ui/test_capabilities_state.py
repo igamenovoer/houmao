@@ -69,6 +69,43 @@ def test_capabilities_are_conservative_and_state_lifecycle_boundary() -> None:
         "cacheOwner": "client",
         "missedEventRecovery": "none",
     }
+    ag_ui_protocol = capabilities["custom"]["houmao"]["agUiProtocol"]
+    assert ag_ui_protocol["eventValidation"]["cli"] == ("houmao-mgr ag-ui protocol events validate")
+    assert ag_ui_protocol["eventFraming"]["formats"] == ["json", "jsonl", "sse"]
+    assert ag_ui_protocol["toolCallRendering"]["schemaAgnostic"] is True
+    assert ag_ui_protocol["toolCallRendering"]["requiresHoumaoImplementationSchema"] is False
+    assert ag_ui_protocol["publishedEvents"]["delivery"] == "live_only_fanout"
+    ag_ui_impl = capabilities["custom"]["houmao"]["agUiImpl"]
+    assert ag_ui_impl["owner"] == "houmao"
+    assert ag_ui_impl["protocolBinding"] == "ag-ui-tool-call-json-args"
+    assert ag_ui_impl["frontendSpecificImplementations"]["transportSupported"] is True
+    assert ag_ui_impl["frontendSpecificImplementations"]["payloadSemanticsValidatedByHoumao"] is (
+        False
+    )
+    assert ag_ui_impl["frontendSpecificImplementations"]["renderSupportRequiresFrontend"] is True
+    assert ag_ui_impl["knownImplementations"] == [
+        "houmao.graphic.template",
+        "houmao.graphic.vegalite",
+        "houmao.table",
+        "houmao.metric_grid",
+        "houmao.dashboard",
+    ]
+    template_impl = ag_ui_impl["categories"]["templated-graphics"][0]
+    assert template_impl["name"] == "houmao.graphic.template"
+    assert template_impl["backend"] == "plotly"
+    assert template_impl["renderer"] == "plotly.js"
+    assert template_impl["plotly"]["renderer"] == "plotly.js"
+    assert "heatmap" in template_impl["plotly"]["traceTypes"]
+    vegalite_impl = ag_ui_impl["categories"]["freeform-graphics"][0]
+    assert vegalite_impl["name"] == "houmao.graphic.vegalite"
+    assert vegalite_impl["backend"] == "vega-lite"
+    assert vegalite_impl["vegaLite"]["renderer"] == "vega-embed"
+    assert vegalite_impl["vegaLite"]["remoteData"] == "disabled"
+    assert {schema["name"] for schema in ag_ui_impl["categories"]["new-component"]} == {
+        "houmao.table",
+        "houmao.metric_grid",
+        "houmao.dashboard",
+    }
     template_graphics = capabilities["custom"]["houmao"]["presentation"]["templateGraphics"]
     assert template_graphics["toolName"] == "houmao.graphic.template"
     assert template_graphics["schemaVersion"] == 3
@@ -170,12 +207,18 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
         "title",
         "traces",
     ]
-    assert dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"][
-        "schemaVersion"
-    ]["const"] == 3
-    assert dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"][
-        "figureType"
-    ]["const"] == "plotly2d"
+    assert (
+        dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"]["schemaVersion"][
+            "const"
+        ]
+        == 3
+    )
+    assert (
+        dumped["capabilities"]["tools"]["items"][1]["parameters"]["properties"]["figureType"][
+            "const"
+        ]
+        == "plotly2d"
+    )
     assert dumped["capabilities"]["tools"]["items"][2]["name"] == "houmao.graphic.vegalite"
     assert dumped["capabilities"]["tools"]["items"][2]["parameters"]["required"] == [
         "schemaVersion",
@@ -186,6 +229,10 @@ def test_capabilities_report_headless_graphics_tool_metadata() -> None:
     ]
     assert dumped["capabilities"]["tools"]["clientProvided"] is False
     assert dumped["capabilities"]["custom"]["houmao"]["graphics"]["toolName"] == (
+        "houmao_render_graphic"
+    )
+    assert dumped["capabilities"]["custom"]["houmao"]["agUiImpl"]["generatedGraphics"] is True
+    assert dumped["capabilities"]["custom"]["houmao"]["agUiImpl"]["graphicsToolName"] == (
         "houmao_render_graphic"
     )
     assert dumped["capabilities"]["custom"]["houmao"]["presentation"]["templateGraphics"][

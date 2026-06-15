@@ -1,6 +1,7 @@
 """Generated Plotly 2D trace catalog for Houmao AG-UI."""
 
 # ruff: noqa: E501
+# fmt: off
 
 from __future__ import annotations
 

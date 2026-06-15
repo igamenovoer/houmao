@@ -1,13 +1,13 @@
 ---
 name: houmao-interop-ag-ui
-description: "Use Houmao AG-UI interop helpers for typed visual output: discover component schemas, validate payloads, render standard AG-UI event batches, and publish them through a live Houmao gateway. Use when Codex needs to create, validate, render, or deliver Houmao AG-UI graphics, tables, metric grids, dashboards, or other typed GUI messages."
+description: "Use Houmao AG-UI interop helpers for typed visual output: discover implementation schemas, validate payloads, render standard AG-UI event batches, and publish them through a live Houmao gateway. Use when Codex needs to create, validate, render, or deliver Houmao AG-UI graphics, tables, metric grids, dashboards, or other typed GUI messages."
 ---
 
 # Houmao Interop AG-UI
 
 Use maintained Houmao tooling to send typed visual output to an AG-UI GUI.
 
-Typed Houmao components are an application-layer protocol carried inside standard AG-UI tool-call events. The gateway validates standard AG-UI event shape and routing only. `houmao-mgr` owns Houmao component schemas, payload validation, and event generation.
+Typed Houmao implementations are application-layer contracts carried inside standard AG-UI tool-call events. The gateway validates standard AG-UI event shape and routing only. `houmao-mgr ag-ui protocol` owns schema-agnostic AG-UI event validation and framing. `houmao-mgr ag-ui impl` owns Houmao implementation schemas, payload validation, and event generation.
 
 ## Help
 
@@ -17,17 +17,19 @@ Purpose: create visual AG-UI messages without hand-writing raw event JSON.
 
 Available functionality:
 
-- List Houmao AG-UI component schemas.
-- Show one component schema and example.
-- Validate a component payload.
+- List Houmao AG-UI implementation schemas.
+- List graphics schemas by `templated-graphics`, `freeform-graphics`, and `new-component` layer.
+- Show one implementation schema and example.
+- Validate an implementation payload.
 - Render a valid payload into standard AG-UI events.
+- Render a schema-agnostic custom tool call for a frontend-specific component.
 - Validate already-rendered standard AG-UI event batches.
 - Publish a rendered batch to the live Houmao gateway for the current or selected agent.
 
 Common starting prompts:
 
 - `$houmao-interop-ag-ui help`
-- `$houmao-interop-ag-ui list components`
+- `$houmao-interop-ag-ui list implementation schemas`
 - `$houmao-interop-ag-ui render a bar chart`
 - `$houmao-interop-ag-ui publish these events to my GUI`
 
@@ -35,7 +37,7 @@ Related skills and boundaries:
 
 - Use `houmao-agent-gateway` for gateway lifecycle, attachment, status, reminders, and direct gateway controls.
 - Use `houmao-agent-messaging` for prompts, interrupts, and live managed-agent communication.
-- Use this skill only for AG-UI component/event authoring and AG-UI publish workflows.
+- Use this skill only for AG-UI implementation/event authoring and AG-UI publish workflows.
 - Do not use this skill to submit ordinary prompt work.
 
 ## Launcher
@@ -49,14 +51,15 @@ Choose one `houmao-mgr` launcher for the turn:
 
 Reuse the same launcher for discovery, validation, rendering, and publishing in the same turn.
 
-## Protocol Split
+## Protocol and Implementation Split
 
-- Houmao component protocol: `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
-- Standard AG-UI protocol: the rendered output is an event array such as `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
+- Standard AG-UI protocol: standard event arrays such as `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`. Use `houmao-mgr ag-ui protocol ...` for schema-agnostic validation, framing, and generic tool-call rendering.
+- Houmao AG-UI impl: Houmao-owned implementation contracts such as `houmao.graphic.template`, `houmao.graphic.vegalite`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`. Use `houmao-mgr ag-ui impl ...` for schema discovery, validation, rendering, and catalogs.
+- Graphics categories: `templated-graphics` currently contains the Plotly-backed `houmao.graphic.template` schema; `freeform-graphics` currently contains the Vega-Lite `houmao.graphic.vegalite` schema; `new-component` covers table, metric grid, dashboard, and frontend-specific custom tool calls.
 - Houmao gateway publishing: use `houmao-mgr agents ... gateway ag-ui publish`.
 - Third-party endpoints: use `houmao-mgr` only to generate or validate events, then deliver the generated event batch with endpoint-specific instructions from that endpoint.
 
-Do not ask the gateway to validate Houmao component semantics. Do not assume that another AG-UI endpoint accepts Houmao gateway route fields, auth, content type, or stream semantics.
+Do not ask the gateway to validate Houmao implementation semantics. Protocol validation only means the event shape is standard AG-UI; it does not prove a GUI can render a custom implementation payload. Do not assume that another AG-UI endpoint accepts Houmao gateway route fields, auth, content type, or stream semantics.
 
 Agent identity is the durable address. A gateway host and port are live transport coordinates that can disappear or change when the agent or gateway restarts. The Houmao workbench stores the selected `agent_id` or unambiguous `agent_name`, resolves the current gateway through the passive server, and reconnects when a matching gateway appears. Do not tell a user that a copied gateway URL is the stable identity of an agent.
 
@@ -64,23 +67,30 @@ The Houmao gateway publishes GUI events as live-only fanout. It does not store m
 
 ## Discover Schemas
 
-List supported components:
+List supported Houmao implementations:
 
 ```bash
-houmao-mgr internals ag-ui components list
+houmao-mgr ag-ui impl list
 ```
 
 Show a schema and example:
 
 ```bash
-houmao-mgr internals ag-ui components schema houmao.graphic.template
-houmao-mgr internals ag-ui components schema houmao.graphic.vegalite
+houmao-mgr ag-ui impl schema houmao.graphic.template
+houmao-mgr ag-ui impl schema houmao.graphic.vegalite
+```
+
+List graphics implementation categories:
+
+```bash
+houmao-mgr ag-ui impl templated-graphics list
+houmao-mgr ag-ui impl freeform-graphics list
 ```
 
 List supported and excluded Plotly template trace types:
 
 ```bash
-houmao-mgr internals ag-ui components traces
+houmao-mgr ag-ui impl catalog houmao.graphic.template traces
 ```
 
 Use the schema output before crafting a new payload. Do not invent fields.
@@ -90,27 +100,34 @@ Use the schema output before crafting a new payload. Do not invent fields.
 Validate a payload:
 
 ```bash
-houmao-mgr internals ag-ui components validate houmao.graphic.template --input payload.json
+houmao-mgr ag-ui impl validate houmao.graphic.template --input payload.json
 ```
 
 Render a valid payload into standard AG-UI events:
 
 ```bash
-houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json > events.json
+houmao-mgr ag-ui impl render houmao.graphic.template --input payload.json > events.json
 ```
 
 Validate a rendered event batch:
 
 ```bash
-houmao-mgr internals ag-ui events validate --input events.json
+houmao-mgr ag-ui protocol events validate --input events.json
 ```
 
 Supported render formats:
 
 ```bash
-houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json --format json
-houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json --format jsonl
-houmao-mgr internals ag-ui events render houmao.graphic.template --input payload.json --format sse
+houmao-mgr ag-ui impl render houmao.graphic.template --input payload.json --format json
+houmao-mgr ag-ui impl render houmao.graphic.template --input payload.json --format jsonl
+houmao-mgr ag-ui impl render houmao.graphic.template --input payload.json --format sse
+houmao-mgr ag-ui protocol events frame --input events.json --format sse
+```
+
+Render a frontend-specific tool call when the user has supplied the GUI-side implementation contract:
+
+```bash
+houmao-mgr ag-ui impl new-component render --tool-name myapp.graphic.timeline --args payload.json > events.json
 ```
 
 ## Layer 1 Template Graphics
@@ -177,8 +194,8 @@ Send the resulting JSON object under `spec`. Do not send Python source code, Alt
 Validate and render Layer 2 payloads before publishing:
 
 ```bash
-houmao-mgr internals ag-ui components validate houmao.graphic.vegalite --input payload.json
-houmao-mgr internals ag-ui events render houmao.graphic.vegalite --input payload.json > events.json
+houmao-mgr ag-ui impl validate houmao.graphic.vegalite --input payload.json
+houmao-mgr ag-ui impl render houmao.graphic.vegalite --input payload.json > events.json
 ```
 
 Layer 2 safety limits:
@@ -231,7 +248,7 @@ If the response warns `default_sink_due_to_no_destination`, report that the gate
 
 If the user expected a chart to appear but `delivered_count` is zero, ask the user to open or watch the intended workbench target, mark the pane active when relying on omitted routing, and publish the event batch again after a listener is connected.
 
-This command intentionally has no `--endpoint` option. For third-party endpoints, generate the event batch with `internals ag-ui events render`, validate it, then use that endpoint's documented delivery method.
+This command intentionally has no `--endpoint` option. For third-party endpoints, generate the event batch with `ag-ui impl render` or `ag-ui protocol tool-call render`, validate it, then use that endpoint's documented delivery method.
 
 ## Examples
 
@@ -323,8 +340,8 @@ Table payload:
 Render and publish:
 
 ```bash
-houmao-mgr internals ag-ui components validate houmao.table --input payload.json
-houmao-mgr internals ag-ui events render houmao.table --input payload.json > events.json
+houmao-mgr ag-ui impl validate houmao.table --input payload.json
+houmao-mgr ag-ui impl render houmao.table --input payload.json > events.json
 houmao-mgr agents self gateway ag-ui publish --input events.json
 ```
 
@@ -341,8 +358,8 @@ After publishing, report the response accurately. If `delivered_count > 0`, say 
 
 ## Guardrails
 
-- Do not hand-write AG-UI tool-call event arrays when `events render` can generate them.
-- Do not publish raw component payloads directly to the gateway; render them into events first.
+- Do not hand-write AG-UI tool-call event arrays when `ag-ui impl render` or `ag-ui protocol tool-call render` can generate them.
+- Do not publish raw implementation payloads directly to the gateway; render them into events first.
 - Do not embed raw Plotly, Vega-Lite, Vega, HTML, or JavaScript specs inside `houmao.graphic.template`; use only the standardized Layer 1 schema and allowed `extra.plotly` fields.
 - Do not call generic gateway prompt commands to display graphics. AG-UI publish is separate from prompt admission.
 - Do not invent third-party endpoint URLs, headers, auth, route ids, or stream formats.

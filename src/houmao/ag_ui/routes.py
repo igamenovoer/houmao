@@ -697,8 +697,7 @@ def _validate_publish_routing(
     event_thread_ids = {
         event_thread_id
         for event in events
-        if isinstance((event_thread_id := event.get("threadId")), str)
-        and event_thread_id.strip()
+        if isinstance((event_thread_id := event.get("threadId")), str) and event_thread_id.strip()
     }
     if thread_id is None and connection_id is None and len(event_thread_ids) > 1:
         raise HoumaoAgUiValidationError(

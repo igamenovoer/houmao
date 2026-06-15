@@ -75,7 +75,9 @@ class AgUiDestinationState:
             self.m_active_thread = state
         return state
 
-    def clear_active_thread(self, *, expected_thread_id: str | None = None) -> AgUiThreadDestination:
+    def clear_active_thread(
+        self, *, expected_thread_id: str | None = None
+    ) -> AgUiThreadDestination:
         """Clear the active thread without mutating last-sent-thread.
 
         If `expected_thread_id` is provided, clear only when the current active

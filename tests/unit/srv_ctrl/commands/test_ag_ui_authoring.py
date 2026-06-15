@@ -120,6 +120,42 @@ def test_ag_ui_components_list_and_schema_are_json_renderable() -> None:
     assert vegalite_schema["example"]["specVersion"] == "6"
 
 
+def test_ag_ui_impl_list_schema_and_category_commands_are_json_renderable() -> None:
+    runner = CliRunner()
+
+    list_result = runner.invoke(cli, ["--print-json", "ag-ui", "impl", "list"])
+    schema_result = runner.invoke(
+        cli,
+        ["--print-json", "ag-ui", "impl", "schema", "houmao.graphic.template"],
+    )
+    templated_result = runner.invoke(
+        cli,
+        ["--print-json", "ag-ui", "impl", "templated-graphics", "list"],
+    )
+    freeform_result = runner.invoke(
+        cli,
+        ["--print-json", "ag-ui", "impl", "freeform-graphics", "list"],
+    )
+
+    assert list_result.exit_code == 0, list_result.output
+    assert schema_result.exit_code == 0, schema_result.output
+    assert templated_result.exit_code == 0, templated_result.output
+    assert freeform_result.exit_code == 0, freeform_result.output
+    listed = json.loads(list_result.output)
+    schema = json.loads(schema_result.output)
+    templated = json.loads(templated_result.output)
+    freeform = json.loads(freeform_result.output)
+    assert "houmao.graphic.template" in {item["name"] for item in listed["implementations"]}
+    assert "houmao.graphic.vegalite" in {item["name"] for item in listed["implementations"]}
+    assert schema["category"] == "templated-graphics"
+    assert schema["backend"] == "plotly"
+    assert schema["renderer"] == "plotly.js"
+    assert [item["name"] for item in templated["schemas"]] == ["houmao.graphic.template"]
+    assert templated["schemas"][0]["catalogs"] == ["traces"]
+    assert [item["name"] for item in freeform["schemas"]] == ["houmao.graphic.vegalite"]
+    assert freeform["schemas"][0]["backend"] == "vega-lite"
+
+
 def test_ag_ui_components_traces_lists_template_trace_catalog() -> None:
     runner = CliRunner()
 
@@ -145,6 +181,28 @@ def test_ag_ui_components_traces_lists_template_trace_catalog() -> None:
     assert "scatter3d: true_3d_scene_trace" in plain_result.output
 
 
+def test_ag_ui_impl_catalog_lists_template_trace_catalog() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "ag-ui",
+            "impl",
+            "catalog",
+            "houmao.graphic.template",
+            "traces",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["implementation"] == "houmao.graphic.template"
+    assert payload["component"] == "houmao.graphic.template"
+    assert "heatmap" in payload["supportedTraceTypes"]
+
+
 def test_ag_ui_components_retired_fixed_chart_schema_reports_migration_hint() -> None:
     runner = CliRunner()
 
@@ -160,7 +218,7 @@ def test_ag_ui_components_retired_fixed_chart_schema_reports_migration_hint() ->
     )
 
     assert result.exit_code != 0
-    assert "Retired Houmao AG-UI component" in result.output
+    assert "Retired Houmao AG-UI implementation" in result.output
     assert "houmao.graphic.template" in result.output
 
 
@@ -212,6 +270,52 @@ def test_ag_ui_template_graphic_validate_and_render_accept_path_input(tmp_path: 
     assert args["renderer"]["preferred"] == "plotly"
 
 
+def test_ag_ui_impl_template_graphic_validate_and_render_accept_path_input(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    payload_path = _write_json(tmp_path / "template.json", _template_payload())
+
+    validate_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "ag-ui",
+            "impl",
+            "validate",
+            "houmao.graphic.template",
+            "--input",
+            str(payload_path),
+        ],
+    )
+    render_result = runner.invoke(
+        cli,
+        [
+            "ag-ui",
+            "impl",
+            "render",
+            "houmao.graphic.template",
+            "--input",
+            str(payload_path),
+            "--message-id",
+            "message-1",
+            "--tool-call-id",
+            "tool-1",
+        ],
+    )
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert json.loads(validate_result.output) == {
+        "implementation": "houmao.graphic.template",
+        "ok": True,
+        "schemaVersion": 3,
+    }
+    assert render_result.exit_code == 0, render_result.output
+    events = json.loads(render_result.output)
+    assert events[0]["toolCallName"] == "houmao.graphic.template"
+    assert json.loads(events[1]["delta"])["figureType"] == "plotly2d"
+
+
 def test_ag_ui_vegalite_validate_and_render_accept_path_input(tmp_path: Path) -> None:
     runner = CliRunner()
     payload_path = _write_json(tmp_path / "vegalite.json", _vegalite_payload())
@@ -249,6 +353,50 @@ def test_ag_ui_vegalite_validate_and_render_accept_path_input(tmp_path: Path) ->
     assert validate_result.exit_code == 0, validate_result.output
     assert json.loads(validate_result.output) == {
         "component": "houmao.graphic.vegalite",
+        "ok": True,
+        "schemaVersion": 1,
+    }
+    assert render_result.exit_code == 0, render_result.output
+    events = json.loads(render_result.output)
+    assert events[0]["toolCallName"] == "houmao.graphic.vegalite"
+    assert json.loads(events[1]["delta"])["specVersion"] == "6"
+
+
+def test_ag_ui_impl_vegalite_validate_and_render_accept_path_input(tmp_path: Path) -> None:
+    runner = CliRunner()
+    payload_path = _write_json(tmp_path / "vegalite.json", _vegalite_payload())
+
+    validate_result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "ag-ui",
+            "impl",
+            "validate",
+            "houmao.graphic.vegalite",
+            "--input",
+            str(payload_path),
+        ],
+    )
+    render_result = runner.invoke(
+        cli,
+        [
+            "ag-ui",
+            "impl",
+            "render",
+            "houmao.graphic.vegalite",
+            "--input",
+            str(payload_path),
+            "--message-id",
+            "message-vega",
+            "--tool-call-id",
+            "tool-vega",
+        ],
+    )
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert json.loads(validate_result.output) == {
+        "implementation": "houmao.graphic.vegalite",
         "ok": True,
         "schemaVersion": 1,
     }
@@ -385,6 +533,55 @@ def test_ag_ui_events_render_outputs_jsonl_and_sse() -> None:
     assert sse_result.output.count("data: ") == 3
 
 
+def test_ag_ui_protocol_tool_call_and_new_component_render_schema_agnostic_events(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    args_path = _write_json(
+        tmp_path / "args.json",
+        {"schemaVersion": 1, "items": [{"label": "A", "start": 1, "end": 2}]},
+    )
+
+    protocol_result = runner.invoke(
+        cli,
+        [
+            "ag-ui",
+            "protocol",
+            "tool-call",
+            "render",
+            "--tool-name",
+            "myapp.graphic.timeline",
+            "--args",
+            str(args_path),
+            "--message-id",
+            "message-custom",
+            "--tool-call-id",
+            "tool-custom",
+        ],
+    )
+    new_component_result = runner.invoke(
+        cli,
+        [
+            "ag-ui",
+            "impl",
+            "new-component",
+            "render",
+            "--tool-name",
+            "myapp.graphic.timeline",
+            "--args",
+            str(args_path),
+        ],
+    )
+
+    assert protocol_result.exit_code == 0, protocol_result.output
+    assert new_component_result.exit_code == 0, new_component_result.output
+    protocol_events = json.loads(protocol_result.output)
+    new_component_events = json.loads(new_component_result.output)
+    assert protocol_events[0]["toolCallName"] == "myapp.graphic.timeline"
+    assert new_component_events[0]["toolCallName"] == "myapp.graphic.timeline"
+    assert json.loads(protocol_events[1]["delta"])["items"][0]["label"] == "A"
+
+
 def test_ag_ui_events_validate_accepts_rendered_batch(tmp_path: Path) -> None:
     runner = CliRunner()
     rendered = runner.invoke(
@@ -420,6 +617,40 @@ def test_ag_ui_events_validate_accepts_rendered_batch(tmp_path: Path) -> None:
     assert json.loads(result.output) == {"eventCount": 3, "ok": True}
 
 
+def test_ag_ui_protocol_events_validate_and_frame_accept_rendered_batch(tmp_path: Path) -> None:
+    runner = CliRunner()
+    rendered = runner.invoke(
+        cli,
+        ["ag-ui", "impl", "render", "houmao.graphic.template", "--input", "-"],
+        input=json.dumps(_template_payload()),
+    )
+    events_path = tmp_path / "events.json"
+    events_path.write_text(rendered.output, encoding="utf-8")
+
+    validate_result = runner.invoke(
+        cli,
+        ["--print-json", "ag-ui", "protocol", "events", "validate", "--input", str(events_path)],
+    )
+    frame_result = runner.invoke(
+        cli,
+        [
+            "ag-ui",
+            "protocol",
+            "events",
+            "frame",
+            "--input",
+            str(events_path),
+            "--format",
+            "sse",
+        ],
+    )
+
+    assert validate_result.exit_code == 0, validate_result.output
+    assert json.loads(validate_result.output) == {"eventCount": 3, "ok": True}
+    assert frame_result.exit_code == 0, frame_result.output
+    assert frame_result.output.count("data: ") == 3
+
+
 def test_ag_ui_events_validate_rejects_raw_component_payload(tmp_path: Path) -> None:
     runner = CliRunner()
     raw_path = _write_json(tmp_path / "component.json", _template_payload())
@@ -446,8 +677,8 @@ def test_ag_ui_components_unknown_component_reports_fix_guide() -> None:
     result = runner.invoke(cli, ["internals", "ag-ui", "components", "schema", "chat.bar"])
 
     assert result.exit_code != 0
-    assert "Unknown Houmao AG-UI component" in result.output
-    assert "components list" in result.output
+    assert "Unknown Houmao AG-UI implementation" in result.output
+    assert "ag-ui impl list" in result.output
 
 
 def test_gateway_ag_ui_publish_validates_path_input_and_posts(

@@ -206,9 +206,7 @@ EXAMPLE_BY_TRACE: dict[str, dict[str, Any]] = {
             "close": [12, 13],
         }
     },
-    "parcats": {
-        "data": {"dimensions": [{"label": "status", "values": ["queued", "done"]}]}
-    },
+    "parcats": {"data": {"dimensions": [{"label": "status", "values": ["queued", "done"]}]}},
     "parcoords": {"data": {"dimensions": [{"label": "latency", "values": [91, 107]}]}},
     "pie": {"data": {"labels": ["A", "B"], "values": [60, 40]}},
     "sankey": {
@@ -387,6 +385,7 @@ def render_python(catalog: Mapping[str, Any]) -> str:
         '"""Generated Plotly 2D trace catalog for Houmao AG-UI."""\n'
         "\n"
         "# ruff: noqa: E501\n"
+        "# fmt: off\n"
         "\n"
         "from __future__ import annotations\n"
         "\n"

@@ -102,13 +102,16 @@ class AgUiEventPublishResponse(_HoumaoAgUiModel):
     thread_id: str | None = None
     run_id: str | None = None
     connection_id: str | None = None
-    destination_kind: Literal[
-        "message",
-        "event",
-        "connection",
-        "active_thread",
-        "default_sink",
-    ] | None = None
+    destination_kind: (
+        Literal[
+            "message",
+            "event",
+            "connection",
+            "active_thread",
+            "default_sink",
+        ]
+        | None
+    ) = None
     warnings: list[str] | None = None
 
 

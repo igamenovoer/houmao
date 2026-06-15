@@ -84,7 +84,7 @@ description = "Managed agent gateway lifecycle and gateway-only control skill."
 
 [skills.houmao-interop-ag-ui]
 asset_subpath = "houmao-interop-ag-ui"
-description = "Managed agent AG-UI component authoring, event rendering, gateway publishing, and GUI interop skill."
+description = "Managed agent AG-UI implementation authoring, protocol event rendering, gateway publishing, and GUI interop skill."
 
 [sets.core]
 description = "Closed core control and automation system-skill set."

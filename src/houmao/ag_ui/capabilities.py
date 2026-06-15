@@ -20,6 +20,8 @@ from ag_ui.core import (
 )
 
 from houmao.ag_ui.authoring import (
+    HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES,
+    HOUMAO_AG_UI_EVENT_BATCH_MAX_COUNT,
     HOUMAO_TEMPLATE_GRAPHIC_BUNDLE_ID,
     HOUMAO_TEMPLATE_GRAPHIC_DEFAULT_RENDERER,
     HOUMAO_TEMPLATE_GRAPHIC_EXCLUDED_TRACE_TYPES,
@@ -35,6 +37,8 @@ from houmao.ag_ui.authoring import (
     HOUMAO_VEGALITE_GRAPHIC_SCHEMA_VERSION,
     HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS,
     HOUMAO_VEGALITE_GRAPHIC_TOOL_NAME,
+    implementation_category_payload,
+    list_implementation_summaries,
 )
 from houmao.ag_ui.graphics import HOUMAO_RENDER_GRAPHIC_TOOL_NAME
 from houmao.ag_ui.models import (
@@ -43,7 +47,7 @@ from houmao.ag_ui.models import (
     HoumaoAgUiMetadata,
 )
 from houmao.ag_ui.runtime import ag_ui_target_transport_family_for_backend
-from houmao.ag_ui.state import GatewayStatusSnapshot, JsonObject
+from houmao.ag_ui.state import GatewayStatusSnapshot, JsonObject, JsonValue
 
 
 class AgUiCapabilityRuntime(Protocol):
@@ -102,6 +106,11 @@ def build_ag_ui_capabilities(
             "toolName": HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
             "generatedGraphics": generated_graphics,
         },
+        "agUiProtocol": _ag_ui_protocol_metadata(),
+        "agUiImpl": _ag_ui_impl_metadata(
+            generated_graphics=generated_graphics,
+            graphics_tool_name=HOUMAO_RENDER_GRAPHIC_TOOL_NAME,
+        ),
         "presentation": {
             "templateGraphics": {
                 "toolName": HOUMAO_TEMPLATE_GRAPHIC_TOOL_NAME,
@@ -392,3 +401,106 @@ def build_ag_ui_capabilities(
             },
         ),
     )
+
+
+def _ag_ui_protocol_metadata() -> JsonObject:
+    """Return Houmao custom metadata for generic AG-UI protocol support."""
+
+    return {
+        "eventValidation": {
+            "supported": True,
+            "cli": "houmao-mgr ag-ui protocol events validate",
+            "maxEvents": HOUMAO_AG_UI_EVENT_BATCH_MAX_COUNT,
+            "maxBytes": HOUMAO_AG_UI_EVENT_BATCH_MAX_BYTES,
+        },
+        "eventFraming": {
+            "supported": True,
+            "cli": "houmao-mgr ag-ui protocol events frame",
+            "formats": ["json", "jsonl", "sse"],
+        },
+        "toolCallRendering": {
+            "supported": True,
+            "schemaAgnostic": True,
+            "cli": "houmao-mgr ag-ui protocol tool-call render",
+            "requiresHoumaoImplementationSchema": False,
+        },
+        "publishedEvents": {
+            "delivery": "live_only_fanout",
+            "storedCount": 0,
+            "cacheOwner": "client",
+            "missedEventRecovery": "none",
+        },
+    }
+
+
+def _ag_ui_impl_metadata(
+    *,
+    generated_graphics: bool,
+    graphics_tool_name: str,
+) -> JsonObject:
+    """Return Houmao custom metadata for AG-UI implementation contracts."""
+
+    templated_graphics = cast(
+        list[JsonObject],
+        implementation_category_payload("templated-graphics").get("schemas", []),
+    )
+    freeform_graphics = cast(
+        list[JsonObject],
+        implementation_category_payload("freeform-graphics").get("schemas", []),
+    )
+    new_component_schemas = [
+        summary
+        for summary in list_implementation_summaries()
+        if summary.get("category") == "new-component"
+    ]
+    return {
+        "owner": "houmao",
+        "protocolBinding": "ag-ui-tool-call-json-args",
+        "generatedGraphics": generated_graphics,
+        "graphicsToolName": graphics_tool_name,
+        "knownImplementations": [summary["name"] for summary in list_implementation_summaries()],
+        "frontendSpecificImplementations": {
+            "transportSupported": True,
+            "payloadSemanticsValidatedByHoumao": False,
+            "renderSupportRequiresFrontend": True,
+            "cli": "houmao-mgr ag-ui impl new-component render",
+        },
+        "categories": {
+            "templated-graphics": [
+                {
+                    **template,
+                    "templateKind": "plotly2d-template",
+                    "plotly": {
+                        "renderer": "plotly.js",
+                        "bundle": {
+                            "id": HOUMAO_TEMPLATE_GRAPHIC_BUNDLE_ID,
+                            "registeredTraceTypes": list(HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES),
+                        },
+                        "traceTypes": list(HOUMAO_TEMPLATE_GRAPHIC_TRACE_TYPES),
+                        "excludedTraceTypes": dict(HOUMAO_TEMPLATE_GRAPHIC_EXCLUDED_TRACE_TYPES),
+                    },
+                }
+                for template in templated_graphics
+            ],
+            "freeform-graphics": [
+                {
+                    **schema,
+                    "freeformKind": "vega-lite-dsl",
+                    "vegaLite": {
+                        "library": HOUMAO_VEGALITE_GRAPHIC_LIBRARY,
+                        "majorVersions": list(HOUMAO_VEGALITE_GRAPHIC_SPEC_VERSIONS),
+                        "renderer": "vega-embed",
+                        "remoteData": "disabled",
+                        "inlineData": True,
+                        "limits": {
+                            "payloadBytes": HOUMAO_VEGALITE_GRAPHIC_MAX_BYTES,
+                            "inlineRows": HOUMAO_VEGALITE_GRAPHIC_MAX_INLINE_ROWS,
+                        },
+                        "pythonAuthoring": ["altair"],
+                    },
+                }
+                for schema in freeform_graphics
+            ],
+            "new-component": cast(JsonValue, new_component_schemas),
+        },
+    }
