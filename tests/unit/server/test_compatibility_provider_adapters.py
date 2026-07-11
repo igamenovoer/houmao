@@ -3,8 +3,20 @@ from __future__ import annotations
 from houmao.server.control_core.provider_adapters import (
     ClaudeCompatibilityProvider,
     CodexCompatibilityProvider,
-    GeminiCompatibilityProvider,
+    supported_provider_ids,
 )
+
+
+def test_supported_provider_ids_are_exact() -> None:
+    """The compatibility control core exposes only its maintained providers."""
+
+    assert supported_provider_ids() == (
+        "claude_code",
+        "codex",
+        "kimi_cli",
+        "kiro_cli",
+        "q_cli",
+    )
 
 
 def test_codex_provider_recognizes_live_idle_prompt_line() -> None:
@@ -56,18 +68,3 @@ def test_claude_provider_exit_terminal_uses_escape() -> None:
     adapter.exit_terminal(tmux=_FakeTmux(), window_id="@9")  # type: ignore[arg-type]
 
     assert calls == [("@9", "Escape")]
-
-
-def test_gemini_provider_exit_terminal_uses_escape() -> None:
-    """Gemini compatibility interrupt should use Escape."""
-
-    calls: list[tuple[str, str]] = []
-
-    class _FakeTmux:
-        def send_special_key(self, *, window_id: str, key_name: str) -> None:
-            calls.append((window_id, key_name))
-
-    adapter = GeminiCompatibilityProvider()
-    adapter.exit_terminal(tmux=_FakeTmux(), window_id="@11")  # type: ignore[arg-type]
-
-    assert calls == [("@11", "Escape")]

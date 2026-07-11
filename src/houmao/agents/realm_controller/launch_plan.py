@@ -142,7 +142,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata["codex_headless_cli_mode"] = "exec_json_resume"
     if request.backend in {
         "claude_headless",
-        "gemini_headless",
         "codex_headless",
         "kimi_headless",
     }:
@@ -455,7 +454,7 @@ def _plan_legacy_role_injection(
                 prompt=role_prompt,
                 bootstrap_message=_bootstrap_message(role_name, role_prompt),
             )
-        if tool in {"gemini", "kimi"}:
+        if tool == "kimi":
             return RoleInjectionPlan(
                 method="bootstrap_message",
                 role_name=role_name,
@@ -474,7 +473,7 @@ def _plan_legacy_role_injection(
             bootstrap_message=_bootstrap_message(role_name, role_prompt),
         )
 
-    if backend in {"gemini_headless", "kimi_headless"}:
+    if backend == "kimi_headless":
         return RoleInjectionPlan(
             method="bootstrap_message",
             role_name=role_name,
@@ -516,15 +515,13 @@ def backend_for_tool(
     if prefer_cao:
         return "cao_rest"
     if prefer_local_interactive:
-        if tool in {"codex", "claude", "gemini", "kimi"}:
+        if tool in {"codex", "claude", "kimi"}:
             return "local_interactive"
         raise LaunchPlanError(f"No local interactive backend for tool {tool!r}")
     if tool == "codex":
         return "codex_headless"
     if tool == "claude":
         return "claude_headless"
-    if tool == "gemini":
-        return "gemini_headless"
     if tool == "kimi":
         return "kimi_headless"
     raise LaunchPlanError(f"No default backend for tool {tool!r}")

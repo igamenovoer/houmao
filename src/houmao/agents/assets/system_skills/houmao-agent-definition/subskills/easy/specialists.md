@@ -41,7 +41,7 @@ For `set`, keep the maintained patch command explicit and include only the user-
 Common specialist inputs:
 
 - `--name`
-- `--tool claude|codex|kimi|gemini`
+- `--tool claude|codex|kimi`
 - `--credential <name>`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
@@ -56,7 +56,6 @@ Tool-specific auth inputs:
 - Claude: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, optional `--claude-model`
 - Claude optional bootstrap state: `--claude-state-template-file`; this is optional bootstrap state and not a credential-providing method
 - Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
-- Gemini: `--api-key`, optional `--base-url`, optional `--google-api-key`, optional `--use-vertex-ai`, optional `--gemini-oauth-creds`
 - Kimi: `--api-key`, optional `--base-url`, optional `--kimi-model-name`, optional `--provider-type`, optional `--kimi-code-home`, optional `--kimi-config-toml`, optional `--kimi-credential-json`
 
 ## Credential Discovery During Create
@@ -81,7 +80,6 @@ Load only the selected tool credential-kind reference when needed:
 
 - Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
 - Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
-- Gemini: [../../../houmao-credential-mgr/references/gemini-credential-kinds.md](../../../houmao-credential-mgr/references/gemini-credential-kinds.md)
 - Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 For Claude vendor-login files, normalize reuse requests to `--claude-config-dir <claude-config-root>`. If the user points at `.credentials.json`, use its parent directory.

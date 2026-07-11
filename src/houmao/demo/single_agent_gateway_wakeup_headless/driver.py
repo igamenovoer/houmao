@@ -132,7 +132,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     start_parser = subparsers.add_parser("start")
     _add_common_arguments(start_parser)
-    start_parser.add_argument("--tool", choices=("claude", "codex", "gemini"), required=True)
+    start_parser.add_argument("--tool", choices=("claude", "codex"), required=True)
 
     attach_parser = subparsers.add_parser("attach")
     _add_common_arguments(attach_parser)
@@ -182,7 +182,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     auto_parser = subparsers.add_parser("auto")
     _add_common_arguments(auto_parser)
-    auto_parser.add_argument("--tool", choices=("claude", "codex", "gemini"), required=True)
+    auto_parser.add_argument("--tool", choices=("claude", "codex"), required=True)
     auto_parser.add_argument(
         "--expected-report",
         default=DEFAULT_EXPECTED_REPORT_RELATIVE,
@@ -1136,7 +1136,7 @@ def _command_matrix(args: argparse.Namespace) -> int:
     parameters = _load_parameters(args, repo_root=repo_root)
     results: list[dict[str, Any]] = []
     ok = True
-    for tool in ("claude", "codex", "gemini"):
+    for tool in ("claude", "codex"):
         paths = _resolve_paths(args, repo_root=repo_root, tool=tool)
         try:
             _run_auto(

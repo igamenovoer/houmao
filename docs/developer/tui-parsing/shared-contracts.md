@@ -23,7 +23,7 @@ Provider subclasses refine `ui_context` and may add evidence fields:
 - `ClaudeSurfaceAssessment`
 - `CodexSurfaceAssessment`
 
-The legacy `ShadowParserStack` still owns Claude and Codex parser implementations. Kimi Code TUI tracking now uses a dedicated shared-tracker profile and terminal-record replay sidecar instead of routing Kimi through the Claude/Codex shadow parser stack. Gemini remains outside TUI tracking by default because the maintained integration uses native headless backends.
+The legacy `ShadowParserStack` still owns Claude and Codex parser implementations. Kimi Code TUI tracking now uses a dedicated shared-tracker profile and terminal-record replay sidecar instead of routing Kimi through the Claude/Codex shadow parser stack.
 
 ### `DialogProjection`
 

@@ -8,8 +8,6 @@ Design the `houmao-dev-testing` development skill. The skill will guide a reposi
 
 The skill belongs in `skillset/dev/`. It is for development of Houmao itself and must not be published as a Houmao runtime skill.
 
-Gemini CLI is intentionally outside the testing scope because Houmao support for it is scheduled for removal. The skill must not spend test effort configuring, launching, diagnosing, or qualifying Gemini.
-
 ## Artifacts
 
 - [Use Cases](usecases/README.md)

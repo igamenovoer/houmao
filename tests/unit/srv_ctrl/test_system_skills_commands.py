@@ -690,38 +690,6 @@ def test_system_skills_uninstall_uses_env_redirect_when_home_is_omitted(
     assert not (home_path / "skills/houmao-specialist-mgr").exists()
 
 
-def test_system_skills_uninstall_uses_project_root_for_gemini_default_home(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md", "gemini skill\n")
-    _write(workspace / ".agents/skills/houmao-specialist-mgr/SKILL.md", "alias skill\n")
-
-    uninstall_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "uninstall",
-            "--tool",
-            "gemini",
-        ],
-    )
-
-    assert uninstall_result.exit_code == 0, uninstall_result.output
-    uninstall_payload = json.loads(uninstall_result.output)
-    assert uninstall_payload["home_path"] == str(workspace)
-    assert uninstall_payload["removed_skills"] == ["houmao-specialist-mgr"]
-    assert uninstall_payload["removed_projected_relative_dirs"] == [
-        ".gemini/skills/houmao-specialist-mgr"
-    ]
-    assert not (workspace / ".gemini/skills/houmao-specialist-mgr").exists()
-    assert (workspace / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
-
-
 def test_system_skills_install_uses_env_redirect_when_home_is_omitted(tmp_path: Path) -> None:
     home_path = (tmp_path / "claude-home").resolve()
 
@@ -774,38 +742,6 @@ def test_system_skills_install_uses_project_scoped_codex_default_home(
     assert (expected_home / "skills/houmao-interop-ag-ui/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-memory-mgr/SKILL.md").is_file()
     assert (expected_home / "skills/houmao-ext-graphing/SKILL.md").is_file()
-
-
-def test_system_skills_install_uses_project_root_for_gemini_default_home(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-json",
-            "system-skills",
-            "install",
-            "--tool",
-            "gemini",
-            "--skill-set",
-            "core",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    install_payload = json.loads(install_result.output)
-    assert install_payload["home_path"] == str(workspace)
-    assert (workspace / ".gemini/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-credential-mgr/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-definition/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-pro/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-agent-loop-lite/SKILL.md").is_file()
-    assert not (workspace / ".agents/skills").exists()
 
 
 def test_system_skills_install_uses_project_scoped_kimi_default_home(
@@ -864,35 +800,6 @@ def test_system_skills_install_uses_kimi_env_redirect_when_home_is_omitted(
     assert install_payload["home_path"] == str(home_path)
     assert install_payload["projected_relative_dirs"] == ["skills/houmao-agent-definition"]
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
-
-
-def test_system_skills_install_plain_reports_single_gemini_projected_skill_path(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-
-    install_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "install",
-            "--tool",
-            "gemini",
-            "--skill",
-            "houmao-specialist-mgr",
-        ],
-    )
-
-    assert install_result.exit_code == 0, install_result.output
-    assert f"Home: {workspace}" in install_result.output
-    assert (
-        f"Projected path: {workspace / '.gemini/skills/houmao-specialist-mgr'}"
-        in install_result.output
-    )
-    assert "Projection mode: copy" in install_result.output
 
 
 def test_system_skills_install_plain_reports_single_kimi_projected_skill_path_and_note(
@@ -993,7 +900,6 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
     monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
     monkeypatch.chdir(workspace)
 
@@ -1004,7 +910,7 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
             "system-skills",
             "install",
             "--tool",
-            "claude, codex,copilot,gemini,kimi",
+            "claude, codex,copilot,kimi",
             "--skill-set",
             "core",
         ],
@@ -1012,12 +918,11 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
 
     assert install_result.exit_code == 0, install_result.output
     payload = json.loads(install_result.output)
-    assert payload["tools"] == ["claude", "codex", "copilot", "gemini", "kimi"]
+    assert payload["tools"] == ["claude", "codex", "copilot", "kimi"]
     installations = {record["tool"]: record for record in payload["installations"]}
     assert installations["claude"]["home_path"] == str(workspace / ".claude")
     assert installations["codex"]["home_path"] == str(workspace / ".codex")
     assert installations["copilot"]["home_path"] == str(workspace / ".github")
-    assert installations["gemini"]["home_path"] == str(workspace)
     assert installations["kimi"]["home_path"] == str(workspace / ".kimi-code")
     for record in installations.values():
         assert record["selected_sets"] == ["core"]
@@ -1027,12 +932,10 @@ def test_system_skills_install_supports_comma_separated_tools_with_project_defau
     assert (workspace / ".claude/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".codex/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".github/skills/houmao-project-mgr/SKILL.md").is_file()
-    assert (workspace / ".gemini/skills/houmao-project-mgr/SKILL.md").is_file()
     assert (workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md").is_file()
     assert not (workspace / ".claude/skills/houmao-ext-graphing").exists()
     assert not (workspace / ".codex/skills/houmao-ext-graphing").exists()
     assert not (workspace / ".github/skills/houmao-ext-graphing").exists()
-    assert not (workspace / ".gemini/skills/houmao-ext-graphing").exists()
     assert not (workspace / ".kimi-code/skills/houmao-ext-graphing").exists()
 
 
@@ -1043,7 +946,6 @@ def test_system_skills_install_plain_reports_multi_tool_projection_roots(
     workspace = tmp_path.resolve()
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
     monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
     monkeypatch.chdir(workspace)
 
@@ -1054,7 +956,7 @@ def test_system_skills_install_plain_reports_multi_tool_projection_roots(
             "system-skills",
             "install",
             "--tool",
-            "codex,claude,gemini,kimi",
+            "codex,claude,kimi",
             "--skill",
             "houmao-specialist-mgr",
             "--symlink",
@@ -1068,9 +970,6 @@ def test_system_skills_install_plain_reports_multi_tool_projection_roots(
     assert "  - claude:" in install_result.output
     assert f"home: {workspace / '.claude'}" in install_result.output
     assert f"skill root: {workspace / '.claude/skills'}" in install_result.output
-    assert "  - gemini:" in install_result.output
-    assert f"home: {workspace}" in install_result.output
-    assert f"skill root: {workspace / '.gemini/skills'}" in install_result.output
     assert "  - kimi:" in install_result.output
     assert f"home: {workspace / '.kimi-code'}" in install_result.output
     assert f"skill root: {workspace / '.kimi-code/skills'}" in install_result.output
@@ -1120,7 +1019,7 @@ def test_system_skills_install_rejects_malformed_multi_tool_list_before_mutation
             "system-skills",
             "install",
             "--tool",
-            "codex,,gemini",
+            "codex,,kimi",
             "--skill",
             "houmao-specialist-mgr",
         ],
@@ -1129,7 +1028,7 @@ def test_system_skills_install_rejects_malformed_multi_tool_list_before_mutation
     assert result.exit_code != 0
     assert "comma-separated tool lists cannot contain empty entries" in result.output
     assert not (workspace / ".codex").exists()
-    assert not (workspace / ".gemini").exists()
+    assert not (workspace / ".kimi-code").exists()
 
 
 def test_system_skills_install_rejects_duplicate_multi_tool_entries_before_mutation(
@@ -1164,13 +1063,11 @@ def test_system_skills_uninstall_supports_comma_separated_tools_with_project_def
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
     monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
     monkeypatch.chdir(workspace)
     _write(workspace / ".claude/skills/houmao-project-mgr/SKILL.md", "claude skill\n")
     _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
     _write(workspace / ".github/skills/houmao-project-mgr/SKILL.md", "copilot skill\n")
-    _write(workspace / ".gemini/skills/houmao-project-mgr/SKILL.md", "gemini skill\n")
     _write(workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md", "kimi skill\n")
 
     uninstall_result = CliRunner().invoke(
@@ -1180,25 +1077,23 @@ def test_system_skills_uninstall_supports_comma_separated_tools_with_project_def
             "system-skills",
             "uninstall",
             "--tool",
-            "claude, codex,copilot,gemini,kimi",
+            "claude, codex,copilot,kimi",
         ],
     )
 
     assert uninstall_result.exit_code == 0, uninstall_result.output
     payload = json.loads(uninstall_result.output)
-    assert payload["tools"] == ["claude", "codex", "copilot", "gemini", "kimi"]
+    assert payload["tools"] == ["claude", "codex", "copilot", "kimi"]
     uninstallations = {record["tool"]: record for record in payload["uninstallations"]}
     assert uninstallations["claude"]["home_path"] == str(workspace / ".claude")
     assert uninstallations["codex"]["home_path"] == str(workspace / ".codex")
     assert uninstallations["copilot"]["home_path"] == str(workspace / ".github")
-    assert uninstallations["gemini"]["home_path"] == str(workspace)
     assert uninstallations["kimi"]["home_path"] == str(workspace / ".kimi-code")
     for record in uninstallations.values():
         assert record["removed_skills"] == ["houmao-project-mgr"]
     assert not (workspace / ".claude/skills/houmao-project-mgr").exists()
     assert not (workspace / ".codex/skills/houmao-project-mgr").exists()
     assert not (workspace / ".github/skills/houmao-project-mgr").exists()
-    assert not (workspace / ".gemini/skills/houmao-project-mgr").exists()
     assert not (workspace / ".kimi-code/skills/houmao-project-mgr").exists()
 
 
@@ -1208,11 +1103,9 @@ def test_system_skills_uninstall_plain_reports_multi_tool_projection_roots(
 ) -> None:
     workspace = tmp_path.resolve()
     monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
     monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
     monkeypatch.chdir(workspace)
     _write(workspace / ".codex/skills/houmao-project-mgr/SKILL.md", "codex skill\n")
-    _write(workspace / ".gemini/skills/houmao-project-mgr/SKILL.md", "gemini skill\n")
     _write(workspace / ".kimi-code/skills/houmao-project-mgr/SKILL.md", "kimi skill\n")
 
     uninstall_result = CliRunner().invoke(
@@ -1222,16 +1115,11 @@ def test_system_skills_uninstall_plain_reports_multi_tool_projection_roots(
             "system-skills",
             "uninstall",
             "--tool",
-            "codex,gemini,kimi",
+            "codex,kimi",
         ],
     )
 
     assert uninstall_result.exit_code == 0, uninstall_result.output
-    assert "  - gemini:" in uninstall_result.output
-    assert f"home: {workspace}" in uninstall_result.output
-    assert "result: 1 removed" in uninstall_result.output
-    assert f"removed root: {workspace / '.gemini/skills'}" in uninstall_result.output
-    assert f"absent root: {workspace / '.gemini/skills'}" in uninstall_result.output
     assert "  - codex:" in uninstall_result.output
     assert f"removed root: {workspace / '.codex/skills'}" in uninstall_result.output
     assert "  - kimi:" in uninstall_result.output
@@ -1312,7 +1200,7 @@ def test_system_skills_uninstall_rejects_malformed_multi_tool_list_before_mutati
             "system-skills",
             "uninstall",
             "--tool",
-            "codex,,gemini",
+            "codex,,kimi",
         ],
     )
 
@@ -1396,7 +1284,7 @@ def test_system_skills_install_rejects_unknown_skill_set_before_multi_tool_mutat
             "system-skills",
             "install",
             "--tool",
-            "codex,gemini",
+            "codex,kimi",
             "--skill-set",
             "unknown-set",
         ],
@@ -1405,7 +1293,7 @@ def test_system_skills_install_rejects_unknown_skill_set_before_multi_tool_mutat
     assert result.exit_code != 0
     assert "Unknown system-skill set `unknown-set`" in result.output
     assert not (workspace / ".codex").exists()
-    assert not (workspace / ".gemini").exists()
+    assert not (workspace / ".kimi-code").exists()
 
 
 def test_system_skills_install_uses_copilot_env_redirect_when_home_is_omitted(
@@ -1624,33 +1512,6 @@ def test_system_skills_install_supports_symlink_mode_and_status_reports_it(tmp_p
     ]
 
 
-def test_system_skills_status_plain_reports_gemini_projected_skill_path(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path.resolve()
-    monkeypatch.delenv("GEMINI_CLI_HOME", raising=False)
-    monkeypatch.chdir(workspace)
-    _write(workspace / ".gemini/skills/houmao-specialist-mgr/SKILL.md", "gemini skill\n")
-
-    status_result = CliRunner().invoke(
-        cli,
-        [
-            "--print-plain",
-            "system-skills",
-            "status",
-            "--tool",
-            "gemini",
-        ],
-    )
-
-    assert status_result.exit_code == 0, status_result.output
-    assert f"Home: {workspace}" in status_result.output
-    assert (
-        "  - houmao-specialist-mgr (copy): .gemini/skills/houmao-specialist-mgr"
-        in status_result.output
-    )
-
-
 def test_system_skills_status_ignores_stale_legacy_state_without_current_paths(
     tmp_path: Path,
 ) -> None:
@@ -1704,7 +1565,7 @@ def test_system_skills_install_rejects_removed_default_flag() -> None:
             "system-skills",
             "install",
             "--tool",
-            "gemini",
+            "codex",
             "--default",
         ],
     )
@@ -1721,7 +1582,7 @@ def test_system_skills_install_rejects_removed_set_flag() -> None:
             "system-skills",
             "install",
             "--tool",
-            "gemini",
+            "codex",
             "--set",
             "core",
         ],

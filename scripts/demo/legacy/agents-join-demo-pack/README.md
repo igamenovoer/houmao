@@ -1,6 +1,6 @@
 # agents-join-demo-pack
 
-Demonstrates the `houmao-mgr agents join` workflow: adopt an already-running CLI agent (Claude Code, Codex, or Gemini CLI) into Houmao's management surface without a brain build or agent-definition directory.
+Demonstrates the `houmao-mgr agents join` workflow: adopt an already-running CLI agent (Claude Code or Codex) into Houmao's management surface without a brain build or agent-definition directory.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ Demonstrates the `houmao-mgr agents join` workflow: adopt an already-running CLI
 |---|---|
 | `tmux` installed | `tmux -V` |
 | `houmao-mgr` on `PATH` | `pixi run houmao-mgr --help` |
-| At least one supported provider CLI | `claude --version`, `codex --version`, or `gemini --version` |
+| At least one supported provider CLI | `claude --version` or `codex --version` |
 
 ## What the Demo Does
 
@@ -37,10 +37,9 @@ scripts/demo/agents-join-demo-pack/run_demo.sh
 
 # Use a specific provider
 scripts/demo/agents-join-demo-pack/run_demo.sh --provider codex
-scripts/demo/agents-join-demo-pack/run_demo.sh --provider gemini
 ```
 
-Supported `--provider` values: `claude` (default), `codex`, `gemini`.
+Supported `--provider` values: `claude` (default) and `codex`.
 
 ## Step Scripts
 

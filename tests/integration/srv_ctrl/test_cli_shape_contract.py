@@ -23,7 +23,6 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
 from houmao.project.overlay import bootstrap_project_overlay
-from houmao.server.tui.process import PaneProcessInspection
 from houmao.server.models import (
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
@@ -1397,26 +1396,3 @@ def test_houmao_mgr_agents_join_rejects_blank_resume_selector(
 
     assert result.exit_code != 0
     assert "`--resume-id` must not be blank" in result.output
-
-
-def test_detect_join_provider_supports_gemini_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _FakeInspector:
-        def inspect(self, *, tool: str, pane_pid: int | None) -> PaneProcessInspection:
-            del pane_pid
-            if tool == "gemini":
-                return PaneProcessInspection(
-                    process_state="tui_up",
-                    matched_process_names=("gemini",),
-                    matched_processes=(),
-                )
-            return PaneProcessInspection(
-                process_state="tui_down",
-                matched_process_names=(),
-                matched_processes=(),
-            )
-
-    monkeypatch.setattr(
-        agents_core, "PaneProcessInspector", lambda supported_processes: _FakeInspector()
-    )
-
-    assert agents_core._detect_join_provider(123) == "gemini_cli"

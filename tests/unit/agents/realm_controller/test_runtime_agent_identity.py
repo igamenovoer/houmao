@@ -861,7 +861,7 @@ def test_resolve_agent_identity_name_fails_when_agent_def_dir_pointer_is_stale(
         resolve_agent_identity(agent_identity="gpu", base=agent_def_dir)
 
 
-@pytest.mark.parametrize("backend", ["codex_headless", "claude_headless", "gemini_headless"])
+@pytest.mark.parametrize("backend", ["codex_headless", "claude_headless", "kimi_headless"])
 def test_resolve_agent_identity_accepts_tmux_backed_headless_manifest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

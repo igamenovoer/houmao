@@ -187,13 +187,10 @@ from .common import (
     resolve_server_base_url,
 )
 
-_HEADLESS_BACKENDS = frozenset(
-    {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
-)
+_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless"})
 _SUPPORTED_LOCAL_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
-    "gemini": ("gemini",),
     "kimi": ("kimi-code", "kimi"),
 }
 ManagedAgentListState = Literal["active", "stopped", "relaunching", "retired", "all"]

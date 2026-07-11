@@ -90,7 +90,6 @@ class HeadlessInteractiveSession:
             "local_interactive",
             "codex_headless",
             "claude_headless",
-            "gemini_headless",
             "kimi_headless",
         }:
             raise BackendExecutionError(f"Invalid tmux-backed backend: {backend}")

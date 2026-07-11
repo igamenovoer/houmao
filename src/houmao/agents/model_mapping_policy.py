@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +22,6 @@ from houmao.agents.model_selection import ModelConfig
 
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
-_GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
 _KIMI_CONFIG_FILENAME = "config.toml"
 _KIMI_ENV_MODEL_NAME = "KIMI_MODEL_NAME"
 _CODEX_CURRENT_CODING_MODEL_PREFIXES = (
@@ -151,15 +149,6 @@ def project_reasoning_level(
         )
         return mapping
 
-    if tool == "gemini":
-        settings_path = home_path / _GEMINI_SETTINGS_PATH
-        _project_gemini_reasoning(
-            settings_path=settings_path,
-            requested_model_name=model_name,
-            mapping=mapping,
-        )
-        return mapping
-
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
 
@@ -205,20 +194,6 @@ def project_model_name(
             value=stripped_model_name,
         )
         return projection
-
-    if tool == "gemini":
-        set_json_key(
-            path=home_path / _GEMINI_SETTINGS_PATH,
-            key_path=("model", "name"),
-            value=stripped_model_name,
-            repair_invalid=True,
-        )
-        return {
-            "surface": "json",
-            "path": str(_GEMINI_SETTINGS_PATH),
-            "key_path": ["model", "name"],
-            "value": stripped_model_name,
-        }
 
     if tool == "kimi":
         if env_exports is not None and _KIMI_ENV_MODEL_NAME in env_exports:
@@ -314,22 +289,6 @@ def _cli_args_from_projection(projection: dict[str, Any]) -> list[str]:
     return list(cli_args)
 
 
-def _resolve_gemini_reasoning_mapping(
-    *,
-    requested_level: int,
-    model_name: str | None,
-    tool_version: str | None,
-) -> dict[str, Any]:
-    """Resolve one Gemini-native reasoning projection."""
-
-    return resolve_reasoning_mapping(
-        tool="gemini",
-        requested_level=requested_level,
-        model_name=model_name,
-        tool_version=tool_version,
-    )
-
-
 def _build_reasoning_mapping(
     *,
     tool: str,
@@ -411,9 +370,6 @@ def _resolve_reasoning_ladder(
     if tool == "codex":
         return _resolve_codex_reasoning_ladder(model_name=model_name)
 
-    if tool == "gemini":
-        return _resolve_gemini_reasoning_ladder(model_name=model_name)
-
     if tool == "kimi":
         raise ValueError("Kimi model-mapping does not support launch-owned reasoning levels.")
 
@@ -471,92 +427,6 @@ def _codex_reasoning_ladder(
                 ),
             )
             for value in positive_values
-        ),
-    }
-
-
-def _resolve_gemini_reasoning_ladder(
-    *,
-    model_name: str | None,
-) -> dict[str, Any]:
-    """Resolve one maintained Gemini reasoning preset ladder."""
-
-    if _is_gemini_3_model(model_name):
-        return {
-            "off_preset": None,
-            "positive_presets": (
-                (
-                    _native_setting(
-                        "thinkingLevel", "LOW", surface="json", path=str(_GEMINI_SETTINGS_PATH)
-                    ),
-                    _native_setting(
-                        "thinkingBudget", 1024, surface="json", path=str(_GEMINI_SETTINGS_PATH)
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "thinkingLevel", "MEDIUM", surface="json", path=str(_GEMINI_SETTINGS_PATH)
-                    ),
-                    _native_setting(
-                        "thinkingBudget", 4096, surface="json", path=str(_GEMINI_SETTINGS_PATH)
-                    ),
-                ),
-                (
-                    _native_setting(
-                        "thinkingLevel", "HIGH", surface="json", path=str(_GEMINI_SETTINGS_PATH)
-                    ),
-                    _native_setting(
-                        "thinkingBudget", 16384, surface="json", path=str(_GEMINI_SETTINGS_PATH)
-                    ),
-                ),
-            ),
-        }
-
-    return {
-        "off_preset": (
-            _native_setting("thinkingBudget", 0, surface="json", path=str(_GEMINI_SETTINGS_PATH)),
-        ),
-        "positive_presets": (
-            (
-                _native_setting(
-                    "thinkingBudget",
-                    512,
-                    surface="json",
-                    path=str(_GEMINI_SETTINGS_PATH),
-                ),
-            ),
-            (
-                _native_setting(
-                    "thinkingBudget",
-                    2048,
-                    surface="json",
-                    path=str(_GEMINI_SETTINGS_PATH),
-                ),
-            ),
-            (
-                _native_setting(
-                    "thinkingBudget",
-                    4096,
-                    surface="json",
-                    path=str(_GEMINI_SETTINGS_PATH),
-                ),
-            ),
-            (
-                _native_setting(
-                    "thinkingBudget",
-                    8192,
-                    surface="json",
-                    path=str(_GEMINI_SETTINGS_PATH),
-                ),
-            ),
-            (
-                _native_setting(
-                    "thinkingBudget",
-                    16384,
-                    surface="json",
-                    path=str(_GEMINI_SETTINGS_PATH),
-                ),
-            ),
         ),
     }
 
@@ -631,90 +501,6 @@ def _model_name_matches_prefix(model_name: str | None, prefixes: tuple[str, ...]
     return any(lowered.startswith(prefix) for prefix in prefixes)
 
 
-def _is_gemini_3_model(model_name: str | None) -> bool:
-    """Return whether one Gemini model uses Gemini 3 thinking-level semantics."""
-
-    if model_name is None:
-        return False
-    lowered = model_name.lower()
-    return lowered.startswith("gemini-3")
-
-
-def _project_gemini_reasoning(
-    *,
-    settings_path: Path,
-    requested_model_name: str | None,
-    mapping: dict[str, Any],
-) -> None:
-    """Persist one Gemini reasoning override under `modelConfigs.customOverrides`."""
-
-    payload = _load_json_mapping(settings_path)
-    effective_model_name = requested_model_name or _extract_model_name(payload) or "auto"
-    model_configs = payload.get("modelConfigs")
-    if not isinstance(model_configs, dict):
-        model_configs = {}
-        payload["modelConfigs"] = model_configs
-
-    custom_overrides = model_configs.get("customOverrides")
-    if not isinstance(custom_overrides, list):
-        custom_overrides = []
-
-    preserved_overrides: list[dict[str, Any]] = []
-    for override in custom_overrides:
-        if not isinstance(override, dict):
-            continue
-        match_payload = override.get("match")
-        if isinstance(match_payload, dict) and match_payload.get("model") == effective_model_name:
-            continue
-        preserved_overrides.append(override)
-
-    custom_override = {
-        "match": {"model": effective_model_name},
-        "modelConfig": {
-            "generateContentConfig": {
-                "thinkingConfig": {
-                    str(native_setting["native_scale"]): native_setting["native_value"]
-                    for native_setting in mapping["native_settings"]
-                    if isinstance(native_setting, dict)
-                }
-            }
-        },
-    }
-    model_configs["customOverrides"] = [custom_override, *preserved_overrides]
-    _write_json_mapping(settings_path, payload)
-
-
-def _extract_model_name(payload: dict[str, Any]) -> str | None:
-    """Extract one Gemini model name from a settings payload when present."""
-
-    model_payload = payload.get("model")
-    if not isinstance(model_payload, dict):
-        return None
-    name = model_payload.get("name")
-    if not isinstance(name, str) or not name.strip():
-        return None
-    return name.strip()
-
-
-def _load_json_mapping(path: Path) -> dict[str, Any]:
-    """Load one JSON object from disk, tolerating missing or invalid state."""
-
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _write_json_mapping(path: Path, payload: dict[str, Any]) -> None:
-    """Persist one JSON object with stable formatting."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
 def _mutated_model_config_paths(
     *,
     home_path: Path,
@@ -729,8 +515,6 @@ def _mutated_model_config_paths(
         return (home_path / _CLAUDE_SETTINGS_FILENAME,)
     if tool == "codex":
         return (home_path / _CODEX_CONFIG_FILENAME,)
-    if tool == "gemini":
-        return (home_path / _GEMINI_SETTINGS_PATH,)
     if tool == "kimi":
         return ()
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")

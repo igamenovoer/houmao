@@ -1,6 +1,6 @@
 # Login Credential
 
-Use this action only when the user wants to run a provider login flow for a fresh Claude, Codex, or Gemini account and import the resulting auth file into Houmao credential storage. Kimi credential CRUD is supported by the other action pages, but Kimi does not have a maintained Houmao credential login helper in this change.
+Use this action only when the user wants to run a provider login flow for a fresh Claude or Codex account and import the resulting auth file into Houmao credential storage. Kimi credential CRUD is supported by the other action pages, but Kimi does not have a maintained Houmao credential login helper.
 
 ## Workflow
 
@@ -15,7 +15,7 @@ Use this action only when the user wants to run a provider login flow for a fres
 
 ## Required Inputs
 
-- `tool`: one of `claude`, `codex`, or `gemini`
+- `tool`: one of `claude` or `codex`
 - `name`
 - a resolved target
 
@@ -37,5 +37,4 @@ Add `--update` only when the user explicitly intends to replace an existing cred
 - Do not add `--update` unless the user explicitly asked to update, replace, or refresh an existing credential.
 - Do not manually create provider home directories, run provider login commands, copy auth files into Houmao storage, or delete temp directories for this ordinary workflow.
 - Do not scan existing provider homes to infer the account unless the user explicitly asks for a lower-level recovery workflow.
-- Do not promise fully headless Gemini login; the supported flow launches Gemini in an isolated home and the user may need to finish OAuth interactively before exiting Gemini.
 - If the command fails and reports a preserved temp home, report that path as recovery context instead of deleting it yourself.

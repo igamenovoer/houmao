@@ -74,7 +74,7 @@ The skill replays one labeled source recording through Houmao under canonical an
 
 1. The developer selects providers, scenarios, and requested TUI or headless postures.
 2. The skill reads current repository commands and provider support before suggesting a test matrix.
-3. The skill limits the provider matrix to Claude, Codex, and Kimi. Gemini is intentionally excluded because its Houmao support is scheduled for removal.
+3. The skill limits the provider matrix to Claude, Codex, and Kimi.
 4. The skill verifies Pixi, tmux, provider binaries, auth bundles, work directories, and output-root safety.
 5. For each managed test lane, the skill initializes an isolated project overlay and creates or selects a specialist and launch profile.
 6. The skill launches through `pixi run houmao-mgr project agents launch`. It never uses removed standalone launcher surfaces.
@@ -96,7 +96,6 @@ The skill replays one labeled source recording through Houmao under canonical an
 ## Alternative And Exception Flows
 
 - If a requested provider or posture is unsupported, the skill marks that matrix cell `skipped_unsupported` and names the current boundary. It does not improvise a legacy launch path.
-- If a request includes Gemini, the skill excludes it from the test session and states that the provider is outside scope because Houmao support is being removed. It does not run Gemini preflight, launch, or diagnostic work.
 - If auth material is missing, the skill stops before launch and reports the expected local bundle. It never prints secret contents or commits plaintext credentials.
 - If a native TUI already contains Houmao-managed prompt text or home state, the skill rejects it as independent ground truth and asks for a clean native session.
 - If a tmux session has multiple panes, the skill requires an explicit target pane before recording.
@@ -187,7 +186,7 @@ Notes:
 
 ## Assumptions And Open Questions
 
-- The first implementation targets Claude, Codex, and Kimi. Gemini is excluded from both TUI and headless coverage.
+- The first implementation targets Claude, Codex, and Kimi.
 - A 0.05 second requested interval is the initial high-frequency capture target. Actual sample timestamps remain authoritative.
 - The current fixed-cadence sweep is reusable. Irregular within-run cadence requires a schedule-driven stream derivation extension.
 - Labels describe public tracked state, not detector internals and not raw visual impressions alone.

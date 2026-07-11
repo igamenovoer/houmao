@@ -172,14 +172,12 @@ _PROVIDERS = frozenset(
     {
         "claude_code",
         "codex",
-        "gemini_cli",
         "kimi",
     }
 )
 _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
-    "gemini": ("gemini",),
     "kimi": ("kimi-code", "kimi"),
 }
 _RELAUNCH_CHAT_SESSION_MODES: tuple[str, ...] = ("new", "tool_last_or_new", "exact")
@@ -218,7 +216,6 @@ def _resolve_relaunch_chat_session_selection_or_click(
 _PROVIDER_BY_TOOL: dict[str, str] = {
     "claude": "claude_code",
     "codex": "codex",
-    "gemini": "gemini_cli",
     "kimi": "kimi",
 }
 _PRESET_FILE_SUFFIXES: tuple[str, ...] = (".yaml", ".yml")
@@ -1649,7 +1646,7 @@ def launch_agents_command(
 @click.option(
     "--provider",
     default=None,
-    help="Provider identifier to adopt (`claude_code`, `codex`, `gemini_cli`, or `kimi`).",
+    help="Provider identifier to adopt (`claude_code`, `codex`, or `kimi`).",
 )
 @click.option(
     "--launch-args",
@@ -2237,12 +2234,6 @@ def _validate_headless_launch_args(*, provider: str, launch_args: tuple[str, ...
         if "-p" not in launch_arg_set and "--print" not in launch_arg_set:
             raise click.ClickException(
                 "Claude headless join requires `--launch-args -p` or `--launch-args=--print`."
-            )
-        return
-    if provider == "gemini_cli":
-        if "-p" not in launch_arg_set and "--prompt" not in launch_arg_set:
-            raise click.ClickException(
-                "Gemini headless join requires `--launch-args -p` or `--launch-args=--prompt`."
             )
         return
 

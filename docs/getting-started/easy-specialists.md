@@ -67,7 +67,7 @@ Key options:
 | Option | Default | Description |
 |---|---|---|
 | `--name` | Required | Specialist name. Used as the role name and default auth display name. |
-| `--tool` | Required | Tool lane: `claude`, `codex`, `kimi`, or `gemini`. |
+| `--tool` | Required | Tool lane: `claude`, `codex`, or `kimi`. |
 | `--system-prompt` / `--system-prompt-file` | None | Inline prompt text or path to a prompt markdown file. |
 | `--credential` | `<name>-creds` | Auth display name. Defaults to `<specialist-name>-creds`. |
 | `--api-key` | None | API key for the selected tool. |
@@ -100,8 +100,6 @@ Current maintained ladders:
 
 - Claude: `1=low`, `2=medium`, `3=high`, and `4=max` only on models that support Claude `max`; higher numbers saturate to the highest supported Claude preset.
 - Codex: current maintained Codex coding models such as `gpt-5.4`, `gpt-5.3-codex`, and `gpt-5.2-codex` use `1=low`, `2=medium`, `3=high`, `4=xhigh`; higher numbers saturate to `xhigh`. `0` and `minimal` are used only when the resolved Codex model ladder explicitly supports those native efforts.
-- Gemini 3 models: Houmao preset rows currently map `1=(thinkingLevel LOW, thinkingBudget 1024)`, `2=(MEDIUM, 4096)`, `3=(HIGH, 16384)`; higher numbers saturate to the highest maintained row.
-- Other Gemini models: `0=thinkingBudget 0`, `1=512`, `2=2048`, `3=4096`, `4=8192`, `5=16384`; higher numbers saturate to `16384`.
 
 If you need finer vendor-native tuning than those maintained Houmao presets, omit `--reasoning-level` and manage the native tool config or environment directly.
 
@@ -118,23 +116,13 @@ houmao-mgr project specialist create \
   --skill repo-map
 ```
 
-Gemini-specific auth inputs now support two maintained lanes:
 
-- API-key lane: `--api-key` with optional `--base-url` to persist `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL`.
-- OAuth lane: `--gemini-oauth-creds /path/to/oauth_creds.json` to persist the Gemini CLI OAuth credential file. You can also combine this with the API-key lane in one specialist or auth bundle; Houmao preserves explicit API-key and endpoint settings instead of overwriting them.
 
-Kimi and Gemini specialists follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Gemini remains the easy instance required-headless exception, so launch Gemini specialists with `houmao-mgr project agents launch --headless`. Kimi specialists can use the TUI/local-interactive path when headless posture is omitted, and still honor explicit `--headless` for prompt-mode launch.
+Kimi specialists follow the same easy unattended default as Claude and Codex: by default Houmao persists `launch.prompt_mode: unattended`, and `--no-unattended` remains the explicit opt-out to `as_is`. Kimi specialists can use the TUI/local-interactive path when headless posture is omitted, and still honor explicit `--headless` for prompt-mode launch.
 
-Example Gemini specialist:
 
 ```bash
 houmao-mgr project specialist create \
-  --name gemini-reviewer \
-  --tool gemini \
-  --system-prompt "You are a Gemini-based code reviewer." \
-  --api-key "$GEMINI_API_KEY" \
-  --base-url https://gemini.example.test \
-  --gemini-oauth-creds ./secrets/oauth_creds.json \
   --skill repo-map
 ```
 
@@ -325,7 +313,7 @@ Key options:
 | `--mail-root` | None | Shared filesystem mailbox root (when using mailbox). |
 | `--mail-account-dir` | None | Optional private filesystem mailbox directory to symlink into the shared root. |
 
-Gemini specialists remain headless-only here. Kimi specialists and Kimi-backed profiles can launch through the TUI/local-interactive path when `--headless` is omitted, and still honor explicit `--headless` for prompt-mode launch.
+Kimi specialists and Kimi-backed profiles can launch through the TUI/local-interactive path when `--headless` is omitted, and still honor explicit `--headless` for prompt-mode launch.
 
 `--workdir` changes only the launched agent cwd. The selected project overlay and stored specialist remain the launch source for recipe resolution plus overlay-local runtime, managed-agent memory, and mailbox defaults.
 

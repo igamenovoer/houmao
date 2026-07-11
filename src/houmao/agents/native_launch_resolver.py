@@ -18,7 +18,6 @@ from houmao.project.overlay import PROJECT_DIRNAME, resolve_materialized_project
 _TOOL_BY_PROVIDER: dict[str, str] = {
     "claude_code": "claude",
     "codex": "codex",
-    "gemini_cli": "gemini",
     "kimi": "kimi",
 }
 

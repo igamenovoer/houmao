@@ -54,21 +54,6 @@ from houmao.agents.realm_controller.backends.headless_output import (
             "thread-123",
         ),
         (
-            "gemini",
-            "\n".join(
-                [
-                    '{"type":"init","session_id":"gemini-session","model":"gemini-pro"}',
-                    '{"type":"message","role":"assistant","content":"hello from gemini"}',
-                    (
-                        '{"type":"result","session_id":"gemini-session","status":"success",'
-                        '"stats":{"input_tokens":2,"output_tokens":4}}'
-                    ),
-                ]
-            ),
-            ["session", "assistant", "completion"],
-            "gemini-session",
-        ),
-        (
             "kimi",
             "\n".join(
                 [

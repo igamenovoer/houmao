@@ -11,7 +11,6 @@ BackendKind = Literal[
     "local_interactive",
     "claude_headless",
     "codex_headless",
-    "gemini_headless",
     "kimi_headless",
     "codex_app_server",
     "cao_rest",
@@ -28,14 +27,12 @@ flowchart LR
     LI["LocalInteractiveSession<br/>persistent TUI in tmux pane<br/>send_prompt via tmux paste<br/>captures pane output"]
     CH["ClaudeHeadlessSession<br/>claude -p per turn<br/>JSON streaming output<br/>--continue for resume"]
     CX["CodexHeadlessSession<br/>codex exec --json per turn<br/>resume via thread_id"]
-    GH["GeminiHeadlessSession<br/>gemini -p per turn<br/>--resume <session_id>"]
     KH["KimiHeadlessSession<br/>kimi -p per turn<br/>--session <session_id>"]
     LEG["Legacy/internal backends<br/>cao_rest / houmao_server_rest<br/>rejected for new public launches"]
 
     LP -->|local_interactive| LI
     LP -->|claude_headless| CH
     LP -->|codex_headless<br/>codex_app_server| CX
-    LP -->|gemini_headless| GH
     LP -->|kimi_headless| KH
     LP -.->|legacy manifests only| LEG
 ```
@@ -46,7 +43,7 @@ flowchart LR
 
 **Source:** `backends/local_interactive.py`
 
-The primary backend for interactive agent sessions. The agent runs as a real interactive CLI process inside a tmux pane, preserving the tool's native user experience (colors, interactive prompts, streaming output). Maintained local interactive tools are Claude Code, Codex, Kimi Code, and Gemini CLI.
+The primary backend for interactive agent sessions. The agent runs as a real interactive CLI process inside a tmux pane, preserving the tool's native user experience (colors, interactive prompts, streaming output). Maintained local interactive tools are Claude Code, Codex, and Kimi Code.
 
 - **Session class:** `LocalInteractiveSession`
 - **Prompt delivery:** via tmux paste-buffer with bracketed paste and a separate final submit key.
@@ -89,27 +86,6 @@ Runs Codex CLI in headless mode (`codex exec --json`). Produces structured JSON 
 - **Resume:** `resume --last` asks Codex to continue its latest stored chat; `resume <session_id>` resumes an exact provider session.
 - **Role injection:** when the role prompt is non-empty, Houmao passes `-c developer_instructions=<prompt>`. Empty prompts skip the developer-instructions flag.
 - **Use case:** automated pipelines, structured output processing, and non-interactive agent orchestration.
-
-### gemini_headless
-
-**Source:** `backends/gemini_headless.py`
-
-Runs Gemini CLI in headless mode (`gemini -p`).
-
-- **Session class:** `GeminiHeadlessSession` (extends `HeadlessInteractiveSession`)
-- **Auth lanes:** managed Gemini homes support `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via projected `oauth_creds.json`. OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present.
-- **Managed skills:** Houmao-owned Gemini skills project into `.gemini/skills`; `.agents/skills` is only Gemini's upstream alias surface and is not Houmao's maintained contract.
-- **Resume:** `--resume latest` asks Gemini to continue its latest stored chat; `--resume <session_id>` resumes an exact provider session. Resume stays bound to the same recorded working directory/project context.
-- **Role injection:** bootstrap message sent as the first-turn prompt.
-- **Use case:** automated pipelines and non-interactive agent orchestration.
-
-#### Gemini validation checklist
-
-- API-key lane: create a Gemini auth bundle with `--api-key` and optional `--base-url`, build or launch a managed Gemini home, and confirm the effective launch environment exports `GEMINI_API_KEY` plus `GOOGLE_GEMINI_BASE_URL` when configured.
-- OAuth lane: create a Gemini auth bundle with `oauth_creds.json` only, build or launch a managed Gemini home, and confirm the runtime exports `GOOGLE_GENAI_USE_GCA=true` without depending on a user-global Gemini `settings.json`.
-- Skill projection: inspect the constructed home and confirm Houmao-owned Gemini skills land under top-level `.gemini/skills/houmao-.../`; Houmao does not maintain a parallel `.agents/skills` mirror.
-- First-turn capture: verify the first `stream-json` Gemini turn emits a `session_id` and that Houmao persists that id into the managed session manifest.
-- Resume behavior: send a follow-up Gemini prompt from the same working directory and confirm Houmao launches `gemini -p --resume <persisted-session-id>`; changing the working directory should fail explicitly instead of silently retargeting another Gemini project store.
 
 ### kimi_headless
 
@@ -164,7 +140,7 @@ Legacy old-server-backed path. New runtime manifests with this backend are not s
 
 ## Headless backend base class
 
-The maintained native headless backends (`claude_headless`, `codex_headless`, `kimi_headless`, `gemini_headless`) share a common base class: `HeadlessInteractiveSession`.
+The maintained native headless backends (`claude_headless`, `codex_headless`, `kimi_headless`) share a common base class: `HeadlessInteractiveSession`.
 
 This base class manages:
 
@@ -185,7 +161,6 @@ Tmux-backed relaunch accepts a relaunch-only chat-session selector. It does not 
 | Claude Code | `claude --continue` | `claude --resume <session_id>` | `claude -p --continue <prompt>` | `claude -p --resume <session_id> <prompt>` |
 | Codex | `codex resume --last` | `codex resume <session_id>` | `codex exec resume --last <prompt>` | `codex exec resume <session_id> <prompt>` |
 | Kimi Code | `kimi --continue` | `kimi --session <session_id>` | `kimi --continue -p <prompt>` | `kimi --session <session_id> -p <prompt>` |
-| Gemini CLI | `gemini --resume latest` | `gemini --resume <session_id>` | `gemini --resume latest -p <prompt>` | `gemini --resume <session_id> -p <prompt>` |
 
 When the relaunch selector is omitted, the runtime uses `new` and starts a fresh provider chat. When a local interactive relaunch resumes an existing provider chat, bootstrap-message role injection is not replayed into that chat.
 

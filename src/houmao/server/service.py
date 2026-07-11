@@ -810,7 +810,6 @@ class HoumaoServerService:
             if resolved_backend not in {
                 "claude_headless",
                 "codex_headless",
-                "gemini_headless",
                 "kimi_headless",
             }:
                 raise HTTPException(
@@ -821,7 +820,7 @@ class HoumaoServerService:
                     ),
                 )
             resolved_headless_backend = cast(
-                Literal["claude_headless", "codex_headless", "gemini_headless", "kimi_headless"],
+                Literal["claude_headless", "codex_headless", "kimi_headless"],
                 resolved_backend,
             )
             controller = start_runtime_session(
@@ -3824,7 +3823,6 @@ class HoumaoServerService:
         if payload.backend not in {
             "claude_headless",
             "codex_headless",
-            "gemini_headless",
             "kimi_headless",
         }:
             return

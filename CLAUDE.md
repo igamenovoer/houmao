@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`Houmao` is a framework + CLI toolkit for building and running teams of loosely-coupled, CLI-based agents (codex, claude, gemini) as real tmux-backed processes — not in-process object graphs.
+`Houmao` is a framework + CLI toolkit for building and running teams of loosely-coupled, CLI-based agents (Codex, Claude, and Kimi) as real tmux-backed processes, not in-process object graphs.
 
 ## Development Status
 
@@ -73,7 +73,7 @@ All backends implement a common `InteractiveSession` protocol (see `models.py`).
 
 - `codex_headless` / `codex_app_server` — OpenAI Codex CLI
 - `claude_headless` — Anthropic Claude Code CLI
-- `gemini_headless` — Google Gemini CLI
+- `kimi_headless` — Kimi Code
 - `cao_rest` — delegates to an external CAO (CLI Agent Orchestrator) server
 - `tmux_runtime` — shared tmux primitives used by local backends
 
@@ -105,7 +105,7 @@ skills/
 - **Conventional Commits**: `feat:`, `fix:`, `docs:`, `chore:` prefixes. Keep commits focused and imperative.
 - Credential files (`auth/`, `*.env`, `auth.json`, `credentials.json`) must never be committed — excluded in `pyproject.toml` and `.gitignore`.
 - Tests: `tests/unit/**/test_*.py`, `tests/integration/**/test_*.py`, `tests/manual/manual_*.py`. Add integration coverage when behavior spans subprocesses, tmux, or CAO paths.
-- When testing agent flows against fixture credentials, default to: Claude → `tests/fixtures/auth-bundles/claude/kimi-coding/`; Codex → `tests/fixtures/auth-bundles/codex/yunwu-openai/`; Gemini → `tests/fixtures/auth-bundles/gemini/personal-a-default/` (prefer OAuth over API-key mode). Override only when the task requires a different lane.
+- When testing agent flows against fixture credentials, default to Claude → `tests/fixtures/auth-bundles/claude/kimi-coding/` and Codex → `tests/fixtures/auth-bundles/codex/yunwu-openai/`. Override only when the task requires a different lane.
 - For automated TUI agent tests, default to unattended mode unless the task explicitly needs interactive or `as_is` behavior.
 - When a task touches a library/tool/integration that has a source checkout under `extern/orphan/` (e.g., RxPY, codex, filestash, asciinema, cypht, stalwart), inspect that local reference first; only fall back to web docs when the local checkout is missing or out of date.
 - **Branch policy**: never create `codex/*` branches unless the user explicitly asks for that name. If a task needs a new branch, use the name the user gave; otherwise stay on the current branch or ask first.

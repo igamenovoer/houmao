@@ -11,7 +11,6 @@ SupportedLaunchBackend: TypeAlias = Literal[
     "codex_headless",
     "codex_app_server",
     "claude_headless",
-    "gemini_headless",
     "kimi_headless",
     "cao_rest",
 ]
@@ -25,7 +24,6 @@ _SUPPORTED_LAUNCH_BACKENDS: Final[frozenset[str]] = frozenset(
         "codex_headless",
         "codex_app_server",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
         "cao_rest",
     }

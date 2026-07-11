@@ -14,14 +14,12 @@ from houmao.project.overlay import HoumaoProjectOverlay
 TOOL_PROVIDER_MAP: dict[str, str] = {
     "claude": "claude_code",
     "codex": "codex",
-    "gemini": "gemini_cli",
     "kimi": "kimi",
 }
 
 TOOL_AUTH_FILE_FLAG_NAMES: dict[str, str] = {
     "claude": "claude_state.template.json",
     "codex": "auth.json",
-    "gemini": "oauth_creds.json",
     "kimi": "config.toml",
 }
 

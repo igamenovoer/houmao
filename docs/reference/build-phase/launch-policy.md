@@ -58,13 +58,6 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | `codex.ensure_model_migration_state` | Migrates known legacy Codex model pins without creating a model selection when none exists. |
 | `codex.append_unattended_cli_overrides` | Appends final Codex CLI `-c` override arguments for `approval_policy`, `sandbox_mode`, `notice.hide_full_access_warning`, and `tui.show_tooltips` so project-local `config.toml` cannot weaken unattended posture. |
 
-### Gemini Hooks
-
-| Hook | Description |
-|---|---|
-| `gemini.canonicalize_unattended_launch_inputs` | Strips caller-supplied `--yolo`, `--approval-mode`, and `--sandbox` overrides so the maintained unattended Gemini posture can be re-applied deterministically. |
-| `gemini.ensure_unattended_runtime_state` | Repairs or patches `.gemini/settings.json` only when copied runtime-home settings would weaken unattended Gemini approval, sandbox, or tool-availability posture. |
-
 ### Kimi Hooks
 
 | Hook | Description |
@@ -73,12 +66,6 @@ Provider hooks are named actions within a strategy that perform provider-specifi
 | `kimi.canonicalize_unattended_tui_launch_inputs` | Strips caller-supplied Kimi TUI permission and session-startup flags such as `--session`, `--resume`, `--continue`, `--auto`, `--yolo`, and `--plan` before the `raw_launch` strategy applies the maintained TUI unattended posture. |
 
 Hooks run within a provider state mutation lock for thread-safe file access.
-
-## Gemini Unattended Posture
-
-Maintained Gemini unattended startup is owned by launch policy rather than by copied setup defaults. For `gemini_headless`, the policy engine force-applies `--approval-mode=yolo` and `--sandbox=false` so non-interactive Gemini keeps shell and file-mutation tools available instead of falling back to Gemini CLI's default headless read-only posture.
-
-This ownership is authoritative for the unattended path. If adapter defaults, recipe overrides, direct launch args, or copied `.gemini/settings.json` content request a weaker approval mode, enable sandboxing, or restrict the built-in tool registry, launch policy replaces or repairs those owned surfaces before provider start. Non-unattended Gemini launches remain `as_is`.
 
 ## Kimi Unattended Posture
 
@@ -101,7 +88,6 @@ The registry stores strategies in per-tool YAML files under `agents/launch_polic
 agents/launch_policy/registry/
   claude.yaml     # strategies for Claude Code
   codex.yaml      # strategies for Codex CLI
-  gemini.yaml     # strategies for Gemini CLI
   kimi.yaml       # strategies for Kimi Code
 ```
 

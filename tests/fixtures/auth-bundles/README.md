@@ -17,36 +17,7 @@ Maintained workflows should source credentials from `tests/fixtures/auth-bundles
 - `personal-a-default`
 - `yunwu-openai`
 
-### Gemini
-
-- `api-key-a-default`
-- `personal-a-default`
-
 Each maintained bundle directory contains a `.gitignore` so local plaintext credentials stay ignored on this host.
-
-## Encrypted Archive Workflow
-
-The checked-in [tools.tar.gz.enc](/data1/huangzhe/code/houmao/tests/fixtures/auth-bundles/tools.tar.gz.enc) archive is the encrypted snapshot of the local auth-bundle tree.
-
-To verify and restore it:
-
-1. Load `AGENT_CREDENTIAL_COMPRESS_PASSWORD` from the repo-local `.env`.
-2. Verify the archive checksum:
-   - `sha256sum -c tests/fixtures/auth-bundles/tools.tar.gz.enc.sha256`
-3. Decrypt and unpack:
-
-```bash
-set -a
-. ./.env
-set +a
-
-openssl enc -d -aes-256-cbc -pbkdf2 -salt \
-  -pass env:AGENT_CREDENTIAL_COMPRESS_PASSWORD \
-  -in tests/fixtures/auth-bundles/tools.tar.gz.enc \
-| tar -C tests/fixtures/auth-bundles -xzf -
-```
-
-Keep the extracted bundle contents local-only and do not commit them in plaintext.
 
 ## Claude `official-login`
 

@@ -1,6 +1,6 @@
 # Quickstart
 
-Houmao is designed to be driven from the CLI agent you already use. You talk to Claude Code, Codex, Kimi, Gemini, or another supported agent surface; that agent reads Houmao system skills; the skills guide it through maintained `houmao-mgr` commands; Houmao then creates, adopts, prompts, inspects, and stops managed agents.
+Houmao is designed to be driven from the CLI agent you already use. You talk to Claude Code, Codex, Kimi, or another supported agent surface; that agent reads Houmao system skills; the skills guide it through maintained `houmao-mgr` commands; Houmao then creates, adopts, prompts, inspects, and stops managed agents.
 
 ```text
 you -> your CLI agent -> Houmao system skills -> houmao-mgr -> managed agents
@@ -23,7 +23,7 @@ npx skills add igamenovoer/tool-skills/houmao
 Use Houmao's own installer when `npx` is unavailable, when working offline from an installed Houmao package, or when you need explicit projection behavior such as named sets, subset skills, explicit homes, symlink/copy mode, or retired-skill cleanup:
 
 ```bash
-houmao-mgr system-skills install --tool claude,codex,kimi,gemini,copilot
+houmao-mgr system-skills install --tool claude,codex,kimi,copilot
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
 ```
 

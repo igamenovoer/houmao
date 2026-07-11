@@ -39,14 +39,13 @@ Validation:
 
 - The skill must inspect the current checkout and `--help` output when a command surface may have changed.
 - The skill must reject TUI qualification for a provider without a maintained tracker profile.
-- The skill must exclude Gemini from all testing work. It must not install, configure, launch, diagnose, or qualify Gemini.
 - The skill must not silently replace an unsupported matrix cell with a legacy CLI.
 - The skill must distinguish resources it owns from pre-existing provider sessions and credentials.
 
 Errors:
 
 - `unsupported_provider_posture`: The requested provider and posture combination has no maintained path.
-- `provider_out_of_scope`: The request includes Gemini or another provider outside the skill's explicit Claude, Codex, and Kimi scope.
+- `provider_out_of_scope`: The request includes a provider outside the skill's explicit Claude, Codex, and Kimi scope.
 - `missing_prerequisite`: A binary, auth bundle, tmux target, or repository asset is unavailable.
 - `unsafe_mutation_scope`: The requested workflow would overwrite credentials or unrelated runtime state.
 - `human_gate_required`: Recording review, label approval, or fixture publication needs operator input.
@@ -64,7 +63,6 @@ Purpose: Prevent the skill from conflating provider launch support with tracked 
 Validation:
 
 - Capability resolution must come from current launch code, tracker registry, recorder choices, and repository guidance.
-- Gemini is not a capability-matrix cell. Its pending removal makes Gemini testing irrelevant to this skill even while some implementation remains in the checkout.
 - A missing local Kimi bundle is `missing_prerequisite`, not proof that Kimi support is absent.
 - Native TUI recording support does not mean a provider has a valid tracker. Replay analysis requires a maintained profile.
 
@@ -507,7 +505,6 @@ The skill must resume from durable artifacts where safe. It must revalidate sour
 - Python entrypoints run through `pixi run`.
 - The current terminal recorder supports `claude`, `codex`, and `kimi` analysis.
 - The current shared tracker has maintained profiles for Claude Code, Codex TUI, and Kimi Code. Other tools resolve to an unsupported profile.
-- Gemini CLI is intentionally excluded even if residual Houmao code still exposes a Gemini path. The skill must not use test results to preserve or improve that pending-removal support.
 - The existing demo contract claims robustness at 2 Hz or faster. Slower schedules are exploratory unless a scenario defines another bound.
 - Fixed-cadence replay is available now. Irregular schedule replay is a planned extension and must remain capability-gated.
 - Provider CLI flags change over time. The skill must inspect local orphan source references first, then installed `--help`, before embedding native launch details.

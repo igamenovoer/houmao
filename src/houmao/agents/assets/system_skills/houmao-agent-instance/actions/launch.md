@@ -94,8 +94,6 @@ Behavior note:
 - `--managed-header-section` is a one-shot section override for the launched instance.
 - Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-agent-definition`.
 
-If the selected specialist is known to use Gemini, the launch must be headless. Treat that as a selected-tool requirement, not as the default for omitted launch posture.
-
 If the selected specialist is known to use Kimi, unattended prompt mode is compatible with omitted `--headless`; Houmao will delegate to the maintained Kimi TUI no-question posture.
 
 ## Guardrails

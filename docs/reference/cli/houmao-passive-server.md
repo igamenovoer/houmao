@@ -180,7 +180,6 @@ Mail routes proxy through the agent gateway.
 
 ### Passive-Server-Owned Headless Agents
 
-Passive-server can own native headless agents and recover their authority records on restart. Maintained native headless backends are `claude_headless`, `codex_headless`, `kimi_headless`, and `gemini_headless`.
 
 | Method | Path | Description |
 |---|---|---|

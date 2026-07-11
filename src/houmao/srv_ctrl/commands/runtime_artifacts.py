@@ -94,13 +94,11 @@ from houmao.srv_ctrl.commands.project_aware_wording import (
 _HOME_ENV_BY_TOOL: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
-    "gemini": "GEMINI_CLI_HOME",
     "kimi": "KIMI_CODE_HOME",
 }
 _EXECUTABLE_BY_TOOL: dict[str, str] = {
     "claude": "claude",
     "codex": "codex",
-    "gemini": "gemini",
     "kimi": "kimi",
 }
 
@@ -760,8 +758,6 @@ def _joined_backend(*, provider: str, headless: bool) -> BackendKind:
         return "codex_headless"
     if provider == "claude_code":
         return "claude_headless"
-    if provider == "gemini_cli":
-        return "gemini_headless"
     if provider == "kimi":
         return "kimi_headless"
     raise SessionManifestError(f"Unsupported joined headless provider `{provider}`.")
@@ -962,7 +958,7 @@ def _joined_backend_state(
         "tmux_window_id": tmux_window_id,
         "tmux_pane_id": tmux_pane_id,
     }
-    if backend in {"codex_headless", "claude_headless", "gemini_headless", "kimi_headless"}:
+    if backend in {"codex_headless", "claude_headless", "kimi_headless"}:
         payload["session_id"] = None
         payload["resume_selection_kind"] = (
             resume_selection.kind if resume_selection is not None else "none"

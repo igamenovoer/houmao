@@ -16,7 +16,6 @@ LaunchSurface = Literal[
     "codex_headless",
     "codex_app_server",
     "claude_headless",
-    "gemini_headless",
     "kimi_headless",
     "cao_rest",
 ]

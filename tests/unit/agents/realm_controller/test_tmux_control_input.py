@@ -983,18 +983,6 @@ def test_local_interactive_build_launch_command_adds_codex_latest_resume_args(
             ["--resume", "claude-session-1"],
         ),
         (
-            "gemini",
-            "gemini",
-            RelaunchChatSessionSelection(mode="tool_last_or_new"),
-            ["--resume", "latest"],
-        ),
-        (
-            "gemini",
-            "gemini",
-            RelaunchChatSessionSelection(mode="exact", session_id="gemini-session-1"),
-            ["--resume", "gemini-session-1"],
-        ),
-        (
             "kimi",
             "kimi",
             RelaunchChatSessionSelection(mode="tool_last_or_new"),

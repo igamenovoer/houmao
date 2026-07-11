@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import json
 import os
 from pathlib import Path
 import shutil
@@ -44,11 +43,10 @@ CredentialTargetKind = Literal["project", "agent_def_dir"]
 CredentialWriteOperation = Literal["add", "set"]
 CredentialLoginOperation = Literal["add", "set"]
 
-_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini", "kimi")
+_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi")
 _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude",
     "codex": "Codex",
-    "gemini": "Gemini",
     "kimi": "Kimi",
 }
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
@@ -72,7 +70,6 @@ _KIMI_CODE_HOME_FILE_SOURCES: frozenset[str] = frozenset(
 _PROVIDER_HOME_ENV_VARS: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
-    "gemini": "GEMINI_CLI_HOME",
     "kimi": "KIMI_CODE_HOME",
 }
 _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
@@ -91,18 +88,6 @@ _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
             "OPENAI_API_KEY",
             "OPENAI_BASE_URL",
             "OPENAI_ORG_ID",
-        }
-    ),
-    "gemini": frozenset(
-        {
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "GOOGLE_APPLICATION_CREDENTIALS",
-            "GOOGLE_CLOUD_LOCATION",
-            "GOOGLE_CLOUD_PROJECT",
-            "GOOGLE_GENAI_USE_GCA",
-            "GOOGLE_GENAI_USE_VERTEXAI",
-            "GOOGLE_GEMINI_BASE_URL",
         }
     ),
     "kimi": frozenset(
@@ -178,9 +163,6 @@ def ensure_specialist_credential_bundle(
     claude_config_dir: Path | None,
     codex_org_id: str | None,
     codex_auth_json: Path | None,
-    google_api_key: str | None,
-    use_vertex_ai: bool,
-    gemini_oauth_creds: Path | None,
     kimi_model_name: str | None,
     kimi_config_toml: Path | None,
     kimi_credential_json: Path | None,
@@ -219,18 +201,6 @@ def ensure_specialist_credential_bundle(
             }
         )
         file_sources = {"auth.json": codex_auth_json} if codex_auth_json is not None else {}
-    elif tool == "gemini":
-        env_values = _compact_env_values(
-            {
-                "GEMINI_API_KEY": api_key,
-                "GOOGLE_GEMINI_BASE_URL": base_url,
-                "GOOGLE_API_KEY": google_api_key,
-                "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
-            }
-        )
-        file_sources = (
-            {"oauth_creds.json": gemini_oauth_creds} if gemini_oauth_creds is not None else {}
-        )
     elif tool == "kimi":
         env_values = _compact_env_values(
             {
@@ -502,16 +472,6 @@ def _build_tool_group(*, tool: str, project_only: bool, native_only: bool = Fals
         )
         tool_group.add_command(
             _build_codex_login_command(project_only=project_only, native_only=native_only)
-        )
-    elif tool == "gemini":
-        tool_group.add_command(
-            _build_gemini_add_command(project_only=project_only, native_only=native_only)
-        )
-        tool_group.add_command(
-            _build_gemini_set_command(project_only=project_only, native_only=native_only)
-        )
-        tool_group.add_command(
-            _build_gemini_login_command(project_only=project_only, native_only=native_only)
         )
     elif tool == "kimi":
         tool_group.add_command(
@@ -1155,179 +1115,6 @@ def _build_codex_set_command(*, project_only: bool, native_only: bool = False) -
     return set_command
 
 
-def _build_gemini_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
-    """Build the Gemini `add` command."""
-
-    @click.command(name="add")
-    @_target_options(project_only, native_only=native_only)
-    @click.option("--name", required=True, help="Credential name.")
-    @click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
-    @click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
-    @click.option("--google-api-key", default=None, help="Value for `GOOGLE_API_KEY`.")
-    @click.option(
-        "--use-vertex-ai",
-        is_flag=True,
-        help="Store `GOOGLE_GENAI_USE_VERTEXAI=true` in the credential bundle env file.",
-    )
-    @click.option(
-        "--oauth-creds",
-        type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-        default=None,
-        help="Optional path to the Gemini CLI `oauth_creds.json` file.",
-    )
-    def add_command(
-        name: str,
-        api_key: str | None,
-        base_url: str | None,
-        google_api_key: str | None,
-        use_vertex_ai: bool,
-        oauth_creds: Path | None,
-        use_project: bool = False,
-        agent_def_dir: Path | None = None,
-        native_agent_root: Path | None = None,
-    ) -> None:
-        """Create one Gemini credential."""
-
-        target = _resolve_command_target(
-            project_only=project_only,
-            native_only=native_only,
-            use_project=use_project,
-            agent_def_dir=agent_def_dir,
-            native_agent_root=native_agent_root,
-            allow_project_bootstrap=True,
-        )
-        emit(
-            _write_credential_bundle(
-                target=target,
-                tool="gemini",
-                name=name,
-                env_values=_compact_env_values(
-                    {
-                        "GEMINI_API_KEY": api_key,
-                        "GOOGLE_GEMINI_BASE_URL": base_url,
-                        "GOOGLE_API_KEY": google_api_key,
-                        "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
-                    }
-                ),
-                file_sources={"oauth_creds.json": oauth_creds} if oauth_creds is not None else {},
-                require_any_input=True,
-                operation="add",
-                clear_env_names=set(),
-                clear_file_sources=set(),
-            )
-        )
-
-    add_command.__doc__ = _credential_command_doc(
-        plain="Create one Gemini credential.",
-        project="Create one project-scoped Gemini credential.",
-        native="Create one direct native-agent Gemini credential.",
-        project_only=project_only,
-        native_only=native_only,
-    )
-    return add_command
-
-
-def _build_gemini_set_command(*, project_only: bool, native_only: bool = False) -> click.Command:
-    """Build the Gemini `set` command."""
-
-    @click.command(name="set")
-    @_target_options(project_only, native_only=native_only)
-    @click.option("--name", required=True, help="Credential name.")
-    @click.option("--api-key", default=None, help="Value for `GEMINI_API_KEY`.")
-    @click.option("--base-url", default=None, help="Value for `GOOGLE_GEMINI_BASE_URL`.")
-    @click.option("--google-api-key", default=None, help="Value for `GOOGLE_API_KEY`.")
-    @click.option(
-        "--use-vertex-ai",
-        is_flag=True,
-        help="Store `GOOGLE_GENAI_USE_VERTEXAI=true` in the credential bundle env file.",
-    )
-    @click.option(
-        "--oauth-creds",
-        type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-        default=None,
-        help="Path to the Gemini CLI `oauth_creds.json` file required by the current adapter.",
-    )
-    @click.option(
-        "--clear-api-key", is_flag=True, help="Remove `GEMINI_API_KEY` from the credential bundle."
-    )
-    @click.option(
-        "--clear-base-url",
-        is_flag=True,
-        help="Remove `GOOGLE_GEMINI_BASE_URL` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-google-api-key",
-        is_flag=True,
-        help="Remove `GOOGLE_API_KEY` from the credential bundle.",
-    )
-    @click.option(
-        "--clear-use-vertex-ai",
-        is_flag=True,
-        help="Remove `GOOGLE_GENAI_USE_VERTEXAI` from the credential bundle.",
-    )
-    def set_command(
-        name: str,
-        api_key: str | None,
-        base_url: str | None,
-        google_api_key: str | None,
-        use_vertex_ai: bool,
-        oauth_creds: Path | None,
-        clear_api_key: bool,
-        clear_base_url: bool,
-        clear_google_api_key: bool,
-        clear_use_vertex_ai: bool,
-        use_project: bool = False,
-        agent_def_dir: Path | None = None,
-        native_agent_root: Path | None = None,
-    ) -> None:
-        """Update one Gemini credential."""
-
-        target = _resolve_command_target(
-            project_only=project_only,
-            native_only=native_only,
-            use_project=use_project,
-            agent_def_dir=agent_def_dir,
-            native_agent_root=native_agent_root,
-            allow_project_bootstrap=True,
-        )
-        emit(
-            _write_credential_bundle(
-                target=target,
-                tool="gemini",
-                name=name,
-                env_values=_compact_env_values(
-                    {
-                        "GEMINI_API_KEY": api_key,
-                        "GOOGLE_GEMINI_BASE_URL": base_url,
-                        "GOOGLE_API_KEY": google_api_key,
-                        "GOOGLE_GENAI_USE_VERTEXAI": "true" if use_vertex_ai else None,
-                    }
-                ),
-                file_sources={"oauth_creds.json": oauth_creds} if oauth_creds is not None else {},
-                require_any_input=True,
-                operation="set",
-                clear_env_names=_flagged_items(
-                    {
-                        "GEMINI_API_KEY": clear_api_key,
-                        "GOOGLE_GEMINI_BASE_URL": clear_base_url,
-                        "GOOGLE_API_KEY": clear_google_api_key,
-                        "GOOGLE_GENAI_USE_VERTEXAI": clear_use_vertex_ai,
-                    }
-                ),
-                clear_file_sources=set(),
-            )
-        )
-
-    set_command.__doc__ = _credential_command_doc(
-        plain="Update one Gemini credential.",
-        project="Update one project-scoped Gemini credential.",
-        native="Update one direct native-agent Gemini credential.",
-        project_only=project_only,
-        native_only=native_only,
-    )
-    return set_command
-
-
 def _build_kimi_add_command(*, project_only: bool, native_only: bool = False) -> click.Command:
     """Build the Kimi `add` command."""
 
@@ -1776,82 +1563,6 @@ def _build_claude_login_command(*, project_only: bool, native_only: bool = False
     return login_command
 
 
-def _build_gemini_login_command(*, project_only: bool, native_only: bool = False) -> click.Command:
-    """Build the Gemini `login` command."""
-
-    @click.command(name="login")
-    @_target_options(project_only, native_only=native_only)
-    @click.option("--name", required=True, help="Credential name.")
-    @click.option(
-        "--update",
-        is_flag=True,
-        help="Update an existing credential instead of creating a new one.",
-    )
-    @click.option(
-        "--keep-temp-home",
-        is_flag=True,
-        help="Keep the temporary Gemini CLI home after a successful import.",
-    )
-    @click.option(
-        "--inherit-auth-env",
-        is_flag=True,
-        help="Do not scrub ambient Gemini auth-related environment variables for the login process.",
-    )
-    @click.option(
-        "--no-browser",
-        is_flag=True,
-        help="Set `NO_BROWSER=true` for the Gemini OAuth flow.",
-    )
-    def login_command(
-        name: str,
-        update: bool,
-        keep_temp_home: bool,
-        inherit_auth_env: bool,
-        no_browser: bool,
-        use_project: bool = False,
-        agent_def_dir: Path | None = None,
-        native_agent_root: Path | None = None,
-    ) -> None:
-        """Run Gemini OAuth in an isolated CLI home and import `oauth_creds.json`."""
-
-        target = _resolve_command_target(
-            project_only=project_only,
-            native_only=native_only,
-            use_project=use_project,
-            agent_def_dir=agent_def_dir,
-            native_agent_root=native_agent_root,
-            allow_project_bootstrap=True,
-        )
-        emit(
-            _login_and_import_credential(
-                target=target,
-                tool="gemini",
-                name=name,
-                operation="set" if update else "add",
-                keep_temp_home=keep_temp_home,
-                inherit_auth_env=inherit_auth_env,
-                provider_login_factory=lambda temp_home: _gemini_provider_login(
-                    temp_home=temp_home,
-                    no_browser=no_browser,
-                ),
-            )
-        )
-
-    login_command.__doc__ = _credential_command_doc(
-        plain="Log in to Gemini in an isolated CLI home and import `oauth_creds.json`.",
-        project=(
-            "Log in to Gemini in an isolated CLI home and import project-scoped `oauth_creds.json`."
-        ),
-        native=(
-            "Log in to Gemini in an isolated CLI home and import direct native-agent "
-            "`oauth_creds.json`."
-        ),
-        project_only=project_only,
-        native_only=native_only,
-    )
-    return login_command
-
-
 def _login_and_import_credential(
     *,
     target: CredentialTarget,
@@ -2082,32 +1793,6 @@ def _claude_provider_login(
             ).resolve(),
         },
         extra_env={},
-    )
-
-
-def _gemini_provider_login(*, temp_home: Path, no_browser: bool) -> CredentialProviderLogin:
-    """Return the Gemini provider login command and artifact mapping."""
-
-    _write_gemini_oauth_settings(temp_home=temp_home)
-    return CredentialProviderLogin(
-        command=["gemini"],
-        temp_home_env_var=_PROVIDER_HOME_ENV_VARS["gemini"],
-        artifact_sources={
-            "oauth_creds.json": (temp_home / ".gemini" / "oauth_creds.json").resolve()
-        },
-        extra_env={"NO_BROWSER": "true"} if no_browser else {},
-    )
-
-
-def _write_gemini_oauth_settings(*, temp_home: Path) -> None:
-    """Write temp-home Gemini settings that prefer Google OAuth when supported."""
-
-    gemini_dir = (temp_home / ".gemini").resolve()
-    gemini_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = (gemini_dir / "settings.json").resolve()
-    settings_path.write_text(
-        json.dumps({"security": {"auth": {"selectedType": "oauth-personal"}}}, indent=2) + "\n",
-        encoding="utf-8",
     )
 
 

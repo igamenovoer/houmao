@@ -20,7 +20,6 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
     "codex_headless": ("-c", "app-server", "exec", "resume", "--json"),
     "codex_app_server": ("app-server",),
     "claude_headless": ("-p", "--append-system-prompt", "--output-format", "--resume"),
-    "gemini_headless": ("-p", "--output-format", "--resume"),
     "kimi_headless": (
         "-p",
         "--prompt",

@@ -3173,7 +3173,7 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="gemini_headless", tool="gemini")
+    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="kimi_headless", tool="kimi")
     manifest_path = _write_manifest(
         tmp_path=tmp_path,
         launch_plan=launch_plan,

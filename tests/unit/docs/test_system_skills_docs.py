@@ -77,9 +77,8 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "├── install --tool <tool>[,<tool>...]" in cli_reference
     assert "└── uninstall --tool <tool>[,<tool>...]" in cli_reference
     assert "`houmao-ext-graphing` for extension-owned built-in Plotly.js" in cli_reference
-    assert (
-        "pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing"
-        in (cli_reference)
+    assert "pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing" in (
+        cli_reference
     )
     assert "- utils: `houmao-utils-workspace-mgr`" in cli_reference
     assert "- extensions: `houmao-ext-graphing`" in cli_reference

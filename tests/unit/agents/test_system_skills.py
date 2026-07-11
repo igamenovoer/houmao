@@ -1428,7 +1428,6 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "no target: initialize/select a Houmao project" in definition_credential_routing
     assert "houmao-credential-mgr/references/claude-credential-kinds.md" in easy_specialists
     assert "houmao-credential-mgr/references/codex-credential-kinds.md" in easy_specialists
-    assert "houmao-credential-mgr/references/gemini-credential-kinds.md" in easy_specialists
     assert "houmao-credential-mgr/references/kimi-credential-kinds.md" in easy_specialists
     assert "--claude-oauth-token" in easy_specialists
     assert "--claude-config-dir" in easy_specialists
@@ -1631,9 +1630,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "When showing participants, routes, phases, unknowns, coverage, or loop shape" in (
         loop_lite_clarify_intent
     )
-    assert "When showing generated Markdown, template, SQLite state" in (
-        loop_lite_clarify_execplan
-    )
+    assert "When showing generated Markdown, template, SQLite state" in (loop_lite_clarify_execplan)
     assert "This chat-output rule does not change generated lite execplan artifact behavior" in (
         loop_lite_clarify_intent
     )
@@ -1749,16 +1746,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
 
     claude_reference_path = manage_credentials_references / "claude-credential-kinds.md"
     codex_reference_path = manage_credentials_references / "codex-credential-kinds.md"
-    gemini_reference_path = manage_credentials_references / "gemini-credential-kinds.md"
     kimi_reference_path = manage_credentials_references / "kimi-credential-kinds.md"
     assert claude_reference_path.is_file()
     assert codex_reference_path.is_file()
-    assert gemini_reference_path.is_file()
     assert kimi_reference_path.is_file()
 
     claude_reference = claude_reference_path.read_text(encoding="utf-8")
     codex_reference = codex_reference_path.read_text(encoding="utf-8")
-    gemini_reference = gemini_reference_path.read_text(encoding="utf-8")
     kimi_reference = kimi_reference_path.read_text(encoding="utf-8")
 
     assert "CLAUDE_CODE_OAUTH_TOKEN" in claude_reference
@@ -1773,11 +1767,6 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "--auth-json" in codex_reference
     assert "Cached Login State" in codex_reference
     assert deprecated_fixture_root not in codex_reference
-
-    assert "oauth_creds.json" in gemini_reference
-    assert "--oauth-creds" in gemini_reference
-    assert "Vertex AI" in gemini_reference
-    assert deprecated_fixture_root not in gemini_reference
 
     assert "Existing Kimi Code Home" in kimi_reference
     assert "--code-home" in kimi_reference
@@ -1861,23 +1850,6 @@ def test_uninstall_system_skills_for_home_does_not_create_missing_home(tmp_path:
     assert result.absent_retired_projected_relative_dirs == tuple(
         f"skills/{skill_name}" for skill_name in catalog.retired_skill_names
     )
-
-
-def test_uninstall_system_skills_for_home_targets_gemini_dot_gemini_root(
-    tmp_path: Path,
-) -> None:
-    home_path = tmp_path.resolve()
-    gemini_skill_path = home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md"
-    upstream_alias_path = home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md"
-    _write(gemini_skill_path, "gemini skill\n")
-    _write(upstream_alias_path, "upstream alias\n")
-
-    result = uninstall_system_skills_for_home(tool="gemini", home_path=home_path)
-
-    assert result.removed_skill_names == ("houmao-specialist-mgr",)
-    assert result.removed_projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
-    assert not (home_path / ".gemini/skills/houmao-specialist-mgr").exists()
-    assert upstream_alias_path.is_file()
 
 
 def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
@@ -2207,13 +2179,13 @@ def test_install_system_skills_for_home_ignores_obsolete_state_version(
 def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_and_state(
     tmp_path: Path,
 ) -> None:
-    home_path = (tmp_path / "gemini-home").resolve()
+    home_path = (tmp_path / "kimi-home").resolve()
     _write(
         home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md",
         "old specialist path\n",
     )
     _write(
-        home_path / ".gemini/skills/houmao-project-mgr/SKILL.md",
+        home_path / "skills/houmao-project-mgr/SKILL.md",
         "unselected current skill\n",
     )
     _write(home_path / "notes/unrelated.txt", "unrelated\n")
@@ -2223,14 +2195,14 @@ def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_an
     state_path.write_text(stale_state, encoding="utf-8")
 
     install_system_skills_for_home(
-        tool="gemini",
+        tool="kimi",
         home_path=home_path,
         skill_names=("houmao-specialist-mgr",),
     )
 
-    assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / ".gemini/skills/houmao-project-mgr/SKILL.md").read_text(
+    assert (home_path / "skills/houmao-project-mgr/SKILL.md").read_text(
         encoding="utf-8"
     ) == "unselected current skill\n"
     assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"

@@ -101,7 +101,7 @@ def _run_backend_smoke(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Manual tmux-backed headless smoke test (Codex/Claude/Gemini)."
+        description="Manual tmux-backed headless smoke test (Codex/Claude/Kimi)."
     )
     parser.add_argument(
         "--agent-def-dir",
@@ -127,10 +127,10 @@ def main() -> None:
         help="Brain manifest path for Claude headless smoke.",
     )
     parser.add_argument(
-        "--gemini-manifest",
+        "--kimi-manifest",
         type=Path,
         default=None,
-        help="Brain manifest path for Gemini headless smoke.",
+        help="Brain manifest path for Kimi headless smoke.",
     )
     args = parser.parse_args()
 
@@ -143,7 +143,7 @@ def main() -> None:
     for backend, manifest in [
         ("codex_headless", args.codex_manifest),
         ("claude_headless", args.claude_manifest),
-        ("gemini_headless", args.gemini_manifest),
+        ("kimi_headless", args.kimi_manifest),
     ]:
         if manifest is None:
             continue
@@ -158,7 +158,7 @@ def main() -> None:
     if not executed:
         raise RuntimeError(
             "No backends executed. Provide at least one of --codex-manifest, "
-            "--claude-manifest, --gemini-manifest."
+            "--claude-manifest, or --kimi-manifest."
         )
 
     print("manual-headless-tmux-smoke=PASS")

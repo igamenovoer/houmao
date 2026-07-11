@@ -53,7 +53,7 @@ For pair-managed agents, the supported operator surface is the managed-agent com
 Within that pair, `houmao-mgr` is split deliberately:
 
 - `agents` is the managed-agent lifecycle family
-- `system-skills` installs, removes, and inspects Houmao-owned skills for resolved Claude, Codex, Kimi, Gemini, or Copilot homes outside managed launch or join
+- `system-skills` installs, removes, and inspects Houmao-owned skills for resolved Claude, Codex, Kimi, or Copilot homes outside managed launch or join
 - `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `specialist`, `profile`, and `mailbox` views
 - `internals native-agent` is the direct provider-aligned native-agent material family, including internal credential and brain-build plumbing
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots

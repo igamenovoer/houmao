@@ -176,11 +176,7 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
         role_name="r",
         role_prompt="prompt",
     )
-    gemini = plan_role_injection(
-        backend="gemini_headless",
-        role_name="r",
-        role_prompt="prompt",
-    )
+    kimi = plan_role_injection(backend="kimi_headless", role_name="r", role_prompt="prompt")
     claude_local = plan_role_injection(
         backend="local_interactive",
         tool="claude",
@@ -196,8 +192,8 @@ def test_plan_role_injection_native_vs_bootstrap() -> None:
 
     assert codex.method == "native_developer_instructions"
     assert claude.method == "native_append_system_prompt"
-    assert gemini.method == "bootstrap_message"
-    assert gemini.bootstrap_message is not None
+    assert kimi.method == "bootstrap_message"
+    assert kimi.bootstrap_message is not None
     assert claude_local.method == "native_append_system_prompt"
     assert kimi_local.method == "bootstrap_message"
     assert kimi_local.bootstrap_message is not None
@@ -209,8 +205,8 @@ def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
         role_name="r",
         role_prompt="",
     )
-    gemini = plan_role_injection(
-        backend="gemini_headless",
+    kimi = plan_role_injection(
+        backend="kimi_headless",
         role_name="r",
         role_prompt="",
     )
@@ -222,7 +218,7 @@ def test_plan_role_injection_empty_prompt_skips_bootstrap_message() -> None:
     )
 
     assert claude.bootstrap_message == ""
-    assert gemini.bootstrap_message == ""
+    assert kimi.bootstrap_message == ""
     assert claude_local.bootstrap_message == ""
 
 
@@ -540,76 +536,6 @@ def test_build_launch_plan_local_interactive_codex_unattended_pretrusts_project(
     assert payload["tui"]["show_tooltips"] is False
 
 
-def test_build_launch_plan_applies_gemini_unattended_cli_ownership_and_settings_repair(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    env_file = tmp_path / "vars.env"
-    env_file.write_text("GOOGLE_GENAI_USE_GCA=true\n", encoding="utf-8")
-    _write(tmp_path / "repo/roles/r/system-prompt.md", "prompt")
-    settings_path = tmp_path / "home/.gemini/settings.json"
-    _write(
-        settings_path,
-        '{"tools":{"sandbox":"docker","core":["read_file"]},"security":{"disableYoloMode":true}}\n',
-    )
-
-    def _fake_version(
-        command: list[str],
-        *,
-        check: bool,
-        capture_output: bool,
-        text: bool,
-    ) -> object:
-        del check, capture_output, text
-        return type(
-            "_Completed",
-            (),
-            {"stdout": "0.36.0", "stderr": "", "args": command},
-        )()
-
-    monkeypatch.setattr(
-        "houmao.agents.launch_policy.engine.subprocess.run",
-        _fake_version,
-    )
-
-    manifest = _manifest(
-        tool="gemini",
-        executable="gemini",
-        home_env_var="GEMINI_CLI_HOME",
-        home_path=tmp_path / "home",
-        env_file=env_file,
-        allowlisted_env_vars=["GOOGLE_GENAI_USE_GCA"],
-        launch_args=[
-            "--model",
-            "gemini-2.5-pro",
-            "--approval-mode=default",
-            "--sandbox",
-            "docker",
-        ],
-        launch_policy={"operator_prompt_mode": "unattended"},
-    )
-
-    role = load_role_package(tmp_path / "repo", "r")
-    plan = build_launch_plan(
-        LaunchPlanRequest(
-            brain_manifest=manifest,
-            role_package=role,
-            backend="gemini_headless",
-            working_directory=tmp_path,
-        )
-    )
-
-    assert plan.args == [
-        "--model",
-        "gemini-2.5-pro",
-        "--approval-mode=yolo",
-        "--sandbox=false",
-    ]
-    assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "gemini-unattended-0.36.0"
-    assert '"sandbox": false' in settings_path.read_text(encoding="utf-8")
-
-
 def test_build_launch_plan_honors_process_env_strategy_override_without_projection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -715,7 +641,7 @@ def test_parse_allowlisted_env_selects_claude_model_selection_vars(
     [
         ("codex", "codex_app_server", ["--x"], "--x", "app-server"),
         ("claude", "claude_headless", ["--x"], "--x", "-p"),
-        ("gemini", "gemini_headless", ["--x"], "--x", "-p"),
+        ("kimi", "kimi_headless", ["--x"], "--x", "-p"),
     ],
 )
 def test_build_launch_plan_keeps_optional_args_separate_from_protocol_args(
@@ -1263,7 +1189,7 @@ def test_resolve_cao_parsing_mode_rejects_unknown_value() -> None:
 def test_resolve_cao_parsing_mode_accepts_explicit_cao_only_without_shadow_parser_support() -> None:
     assert (
         resolve_cao_parsing_mode(
-            tool="gemini",
+            tool="unknown",
             requested_mode="cao_only",
             configured_mode=None,
         )
@@ -1274,7 +1200,7 @@ def test_resolve_cao_parsing_mode_accepts_explicit_cao_only_without_shadow_parse
 def test_resolve_cao_parsing_mode_rejects_shadow_only_without_shadow_parser_support() -> None:
     with pytest.raises(LaunchPlanError, match="no runtime shadow parser is available"):
         resolve_cao_parsing_mode(
-            tool="gemini",
+            tool="unknown",
             requested_mode="shadow_only",
             configured_mode=None,
         )
@@ -1285,7 +1211,7 @@ def test_resolve_cao_parsing_mode_rejects_shadow_only_without_shadow_parser_supp
     [
         ("claude", True),
         ("codex", True),
-        ("gemini", False),
+        ("unknown", False),
     ],
 )
 def test_tool_supports_cao_shadow_parser(tool: str, expected: bool) -> None:

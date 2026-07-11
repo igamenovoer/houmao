@@ -44,7 +44,6 @@ _SUPPORTED_BACKENDS: tuple[LaunchSurface, ...] = (
     "codex_headless",
     "codex_app_server",
     "claude_headless",
-    "gemini_headless",
     "kimi_headless",
     "cao_rest",
 )
@@ -75,7 +74,6 @@ _RESUME_CONTROL_ALLOWED_PROVIDER_HOOKS: frozenset[str] = frozenset(
     {
         "codex.canonicalize_unattended_launch_inputs",
         "codex.append_unattended_cli_overrides",
-        "gemini.canonicalize_unattended_launch_inputs",
         "kimi.canonicalize_unattended_launch_inputs",
         "kimi.canonicalize_unattended_tui_launch_inputs",
     }

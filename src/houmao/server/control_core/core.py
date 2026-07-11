@@ -55,7 +55,6 @@ _TERMINAL_ID_RE = re.compile(r"^[a-f0-9]{8}$")
 _COMPAT_HOME_ENV_BY_PROVIDER: dict[str, str] = {
     "claude_code": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
-    "gemini_cli": "GEMINI_CLI_HOME",
 }
 
 

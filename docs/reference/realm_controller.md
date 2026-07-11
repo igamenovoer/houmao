@@ -26,7 +26,6 @@ BackendKind = Literal[
     "codex_headless",
     "codex_app_server",
     "claude_headless",
-    "gemini_headless",
     "kimi_headless",
     "cao_rest",
     "houmao_server_rest",
@@ -37,7 +36,6 @@ BackendKind = Literal[
 
 The default and recommended backend. Launches agent CLI tools as tmux-backed interactive sessions via `LocalInteractiveSession`. This gives each agent a real terminal with full native UX, scrollback, and the ability to attach/detach at will.
 
-Maintained local-interactive tools include Claude Code, Codex, Kimi Code, and Gemini CLI. Kimi local-interactive unattended launch keeps the visible TUI but enters Kimi auto permission mode before managed prompts; Kimi `as_is` launch leaves provider approval behavior unchanged.
 
 ## Model Selection (Claude Code)
 
@@ -57,10 +55,6 @@ Runs Codex in `app-server` mode for persistent, server-backed sessions.
 
 Runs `claude -p` for non-interactive promptâ€“response cycles. Supports session continuation via `--continue`.
 
-### `gemini_headless`
-
-Runs `gemini -p` for non-interactive promptâ€“response cycles. Managed Gemini homes support either `GEMINI_API_KEY` with optional `GOOGLE_GEMINI_BASE_URL`, or OAuth via `oauth_creds.json`; OAuth-backed homes inject `GOOGLE_GENAI_USE_GCA=true` when no explicit API-key or Vertex selector is already present. Houmao-owned Gemini skills project into `.gemini/skills`, while `.agents/skills` remains only Gemini's upstream alias surface. Follow-up turns resume with `--resume <persisted-session-id>` and must stay in the same recorded working directory.
-
 ### `kimi_headless`
 
 Runs `kimi -p <prompt> --output-format stream-json` for non-interactive promptâ€“response cycles. Managed Kimi homes use `KIMI_CODE_HOME`, support OAuth via `config.toml` plus `credentials/kimi-code.json`, support env-model credentials through allowlisted `KIMI_MODEL_*` values, and project Houmao-owned skills into `skills`. Follow-up turns resume with `--session <persisted-session-id>` and must stay in the same recorded working directory.
@@ -79,7 +73,7 @@ Runs `kimi -p <prompt> --output-format stream-json` for non-interactive promptâ€
 | Field | Description |
 |---|---|
 | `backend` | Target `BackendKind` |
-| `tool` | Agent CLI tool name (e.g., `claude`, `codex`, `kimi`, `gemini`) |
+| `tool` | Agent CLI tool name (e.g., `claude`, `codex`, `kimi`) |
 | `executable` | Resolved path to the tool binary |
 | `args` | CLI arguments for the tool |
 | `working_directory` | Working directory for the agent process |
@@ -90,7 +84,6 @@ Runs `kimi -p <prompt> --output-format stream-json` for non-interactive promptâ€
 | `metadata` | Freeform metadata passed through to the session |
 | `mailbox` | Optional mailbox binding for inter-agent messaging |
 
-Launch overrides from recipes and direct builds are intentionally limited to secret-free settings. Protocol-required arguments such as `claude -p`, `codex exec --json`, `kimi -p`, `gemini -p`, `resume`, and `app-server` stay backend-owned and are not exposed as overrides.
 
 ## Session Lifecycle
 
@@ -124,7 +117,6 @@ The `RuntimeSessionController` manages the full session lifecycle. It holds refe
 - **`local_interactive`**: Reattaches to the existing tmux session.
 - **`codex_headless`**: Uses `resume <thread_id>` to continue the Codex thread.
 - **`claude_headless`**: Uses `--continue` to resume the Claude session.
-- **`gemini_headless`**: Uses `--resume <persisted-session-id>` to resume the Gemini session in the same recorded working directory/project context.
 - **`kimi_headless`**: Uses `--session <persisted-session-id>` to resume the Kimi session in the same recorded working directory/project context.
 
 ### Sending Prompts
@@ -143,7 +135,6 @@ Role injection is backend-specific and handled during launch plan construction i
 |---|---|
 | `codex_headless` / `codex_app_server` | Native developer instructions when the role prompt is non-empty |
 | `claude_headless` | Native appended system prompt plus a bootstrap message when the role prompt is non-empty |
-| `gemini_headless` | Bootstrap message when the role prompt is non-empty |
 | `kimi_headless` | Bootstrap message when the role prompt is non-empty |
 | `local_interactive` | Tool-dependent native injection or bootstrap, skipped when the role prompt is empty |
 

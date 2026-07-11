@@ -53,12 +53,12 @@ def test_credential_manager_documents_kimi_crud_without_login_helper() -> None:
     login_text = _read(CREDENTIAL_MGR_ROOT / "actions/login.md")
     kimi_reference = _read(CREDENTIAL_MGR_ROOT / "references/kimi-credential-kinds.md")
 
-    assert "supported CRUD tools: `claude`, `codex`, `kimi`, `gemini`" in skill_text
-    assert "supported login-helper tools: `claude`, `codex`, `gemini`" in skill_text
+    assert "supported CRUD tools: `claude`, `codex`, `kimi`" in skill_text
+    assert "supported login-helper tools: `claude`, `codex`" in skill_text
     assert "Do not present Kimi as having a maintained credential login helper" in skill_text
     assert "Kimi: `references/kimi-credential-kinds.md`" in add_text
-    assert "`tool`: one of `claude`, `codex`, `kimi`, or `gemini`" in add_text
-    assert "`tool`: one of `claude`, `codex`, `kimi`, or `gemini`" in set_text
+    assert "`tool`: one of `claude`, `codex`, or `kimi`" in add_text
+    assert "`tool`: one of `claude`, `codex`, or `kimi`" in set_text
     assert "Kimi credential CRUD is supported" in login_text
     assert "Do not run or invent a Kimi login helper" in login_text
     assert "--code-home" in kimi_reference
@@ -80,7 +80,7 @@ def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     assert stale_kimi_example not in specialists_text
     assert '"name":"general-kimi","tool":"kimi"' in skill_text
     assert '"name":"general-kimi","tool":"kimi"' in specialists_text
-    assert "`--tool claude|codex|kimi|gemini`" in specialists_text
+    assert "`--tool claude|codex|kimi`" in specialists_text
     assert "Kimi supports TUI/local-interactive launch" in launch_text
     assert "unattended prompt mode is the supported managed no-question control" in launch_text
     assert "Do not add raw Kimi `--auto` or `--yolo` launch flags" in launch_text
@@ -108,10 +108,8 @@ def test_packaged_guidance_includes_kimi_touring_and_avoids_stale_headless_claim
     all_packaged_markdown = "\n".join(_read(path) for path in _markdown_files(SYSTEM_SKILLS_ROOT))
 
     assert "`command -v kimi || command -v kimi-code`" in quickstart_text
-    assert "tool adapters for `claude`, `codex`, `kimi`, and `gemini`" in quickstart_text
-    assert "`claude`, `codex`, `kimi`, or `gemini`" in concepts_text
-    assert "Gemini and Kimi specialists remain headless-only" not in all_packaged_markdown
-    assert "Gemini and Kimi stay headless-only" not in all_packaged_markdown
+    assert "tool adapters for `claude`, `codex`, and `kimi`" in quickstart_text
+    assert "`claude`, `codex`, or `kimi`" in concepts_text
     assert "Kimi specialists remain headless-only" not in all_packaged_markdown
     assert 'general-kimi","tool":"claude' not in all_packaged_markdown
     assert "raw Kimi `--auto` or `--yolo` launch flags" in all_packaged_markdown

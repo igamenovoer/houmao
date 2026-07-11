@@ -7,23 +7,6 @@
 - Treat `tests/fixtures/auth-bundles/` as the maintained local credential source tree.
 - Use `tmp/houmao-launch-agents/<run-id>/...` for copied temp roots and generated artifacts.
 
-## Restore Local Auth Bundles
-
-Run this only if `tests/fixtures/auth-bundles/<tool>/<bundle>/` is missing or incomplete:
-
-```bash
-set -a
-. ./.env
-set +a
-
-openssl enc -d -aes-256-cbc -pbkdf2 -salt \
-  -pass env:AGENT_CREDENTIAL_COMPRESS_PASSWORD \
-  -in tests/fixtures/auth-bundles/tools.tar.gz.enc \
-| tar -C tests/fixtures/auth-bundles -xzf -
-```
-
-Keep extracted bundle contents local-only and do not commit them in plaintext.
-
 ## Prepare A Temporary Plain Direct-Dir Root
 
 Use this when you need one explicit `--agent-def-dir` target for experiments or credential CRUD:

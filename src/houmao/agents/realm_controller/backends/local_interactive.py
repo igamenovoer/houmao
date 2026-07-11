@@ -44,7 +44,6 @@ from .tmux_runtime import (
 _SUPPORTED_TUI_PROCESSES: dict[str, tuple[str, ...]] = {
     "claude": ("claude", "claude-code"),
     "codex": ("codex",),
-    "gemini": ("gemini",),
     "kimi": ("kimi-code", "kimi"),
 }
 _KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY = "kimi_tui_auto_mode_refresh"
@@ -78,11 +77,6 @@ def _tui_relaunch_chat_session_args(
     if tool == "claude":
         if selection.mode == "tool_last_or_new":
             return ["--continue"]
-        assert selection.session_id is not None
-        return ["--resume", selection.session_id]
-    if tool == "gemini":
-        if selection.mode == "tool_last_or_new":
-            return ["--resume", "latest"]
         assert selection.session_id is not None
         return ["--resume", selection.session_id]
     if tool == "kimi":

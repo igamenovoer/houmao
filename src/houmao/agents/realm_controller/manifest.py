@@ -152,7 +152,6 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
     elif request.launch_plan.backend in {
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
     }:
         payload["headless"] = {
@@ -368,7 +367,6 @@ def _resolve_manifest_identity(
     if request.launch_plan.backend in {
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
     }:
         if tmux_session_name is None:
@@ -469,7 +467,6 @@ def _build_manifest_interactive_section(
         "local_interactive",
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
         "cao_rest",
         "houmao_server_rest",
@@ -487,7 +484,6 @@ def _build_manifest_interactive_section(
                 "local_interactive",
                 "codex_headless",
                 "claude_headless",
-                "gemini_headless",
                 "kimi_headless",
             }
             else None
@@ -539,7 +535,6 @@ def _build_manifest_gateway_authority(
         "local_interactive",
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
         "cao_rest",
         "houmao_server_rest",

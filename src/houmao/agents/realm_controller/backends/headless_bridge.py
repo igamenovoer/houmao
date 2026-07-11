@@ -155,7 +155,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         required=True,
-        choices=("claude", "codex", "gemini", "kimi"),
+        choices=("claude", "codex", "kimi"),
     )
     parser.add_argument("--output-format", required=True)
     parser.add_argument("--turn-index", required=True, type=int)

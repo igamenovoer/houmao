@@ -345,7 +345,7 @@ def test_config_drafts_cli_flat_intent_reports_fields_wrapper() -> None:
     assert '"enum": [' in result.output
     assert '"claude"' in result.output
     assert '"codex"' in result.output
-    assert '"gemini"' in result.output
+    assert '"kimi"' in result.output
     assert "shell quoting" not in result.output
     _assert_fix_guide(
         result.output,
@@ -369,7 +369,7 @@ def test_config_drafts_cli_shape_and_parse_failures_include_fix_guides() -> None
         (
             "project.specialist",
             '{"fields":{"name":"reviewer","tool":"openai","credential":"reviewer-creds"}}',
-            "Field `tool` must be one of: claude, codex, gemini, kimi",
+            "Field `tool` must be one of: claude, codex, kimi",
             "fields.name, fields.tool, fields.credential",
             '{"fields":{"name":"general-kimi","tool":"kimi","credential":"kimi-coding"}}',
         ),
