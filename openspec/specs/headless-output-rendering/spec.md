@@ -1,8 +1,6 @@
 ## Purpose
 TBD - synced from change refine-headless-output-rendering. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Managed headless output preserves raw provider artifacts and emits canonical semantic events
 For supported managed headless tools, the runtime SHALL preserve raw provider stdout and stderr as durable artifacts while also emitting a separate canonical normalized event artifact for the same turn.
 
@@ -144,3 +142,11 @@ Unknown Kimi event shapes SHALL be preserved as canonical passthrough or diagnos
 - **WHEN** a managed Kimi headless turn exits successfully after emitting assistant content and a resume hint but no provider completion or usage payload
 - **THEN** the canonical Kimi parser does not fabricate provider usage fields
 - **AND THEN** runtime turn completion remains derived from the existing process-exit completion path
+
+### Requirement: Headless output rendering has no Gemini format
+Canonical headless output parsing, rendering, and artifact normalization SHALL NOT register or select a Gemini stream format.
+
+#### Scenario: Gemini renderer selection is unavailable
+- **WHEN** a caller asks the headless output layer to parse a Gemini stream
+- **THEN** the layer rejects the unsupported provider format
+- **AND THEN** it does not emit canonical events from Gemini-specific records

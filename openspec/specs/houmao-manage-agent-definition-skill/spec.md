@@ -384,3 +384,10 @@ The skill SHALL provide resolvable credential-reference links for Claude, Codex,
 - **WHEN** an installed `houmao-agent-definition` page links to credential reference material for Claude, Codex, Kimi, or Gemini
 - **THEN** the referenced Markdown file exists in the installed skill tree or is a valid packaged relative link
 - **AND THEN** the linked reference explains how to select or create credentials without directing the agent to hand-edit credential files
+
+### Requirement: Agent-definition skill excludes Gemini
+The unified agent-definition skill SHALL contain no Gemini credential routing, specialist flags, profiles, recipes, or launch examples.
+
+#### Scenario: Agent-definition provider routing excludes Gemini
+- **WHEN** an agent uses the packaged definition skill to choose a provider lane
+- **THEN** the guidance routes only to maintained Claude, Codex, or Kimi instructions

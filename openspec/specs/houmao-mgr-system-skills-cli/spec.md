@@ -791,3 +791,11 @@ If a target tool home contains a stale retired `houmao-utils-graphing` projectio
 - **WHEN** an operator installs current system skills into a tool home that already contains `houmao-utils-graphing`
 - **THEN** the install result reports `houmao-utils-graphing` as a removed retired skill
 - **AND THEN** the target home no longer contains the old `houmao-utils-graphing` projection
+
+### Requirement: System-skills CLI excludes Gemini targets
+System-skill list, install, status, and uninstall tool validation SHALL NOT accept Gemini or resolve a Gemini home.
+
+#### Scenario: Gemini system-skill install is rejected
+- **WHEN** an operator requests system-skill installation with `--tool gemini`
+- **THEN** command validation rejects the tool
+- **AND THEN** no `.gemini/skills` path is created

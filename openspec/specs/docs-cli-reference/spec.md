@@ -1484,3 +1484,10 @@ The CLI reference page `docs/reference/cli/system-skills.md` SHALL explain that 
 - **WHEN** a reader checks install or uninstall cleanup semantics
 - **THEN** the page explains that `houmao-utils-graphing` is a retired projection name
 - **AND THEN** the page explains that current install or uninstall operations may remove that stale Houmao-owned projection
+
+### Requirement: CLI reference documents no Gemini surface
+Maintained CLI reference pages SHALL omit Gemini command families, provider choices, flags, schemas, examples, fixtures, and outputs.
+
+#### Scenario: Reader searches maintained CLI reference for Gemini workflows
+- **WHEN** a reader searches current CLI documentation
+- **THEN** they find no instructions for configuring, launching, joining, resuming, or installing skills for Gemini

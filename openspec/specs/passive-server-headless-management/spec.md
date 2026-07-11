@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - synced from change passive-server-requests-and-headless. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Passive server can launch native headless agents
 The passive server SHALL expose `POST /houmao/agents/headless/launches` that accepts a launch request and creates a headless agent session.
 
@@ -195,3 +193,11 @@ For managed headless turns, the passive server artifact routes SHALL continue re
 - **WHEN** a caller requests `GET /houmao/agents/{agent_ref}/turns/{turn_id}/artifacts/stdout` for a managed headless turn
 - **THEN** the passive server returns the raw provider stdout artifact for that turn
 - **AND THEN** the response does not replace that artifact with rendered human text or canonical semantic event output
+
+### Requirement: Passive-server headless management excludes Gemini
+The passive server SHALL support only currently maintained headless backends and SHALL reject Gemini tool and backend identifiers.
+
+#### Scenario: Passive-server Gemini launch is rejected
+- **WHEN** a caller requests a passive-server headless launch for `gemini` or `gemini_headless`
+- **THEN** the request fails validation
+- **AND THEN** no managed-agent record or provider process is created

@@ -672,3 +672,11 @@ Disabling or replacing system-skill selection for a managed launch SHALL NOT dis
 - **WHEN** an operator inspects system-skill status for a tool home
 - **THEN** the status reports catalog-known Houmao system skills
 - **AND THEN** it does not report `houmao-auto-system-prompt` as an installed system skill
+
+### Requirement: Shared system-skill projection has no Gemini destination
+The shared system-skill installer, status discovery, synchronization, and removal contracts SHALL NOT recognize Gemini or `.gemini/skills` as a Houmao target.
+
+#### Scenario: Gemini projection root is absent from destination resolution
+- **WHEN** the system resolves supported tool-native skill destinations
+- **THEN** no mapping points to `.gemini/skills`
+- **AND THEN** Gemini is rejected before filesystem mutation

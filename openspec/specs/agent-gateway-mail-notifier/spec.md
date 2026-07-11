@@ -643,3 +643,11 @@ Eligible messages whose canonical envelope had `notify_block=None` SHALL NOT gen
 - **AND WHEN** the configured verifier passes for the populated message
 - **THEN** the per-poll audit row contains exactly one per-block entry for the populated message with `rendered=true`, `auth_outcome="skipped"` or `auth_outcome="passed"` depending on configured verifier, and the rendered `block_chars` value
 - **AND THEN** the audit row does not contain a per-block entry for the message without `notify_block`
+
+### Requirement: Gateway notifier has no Gemini prompt specialization
+Gateway mail-notifier prompt rendering SHALL NOT contain Gemini-specific skill invocation, destination paths, or provider branches.
+
+#### Scenario: Maintained notifier providers exclude Gemini
+- **WHEN** notifier guidance is rendered for a maintained provider
+- **THEN** it uses the applicable Claude, Codex, or Kimi contract
+- **AND THEN** no Gemini prompt branch is selectable

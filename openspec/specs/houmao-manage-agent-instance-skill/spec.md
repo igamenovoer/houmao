@@ -274,3 +274,10 @@ The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-
 - **WHEN** a user asks the skill how to adopt the current tmux session
 - **THEN** the skill guidance shows `houmao-mgr agents self join --agent-name <managed-agent-name>`
 - **AND THEN** it does not show `houmao-mgr agents join --name <managed-agent-name>`
+
+### Requirement: Agent-instance skill excludes Gemini
+The agent-instance skill SHALL NOT teach Gemini launch, join, relaunch, prompt, state, or cleanup workflows.
+
+#### Scenario: Instance launch guidance has no Gemini branch
+- **WHEN** an agent reads the packaged instance launch action
+- **THEN** no supported provider example or caveat names Gemini

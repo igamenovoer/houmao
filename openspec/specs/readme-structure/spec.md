@@ -220,3 +220,11 @@ After the first usage example, the README SHALL introduce the core model in comp
 - **WHEN** a reader reaches the concept section
 - **THEN** they can distinguish the user's CLI agent from Houmao-managed agents
 - **AND THEN** they understand how specialists, project profiles, gateways, mailboxes, and loops fit together
+
+### Requirement: README excludes Gemini support claims
+The repository README SHALL not present Gemini as a launch provider, credential provider, TUI tool, headless backend, system-skill target, or maintained demo lane.
+
+#### Scenario: Reader scans README provider guidance
+- **WHEN** a reader scans the README introduction, concepts, examples, and demos
+- **THEN** no current support claim or workflow names Gemini
+- **AND THEN** the remaining provider guidance stays accurate for Claude, Codex, and Kimi

@@ -431,3 +431,11 @@ In both modes, the workflow SHALL keep archive as the completion action for succ
 - **WHEN** an agent follows the notifier-driven workflow in either mode
 - **THEN** the workflow does not tell the agent that marking a message read completes the mailbox work
 - **AND THEN** deferred, skipped, or unfinished messages remain unarchived for later handling according to the configured notifier mode
+
+### Requirement: Mailbox system skills are not projected into Gemini homes
+Runtime mailbox-skill projection SHALL expose no Gemini destination, `.gemini/skills` path, or Gemini discovery contract.
+
+#### Scenario: Mailbox skill destination rejects Gemini
+- **WHEN** mailbox skill projection receives Gemini as its target tool
+- **THEN** projection fails as unsupported
+- **AND THEN** it does not create `.gemini/skills` content
