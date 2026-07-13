@@ -1,15 +1,19 @@
 # Use Cases
 
-This directory contains use cases for comprehensive and long-horizon TUI state-tracking qualification.
+This directory contains use cases for two complementary TUI state-tracking qualification suites: short-to-medium state/transition tests and long-horizon pressure tests.
 
 ## Index
 
 | ID | Use Case | Status |
 | --- | --- | --- |
-| [UC-01](uc-01-qualify-tui-state-tracking-robustness.md) | Qualify TUI State Tracking Robustness | Kimi 0.23.x qualified; Codex 0.144.x and stress execution blocked by external model timeouts |
+| [UC-01](uc-01-qualify-focused-tui-state-transitions.md) | Qualify Focused TUI State and Transition Tracking | Codex 0.144.x and Kimi 0.23.x detector profiles qualified; remaining focused coverage is pending |
+| [UC-02](uc-02-pressure-test-long-horizon-tui-state-tracking.md) | Pressure-Test Long-Horizon TUI State Tracking | Five sessions with at least 20 user operations each are pending |
 
 ## Notes
 
+- UC-01 owns focused detector-state and transition correctness. Its short-to-medium cases normally use one to four user interactions in one provider session. Existing `PS-*` and `MS-*` cases belong to this use case.
+- UC-02 owns accumulated-history and robustness pressure. Each `ST-*` session records at least 20 user operations, and the five-session use case collectively covers every in-scope state-transition family.
+- The long-horizon suite does not replace focused cases. Focused cases localize transition defects; long-horizon cases detect stale-state leakage, drift, oscillation, duplicated outcomes, lost authority, and downstream-consumer failures after many operations.
 - The plan targets the maintained Claude Code, Codex, and Kimi Code tracker profiles.
 - Provider-visible network and LLM API failures are excluded from live scenario coverage because they cannot be induced reliably. Every live provider session uses the maintained `unattended` launch posture. Avoidable confirmation, approval, permission, trust, update, login, session-picker, browser, and user-question prompts are forbidden test outcomes rather than required stimuli.
 - A prompt may receive scripted intervention only when provider/version-specific evidence proves that the CLI hard-codes it and exposes no CLI argument, configuration key, environment variable, prepared state, or other supported bypass. Such exceptions are declared before execution in an intervention allowlist and receive a distinct `pass_with_unavoidable_intervention` verdict.

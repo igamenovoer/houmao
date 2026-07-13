@@ -1,12 +1,14 @@
-# Use Case 01: Qualify TUI State Tracking Robustness
+# Use Case 01: Qualify Focused TUI State and Transition Tracking
 
 ## Actor Goal
 
-As a Houmao developer, I want complete state, transition, and long-horizon tests for maintained TUI trackers, so that gateways, schedulers, dashboards, and other downstream consumers can rely on coherent state even when captures are delayed or sparse.
+As a Houmao developer, I want focused state and transition tests for maintained TUI trackers, so that I can localize the first incorrect classification or transition before accumulated session history obscures it.
 
 ## Use Case
 
-The developer qualifies the current Claude Code, Codex, and Kimi Code TUI trackers against independent terminal evidence. Every native provider session uses the maintained `unattended` launch posture and is recorded at approximately 20 fps, labeled from the visible TUI without consulting tracker output, and replayed through the shared tracker. The suite covers every public state reachable during unattended operation, treats avoidable confirmation surfaces as failures, exercises multi-step transitions that invalidate stale outcomes, and runs five long-horizon sessions with at least 20 scripted operator actions apiece. Canonical replay uses strict sample-aligned comparison. Slower, offset, jittered, and gapped replay uses semantic invariants because capture delay may legitimately omit short-lived states.
+The developer qualifies the current Claude Code, Codex, and Kimi Code TUI trackers against independent terminal evidence in short-to-medium sessions. Each session tests one visible state or one bounded transition procedure with normally one to four user interactions. Every native provider session uses the maintained `unattended` launch posture and is recorded at approximately 20 fps, labeled from the visible TUI without consulting tracker output, and replayed through the shared tracker. Canonical replay uses strict sample-aligned comparison. Slower, offset, jittered, and gapped replay uses semantic invariants because capture delay may legitimately omit short-lived states.
+
+The separate long-horizon actor goal is defined by [UC-02](uc-02-pressure-test-long-horizon-tui-state-tracking.md). UC-02 reuses this use case's unattended launch contract, state-coverage ledger, independent-labeling method, capture schedule, and replay oracles.
 
 `Unattended` is a test contract, not merely a launch label. The CLI must not request confirmation, approval, permission, trust, login, update, session selection, browser interaction, or an answer to a model-generated user question during any normal test step. The only permitted intervention is a provider prompt that source, help, configuration, and live-probe evidence show is hard-coded with no supported bypass. The coordinator must declare that exception before execution and record a scripted response; it must never accept an unexpected prompt ad hoc.
 
@@ -16,16 +18,24 @@ The plan distinguishes three public layers:
 2. normalized tracker state: surface acceptance/editing/readiness, turn phase, last-turn result/source, chat context, stability, and active reasons;
 3. server lifecycle state: parsed business state, operator status, readiness, completion, projection change, and turn-anchor authority.
 
+## Suite Boundary
+
+This use case answers whether the tracker recognizes one state or one bounded transition procedure correctly. A live session normally contains one to four user interactions and stays below five. If a focused case cannot remain below five, its scenario manifest must explain why the additional interaction is necessary and why the behavior cannot be split into a narrower session.
+
+The `PS-*` provider-specific scenarios and `MS-*` multi-step procedures belong to this use case. They cover isolated visible states, ready/draft/active/result boundaries, stale-result invalidation, interruption, confirmation-free tools, overlays, process loss, and temporal inference. Harness actions such as readiness waits, snapshot capture, checkpoint polling, process control, and cleanup do not count as user interactions unless that action is the transition stimulus under test.
+
+This use case optimizes for diagnosis. Each failure must identify the smallest scenario, user interaction, source frame, expected transition, and actual transition that diverged. UC-02 consumes these focused transition contracts and pressures them over accumulated history; it does not replace them.
+
 ## Scope And Exclusions
 
 ## Execution Status on 2026-07-11
 
 | Provider | Installed version | Unattended strategy and effective posture | Detector qualification |
 | --- | --- | --- | --- |
-| Codex | 0.144.1 | `codex-unattended-0.116.x` remains the compatible launch strategy; effective startup forces `approval_policy=never`, `sandbox_mode=danger-full-access`, trusted project state, and no full-access warning or tooltips | 0.144.x detector remains experimental and unregistered. Two controlled turns exhausted retries with an external `Request timed out`, so completion, interruption, delegation, sparse replay, and stress gates remain blocked; registry selection stays `fallback`. |
+| Codex | 0.144.1 | `codex-unattended-0.116.x` remains the compatible launch strategy; effective startup forces `approval_policy=never`, `sandbox_mode=danger-full-access`, trusted project state, and no full-access warning or tooltips. Controlled live tests project the development proxy variables through the adapter. | `CodexTuiSignalDetectorV0_144_X` is maintained for `>=0.144.0,<0.145.0` after explicit success, interruption, tool, delegated-agent, and sparse-cadence validation. |
 | Kimi Code | 0.23.5, with the first canonical capture on 0.23.4 | `kimi-tui-unattended-0.23.x`; fresh/latest/exact TUI commands receive one strategy-owned `--auto`, `.skip-migration-from-kimi-cli`, `KIMI_CODE_NO_AUTO_UPDATE=1`, and the managed config fallback | `KimiCodeSignalDetectorV0_23_X` is maintained for `>=0.23.0,<0.24.0` after five development, three held-out, tool, interruption, and sparse-cadence validation runs. |
 
-The intervention allowlist remained empty. No Kimi capture showed an approval, permission, trust, login, update, migration, session-picker, browser, or user-question prompt. The five long-horizon procedures remain pending because this plan requires refreshed current profiles and Codex 0.144.x has not passed its registration gate.
+The intervention allowlist remained empty. No Codex or Kimi capture showed an approval, permission, trust, login, update, migration, session-picker, browser, or user-question prompt. The remaining focused coverage is pending; UC-02 tracks the separate long-horizon execution gate.
 
 In scope:
 
@@ -108,35 +118,20 @@ Capture provider behavior without Houmao-managed prompts or tracker predictions 
 - result
   - Actor **gets** replay-grade snapshots, an input-event ledger, visual evidence, full-coverage labels, unattended-posture evidence, confirmation-violation detection, and provenance tying every label to source sample identifiers.
 
-### Exercise Complex Multi-Step Transitions
+### Run Focused State and Transition Cases
 
 Run scenarios in which prior terminal outcomes, drafts, uninterrupted tool execution, active evidence, and completion timers interact across multiple turns.
 
 - context
-  - Actor **has** canonical single-state fixtures and semantic operation intents such as submit, interrupt, execute a tool, write, edit, read, dismiss a non-confirmation overlay, and close.
+  - Actor **has** canonical state fixtures and semantic operation intents such as submit, interrupt, execute a tool, write, edit, read, dismiss a non-confirmation overlay, and close.
   - System **has** explicit-input authority, visible-draft authority, success settlement, temporal growth inference, and stale-scrollback suppression.
 - intent
-  - Actor **wants** to verify transition logic rather than isolated screenshots.
+  - Actor **wants** to verify detector state and bounded transition logic without long-session history obscuring the first error.
   - Actor **wonders** "After a success, interruption, edited draft, and second success, does the tracker clear each stale result at the right time?"
 - action
-  - Actor then **asks** the system to run the multi-step case catalog and compare ordered transition contracts.
+  - Actor then **asks** the system to run the provider and multi-step case catalogs in sessions that normally contain one to four user interactions and compare ordered transition contracts.
 - result
-  - Actor **gets** per-step state expectations, actual transition timelines, timer events, authority changes, and the first divergent operation when a contract fails.
-
-### Run Five Long-Horizon Stress Sessions
-
-Execute five different interaction procedures, each with at least 20 operator actions in one uninterrupted provider session.
-
-- context
-  - Actor **has** stable provider credentials, a run-scoped native TUI, and stress scripts whose user operations are individually recorded.
-  - System **has** bounded capture storage, transition history, replay sweeps, and cleanup controls.
-- intent
-  - Actor **wants** confidence that state tracking does not accumulate stale outcomes, oscillate, or lose authority over many turns.
-  - Actor **wonders** "Will the twentieth action still produce the same coherent transition semantics as the first action?"
-- action
-  - Actor then **asks** the system to execute all five stress procedures and evaluate canonical and degraded-cadence replay.
-- result
-  - Actor **gets** five session reports, at least 100 correlated input operations, invariant results, cadence verdicts, transition-count diagnostics, and retained failure slices.
+  - Actor **gets** focused per-step state expectations, actual transition timelines, timer events, authority changes, and the first divergent interaction when a contract fails.
 
 ## Public State-Coverage Ledger
 
@@ -194,7 +189,11 @@ Every row is mandatory unless marked excluded. A case may cover several rows, bu
 
 The coverage ledger must distinguish an intentionally opened navigation overlay from a provider request for intervention. Slash menus and selectors may be exercised as explicit operator UI actions. They do not relax the unattended guarantee and must not trigger a confirmation, permission decision, or required answer.
 
-## Provider-Specific Scenario Matrix
+## Focused State and Transition Cases
+
+Every live `PS-*` and `MS-*` scenario normally uses one to four user interactions in one provider session. Provider startup, readiness waits, observation delays, capture, and cleanup are harness operations and do not consume that budget. A process kill, resize, menu key, or close action counts when it is the explicit transition stimulus.
+
+### Provider-Specific Scenario Matrix
 
 | ID | Provider | Scenario | Required visible/state evidence |
 | --- | --- | --- | --- |
@@ -223,16 +222,16 @@ The coverage ledger must distinguish an intentionally opened navigation overlay 
 | PS-23 | All | Fallback detector profile through recorded or synthetic replay | Conservative unknown editing for unmatched nonempty prompt; no overconfident result and no unsupported live launch |
 | PS-24 | All | TUI process exit and tmux loss | Active → TUI down or unavailable; active turn anchor becomes lost |
 
-## Multi-Step Transition Cases
+### Multi-Step Transition Cases
 
-These cases test ordered state evolution rather than individual screenshots. Each arrow is a required semantic transition; canonical labels may include additional intermediate samples.
+These cases test ordered state evolution rather than individual screenshots. Each arrow is a required semantic transition; canonical labels may include additional intermediate samples. Scenario authors must keep each procedure below five user interactions by treating provider/process cleanup as a harness action or splitting a procedure when necessary.
 
 | ID | Procedure | Required transition contract |
 | --- | --- | --- |
 | MS-01 | Submit short prompt, observe active, return ready, hold stable | `ready/none → active/none → ready/none → ready/success` |
 | MS-02 | Complete once, type a new draft, edit it, submit, complete again | `success → draft/none → active/none → success`; prior success clears before second terminal result |
 | MS-03 | Start long turn, interrupt, type recovery draft, submit, succeed | `active → interrupted → draft/none → active/none → success` |
-| MS-04 | Start, interrupt, start again, interrupt again, close the TUI | Two distinct interrupted outcomes, each cleared by newer authority, followed by `tui_down` or `unavailable` |
+| MS-04 | Start, interrupt, start again, interrupt again | Two distinct interrupted outcomes, each cleared by newer authority; process close/down behavior remains isolated in PS-24 and MS-11 |
 | MS-05 | Explicitly open a slash menu or navigation overlay, dismiss, type prompt, submit | `ready → unknown → ready → draft → active`; overlay never settles success or requests intervention |
 | MS-06 | Request command, write, edit, and read operations in a run-owned directory | Every tool action follows `ready → active → success` without `awaiting_operator`, `modal`, `waiting_user_answer`, or confirmation-driven `blocked` |
 | MS-07 | Run tool actions in consecutive turns, then submit a no-tool prompt | Each new input clears the prior result, no confirmation appears, and each turn receives fresh authority and one terminal outcome |
@@ -242,150 +241,9 @@ These cases test ordered state evolution rather than individual screenshots. Eac
 | MS-11 | Kill provider process during active turn, restart in same pane, return ready | Anchor becomes lost on process exit; restart begins conservatively and does not resurrect the old terminal result |
 | MS-12 | Hold an unclassified surface beyond a shortened unknown timeout, then recover | `unknown → stalled → ready`; recovery clears stalled posture without manufacturing completion |
 
-## Five Long-Horizon Stress Sessions
-
-Each numbered row is one simulated operator action and must produce one authoritative `managed_send_keys` or equivalent semantic input event. Every provider is launched in the maintained unattended posture. Waits for visible checkpoints and allowlisted scripted interventions are harness actions and do not count toward the minimum. The provider session, tmux pane, recorder, and tracker remain the same for all actions within a stress case.
-
-### ST-01: Repeated Draft Editing And Successful Turns
-
-Primary providers: Claude and Codex. Purpose: detect stale-success leakage and editor-classification drift across repeated ordinary turns.
-
-| Op | Operator action | Required checkpoint or invariant |
-| --- | --- | --- |
-| 1 | Type draft `Reply exactly S1-A` without submitting | Editing `yes`; last turn `none` |
-| 2 | Append ` and stop` | Editing remains `yes`; no success candidate |
-| 3 | Backspace the appended words | Draft remains authoritative |
-| 4 | Submit the draft | Turn becomes active from explicit input |
-| 5 | Type draft `Reply exactly S1-B` after success settles | Prior success clears to `none` |
-| 6 | Move cursor left within the draft | Editing remains `yes` |
-| 7 | Insert `-EDITED` | No terminal result is inferred |
-| 8 | Submit | Fresh active turn |
-| 9 | Type `/` to open the slash menu after success | Ambiguous overlay; no success |
-| 10 | Press `Escape` | Ready returns |
-| 11 | Type draft `Reply exactly S1-C` | Editing `yes` |
-| 12 | Clear the draft with the provider-supported line-clear key | Non-editing ready prompt |
-| 13 | Retype `Reply exactly S1-C` | Surface-inferred authority is fresh |
-| 14 | Submit | Active then success |
-| 15 | Type draft `Reply exactly S1-D` | Prior success clears |
-| 16 | Append two spaces and remove them | Stability signature may change; state family must not oscillate |
-| 17 | Submit | Active from explicit input |
-| 18 | Type draft `Reply exactly S1-E` after completion | Last turn clears |
-| 19 | Submit | Fifth active turn |
-| 20 | Press the provider's ordinary new-empty-prompt key after final success | Final posture is ready/non-editing; final success remains until newer authority is actually armed |
-
-### ST-02: Interrupt, Steer, Recover, And Re-Interrupt
-
-Primary provider: Codex, mirrored on Claude where steering is supported. Purpose: exercise repeated interruption identity and active-draft overlap.
-
-| Op | Operator action | Required checkpoint or invariant |
-| --- | --- | --- |
-| 1 | Submit long repository-summary prompt A | Active turn 1 |
-| 2 | Type a steer draft while turn 1 is active | Active plus editing when provider supports overlapping draft |
-| 3 | Submit steer draft | Steer handoff remains active, not completed |
-| 4 | Interrupt turn 1 | Interrupted result 1 |
-| 5 | Type recovery draft A | Interrupted result clears |
-| 6 | Submit recovery draft A | Active turn 2 |
-| 7 | Interrupt turn 2 | Interrupted result 2 |
-| 8 | Type short success prompt B | Fresh draft authority |
-| 9 | Submit B | Active then success 1 |
-| 10 | Submit long prompt C | Success clears; active turn 4 |
-| 11 | Type steer draft C1 | Active/editing overlap |
-| 12 | Clear steer draft C1 | Active remains; editing changes without completion |
-| 13 | Type steer draft C2 | Editing returns |
-| 14 | Submit steer draft C2 | Active handoff |
-| 15 | Interrupt turn C | Interrupted result 3 |
-| 16 | Open slash menu | Overlay does not revive interruption as current-turn activity |
-| 17 | Dismiss slash menu | Ready/interrupted remains coherent |
-| 18 | Type final recovery prompt D | Interrupted result clears |
-| 19 | Submit D | Active then success 2 |
-| 20 | Start an empty new draft and leave it unsubmitted | Final state ready/non-editing or editing according to visible payload; no extra terminal outcome |
-
-### ST-03: Unattended Tool Execution Without Confirmation
-
-Primary provider: Kimi, with Claude and Codex variants. Each provider uses its maintained unattended posture. Purpose: exercise command, write, edit, read, plan, and cleanup operations across many turns while proving that provider-side confirmation never interrupts the session. Every path is inside a run-owned temporary directory.
-
-| Op | Operator action | Required checkpoint or invariant |
-| --- | --- | --- |
-| 1 | Submit a prompt requesting `pwd` | Active then success without confirmation |
-| 2 | Submit a prompt to create the run-owned directory | Fresh active turn; no permission panel |
-| 3 | Submit a prompt to write `alpha` to `first.txt` | Write completes without confirmation |
-| 4 | Submit a prompt to read `first.txt` | Read completes and reports `alpha` |
-| 5 | Submit a prompt to append `beta` to `first.txt` | Edit completes without confirmation |
-| 6 | Submit a prompt to read the changed file | Current content is returned; no stale blocked state |
-| 7 | Submit a prompt to replace `alpha` with `gamma` | Edit completes without confirmation |
-| 8 | Submit a prompt to run a line-count command on `first.txt` | Command completes without confirmation |
-| 9 | Submit a prompt to list the run-owned directory | Listing completes; each turn has one terminal outcome |
-| 10 | Submit a prompt to create `second.txt` | Second write completes without confirmation |
-| 11 | Submit a prompt to compare the two files | Tool chain remains active until one settled result |
-| 12 | Submit a prompt to rename `second.txt` to `renamed.txt` | Rename completes without confirmation |
-| 13 | Submit a prompt to create a small JSON file | Structured write completes without confirmation |
-| 14 | Submit a prompt to parse and report one JSON field | Read/command path completes without intervention |
-| 15 | Submit a prompt to remove `renamed.txt` | Run-owned cleanup completes without confirmation |
-| 16 | Submit a prompt to verify that `first.txt` still exists | Read-only check completes and does not inherit prior state |
-| 17 | Submit a prompt to plan a harmless directory inspection | Plan returns without requesting approval or a user answer |
-| 18 | Submit a prompt to perform that inspection | Planned tool execution completes unattended |
-| 19 | Submit a no-tool prompt summarizing the observed filenames | Prior tool result clears; ordinary response succeeds |
-| 20 | Submit a final prompt to read `first.txt` | Final state settles ready and successful with zero unallowlisted interventions |
-
-### ST-04: Menus, Prompt Ambiguity, Resize, And Stale Scrollback
-
-Providers: run once for each of Claude, Codex, and Kimi. Purpose: stress prompt classification and current-visible-region precedence without relying on model failures.
-
-| Op | Operator action | Required checkpoint or invariant |
-| --- | --- | --- |
-| 1 | Open slash menu | Unknown overlay, never success or requested intervention |
-| 2 | Move selection down | Overlay remains bounded |
-| 3 | Move selection up | No turn result change |
-| 4 | Dismiss menu | Ready returns |
-| 5 | Type a string equal to a common placeholder phrase | Styled user draft must remain distinguishable from provider placeholder where supported |
-| 6 | Clear the line | Non-editing ready |
-| 7 | Resize pane narrower | Wrapped prompt/status must not fabricate active or interrupted state |
-| 8 | Type short prompt A | Editing authority |
-| 9 | Submit A | Active then success |
-| 10 | Enter tmux copy/scroll mode and move upward | Recorder may show scrollback; tracker must use the captured visible surface conservatively |
-| 11 | Exit copy/scroll mode | Current provider surface returns |
-| 12 | Resize pane wider | State remains semantically coherent |
-| 13 | Open provider model/session selector as an explicit navigation action | Modal or unknown posture, but no confirmation request |
-| 14 | Move selector choice without confirming | No terminal result |
-| 15 | Cancel selector | Ready returns |
-| 16 | Submit long prompt B | Active turn |
-| 17 | Interrupt B | Interrupted result |
-| 18 | Resize while interrupted banner remains visible | Interruption survives wrapping but is not duplicated |
-| 19 | Type short recovery prompt C | Stale interruption clears |
-| 20 | Submit C | Active then success; stale scrollback does not contaminate final result |
-
-### ST-05: Mixed Long-Horizon Downstream-Consumer Session
-
-Providers: Codex and Kimi variants in maintained unattended posture. Purpose: combine ordinary turns, explicitly opened navigation overlays, confirmation-free tool execution, interruptions, liveness changes, and capture-delay replay while a simulated downstream consumer reads every published state.
-
-| Op | Operator action | Required checkpoint or invariant |
-| --- | --- | --- |
-| 1 | Submit short prompt A | Active then success |
-| 2 | Type draft B | Success clears before another terminal result |
-| 3 | Submit B | Active then success |
-| 4 | Submit long prompt C | Active |
-| 5 | Interrupt C | Interrupted |
-| 6 | Type recovery draft D | Interruption clears |
-| 7 | Submit D | Active then success |
-| 8 | Open slash menu | Unknown/modal without success or intervention request |
-| 9 | Dismiss menu | Ready |
-| 10 | Submit a harmless tool-use prompt E in the run-owned directory | Active then success without confirmation |
-| 11 | Submit a second tool-use prompt that reads back E's output | Fresh active turn, one success, and no modal or waiting state |
-| 12 | Submit safe no-tool prompt F | Fresh active turn |
-| 13 | Type steer draft F1 while active | Active/editing overlap where supported |
-| 14 | Submit steer draft F1 | Still active |
-| 15 | Wait for completion, then type draft G | Completion settles once; new draft clears it |
-| 16 | Clear draft G | Ready/non-editing |
-| 17 | Retype draft G | Editing authority reacquired |
-| 18 | Submit G | Active then success |
-| 19 | Exit the provider TUI normally | `tui_down`, anchor absent or lost, no stale ready admission |
-| 20 | Restart the same provider in the owned tmux pane | Conservative unknown/startup then ready; old last-turn result is not resurrected |
-| 21 | Submit final prompt H after restart | Fresh explicit-input authority |
-| 22 | Leave the final ready surface visible through the stability window | One settled success and a stable final signature |
-
 ## Capture And Replay Schedule
 
-Every canonical case and stress session uses actual timestamps as authority.
+Every focused case uses actual timestamps as authority.
 
 1. Verify the unattended posture and start a confirmation watchdog before the first provider operation.
 2. Request source capture at `0.05` seconds per sample, approximately 20 fps.
@@ -396,10 +254,9 @@ Every canonical case and stress session uses actual timestamps as authority.
 7. For each fixed rate, derive at least two phase offsets: zero and half one target interval. This prevents a favorable sampling phase from hiding short-lived-state weakness.
 8. When schedule-driven derivation is available, run seeded jitter variants with target intervals multiplied by values in `[0.5, 1.5]`, while retaining monotonic timestamps.
 9. Inject isolated gaps of `0.75s`, `1.5s`, and `3.0s` at predeclared transition boundaries. A gap may hide a transient state but must not manufacture a contradictory one.
-10. Run one bursty schedule per stress session: five fast samples near an operation, then one slow sample after `0.5s`, repeated with a fixed seed.
-11. Persist the exact source-sample mapping for every derived sample.
+10. Persist the exact source-sample mapping for every derived sample.
 
-If irregular schedule derivation is not yet implemented, fixed cadence and phase-offset variants remain mandatory. Jitter, isolated-gap, and bursty variants are recorded as `not_run_capability_missing`; the suite must not claim irregular-delay robustness.
+If irregular schedule derivation is not yet implemented, fixed cadence and phase-offset variants remain mandatory. Jitter and isolated-gap variants are recorded as `not_run_capability_missing`; the use case must not claim irregular-delay robustness.
 
 ## Canonical And Degraded-Cadence Oracles
 
@@ -434,33 +291,20 @@ Each case and replay variant receives one verdict:
 - `fail`: an invariant is violated, the sequence is contradictory, or a false terminal/admission state is published;
 - `inconclusive`: source evidence, provider version, or replay capability is insufficient.
 
-## Stress Acceptance Criteria
+## Acceptance Criteria
 
-The five stress procedures pass as a group only when:
-
-- all five sessions execute at least 20 correlated operator actions, for at least 100 total operations;
-- every operation has a unique event id, timestamp, semantic action, and expected checkpoint;
-- canonical replay has zero unexplained public-state mismatches;
-- every fixed-rate replay at 2 Hz or faster has zero safety-invariant violations;
-- every provider launch resolves an unattended strategy and passes its prompt-free readiness check;
-- no session shows an unallowlisted confirmation, approval, permission, trust, login, update, session-picker, browser, or user-question prompt;
-- any allowlisted hard-coded intervention is scripted, recorded outside the user-operation count, and reported as `pass_with_unavoidable_intervention` rather than `pass`;
-- all terminal outcomes are associated with the correct turn and are cleared by newer authority;
-- no session leaks a stale blocked state, interruption, failure, success, or active reason into an unrelated later turn;
-- the tracker and downstream consumer remain live for the entire session without unbounded transition growth, deadlock, or uncaught exception;
-- the final state, cleanup state, and retained artifact inventory agree;
-- failures retain a minimal slice spanning the preceding operation, first divergence, and following stabilization point.
+This use case passes when every required `PS-*` and `MS-*` state/transition contract has a focused canonical verdict, no case exceeds its interaction budget without a recorded justification, canonical labels have no unexplained mismatch, and every delayed replay remains safe and semantically coherent. Every provider launch must resolve an unattended strategy and pass prompt-free readiness. Any unallowlisted intervention prompt fails the affected case. Each failure must identify the first divergent user interaction and retain the smallest useful evidence slice.
 
 ## Main Flow
 
 1. The developer resolves the maintained provider versions, tracker profiles, and `unattended` launch-policy strategies from the current checkout.
 2. The test coordinator emits the state-coverage ledger and marks confirmation-driven states as forbidden live or unreachable under unattended operation.
-3. The coordinator selects single-state, multi-step, and stress scenarios for each provider.
+3. The coordinator selects focused `PS-*` and `MS-*` scenarios for each provider.
 4. The coordinator prepares an isolated provider home, applies the provider-specific unattended arguments and settings, disables avoidable startup prompts, and writes `unattended-posture.json`.
 5. The operator launches an ordinary provider TUI in a dedicated tmux pane without Houmao role prompts, skills, bootstrap messages, or tracker feedback.
 6. The coordinator performs the provider-specific prompt-free readiness check, verifies Kimi's native `--auto` posture from initial readiness, and arms the confirmation watchdog.
 7. The recorder starts at a requested `0.05` second interval and records pane snapshots plus semantic input events.
-8. The coordinator executes the scenario operations, waiting for visible checkpoints without counting waits or allowlisted scripted interventions as user actions.
+8. The coordinator executes the scenario operations, enforcing the one-to-four-interaction norm while excluding waits and allowlisted scripted interventions from the count.
 9. The operator reviews the cast and snapshots, labels public state, and signs off without seeing tracker output.
 10. The harness validates label completeness and replays the canonical stream.
 11. The harness runs fixed-rate, phase-offset, and available irregular schedules.
@@ -479,7 +323,6 @@ The five stress procedures pass as a group only when:
 - If the source recorder misses the entire visible span for a required state, recapture the canonical case. Do not repair ground truth from tracker predictions.
 - If low-frequency replay omits a transient interruption or allowlisted unavoidable prompt but later reports a conservative unknown state, judge the sequence against the safety invariants. Do not demand impossible sample equality.
 - If low-frequency replay reports success or submit-safe readiness across a source-proven prompt or process-loss interval, fail the case.
-- If a stress session crashes before its twentieth operation, the session is incomplete and must be rerun from a fresh provider process.
 - If cleanup would affect a pre-existing tmux session, credential bundle, or provider home, stop and report `unsafe_mutation_scope`.
 
 ## Mermaid Flow Diagram
@@ -498,12 +341,10 @@ flowchart LR
     Label([Author independent labels])
     Replay([Replay canonical and delayed schedules])
     Compare([Check exact and semantic oracles])
-    Stress([Run five long-horizon sessions])
   end
 
   Developer --> Ledger --> Preflight --> Capture
   Operator --> Preflight --> Capture --> Guard --> Label --> Replay --> Compare
-  Ledger --> Stress --> Preflight
   Replay --> Consumer --> Compare
 ```
 
@@ -550,25 +391,23 @@ sequenceDiagram
 - `sessions/<case-id>/recording/labels.json`: independent full-sample canonical ground truth.
 - `sessions/<case-id>/analysis/groundtruth_timeline.ndjson` and `replay_timeline.ndjson`.
 - `sessions/<case-id>/sweeps/<variant>/`: derived snapshots, source mapping, transition timeline, invariants, and verdict.
-- `stress/stress-summary.json`: operation counts, provider versions, per-session terminal outcomes, cadence verdicts, and resource usage.
-- `stress/downstream-consumer-trace.ndjson`: every state consumed, admission decision, schema result, and monotonic transition index.
 - `confirmation-violations.ndjson`: every detected intervention surface, allowlist result, preceding operation, evidence frames, response if permitted, and case verdict.
 - `issues/<case-id>-<first-divergence>.md`: minimal evidence slice and reproduction command for each genuine failure.
 - `summary_report.md`: coverage gaps, exclusions, canonical results, cadence robustness, and release recommendation.
 
 ## Example Prompt And Expected AI Response
 
-### Event 001: Design And Execute The Long-Horizon Tracker Suite
+### Event 001: Execute Focused Tracker Qualification
 
-> Time: `2026-07-11T15:00:00Z` · Session: `tui-tracker-long-horizon-plan`
+> Time: `2026-07-11T15:00:00Z` · Session: `tui-tracker-focused-plan`
 
 User Prompt:
 
-> Use only unattended TUI mode to cover all states reachable without operator confirmation, run the complex transition catalog, and execute ST-01 through ST-05. Record at 20 fps and judge 10, 5, and 2 Hz replay. Fail any avoidable confirmation prompt; intervene only for a predeclared hard-coded CLI prompt with evidence that no bypass exists.
+> Use only unattended TUI mode. Run focused `PS-*` and `MS-*` state-transition cases with normally one to four user interactions per session. Record at 20 fps and judge canonical, 10 Hz, 5 Hz, and 2 Hz replay. Fail any avoidable confirmation prompt; intervene only for a predeclared hard-coded CLI prompt with evidence that no bypass exists.
 
 AI:
 
-> The agent should first show the resolved state-coverage ledger, provider versions, unattended strategy ids, effective prompt-suppression posture, exact tmux targets, operation counts, empty-or-reviewed intervention allowlist, and excluded external-error states. It should refuse `as_is`, verify a prompt-free ready surface, and record and label canonical evidence before exposing tracker output. It should run five sessions with at least 20 input events each, report exact canonical comparison separately from degraded-cadence semantic verdicts, and stop on an unallowlisted confirmation, fabricated success, stale readiness after process loss, incorrect terminal-result carryover, or unsafe resource ownership. Its final response should link unattended-posture evidence, confirmation violations, session manifests, stress summary, failure slices, and cleanup evidence.
+> The agent should first show the resolved state-coverage ledger, provider versions, unattended strategy ids, effective prompt-suppression posture, exact tmux targets, interaction counts, empty-or-reviewed intervention allowlist, and excluded external-error states. It should refuse `as_is`, verify a prompt-free ready surface, and record and label canonical evidence before exposing tracker output. It should keep ordinary sessions below five user interactions and distinguish exact canonical comparison from degraded-cadence semantic verdicts. It should stop on an unallowlisted confirmation, fabricated success, stale readiness after process loss, incorrect terminal-result carryover, or unsafe resource ownership. Its final response should link unattended-posture evidence, confirmation violations, focused session manifests, failure slices, and cleanup evidence.
 
 Notes:
 
@@ -587,4 +426,3 @@ Notes:
 - `intervention-allowlist.yaml` starts empty. Discovering a prompt during execution is evidence of a failed or unresolved unattended posture, not permission to add an exception during that run.
 - A deterministic local recognized failure stimulus still needs provider-specific authoring. Context-window exhaustion may be too costly for routine runs and should not be the only `known_failure` case.
 - The downstream consumer simulator should exercise the same admission assumptions used by gateway prompt dispatch: only available, ready, accepting, unblocked surfaces are submit-safe.
-- Resource thresholds for replay duration, transition-history size, and memory growth should be fixed after one baseline run on the CI or qualification host.
