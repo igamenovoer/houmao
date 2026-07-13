@@ -64,6 +64,8 @@ from houmao.demo.shared_tui_tracking_demo_pack.tooling import (
     launch_tmux_session,
     resolve_active_pane_id,
 )
+from houmao.shared_tui_tracking.apps.kimi_code.profile import analyze_kimi_surface
+from houmao.shared_tui_tracking.surface import SurfaceView
 
 
 _ACTIVE_PATTERNS = tuple(
@@ -74,8 +76,12 @@ _ACTIVE_PATTERNS = tuple(
         r"working\s*[….(]",
         r"running\s+(?:tool|command)",
         r"press esc to cancel",
-        r"ctrl-s to steer immediately",
     )
+)
+_CODEX_PENDING_INPUT_MARKERS = (
+    "messages to be submitted after next tool call",
+    "messages to be submitted at end of turn",
+    "queued follow-up inputs",
 )
 
 
@@ -362,6 +368,7 @@ def execute_operations(
                 pane_id=pane_id,
                 baseline_text=action_baseline,
                 timeout_seconds=turn_timeout_seconds,
+                require_post_submit_progress=(sequence is not None and "<[Enter]>" in sequence),
             )
         if operation.hold_after_seconds > 0:
             time.sleep(operation.hold_after_seconds)
@@ -398,6 +405,7 @@ def _wait_for_gate(
     pane_id: str,
     baseline_text: str,
     timeout_seconds: float,
+    require_post_submit_progress: bool = False,
 ) -> str:
     """Wait on raw native text and process-independent surface predicates."""
 
@@ -405,6 +413,7 @@ def _wait_for_gate(
         raise ValueError(f"Unsupported provider gate: {provider}")
     deadline = time.monotonic() + timeout_seconds
     stable_ready_polls = 0
+    progress_observed = not require_post_submit_progress
     while time.monotonic() < deadline:
         visible_text = capture_visible_pane_text(pane_id=pane_id)
         plain_text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", visible_text)
@@ -421,6 +430,7 @@ def _wait_for_gate(
             )
         active = _looks_active(provider=provider, visible_text=visible_text)
         changed = visible_text != baseline_text
+        progress_observed = progress_observed or changed or active
         if gate == "active" and active:
             return visible_text
         if (
@@ -431,7 +441,11 @@ def _wait_for_gate(
             return visible_text
         if gate == "ready":
             marker = detect_ready_marker(provider=provider, visible_text=visible_text)
-            if marker is not None and not active:
+            fresh_surface = _provider_surface_is_fresh(
+                provider=provider,
+                visible_text=visible_text,
+            )
+            if marker is not None and not active and progress_observed and fresh_surface:
                 stable_ready_polls += 1
             else:
                 stable_ready_polls = 0
@@ -446,9 +460,28 @@ def _looks_active(*, provider: ProviderName, visible_text: str) -> bool:
     """Return whether raw native UI text contains a bounded busy marker."""
 
     plain_text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", visible_text)
+    if provider == "kimi":
+        analysis = analyze_kimi_surface(visible_text, activity_window_lines=4)
+        return analysis.activity_visible or analysis.approval_visible
     if provider == "codex":
-        return "esc to interrupt" in plain_text.lower()
+        lowered = "\n".join(plain_text.splitlines()[-48:]).lower()
+        return "esc to interrupt" in lowered or any(
+            marker in lowered for marker in _CODEX_PENDING_INPUT_MARKERS
+        )
     return any(pattern.search(plain_text) is not None for pattern in _ACTIVE_PATTERNS)
+
+
+def _provider_surface_is_fresh(*, provider: ProviderName, visible_text: str) -> bool:
+    """Return whether provider chrome follows the latest retained-shell command."""
+
+    provider_markers: dict[ProviderName, tuple[str, ...]] = {
+        "claude": ("Claude Code",),
+        "codex": ("OpenAI Codex",),
+        "kimi": ("kimi-for-coding",),
+    }
+    return not SurfaceView.from_text(visible_text).has_unrendered_shell_launch(
+        provider_markers=provider_markers[provider]
+    )
 
 
 def _send_recorded_sequence(

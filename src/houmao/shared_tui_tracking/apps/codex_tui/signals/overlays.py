@@ -24,12 +24,21 @@ _APP_LINK_HINTS = (
     "Use tab / ↑ ↓ to move, enter to select, esc to close",
     "Newly installed apps can take a few minutes to appear in /apps.",
 )
+_LIST_SELECTION_FOOTER = "Press enter to confirm or esc to go back"
+_LIST_SELECTION_TITLES = (
+    "Select Model and Effort",
+    "Select Reasoning Effort",
+    "Select Personality",
+    "Select Approval Mode",
+)
+_LIST_SELECTION_ROW_RE = re.compile(r"(?m)^\s*›\s+\d+\.\s+.+$")
 
 
 def has_blocking_overlay(surface: SurfaceView) -> bool:
     """Return whether one Codex modal/operator overlay is visible."""
 
     stripped_text = "\n".join(surface.stripped_lines)
+    live_edge_text = "\n".join(line for line in surface.stripped_lines[-28:] if line.strip())
     if any(title in stripped_text for title in _APPROVAL_TITLES) and any(
         footer in stripped_text for footer in _APPROVAL_FOOTERS
     ):
@@ -43,5 +52,10 @@ def has_blocking_overlay(surface: SurfaceView) -> bool:
     if _FIELD_FORM_RE.search(stripped_text) and "enter to submit | esc to cancel" in stripped_text:
         return True
     if any(hint in stripped_text for hint in _APP_LINK_HINTS):
+        return True
+    if _LIST_SELECTION_FOOTER in live_edge_text and (
+        any(title in live_edge_text for title in _LIST_SELECTION_TITLES)
+        or _LIST_SELECTION_ROW_RE.search(live_edge_text) is not None
+    ):
         return True
     return False

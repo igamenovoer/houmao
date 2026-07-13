@@ -17,9 +17,16 @@ _BOOTSTRAP_STATUS_PREFIXES = (
 )
 _AGENT_TURN_STATUS_RE = re.compile(r"^\s*• (.+?) \((.+esc to interrupt.*)\)\s*$")
 _TOOL_CELL_RE = re.compile(r"^\s*• (Calling |Running |Waited for background terminal · ).+")
+_PENDING_STEER_PREFIX = "• Messages to be submitted after next tool call"
+_REJECTED_STEER_PREFIX = "• Messages to be submitted at end of turn"
 _QUEUED_FOLLOW_UP_PREFIX = "• Queued follow-up inputs"
-_NON_RESPONSE_BULLET_PREFIXES = (
+_PENDING_INPUT_PREFIXES = (
+    _PENDING_STEER_PREFIX,
+    _REJECTED_STEER_PREFIX,
     _QUEUED_FOLLOW_UP_PREFIX,
+)
+_NON_RESPONSE_BULLET_PREFIXES = (
+    *_PENDING_INPUT_PREFIXES,
     "• You have ",
     "• Working ",
     "• Calling ",
@@ -32,12 +39,8 @@ _COLLAB_CELL_RE = re.compile(
     r"^\s*• (?P<kind>Waiting for .+|Finished waiting|Resumed .+|Failed to resume .+)\s*$"
 )
 _RETRY_STATUS_RE = re.compile(
-    r"\b("
-    r"reconnect(?:ing|ed)?|"
-    r"retry(?:ing)?|"
-    r"stream\s+(?:error|recover(?:y|ing)?|disconnect(?:ed|ion)?)|"
-    r"connection\s+(?:lost|failed)"
-    r")\b",
+    r"^(?:•\s+)?Reconnecting(?:\.\.\.|\s+to\s+model\s+stream)\s*"
+    r"(?:\(\d+/\d+\)|\d+/\d+)(?:\s+\([^\n]*esc to interrupt[^\n]*\))?$",
     re.IGNORECASE,
 )
 
@@ -72,6 +75,8 @@ def detect_activity(
         stripped = line.strip()
         if _is_assistant_response_line(stripped):
             break
+        if stripped.startswith(_PENDING_INPUT_PREFIXES):
+            continue
         match = _AGENT_TURN_STATUS_RE.match(stripped)
         if match is None:
             continue
@@ -89,8 +94,13 @@ def detect_activity(
     if include_collaboration_cells and _latest_collaboration_cell_is_in_flight(live_edge_lines):
         active_reasons.append("collaboration_cell")
 
-    if include_queued_follow_up and _queued_follow_up_is_current(live_edge_lines):
+    pending_input_prefix = (
+        _current_pending_input_prefix(live_edge_lines) if include_queued_follow_up else None
+    )
+    if pending_input_prefix == _QUEUED_FOLLOW_UP_PREFIX:
         active_reasons.append("queued_follow_up")
+    elif pending_input_prefix is not None:
+        active_reasons.append("pending_input")
 
     retry_status_line = _latest_retry_status_line(live_edge_lines)
     if retry_status_line is not None:
@@ -161,20 +171,25 @@ def _latest_collaboration_cell_is_in_flight(live_edge_lines: tuple[str, ...]) ->
     return False
 
 
-def _queued_follow_up_is_current(live_edge_lines: tuple[str, ...]) -> bool:
-    """Return whether a queued-input cell has no later assistant response."""
+def _current_pending_input_prefix(live_edge_lines: tuple[str, ...]) -> str | None:
+    """Return the current pending-input section with no later assistant response."""
 
     queue_index: int | None = None
+    queue_prefix: str | None = None
     for index, line in enumerate(live_edge_lines):
-        if line.strip().startswith(_QUEUED_FOLLOW_UP_PREFIX):
-            queue_index = index
+        stripped = line.strip()
+        for prefix in _PENDING_INPUT_PREFIXES:
+            if stripped.startswith(prefix):
+                queue_index = index
+                queue_prefix = prefix
+                break
     if queue_index is None:
-        return False
+        return None
     for line in live_edge_lines[queue_index + 1 :]:
         stripped = line.strip()
         if not stripped.startswith("• "):
             continue
         if stripped.startswith(_NON_RESPONSE_BULLET_PREFIXES):
             continue
-        return False
-    return True
+        return None
+    return queue_prefix

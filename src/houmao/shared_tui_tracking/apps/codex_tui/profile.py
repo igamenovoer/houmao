@@ -56,6 +56,7 @@ _MIN_GROWTH_CHARS = 48
 _MIN_ADDED_LINES = 2
 _MAX_DEGRADED_MESSAGE_PREVIEW_CHARS = 240
 LOGGER = logging.getLogger(__name__)
+_CODEX_PROVIDER_MARKERS = ("OpenAI Codex",)
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         """Return normalized tracked signals for one Codex TUI surface."""
 
         del parsed_surface
-        surface = SurfaceView.from_text(output_text or "")
+        surface, surface_fresh = _current_codex_surface(output_text)
         prompt_snapshot = build_prompt_area_snapshot(surface)
         latest_turn_region_lines = latest_turn_lines(
             surface=surface,
@@ -203,6 +204,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
                 classification=prompt_classification,
             ),
         ]
+        if not surface_fresh:
+            notes.append("provider_surface_not_fresh")
         if activity.steer_handoff:
             notes.append("steer_handoff_active")
         if interrupted:
@@ -265,7 +268,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
 
         del observed_at_seconds
         del signals
-        surface = SurfaceView.from_text(output_text or "")
+        surface, _surface_fresh = _current_codex_surface(output_text)
         prompt_snapshot = build_prompt_area_snapshot(surface)
         latest_turn_region_lines = latest_turn_lines(
             surface=surface,
@@ -397,6 +400,15 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
                 ),
             )
         return hints
+
+
+def _current_codex_surface(output_text: str | None) -> tuple[SurfaceView, bool]:
+    """Return the current Codex surface and whether it belongs to the latest launch."""
+
+    surface = SurfaceView.from_text(output_text or "")
+    if surface.has_unrendered_shell_launch(provider_markers=_CODEX_PROVIDER_MARKERS):
+        return SurfaceView.from_text(""), False
+    return surface, True
 
 
 class CodexTuiSignalDetectorV0_116_X(_BaseCodexTuiSignalDetector):

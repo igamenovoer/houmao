@@ -30,10 +30,16 @@ APPROVAL_HEADERS = (
 ACTIVITY_LABEL_RE = re.compile(r"\b(?:working|thinking)\.\.\.")
 APPROVAL_CHOICE_RE = re.compile(r"\b\d+\.\s+(?:Approve|Reject|Revise)\b")
 PROMPT_TOKEN_RE = re.compile(r"^\s*[│┃]\s*>\s?(?P<body>.*)$")
+QUEUE_HINTS = (
+    "↑ to edit · ctrl-s to steer immediately",
+    "↑ to edit · will send after current task",
+    "↑ to edit · will send after compaction",
+)
 TEMPORAL_WINDOW_SECONDS = 3.0
 MAX_CONTIGUOUS_GAP_SECONDS = 1.5
 MIN_TRANSCRIPT_GROWTH_CHARS = 48
 MIN_TRANSCRIPT_GROWTH_LINES = 2
+KIMI_PROVIDER_MARKERS = ("kimi-for-coding",)
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,8 @@ class KimiSurfaceAnalysis:
     activity_visible: bool
     activity_reasons: tuple[str, ...]
     latest_activity_line: str | None
+    queue_visible: bool
+    queue_hint: str | None
     interrupted: bool
     footer_model_thinking: bool
     latest_turn_signature: str
@@ -128,8 +136,9 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         """Return normalized tracked signals for one Kimi Code TUI surface."""
 
         del parsed_surface
+        current_output_text, surface_fresh = _current_kimi_output_text(output_text)
         analysis = analyze_kimi_surface(
-            output_text,
+            current_output_text,
             activity_window_lines=self.m_activity_window_lines,
         )
         prompt = analysis.prompt
@@ -164,6 +173,8 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
             and not interrupted
         )
         notes: list[str] = [*self.m_profile_notes, *analysis.notes]
+        if not surface_fresh:
+            notes.append("provider_surface_not_fresh")
         if active_evidence:
             notes.append("active_turn_detected")
         if approval_visible:
@@ -173,7 +184,7 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         if analysis.footer_model_thinking and not active_evidence:
             notes.append("footer_thinking_metadata_ignored")
 
-        stripped_text = "\n".join(SurfaceView.from_text(output_text or "").stripped_lines)
+        stripped_text = "\n".join(SurfaceView.from_text(current_output_text).stripped_lines)
         surface_signature = hashlib.sha256(stripped_text.encode("utf-8")).hexdigest()
         success_blocked = bool(active_evidence or approval_visible or interrupted)
         return DetectedTurnSignals(
@@ -210,8 +221,9 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
 
         del signals
         del observed_at_seconds
+        current_output_text, _surface_fresh = _current_kimi_output_text(output_text)
         analysis = analyze_kimi_surface(
-            output_text,
+            current_output_text,
             activity_window_lines=self.m_activity_window_lines,
         )
         return _KimiFrame(
@@ -337,6 +349,11 @@ def analyze_kimi_surface(
         prompt_visible=prompt.prompt_visible,
         window_lines=activity_window_lines,
     )
+    queue_hint = _current_queue_hint(latest_turn_lines)
+    if queue_hint is not None:
+        activity_reasons.append("queued_message")
+        if latest_activity_line is None:
+            latest_activity_line = queue_hint
     interrupted = _interrupted_visible(latest_turn_lines)
     footer_model_thinking = _footer_model_thinking(surface)
     notes: list[str] = []
@@ -359,6 +376,8 @@ def analyze_kimi_surface(
         activity_visible=bool(activity_reasons),
         activity_reasons=tuple(activity_reasons),
         latest_activity_line=latest_activity_line,
+        queue_visible=queue_hint is not None,
+        queue_hint=queue_hint,
         interrupted=interrupted,
         footer_model_thinking=footer_model_thinking,
         latest_turn_signature=hashlib.sha256(joined_latest_turn.encode("utf-8")).hexdigest(),
@@ -366,6 +385,16 @@ def analyze_kimi_surface(
         latest_turn_line_count=len(latest_turn_lines),
         notes=tuple(notes),
     )
+
+
+def _current_kimi_output_text(output_text: str | None) -> tuple[str, bool]:
+    """Return Kimi output only when provider chrome follows the latest shell launch."""
+
+    text = output_text or ""
+    surface = SurfaceView.from_text(text)
+    if surface.has_unrendered_shell_launch(provider_markers=KIMI_PROVIDER_MARKERS):
+        return "", False
+    return text, True
 
 
 def _build_prompt_snapshot(surface: SurfaceView) -> KimiPromptSnapshot:
@@ -492,6 +521,17 @@ def _activity_facts(
         reasons.append(f"{frame_kind}_spinner")
         latest_line = line
     return list(dict.fromkeys(reasons)), latest_line
+
+
+def _current_queue_hint(lines: Sequence[str]) -> str | None:
+    """Return the current bounded Kimi queue hint nearest the editor."""
+
+    live_edge = [line.strip() for line in lines if line.strip()][-8:]
+    for line in reversed(live_edge):
+        for hint in QUEUE_HINTS:
+            if hint in line:
+                return hint
+    return None
 
 
 def _latest_turn_lines(*, surface: SurfaceView, prompt_index: int | None) -> tuple[str, ...]:

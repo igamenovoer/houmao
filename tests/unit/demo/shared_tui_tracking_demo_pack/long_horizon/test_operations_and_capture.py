@@ -91,7 +91,7 @@ def test_execute_operations_persists_semantic_and_frame_evidence(
     (attempt_root / "logs").mkdir(parents=True)
     sent: list[str] = []
     commands: list[list[str]] = []
-    gates: list[str] = []
+    gates: list[tuple[str, bool]] = []
     monkeypatch.setattr(capture, "capture_visible_pane_text", lambda **_kwargs: "ready")
     monkeypatch.setattr(
         capture,
@@ -102,7 +102,10 @@ def test_execute_operations_persists_semantic_and_frame_evidence(
     monkeypatch.setattr(
         capture,
         "_wait_for_gate",
-        lambda **kwargs: gates.append(str(kwargs["gate"])) or "surface",
+        lambda **kwargs: (
+            gates.append((str(kwargs["gate"]), bool(kwargs.get("require_post_submit_progress"))))
+            or "surface"
+        ),
     )
     operations = (
         _compiled(number=1, sequence="prompt<[Enter]>", after_gate="ready"),
@@ -132,7 +135,7 @@ def test_execute_operations_persists_semantic_and_frame_evidence(
     assert len(result) == 3
     assert sent == ["prompt<[Enter]>", "prompt<[Enter]>"]
     assert commands == [["resize-window", "-t", "%1", "-x", "72", "-y", "24"]]
-    assert gates == ["ready"]
+    assert gates == [("ready", True)]
     rows = [
         json.loads(line)
         for line in (attempt_root / "expanded-operations.ndjson").read_text().splitlines()
@@ -191,6 +194,81 @@ def test_codex_active_requires_native_interrupt_marker() -> None:
         provider="codex",
         visible_text="• Working (1s • esc to interrupt)\n› queued steering",
     )
+    assert capture._looks_active(
+        provider="codex",
+        visible_text="• Messages to be submitted at end of turn\n  ↳ queued steering",
+    )
+
+
+def test_kimi_active_accepts_source_backed_spinner_and_queue_markers() -> None:
+    """Kimi moon spinners and all deferred queue modes block a ready gate."""
+
+    assert capture._looks_active(provider="kimi", visible_text="🌒 Working...")
+    assert capture._looks_active(
+        provider="kimi",
+        visible_text="↑ to edit · will send after current task",
+    )
+    assert capture._looks_active(
+        provider="kimi",
+        visible_text="↑ to edit · will send after compaction",
+    )
+
+
+def test_kimi_capture_gate_ignores_historical_queue_text() -> None:
+    """A settled response below an old queue hint can return to ready."""
+
+    historical = (
+        "↑ to edit · ctrl-s to steer immediately\n"
+        + "\n".join(f"● settled response line {index}" for index in range(30))
+        + "\n╭────────────────────────────╮\n"
+        "│ >                          │\n"
+        "╰────────────────────────────╯\n"
+        "auto kimi-for-coding-highspeed thinking\n"
+    )
+
+    assert not capture._looks_active(provider="kimi", visible_text=historical)
+
+
+def test_ready_gate_requires_current_provider_chrome_after_shell_restart() -> None:
+    """A retained old prompt above a new shell launch cannot satisfy readiness."""
+
+    stale = "OpenAI Codex\n› \n\nbash-5.2$ /tmp/codex-launch.sh"
+    fresh = f"{stale}\nOpenAI Codex (v0.144.0)\n› "
+
+    assert not capture._provider_surface_is_fresh(provider="codex", visible_text=stale)
+    assert capture._provider_surface_is_fresh(provider="codex", visible_text=fresh)
+
+
+def test_post_submit_ready_gate_requires_observed_progress(monkeypatch) -> None:
+    """A ready-looking baseline cannot complete a submitted operation by itself."""
+
+    snapshots = iter(("ready", "changed ready", "changed ready"))
+    monotonic_values = iter((0.0, 0.1, 0.2, 0.3))
+    seen: list[str] = []
+
+    def _capture(**_kwargs) -> str:
+        """Return the next synthetic pane snapshot."""
+
+        value = next(snapshots)
+        seen.append(value)
+        return value
+
+    monkeypatch.setattr(capture, "capture_visible_pane_text", _capture)
+    monkeypatch.setattr(capture, "detect_ready_marker", lambda **_kwargs: "ready")
+    monkeypatch.setattr(capture.time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(capture.time, "sleep", lambda _seconds: None)
+
+    result = capture._wait_for_gate(
+        gate="ready",
+        provider="codex",
+        pane_id="%1",
+        baseline_text="ready",
+        timeout_seconds=1.0,
+        require_post_submit_progress=True,
+    )
+
+    assert result == "changed ready"
+    assert seen == ["ready", "changed ready", "changed ready"]
 
 
 def test_codex_submit_waits_for_tui_paste_suppression(monkeypatch) -> None:

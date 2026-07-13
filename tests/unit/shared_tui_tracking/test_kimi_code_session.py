@@ -30,6 +30,8 @@ _KIMI_DRAFT = (
 )
 _KIMI_ACTIVE = _fixture("active_response.txt")
 _KIMI_APPROVAL = _fixture("command_approval.txt")
+_KIMI_STALE_RESTART = f"{_KIMI_READY_WITH_FOOTER_THINKING}\nbash-5.2$ /tmp/kimi-launch.sh\n"
+_KIMI_FRESH_RESTART = f"{_KIMI_STALE_RESTART}│ > \nkimi-for-coding kimi-k2.5 thinking\n"
 
 
 def _kimi_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
@@ -166,3 +168,84 @@ def test_kimi_023_detector_tracks_live_edge_moon_spinner() -> None:
     assert signals.active_evidence is True
     assert "moon_spinner" in signals.active_reasons
     assert signals.ready_posture == "no"
+
+
+def test_kimi_023_detector_tracks_streaming_queue_when_spinner_is_displaced() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    active = (
+        "🌑 · Tip: ctrl+s: steer mid-turn\n"
+        "────────────────────────────────────────\n"
+        "  ❯ queued follow-up\n"
+        "  ↑ to edit · ctrl-s to steer immediately\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
+    )
+
+    signals = detector.detect(output_text=active)
+    analysis = analyze_kimi_surface(active, activity_window_lines=4)
+
+    assert analysis.queue_visible is True
+    assert analysis.queue_hint == "↑ to edit · ctrl-s to steer immediately"
+    assert signals.active_evidence is True
+    assert signals.active_reasons == ("queued_message",)
+    assert signals.ready_posture == "no"
+    assert signals.success_blocked is True
+
+
+def test_kimi_023_detector_tracks_each_deferred_queue_mode() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+
+    for hint in (
+        "↑ to edit · will send after current task",
+        "↑ to edit · will send after compaction",
+    ):
+        surface = (
+            "● Current task output\n"
+            "────────────────────────────────────────\n"
+            "  ❯ queued follow-up\n"
+            f"  {hint}\n"
+            "╭────────────────────────────────────────╮\n"
+            "│ >                                      │\n"
+            "╰────────────────────────────────────────╯\n"
+            "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
+        )
+
+        signals = detector.detect(output_text=surface)
+
+        assert signals.active_evidence is True
+        assert "queued_message" in signals.active_reasons
+        assert signals.ready_posture == "no"
+
+
+def test_kimi_023_detector_ignores_historical_queue_after_settled_response() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    historical = (
+        "  ↑ to edit · ctrl-s to steer immediately\n"
+        + "\n".join(f"● settled response line {index}" for index in range(30))
+        + "\n╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking  context: 2.0%\n"
+    )
+
+    signals = detector.detect(output_text=historical)
+
+    assert signals.active_evidence is False
+    assert signals.ready_posture == "yes"
+
+
+def test_kimi_restart_does_not_reuse_prompt_above_latest_shell_launch() -> None:
+    """Kimi readiness belongs to provider chrome below the replacement launch."""
+
+    detector = KimiCodeSignalDetectorV0_23_X()
+
+    stale = detector.detect(output_text=_KIMI_STALE_RESTART)
+    fresh = detector.detect(output_text=_KIMI_FRESH_RESTART)
+
+    assert stale.ready_posture == "unknown"
+    assert stale.accepting_input == "unknown"
+    assert "provider_surface_not_fresh" in stale.notes
+    assert fresh.ready_posture == "yes"
+    assert fresh.accepting_input == "yes"

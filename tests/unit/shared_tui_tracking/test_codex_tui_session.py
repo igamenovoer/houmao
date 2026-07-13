@@ -119,6 +119,44 @@ _CODEX_OVERLAY_SURFACE = (
     "  2. No, continue without permissions (n)\n\n"
     "  Press enter to confirm or esc to cancel\n"
 )
+_CODEX_MODEL_SELECTOR_SURFACE = (
+    "  Select Model and Effort\n"
+    "  Access legacy models by running codex -m <model_name> or in your config.toml\n\n"
+    "› 1. gpt-5.6-sol (current)  Latest frontier agentic coding model.\n"
+    "  2. gpt-5.6-terra          Balanced agentic coding model.\n\n"
+    "  Press enter to confirm or esc to go back\n"
+)
+_CODEX_PENDING_STEER_SURFACE = (
+    "› Produce 25 numbered comparison bullets.\n\n"
+    "• Working (3s • esc to interrupt)\n\n"
+    "• Messages to be submitted after next tool call (press esc to interrupt and send immediately)\n"
+    "  ↳ Put atomic_save first.\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mImprove documentation in @filename\x1b[0m\n"
+)
+_CODEX_PENDING_STEER_WITH_HIDDEN_STATUS_SURFACE = (
+    "› Produce 25 numbered comparison bullets.\n\n"
+    "• 1. fileutils.atomic_save uses a same-directory part file.\n\n"
+    "• Messages to be submitted after next tool call (press esc to interrupt and send immediately)\n"
+    "  ↳ Run the focused tests after the current task.\n\n"
+    "\x1b[1m›\x1b[0m \x1b[2mImprove documentation in @filename\x1b[0m\n"
+)
+
+_CODEX_STALE_RESTART_SURFACE = (
+    "OpenAI Codex (v0.144.0)\n"
+    "› \n\n"
+    "  gpt-5.6 high · 100% left · /tmp/demo/workdir\n"
+    "bash-5.2$ /tmp/codex-launch.sh\n"
+)
+
+_CODEX_FRESH_RESTART_SURFACE = (
+    f"{_CODEX_STALE_RESTART_SURFACE}"
+    "OpenAI Codex (v0.144.0)\n"
+    "› \n\n"
+    "  gpt-5.6 high · 100% left · /tmp/demo/workdir\n"
+)
+_CODEX_RETRY_PROSE_SURFACE = (
+    "› /\n\n  /approve       approve one retry of a recent auto-review denial\n\n› Draft text\n"
+)
 _CODEX_TRANSCRIPT_GROWTH_START = "• Draft answer\n\n› \n"
 _CODEX_TRANSCRIPT_GROWTH_CONTINUES = (
     "• Draft answer\n"
@@ -759,6 +797,47 @@ def test_codex_detector_live_edge_retry_status_is_active() -> None:
     assert signals.latest_status_line == "Reconnecting to model stream (2/5)"
 
 
+def test_codex_detector_retry_prose_does_not_mark_active() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+
+    signals = detector.detect(output_text=_CODEX_RETRY_PROSE_SURFACE)
+
+    assert signals.active_evidence is False
+    assert "stream_retry_status" not in signals.active_reasons
+
+
+def test_codex_0144_pending_steer_preserves_working_activity() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+
+    signals = detector.detect(output_text=_CODEX_PENDING_STEER_SURFACE)
+
+    assert signals.active_evidence is True
+    assert "status_row" in signals.active_reasons
+    assert "pending_input" in signals.active_reasons
+    assert signals.ready_posture == "no"
+
+
+def test_codex_0144_pending_steer_is_active_when_status_is_hidden() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+
+    signals = detector.detect(output_text=_CODEX_PENDING_STEER_WITH_HIDDEN_STATUS_SURFACE)
+
+    assert signals.active_evidence is True
+    assert signals.active_reasons == ("pending_input",)
+    assert signals.ready_posture == "no"
+
+
+def test_codex_0144_model_selector_is_blocking_overlay() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+
+    signals = detector.detect(output_text=_CODEX_MODEL_SELECTOR_SURFACE)
+
+    assert signals.ambiguous_interactive_surface is True
+    assert signals.accepting_input == "no"
+    assert signals.ready_posture == "unknown"
+    assert signals.active_evidence is False
+
+
 def test_codex_detector_ambient_warning_does_not_mutate_turn_state() -> None:
     detector = CodexTuiSignalDetector()
 
@@ -830,3 +909,18 @@ def test_codex_tui_overlay_degrades_to_unknown() -> None:
     assert state.surface_ready_posture == "unknown"
     assert state.turn_phase == "unknown"
     assert state.chat_context == "current"
+
+
+def test_codex_restart_does_not_reuse_prompt_above_latest_shell_launch() -> None:
+    """Codex readiness belongs to the replacement process generation."""
+
+    detector = CodexTuiSignalDetectorV0_144_X()
+
+    stale = detector.detect(output_text=_CODEX_STALE_RESTART_SURFACE)
+    fresh = detector.detect(output_text=_CODEX_FRESH_RESTART_SURFACE)
+
+    assert stale.ready_posture == "unknown"
+    assert stale.accepting_input == "unknown"
+    assert "provider_surface_not_fresh" in stale.notes
+    assert fresh.ready_posture == "yes"
+    assert fresh.accepting_input == "yes"
