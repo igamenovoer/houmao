@@ -205,6 +205,8 @@ The first real authoring wave is intentionally narrow and uses concrete prompts 
 - Claude `claude_slash_menu_recovery`: wait for ready, type `/` without submit, hold the overlay, then dismiss with `Escape`
 - Claude `claude_tui_down_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, then kill the tracked tmux session
 - Codex `codex_explicit_success`: send `Reply with the single word READY and stop.`
+- Codex `codex_unattended_tool_success`: run `pwd` through the shell tool in YOLO mode, then return `TOOL_DONE`
+- Codex `codex_delegated_agent_success`: delegate one README inspection through `spawn_agent`, wait for the delegated agent, then return `DELEGATION_DONE`
 - Codex `codex_interrupted_after_active`: send `Search this repository for files related to tmux and prepare a grouped summary. Think carefully before answering.`, wait for the active surface, run the scenario-owned `interrupt_turn` intent, then wait for the interrupted-ready posture
 - Codex `codex_double_interrupt_then_close`: send one long-running prompt, wait for the active surface, run the scenario-owned `interrupt_turn` intent, send a second long-running prompt, interrupt again, then run the scenario-owned `close_tool` intent
 - Codex `codex_success_interrupt_success_complex`: mirror the Claude complex lifecycle with one initial short success, two long interrupted turns with visible ready-draft and active-draft holds, then one final short recovered success

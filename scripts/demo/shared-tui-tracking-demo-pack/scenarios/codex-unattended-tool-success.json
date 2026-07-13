@@ -1,0 +1,35 @@
+{
+  "id": "codex_unattended_tool_success",
+  "tool": "codex",
+  "description": "Exercise one safe Codex tool turn in YOLO mode without confirmation.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-tool-prompt",
+      "text": "Use the shell tool to run pwd in this worktree, then reply with the single token TOOL_DONE.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-tool-cell",
+      "pattern": "(?m)^\\s*• (?:Running|Ran) ",
+      "timeout_seconds": 60
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-tool-result",
+      "pattern": "(?m)^\\s*(?:[●•]\\s*)?TOOL_DONE\\s*$",
+      "timeout_seconds": 60
+    },
+    {
+      "action": "wait_seconds",
+      "name": "settle-tool-success",
+      "seconds": 2
+    }
+  ]
+}

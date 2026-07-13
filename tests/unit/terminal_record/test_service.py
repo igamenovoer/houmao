@@ -594,6 +594,36 @@ def test_analyze_terminal_record_emits_parser_and_state_observations(tmp_path: P
     assert state_payload["sample_id"] == "s000001"
 
 
+def test_analyze_terminal_record_accepts_experimental_detector_override(tmp_path: Path) -> None:
+    run_root = tmp_path / "run-codex-experimental"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="codex")
+    paths.pane_snapshots_path.write_text(
+        json.dumps(
+            {
+                "sample_id": "s000001",
+                "elapsed_seconds": 0.0,
+                "ts_utc": "2026-07-13T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": "• Waiting for Robie [explorer]\n\n› \n",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    analyze_terminal_record(
+        run_root=run_root,
+        tool=None,
+        observed_version="0.144.1",
+        detector_version_override="0.144.x",
+    )
+
+    state_payload = _read_ndjson(paths.state_observed_path)[0]
+    assert state_payload["detector_version"] == "0.144.x"
+    assert state_payload["turn_phase"] == "active"
+
+
 def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
     run_root = tmp_path / "run-kimi-analyze"
     paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")

@@ -536,6 +536,7 @@ def analyze_terminal_record(
     run_root: Path,
     tool: str | None,
     observed_version: str | None = None,
+    detector_version_override: str | None = None,
     snapshots_path: Path | None = None,
     output_tag: str | None = None,
 ) -> dict[str, Any]:
@@ -620,6 +621,7 @@ def analyze_terminal_record(
         observed_version=observed_version,
         settle_seconds=1.0,
         input_events=input_events,
+        detector_version_override=detector_version_override,
     )
     state_payloads: list[dict[str, Any]] = []
     for item in replay_timeline_rows:
@@ -1002,6 +1004,7 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--run-root", type=Path, required=True)
     analyze.add_argument("--tool", choices=SUPPORTED_RECORD_TOOLS, default=None)
     analyze.add_argument("--observed-version", default=None)
+    analyze.add_argument("--detector-version-override", default=None)
     analyze.add_argument("--snapshots-path", type=Path, default=None)
     analyze.add_argument("--output-tag", default=None)
 
@@ -1091,6 +1094,7 @@ def main(argv: list[str] | None = None) -> int:
                         run_root=args.run_root,
                         tool=args.tool,
                         observed_version=args.observed_version,
+                        detector_version_override=args.detector_version_override,
                         snapshots_path=args.snapshots_path,
                         output_tag=args.output_tag,
                     ),

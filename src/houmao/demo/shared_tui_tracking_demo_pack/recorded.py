@@ -715,6 +715,7 @@ def _execute_scenario(
             _wait_for_interrupted_ready(
                 pane_id=pane_id,
                 detector=detector,
+                tool=scenario.tool,
                 timeout_seconds=step.timeout_seconds or launch.ready_timeout_seconds,
             )
         elif step.action == "wait_for_interrupted_signal":
@@ -885,7 +886,9 @@ def _wait_for_ready(*, pane_id: str, detector: Any, timeout_seconds: float) -> N
     raise TimeoutError(f"Timed out waiting for ready posture in {pane_id}")
 
 
-def _wait_for_interrupted_ready(*, pane_id: str, detector: Any, timeout_seconds: float) -> None:
+def _wait_for_interrupted_ready(
+    *, pane_id: str, detector: Any, tool: str, timeout_seconds: float
+) -> None:
     """Wait until the detector reports a stable interrupted-ready posture."""
 
     deadline = time.monotonic() + timeout_seconds
@@ -893,8 +896,10 @@ def _wait_for_interrupted_ready(*, pane_id: str, detector: Any, timeout_seconds:
     while time.monotonic() < deadline:
         output = capture_visible_pane_text(pane_id=pane_id)
         signals = detector.detect(output_text=output)
-        interrupted_ready = (
-            signals.interrupted and signals.ready_posture == "yes" and not signals.active_evidence
+        interrupted_ready = bool(
+            signals.ready_posture == "yes"
+            and not signals.active_evidence
+            and (signals.interrupted or (tool == "codex" and signals.editing_input == "yes"))
         )
         if interrupted_ready:
             consecutive_matches += 1

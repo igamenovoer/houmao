@@ -32,16 +32,29 @@ No unavoidable Kimi intervention has been observed.
 - Todo/background source evidence: current Kimi renders todos in `TodoPanelComponent` while foreground activity remains owned by the shared moon/braille activity spinner; background task lifecycle is rendered as transcript/footer status and does not by itself imply a foreground turn.
 - Retry source evidence: `session-event-handler.ts` deliberately handles `turn.step.retrying` with no TUI rendering (`case 'turn.step.retrying': break`). The retry event is therefore covered by headless canonical-event fixtures rather than a fabricated TUI label.
 
-### Codex 0.144.1 TUI Probe
+### Codex 0.144.1 Recorded TUI Validation
 
 - Date: 2026-07-11
 - Installed CLI: `codex-cli 0.144.1`
 - Source checkout: `extern/orphan/codex` at `5c19155cbd93bfa099016e7487259f61669823ff`
 - Source posture: GPT-5.6 catalog and current multi-agent collaboration cells inspected from the checkout
 - Effective TUI posture: isolated `CODEX_HOME`, `approval_policy=never`, `sandbox_mode=danger-full-access`, YOLO-mode ready surface, Apps and plugins disabled for the controlled capture, empty intervention allowlist
-- High-rate capture request: `0.05s`; visible evidence covered startup, empty and typed editor, active `Working`, and `Reconnecting... 5/5` retry state
-- External limitation: the provider request ended with `Request timed out` after 1 minute 49 seconds on both bounded attempts. The test plan excludes unreliable network/LLM API failures, so this evidence is retained as a probe failure and is not treated as completion, interruption, or collaboration validation.
-- Consequence: Codex completion/interruption/delegation corpus gates and long-horizon qualification remain open. No unavoidable operator intervention was observed.
+- Initial timeout diagnosis: the outer test shell used `127.0.0.1:7990`, but the demo adapter did not project proxy variables into the controlled Codex process. A direct proxied API request succeeded, while process inspection confirmed that the launched Codex environment lacked those variables.
+- Fix: the development demo adapter now allowlists uppercase and lowercase HTTP, HTTPS, ALL, and NO proxy variables. The rerun projected `127.0.0.1:7990` into the isolated Codex environment and completed normally.
+- Requested source interval: `0.05s`; effective recorder throughput varied around 10 to 20 fps because tmux capture cost and host load are part of the measured path.
+- High-rate corpus: explicit success (77 samples), Escape interruption with restored editable draft (52 samples), unattended `pwd` tool activity (137 samples), and GPT-5.6 delegated-agent activity (277 samples).
+- Manual labeling order: each raw pane and managed-input timeline was labeled before tracker analysis. The labels cover empty startup, dim placeholder, literal draft, queued startup, `Working`, tool output, delegated-agent start/wait/finished-wait cells, silent interruption recovery, ready return, and settled success.
+- Strict replay: all 543 labeled high-rate samples passed with the 0.144.x profile.
+- Sparse replay: regular 10 Hz and 5 Hz streams passed strict sample-aligned validation. Regular, jittered, and gapped 2 Hz streams preserved meaningful semantic sequences. Success cases retained `unknown/ready → active → ready → success`; interruption retained `unknown/ready → active → ready/interrupted`, with the restored draft allowed to clear the terminal result on later samples.
+- Maintained detector behavior: a later assistant response supersedes stale animated `Working` rows retained in tmux history; current queue, tool, and collaboration cells remain active; a bounded recent active-to-restored-draft transition represents Codex 0.144.1's banner-free Escape behavior.
+- Registry result: Codex `>=0.144.0,<0.145.0` now selects the maintained `0.144.x` profile by default. Version gaps and `>=0.145.0` remain on the Codex fallback.
+- No unavoidable operator intervention or confirmation surface was observed.
+
+### Stale-Contract Audit
+
+- Repository-wide searches covered implementation code, tests, docs, context, demo and starter assets, active OpenSpec artifacts, and packaged system skills.
+- No user-facing document or packaged asset teaches obsolete Kimi thinking variables, the old resume conflict, a conversational `/auto on` bootstrap, a four-level GPT-5.6 ladder, or an experimental/unregistered Codex 0.144.x profile.
+- Remaining `/auto on` references in current docs are explicit negative statements. The active change design and proposal retain old-version statements as problem history. Superseded requirements in the main OpenSpec tree remain pending the normal change sync/archive step and are replaced by this change's delta specs.
 
 ### Repository Validation
 

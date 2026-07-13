@@ -61,7 +61,7 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 
 - **`CodexTuiSignalDetector`** — Base Codex TUI signal detector.
 - **`CodexTuiSignalDetectorV0_116_X`** — Codex TUI signal detector targeting Codex CLI ≥ 0.116.x. Recognizes Codex's input prompt, status bar, streaming output indicators, and completion patterns.
-- **`CodexTuiSignalDetectorV0_144_X`** — Experimental Codex 0.144.x profile for current prompt styling, GPT-5.6 activity, and collaboration wait cells. A current `Waiting for …` collaboration cell is active until a later `Finished waiting` cell supersedes it. It remains unregistered until the live completion, interruption, delegation, and sparse-replay gates pass.
+- **`CodexTuiSignalDetectorV0_144_X`** — Maintained Codex 0.144.x profile for current prompt styling, GPT-5.6 activity, tool cells, and collaboration wait cells. A current `Waiting for …` collaboration cell is active until a later `Finished waiting` or assistant response supersedes it. Codex 0.144.1 can restore an interrupted request directly into the editor without an interruption banner, so this profile also recognizes the bounded active-to-restored-draft transition from recent temporal evidence.
 - **`CodexTrackedTurnSignalDetector`** — Tracked turn signal detector for Codex sessions. Builds on the TUI signal detector with additional turn-level tracking logic.
 
 ### Kimi Code Detectors

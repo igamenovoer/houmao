@@ -17,6 +17,17 @@ _BOOTSTRAP_STATUS_PREFIXES = (
 )
 _AGENT_TURN_STATUS_RE = re.compile(r"^\s*• (.+?) \((.+esc to interrupt.*)\)\s*$")
 _TOOL_CELL_RE = re.compile(r"^\s*• (Calling |Running |Waited for background terminal · ).+")
+_QUEUED_FOLLOW_UP_PREFIX = "• Queued follow-up inputs"
+_NON_RESPONSE_BULLET_PREFIXES = (
+    _QUEUED_FOLLOW_UP_PREFIX,
+    "• You have ",
+    "• Working ",
+    "• Calling ",
+    "• Running ",
+    "• Waited for background terminal · ",
+    "• Waiting for ",
+    "• Finished waiting",
+)
 _COLLAB_CELL_RE = re.compile(
     r"^\s*• (?P<kind>Waiting for .+|Finished waiting|Resumed .+|Failed to resume .+)\s*$"
 )
@@ -50,6 +61,7 @@ def detect_activity(
     prompt_visible: bool,
     steer_interruption_text: str,
     include_collaboration_cells: bool = False,
+    include_queued_follow_up: bool = False,
 ) -> CodexActivitySignals:
     """Return current Codex activity evidence from one surface."""
 
@@ -58,6 +70,8 @@ def detect_activity(
     active_status_line: str | None = None
     for line in reversed(live_edge_lines):
         stripped = line.strip()
+        if _is_assistant_response_line(stripped):
+            break
         match = _AGENT_TURN_STATUS_RE.match(stripped)
         if match is None:
             continue
@@ -74,6 +88,9 @@ def detect_activity(
 
     if include_collaboration_cells and _latest_collaboration_cell_is_in_flight(live_edge_lines):
         active_reasons.append("collaboration_cell")
+
+    if include_queued_follow_up and _queued_follow_up_is_current(live_edge_lines):
+        active_reasons.append("queued_follow_up")
 
     retry_status_line = _latest_retry_status_line(live_edge_lines)
     if retry_status_line is not None:
@@ -104,6 +121,22 @@ def latest_turn_region_signature(latest_turn_lines: tuple[str, ...]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def assistant_response_visible(latest_turn_lines: tuple[str, ...]) -> bool:
+    """Return whether the current turn contains a visible assistant response cell."""
+
+    for line in latest_turn_lines:
+        stripped = line.strip()
+        if _is_assistant_response_line(stripped):
+            return True
+    return False
+
+
+def _is_assistant_response_line(stripped: str) -> bool:
+    """Return whether one normalized line begins an assistant response cell."""
+
+    return stripped.startswith("• ") and not stripped.startswith(_NON_RESPONSE_BULLET_PREFIXES)
+
+
 def _latest_retry_status_line(live_edge_lines: tuple[str, ...]) -> str | None:
     """Return the latest live-edge retry/reconnect status line, if present."""
 
@@ -126,3 +159,22 @@ def _latest_collaboration_cell_is_in_flight(live_edge_lines: tuple[str, ...]) ->
         kind = match.group("kind")
         return kind.startswith(("Waiting for", "Resumed "))
     return False
+
+
+def _queued_follow_up_is_current(live_edge_lines: tuple[str, ...]) -> bool:
+    """Return whether a queued-input cell has no later assistant response."""
+
+    queue_index: int | None = None
+    for index, line in enumerate(live_edge_lines):
+        if line.strip().startswith(_QUEUED_FOLLOW_UP_PREFIX):
+            queue_index = index
+    if queue_index is None:
+        return False
+    for line in live_edge_lines[queue_index + 1 :]:
+        stripped = line.strip()
+        if not stripped.startswith("• "):
+            continue
+        if stripped.startswith(_NON_RESPONSE_BULLET_PREFIXES):
+            continue
+        return False
+    return True

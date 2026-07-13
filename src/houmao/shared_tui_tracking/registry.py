@@ -10,6 +10,7 @@ from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector,
     ClaudeCodeSignalDetectorV2_1_X,
     CodexTuiSignalDetectorV0_116_X,
+    CodexTuiSignalDetectorV0_144_X,
     FallbackClaudeDetector,
     FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
@@ -102,6 +103,14 @@ class DetectorProfileRegistry:
                     minimum_supported_version=(0, 116, 0),
                     maximum_supported_version=(0, 117, 0),
                     profile_factory=CodexTuiSignalDetectorV0_116_X,
+                ),
+                DetectorProfileRegistration(
+                    app_id="codex_tui",
+                    detector_name="codex_tui",
+                    detector_version="0.144.x",
+                    minimum_supported_version=(0, 144, 0),
+                    maximum_supported_version=(0, 145, 0),
+                    profile_factory=CodexTuiSignalDetectorV0_144_X,
                 ),
                 DetectorProfileRegistration(
                     app_id="codex_tui",

@@ -38,6 +38,7 @@ class StreamStateReducer:
         observed_version: str | None,
         settle_seconds: float,
         scheduler: abc.SchedulerBase,
+        detector_version_override: str | None = None,
         trace_writer: TraceWriter | None = None,
     ) -> None:
         """Initialize one compatibility reducer."""
@@ -53,6 +54,7 @@ class StreamStateReducer:
                 stability_threshold_seconds=0.0,
             ),
             scheduler=scheduler,
+            detector_version_override=detector_version_override,
             trace_writer=trace_writer,
         )
         self.m_latest_observation: RecordedObservation | None = None
@@ -224,6 +226,7 @@ def replay_timeline(
     observed_version: str | None,
     settle_seconds: float,
     input_events: list[RecordedInputEvent] | None = None,
+    detector_version_override: str | None = None,
 ) -> tuple[list[TrackedTimelineState], list[ReplayEvent]]:
     """Replay one recorded observation list through the compatibility reducer."""
 
@@ -249,6 +252,7 @@ def replay_timeline(
         observed_version=observed_version,
         settle_seconds=settle_seconds,
         scheduler=scheduler,
+        detector_version_override=detector_version_override,
     )
     timeline: list[TrackedTimelineState] = []
 

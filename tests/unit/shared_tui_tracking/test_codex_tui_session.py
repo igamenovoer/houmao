@@ -126,6 +126,18 @@ _CODEX_TRANSCRIPT_GROWTH_CONTINUES = (
     "  and a second line so the latest-turn region clearly keeps expanding\n\n"
     "› \n"
 )
+_CODEX_0144_ACTIVE_BEFORE_SILENT_INTERRUPT = (
+    "› Search this repository and summarize the result.\n\n"
+    "• Working (1s • esc to interrupt)\n\n"
+    "› \n\n  gpt-5.6-sol medium · /tmp/demo/workdir\n"
+)
+_CODEX_0144_READY_AFTER_SILENT_INTERRUPT = (
+    "› Search this repository and summarize the result.\n\n"
+    "› \n\n  gpt-5.6-sol medium · /tmp/demo/workdir\n"
+)
+_CODEX_0144_SHORT_SUCCESS_AFTER_ACTIVE = (
+    "› Reply with READY.\n\n• READY\n\n› \n\n  gpt-5.6-sol medium · /tmp/demo/workdir\n"
+)
 
 
 def _codex_fixture(name: str) -> str:
@@ -527,6 +539,60 @@ def test_codex_0144_detector_tracks_current_collaboration_wait_until_finished() 
     assert finished_signals.active_evidence is False
     assert finished_signals.ready_posture == "yes"
     assert "prompt_behavior_variant=0.144.x" in finished_signals.notes
+
+
+def test_codex_0144_temporal_profile_infers_silent_escape_interruption() -> None:
+    scheduler = TestScheduler()
+    session = TuiTrackerSession.from_config(
+        app_id="codex_tui",
+        observed_version="0.144.1",
+        detector_version_override="0.144.x",
+        config=TrackerConfig(settle_seconds=1.0, stability_threshold_seconds=0.0),
+        scheduler=scheduler,
+    )
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_0144_ACTIVE_BEFORE_SILENT_INTERRUPT)
+    scheduler.advance_to(1.1)
+    session.on_snapshot(_CODEX_0144_READY_AFTER_SILENT_INTERRUPT)
+
+    state = session.current_state()
+    assert state.turn_phase == "ready"
+    assert state.last_turn_result == "interrupted"
+    assert "temporal_silent_interruption" in state.notes
+
+
+def test_codex_0144_short_assistant_response_is_not_a_silent_interruption() -> None:
+    scheduler = TestScheduler()
+    session = TuiTrackerSession.from_config(
+        app_id="codex_tui",
+        observed_version="0.144.1",
+        detector_version_override="0.144.x",
+        config=TrackerConfig(settle_seconds=1.0, stability_threshold_seconds=0.0),
+        scheduler=scheduler,
+    )
+
+    scheduler.advance_to(1.0)
+    session.on_snapshot(_CODEX_0144_ACTIVE_BEFORE_SILENT_INTERRUPT)
+    scheduler.advance_to(1.1)
+    session.on_snapshot(_CODEX_0144_SHORT_SUCCESS_AFTER_ACTIVE)
+
+    assert session.current_state().last_turn_result == "none"
+
+
+def test_codex_0144_response_supersedes_stale_working_row() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+    surface = (
+        "› Reply with READY.\n\n"
+        "• Working (1s • esc to interrupt)\n\n"
+        "• READY\n\n"
+        "› Implement {feature}\n\n  gpt-5.6-sol medium · /tmp/demo/workdir\n"
+    )
+
+    signals = detector.detect(output_text=surface)
+
+    assert signals.active_evidence is False
+    assert signals.ready_posture == "yes"
 
 
 def test_codex_tui_steer_handoff_surface_stays_active() -> None:

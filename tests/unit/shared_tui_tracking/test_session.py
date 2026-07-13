@@ -101,7 +101,7 @@ def test_detector_profile_registry_resolves_codex_version_family_and_fallback() 
         app_id="codex_tui",
         observed_version="0.120.0",
     )
-    unvalidated_current_family = registry.resolve(
+    refreshed_current_family = registry.resolve(
         app_id="codex_tui",
         observed_version="0.144.1",
     )
@@ -114,14 +114,21 @@ def test_detector_profile_registry_resolves_codex_version_family_and_fallback() 
         observed_version="0.144.1",
         detector_version_override="0.116.x",
     )
+    explicitly_selected_current_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.144.1",
+        detector_version_override="0.144.x",
+    )
 
     assert current_family.detector_version == "0.116.x"
     assert fallback_family.detector_version == "fallback"
     assert missing_version_family.detector_version == "fallback"
     assert gap_family.detector_version == "fallback"
-    assert unvalidated_current_family.detector_version == "fallback"
+    assert refreshed_current_family.detector_version == "0.144.x"
     assert future_family.detector_version == "fallback"
     assert overridden_family.detector_version == "0.116.x"
+    assert explicitly_selected_current_family.detector_version == "0.144.x"
+    assert explicitly_selected_current_family.maximum_supported_version == (0, 145, 0)
 
 
 def test_detector_profile_registry_resolves_refreshed_kimi_family() -> None:

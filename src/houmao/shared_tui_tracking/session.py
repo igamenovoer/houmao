@@ -68,6 +68,7 @@ class TuiTrackerSession:
         config: TrackerConfig,
         scheduler: abc.SchedulerBase | None = None,
         registry: DetectorProfileRegistry | None = None,
+        detector_version_override: str | None = None,
         trace_writer: TraceWriter | None = None,
     ) -> None:
         """Initialize one tracker session."""
@@ -85,6 +86,7 @@ class TuiTrackerSession:
         self.m_resolved_profile: ResolvedDetectorProfile = self.m_registry.resolve(
             app_id=app_id,
             observed_version=observed_version,
+            detector_version_override=detector_version_override,
         )
         self.m_all_events: list[TrackedStateTransition] = []
         self.m_pending_events: list[TrackedStateTransition] = []
@@ -139,6 +141,7 @@ class TuiTrackerSession:
         config: TrackerConfig,
         scheduler: abc.SchedulerBase | None = None,
         registry: DetectorProfileRegistry | None = None,
+        detector_version_override: str | None = None,
         trace_writer: TraceWriter | None = None,
     ) -> "TuiTrackerSession":
         """Construct one tracker session from explicit configuration."""
@@ -149,6 +152,7 @@ class TuiTrackerSession:
             config=config,
             scheduler=scheduler,
             registry=registry,
+            detector_version_override=detector_version_override,
             trace_writer=trace_writer,
         )
 

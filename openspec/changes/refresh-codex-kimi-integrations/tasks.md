@@ -32,11 +32,11 @@
 ## 5. Capture and Implement the Codex 0.144.x Profile
 
 - [x] 5.1 Resolve and record the Codex 0.144.x unattended posture, source commit, bundled GPT-5.6 capabilities, effective launch command, isolated home, and empty intervention allowlist.
-- [ ] 5.2 Capture unattended Codex 0.144.x native TUI sessions at about 20 fps covering ready, draft, normal active/tool activity, interruption, ready return, and GPT-5.6 delegated-agent activity.
-- [ ] 5.3 Manually label the Codex high-rate timelines without consulting tracker output and record structural, style, temporal, and bounded semantic evidence for each state range.
-- [ ] 5.4 Derive 10, 5, and 2 Hz plus deterministic jittered/gapped Codex streams with source-sample traceability and define their semantic transition constraints.
-- [ ] 5.5 Implement the Codex 0.144.x detector profile from source and labeled evidence, including current collaboration activity and sparse-capture settlement behavior.
-- [ ] 5.6 Pass strict high-rate and semantic sparse replay validation before registering Codex 0.144.x as maintained.
+- [x] 5.2 Capture unattended Codex 0.144.x native TUI sessions at about 20 fps covering ready, draft, normal active/tool activity, interruption, ready return, and GPT-5.6 delegated-agent activity.
+- [x] 5.3 Manually label the Codex high-rate timelines without consulting tracker output and record structural, style, temporal, and bounded semantic evidence for each state range.
+- [x] 5.4 Derive 10, 5, and 2 Hz plus deterministic jittered/gapped Codex streams with source-sample traceability and define their semantic transition constraints.
+- [x] 5.5 Implement the Codex 0.144.x detector profile from source and labeled evidence, including current collaboration activity and sparse-capture settlement behavior.
+- [x] 5.6 Pass strict high-rate and semantic sparse replay validation before registering Codex 0.144.x as maintained.
 
 ## 6. Capture and Implement the Kimi 0.23.x Profile
 
@@ -60,7 +60,7 @@
 - [x] 8.1 Update launch-policy, backend, session-lifecycle, role-injection, TUI detector, terminal-record, and troubleshooting references for Codex 0.144.x and Kimi 0.23.x.
 - [x] 8.2 Update overview, quickstart, easy-specialist, agent-definition, and system-skills guidance with current GPT-5.6 ladders, Kimi effort discovery, and native unattended behavior.
 - [x] 8.3 Update relevant packaged system skills and their reference pages so they no longer teach Kimi 0.11 behavior, resume conflicts, `/auto on`, obsolete environment variables, or a four-level GPT-5.6 ladder.
-- [ ] 8.4 Run repository-wide stale-contract searches across code, tests, docs, context, OpenSpec specs, and `src/assets`, retaining historical version statements only when clearly labeled as historical evidence.
+- [x] 8.4 Run repository-wide stale-contract searches across code, tests, docs, context, OpenSpec specs, and `src/assets`, retaining historical version statements only when clearly labeled as historical evidence.
 
 ## 9. Verify the Complete Change
 

@@ -51,6 +51,14 @@ runtime_observer_interval_seconds = 0.2
 [profiles.canonical_fixture.semantics]
 settle_seconds = 1.0
 
+[profiles.high_rate_authoring.evidence]
+sample_interval_seconds = 0.05
+runtime_observer_interval_seconds = 0.05
+ready_timeout_seconds = 90.0
+
+[profiles.high_rate_authoring.presentation.review_video]
+match_capture_cadence = true
+
 [sweeps.capture_frequency]
 description = "Replay one recorded fixture at progressively sparser effective capture cadences down to the documented 2 Hz robustness floor."
 baseline_variant = "source"
@@ -110,8 +118,19 @@ max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_interrupted_after_active]
 required_labels = ["active", "ready_interrupted"]
-required_terminal_result = "interrupted"
 forbidden_terminal_results = ["success", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.codex_unattended_tool_success]
+required_sequence = ["active", "ready_success"]
+required_terminal_result = "success"
+forbidden_terminal_results = ["interrupted", "known_failure"]
+max_first_occurrence_drift_seconds = 2.0
+
+[sweeps.capture_frequency.contracts.codex_delegated_agent_success]
+required_sequence = ["active", "ready_success"]
+required_terminal_result = "success"
+forbidden_terminal_results = ["interrupted", "known_failure"]
 max_first_occurrence_drift_seconds = 2.0
 
 [sweeps.capture_frequency.contracts.codex_double_interrupt_then_close]

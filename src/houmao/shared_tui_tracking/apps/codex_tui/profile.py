@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from houmao.shared_tui_tracking.apps.codex_tui.signals.activity import (
+    assistant_response_visible,
     detect_activity,
     latest_turn_region_signature,
 )
@@ -64,6 +65,8 @@ class _CodexTuiFrame:
     prompt_visible: bool
     blocking_overlay: bool
     active_status_row_visible: bool
+    active_evidence: bool
+    assistant_response_visible: bool
     current_error_present: bool
     interrupted: bool
     ready_posture: str
@@ -81,6 +84,9 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         detector_version: str,
         prompt_behavior_variant: CodexPromptBehaviorVariant,
         include_collaboration_cells: bool = False,
+        include_queued_follow_up: bool = False,
+        temporal_growth_requires_prior_activity: bool = False,
+        infer_silent_interruption: bool = False,
         profile_notes: tuple[str, ...] = (),
     ) -> None:
         """Initialize one Codex detector profile."""
@@ -88,6 +94,11 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         self.m_detector_version: str = detector_version
         self.m_prompt_behavior_variant: CodexPromptBehaviorVariant = prompt_behavior_variant
         self.m_include_collaboration_cells: bool = include_collaboration_cells
+        self.m_include_queued_follow_up: bool = include_queued_follow_up
+        self.m_temporal_growth_requires_prior_activity: bool = (
+            temporal_growth_requires_prior_activity
+        )
+        self.m_infer_silent_interruption: bool = infer_silent_interruption
         self.m_profile_notes: tuple[str, ...] = profile_notes
 
     @property
@@ -126,6 +137,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
             include_collaboration_cells=self.m_include_collaboration_cells,
+            include_queued_follow_up=self.m_include_queued_follow_up,
         )
         interrupted = is_interrupted_surface(
             latest_turn_lines=latest_turn_region_lines,
@@ -266,6 +278,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
             include_collaboration_cells=self.m_include_collaboration_cells,
+            include_queued_follow_up=self.m_include_queued_follow_up,
         )
         terminal_signal = prompt_adjacent_terminal_signal(latest_turn_region_lines)
         blocking_overlay = has_blocking_overlay(surface)
@@ -283,6 +296,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
             active_status_row_visible=activity.active_status_row_visible,
+            active_evidence=activity.active_evidence,
+            assistant_response_visible=assistant_response_visible(latest_turn_region_lines),
             current_error_present=terminal_signal is not None,
             interrupted=interrupted,
             ready_posture=ready_posture,
@@ -321,6 +336,36 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         if newest.blocking_overlay or newest.current_error_present or newest.interrupted:
             return TemporalHintSignals()
         if newest.active_status_row_visible:
+            return TemporalHintSignals()
+        if self.m_infer_silent_interruption and newest.assistant_response_visible:
+            return TemporalHintSignals()
+        if self.m_infer_silent_interruption and newest.ready_posture == "yes":
+            latest_active_frame = next(
+                (
+                    item.payload
+                    for item in reversed(contiguous_frames[:-1])
+                    if isinstance(item.payload, _CodexTuiFrame) and item.payload.active_evidence
+                ),
+                None,
+            )
+            if (
+                latest_active_frame is not None
+                and not newest.assistant_response_visible
+                and newest.latest_turn_region_signature
+                != latest_active_frame.latest_turn_region_signature
+            ):
+                return TemporalHintSignals(
+                    interrupted=True,
+                    active_evidence=False,
+                    ready_posture="yes",
+                    success_candidate=False,
+                    success_blocked=True,
+                    notes=("temporal_silent_interruption",),
+                )
+        if self.m_temporal_growth_requires_prior_activity and not any(
+            isinstance(item.payload, _CodexTuiFrame) and item.payload.active_evidence
+            for item in contiguous_frames[:-1]
+        ):
             return TemporalHintSignals()
         growth_chars = newest.latest_turn_region_length - oldest.latest_turn_region_length
         growth_lines = newest.latest_turn_region_line_count - oldest.latest_turn_region_line_count
@@ -376,6 +421,9 @@ class CodexTuiSignalDetectorV0_144_X(_BaseCodexTuiSignalDetector):
             detector_version="0.144.x",
             prompt_behavior_variant=CodexPromptBehaviorVariantV0_144_X(),
             include_collaboration_cells=True,
+            include_queued_follow_up=True,
+            temporal_growth_requires_prior_activity=True,
+            infer_silent_interruption=True,
             profile_notes=("source_profile=codex-0.144.x",),
         )
 

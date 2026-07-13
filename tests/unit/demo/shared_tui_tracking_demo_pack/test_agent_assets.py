@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from houmao.demo.shared_tui_tracking_demo_pack.agent_assets import (
     default_recipe_path,
@@ -84,3 +85,21 @@ def test_materialize_generated_agent_tree_requires_host_local_auth_bundle(
             workdir=tmp_path / "workdir",
             tool=tool,  # type: ignore[arg-type]
         )
+
+
+def test_codex_demo_adapter_projects_proxy_environment() -> None:
+    adapter_path = _DEMO_INPUTS_SOURCE / "tools/codex/adapter.yaml"
+    payload = yaml.safe_load(adapter_path.read_text(encoding="utf-8"))
+
+    allowlist = set(payload["auth_projection"]["env"]["allowlist"])
+
+    assert {
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    }.issubset(allowlist)
