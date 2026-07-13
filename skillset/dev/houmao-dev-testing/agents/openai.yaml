@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Dev Testing"
+  short_description: "Record and replay agent TUI state tests"
+  default_prompt: "Use $houmao-dev-testing use help to see available subcommands, or choose record, label, replay, compare, render-video, or run-all for a Houmao TUI tracking test."
+policy:
+  allow_implicit_invocation: false
