@@ -84,10 +84,21 @@ class _KimiFrame:
 class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
     """Tracked-TUI detector for one Kimi Code version family."""
 
-    def __init__(self, *, detector_version: str, profile_notes: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        detector_version: str,
+        activity_window_lines: int = 18,
+        temporal_window_seconds: float = TEMPORAL_WINDOW_SECONDS,
+        enable_temporal_growth: bool = True,
+        profile_notes: tuple[str, ...] = (),
+    ) -> None:
         """Initialize one Kimi detector profile."""
 
         self.m_detector_version: str = detector_version
+        self.m_activity_window_lines: int = activity_window_lines
+        self.m_temporal_window_seconds: float = temporal_window_seconds
+        self.m_enable_temporal_growth: bool = enable_temporal_growth
         self.m_profile_notes: tuple[str, ...] = profile_notes
 
     @property
@@ -106,7 +117,7 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
     def temporal_window_seconds(self) -> float:
         """Return the recent-window duration used by this profile."""
 
-        return TEMPORAL_WINDOW_SECONDS
+        return self.m_temporal_window_seconds
 
     def detect(
         self,
@@ -117,7 +128,10 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         """Return normalized tracked signals for one Kimi Code TUI surface."""
 
         del parsed_surface
-        analysis = analyze_kimi_surface(output_text)
+        analysis = analyze_kimi_surface(
+            output_text,
+            activity_window_lines=self.m_activity_window_lines,
+        )
         prompt = analysis.prompt
         approval_visible = analysis.approval_visible
         interrupted = analysis.interrupted
@@ -196,7 +210,10 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
 
         del signals
         del observed_at_seconds
-        analysis = analyze_kimi_surface(output_text)
+        analysis = analyze_kimi_surface(
+            output_text,
+            activity_window_lines=self.m_activity_window_lines,
+        )
         return _KimiFrame(
             prompt_visible=analysis.prompt.prompt_visible,
             prompt_text=analysis.prompt.prompt_text,
@@ -214,6 +231,9 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         recent_frames: Sequence[RecentProfileFrame],
     ) -> TemporalHintSignals:
         """Return conservative Kimi lifecycle hints from recent frames."""
+
+        if not self.m_enable_temporal_growth:
+            return TemporalHintSignals()
 
         kimi_frames = [item for item in recent_frames if isinstance(item.payload, _KimiFrame)]
         if len(kimi_frames) < 2:
@@ -245,6 +265,11 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
             return TemporalHintSignals()
         if newest.latest_turn_signature == oldest.latest_turn_signature:
             return TemporalHintSignals()
+        if not any(
+            isinstance(item.payload, _KimiFrame) and item.payload.activity_visible
+            for item in contiguous[:-1]
+        ):
+            return TemporalHintSignals()
 
         growth_chars = newest.latest_turn_length - oldest.latest_turn_length
         growth_lines = newest.latest_turn_line_count - oldest.latest_turn_line_count
@@ -271,6 +296,21 @@ class KimiCodeSignalDetectorV0_11_X(_BaseKimiCodeSignalDetector):
         super().__init__(detector_version="0.11.x")
 
 
+class KimiCodeSignalDetectorV0_23_X(_BaseKimiCodeSignalDetector):
+    """Tracked-TUI detector for recorded Kimi Code `0.23.x` surfaces."""
+
+    def __init__(self) -> None:
+        """Initialize the `0.23.x` Kimi detector family."""
+
+        super().__init__(
+            detector_version="0.23.x",
+            activity_window_lines=4,
+            temporal_window_seconds=0.0,
+            enable_temporal_growth=False,
+            profile_notes=("source_profile=kimi-code-0.23.x",),
+        )
+
+
 class FallbackKimiCodeSignalDetector(_BaseKimiCodeSignalDetector):
     """Conservative Kimi detector for unmatched Kimi versions."""
 
@@ -280,7 +320,11 @@ class FallbackKimiCodeSignalDetector(_BaseKimiCodeSignalDetector):
         super().__init__(detector_version="fallback", profile_notes=("fallback_detector",))
 
 
-def analyze_kimi_surface(output_text: str | None) -> KimiSurfaceAnalysis:
+def analyze_kimi_surface(
+    output_text: str | None,
+    *,
+    activity_window_lines: int = 18,
+) -> KimiSurfaceAnalysis:
     """Return reusable source-backed Kimi surface facts from raw pane text."""
 
     surface = SurfaceView.from_text(output_text or "")
@@ -291,6 +335,7 @@ def analyze_kimi_surface(output_text: str | None) -> KimiSurfaceAnalysis:
     activity_reasons, latest_activity_line = _activity_facts(
         lines=latest_turn_lines,
         prompt_visible=prompt.prompt_visible,
+        window_lines=activity_window_lines,
     )
     interrupted = _interrupted_visible(latest_turn_lines)
     footer_model_thinking = _footer_model_thinking(surface)
@@ -423,10 +468,15 @@ def _approval_panel_facts(surface: SurfaceView) -> tuple[str | None, int]:
     return header_text, choice_count
 
 
-def _activity_facts(*, lines: Sequence[str], prompt_visible: bool) -> tuple[list[str], str | None]:
+def _activity_facts(
+    *,
+    lines: Sequence[str],
+    prompt_visible: bool,
+    window_lines: int,
+) -> tuple[list[str], str | None]:
     """Return live-edge activity reasons from the current-turn region."""
 
-    window = [line.strip() for line in lines[-18:] if line.strip()]
+    window = [line.strip() for line in lines[-window_lines:] if line.strip()]
     reasons: list[str] = []
     latest_line: str | None = None
     for line in window:

@@ -90,7 +90,7 @@ Role injection is intentionally backend-specific rather than using a single univ
 
 3. **Legacy backends are not public launch targets.** `cao_rest` and `houmao_server_rest` may still appear in old manifests or internal compatibility code, but new user-facing launches fail fast before relying on their profile mechanism.
 
-Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but Kimi users may need to invoke that skill manually before substantive chat begins when automatic skill startup has not confirmed the prompt.
+Kimi Code 0.23.x managed role delivery uses bootstrap or auto-skill workflows. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes; users may need to invoke it when automatic skill startup has not confirmed the role prompt.
 
 ## See also
 

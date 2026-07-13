@@ -1,6 +1,6 @@
 # Terminal Recorder
 
-The terminal recorder captures an already-running tmux-backed agent session for later parser and lifecycle testing. It lives under [`tools/terminal_record`](/data1/huangzhe/code/houmao/tools/terminal_record) and is implemented by [`houmao.terminal_record`](/data1/huangzhe/code/houmao/src/houmao/terminal_record).
+The terminal recorder captures an already-running tmux-backed agent session for later parser and lifecycle testing. The maintained developer wrapper lives under `tools/terminal_record` and delegates to `houmao.terminal_record`.
 
 For maintainer-oriented design notes and change guidance, see the [Terminal Recorder Developer Guide](../../developer/terminal-record/index.md).
 
@@ -9,6 +9,21 @@ Use the repo-managed Python environment when invoking it:
 ```bash
 pixi run python -m tools.terminal_record start --mode active --target-session HOUMAO-gpu --tool codex
 ```
+
+Recorder analysis accepts `--observed-version <version>` so replay selects the same bounded detector profile as the live session. Omitting it selects the conservative fallback profile.
+
+Use a high-rate source capture for canonical labeling, then derive deterministic lower-cadence streams without losing source traceability:
+
+```bash
+pixi run python -m houmao.terminal_record derive-stream \
+  --run-root <recording> \
+  --target-sample-interval-seconds 0.5 \
+  --sampling-mode jittered \
+  --seed 17 \
+  --output-path <recording>/pane_snapshots_2hz-jittered.ndjson
+```
+
+`--sampling-mode` supports `regular`, `jittered`, `bursty`, and `gapped`. Every derived row records `source_sample_id` and `source_elapsed_seconds`. Canonical high-rate validation is sample-exact; irregular and sparse streams should use semantic transition constraints because they may omit a short-lived visible state.
 
 ## Modes
 

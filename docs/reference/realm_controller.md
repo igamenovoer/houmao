@@ -144,7 +144,7 @@ The role content comes from the role package (`roles/<role>/system-prompt.md`) i
 
 Unattended startup is a versioned launch policy resolved at launch time against the installed CLI version of the target tool. If the installed version does not match a known launch policy, the session fails closed rather than guessing a bootstrap strategy. This prevents silent behavioral drift when CLI tools update their interfaces.
 
-For Kimi Code, the versioned policy has separate headless and TUI contracts. Headless prompt mode owns `kimi -p` placement, while local-interactive TUI unattended uses Kimi auto permission mode through managed config and `/auto on` refresh rather than raw `--auto` or `--yolo` launch options.
+For Kimi Code 0.23.x, the versioned policy has separate headless and TUI contracts. Headless prompt mode owns `kimi -p` placement. Local-interactive TUI unattended writes the migration marker and config fallback, then launches fresh or resumed sessions with one strategy-owned native `--auto` argument.
 
 ## CLI Surface
 

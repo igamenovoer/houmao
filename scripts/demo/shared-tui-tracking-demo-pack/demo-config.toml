@@ -16,7 +16,7 @@ recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/
 
 [tools.kimi]
 recipe_path = "scripts/demo/shared-tui-tracking-demo-pack/inputs/agents/presets/interactive-watch-kimi-default.yaml"
-operator_prompt_mode = "as_is"
+operator_prompt_mode = "unattended"
 
 [evidence]
 sample_interval_seconds = 0.2

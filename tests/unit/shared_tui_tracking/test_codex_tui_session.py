@@ -7,6 +7,7 @@ from reactivex.testing import TestScheduler
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
 from houmao.shared_tui_tracking.apps.codex_tui.profile import (
     CodexTuiSignalDetector,
+    CodexTuiSignalDetectorV0_144_X,
     FallbackCodexTuiSignalDetector,
 )
 
@@ -502,6 +503,30 @@ def test_fallback_codex_detector_keeps_nonempty_prompt_unknown() -> None:
     assert signals.prompt_text is None
     assert "fallback_detector" in signals.notes
     assert "prompt_behavior_variant=fallback" in signals.notes
+
+
+def test_codex_0144_detector_tracks_current_collaboration_wait_until_finished() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+    waiting = (
+        "• Spawned Robie [explorer] (gpt-5.6-sol medium)\n\n"
+        "• Waiting for Robie [explorer]\n\n"
+        "› \n\n  gpt-5.6-sol medium · 90% left\n"
+    )
+    finished = (
+        "• Waiting for Robie [explorer]\n\n"
+        "• Finished waiting\n  └ Robie [explorer]: Completed - Done\n\n"
+        "› \n\n  gpt-5.6-sol medium · 89% left\n"
+    )
+
+    waiting_signals = detector.detect(output_text=waiting)
+    finished_signals = detector.detect(output_text=finished)
+
+    assert waiting_signals.active_evidence is True
+    assert "collaboration_cell" in waiting_signals.active_reasons
+    assert waiting_signals.ready_posture == "no"
+    assert finished_signals.active_evidence is False
+    assert finished_signals.ready_posture == "yes"
+    assert "prompt_behavior_variant=0.144.x" in finished_signals.notes
 
 
 def test_codex_tui_steer_handoff_surface_stays_active() -> None:

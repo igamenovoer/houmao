@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
 import shlex
 import subprocess
@@ -70,6 +71,7 @@ SUPPORTED_RECORD_TOOLS = ("claude", "codex", "kimi")
 DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS = 0.5
 PANE_CAPTURE_COMMAND = "tmux capture-pane -p -e -S -"
 OUTPUT_TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+DERIVED_SAMPLING_MODES = ("regular", "jittered", "bursty", "gapped")
 
 
 class TerminalRecordError(RuntimeError):
@@ -533,6 +535,7 @@ def analyze_terminal_record(
     *,
     run_root: Path,
     tool: str | None,
+    observed_version: str | None = None,
     snapshots_path: Path | None = None,
     output_tag: str | None = None,
 ) -> dict[str, Any]:
@@ -614,7 +617,7 @@ def analyze_terminal_record(
     replay_timeline_rows, _ = replay_timeline(
         observations=observations,
         tool=selected_tool,
-        observed_version=None,
+        observed_version=observed_version,
         settle_seconds=1.0,
         input_events=input_events,
     )
@@ -671,11 +674,17 @@ def derive_terminal_record_stream(
     source_path: Path | None = None,
     output_path: Path | None = None,
     target_sample_interval_seconds: float = DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS,
+    sampling_mode: str = "regular",
+    seed: int = 0,
 ) -> dict[str, Any]:
     """Derive one low-rate snapshot stream from a high-rate source stream."""
 
     if target_sample_interval_seconds <= 0:
         raise TerminalRecordError("target_sample_interval_seconds must be positive")
+    if sampling_mode not in DERIVED_SAMPLING_MODES:
+        raise TerminalRecordError(
+            f"sampling_mode must be one of {', '.join(DERIVED_SAMPLING_MODES)}"
+        )
     paths = TerminalRecordPaths.from_run_root(run_root=run_root)
     selected_source = (
         source_path.resolve() if source_path is not None else paths.pane_snapshots_path
@@ -690,14 +699,19 @@ def derive_terminal_record_stream(
     first_elapsed = source_snapshots[0].elapsed_seconds
     last_elapsed = source_snapshots[-1].elapsed_seconds
     selected_snapshots: list[TerminalRecordPaneSnapshot] = []
-    boundary = first_elapsed
+    boundaries = _derived_sample_boundaries(
+        first_elapsed=first_elapsed,
+        last_elapsed=last_elapsed,
+        interval_seconds=target_sample_interval_seconds,
+        sampling_mode=sampling_mode,
+        seed=seed,
+    )
     last_source_id: str | None = None
-    while boundary <= last_elapsed + target_sample_interval_seconds / 2:
+    for boundary in boundaries:
         nearest = min(source_snapshots, key=lambda item: abs(item.elapsed_seconds - boundary))
         if nearest.sample_id != last_source_id:
             selected_snapshots.append(nearest)
             last_source_id = nearest.sample_id
-        boundary += target_sample_interval_seconds
 
     derived: list[TerminalRecordPaneSnapshot] = []
     for index, source in enumerate(selected_snapshots, start=1):
@@ -723,9 +737,40 @@ def derive_terminal_record_stream(
         "source_path": str(selected_source),
         "output_path": str(selected_output),
         "target_sample_interval_seconds": target_sample_interval_seconds,
+        "sampling_mode": sampling_mode,
+        "seed": seed,
         "source_sample_count": len(source_snapshots),
         "derived_sample_count": len(derived),
     }
+
+
+def _derived_sample_boundaries(
+    *,
+    first_elapsed: float,
+    last_elapsed: float,
+    interval_seconds: float,
+    sampling_mode: str,
+    seed: int,
+) -> tuple[float, ...]:
+    """Return deterministic source-time targets for one derived capture schedule."""
+
+    boundaries = [first_elapsed]
+    cursor = first_elapsed
+    step_index = 0
+    rng = random.Random(seed)
+    while cursor < last_elapsed:
+        if sampling_mode == "regular":
+            multiplier = 1.0
+        elif sampling_mode == "jittered":
+            multiplier = rng.uniform(0.65, 1.35)
+        elif sampling_mode == "bursty":
+            multiplier = (0.35, 0.35, 0.35, 2.95)[step_index % 4]
+        else:
+            multiplier = (1.0, 1.0, 3.0, 1.0)[step_index % 4]
+        cursor += interval_seconds * multiplier
+        boundaries.append(min(cursor, last_elapsed))
+        step_index += 1
+    return tuple(boundaries)
 
 
 def validate_terminal_record(
@@ -956,6 +1001,7 @@ def _build_parser() -> argparse.ArgumentParser:
     analyze = subparsers.add_parser("analyze", help="Analyze one recorder run")
     analyze.add_argument("--run-root", type=Path, required=True)
     analyze.add_argument("--tool", choices=SUPPORTED_RECORD_TOOLS, default=None)
+    analyze.add_argument("--observed-version", default=None)
     analyze.add_argument("--snapshots-path", type=Path, default=None)
     analyze.add_argument("--output-tag", default=None)
 
@@ -971,6 +1017,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS,
     )
+    derive_stream.add_argument("--sampling-mode", choices=DERIVED_SAMPLING_MODES, default="regular")
+    derive_stream.add_argument("--seed", type=int, default=0)
 
     validate = subparsers.add_parser("validate", help="Validate observations against labels")
     validate.add_argument("--run-root", type=Path, required=True)
@@ -1042,6 +1090,7 @@ def main(argv: list[str] | None = None) -> int:
                     analyze_terminal_record(
                         run_root=args.run_root,
                         tool=args.tool,
+                        observed_version=args.observed_version,
                         snapshots_path=args.snapshots_path,
                         output_tag=args.output_tag,
                     ),
@@ -1058,6 +1107,8 @@ def main(argv: list[str] | None = None) -> int:
                         source_path=args.source_path,
                         output_path=args.output_path,
                         target_sample_interval_seconds=float(args.target_sample_interval_seconds),
+                        sampling_mode=str(args.sampling_mode),
+                        seed=int(args.seed),
                     ),
                     indent=2,
                     sort_keys=True,

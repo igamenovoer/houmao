@@ -608,7 +608,13 @@ class CanonicalHeadlessEventParser:
                     raw_payload=dict(payload),
                 )
             ]
-        if item_type in {"command_execution", "mcp_tool_call", "web_search", "file_change"}:
+        if item_type in {
+            "command_execution",
+            "mcp_tool_call",
+            "collab_tool_call",
+            "web_search",
+            "file_change",
+        }:
             return self._consume_codex_action_item(
                 record_type=record_type,
                 item=item,
@@ -655,6 +661,19 @@ class CanonicalHeadlessEventParser:
         if record_type == "item.updated" and item_type != "todo_list":
             status = _optional_text(item.get("status"))
             if status == "in_progress":
+                if item_type == "collab_tool_call":
+                    progress_data = _codex_action_request_data(item)
+                    progress_data["status"] = status
+                    return [
+                        self._event(
+                            kind="progress",
+                            message=f"{_codex_action_request_message(item)} in progress",
+                            provider_event_type=f"{record_type}.{item_type}",
+                            session_id=session_id,
+                            data=progress_data,
+                            raw_payload=raw_payload,
+                        )
+                    ]
                 return []
         return [
             self._event(
@@ -688,6 +707,42 @@ class CanonicalHeadlessEventParser:
                         "session_id": resume_session_id,
                         "command": _optional_text(payload.get("command")),
                         "content": _optional_text(payload.get("content")),
+                    },
+                    raw_payload=dict(payload),
+                )
+            ]
+
+        if role == "meta" and payload_type == "turn.step.retrying":
+            failed_attempt = _coerce_optional_int(payload.get("failed_attempt"))
+            next_attempt = _coerce_optional_int(payload.get("next_attempt"))
+            max_attempts = _coerce_optional_int(payload.get("max_attempts"))
+            delay_ms = _coerce_optional_int(payload.get("delay_ms"))
+            error_message = _optional_text(payload.get("error_message"))
+            attempt_summary = (
+                f"attempt {next_attempt}/{max_attempts}"
+                if next_attempt is not None and max_attempts is not None
+                else "retrying"
+            )
+            delay_summary = f" after {delay_ms}ms" if delay_ms is not None else ""
+            message = f"{attempt_summary}{delay_summary}"
+            if error_message is not None:
+                message += f": {error_message}"
+            return [
+                self._event(
+                    kind="progress",
+                    message=message,
+                    provider_event_type=payload_type,
+                    session_id=session_id,
+                    data={
+                        "summary": message,
+                        "status": "retrying",
+                        "failed_attempt": failed_attempt,
+                        "next_attempt": next_attempt,
+                        "max_attempts": max_attempts,
+                        "delay_ms": delay_ms,
+                        "error_name": _optional_text(payload.get("error_name")),
+                        "error_message": error_message,
+                        "status_code": _coerce_optional_int(payload.get("status_code")),
                     },
                     raw_payload=dict(payload),
                 )
@@ -1564,6 +1619,29 @@ def _codex_action_request_data(item: Mapping[str, Any]) -> dict[str, Any]:
             "arguments_summary": _summarize_arguments(item.get("arguments")),
             "arguments": item.get("arguments"),
         }
+    if item_type == "collab_tool_call":
+        tool_name = _optional_text(item.get("tool")) or "collab_tool"
+        prompt = _optional_text(item.get("prompt"))
+        receiver_thread_ids = item.get("receiver_thread_ids")
+        receivers = (
+            [value for value in receiver_thread_ids if isinstance(value, str)]
+            if isinstance(receiver_thread_ids, list)
+            else []
+        )
+        arguments_summary = prompt or (
+            f"receivers={','.join(receivers)}" if receivers else tool_name
+        )
+        return {
+            "action_id": _optional_text(item.get("id")),
+            "action_kind": item_type,
+            "name": tool_name,
+            "arguments_summary": arguments_summary,
+            "tool": tool_name,
+            "sender_thread_id": _optional_text(item.get("sender_thread_id")),
+            "receiver_thread_ids": receivers,
+            "prompt": prompt,
+            "agents_states": item.get("agents_states"),
+        }
     if item_type == "web_search":
         query = _optional_text(item.get("query"))
         return {
@@ -1617,6 +1695,12 @@ def _codex_action_result_data(item: Mapping[str, Any]) -> dict[str, Any]:
         )
         result_data["error"] = item.get("error")
         return result_data
+    if item_type == "collab_tool_call":
+        result_data["result_summary"] = _summarize_collab_agent_states(
+            item.get("agents_states"),
+            fallback=status,
+        )
+        return result_data
     if item_type == "web_search":
         result_data["result_summary"] = _optional_text(item.get("query")) or status
         return result_data
@@ -1634,6 +1718,24 @@ def _codex_action_result_message(item: Mapping[str, Any]) -> str:
     if summary:
         return f"{name} {status}: {summary}"
     return f"{name} {status}"
+
+
+def _summarize_collab_agent_states(value: object, *, fallback: str) -> str:
+    """Return one concise summary of Codex collaboration agent states."""
+
+    if not isinstance(value, dict) or not value:
+        return fallback
+    summaries: list[str] = []
+    for thread_id, state in value.items():
+        if not isinstance(thread_id, str) or not isinstance(state, dict):
+            continue
+        status = _optional_text(state.get("status")) or "unknown"
+        message = _optional_text(state.get("message"))
+        summary = f"{thread_id}={status}"
+        if message is not None:
+            summary += f" ({_single_line_summary(message, fallback=status)})"
+        summaries.append(summary)
+    return ", ".join(summaries) if summaries else fallback
 
 
 def _summarize_arguments(value: object) -> str:

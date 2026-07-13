@@ -29,6 +29,7 @@ _CODEX_UNATTENDED_SANDBOX_MODE = "danger-full-access"
 _CODEX_UNATTENDED_SHOW_TOOLTIPS = False
 _CODEX_MODEL_MIGRATION_SOURCE = "gpt-5.3-codex"
 _CODEX_MODEL_MIGRATION_TARGET = "gpt-5.4"
+_KIMI_SKIP_LEGACY_MIGRATION_FILENAME = ".skip-migration-from-kimi-cli"
 _PROVIDER_STATE_LOCK_FILENAME = ".houmao-launch-policy.lock"
 
 
@@ -65,7 +66,7 @@ def run_provider_hook(
         _kimi_canonicalize_unattended_launch_inputs(args)
         return
     if hook_id == "kimi.canonicalize_unattended_tui_launch_inputs":
-        _kimi_canonicalize_unattended_tui_launch_inputs(args)
+        _kimi_canonicalize_unattended_tui_launch_inputs(request, args)
         return
     raise LaunchPolicyError(f"Unknown provider hook `{hook_id}`.")
 
@@ -410,7 +411,7 @@ def canonicalize_kimi_unattended_launch_args(args: list[str]) -> None:
 
 
 def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
-    """Strip caller overrides that target Kimi TUI unattended startup surfaces."""
+    """Canonicalize Kimi TUI args and append strategy-owned native auto mode."""
 
     flags_with_values = {
         "-S",
@@ -441,6 +442,7 @@ def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
         index += 1
 
     args[:] = canonicalized
+    args.append("--auto")
 
 
 def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
@@ -515,12 +517,15 @@ def _kimi_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
     canonicalize_kimi_unattended_launch_args(args)
 
 
-def _kimi_canonicalize_unattended_tui_launch_inputs(args: list[str] | None) -> None:
+def _kimi_canonicalize_unattended_tui_launch_inputs(
+    request: LaunchPolicyRequest,
+    args: list[str] | None,
+) -> None:
     """Canonicalize caller launch args for the Kimi unattended TUI strategy."""
 
-    if args is None:
-        return
-    canonicalize_kimi_tui_unattended_launch_args(args)
+    if args is not None:
+        canonicalize_kimi_tui_unattended_launch_args(args)
+    _atomic_write_text(request.home_path / _KIMI_SKIP_LEGACY_MIGRATION_FILENAME, "")
 
 
 def _codex_validate_credential_readiness(request: LaunchPolicyRequest) -> None:

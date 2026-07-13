@@ -83,7 +83,7 @@ For the shared conceptual model that ties launch profiles to this run-phase comp
 | `env` | `dict[str, str]` | Effective launch environment — contains secrets in-memory only, never persisted |
 | `env_var_names` | `list[str]` | Names of environment variables set in `env` (for auditing without exposing values) |
 | `role_injection` | `RoleInjectionPlan` | Backend-specific role injection plan (see [Role Injection](role-injection.md)) |
-| `metadata` | `dict[str, Any]` | Additional metadata carried through from the brain manifest. When the launch came from a reusable launch profile, this carries secret-free launch-profile provenance such as the profile name, the profile lane (`easy_profile` or `launch_profile`), the source kind (`specialist` or `recipe`), and prompt-overlay metadata. For Kimi local-interactive unattended launches, it also records the expected Kimi TUI auto-mode refresh before managed prompts. |
+| `metadata` | `dict[str, Any]` | Additional metadata carried through from the brain manifest. When the launch came from a reusable launch profile, this carries secret-free launch-profile provenance such as the profile name, the profile lane (`easy_profile` or `launch_profile`), the source kind (`specialist` or `recipe`), and prompt-overlay metadata. |
 | `mailbox` | `MailboxResolvedConfig \| None` | Resolved mailbox configuration, if any |
 | `launch_policy_provenance` | `LaunchPolicyProvenance \| None` | Provenance information for the applied launch policy |
 
@@ -91,9 +91,9 @@ For the shared conceptual model that ties launch profiles to this run-phase comp
 
 The `env` dictionary contains secret values (API keys, tokens) resolved at launch time. These values exist only in memory and are passed directly to the agent process environment. They are intentionally excluded from persisted manifests and logs.
 
-### Kimi TUI unattended metadata
+### Kimi TUI unattended launch ownership
 
-When a Kimi launch targets `local_interactive` and the resolved launch policy requested `operator_prompt_mode = unattended`, `build_launch_plan()` records `kimi_tui_auto_mode_refresh` metadata. The local-interactive backend consumes that metadata to submit `/auto on` after the TUI is ready and before Houmao submits role bootstrap or workload prompts. Kimi `as_is` local-interactive plans do not carry this refresh marker.
+When a Kimi Code 0.23.x launch targets `local_interactive` with `operator_prompt_mode = unattended`, launch-policy projection produces the final native `--auto` command before `build_launch_plan()` returns. The plan contains no post-readiness auto-refresh metadata, and the local-interactive backend sends no synthetic permission command. Kimi `as_is` plans preserve provider-native approval behavior.
 
 ## backend_for_tool
 

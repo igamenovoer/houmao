@@ -27,7 +27,7 @@ houmao-mgr system-skills install --tool claude,codex,kimi,copilot
 houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
 ```
 
-Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but if Kimi has not confirmed the Houmao system prompt is loaded, invoke `houmao-auto-system-prompt` manually before substantive Kimi chat begins.
+Maintained Kimi Code 0.23.x unattended TUI launches start in native `--auto` mode. Managed role context uses bootstrap or auto-skill workflows; invoke the projected `houmao-auto-system-prompt` skill before substantive chat if Kimi has not confirmed that role context is loaded.
 
 From a source checkout, run Python-based Houmao commands through Pixi. Installed-user examples such as `houmao-mgr project status` become `pixi run houmao-mgr project status`. Source checkout setup is:
 

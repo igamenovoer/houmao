@@ -166,9 +166,9 @@ For local interactive TUI sessions, the selector is translated into startup argu
 
 When a local interactive relaunch resumes an existing provider chat, the runtime does not replay bootstrap-message role injection into that resumed chat.
 
-Kimi Code TUI has one additional relaunch guard: resumed startup cannot combine `--continue` or `--session <session_id>` with `--yolo`, `--auto`, or `--plan`, while `--model <alias>` remains valid. Houmao rejects those Kimi resume conflicts before respawning the provider.
+For Kimi Code 0.23.x, resumed startup accepts native `--auto` with `--continue` or `--session <session_id>`. Houmao canonicalizes caller permission flags, preserves the selected resume selector, and appends exactly one strategy-owned `--auto`; `--model <alias>` remains valid.
 
-For Kimi Code local-interactive sessions built with `operator_prompt_mode = unattended`, relaunch preserves the valid Kimi resume selector and refreshes Kimi auto permission mode after TUI readiness by submitting `/auto on` before any managed workload prompt. `as_is` Kimi TUI relaunch leaves the provider's approval behavior unchanged.
+For Kimi Code local-interactive sessions built with `operator_prompt_mode = unattended`, both fresh and resumed launches reach initial readiness in native auto mode. The runtime does not send `/auto on`. `as_is` relaunch leaves the provider's approval behavior unchanged.
 
 ## Degraded and stale recovery
 

@@ -1,0 +1,34 @@
+{
+  "id": "kimi_unattended_tool_success",
+  "tool": "kimi",
+  "description": "Exercise one safe Kimi tool turn in native auto mode without confirmation.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-tool-prompt",
+      "text": "Use the shell tool to run pwd in this worktree, then reply with the single token TOOL_DONE.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_active",
+      "name": "wait-for-active-surface",
+      "timeout_seconds": 30
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-tool-result",
+      "pattern": "(?m)^\\s*(?:[●•]\\s*)?TOOL_DONE\\s*$",
+      "timeout_seconds": 60
+    },
+    {
+      "action": "wait_seconds",
+      "name": "settle-tool-success",
+      "seconds": 2
+    }
+  ]
+}

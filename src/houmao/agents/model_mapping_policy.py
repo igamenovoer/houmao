@@ -14,6 +14,7 @@ from houmao.agents.codex_cli_config import (
     codex_config_override_payload,
 )
 from houmao.agents.launch_policy.provider_hooks import (
+    load_toml_state,
     provider_state_mutation_lock,
     set_json_key,
     set_toml_key,
@@ -24,6 +25,18 @@ _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
 _KIMI_CONFIG_FILENAME = "config.toml"
 _KIMI_ENV_MODEL_NAME = "KIMI_MODEL_NAME"
+_KIMI_ENV_THINKING_EFFORT = "KIMI_MODEL_THINKING_EFFORT"
+_CODEX_GPT_5_6_LUNA_MODEL_PREFIXES = ("gpt-5.6-luna",)
+_CODEX_GPT_5_6_SOL_TERRA_MODEL_PREFIXES = ("gpt-5.6-sol", "gpt-5.6-terra")
+_CODEX_GPT_5_6_SOL_TERRA_POSITIVE_VALUES = (
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+)
+_CODEX_GPT_5_6_LUNA_POSITIVE_VALUES = ("low", "medium", "high", "xhigh", "max")
 _CODEX_CURRENT_CODING_MODEL_PREFIXES = (
     "gpt-5.4",
     "gpt-5.3-codex",
@@ -31,6 +44,16 @@ _CODEX_CURRENT_CODING_MODEL_PREFIXES = (
 )
 _CODEX_CURRENT_CODING_MODEL_POSITIVE_VALUES = ("low", "medium", "high", "xhigh")
 _CODEX_REASONING_LADDERS_BY_MODEL_PREFIX = (
+    (
+        _CODEX_GPT_5_6_LUNA_MODEL_PREFIXES,
+        None,
+        _CODEX_GPT_5_6_LUNA_POSITIVE_VALUES,
+    ),
+    (
+        _CODEX_GPT_5_6_SOL_TERRA_MODEL_PREFIXES,
+        None,
+        _CODEX_GPT_5_6_SOL_TERRA_POSITIVE_VALUES,
+    ),
     (
         _CODEX_CURRENT_CODING_MODEL_PREFIXES,
         None,
@@ -57,6 +80,8 @@ def resolve_reasoning_mapping(
     requested_level: int,
     model_name: str | None,
     tool_version: str | None = None,
+    home_path: Path | None = None,
+    env_model_values: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Resolve one tool/model-relative reasoning preset index into native tool state."""
 
@@ -67,6 +92,8 @@ def resolve_reasoning_mapping(
         tool=tool,
         model_name=model_name,
         tool_version=tool_version,
+        home_path=home_path,
+        env_model_values=env_model_values,
     )
     off_preset = ladder["off_preset"]
     positive_presets = ladder["positive_presets"]
@@ -111,6 +138,7 @@ def project_reasoning_level(
     requested_level: int,
     model_name: str | None,
     tool_version: str | None = None,
+    env_model_values: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Project one reasoning preset index into the runtime home."""
 
@@ -119,6 +147,8 @@ def project_reasoning_level(
         requested_level=requested_level,
         model_name=model_name,
         tool_version=tool_version,
+        home_path=home_path,
+        env_model_values=env_model_values,
     )
     if tool == "claude":
         native_setting = _require_single_native_setting(mapping)
@@ -147,6 +177,19 @@ def project_reasoning_level(
             key_path=("model_reasoning_effort",),
             value=str(native_setting["native_value"]),
         )
+        return mapping
+
+    if tool == "kimi":
+        for native_setting in _require_native_settings(mapping):
+            key_path = native_setting["projection_target"]["key_path"]
+            if not isinstance(key_path, list) or not all(isinstance(key, str) for key in key_path):
+                raise ValueError("Invalid Kimi reasoning projection key path.")
+            set_toml_key(
+                path=home_path / _KIMI_CONFIG_FILENAME,
+                key_path=tuple(key_path),
+                value=native_setting["native_value"],
+                repair_invalid=True,
+            )
         return mapping
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
@@ -220,6 +263,7 @@ def temporary_project_model_config(
     home_path: Path,
     tool: str,
     model_config: ModelConfig | None,
+    base_env: dict[str, str] | None = None,
 ) -> Iterator[TemporaryModelProjection]:
     """Apply one effective model config for a single headless turn and then restore state."""
 
@@ -254,6 +298,7 @@ def temporary_project_model_config(
                     tool=tool,
                     requested_level=model_config.reasoning.level,
                     model_name=model_config.name,
+                    env_model_values=base_env,
                 )
                 cli_args.extend(_cli_args_from_projection(reasoning_projection))
             yield TemporaryModelProjection(env=env_exports, args=cli_args)
@@ -322,6 +367,8 @@ def _resolve_reasoning_ladder(
     tool: str,
     model_name: str | None,
     tool_version: str | None,
+    home_path: Path | None,
+    env_model_values: dict[str, str] | None,
 ) -> dict[str, Any]:
     """Resolve one maintained reasoning ladder for the resolved tool/model."""
 
@@ -371,7 +418,11 @@ def _resolve_reasoning_ladder(
         return _resolve_codex_reasoning_ladder(model_name=model_name)
 
     if tool == "kimi":
-        raise ValueError("Kimi model-mapping does not support launch-owned reasoning levels.")
+        return _resolve_kimi_reasoning_ladder(
+            home_path=home_path,
+            model_name=model_name,
+            env_model_values=env_model_values,
+        )
 
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
@@ -381,6 +432,12 @@ def _resolve_codex_reasoning_ladder(
     model_name: str | None,
 ) -> dict[str, Any]:
     """Resolve one maintained Codex reasoning preset ladder."""
+
+    if model_name is not None and model_name.lower() == "gpt-5.6":
+        return _codex_reasoning_ladder(
+            off_value=None,
+            positive_values=_CODEX_GPT_5_6_SOL_TERRA_POSITIVE_VALUES,
+        )
 
     for prefixes, off_value, positive_values in _CODEX_REASONING_LADDERS_BY_MODEL_PREFIX:
         if _model_name_matches_prefix(model_name, prefixes):
@@ -394,6 +451,78 @@ def _resolve_codex_reasoning_ladder(
         off_value=off_value,
         positive_values=positive_values,
     )
+
+
+def _resolve_kimi_reasoning_ladder(
+    *,
+    home_path: Path | None,
+    model_name: str | None,
+    env_model_values: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Resolve a Kimi reasoning ladder from one constructed runtime config."""
+
+    if env_model_values is not None and _KIMI_ENV_MODEL_NAME in env_model_values:
+        native_effort = env_model_values.get(_KIMI_ENV_THINKING_EFFORT)
+        detail = (
+            f" Native `{_KIMI_ENV_THINKING_EFFORT}={native_effort}` remains baseline state."
+            if native_effort
+            else ""
+        )
+        raise ValueError(
+            "Kimi env-model configuration exposes no ordered effort catalog for launch-owned "
+            f"reasoning levels.{detail}"
+        )
+    if home_path is None:
+        raise ValueError("Kimi reasoning mapping requires a constructed runtime home.")
+
+    config = load_toml_state(home_path / _KIMI_CONFIG_FILENAME)
+    selected_model = model_name or _optional_nonempty_string(config.get("default_model"))
+    models = config.get("models")
+    if selected_model is None or not isinstance(models, dict):
+        raise ValueError("Kimi reasoning mapping requires a selected config-backed model alias.")
+    alias = models.get(selected_model)
+    if not isinstance(alias, dict):
+        raise ValueError(f"Kimi model alias `{selected_model}` is absent from runtime config.toml.")
+
+    effective_alias = dict(alias)
+    overrides = alias.get("overrides")
+    if isinstance(overrides, dict):
+        effective_alias.update(overrides)
+    effort_values = effective_alias.get("support_efforts")
+    positive_values = _nonempty_string_tuple(effort_values)
+    capabilities = {
+        value.lower() for value in _nonempty_string_tuple(effective_alias.get("capabilities"))
+    }
+    off_preset = None
+    if "always_thinking" not in capabilities:
+        off_preset = (
+            _native_setting(
+                "thinking_enabled",
+                False,
+                surface="toml",
+                path=_KIMI_CONFIG_FILENAME,
+            ),
+        )
+    return {
+        "off_preset": off_preset,
+        "positive_presets": tuple(
+            (
+                _native_setting(
+                    "thinking_enabled",
+                    True,
+                    surface="toml",
+                    path=_KIMI_CONFIG_FILENAME,
+                ),
+                _native_setting(
+                    "thinking_effort",
+                    value,
+                    surface="toml",
+                    path=_KIMI_CONFIG_FILENAME,
+                ),
+            )
+            for value in positive_values
+        ),
+    }
 
 
 def _codex_reasoning_ladder(
@@ -458,6 +587,10 @@ def _projection_key_path_for_scale(native_scale: str) -> list[object]:
         return ["effortLevel"]
     if native_scale == "model_reasoning_effort":
         return ["model_reasoning_effort"]
+    if native_scale == "thinking_enabled":
+        return ["thinking", "enabled"]
+    if native_scale == "thinking_effort":
+        return ["thinking", "effort"]
     if native_scale in {"thinkingLevel", "thinkingBudget"}:
         return [
             "modelConfigs",
@@ -481,6 +614,34 @@ def _require_single_native_setting(mapping: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(native_setting, dict):
         raise ValueError("Invalid native setting payload.")
     return native_setting
+
+
+def _require_native_settings(mapping: dict[str, Any]) -> list[dict[str, Any]]:
+    """Require a non-empty list of native reasoning settings."""
+
+    native_settings = mapping.get("native_settings")
+    if not isinstance(native_settings, list) or not native_settings:
+        raise ValueError("Expected at least one native setting for this tool mapping.")
+    if not all(isinstance(setting, dict) for setting in native_settings):
+        raise ValueError("Invalid native setting payload.")
+    return native_settings
+
+
+def _optional_nonempty_string(value: object) -> str | None:
+    """Return one stripped non-empty string when present."""
+
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _nonempty_string_tuple(value: object) -> tuple[str, ...]:
+    """Return stripped non-empty strings from one list-like config value."""
+
+    if not isinstance(value, list):
+        return ()
+    return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
 
 
 def _claude_model_supports_max(model_name: str | None) -> bool:
@@ -516,7 +677,9 @@ def _mutated_model_config_paths(
     if tool == "codex":
         return (home_path / _CODEX_CONFIG_FILENAME,)
     if tool == "kimi":
-        return ()
+        if model_config.reasoning is None:
+            return ()
+        return (home_path / _KIMI_CONFIG_FILENAME,)
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
 

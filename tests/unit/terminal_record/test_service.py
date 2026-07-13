@@ -630,6 +630,44 @@ def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
     assert parser_payload["ui_context"] == "normal_prompt"
     assert parser_payload["footer_model_thinking"] is True
     assert state_payload["detector_name"] == "kimi_code"
+
+
+def test_analyze_terminal_record_selects_versioned_kimi_profile(tmp_path: Path) -> None:
+    run_root = tmp_path / "recording"
+    paths = _write_run_artifacts(
+        run_root=run_root,
+        mode="passive",
+        status="stopped",
+        tool="kimi",
+    )
+    output_text = (
+        "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
+        "● Finished.\n\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking\n"
+    )
+    paths.pane_snapshots_path.write_text(
+        json.dumps(
+            {
+                "sample_id": "s000001",
+                "elapsed_seconds": 0.0,
+                "ts_utc": "2026-07-11T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": output_text,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.23.4")
+
+    state_payload = _read_ndjson(paths.state_observed_path)[0]
+    assert state_payload["detector_version"] == "0.23.x"
+    assert state_payload["turn_phase"] == "ready"
     assert state_payload["surface_accepting_input"] == "yes"
     assert state_payload["surface_ready_posture"] == "yes"
     assert state_payload["turn_phase"] == "ready"
@@ -665,6 +703,55 @@ def test_derive_terminal_record_stream_preserves_source_mapping(tmp_path: Path) 
         "s000010",
     ]
     assert all(item["stream_kind"] == "derived" for item in derived_rows)
+
+
+def test_derive_terminal_record_stream_supports_deterministic_irregular_schedules(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run-irregular-derive"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    rows = [
+        {
+            "sample_id": f"s{index + 1:06d}",
+            "elapsed_seconds": index / 20,
+            "ts_utc": "2026-07-11T00:00:00+00:00",
+            "target_pane_id": "%1",
+            "output_text": f"frame {index + 1}",
+        }
+        for index in range(101)
+    ]
+    paths.pane_snapshots_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    source_sequences: dict[str, list[str]] = {}
+    for mode in ("jittered", "bursty", "gapped"):
+        output_path = run_root / f"pane_snapshots_{mode}.ndjson"
+        result = derive_terminal_record_stream(
+            run_root=run_root,
+            output_path=output_path,
+            target_sample_interval_seconds=0.5,
+            sampling_mode=mode,
+            seed=17,
+        )
+        derived_rows = _read_ndjson(output_path)
+        source_sequences[mode] = [str(item["source_sample_id"]) for item in derived_rows]
+        assert result["sampling_mode"] == mode
+        assert all(item["source_elapsed_seconds"] is not None for item in derived_rows)
+
+    repeated_path = run_root / "pane_snapshots_jittered_repeat.ndjson"
+    derive_terminal_record_stream(
+        run_root=run_root,
+        output_path=repeated_path,
+        target_sample_interval_seconds=0.5,
+        sampling_mode="jittered",
+        seed=17,
+    )
+    assert source_sequences["jittered"] == [
+        str(item["source_sample_id"]) for item in _read_ndjson(repeated_path)
+    ]
+    assert source_sequences["bursty"] != source_sequences["gapped"]
 
 
 def test_validate_terminal_record_compares_labels_to_observed_state(tmp_path: Path) -> None:

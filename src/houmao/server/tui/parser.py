@@ -139,7 +139,7 @@ def _parse_kimi_surface(*, output_text: str) -> HoumaoParsedSurface:
     return HoumaoParsedSurface(
         parser_family="kimi_code_tui",
         parser_preset_id="kimi_code",
-        parser_preset_version="0.11.x",
+        parser_preset_version="0.23.x",
         availability="supported",
         business_state=business_state,
         input_mode=input_mode,

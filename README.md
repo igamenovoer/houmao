@@ -74,7 +74,7 @@ $houmao-touring start a guided tour
 
 The tour walks through beginner setup, intermediate live operation, and advanced coordination. For exact install flags and home-resolution behavior, see the [System Skills Overview](docs/getting-started/system-skills-overview.md) and [System Skills CLI reference](docs/reference/cli/system-skills.md).
 
-> **Kimi Code system-prompt note:** Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but if Kimi has not confirmed the Houmao system prompt is loaded, invoke `houmao-auto-system-prompt` manually before substantive chat begins.
+> **Kimi Code role-prompt note:** Maintained Kimi Code 0.23.x launches deliver Houmao role context through managed bootstrap or auto-skill workflows. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes; invoke it before substantive chat if the role prompt is not confirmed loaded.
 
 ## Agent-Driven Examples
 

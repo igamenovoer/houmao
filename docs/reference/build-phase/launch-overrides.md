@@ -99,4 +99,4 @@ Protocol-required arguments are owned by the backend and **cannot** be overridde
 
 Launch overrides apply only to non-protocol launch arguments and tool parameters. Attempting to override protocol-required arguments will result in a validation error during the build phase.
 
-Kimi TUI unattended permission posture is also launch-policy and runtime owned. Use `operator_prompt_mode` or project `launch.prompt_mode: unattended` for managed Kimi automation rather than raw Kimi `--auto` or `--yolo` launch overrides. Houmao sets Kimi `default_permission_mode = "auto"` and refreshes `/auto on` inside the ready TUI because raw `--auto` conflicts with Kimi resumed startup selectors such as `--continue` and `--session <session_id>`.
+Kimi TUI unattended permission posture is launch-policy owned. Use `operator_prompt_mode` or project `launch.prompt_mode: unattended` for managed Kimi automation rather than raw `--auto` or `--yolo` overrides. For Kimi Code 0.23.x, Houmao canonicalizes caller inputs, keeps `default_permission_mode = "auto"` as a managed-home fallback, and appends exactly one native `--auto` after the fresh/latest/exact session selector is resolved.

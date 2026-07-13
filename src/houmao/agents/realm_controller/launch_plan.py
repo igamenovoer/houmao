@@ -55,8 +55,6 @@ _LAUNCH_POLICY_OVERRIDE_ENV_VAR: Final[str] = "HOUMAO_LAUNCH_POLICY_OVERRIDE_STR
 _CLAUDE_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model", "--effort"})
 _KIMI_MODEL_SELECTION_FLAGS: Final[frozenset[str]] = frozenset({"--model"})
 _KIMI_TUI_NO_AUTO_UPDATE_ENV_VAR: Final[str] = "KIMI_CODE_NO_AUTO_UPDATE"
-_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY: Final[str] = "kimi_tui_auto_mode_refresh"
-_KIMI_TUI_AUTO_MODE_COMMAND: Final[str] = "/auto on"
 
 
 @dataclass(frozen=True)
@@ -227,19 +225,6 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     metadata["launch_policy_request"] = {
         "operator_prompt_mode": requested_operator_prompt_mode,
     }
-    if (
-        tool == "kimi"
-        and request.backend == "local_interactive"
-        and requested_operator_prompt_mode == "unattended"
-        and launch_policy_result.provenance is not None
-    ):
-        metadata[_KIMI_TUI_AUTO_MODE_REFRESH_METADATA_KEY] = {
-            "enabled": True,
-            "command": _KIMI_TUI_AUTO_MODE_COMMAND,
-            "phase": "after_tui_ready_before_managed_prompts",
-            "operator_prompt_mode": requested_operator_prompt_mode,
-            "strategy_id": launch_policy_result.provenance.selected_strategy_id,
-        }
     launch_overrides_metadata = metadata.get("launch_overrides")
     if isinstance(launch_overrides_metadata, dict):
         backend_resolution = launch_overrides_metadata.get("backend_resolution")

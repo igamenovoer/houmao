@@ -1,11 +1,11 @@
 schema_version: 1
 tool: kimi
 strategies:
-  - strategy_id: kimi-unattended-0.10.x
+  - strategy_id: kimi-unattended-0.23.x
     operator_prompt_mode: unattended
     backends:
       - kimi_headless
-    supported_versions: ">=0.10.0,<0.12.0"
+    supported_versions: ">=0.23.0,<0.24.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -32,7 +32,7 @@ strategies:
         note: Local Kimi source emits session.resume_hint meta events and resolves exact or latest prompt sessions by working directory.
       - kind: live_probe
         ref: /home/huangzhe/.kimi-code/bin/kimi --version
-        note: Installed Kimi Code 0.11.0 still exposes -p, --output-format stream-json, and --skills-dir prompt-mode options matching the local source contract.
+        note: Installed Kimi Code 0.23.4 exposes -p, --output-format stream-json, and --skills-dir prompt-mode options matching the current local source contract.
     owned_paths:
       - path: config.toml
         keys:
@@ -48,11 +48,11 @@ strategies:
       - kind: provider_hook.call
         params:
           hook_id: kimi.canonicalize_unattended_launch_inputs
-  - strategy_id: kimi-tui-unattended-0.10.x
+  - strategy_id: kimi-tui-unattended-0.23.x
     operator_prompt_mode: unattended
     backends:
       - raw_launch
-    supported_versions: ">=0.10.0,<0.12.0"
+    supported_versions: ">=0.23.0,<0.24.0"
     minimal_inputs:
       credential_forms:
         - projected config.toml with managed:kimi-code OAuth provider and credentials/kimi-code.json token storage
@@ -60,8 +60,8 @@ strategies:
       requires_user_prepared_state: false
       notes:
         - This strategy declares Kimi TUI startup compatibility; credential readiness stays owned by the managed auth-bundle projection.
-        - Kimi TUI unattended launch uses default_permission_mode = auto plus a runtime /auto on refresh, not a persistent --auto launch flag.
-        - Houmao owns low-level Kimi permission and provider-session startup flags for unattended local-interactive launch; relaunch policy appends --continue or --session only when needed.
+        - Kimi TUI unattended launch uses the native --auto flag for both fresh and resumed sessions; default_permission_mode = auto remains inspectable fallback state.
+        - Houmao owns low-level Kimi permission and provider-session startup flags for unattended local-interactive launch; relaunch policy appends --continue or --session only when needed and does not submit a policy-changing chat command.
     system_prompt_bootstrap:
       native_system_prompt: false
       provider_skills: true
@@ -76,20 +76,23 @@ strategies:
         note: Local Kimi source declares --auto, --yolo, --plan, --continue, and --session TUI startup flags.
       - kind: source_reference
         ref: extern/orphan/kimi-code/apps/kimi-code/src/cli/options.ts
-        note: Local Kimi source rejects --auto, --yolo, and --plan when TUI startup resumes with --continue or --session.
+        note: Current local Kimi source permits --auto with --continue or --session and rejects only incompatible option pairs such as --auto with --yolo.
       - kind: source_reference
         ref: extern/orphan/kimi-code/packages/node-sdk/test/create-session-transport.test.ts
         note: Local Kimi tests show config.toml default_permission_mode = "auto" applies auto permission mode to new sessions.
       - kind: source_reference
-        ref: extern/orphan/kimi-code/apps/kimi-code/src/tui/commands/config.ts
-        note: Local Kimi TUI /auto on command calls session.setPermission("auto") and updates permissionMode to auto.
-      - kind: source_reference
         ref: extern/orphan/kimi-code/packages/agent-core/src/agent/permission/policies/auto-mode-ask-user-question-deny.ts
         note: Local Kimi source denies AskUserQuestion while auto permission mode is active.
+      - kind: live_probe
+        ref: /home/huangzhe/.kimi-code/bin/kimi --version
+        note: Installed Kimi Code 0.23.4 accepts native --auto startup with current TUI session selectors.
     owned_paths:
       - path: config.toml
         keys:
           - default_permission_mode
+      - path: .skip-migration-from-kimi-cli
+        keys:
+          - presence
     actions:
       - kind: provider_hook.call
         params:

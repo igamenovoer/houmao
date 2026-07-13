@@ -177,7 +177,7 @@ Copilot repository skills can be discovered by Copilot surfaces that read `.gith
 
 Kimi explicit installs have a similar projection-versus-discovery boundary. `system-skills install --tool kimi` places files under the resolved Kimi home `skills/` directory and reports that path, but current Kimi Code only discovers project `.kimi-code/skills` automatically or paths named in `extra_skill_dirs`. Managed Kimi homes add the managed projected skill root to `config.toml` `extra_skill_dirs`; local-interactive Kimi launches use that config, while Kimi headless prompt mode may use `--skills-dir` as a launch-policy detail.
 
-Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not loaded the Houmao system prompt.
+Maintained Kimi Code 0.23.x uses bootstrap or managed auto-skill role delivery. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes; users may need to invoke it before substantive chat when automatic skill startup has not loaded the role prompt.
 
 For named-set or explicit-skill installs, repeat `--skill-set <name>` or `--skill <name>` selectors. Add `--symlink` to install selected skills as directory symlinks to the packaged asset roots instead of copied trees — useful for development homes where you want the installed skill to track changes in the source tree.
 

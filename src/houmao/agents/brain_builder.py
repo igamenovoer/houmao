@@ -863,6 +863,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             tool=request.tool,
             requested_level=resolved_model_config.config.reasoning.level,
             model_name=resolved_model_config.config.name,
+            env_model_values=env_values,
         )
     provider_model_selection_cli_args = _provider_model_selection_cli_args(
         tool=request.tool,

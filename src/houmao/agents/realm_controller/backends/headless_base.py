@@ -156,6 +156,7 @@ class HeadlessInteractiveSession:
             home_path=self._plan.home_path,
             tool=self._plan.tool,
             model_config=execution_model,
+            base_env=self._plan.env,
         ) as execution_projection:
             command, input_prompt = self._build_command(
                 prompt=prompt,

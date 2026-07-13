@@ -913,7 +913,7 @@ def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
     assert "kimi_tui_auto_mode_refresh" not in plan.metadata
 
 
-def test_build_launch_plan_local_interactive_kimi_unattended_sets_auto_refresh_metadata(
+def test_build_launch_plan_local_interactive_kimi_unattended_uses_native_auto(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -937,7 +937,7 @@ def test_build_launch_plan_local_interactive_kimi_unattended_sets_auto_refresh_m
         return type(
             "_Completed",
             (),
-            {"stdout": "0.11.0", "stderr": "", "args": command},
+            {"stdout": "0.23.4", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(
@@ -978,12 +978,12 @@ def test_build_launch_plan_local_interactive_kimi_unattended_sets_auto_refresh_m
     payload = tomllib.loads((home_path / "config.toml").read_text(encoding="utf-8"))
     managed_skill_root = str((home_path / "skills").resolve())
 
-    assert plan.args == ["--model", "kimi-code/kimi-for-coding"]
+    assert plan.args == ["--auto", "--model", "kimi-code/kimi-for-coding"]
     assert plan.role_injection.method == "auto_skill_system_prompt"
     assert plan.role_injection.bootstrap_message is None
     assert (home_path / f"skills/{AUTO_SKILL_SYSTEM_PROMPT}/SKILL.md").is_file()
     assert plan.launch_policy_provenance is not None
-    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-0.10.x"
+    assert plan.launch_policy_provenance.selected_strategy_id == "kimi-tui-unattended-0.23.x"
     assert plan.metadata["auto_skills"]["selected_skill_names"] == [AUTO_SKILL_SYSTEM_PROMPT]
     assert plan.metadata["auto_skills"]["applied"] is False
     assert plan.metadata["auto_skills"]["prompt_reference"] == "launch_plan.role_injection.prompt"
@@ -995,13 +995,7 @@ def test_build_launch_plan_local_interactive_kimi_unattended_sets_auto_refresh_m
         "added": True,
         "value": ["/project/skills", managed_skill_root],
     }
-    assert plan.metadata["kimi_tui_auto_mode_refresh"] == {
-        "enabled": True,
-        "command": "/auto on",
-        "phase": "after_tui_ready_before_managed_prompts",
-        "operator_prompt_mode": "unattended",
-        "strategy_id": "kimi-tui-unattended-0.10.x",
-    }
+    assert "kimi_tui_auto_mode_refresh" not in plan.metadata
     assert payload["default_permission_mode"] == "auto"
     assert payload["extra_skill_dirs"] == ["/project/skills", managed_skill_root]
 
@@ -1027,7 +1021,7 @@ def test_build_launch_plan_kimi_headless_unattended_uses_auto_skill_without_chat
         return type(
             "_Completed",
             (),
-            {"stdout": "0.11.0", "stderr": "", "args": command},
+            {"stdout": "0.23.4", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(

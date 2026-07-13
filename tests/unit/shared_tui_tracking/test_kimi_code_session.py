@@ -5,7 +5,10 @@ from pathlib import Path
 from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
-from houmao.shared_tui_tracking.apps.kimi_code.profile import analyze_kimi_surface
+from houmao.shared_tui_tracking.apps.kimi_code.profile import (
+    KimiCodeSignalDetectorV0_23_X,
+    analyze_kimi_surface,
+)
 
 
 _FIXTURE_ROOT = (
@@ -125,3 +128,41 @@ def test_kimi_rejected_command_fixture_is_ready_not_known_failure() -> None:
     assert state.turn_phase == "ready"
     assert state.surface_accepting_input == "yes"
     assert state.last_turn_result == "none"
+
+
+def test_kimi_023_detector_ignores_historical_moon_spinner_after_completion() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    completed = (
+        "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
+        "● Finished the requested task.\n\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking\n"
+        "context: 10.0%\n"
+    )
+
+    signals = detector.detect(output_text=completed)
+
+    assert signals.active_evidence is False
+    assert signals.ready_posture == "yes"
+    assert signals.accepting_input == "yes"
+    assert "footer_thinking_metadata_ignored" in signals.notes
+
+
+def test_kimi_023_detector_tracks_live_edge_moon_spinner() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    active = (
+        "✨ Inspect the repository.\n\n"
+        "🌑 · Tip: ctrl+s: steer mid-turn\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking  context: 0.0%\n"
+    )
+
+    signals = detector.detect(output_text=active)
+
+    assert signals.active_evidence is True
+    assert "moon_spinner" in signals.active_reasons
+    assert signals.ready_posture == "no"

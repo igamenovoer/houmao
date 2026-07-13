@@ -24,7 +24,7 @@ def test_default_demo_config_accepts_kimi_tool() -> None:
     resolved = resolve_demo_config(repo_root=_WORKSPACE_ROOT)
 
     assert validated.tools.kimi.recipe_path.endswith("interactive-watch-kimi-default.yaml")
-    assert resolved.tool_config(tool="kimi").operator_prompt_mode == "as_is"
+    assert resolved.tool_config(tool="kimi").operator_prompt_mode == "unattended"
     assert "kimi" in load_schema()["$defs"]["DemoToolsConfigV1"]["required"]
 
 

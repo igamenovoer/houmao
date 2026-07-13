@@ -61,9 +61,9 @@ Kimi local interactive support starts the interactive `kimi` TUI under backend `
 - **Model selection:** launch-owned Kimi model selection is projected as `--model <alias>` for fresh and resumed Kimi TUI startup.
 - **Update suppression:** managed Kimi TUI launches set `KIMI_CODE_NO_AUTO_UPDATE=1` so startup does not stop on the interactive update preflight.
 - **Managed skills:** Houmao does not add managed `--skills-dir` arguments to Kimi TUI launches. The maintained `--skills-dir <KIMI_CODE_HOME>/skills` projection remains Kimi headless prompt-mode behavior.
-- **Unattended prompt mode:** when launch policy resolves `operator_prompt_mode = unattended`, Kimi TUI startup uses Kimi auto permission mode while remaining visible. Launch policy writes `default_permission_mode = "auto"` for fresh sessions, and the runtime sends `/auto on` after TUI readiness and before role bootstrap or workload prompts. `as_is` leaves provider approval behavior unchanged.
+- **Unattended prompt mode:** for maintained Kimi Code 0.23.x, launch policy writes the migration marker and `default_permission_mode = "auto"` fallback, canonicalizes permission inputs, and appends one native `--auto`. The ready TUI is already unattended; `as_is` leaves provider approval behavior unchanged.
 - **Relaunch continuation:** `tool_last_or_new` maps to `kimi --continue`; `exact` maps to `kimi --session <session_id>`. The runtime never uses bare `kimi --session` for managed relaunch because that opens Kimi's interactive picker.
-- **Resume conflicts:** resumed Kimi TUI startup cannot combine `--continue` or `--session <session_id>` with `--yolo`, `--auto`, or `--plan`. Houmao rejects that combination before provider start, and unattended resumed sessions refresh auto mode through `/auto on` after readiness instead of adding `--auto` to the startup command. `--model <alias>` remains allowed with resumed startup.
+- **Resume behavior:** Kimi Code 0.23.x accepts native `--auto` with `--continue` and `--session <session_id>`. Houmao strips conflicting caller permission flags, preserves the resolved resume selector, and appends one strategy-owned `--auto`; `--model <alias>` remains allowed.
 
 ### claude_headless
 
@@ -100,7 +100,7 @@ Runs Kimi Code CLI in prompt mode (`kimi -p <prompt> --output-format stream-json
 - **Role injection:** bootstrap-message or managed auto-skill system-prompt workflow, depending on the resolved launch policy.
 - **Use case:** automated pipelines and non-interactive agent orchestration for Kimi Code.
 
-Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes, but Kimi users may need to invoke `houmao-auto-system-prompt` manually before substantive chat begins when automatic skill startup has not loaded the Houmao system prompt.
+Kimi Code 0.23.x managed role delivery uses bootstrap or auto-skill workflows. Houmao projects `houmao-auto-system-prompt` into managed Kimi homes; users may need to invoke it before substantive chat when automatic skill startup has not loaded the role prompt.
 
 #### Kimi validation checklist
 
@@ -109,7 +109,7 @@ Kimi Code 0.11.0 does not expose a native system-prompt flag. Houmao projects `h
 - Skill projection: inspect the constructed home and confirm selected and Houmao-owned skills land under `skills/`.
 - First-turn capture: verify the first `stream-json` Kimi turn emits a `session.resume_hint` event and that Houmao persists its `session_id` into the managed session manifest.
 - Resume behavior: send a follow-up Kimi prompt from the same working directory and confirm Houmao launches `kimi --session <persisted-session-id> -p <prompt> --output-format stream-json`; changing the working directory should fail explicitly.
-- Local-interactive unattended posture: launch a Kimi TUI session with `operator_prompt_mode = unattended` and confirm the launch plan records the Kimi auto refresh, the runtime submits `/auto on` before managed prompts, and no raw `--auto` or `--yolo` startup flag is required.
+- Local-interactive unattended posture: launch fresh, latest-resume, and exact-resume Kimi TUI sessions with `operator_prompt_mode = unattended`; confirm each effective command contains one strategy-owned `--auto`, the migration picker is suppressed, and no confirmation appears before managed prompts.
 
 ### codex_app_server
 

@@ -18,7 +18,7 @@
       "action": "wait_for_pattern",
       "name": "wait-for-ready-token",
       "pattern": "(?m)^\\s*(?:[●•]\\s*)?READY\\s*$",
-      "timeout_seconds": 45.0
+      "timeout_seconds": 120.0
     },
     {
       "action": "wait_seconds",

@@ -25,6 +25,7 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.overlays import has_block
 from houmao.shared_tui_tracking.apps.codex_tui.signals.prompt_behavior import (
     CodexPromptBehaviorVariant,
     CodexPromptBehaviorVariantV0_116_X,
+    CodexPromptBehaviorVariantV0_144_X,
     FallbackCodexPromptBehaviorVariant,
     build_prompt_area_snapshot,
     latest_turn_live_edge_lines,
@@ -79,12 +80,14 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         *,
         detector_version: str,
         prompt_behavior_variant: CodexPromptBehaviorVariant,
+        include_collaboration_cells: bool = False,
         profile_notes: tuple[str, ...] = (),
     ) -> None:
         """Initialize one Codex detector profile."""
 
         self.m_detector_version: str = detector_version
         self.m_prompt_behavior_variant: CodexPromptBehaviorVariant = prompt_behavior_variant
+        self.m_include_collaboration_cells: bool = include_collaboration_cells
         self.m_profile_notes: tuple[str, ...] = profile_notes
 
     @property
@@ -122,6 +125,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             live_edge_lines=live_edge_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
+            include_collaboration_cells=self.m_include_collaboration_cells,
         )
         interrupted = is_interrupted_surface(
             latest_turn_lines=latest_turn_region_lines,
@@ -261,6 +265,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             live_edge_lines=live_edge_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
+            include_collaboration_cells=self.m_include_collaboration_cells,
         )
         terminal_signal = prompt_adjacent_terminal_signal(latest_turn_region_lines)
         blocking_overlay = has_blocking_overlay(surface)
@@ -358,6 +363,20 @@ class CodexTuiSignalDetectorV0_116_X(_BaseCodexTuiSignalDetector):
         super().__init__(
             detector_version="0.116.x",
             prompt_behavior_variant=CodexPromptBehaviorVariantV0_116_X(),
+        )
+
+
+class CodexTuiSignalDetectorV0_144_X(_BaseCodexTuiSignalDetector):
+    """Tracked-TUI detector for recorded Codex `0.144.x` surfaces."""
+
+    def __init__(self) -> None:
+        """Initialize the `0.144.x` detector family."""
+
+        super().__init__(
+            detector_version="0.144.x",
+            prompt_behavior_variant=CodexPromptBehaviorVariantV0_144_X(),
+            include_collaboration_cells=True,
+            profile_notes=("source_profile=codex-0.144.x",),
         )
 
 

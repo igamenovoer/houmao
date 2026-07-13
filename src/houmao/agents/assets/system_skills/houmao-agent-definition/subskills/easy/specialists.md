@@ -51,6 +51,8 @@ Common specialist inputs:
 - repeatable `--with-skill <dir>`
 - repeatable `--env-set NAME=value`
 
+For Codex GPT-5.6, normalized reasoning level 0 is invalid. Sol and Terra expose six ordered levels (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`); Luna exposes five and ends at `max`. Higher normalized values saturate at the model maximum. For Kimi config-backed models, Houmao reads the selected model alias's ordered `support_efforts` catalog and applies effective overrides; level 0 is valid only when the model is not `always_thinking`. Do not invent normalized reasoning levels for Kimi env-model credentials because that lane has no ordered catalog; leave `--reasoning-level` unset and preserve native effort environment configuration.
+
 Tool-specific auth inputs:
 
 - Claude: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, optional `--claude-model`

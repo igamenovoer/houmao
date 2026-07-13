@@ -4,4 +4,4 @@ setup: default
 skills: []
 auth: default
 launch:
-  prompt_mode: as_is
+  prompt_mode: unattended

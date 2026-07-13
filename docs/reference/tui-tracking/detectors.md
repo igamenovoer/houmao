@@ -14,8 +14,8 @@ flowchart TD
     DPR["DetectorProfileRegistry"]
     VM["Version matching"]
     CCD["ClaudeCodeSignalDetectorV2_1_X"]
-    CXD["CodexTuiSignalDetector"]
-    KMD["KimiCodeSignalDetectorV0_11_X"]
+    CXD["Codex 0.116.x / 0.144.x profiles"]
+    KMD["Kimi 0.11.x / 0.23.x profiles"]
     BEST["Best detector for<br/>observed CLI version"]
 
     TOOL --> AID
@@ -61,11 +61,13 @@ Derives lifecycle hints from a window of recent temporal frames. These hints inf
 
 - **`CodexTuiSignalDetector`** — Base Codex TUI signal detector.
 - **`CodexTuiSignalDetectorV0_116_X`** — Codex TUI signal detector targeting Codex CLI ≥ 0.116.x. Recognizes Codex's input prompt, status bar, streaming output indicators, and completion patterns.
+- **`CodexTuiSignalDetectorV0_144_X`** — Experimental Codex 0.144.x profile for current prompt styling, GPT-5.6 activity, and collaboration wait cells. A current `Waiting for …` collaboration cell is active until a later `Finished waiting` cell supersedes it. It remains unregistered until the live completion, interruption, delegation, and sparse-replay gates pass.
 - **`CodexTrackedTurnSignalDetector`** — Tracked turn signal detector for Codex sessions. Builds on the TUI signal detector with additional turn-level tracking logic.
 
 ### Kimi Code Detectors
 
 - **`KimiCodeSignalDetectorV0_11_X`** — Kimi Code detector targeting the observed `0.11.x` pi-tui surface. It recognizes the bordered editor prompt, typed draft posture, current-turn activity spinner/temporal growth, bounded approval panels, interruption notices, and footer model `thinking` metadata that must not imply activity by itself.
+- **`KimiCodeSignalDetectorV0_23_X`** — Kimi 0.23.x profile validated against five development and three held-out unattended recordings. It limits spinner activity to the live edge, ignores historical moon rows and footer `thinking` metadata after completion, and relies on the current spinner-to-editor relationship instead of 0.11-era temporal growth.
 - **`FallbackKimiCodeSignalDetector`** — Conservative Kimi fallback for unmatched versions.
 
 ### Fallback Detectors
@@ -90,11 +92,12 @@ A registration entry in the registry.
 | `detector_name` | `str` | Human-readable detector name |
 | `detector_version` | `str` | Detector version string |
 | `minimum_supported_version` | `str` | Minimum CLI version this detector supports |
+| `maximum_supported_version` | `str` | Exclusive upper bound for the evidence-backed compatibility interval |
 | `profile_factory` | callable | Factory that produces a configured detector profile |
 
 ### ResolvedDetectorProfile
 
-The resolved profile for one tracker session, selected by the registry based on tool identity and version.
+The resolved profile for one tracker session, selected only when the observed version lies inside a maintained half-open interval. Version gaps, missing versions, and newer unvalidated releases use the app-specific fallback. Tests may request an exact registered detector-version override for recorded experiments.
 
 ### `app_id_from_tool(tool: str) -> str`
 

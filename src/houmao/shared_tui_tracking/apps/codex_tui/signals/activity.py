@@ -17,6 +17,9 @@ _BOOTSTRAP_STATUS_PREFIXES = (
 )
 _AGENT_TURN_STATUS_RE = re.compile(r"^\s*• (.+?) \((.+esc to interrupt.*)\)\s*$")
 _TOOL_CELL_RE = re.compile(r"^\s*• (Calling |Running |Waited for background terminal · ).+")
+_COLLAB_CELL_RE = re.compile(
+    r"^\s*• (?P<kind>Waiting for .+|Finished waiting|Resumed .+|Failed to resume .+)\s*$"
+)
 _RETRY_STATUS_RE = re.compile(
     r"\b("
     r"reconnect(?:ing|ed)?|"
@@ -46,6 +49,7 @@ def detect_activity(
     live_edge_lines: tuple[str, ...],
     prompt_visible: bool,
     steer_interruption_text: str,
+    include_collaboration_cells: bool = False,
 ) -> CodexActivitySignals:
     """Return current Codex activity evidence from one surface."""
 
@@ -67,6 +71,9 @@ def detect_activity(
     in_flight_tool_cell = any(_TOOL_CELL_RE.match(line) is not None for line in live_edge_lines)
     if in_flight_tool_cell:
         active_reasons.append("tool_cell")
+
+    if include_collaboration_cells and _latest_collaboration_cell_is_in_flight(live_edge_lines):
+        active_reasons.append("collaboration_cell")
 
     retry_status_line = _latest_retry_status_line(live_edge_lines)
     if retry_status_line is not None:
@@ -107,3 +114,15 @@ def _latest_retry_status_line(live_edge_lines: tuple[str, ...]) -> str | None:
         if _RETRY_STATUS_RE.search(stripped) is not None:
             return stripped
     return None
+
+
+def _latest_collaboration_cell_is_in_flight(live_edge_lines: tuple[str, ...]) -> bool:
+    """Return whether the latest current Codex collaboration cell is still in flight."""
+
+    for line in reversed(live_edge_lines):
+        match = _COLLAB_CELL_RE.match(line)
+        if match is None:
+            continue
+        kind = match.group("kind")
+        return kind.startswith(("Waiting for", "Resumed "))
+    return False
