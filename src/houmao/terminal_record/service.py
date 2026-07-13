@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import os
-import random
 import re
 import shlex
 import subprocess
@@ -677,6 +676,7 @@ def derive_terminal_record_stream(
     output_path: Path | None = None,
     target_sample_interval_seconds: float = DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS,
     sampling_mode: str = "regular",
+    phase_offset_seconds: float = 0.0,
     seed: int = 0,
 ) -> dict[str, Any]:
     """Derive one low-rate snapshot stream from a high-rate source stream."""
@@ -706,6 +706,7 @@ def derive_terminal_record_stream(
         last_elapsed=last_elapsed,
         interval_seconds=target_sample_interval_seconds,
         sampling_mode=sampling_mode,
+        phase_offset_seconds=phase_offset_seconds,
         seed=seed,
     )
     last_source_id: str | None = None
@@ -740,6 +741,7 @@ def derive_terminal_record_stream(
         "output_path": str(selected_output),
         "target_sample_interval_seconds": target_sample_interval_seconds,
         "sampling_mode": sampling_mode,
+        "phase_offset_seconds": phase_offset_seconds,
         "seed": seed,
         "source_sample_count": len(source_snapshots),
         "derived_sample_count": len(derived),
@@ -752,27 +754,21 @@ def _derived_sample_boundaries(
     last_elapsed: float,
     interval_seconds: float,
     sampling_mode: str,
-    seed: int,
+    phase_offset_seconds: float = 0.0,
+    seed: int = 0,
 ) -> tuple[float, ...]:
     """Return deterministic source-time targets for one derived capture schedule."""
 
-    boundaries = [first_elapsed]
-    cursor = first_elapsed
-    step_index = 0
-    rng = random.Random(seed)
-    while cursor < last_elapsed:
-        if sampling_mode == "regular":
-            multiplier = 1.0
-        elif sampling_mode == "jittered":
-            multiplier = rng.uniform(0.65, 1.35)
-        elif sampling_mode == "bursty":
-            multiplier = (0.35, 0.35, 0.35, 2.95)[step_index % 4]
-        else:
-            multiplier = (1.0, 1.0, 3.0, 1.0)[step_index % 4]
-        cursor += interval_seconds * multiplier
-        boundaries.append(min(cursor, last_elapsed))
-        step_index += 1
-    return tuple(boundaries)
+    from houmao.terminal_record.schedules import derive_schedule_boundaries
+
+    return derive_schedule_boundaries(
+        first_elapsed=first_elapsed,
+        last_elapsed=last_elapsed,
+        interval_seconds=interval_seconds,
+        sampling_mode=cast(Any, sampling_mode),
+        phase_offset_seconds=phase_offset_seconds,
+        seed=seed,
+    )
 
 
 def validate_terminal_record(
@@ -1021,6 +1017,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS,
     )
     derive_stream.add_argument("--sampling-mode", choices=DERIVED_SAMPLING_MODES, default="regular")
+    derive_stream.add_argument("--phase-offset-seconds", type=float, default=0.0)
     derive_stream.add_argument("--seed", type=int, default=0)
 
     validate = subparsers.add_parser("validate", help="Validate observations against labels")
@@ -1112,6 +1109,7 @@ def main(argv: list[str] | None = None) -> int:
                         output_path=args.output_path,
                         target_sample_interval_seconds=float(args.target_sample_interval_seconds),
                         sampling_mode=str(args.sampling_mode),
+                        phase_offset_seconds=float(args.phase_offset_seconds),
                         seed=int(args.seed),
                     ),
                     indent=2,

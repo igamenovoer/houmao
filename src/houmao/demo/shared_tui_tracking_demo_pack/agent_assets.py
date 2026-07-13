@@ -33,7 +33,9 @@ def default_recipe_path(*, repo_root: Path, tool: ToolName) -> Path:
     ).resolve()
 
 
-def materialize_generated_agent_tree(*, repo_root: Path, workdir: Path, tool: ToolName) -> Path:
+def materialize_generated_agent_tree(
+    *, repo_root: Path, workdir: Path, tool: ToolName, allow_missing_auth: bool = False
+) -> Path:
     """Create the run-local generated agent-definition tree for one demo run."""
 
     tracked_inputs_dir = tracked_agent_inputs_dir(repo_root=repo_root)
@@ -47,7 +49,7 @@ def materialize_generated_agent_tree(*, repo_root: Path, workdir: Path, tool: To
     shutil.copytree(tracked_inputs_dir, generated_agent_def_dir, symlinks=True)
 
     fixture_auth_source = (repo_root / _FIXTURE_AUTH_SOURCE_BY_TOOL[tool]).resolve()
-    if not fixture_auth_source.is_dir():
+    if not fixture_auth_source.is_dir() and not allow_missing_auth:
         raise RuntimeError(
             "Fixture auth bundle missing for "
             f"`{tool}`: expected {fixture_auth_source}. "
@@ -62,5 +64,6 @@ def materialize_generated_agent_tree(*, repo_root: Path, workdir: Path, tool: To
             shutil.rmtree(default_auth_path)
         else:
             default_auth_path.unlink()
-    default_auth_path.symlink_to(fixture_auth_source)
+    if fixture_auth_source.is_dir():
+        default_auth_path.symlink_to(fixture_auth_source)
     return generated_agent_def_dir

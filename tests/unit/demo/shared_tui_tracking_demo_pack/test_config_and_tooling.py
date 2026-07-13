@@ -86,3 +86,28 @@ def test_detect_tool_version_tries_kimi_candidates(monkeypatch) -> None:
 
     assert tooling.detect_tool_version(tool="kimi") == "kimi-code 0.1.0"
     assert calls == [["kimi", "--version"], ["kimi-code", "--version"]]
+
+
+def test_launch_tmux_session_can_retain_restart_shell(tmp_path: Path, monkeypatch) -> None:
+    """Long-horizon exit tests keep a shell beneath the provider process."""
+
+    commands: list[list[str]] = []
+
+    def fake_tmux(command: list[str]):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(tooling, "run_tmux", fake_tmux)
+    launch_script = tmp_path / "launch helper.sh"
+
+    tooling.launch_tmux_session(
+        session_name="session",
+        workdir=tmp_path,
+        launch_script=launch_script,
+        retain_shell_after_exit=True,
+    )
+
+    assert commands[0][-3:-1] == ["bash", "-lc"]
+    assert commands[0][-1].endswith("; exec bash --noprofile --norc")
+    assert "'" in commands[0][-1]
+    assert commands[1] == ["set-option", "-t", "session", "remain-on-exit", "on"]

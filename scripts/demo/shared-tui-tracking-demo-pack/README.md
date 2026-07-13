@@ -10,6 +10,8 @@ The demo-owned configuration surface is [demo-config.toml](/data1/huangzhe/code/
 
 The tracked launch assets live under [inputs/agents/](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/inputs/agents). Each live-watch or recorded-capture run copies that tree into `workdir/.houmao/agents/`, then projects one selected-tool `auth/default` alias from the host-local fixture bundles under `tests/fixtures/auth-bundles/<tool>/`.
 
+The maintained provider set is Claude Code, Codex, and Kimi Code. Gemini CLI is unsupported and must not appear in new scenarios, long-horizon catalogs, or qualification artifacts.
+
 For a section-by-section explanation of the config, merge order, sweeps, and alternate config-file usage, read [CONFIG_REFERENCE.md](/data1/huangzhe/code/houmao/scripts/demo/shared-tui-tracking-demo-pack/CONFIG_REFERENCE.md).
 
 ## Recorded Validation
@@ -89,6 +91,65 @@ scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-sweep \
 The sweep command writes under `tmp/demo/shared-tui-tracking-demo-pack/sweeps/...` unless `--output-root` overrides it. Sweep variants are evaluated against transition contracts from `demo-config.toml`, not against the canonical per-sample GT timeline.
 
 The checked-in `capture_frequency` sweep is meant to validate robustness only down to that `2 Hz` floor. If you want to probe slower cadences, use an alternate config and treat the result as exploratory rather than part of the demo's default robustness claim.
+
+## UC-02 Long-Horizon Qualification
+
+The nested `long-horizon` workflow executes the reviewed 12-cell Boltons pressure-test matrix. Every live provider uses `unattended`; the driver aborts if a provider asks for confirmation. Choose a proper repository-local `tmp/<subdir>` root. The driver rejects `tmp/` itself, paths outside it, symlink escapes, and non-empty unowned roots.
+
+Create and review the immutable 12-cell, 242-operation plan:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon plan \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --json
+```
+
+Run preflight and capture serially. Use `--cell <provider>:<st-id>` for one cell or `--all` for the complete planned selection:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon preflight \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --cell codex:st-03 \
+  --json
+
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon capture \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --cell codex:st-03 \
+  --json
+```
+
+Codex preflight and capture require a reachable proxy at `127.0.0.1:7990`. The generated provider manifest records upper- and lower-case HTTP, HTTPS, and all-proxy variable names and the proxy URL, never credential values.
+
+The required phase order is `planned -> preflight_passed -> capturing -> awaiting_manual_labels -> labels_complete -> replaying -> reported`. Capture freezes the native 20 Hz recording before creating a tracker-free review template. Complete the labels without viewing tracker output, then admit them and replay:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon label-status \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --cell codex:st-03 \
+  --labels-path /absolute/path/to/operator-labels.json \
+  --json
+
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon replay \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --cell codex:st-03 \
+  --json
+
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon report \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --json
+```
+
+Retries always create a new numbered attempt and retain earlier complete or partial recordings. The aggregate report lists incomplete and unsupported cells as obligations rather than passes.
+
+After live capture, remove copied credentials and reap attempt-owned tmux resources while preserving recordings, labels, replay timelines, and reports:
+
+```bash
+scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh long-horizon cleanup \
+  --run-root tmp/tui-state-tracking-long-horizon/<run-id> \
+  --json
+```
+
+The run layout separates `projects/`, sensitive transient `provider-homes/`, numbered `sessions/<provider>-<st-id>/attempts/`, and `aggregate/`. Each complete attempt keeps its cast, pane snapshots, managed input, runtime observations, engineering verdict, blind labels, per-schedule replay evidence, and tracker verdict. Cleanup removes `provider-homes/` and per-attempt definition workdirs only.
 
 ## Live Watch
 
@@ -177,7 +238,7 @@ Live watch writes under `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run
 The normal launch posture is intentionally permissive, and the default live-watch path is intentionally lightweight:
 
 - The checked-in Claude and Codex interactive-watch recipes request `launch_policy.operator_prompt_mode: unattended`
-- The checked-in Kimi interactive-watch recipe requests `launch_policy.operator_prompt_mode: as_is`
+- The checked-in Kimi interactive-watch recipe requests `launch_policy.operator_prompt_mode: unattended`
 - Those checked-in recipes live under `inputs/agents/presets/interactive-watch-<tool>-default.yaml` and keep the tracked auth contract at `auth: default`
 - Live watch defaults to `live_watch_recorder_enabled = false`, so an ordinary interactive test does not start terminal-recorder
 - Use `--with-recorder` or a config/profile override only when you want retained replay-debug artifacts from that run

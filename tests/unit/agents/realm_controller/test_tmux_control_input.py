@@ -227,6 +227,15 @@ def test_parse_tmux_control_input_mixes_literal_and_special_keys() -> None:
     )
 
 
+def test_parse_tmux_control_input_supports_editor_clear_key() -> None:
+    segments = parse_tmux_control_input(sequence="draft<[C-u]>")
+
+    assert segments == (
+        TmuxControlInputSegment(kind="literal", value="draft"),
+        TmuxControlInputSegment(kind="special", value="C-u"),
+    )
+
+
 def test_parse_tmux_control_input_escape_mode_keeps_literal_text() -> None:
     segments = parse_tmux_control_input(
         sequence="/model<[Enter]>",

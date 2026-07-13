@@ -86,6 +86,55 @@ def render_review_frames(
     return frame_paths
 
 
+def render_unlabeled_review_frames(
+    *,
+    snapshots: list[TerminalRecordPaneSnapshot],
+    output_dir: Path,
+    fps: float,
+    width: int = FRAME_WIDTH,
+    height: int = FRAME_HEIGHT,
+) -> list[Path]:
+    """Render tracker-free frames on the requested lower-rate review schedule."""
+
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    font = _load_font(size=24)
+    small_font = _load_font(size=20)
+    frame_paths: list[Path] = []
+    if not snapshots:
+        return frame_paths
+    interval_seconds = 1.0 / fps
+    source_index = 0
+    target_elapsed = snapshots[0].elapsed_seconds
+    final_elapsed = snapshots[-1].elapsed_seconds
+    selected: list[TerminalRecordPaneSnapshot] = []
+    while target_elapsed <= final_elapsed:
+        while (
+            source_index + 1 < len(snapshots)
+            and snapshots[source_index + 1].elapsed_seconds <= target_elapsed
+        ):
+            source_index += 1
+        selected.append(snapshots[source_index])
+        target_elapsed += interval_seconds
+    if selected[-1].sample_id != snapshots[-1].sample_id:
+        selected.append(snapshots[-1])
+    for frame_index, snapshot in enumerate(selected, start=1):
+        image = _render_unlabeled_snapshot_frame(
+            snapshot=snapshot,
+            font=font,
+            small_font=small_font,
+            width=width,
+            height=height,
+        )
+        frame_path = output_dir / f"frame-{frame_index:06d}.png"
+        image.save(frame_path)
+        frame_paths.append(frame_path)
+    return frame_paths
+
+
 def encode_review_video(
     *,
     frames_dir: Path,
@@ -194,6 +243,37 @@ def _render_snapshot_frame(
     max_lines = max(1, (height - top - 50) // line_height)
     for index, line in enumerate(body_text.splitlines()[:max_lines]):
         draw.text((left, top + (index * line_height)), line, font=font, fill=_TEXT)
+    return image
+
+
+def _render_unlabeled_snapshot_frame(
+    *,
+    snapshot: TerminalRecordPaneSnapshot,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    small_font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    width: int,
+    height: int,
+) -> Image.Image:
+    """Render one terminal-only blind-review frame."""
+
+    image = Image.new("RGB", (width, height), _BACKGROUND)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([(0, 0), (width, 96)], fill=_BANNER)
+    draw.text((40, 20), f"sample {snapshot.sample_id}", font=font, fill=_TEXT)
+    draw.text(
+        (420, 20),
+        f"t={snapshot.elapsed_seconds:.3f}s  BLIND REVIEW: tracker output unavailable",
+        font=small_font,
+        fill=_DIM,
+    )
+    clean_text = _ANSI_RE.sub("", snapshot.output_text)
+    y = 120
+    line_height = 30
+    max_lines = max(1, (height - y - 30) // line_height)
+    max_chars = max(20, (width - 80) // 15)
+    for line in clean_text.splitlines()[-max_lines:]:
+        draw.text((40, y), line[:max_chars], font=small_font, fill=_TEXT)
+        y += line_height
     return image
 
 

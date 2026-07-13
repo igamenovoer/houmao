@@ -89,6 +89,7 @@ _SUPPORTED_TMUX_SPECIAL_KEYS: frozenset[str] = frozenset(
         "BSpace",
         "C-c",
         "C-d",
+        "C-u",
         "C-z",
         "Down",
         "Enter",

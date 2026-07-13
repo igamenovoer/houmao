@@ -1,18 +1,20 @@
 # Use Cases
 
-This directory contains use cases for two complementary TUI state-tracking qualification suites: short-to-medium state/transition tests and long-horizon pressure tests.
+This directory contains use cases for two complementary TUI state-tracking qualification suites, short-to-medium state/transition tests and long-horizon pressure tests, plus end-to-end prompt-admission qualification over the tracked state.
 
 ## Index
 
 | ID | Use Case | Status |
 | --- | --- | --- |
 | [UC-01](uc-01-qualify-focused-tui-state-transitions.md) | Qualify Focused TUI State and Transition Tracking | Codex 0.144.x and Kimi 0.23.x detector profiles qualified; remaining focused coverage is pending |
-| [UC-02](uc-02-pressure-test-long-horizon-tui-state-tracking.md) | Pressure-Test Long-Horizon TUI State Tracking | Five sessions with at least 20 user operations each are pending |
+| [UC-02](uc-02-pressure-test-long-horizon-tui-state-tracking.md) | Pressure-Test Long-Horizon TUI State Tracking | Exact Boltons prompts and actions designed; five sessions with at least 20 user operations each are pending |
+| [UC-03](uc-03-qualify-prompt-admission-readiness.md) | Qualify Prompt Admission Readiness | Exact direct-prompt and mail-notifier procedures designed; Claude, Codex, and Kimi execution is pending |
 
 ## Notes
 
 - UC-01 owns focused detector-state and transition correctness. Its short-to-medium cases normally use one to four user interactions in one provider session. Existing `PS-*` and `MS-*` cases belong to this use case.
-- UC-02 owns accumulated-history and robustness pressure. Each `ST-*` session records at least 20 user operations, and the five-session use case collectively covers every in-scope state-transition family.
+- UC-02 owns accumulated-history and robustness pressure. Each `ST-*` session uses a fresh run-local copy of the vendored Boltons fixture and records at least 20 exact user operations. The five-session use case collectively covers every in-scope state-transition family.
+- UC-03 owns the behavioral admission boundary. It proves that a new independent prompt is accepted only when the provider will process it immediately, that false-busy tracking clears within a bounded deadline, and that mail-notifier wakeups remain outside the provider CLI while busy and release promptly after ready.
 - The long-horizon suite does not replace focused cases. Focused cases localize transition defects; long-horizon cases detect stale-state leakage, drift, oscillation, duplicated outcomes, lost authority, and downstream-consumer failures after many operations.
 - The plan targets the maintained Claude Code, Codex, and Kimi Code tracker profiles.
 - Provider-visible network and LLM API failures are excluded from live scenario coverage because they cannot be induced reliably. Every live provider session uses the maintained `unattended` launch posture. Avoidable confirmation, approval, permission, trust, update, login, session-picker, browser, and user-question prompts are forbidden test outcomes rather than required stimuli.
