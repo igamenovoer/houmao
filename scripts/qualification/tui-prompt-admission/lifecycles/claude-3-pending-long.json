@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "provider": "claude",
+  "calibrated_version": "2.1.207",
+  "patterns": {
+    "ready": {
+      "regex": "(^|\\n)\\s*\u276f\\s",
+      "description": "Claude ready cue.",
+      "flags": 0
+    },
+    "active": {
+      "regex": "(Working\\s*\\(|Running\\s+(tool|command)|Esc to interrupt|Ctrl\\+C to interrupt|Flowing\u2026|Thinking for|Cooked for)",
+      "description": "Claude active-turn cue.",
+      "flags": 2
+    },
+    "pending": {
+      "regex": "(queued message|pending message|messages to be submitted|Press up to edit queued messages)",
+      "description": "Claude pending-message cue.",
+      "flags": 2
+    }
+  },
+  "pending_count_patterns": {
+    "extractor": "count_markers",
+    "marker_regex": "queued message"
+  },
+  "prompts": {
+    "base": "Count from 1 to 100 slowly, printing one number per second. Do not edit files.",
+    "follow_up_1": "Now count from 101 to 150 slowly, printing one number per second.",
+    "follow_up_2": "Now count from 151 to 200 slowly, printing one number per second.",
+    "follow_up_3_long": "Analyze the trade-offs between synchronous and asynchronous API design for a distributed inventory service. Compare latency, consistency, failure modes, operational complexity, and developer ergonomics carefully. Recommend one primary approach with three concrete reasons and one counter-example where the other approach wins. Keep the response concise, avoid code examples, and conclude with a one-sentence executive summary for a non-technical audience. [CANARY-500-CHARS-PENDING]"
+  },
+  "steps": [
+    {
+      "kind": "wait_seconds",
+      "seconds": 1.0,
+      "note": "let the provider finish painting"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "ready",
+      "timeout_seconds": 90,
+      "required": true
+    },
+    {
+      "kind": "send_text",
+      "text": "{{base}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "active",
+      "timeout_seconds": 90,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 3.0,
+      "note": "let the first prompt commit before submitting a follow-up"
+    },
+    {
+      "kind": "send_text",
+      "text": "{{follow_up_1}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "pending",
+      "timeout_seconds": 30,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 1.0,
+      "note": "let queued message 1 paint"
+    },
+    {
+      "kind": "send_text",
+      "text": "{{follow_up_2}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "pending",
+      "timeout_seconds": 30,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 1.0,
+      "note": "let queued message 2 paint"
+    },
+    {
+      "kind": "send_text",
+      "text": "{{follow_up_3_long}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "pending",
+      "timeout_seconds": 30,
+      "required": true,
+      "non_fatal_on_timeout": true
+    },
+    {
+      "kind": "wait_for_pattern_absent",
+      "pattern": "pending",
+      "timeout_seconds": 300,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "active",
+      "timeout_seconds": 90,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern_absent",
+      "pattern": "active",
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "ready",
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 2.0,
+      "note": "hold the final ready posture"
+    }
+  ],
+  "target_pending_count": 3
+}

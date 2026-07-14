@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "provider": "kimi",
+  "calibrated_version": "0.23.6",
+  "patterns": {
+    "ready": {
+      "regex": "(Welcome to Kimi Code!|@: mention files|> )",
+      "description": "Kimi Code idle header, composer footer, or empty input box.",
+      "flags": 2
+    },
+    "active": {
+      "regex": "(Running a command|Running tool|Generating|Esc to interrupt)",
+      "description": "Kimi Code active-turn indicator; avoids matching the persistent 'thinking' footer.",
+      "flags": 2
+    },
+    "pending": {
+      "regex": "(\u276f |to edit|ctrl-s to steer immediately|queued message|pending message)",
+      "description": "Kimi queued-message signature: a retained message line with edit/steer hints.",
+      "flags": 2
+    }
+  },
+  "prompts": {
+    "first": "Count from 1 to 100 slowly, printing one number per second. Do not edit files.",
+    "second": "Now count from 101 to 150 slowly, printing one number per second."
+  },
+  "steps": [
+    {
+      "kind": "wait_seconds",
+      "seconds": 1.0,
+      "note": "let the provider finish painting"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "ready",
+      "timeout_seconds": 90,
+      "required": true
+    },
+    {
+      "kind": "send_text",
+      "text": "{{first}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "active",
+      "timeout_seconds": 15,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 3.0,
+      "note": "let the first prompt commit before submitting a follow-up"
+    },
+    {
+      "kind": "send_text",
+      "text": "{{second}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "pending",
+      "timeout_seconds": 30,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern_absent",
+      "pattern": "pending",
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "active",
+      "timeout_seconds": 30,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern_absent",
+      "pattern": "active",
+      "timeout_seconds": 300,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "ready",
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 2.0,
+      "note": "hold the final ready posture"
+    }
+  ]
+}

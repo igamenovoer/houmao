@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "provider": "claude",
+  "calibrated_version": "2.1.207",
+  "patterns": {
+    "ready": {
+      "regex": "(^|\\n)\\s*\u276f\\s",
+      "description": "Claude Code native prompt glyph at the start of a line.",
+      "flags": 0
+    },
+    "active": {
+      "regex": "(Working\\s*\\(|Running\\s+(tool|command)|Esc to interrupt|Ctrl\\+C to interrupt|Flowing\u2026|Thinking for|Cooked for)",
+      "description": "Visible active-turn markers in the Claude Code surface.",
+      "flags": 2
+    },
+    "pending": {
+      "regex": "(queued message|pending message|messages to be submitted|Press up to edit queued messages)",
+      "description": "Claude prompt-queue signature, including the 'Press up to edit queued messages' footer.",
+      "flags": 2
+    }
+  },
+  "prompts": {
+    "first": "Count from 1 to 100 slowly, printing one number per second. Do not edit files.",
+    "second": "Now count from 101 to 150 slowly, printing one number per second."
+  },
+  "steps": [
+    {
+      "kind": "wait_seconds",
+      "seconds": 1.0,
+      "note": "let the provider finish painting"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "ready",
+      "timeout_seconds": 90,
+      "required": true
+    },
+    {
+      "kind": "send_text",
+      "text": "{{first}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "active",
+      "timeout_seconds": 15,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 3.0,
+      "note": "let the first prompt commit before submitting a follow-up"
+    },
+    {
+      "kind": "send_text",
+      "text": "{{second}}"
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 0.5,
+      "note": "let text settle before pressing Enter"
+    },
+    {
+      "kind": "send_key",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "pending",
+      "timeout_seconds": 30,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern_absent",
+      "pattern": "pending",
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "active",
+      "timeout_seconds": 30,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern_absent",
+      "pattern": "active",
+      "timeout_seconds": 300,
+      "required": true
+    },
+    {
+      "kind": "wait_for_pattern",
+      "pattern": "ready",
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "kind": "wait_seconds",
+      "seconds": 2.0,
+      "note": "hold the final ready posture"
+    }
+  ]
+}
