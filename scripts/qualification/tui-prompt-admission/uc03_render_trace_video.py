@@ -35,6 +35,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from uc03_classification_test import replay_current_tracker
 from uc03_label import Uc03ReadinessLabel, map_public_state_to_uc03_label
 
 
@@ -157,6 +158,7 @@ def render_frame(
     width: int,
     height: int,
     font: ImageFont.FreeTypeFont,
+    tracker_source_label: str,
 ) -> Image.Image:
     """Render one video frame with the terminal screen on the left and info on the right."""
     image = Image.new("RGB", (width, height), "#1e1e1e")
@@ -205,7 +207,12 @@ def render_frame(
         font=font,
     )
 
-    draw.text((panel_x, panel_y + 6 * LINE_HEIGHT), "Tracker:", fill="#999999", font=font)
+    draw.text(
+        (panel_x, panel_y + 6 * LINE_HEIGHT),
+        tracker_source_label,
+        fill="#999999",
+        font=font,
+    )
     draw.text(
         (panel_x, panel_y + 7 * LINE_HEIGHT),
         f"  {tracker_label.value}",
@@ -215,7 +222,7 @@ def render_frame(
 
     # State summaries.
     state_y = panel_y + 9 * LINE_HEIGHT
-    draw.text((panel_x, state_y), "GT state:", fill="#999999", font=font)
+    draw.text((panel_x, state_y), "Legacy state:", fill="#999999", font=font)
     state_y = _draw_wrapped_text(
         draw,
         (panel_x, state_y + LINE_HEIGHT),
@@ -244,6 +251,7 @@ def render_attempt_video(
     output_root: Path,
     schedule: str = "canonical",
     cleanup_frames: bool = True,
+    replay_current_detector: bool = True,
 ) -> Path | None:
     """Render a video for one attempt.
 
@@ -257,6 +265,8 @@ def render_attempt_video(
         Replay schedule name to read.
     cleanup_frames
         If True, delete temporary PNG frames after encoding.
+    replay_current_detector
+        If True, regenerate tracker samples with the detector code in this checkout.
 
     Returns
     -------
@@ -268,12 +278,21 @@ def render_attempt_video(
     groundtruth_path = replay_dir / "groundtruth.ndjson"
     snapshots_path = attempt_path / "recording" / "terminal-record" / "pane_snapshots.ndjson"
 
-    for required_path in (tracker_path, groundtruth_path, snapshots_path):
+    required_paths = [groundtruth_path, snapshots_path]
+    if replay_current_detector:
+        required_paths.append(replay_dir / "source-mapping.ndjson")
+    else:
+        required_paths.append(tracker_path)
+    for required_path in required_paths:
         if not required_path.exists():
             print(f"Skipping {attempt_path}: missing {required_path.name}", file=sys.stderr)
             return None
 
-    tracker_samples = _load_ndjson(tracker_path)
+    tracker_samples = (
+        replay_current_tracker(attempt_path=attempt_path, schedule=schedule)
+        if replay_current_detector
+        else _load_ndjson(tracker_path)
+    )
     groundtruth_samples = _load_ndjson(groundtruth_path)
     snapshots = _load_ndjson(snapshots_path)
 
@@ -316,7 +335,13 @@ def render_attempt_video(
 
     output_video = output_dir / "trace.mp4"
 
-    print(f"Rendering {video_name}: {len(snapshots)} frames at {total_width}x{total_height}...")
+    tracker_source_label = (
+        "Tracker (current code):" if replay_current_detector else "Tracker (archived):"
+    )
+    print(
+        f"Rendering {video_name}: {len(snapshots)} frames at "
+        f"{total_width}x{total_height} with {tracker_source_label}"
+    )
 
     for index, snapshot in enumerate(snapshots):
         sample_id = snapshot.get("sample_id", f"s{index:06d}")
@@ -357,6 +382,7 @@ def render_attempt_video(
             width=total_width,
             height=total_height,
             font=font,
+            tracker_source_label=tracker_source_label,
         )
         frame.save(frames_dir / f"frame_{index:06d}.png")
 
@@ -446,6 +472,11 @@ def main() -> int:
         action="store_true",
         help="Keep temporary PNG frames after encoding.",
     )
+    parser.add_argument(
+        "--archived-tracker",
+        action="store_true",
+        help="Render archived tracker timelines instead of replaying current detector code.",
+    )
     args = parser.parse_args()
 
     attempt_paths: list[Path] = list(args.attempts)
@@ -464,6 +495,7 @@ def main() -> int:
             args.output_root,
             schedule=args.schedule,
             cleanup_frames=not args.keep_frames,
+            replay_current_detector=not args.archived_tracker,
         )
         if video_path:
             rendered.append(video_path)

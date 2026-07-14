@@ -210,7 +210,7 @@ def compare_attempt(
         raise FileNotFoundError(f"Missing groundtruth timeline: {groundtruth_path}")
 
     tracker_samples = (
-        _replay_current_tracker(attempt_path=attempt_path, schedule=schedule)
+        replay_current_tracker(attempt_path=attempt_path, schedule=schedule)
         if replay_current_detector
         else _load_ndjson(tracker_path)
     )
@@ -308,7 +308,7 @@ def compare_attempt(
     return report
 
 
-def _replay_current_tracker(*, attempt_path: Path, schedule: str) -> list[dict[str, Any]]:
+def replay_current_tracker(*, attempt_path: Path, schedule: str) -> list[dict[str, Any]]:
     """Replay raw recording evidence through the detector code in this checkout."""
 
     recording_root = attempt_path / "recording" / "terminal-record"

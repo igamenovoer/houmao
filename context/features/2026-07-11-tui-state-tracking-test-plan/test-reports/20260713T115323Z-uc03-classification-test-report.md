@@ -17,6 +17,52 @@ Video output: `tmp/uc03-trace-videos/`
 
 3. **Rendered trace videos** — Added `uc03_render_trace_video.py` and produced one MP4 per attempt in `tmp/uc03-trace-videos/`. Each frame shows the bottom 36 rows of the tmux pane on the left and a right-hand panel with sample id/time, groundtruth label, tracker label, and the public-state fields behind the labels. All 11,202 samples across the nine attempts are preserved at the original 20 Hz cadence.
 
+## How to Render Videos for Manual Verification
+
+To inspect classification mismatches visually, render side-by-side videos that show the tmux screen, the operator ground-truth label, and the tracker label for every captured sample.
+
+### Render all replay-ready attempts
+
+```bash
+pixi run python scripts/qualification/tui-prompt-admission/uc03_render_trace_video.py \
+    --run-root tmp/tui-state-tracking-long-horizon/2026-07-13-all-providers \
+    --output-root tmp/uc03-trace-videos
+```
+
+### Render a single attempt
+
+```bash
+pixi run python scripts/qualification/tui-prompt-admission/uc03_render_trace_video.py \
+    tmp/tui-state-tracking-long-horizon/2026-07-13-all-providers/sessions/claude-st-01/attempts/a007 \
+    --output-root tmp/uc03-trace-videos
+```
+
+### Output layout
+
+Each attempt is rendered to its own directory:
+
+```
+tmp/uc03-trace-videos/
+└── {provider}-{cell}-{attempt}/
+    ├── trace.mp4      # Full video at 20 Hz
+    └── frames/        # Individual PNG frames (one per sample)
+```
+
+For example:
+
+- `tmp/uc03-trace-videos/claude-st-01-a007/trace.mp4`
+- `tmp/uc03-trace-videos/codex-st-05-a004/trace.mp4`
+- `tmp/uc03-trace-videos/kimi-st-03-a008/trace.mp4`
+
+### How to use the videos
+
+1. Locate the attempt with mismatches in the **Classification Results** table.
+2. Open the corresponding `trace.mp4`.
+3. Scrub to the mismatch timestamps. The right-hand panel highlights when the **Tracker** label differs from the **Groundtruth** label.
+4. Compare the tmux screen on the left with the two labels to decide whether the tracker or the operator label is correct.
+
+This is the fastest way to validate the high-mismatch cells — especially **Kimi ST03 a008**, **Codex ST05 a004**, and **Codex ST04 a002** — before changing detector profiles or oracles.
+
 ## Classification Results
 
 | Provider | Cell | Attempt | Samples | Mismatches | Mismatch rate |
