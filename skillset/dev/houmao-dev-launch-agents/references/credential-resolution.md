@@ -26,7 +26,7 @@ Resolve `command -v codex`, then accept auto credential posture when at least on
 
 Use `codex login status` as the preferred non-secret gate. Do not read or print `auth.json` content. A failed status with no recognized environment lane is a blocker.
 
-For Houmao Codex live testing, preserve the project convention that proxy variables point to `http://127.0.0.1:7990`. Check reachability before launch and record only variable names and the proxy URL.
+For Houmao Codex live testing, inspect `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, and their lowercase equivalents. Preserve the proxy variables already present in the environment for the Codex child process. Do not invent or override a proxy server, and record only variable names rather than values.
 
 ## Kimi Code Auto Credential
 

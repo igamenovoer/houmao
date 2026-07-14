@@ -4,8 +4,8 @@
 
 1. **Resolve inputs and create a fresh run root.** Require a provider, task or use-case description, test project, expected operations, stop condition, and `tmp/<subdir>` output location.
 2. **Translate the description into an executable operation plan.** Preserve exact prompts, control keys, fixed holds, direct visible-pattern waits, and expected observable outcomes in `definitions/`.
-3. **Preflight the provider and project.** Require Claude, Codex, or Kimi; unattended mode; local credentials; tmux; asciinema; and the Codex proxy when applicable.
-4. **Launch a normal TUI and begin a 20 Hz active recording before the first operation.** Follow **Capture Paths**.
+3. **Preflight the project and recording tools.** Require Claude, Codex, or Kimi; unattended mode; tmux; and the terminal recorder. Leave provider executable, credential, launcher, and proxy resolution to `houmao-dev-launch-agents`.
+4. **Delegate launch and begin a 20 Hz active recording before the first operation.** Follow **Delegated Launch and Capture**.
 5. **Drive every operation and retain its timing and outcome.** Do not query Houmao state tracking to decide when the recorded agent is ready or active.
 6. **Stop, freeze, and audit the recording.** Record taints, failures, hashes, provider version, and incomplete operations without deleting partial evidence.
 
@@ -35,26 +35,23 @@ Do not use `wait_for_ready`, `wait_for_active`, `wait_for_interrupted_signal`, o
 
 Each step needs a unique name. Store expected meaning separately from the raw pattern so later UI wording changes remain visible instead of silently redefining the test.
 
-## Capture Paths
+## Delegated Launch and Capture
 
-### Scenario-Driven Launch
+### Launch Through `houmao-dev-launch-agents`
 
-Prefer the maintained shared TUI tracking demo when the task fits its action vocabulary. Write the scenario under the run root, keep the capture output path absent, then run:
+Select the matching skill subcommand and request unattended launch in the isolated test-project workdir:
 
-```bash
-scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-capture \
-  --scenario "<run-root>/definitions/scenario.json" \
-  --output-root "<run-root>/capture" \
-  --profile high_rate_authoring \
-  --sample-interval-seconds 0.05 \
-  --json
-```
+- Claude: `$houmao-dev-launch-agents use launch-claude-code ...`
+- Codex: `$houmao-dev-launch-agents use launch-codex ...`
+- Kimi: `$houmao-dev-launch-agents use launch-kimi-code ...`
 
-The driver launches a normal provider TUI in unattended mode, records managed input and runtime evidence, and writes `drive_events.ndjson`. Verify the resolved recipe and prompt mode in the captured manifests.
+Pass the test-project workdir, unattended posture, a unique tmux session name, and `<run-root>/launch/` as the requested launch-artifact location. Do not reconstruct or bypass the selected provider command. Require the delegated result to identify a verified live tmux session and pane before starting the recorder. Copy or reference its non-secret launch metadata from the test report.
 
-### Existing Tmux Session
+When the user supplies an already-running agent session, verify that it was launched through `houmao-dev-launch-agents` for this test. If its launch provenance is unavailable, launch a fresh session through that skill rather than adopting it.
 
-When the agent has already been launched by a different supported workflow, discover its exact pane and use the generic recorder:
+### Record the Delegated Tmux Session
+
+Use the exact session and pane returned by the launch skill:
 
 ```bash
 pixi run python -m tools.terminal_record start \
@@ -68,12 +65,13 @@ pixi run python -m tools.terminal_record start \
 
 Use the recorder-owned attach path or Houmao-managed `send-keys` so input events remain attributable. Stop explicitly with `tools.terminal_record stop` after the final settled hold.
 
+The shared TUI demo's `recorded-capture` command owns provider launch, so do not invoke it from this skill. Use its tracker-blind scenario action vocabulary as planning guidance, then drive the delegated pane through recorder-owned or Houmao-managed input surfaces. If a future maintained interface accepts an externally launched session, it may replace the run-local driver without changing launch ownership.
+
 ## Unattended and Provider Rules
 
 - Use prompt mode `unattended` for every provider.
 - A confirmation UI is a test failure or explicit upstream exception, not a routine operator step.
-- For Codex, export `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lowercase equivalents with `http://127.0.0.1:7990` before preflight and launch.
-- Use the repository's maintained local auth bundle defaults. Never copy secret values into task definitions, manifests, logs, or reports.
+- Let `houmao-dev-launch-agents` resolve provider credentials, launchers, and Codex proxy settings. Never copy secret values into task definitions, manifests, logs, or reports.
 - Do not add Gemini CLI cases.
 
 ## Freeze Gate
@@ -90,6 +88,7 @@ Before `label` or `replay`:
 
 - `definitions/task.md`
 - optional `definitions/scenario.json`
+- `launch/launch.json` and `launch/launch-report.md`, or an explicit reference to the delegated launch artifacts
 - `capture/recording/manifest.json`
 - `capture/recording/pane_snapshots.ndjson`
 - `capture/recording/input_events.ndjson`

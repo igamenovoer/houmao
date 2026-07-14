@@ -2,7 +2,7 @@
 
 ## Workflow
 
-1. **Plan and record** with `record`, producing a stopped and digested 20 Hz source capture.
+1. **Plan, delegate launch, and record** with `record`, using `houmao-dev-launch-agents` and producing a stopped and digested 20 Hz source capture.
 2. **Label blindly** with `label`, producing complete, independently frozen public-state ground truth.
 3. **Replay** the source and declared cadence matrix with `replay` only after label freeze.
 4. **Compare** canonical exact results and cadence-aware semantic results with `compare`.

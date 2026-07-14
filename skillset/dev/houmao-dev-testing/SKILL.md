@@ -19,9 +19,10 @@ Do not use it for ordinary agent work, headless-only tests with no TUI state que
 
 1. **Resolve the repository, task description, provider, test project, and fresh run root.** Read [references/artifact-contract.md](references/artifact-contract.md).
 2. **Select a public subcommand** from **Subcommands** and verify its predecessor artifacts.
-3. **Enforce the evidence boundary.** Use only Claude, Codex, or Kimi in unattended mode; freeze the high-rate recording and manual labels before computing tracker output.
-4. **Execute the selected subcommand workflow** from its linked command page, using current project interfaces from [references/project-interfaces.md](references/project-interfaces.md).
-5. **Verify and report the artifacts.** Include provider/version, recording and label digests, replay cadence and seed, comparison kind, video metadata, incomplete obligations, and exact paths.
+3. **Delegate every required agent launch.** Invoke the matching `houmao-dev-launch-agents` provider subcommand and consume its verified tmux session; do not resolve provider credentials, proxy settings, or launch commands in this skill.
+4. **Enforce the evidence boundary.** Use only Claude, Codex, or Kimi in unattended mode; freeze the high-rate recording and manual labels before computing tracker output.
+5. **Execute the selected subcommand workflow** from its linked command page, using current project interfaces from [references/project-interfaces.md](references/project-interfaces.md).
+6. **Verify and report the artifacts.** Include provider/version, delegated launch evidence, recording and label digests, replay cadence and seed, comparison kind, video metadata, incomplete obligations, and exact paths.
 
 If the task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this skill's subcommands, evidence rules, and artifact contracts, then execute the plan.
 
@@ -35,7 +36,7 @@ These are skill subcommands, not shell commands. Preferred forms are `$houmao-de
 
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `record` | Turn a task or use case into a launched unattended TUI session and immutable high-rate tmux recording | [commands/record.md](commands/record.md) |
+| `record` | Turn a task or use case into an immutable high-rate recording of a TUI launched through `houmao-dev-launch-agents` | [commands/record.md](commands/record.md) |
 | `label` | Review raw evidence without tracker output and author complete public-state ground truth | [commands/label.md](commands/label.md) |
 | `replay` | Run the current tracker over the source recording and deterministic lower or irregular cadence variants | [commands/replay.md](commands/replay.md) |
 | `compare` | Compare replay with ground truth using strict canonical and cadence-aware semantic contracts | [commands/compare.md](commands/compare.md) |
@@ -60,7 +61,7 @@ No helper subcommands are currently exposed.
 - Do not inspect `state_observed*.ndjson`, tracker logs, detector traces, gateway TUI state, or live Houmao tracking while authoring ground truth.
 - Ground truth targets the seven public tracked-state fields in [references/state-labeling.md](references/state-labeling.md), not detector internals or deprecated readiness/completion projections.
 - Treat a confirmation prompt in an unattended run as a failed or incomplete test unless the upstream CLI hard-codes the intervention and exposes no setting to skip it. Record the exception; do not silently click through it.
-- Never add Gemini CLI to the matrix. For Codex live tests, use the proxy at `127.0.0.1:7990` and record only proxy names/URL, never credential values.
+- Never add Gemini CLI to the matrix. Route all Claude, Codex, and Kimi launches through `houmao-dev-launch-agents`; provider credentials, launchers, and proxy posture belong to that skill.
 - Preserve failed and partial attempts. A rerun gets a new attempt or run root.
 
 ## Common Mistakes
@@ -70,3 +71,4 @@ No helper subcommands are currently exposed.
 - Calling every downsampled field mismatch a bug. Canonical replay is sample-exact; varied-cadence replay is judged by source mapping, transition meaning, admission safety, and bounded timing drift.
 - Equating a visible composer with prompt readiness. A CLI may accept typed text while the current turn remains active and would queue a submitted prompt.
 - Rendering only an MP4 and discarding the machine evidence. Keep the manifest, timelines, comparison, video metadata, and hashes together.
+- Calling a launch-owning demo or provider CLI directly. Delegate launch first, then target the returned tmux pane with the recorder.

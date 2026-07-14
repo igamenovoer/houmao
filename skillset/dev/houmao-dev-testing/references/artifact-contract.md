@@ -17,6 +17,9 @@ tmp/houmao-dev-testing/<run-id>/
 ├── definitions/
 │   ├── task.md
 │   └── scenario.json
+├── launch/
+│   ├── launch.json
+│   └── launch-report.md
 ├── capture/
 │   ├── fixture_manifest.json
 │   ├── capture_manifest.json
@@ -47,12 +50,13 @@ tmp/houmao-dev-testing/<run-id>/
 └── report.md
 ```
 
-`scenario.json` is optional for manually driven tests. The capture demo owns several files under `capture/`; do not duplicate them elsewhere just to make the tree exact.
+`scenario.json` is optional for manually driven tests. When `houmao-dev-launch-agents` writes artifacts outside this run root, store an explicit non-secret reference under `launch/` rather than copying or editing authoritative launch evidence.
 
 ## Authority
 
 | Artifact | Authority |
 | --- | --- |
+| `launch/launch.json` or delegated launch reference | Provider strategy, workdir, and tmux launch provenance |
 | `pane_snapshots.ndjson` | Machine replay source of truth |
 | `input_events.ndjson` | Input timing/source evidence when capture level permits |
 | `runtime_observations.ndjson` | Tmux, pane, and supported-process liveness evidence |
