@@ -1,0 +1,6 @@
+interface:
+  display_name: "Houmao Dev Launch Agents"
+  short_description: "Launch Codex, Claude, or Kimi development TUIs"
+  default_prompt: "Use $houmao-dev-launch-agents use help to see provider subcommands, or use launch-codex, launch-claude-code, or launch-kimi-code to start a local development TUI in tmux."
+policy:
+  allow_implicit_invocation: false
