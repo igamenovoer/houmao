@@ -133,7 +133,6 @@ def test_easy_profile_env_reaches_codex_tui_tmux_session(
             [
                 "--print-json",
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -156,7 +155,6 @@ def test_easy_profile_env_reaches_codex_tui_tmux_session(
             [
                 "--print-json",
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -189,8 +187,7 @@ def test_easy_profile_env_reaches_codex_tui_tmux_session(
             [
                 "--print-json",
                 "project",
-                "easy",
-                "instance",
+                "agents",
                 "launch",
                 "--profile",
                 "proxy-profile",

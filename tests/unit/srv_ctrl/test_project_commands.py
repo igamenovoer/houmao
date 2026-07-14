@@ -163,7 +163,7 @@ def _create_codex_specialist(
     credential: str,
     auth_json_path: Path,
 ) -> None:
-    """Create one Codex-backed easy specialist for project command tests."""
+    """Create one Codex-backed specialist for project command tests."""
 
     result = runner.invoke(
         cli,
@@ -1888,7 +1888,7 @@ def test_native_agent_recipes_add_rejects_negative_reasoning_level(
     assert "--reasoning-level" in result.output
 
 
-def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_artifacts(
+def test_project_specialist_create_list_get_and_remove_preserves_shared_artifacts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1963,7 +1963,7 @@ def test_project_easy_specialist_create_list_get_and_remove_preserves_shared_art
     assert json.loads(list_after_remove.output)["specialists"] == []
 
 
-def test_project_easy_specialist_create_allows_promptless_specialist(
+def test_project_specialist_create_allows_promptless_specialist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2001,7 +2001,7 @@ def test_project_easy_specialist_create_allows_promptless_specialist(
     assert prompt_path.read_text(encoding="utf-8") == ""
 
 
-def test_project_easy_specialist_stores_and_clears_system_skill_policy(
+def test_project_specialist_stores_and_clears_system_skill_policy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2074,7 +2074,7 @@ def test_project_easy_specialist_stores_and_clears_system_skill_policy(
     assert "system_skills" not in preset_payload_after_clear["launch"]
 
 
-def test_project_easy_specialist_rejects_removed_system_skill_selector(
+def test_project_specialist_rejects_removed_system_skill_selector(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2112,7 +2112,7 @@ def test_project_easy_specialist_rejects_removed_system_skill_selector(
     assert get_result.exit_code != 0
 
 
-def test_project_easy_specialist_list_fails_without_bootstrapping_missing_overlay(
+def test_project_specialist_list_fails_without_bootstrapping_missing_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2129,7 +2129,7 @@ def test_project_easy_specialist_list_fails_without_bootstrapping_missing_overla
     assert not (repo_root / ".houmao").exists()
 
 
-def test_project_easy_specialist_create_can_persist_as_is_opt_out(
+def test_project_specialist_create_can_persist_as_is_opt_out(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2469,7 +2469,7 @@ def test_project_credentials_rename_preserves_identity_and_updates_launch_profil
     assert launch_profile_payload["defaults"]["auth"] == "breakglass"
 
 
-def test_project_easy_specialist_get_derives_current_auth_display_name_after_credential_rename(
+def test_project_specialist_get_derives_current_auth_display_name_after_credential_rename(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2544,7 +2544,7 @@ def test_project_easy_specialist_get_derives_current_auth_display_name_after_cre
     assert recipe_payload["auth"] == "breakglass"
 
 
-def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
+def test_project_specialist_create_supports_claude_oauth_token_lane(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2591,7 +2591,7 @@ def test_project_easy_specialist_create_supports_claude_oauth_token_lane(
     assert specialist_payload["launch"] == {"prompt_mode": "unattended"}
 
 
-def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_state_template(
+def test_project_specialist_create_supports_claude_config_dir_lane_without_state_template(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2648,7 +2648,7 @@ def test_project_easy_specialist_create_supports_claude_config_dir_lane_without_
     }
 
 
-def test_project_easy_specialist_create_persists_unified_model_config(
+def test_project_specialist_create_persists_unified_model_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2702,7 +2702,7 @@ def test_project_easy_specialist_create_persists_unified_model_config(
     }
 
 
-def test_project_easy_specialist_create_prompts_before_replacing_existing_specialist(
+def test_project_specialist_create_prompts_before_replacing_existing_specialist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2773,7 +2773,7 @@ def test_project_easy_specialist_create_prompts_before_replacing_existing_specia
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
 
-def test_project_easy_specialist_create_noninteractive_conflict_requires_yes(
+def test_project_specialist_create_noninteractive_conflict_requires_yes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2832,7 +2832,7 @@ def test_project_easy_specialist_create_noninteractive_conflict_requires_yes(
     assert prompt_path.read_text(encoding="utf-8") == "Initial prompt\n"
 
 
-def test_project_easy_specialist_create_yes_replaces_existing_specialist(
+def test_project_specialist_create_yes_replaces_existing_specialist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2903,7 +2903,7 @@ def test_project_easy_specialist_create_yes_replaces_existing_specialist(
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
 
-def test_project_easy_specialist_create_with_skill_preserves_registered_symlink_source(
+def test_project_specialist_create_with_skill_preserves_registered_symlink_source(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2963,7 +2963,7 @@ def test_project_easy_specialist_create_with_skill_preserves_registered_symlink_
     assert json.loads(get_result.output)["skills"] == ["notes"]
 
 
-def test_project_easy_specialist_create_persists_env_records(
+def test_project_specialist_create_persists_env_records(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3018,7 +3018,7 @@ def test_project_easy_specialist_create_persists_env_records(
     assert specialist_payload["launch"] == preset_payload["launch"]
 
 
-def test_project_easy_specialist_set_patches_prompt_skills_and_launch_payload(
+def test_project_specialist_set_patches_prompt_skills_and_launch_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3122,7 +3122,7 @@ def test_project_easy_specialist_set_patches_prompt_skills_and_launch_payload(
     assert (repo_root / ".houmao" / "agents" / "skills" / "notes" / "SKILL.md").is_file()
 
 
-def test_project_easy_specialist_set_with_skill_preserves_registered_symlink_source(
+def test_project_specialist_set_with_skill_preserves_registered_symlink_source(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3189,7 +3189,7 @@ def test_project_easy_specialist_set_with_skill_preserves_registered_symlink_sou
     assert json.loads(set_result.output)["skills"] == ["notes"]
 
 
-def test_project_easy_specialist_set_changes_setup_and_removes_old_projection_preset(
+def test_project_specialist_set_changes_setup_and_removes_old_projection_preset(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3247,7 +3247,7 @@ def test_project_easy_specialist_set_changes_setup_and_removes_old_projection_pr
     assert new_preset_path.is_file()
 
 
-def test_project_easy_specialist_set_rejects_empty_and_credential_owned_env_updates(
+def test_project_specialist_set_rejects_empty_and_credential_owned_env_updates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3300,7 +3300,7 @@ def test_project_easy_specialist_set_rejects_empty_and_credential_owned_env_upda
     assert "belongs to credential env" in env_result.output
 
 
-def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_state(
+def test_project_specialist_set_adds_existing_skill_and_clears_optional_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3406,7 +3406,7 @@ def test_project_easy_specialist_set_adds_existing_skill_and_clears_optional_sta
     assert (repo_root / ".houmao" / "agents" / "skills" / "docs" / "SKILL.md").is_file()
 
 
-def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
+def test_project_specialist_set_rejects_missing_refs_and_tool_mutation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3483,7 +3483,7 @@ def test_project_easy_specialist_set_rejects_missing_refs_and_tool_mutation(
     assert "--tool" in tool_result.output
 
 
-def test_project_easy_specialist_create_persists_non_default_setup(
+def test_project_specialist_create_persists_non_default_setup(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3528,7 +3528,7 @@ def test_project_easy_specialist_create_persists_non_default_setup(
 
 
 @pytest.mark.parametrize("tool_name", ["claude", "codex", "kimi"])
-def test_project_easy_specialist_create_persists_default_setup_for_supported_tools(
+def test_project_specialist_create_persists_default_setup_for_supported_tools(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     tool_name: str,
@@ -3562,7 +3562,7 @@ def test_project_easy_specialist_create_persists_default_setup_for_supported_too
     assert payload["generated"]["preset"].endswith(f"/researcher-{tool_name}-default.yaml")
 
 
-def test_project_easy_instance_launch_allows_kimi_without_headless(
+def test_project_agents_launch_allows_kimi_without_headless(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3631,7 +3631,7 @@ def test_project_easy_instance_launch_allows_kimi_without_headless(
     )
 
 
-def test_project_easy_instance_launch_preserves_explicit_kimi_headless(
+def test_project_agents_launch_preserves_explicit_kimi_headless(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3694,7 +3694,7 @@ def test_project_easy_instance_launch_preserves_explicit_kimi_headless(
     assert captured["headless"] is True
 
 
-def test_project_easy_instance_launch_allows_kimi_profile_without_headless(
+def test_project_agents_launch_allows_kimi_profile_without_headless(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3763,7 +3763,7 @@ def test_project_easy_instance_launch_allows_kimi_profile_without_headless(
     assert captured["headless"] is False
 
 
-def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:
+def test_project_agents_launch_rejects_removed_yolo_flag(tmp_path: Path) -> None:
     runner = CliRunner()
 
     result = runner.invoke(
@@ -3785,7 +3785,7 @@ def test_project_easy_instance_launch_rejects_removed_yolo_flag(tmp_path: Path) 
     assert "--yolo" in result.output
 
 
-def test_project_easy_instance_launch_uses_stored_specialist_setup(
+def test_project_agents_launch_uses_stored_specialist_setup(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3873,7 +3873,7 @@ def test_project_easy_instance_launch_uses_stored_specialist_setup(
         ("symlink", "Version 2 from live source."),
     ],
 )
-def test_project_easy_instance_launch_uses_registered_project_skill_projection(
+def test_project_agents_launch_uses_registered_project_skill_projection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     mode: str,
@@ -3980,7 +3980,7 @@ def test_project_easy_instance_launch_uses_registered_project_skill_projection(
     assert expected_skill_marker in str(captured["projected_skill_text"])
 
 
-def test_project_easy_instance_launch_reloads_symlink_project_skill_after_source_edit(
+def test_project_agents_launch_reloads_symlink_project_skill_after_source_edit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4087,7 +4087,7 @@ def test_project_easy_instance_launch_reloads_symlink_project_skill_after_source
     ]
 
 
-def test_project_easy_specialist_create_rejects_credential_owned_env_names(
+def test_project_specialist_create_rejects_credential_owned_env_names(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4123,7 +4123,7 @@ def test_project_easy_specialist_create_rejects_credential_owned_env_names(
     assert "belongs to credential env" in result.output
 
 
-def test_project_easy_specialist_create_fails_when_default_bundle_is_missing(
+def test_project_specialist_create_fails_when_default_bundle_is_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4459,7 +4459,7 @@ def test_project_agents_launch_profiles_reject_conflicting_memo_seed_inputs(
     )
 
 
-def test_project_easy_profile_crud_round_trip(
+def test_project_profile_crud_round_trip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4601,7 +4601,7 @@ def test_project_easy_profile_crud_round_trip(
     )
 
 
-def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
+def test_project_profile_stores_patches_and_disables_system_skill_policy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4684,7 +4684,7 @@ def test_project_easy_profile_stores_patches_and_disables_system_skill_policy(
     assert "`--no-system-skills` cannot be combined" in invalid_result.output
 
 
-def test_project_easy_profile_rejects_removed_system_skill_selector(
+def test_project_profile_rejects_removed_system_skill_selector(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4715,7 +4715,7 @@ def test_project_easy_profile_rejects_removed_system_skill_selector(
     assert not (repo_root / ".houmao" / "agents" / "launch-profiles" / "alice.yaml").exists()
 
 
-def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
+def test_project_profile_set_patches_defaults_and_preserves_prompt_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4842,7 +4842,7 @@ def test_project_easy_profile_set_patches_defaults_and_preserves_prompt_overlay(
     assert "gateway_mail_notifier_appendix" not in clear_appendix_payload["defaults"]
 
 
-def test_project_easy_profile_set_updates_and_clears_memo_seed(
+def test_project_profile_set_updates_and_clears_memo_seed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4914,7 +4914,7 @@ def test_project_easy_profile_set_updates_and_clears_memo_seed(
     assert "memo_seed" not in clear_payload["defaults"]
 
 
-def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
+def test_project_profile_set_rejects_invalid_memo_seed_updates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -4973,7 +4973,7 @@ def test_project_easy_profile_set_rejects_invalid_memo_seed_updates(
     assert "--memo-seed-policy" in removed_option_result.output
 
 
-def test_project_easy_profile_create_yes_replaces_and_clears_omitted_defaults(
+def test_project_profile_create_yes_replaces_and_clears_omitted_defaults(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5497,7 +5497,7 @@ def test_project_launch_profiles_wrong_lane_operations_redirect_to_easy_profile(
 @pytest.mark.skip(
     reason="Raw project launch-profile path retired; cross-lane project checks no longer apply."
 )
-def test_project_easy_profile_wrong_lane_operations_redirect_to_explicit_profile(
+def test_project_profile_wrong_lane_operations_redirect_to_explicit_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5605,7 +5605,7 @@ def test_project_launch_profiles_list_adds_note_when_only_easy_profiles_exist(
 @pytest.mark.skip(
     reason="Raw project launch-profile path retired; project profile list notes changed."
 )
-def test_project_easy_profile_list_adds_note_when_only_explicit_profiles_exist(
+def test_project_profile_list_adds_note_when_only_explicit_profiles_exist(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5639,7 +5639,7 @@ def test_project_easy_profile_list_adds_note_when_only_explicit_profiles_exist(
     assert "internals native-agent launch-dossiers list" in payload["note"]
 
 
-def test_project_easy_profile_set_without_updates_fails_without_mutation(
+def test_project_profile_set_without_updates_fails_without_mutation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5787,7 +5787,7 @@ def test_project_launch_profile_skill_overlays_do_not_register_private_skills(
     }
 
 
-def test_project_easy_profile_private_skill_symlink_can_be_added_and_removed(
+def test_project_profile_private_skill_symlink_can_be_added_and_removed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -5948,7 +5948,7 @@ def test_project_launch_profile_rejects_removed_persist_options(
     assert "--clear-persist-dir" in cleared_result.output
 
 
-def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
+def test_project_agents_launch_uses_profile_defaults_and_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6127,7 +6127,7 @@ def test_project_easy_instance_launch_uses_profile_defaults_and_overrides(
 
 
 @pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
-def test_project_easy_instance_launch_kimi_specialist_preserves_tui_prompt_mode(
+def test_project_agents_launch_kimi_specialist_preserves_tui_prompt_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     prompt_mode: str,
@@ -6197,7 +6197,7 @@ def test_project_easy_instance_launch_kimi_specialist_preserves_tui_prompt_mode(
 
 
 @pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
-def test_project_easy_instance_launch_kimi_profile_preserves_tui_prompt_mode(
+def test_project_agents_launch_kimi_profile_preserves_tui_prompt_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     prompt_mode: str,
@@ -6421,7 +6421,7 @@ def test_project_launch_profile_set_can_clear_managed_header_policy(
     assert json.loads(set_result.output)["defaults"]["managed_header"] == "inherit"
 
 
-def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
+def test_project_profile_set_can_store_and_clear_managed_header_sections(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6511,7 +6511,7 @@ def test_project_easy_profile_set_can_store_and_clear_managed_header_sections(
     assert "managed_header_sections" not in json.loads(clear_all_result.output)["defaults"]
 
 
-def test_project_easy_instance_launch_forwards_managed_header_override(
+def test_project_agents_launch_forwards_managed_header_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6603,7 +6603,7 @@ def test_project_easy_instance_launch_forwards_managed_header_override(
     assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
 
 
-def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
+def test_project_agents_launch_derives_provider_and_mailbox_flags(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6708,7 +6708,7 @@ def test_project_easy_instance_launch_derives_provider_and_mailbox_flags(
     assert emitted["headless"] is True
 
 
-def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points_elsewhere(
+def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewhere(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6789,7 +6789,7 @@ def test_project_easy_instance_launch_keeps_selected_overlay_when_workdir_points
     )
 
 
-def test_project_easy_instance_launch_help_exposes_workdir() -> None:
+def test_project_agents_launch_help_exposes_workdir() -> None:
     result = CliRunner().invoke(cli, ["project", "agents", "launch", "--help"])
 
     assert result.exit_code == 0, result.output
@@ -6802,7 +6802,7 @@ def test_project_easy_instance_launch_help_exposes_workdir() -> None:
     assert "--gateway-tui-final-stable-active-recovery-seconds FLOAT RANGE" in result.output
 
 
-def test_project_easy_instance_launch_no_gateway_opt_out(
+def test_project_agents_launch_no_gateway_opt_out(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6878,7 +6878,7 @@ def test_project_easy_instance_launch_no_gateway_opt_out(
     assert captured["gateway_execution_mode"] is None
 
 
-def test_project_easy_instance_launch_gateway_port_override(
+def test_project_agents_launch_gateway_port_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -6955,7 +6955,7 @@ def test_project_easy_instance_launch_gateway_port_override(
     assert captured["gateway_execution_mode"] == "tmux_auxiliary_window"
 
 
-def test_project_easy_instance_launch_gateway_background_override(
+def test_project_agents_launch_gateway_background_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7031,7 +7031,7 @@ def test_project_easy_instance_launch_gateway_background_override(
     assert captured["gateway_execution_mode"] == "detached_process"
 
 
-def test_project_easy_instance_launch_gateway_background_override_forces_attach_when_easy_profile_defaults_disable_gateway(
+def test_project_agents_launch_gateway_background_override_forces_attach_when_easy_profile_defaults_disable_gateway(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7123,7 +7123,7 @@ def test_project_easy_instance_launch_gateway_background_override_forces_attach_
     assert captured["gateway_execution_mode"] == "detached_process"
 
 
-def test_project_easy_instance_launch_gateway_tui_timing_overrides(
+def test_project_agents_launch_gateway_tui_timing_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7210,7 +7210,7 @@ def test_project_easy_instance_launch_gateway_tui_timing_overrides(
     assert timings.completion_stability_seconds is None
 
 
-def test_project_easy_instance_launch_rejects_no_gateway_with_tui_timing_override(
+def test_project_agents_launch_rejects_no_gateway_with_tui_timing_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7272,7 +7272,7 @@ def test_project_easy_instance_launch_rejects_no_gateway_with_tui_timing_overrid
     assert launch_calls == []
 
 
-def test_project_easy_instance_launch_resolves_one_off_env_set(
+def test_project_agents_launch_resolves_one_off_env_set(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7352,7 +7352,7 @@ def test_project_easy_instance_launch_resolves_one_off_env_set(
     }
 
 
-def test_project_easy_instance_launch_rejects_conflicting_gateway_flags(
+def test_project_agents_launch_rejects_conflicting_gateway_flags(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7418,7 +7418,7 @@ def test_project_easy_instance_launch_rejects_conflicting_gateway_flags(
     assert launch_called is False
 
 
-def test_project_easy_instance_launch_rejects_no_gateway_with_gateway_background(
+def test_project_agents_launch_rejects_no_gateway_with_gateway_background(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7729,7 +7729,7 @@ def test_emit_local_launch_completion_reports_gateway_attach_failure_and_exits_t
     ]
 
 
-def test_project_easy_instance_launch_requires_specialist_and_name(
+def test_project_agents_launch_requires_specialist_and_name(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7782,7 +7782,7 @@ def test_project_easy_instance_launch_requires_specialist_and_name(
     assert "`project agents launch --specialist` requires `--name`." in missing_name.output
 
 
-def test_project_easy_instance_launch_rejects_email_transport(
+def test_project_agents_launch_rejects_email_transport(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7837,7 +7837,7 @@ def test_project_easy_instance_launch_rejects_email_transport(
     assert "not implemented yet" in result.output
 
 
-def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
+def test_project_agents_launch_filesystem_in_root_requires_mail_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7933,7 +7933,7 @@ def test_project_easy_instance_launch_filesystem_in_root_requires_mail_root(
     assert captured["mailbox_account_dir"] is None
 
 
-def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
+def test_project_agents_launch_bare_force_forwards_keep_stale(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7998,7 +7998,7 @@ def test_project_easy_instance_launch_bare_force_forwards_keep_stale(
     assert captured["force_mode"] == "keep-stale"
 
 
-def test_project_easy_instance_launch_forwards_reuse_home(
+def test_project_agents_launch_forwards_reuse_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8063,7 +8063,7 @@ def test_project_easy_instance_launch_forwards_reuse_home(
     assert captured["reuse_home"] is True
 
 
-def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_clearly(
+def test_project_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8121,7 +8121,7 @@ def test_project_easy_instance_launch_reuse_home_missing_home_failure_surfaces_c
     assert "requires one compatible stopped preserved home" in result.output
 
 
-def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
+def test_project_agents_launch_profile_forwards_clean_force_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8215,7 +8215,7 @@ def test_project_easy_instance_launch_profile_forwards_clean_force_mode(
     assert captured["launch_profile_managed_header_section_policy"] == {"mail-ack": "enabled"}
 
 
-def test_project_easy_instance_launch_profile_forwards_reuse_home_with_current_profile_inputs(
+def test_project_agents_launch_profile_forwards_reuse_home_with_current_profile_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8312,7 +8312,7 @@ def test_project_easy_instance_launch_profile_forwards_reuse_home_with_current_p
     assert captured["launch_profile_model_config"].reasoning.level == 4
 
 
-def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_delegation(
+def test_project_agents_launch_rejects_reuse_home_clean_force_before_delegation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8343,7 +8343,7 @@ def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_dele
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally",
         lambda **kwargs: pytest.fail(
-            "easy launch should not delegate `--reuse-home --force clean`"
+            "project-agent launch should not delegate `--reuse-home --force clean`"
         ),
     )
 
@@ -8368,7 +8368,7 @@ def test_project_easy_instance_launch_rejects_reuse_home_clean_force_before_dele
     assert "`--reuse-home` is incompatible with `--force clean`" in result.output
 
 
-def test_project_easy_instance_stop_checks_overlay_and_delegates(
+def test_project_agents_stop_checks_overlay_and_delegates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8439,7 +8439,7 @@ def test_project_easy_instance_stop_checks_overlay_and_delegates(
     )
 
 
-def test_project_easy_instance_stop_fails_without_bootstrapping_missing_overlay(
+def test_project_agents_stop_fails_without_bootstrapping_missing_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8456,7 +8456,7 @@ def test_project_easy_instance_stop_fails_without_bootstrapping_missing_overlay(
     assert not (repo_root / ".houmao").exists()
 
 
-def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
+def test_project_agents_stop_rejects_instances_from_other_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8502,7 +8502,7 @@ def test_project_easy_instance_stop_rejects_instances_from_other_overlay(
     assert "does not belong to the selected project overlay" in result.output
 
 
-def test_project_easy_instance_list_and_get_use_runtime_state(
+def test_project_agents_list_and_get_use_runtime_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

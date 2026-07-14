@@ -66,8 +66,8 @@ def _seed_role(agent_def_dir: Path) -> None:
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
 
 
-def _create_easy_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Path) -> None:
-    """Bootstrap one project and create one easy specialist for launch tests."""
+def _create_project_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Path) -> None:
+    """Bootstrap one project and create one specialist for launch tests."""
 
     auth_json_path = (tmp_path / "auth.json").resolve()
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
@@ -80,7 +80,6 @@ def _create_easy_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Pat
         [
             "--print-json",
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -927,17 +926,17 @@ def test_houmao_mgr_project_status_supports_cwd_only_discovery_mode_in_subproces
     )
 
 
-def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to_foreground(
+def test_houmao_mgr_project_agents_launch_defaults_gateway_auto_attach_to_foreground(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Easy launch should default gateway auto-attach to foreground execution."""
+    """Project-agent launch should default gateway auto-attach to foreground execution."""
 
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
-    _create_easy_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
+    _create_project_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
 
     captured: dict[str, object] = {}
 
@@ -964,8 +963,7 @@ def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -980,17 +978,17 @@ def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to
     assert captured["gateway_execution_mode"] == "tmux_auxiliary_window"
 
 
-def test_houmao_mgr_project_easy_instance_launch_supports_gateway_background_override(
+def test_houmao_mgr_project_agents_launch_supports_gateway_background_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Easy launch should allow detached gateway execution as an explicit override."""
+    """Project-agent launch should allow detached gateway execution as an override."""
 
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
-    _create_easy_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
+    _create_project_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
 
     captured: dict[str, object] = {}
 
@@ -1017,8 +1015,7 @@ def test_houmao_mgr_project_easy_instance_launch_supports_gateway_background_ove
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",

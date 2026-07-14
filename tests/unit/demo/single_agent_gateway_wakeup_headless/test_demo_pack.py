@@ -351,64 +351,6 @@ def test_attach_gateway_can_request_foreground_window(
     ]
 
 
-def test_launch_instance_uses_headless_project_easy_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
-    paths.project_dir.mkdir(parents=True)
-
-    captured: dict[str, object] = {}
-
-    def fake_run_command(command: object, **kwargs: object) -> runtime.CommandResult:
-        captured["command"] = command
-        captured.update(kwargs)
-        return runtime.CommandResult(
-            args=tuple(str(part) for part in command),
-            returncode=0,
-            stdout='{"manifest_path": "/tmp/demo-manifest.json"}\n',
-            stderr="",
-            stdout_path=paths.logs_dir / "instance-launch.stdout",
-            stderr_path=paths.logs_dir / "instance-launch.stderr",
-        )
-
-    monkeypatch.setattr(runtime, "run_command", fake_run_command)
-
-    payload = runtime.launch_instance(
-        paths=paths,
-        env={},
-        specialist_name="single-headless-mail-codex",
-        instance_name="single-headless-mail-codex-demo",
-        session_name="hm-single-headless-mail-codex-demo",
-        mail_root=(paths.overlay_dir / "mailbox").resolve(),
-        timeout_seconds=30.0,
-    )
-
-    command = captured["command"]
-    assert command == [
-        "pixi",
-        "run",
-        "houmao-mgr",
-        "--print-json",
-        "project",
-        "easy",
-        "instance",
-        "launch",
-        "--specialist",
-        "single-headless-mail-codex",
-        "--name",
-        "single-headless-mail-codex-demo",
-        "--session-name",
-        "hm-single-headless-mail-codex-demo",
-        "--headless",
-        "--mail-transport",
-        "filesystem",
-        "--mail-root",
-        str((paths.overlay_dir / "mailbox").resolve()),
-    ]
-    assert payload["manifest_path"] == "/tmp/demo-manifest.json"
-
-
 def test_capture_gateway_console_uses_authoritative_gateway_window(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
