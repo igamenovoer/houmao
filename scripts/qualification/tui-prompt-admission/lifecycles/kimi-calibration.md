@@ -19,7 +19,7 @@ The `3-pending-long` manifest marks the final `wait_for_pattern: pending` step a
 
 ## Calibration Status
 
-Not yet calibrated. Run a capture and update this file with the observed Kimi Code version and the exact pending-signature text.
+Pending regex is based on the queued composer line (`❯ <prompt>`) and the edit/steer hints. The `active` pattern matches tool and command turns but not pure text-generation turns; the status-bar "thinking" label is a static model/thinking-effort suffix and is not a reliable activity indicator. Count-targeted manifests mark the post-pending `active` wait as `non_fatal_on_timeout` so text-generation turns do not abort the capture.
 
 ## Procedure
 

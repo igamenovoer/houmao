@@ -94,7 +94,8 @@
       "kind": "wait_for_pattern",
       "pattern": "active",
       "timeout_seconds": 90,
-      "required": true
+      "required": true,
+      "non_fatal_on_timeout": true
     },
     {
       "kind": "wait_for_pattern_absent",

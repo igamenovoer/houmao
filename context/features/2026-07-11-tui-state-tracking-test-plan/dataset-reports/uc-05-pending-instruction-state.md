@@ -50,19 +50,21 @@ The `pending_count` field extends the original UC-05 dataset to capture cases wi
 
 ### Count-Targeted Manifests
 
-| Provider | Manifest | Target pending count | Long prompt | Run root pattern |
-|---|---|---:|---|---|
-| Claude Code | `claude-1-pending.json` | 1 | no | `tmp/houmao-dev-testing/20260714-claude-1-pending` |
-| Claude Code | `claude-2-pending.json` | 2 | no | `tmp/houmao-dev-testing/20260714-claude-2-pending` |
-| Claude Code | `claude-3-pending-long.json` | 3 | yes | `tmp/houmao-dev-testing/20260714-claude-3-pending-long` |
-| Codex CLI | `codex-1-pending.json` | 1 | no | `tmp/houmao-dev-testing/20260714-codex-1-pending` |
-| Codex CLI | `codex-2-pending.json` | 2 | no | `tmp/houmao-dev-testing/20260714-codex-2-pending` |
-| Codex CLI | `codex-3-pending-long.json` | 3 | yes | `tmp/houmao-dev-testing/20260714-codex-3-pending-long` |
-| Kimi Code | `kimi-1-pending.json` | 1 | no | `tmp/houmao-dev-testing/20260714-kimi-1-pending` |
-| Kimi Code | `kimi-2-pending.json` | 2 | no | `tmp/houmao-dev-testing/20260714-kimi-2-pending` |
-| Kimi Code | `kimi-3-pending-long.json` | 3 | yes | `tmp/houmao-dev-testing/20260714-kimi-3-pending-long` |
+| Provider | Manifest | Target | Observed | Status | Usable attempt | Total samples | Pending samples |
+|---|---|---:|---:|---|---|---|---:|
+| Claude Code | `claude-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-claude-1-pending/claude-attempt-001` | 1,595 | 1,004 |
+| Claude Code | `claude-2-pending.json` | 2 | 1 | tainted (`pending_count_capped_at_1_target_2`) | `tmp/houmao-dev-testing/20260714-claude-2-pending/claude-attempt-001` | 71 | 30 |
+| Claude Code | `claude-3-pending-long.json` | 3 | 1 | tainted (`pending_count_capped_at_1_target_3`) | `tmp/houmao-dev-testing/20260714-claude-3-pending-long/claude-attempt-001` | 187 | 112 |
+| Codex CLI | `codex-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-codex-1-pending/codex-attempt-001` | 684 | 571 |
+| Codex CLI | `codex-2-pending.json` | 2 | 2 | success | `tmp/houmao-dev-testing/20260714-codex-2-pending/codex-attempt-001` | 1,091 | 126 |
+| Codex CLI | `codex-3-pending-long.json` | 3 | 3 | success | `tmp/houmao-dev-testing/20260714-codex-3-pending-long/codex-attempt-001` | 1,178 | 134 |
+| Kimi Code | `kimi-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-kimi-1-pending/kimi-attempt-001` | 1,495 | 919 |
+| Kimi Code | `kimi-2-pending.json` | 2 | 2 | success | `tmp/houmao-dev-testing/20260714-kimi-2-pending-v2/kimi-attempt-001` | 1,951 | 1,368 |
+| Kimi Code | `kimi-3-pending-long.json` | 3 | 3 | tainted (`pattern_timeout_non_fatal:active`) | `tmp/houmao-dev-testing/20260714-kimi-3-pending-long-v4/kimi-attempt-001` | 2,922 | 1,964 |
 
 If a provider caps its queue below the target count, the attempt is tainted with `pending_count_capped_at_N_target_M` and the evidence is still frozen. The cap is recorded in `capture/run-summary.json` and `capture/frozen-evidence.json`.
+
+Kimi Code's `active` pattern matches tool/command turns (`Running a command`, `Running tool`, `Generating`, `Esc to interrupt`) but not pure text-generation turns, where the status bar only shows the static model/thinking-effort label. The post-pending `wait_for_pattern: active` step in the count-targeted manifests is marked `non_fatal_on_timeout` so the lifecycle completes and the run is tainted with `pattern_timeout_non_fatal:active` instead of failing.
 
 ## Artifact Layout
 
@@ -203,3 +205,5 @@ pixi run tui-pending-state-capture \
 - UC-06 (`houmao-mgr gateway prompt` pending-input guard) is not yet recorded. The current runner exercises only direct tmux keystrokes and does not drive the gateway/CLI prompt-control surface.
 - Labeling is pattern-based; a human audit of `review/labels.mp4` for each provider is recommended before using the dataset to train or validate a detector.
 - Count-targeted manifests are best-effort. Provider queue-depth caps and long-prompt rendering must be verified against the exact versions used in the capture environment.
+- Claude Code caps its visible pending queue at one additional prompt; higher target counts are recorded as tainted cap evidence.
+- Kimi Code does not render a distinct active indicator for pure text-generation turns, so the post-pending `active` wait is non-fatal.

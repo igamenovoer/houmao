@@ -40,22 +40,25 @@
 ## 7. Manual capture and validation
 
 - [x] 7.1 Run one capture per provider/version for the 1-pending manifest and verify `pending_count=1`.
-- [x] 7.2 Run one capture per provider/version for the 2-pending manifest and verify `pending_count=2` (Claude caps at 1; Kimi v1 timed out, v2 reached 2).
-- [x] 7.3 Run one capture per provider/version for the 3-pending-long manifest and verify the reached count and long-prompt visibility.
+- [x] 7.2 Run one capture per provider/version for the 2-pending manifest and verify `pending_count=2` (Claude caps at 1).
+- [x] 7.3 Run one capture per provider/version for the 3-pending-long manifest and verify the reached count and long-prompt visibility (Claude caps at 1; Kimi reached 3 with non-fatal active gate).
 - [x] 7.4 Inspect each `review/labels.mp4` to confirm `pending_count` is rendered correctly.
 
-## Capture Results Summary
+## Final Capture Results
 
-| Provider | Manifest | Target | Observed | Status | Run root |
+| Provider | Manifest | Target | Observed | Status | Usable attempt |
 |---|---|---:|---:|---|---|
-| Codex CLI | `codex-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-codex-1-pending` |
-| Codex CLI | `codex-2-pending.json` | 2 | 2 | success | `tmp/houmao-dev-testing/20260714-codex-2-pending` |
-| Codex CLI | `codex-3-pending-long.json` | 3 | 3 | success | `tmp/houmao-dev-testing/20260714-codex-3-pending-long` |
-| Claude Code | `claude-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-claude-1-pending` |
-| Claude Code | `claude-2-pending.json` | 2 | 1 | tainted (`pending_count_capped_at_1_target_2`) | `tmp/houmao-dev-testing/20260714-claude-2-pending` |
-| Claude Code | `claude-3-pending-long.json` | 3 | 1 | tainted (`pending_count_capped_at_1_target_3`) | `tmp/houmao-dev-testing/20260714-claude-3-pending-long` |
-| Kimi Code | `kimi-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-kimi-1-pending` |
-| Kimi Code | `kimi-2-pending.json` | 2 | 2 | success | `tmp/houmao-dev-testing/20260714-kimi-2-pending-v2` |
-| Kimi Code | `kimi-3-pending-long.json` | 3 | TBD | in progress | `tmp/houmao-dev-testing/20260714-kimi-3-pending-long-v2` |
+| Codex CLI | `codex-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-codex-1-pending/codex-attempt-001` |
+| Codex CLI | `codex-2-pending.json` | 2 | 2 | success | `tmp/houmao-dev-testing/20260714-codex-2-pending/codex-attempt-001` |
+| Codex CLI | `codex-3-pending-long.json` | 3 | 3 | success | `tmp/houmao-dev-testing/20260714-codex-3-pending-long/codex-attempt-001` |
+| Claude Code | `claude-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-claude-1-pending/claude-attempt-001` |
+| Claude Code | `claude-2-pending.json` | 2 | 1 | tainted (`pending_count_capped_at_1_target_2`) | `tmp/houmao-dev-testing/20260714-claude-2-pending/claude-attempt-001` |
+| Claude Code | `claude-3-pending-long.json` | 3 | 1 | tainted (`pending_count_capped_at_1_target_3`) | `tmp/houmao-dev-testing/20260714-claude-3-pending-long/claude-attempt-001` |
+| Kimi Code | `kimi-1-pending.json` | 1 | 1 | success | `tmp/houmao-dev-testing/20260714-kimi-1-pending/kimi-attempt-001` |
+| Kimi Code | `kimi-2-pending.json` | 2 | 2 | success | `tmp/houmao-dev-testing/20260714-kimi-2-pending-v2/kimi-attempt-001` |
+| Kimi Code | `kimi-3-pending-long.json` | 3 | 3 | tainted (`pattern_timeout_non_fatal:active`) | `tmp/houmao-dev-testing/20260714-kimi-3-pending-long-v4/kimi-attempt-001` |
 
-Claude Code appears to cap its visible pending queue at one additional prompt; the runner records this cap and still freezes the evidence. Kimi Code reached two pending prompts in the re-run with extended timeouts.
+Key findings:
+- Codex CLI queues up to at least three prompts and renders each queued message as a `↳`-prefixed bullet, so `pending_count` is estimated by counting those bullets.
+- Claude Code caps its visible pending queue at one additional prompt; the runner records the cap and still freezes the evidence.
+- Kimi Code queues up to at least three prompts and shows them as `❯`-prefixed composer lines. The `active` pattern (`Running a command|Running tool|Generating|Esc to interrupt`) matches tool/command turns but not pure text-generation turns; the post-pending `active` wait is now `non_fatal_on_timeout` so the run completes and taints instead of failing.
