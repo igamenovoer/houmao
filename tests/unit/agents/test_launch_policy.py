@@ -71,7 +71,7 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -112,7 +112,7 @@ def test_codex_unattended_strategy_supports_env_only_custom_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "config.toml").write_text(
@@ -159,7 +159,7 @@ def test_codex_unattended_strategy_preserves_explicit_model_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -187,7 +187,7 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -244,7 +244,7 @@ def test_codex_unattended_strategy_rejects_api_key_only_without_provider_contrac
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
 
@@ -496,7 +496,7 @@ def test_codex_provider_start_repairs_blank_owned_toml_via_atomic_replace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -754,7 +754,7 @@ def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.24.0")
+    _stub_version(monkeypatch, output="0.22.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
 

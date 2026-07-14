@@ -411,7 +411,7 @@ def test_build_launch_plan_resolves_launch_policy_provenance(
         return type(
             "_Completed",
             (),
-            {"stdout": "codex-cli 0.116.0", "stderr": "", "args": command},
+            {"stdout": "codex-cli 0.140.0", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(
@@ -500,7 +500,7 @@ def test_build_launch_plan_local_interactive_codex_unattended_pretrusts_project(
         return type(
             "_Completed",
             (),
-            {"stdout": "codex-cli 0.116.0", "stderr": "", "args": command},
+            {"stdout": "codex-cli 0.140.0", "stderr": "", "args": command},
         )()
 
     monkeypatch.setattr(

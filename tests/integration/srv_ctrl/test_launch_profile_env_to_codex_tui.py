@@ -65,7 +65,7 @@ def _write_fake_codex(fake_bin: Path, *, capture_path: Path, ready_path: Path) -
                 "#!/usr/bin/env bash",
                 "set -eu",
                 'if [[ "${1:-}" == "--version" ]]; then',
-                '  printf "codex-cli 0.116.0\\n"',
+                '  printf "codex-cli 0.140.0\\n"',
                 "  exit 0",
                 "fi",
                 (
