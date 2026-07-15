@@ -186,6 +186,7 @@ Current source behavior:
 
 - [Notifier-Prompt-Driven Loop Runtime](notifier-prompt-driven-loops.md)
 - [scoped agents gateway mail-notifier](../../cli/agents-gateway.md#mail-notifier)
+- [Why Prompt Admission Uses Readiness and Pending Input](../internals/prompt-admission-and-tui-observation.md)
 - [Gateway Mailbox Facade](mailbox-facade.md)
 - [Gateway Reminders](reminders.md)
 - [Agent Gateway Reference](../index.md)

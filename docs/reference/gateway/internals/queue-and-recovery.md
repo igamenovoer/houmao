@@ -165,6 +165,12 @@ The live gateway process now selects an execution adapter from manifest-backed a
 - A passive-server-managed headless adapter covers native headless sessions whose attach metadata publishes `managed_api_base_url` plus `managed_agent_ref`, and routes prompt or interrupt work back through the managed-agent API rather than bypassing passive-server-owned turn authority.
 - Queue durability, reconciliation checks, and gateway-local epoch handling stay the same across those adapters.
 
+## See Also
+
+- [Why Prompt Admission Uses Readiness and Pending Input](prompt-admission-and-tui-observation.md) — why direct prompt control keeps stable readiness and provider-native pending input as separate admission facts
+- [Gateway Lifecycle and Operator Flows](../operations/lifecycle.md) — operator-facing prompt policies and lifecycle commands
+- [TUI Tracking State Model](../../tui-tracking/state-model.md) — tracked surface, turn, and stability fields
+
 ## Source References
 
 - [`src/houmao/agents/realm_controller/gateway_service.py`](../../../../src/houmao/agents/realm_controller/gateway_service.py)
