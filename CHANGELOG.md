@@ -4,6 +4,18 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [1.2.1] - 2026-07-15
+
+### Changed
+
+- **Agent loop skills now require upfront planning**: `houmao-agent-loop-pro` and `houmao-agent-loop-lite` open with a reminder to use the internal todo-list planning tool before taking any action, because loop authoring and execution are complex, multi-stage processes.
+- **Completed OpenSpec changes were archived**: delta specs from finished changes were synced into `openspec/specs/`, and the active change directories were moved to `openspec/changes/archive/2026-07-15-*`.
+- **Tailmux submodule was bumped** to pick up `xterm`, `xterm-addon-fit`, and `dockview-core` dependencies used by the live TUI viewer.
+
+### Docs
+
+- Added reference documentation covering gateway prompt-admission behavior and how TUI observation feeds admission decisions.
+
 ## [1.2.0] - 2026-07-15
 
 ### Added
