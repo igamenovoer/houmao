@@ -92,6 +92,16 @@ class CodexPromptBehaviorVariantV0_116_X:
         )
 
 
+class CodexPromptBehaviorVariantV0_144_X(CodexPromptBehaviorVariantV0_116_X):
+    """Prompt behavior variant for recorded Codex `0.144.x` surfaces."""
+
+    @property
+    def variant_name(self) -> str:
+        """Return the version-family debug name."""
+
+        return "0.144.x"
+
+
 class FallbackCodexPromptBehaviorVariant:
     """Conservative prompt behavior variant for unmatched Codex versions."""
 

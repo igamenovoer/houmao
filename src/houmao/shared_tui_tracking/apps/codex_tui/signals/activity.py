@@ -17,13 +17,30 @@ _BOOTSTRAP_STATUS_PREFIXES = (
 )
 _AGENT_TURN_STATUS_RE = re.compile(r"^\s*• (.+?) \((.+esc to interrupt.*)\)\s*$")
 _TOOL_CELL_RE = re.compile(r"^\s*• (Calling |Running |Waited for background terminal · ).+")
+_PENDING_STEER_PREFIX = "• Messages to be submitted after next tool call"
+_REJECTED_STEER_PREFIX = "• Messages to be submitted at end of turn"
+_QUEUED_FOLLOW_UP_PREFIX = "• Queued follow-up inputs"
+_PENDING_INPUT_PREFIXES = (
+    _PENDING_STEER_PREFIX,
+    _REJECTED_STEER_PREFIX,
+    _QUEUED_FOLLOW_UP_PREFIX,
+)
+_NON_RESPONSE_BULLET_PREFIXES = (
+    *_PENDING_INPUT_PREFIXES,
+    "• You have ",
+    "• Working ",
+    "• Calling ",
+    "• Running ",
+    "• Waited for background terminal · ",
+    "• Waiting for ",
+    "• Finished waiting",
+)
+_COLLAB_CELL_RE = re.compile(
+    r"^\s*• (?P<kind>Waiting for .+|Finished waiting|Resumed .+|Failed to resume .+)\s*$"
+)
 _RETRY_STATUS_RE = re.compile(
-    r"\b("
-    r"reconnect(?:ing|ed)?|"
-    r"retry(?:ing)?|"
-    r"stream\s+(?:error|recover(?:y|ing)?|disconnect(?:ed|ion)?)|"
-    r"connection\s+(?:lost|failed)"
-    r")\b",
+    r"^(?:•\s+)?Reconnecting(?:\.\.\.|\s+to\s+model\s+stream)\s*"
+    r"(?:\(\d+/\d+\)|\d+/\d+)(?:\s+\([^\n]*esc to interrupt[^\n]*\))?$",
     re.IGNORECASE,
 )
 
@@ -38,6 +55,7 @@ class CodexActivitySignals:
     active_reasons: tuple[str, ...]
     steer_handoff: bool
     in_flight_tool_cell: bool
+    pending_input_visible: bool
 
 
 def detect_activity(
@@ -46,6 +64,8 @@ def detect_activity(
     live_edge_lines: tuple[str, ...],
     prompt_visible: bool,
     steer_interruption_text: str,
+    include_collaboration_cells: bool = False,
+    include_queued_follow_up: bool = False,
 ) -> CodexActivitySignals:
     """Return current Codex activity evidence from one surface."""
 
@@ -54,6 +74,10 @@ def detect_activity(
     active_status_line: str | None = None
     for line in reversed(live_edge_lines):
         stripped = line.strip()
+        if _is_assistant_response_line(stripped):
+            break
+        if stripped.startswith(_PENDING_INPUT_PREFIXES):
+            continue
         match = _AGENT_TURN_STATUS_RE.match(stripped)
         if match is None:
             continue
@@ -67,6 +91,17 @@ def detect_activity(
     in_flight_tool_cell = any(_TOOL_CELL_RE.match(line) is not None for line in live_edge_lines)
     if in_flight_tool_cell:
         active_reasons.append("tool_cell")
+
+    if include_collaboration_cells and _latest_collaboration_cell_is_in_flight(live_edge_lines):
+        active_reasons.append("collaboration_cell")
+
+    pending_input_prefix = (
+        _current_pending_input_prefix(live_edge_lines) if include_queued_follow_up else None
+    )
+    if pending_input_prefix == _QUEUED_FOLLOW_UP_PREFIX:
+        active_reasons.append("queued_follow_up")
+    elif pending_input_prefix is not None:
+        active_reasons.append("pending_input")
 
     retry_status_line = _latest_retry_status_line(live_edge_lines)
     if retry_status_line is not None:
@@ -87,6 +122,7 @@ def detect_activity(
         active_reasons=tuple(dict.fromkeys(active_reasons)),
         steer_handoff=steer_handoff,
         in_flight_tool_cell=in_flight_tool_cell,
+        pending_input_visible=pending_input_prefix is not None,
     )
 
 
@@ -95,6 +131,22 @@ def latest_turn_region_signature(latest_turn_lines: tuple[str, ...]) -> str:
 
     payload = "\n".join(latest_turn_lines)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def assistant_response_visible(latest_turn_lines: tuple[str, ...]) -> bool:
+    """Return whether the current turn contains a visible assistant response cell."""
+
+    for line in latest_turn_lines:
+        stripped = line.strip()
+        if _is_assistant_response_line(stripped):
+            return True
+    return False
+
+
+def _is_assistant_response_line(stripped: str) -> bool:
+    """Return whether one normalized line begins an assistant response cell."""
+
+    return stripped.startswith("• ") and not stripped.startswith(_NON_RESPONSE_BULLET_PREFIXES)
 
 
 def _latest_retry_status_line(live_edge_lines: tuple[str, ...]) -> str | None:
@@ -107,3 +159,39 @@ def _latest_retry_status_line(live_edge_lines: tuple[str, ...]) -> str | None:
         if _RETRY_STATUS_RE.search(stripped) is not None:
             return stripped
     return None
+
+
+def _latest_collaboration_cell_is_in_flight(live_edge_lines: tuple[str, ...]) -> bool:
+    """Return whether the latest current Codex collaboration cell is still in flight."""
+
+    for line in reversed(live_edge_lines):
+        match = _COLLAB_CELL_RE.match(line)
+        if match is None:
+            continue
+        kind = match.group("kind")
+        return kind.startswith(("Waiting for", "Resumed "))
+    return False
+
+
+def _current_pending_input_prefix(live_edge_lines: tuple[str, ...]) -> str | None:
+    """Return the current pending-input section with no later assistant response."""
+
+    queue_index: int | None = None
+    queue_prefix: str | None = None
+    for index, line in enumerate(live_edge_lines):
+        stripped = line.strip()
+        for prefix in _PENDING_INPUT_PREFIXES:
+            if stripped.startswith(prefix):
+                queue_index = index
+                queue_prefix = prefix
+                break
+    if queue_index is None:
+        return None
+    for line in live_edge_lines[queue_index + 1 :]:
+        stripped = line.strip()
+        if not stripped.startswith("• "):
+            continue
+        if stripped.startswith(_NON_RESPONSE_BULLET_PREFIXES):
+            continue
+        return None
+    return queue_prefix

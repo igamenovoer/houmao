@@ -38,6 +38,7 @@ class StreamStateReducer:
         observed_version: str | None,
         settle_seconds: float,
         scheduler: abc.SchedulerBase,
+        detector_version_override: str | None = None,
         trace_writer: TraceWriter | None = None,
     ) -> None:
         """Initialize one compatibility reducer."""
@@ -53,6 +54,7 @@ class StreamStateReducer:
                 stability_threshold_seconds=0.0,
             ),
             scheduler=scheduler,
+            detector_version_override=detector_version_override,
             trace_writer=trace_writer,
         )
         self.m_latest_observation: RecordedObservation | None = None
@@ -140,6 +142,7 @@ class StreamStateReducer:
                 surface_accepting_input=state.surface_accepting_input,
                 surface_editing_input=state.surface_editing_input,
                 surface_ready_posture=state.surface_ready_posture,
+                surface_pending_input=state.surface_pending_input,
                 turn_phase=state.turn_phase if availability == "available" else "unknown",
                 last_turn_result=state.last_turn_result,
                 last_turn_source=state.last_turn_source,
@@ -224,6 +227,7 @@ def replay_timeline(
     observed_version: str | None,
     settle_seconds: float,
     input_events: list[RecordedInputEvent] | None = None,
+    detector_version_override: str | None = None,
 ) -> tuple[list[TrackedTimelineState], list[ReplayEvent]]:
     """Replay one recorded observation list through the compatibility reducer."""
 
@@ -249,6 +253,7 @@ def replay_timeline(
         observed_version=observed_version,
         settle_seconds=settle_seconds,
         scheduler=scheduler,
+        detector_version_override=detector_version_override,
     )
     timeline: list[TrackedTimelineState] = []
 
@@ -386,6 +391,7 @@ def _summarize_timeline_state(state: TrackedTimelineState) -> dict[str, Any]:
         "surface_accepting_input": state.surface_accepting_input,
         "surface_editing_input": state.surface_editing_input,
         "surface_ready_posture": state.surface_ready_posture,
+        "surface_pending_input": state.surface_pending_input,
         "turn_phase": state.turn_phase,
         "last_turn_result": state.last_turn_result,
         "last_turn_source": state.last_turn_source,

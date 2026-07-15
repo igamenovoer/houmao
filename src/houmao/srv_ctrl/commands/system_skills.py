@@ -25,14 +25,12 @@ _SYSTEM_SKILLS_HOME_ENV_VAR_BY_TOOL: dict[str, str] = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
     "copilot": "COPILOT_HOME",
-    "gemini": "GEMINI_CLI_HOME",
     "kimi": "KIMI_CODE_HOME",
 }
 _SYSTEM_SKILLS_PROJECT_DEFAULT_HOME_BY_TOOL: dict[str, Path] = {
     "claude": Path(".claude"),
     "codex": Path(".codex"),
     "copilot": Path(".github"),
-    "gemini": Path("."),
     "kimi": Path(".kimi-code"),
 }
 _SYSTEM_SKILLS_UNIVERSAL_TARGET = "universal"
@@ -40,12 +38,11 @@ _SUPPORTED_SYSTEM_SKILLS_TARGETS: tuple[str, ...] = (
     "claude",
     "codex",
     "copilot",
-    "gemini",
     "kimi",
     _SYSTEM_SKILLS_UNIVERSAL_TARGET,
 )
 _SYSTEM_SKILLS_TARGET_HELP = (
-    "Supported target (`claude`, `codex`, `copilot`, `gemini`, `kimi`, or `universal`). "
+    "Supported target (`claude`, `codex`, `copilot`, `kimi`, or `universal`). "
     "`kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is "
     "being wound down. `universal` installs under `.agents/skills` and defaults to "
     "`~/.agents/skills`."

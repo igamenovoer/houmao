@@ -293,6 +293,7 @@ class HoumaoRecentTransition(_HoumaoModel):
     summary: str
     changed_fields: list[str] = Field(default_factory=list)
     diagnostics_availability: TrackedDiagnosticsAvailability
+    surface_pending_input: Tristate
     turn_phase: ManagedAgentTurnPhase
     last_turn_result: TrackedLastTurnResult
     last_turn_source: TrackedLastTurnSource
@@ -319,6 +320,7 @@ class HoumaoTrackedSurface(_HoumaoModel):
     accepting_input: Tristate
     editing_input: Tristate
     ready_posture: Tristate
+    pending_input: Tristate
 
 
 class HoumaoTrackedTurn(_HoumaoModel):

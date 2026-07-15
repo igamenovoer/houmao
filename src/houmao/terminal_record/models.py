@@ -273,6 +273,11 @@ class TerminalRecordLabels:
             expectations = _require_mapping(
                 item.get("expectations"), context="labels[].expectations"
             )
+            pending_input = expectations.get("surface_pending_input")
+            if pending_input not in {"yes", "no", "unknown"}:
+                raise ValueError(
+                    "labels[].expectations.surface_pending_input must be one of yes, no, or unknown"
+                )
             labels.append(
                 TerminalRecordLabel(
                     label_id=_require_string(item.get("label_id"), context="labels[].label_id"),

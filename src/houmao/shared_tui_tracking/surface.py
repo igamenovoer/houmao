@@ -8,6 +8,10 @@ from typing import Iterable
 
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+SHELL_COMMAND_RE = re.compile(
+    r"^\s*(?:bash|zsh|sh|fish)(?:-[0-9.]+)?[$#]\s+\S+",
+    re.IGNORECASE,
+)
 
 
 def strip_ansi(text: str) -> str:
@@ -115,3 +119,28 @@ class SurfaceView:
             zip(self.raw_lines, self.stripped_lines, strict=True)
         ):
             yield index, raw_line, stripped_line
+
+    def has_unrendered_shell_launch(self, *, provider_markers: tuple[str, ...]) -> bool:
+        """Return whether a newer shell command supersedes the visible provider surface.
+
+        A retained tmux pane can show the previous TUI after its process exits.  The
+        replacement process is not ready until provider-owned chrome appears below the
+        latest shell launch command.  This check prevents stale prompt rows above that
+        boundary from advertising readiness for the new process generation.
+        """
+
+        latest_shell_index = next(
+            (
+                index
+                for index in range(len(self.stripped_lines) - 1, -1, -1)
+                if SHELL_COMMAND_RE.match(self.stripped_lines[index]) is not None
+            ),
+            None,
+        )
+        if latest_shell_index is None:
+            return False
+        lower_markers = tuple(marker.casefold() for marker in provider_markers)
+        return not any(
+            any(marker in line.casefold() for marker in lower_markers)
+            for line in self.stripped_lines[latest_shell_index + 1 :]
+        )

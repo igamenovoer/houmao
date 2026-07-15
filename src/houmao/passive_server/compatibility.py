@@ -34,9 +34,7 @@ from houmao.server.models import (
     ManagedAgentLastTurnResult,
 )
 
-_HEADLESS_BACKENDS = frozenset(
-    {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
-)
+_HEADLESS_BACKENDS = frozenset({"claude_headless", "codex_headless", "kimi_headless"})
 
 
 def is_headless_backend(backend: str) -> bool:

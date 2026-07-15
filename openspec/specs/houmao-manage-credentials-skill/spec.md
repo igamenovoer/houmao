@@ -491,3 +491,11 @@ Kimi `login` guidance SHALL state that Kimi does not have a maintained Houmao cr
 - **THEN** the skill explains that no maintained Kimi credential login helper is available in this change
 - **AND THEN** it may route a default Kimi Code OAuth login/import request to local Kimi Code login-handling guidance
 - **AND THEN** it does not direct the agent to run a Claude, Codex, or Gemini login helper for Kimi
+
+### Requirement: Credential management skill excludes Gemini
+The credential management skill SHALL expose actions, kinds, examples, and references only for maintained credential providers and SHALL delete Gemini-only reference pages.
+
+#### Scenario: Credential skill routing has no Gemini target
+- **WHEN** an agent reads credential kind or action routing
+- **THEN** it can route Claude, Codex, or Kimi credential work
+- **AND THEN** no Gemini credential reference is discoverable from the skill

@@ -350,3 +350,11 @@ When the docs describe project skill storage modes, they SHALL explain that:
 - **WHEN** a reader already has one older project overlay that predates the current project layout
 - **THEN** the getting-started docs direct them to `houmao-mgr project migrate`
 - **AND THEN** the docs do not imply that ordinary project commands will silently upgrade that overlay in place
+
+### Requirement: Getting-started guidance excludes Gemini
+Maintained onboarding, quickstart, overview, specialist, profile, credential, mailbox, and demo guidance SHALL teach only current provider workflows and SHALL not present Gemini as supported.
+
+#### Scenario: New reader sees the maintained provider set
+- **WHEN** a reader follows getting-started documentation
+- **THEN** provider examples and matrices use Claude, Codex, and Kimi as applicable
+- **AND THEN** no Gemini setup prerequisite or workflow is offered

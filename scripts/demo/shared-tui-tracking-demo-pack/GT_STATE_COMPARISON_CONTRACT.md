@@ -79,6 +79,7 @@ The comparison contract is limited to these fields:
 - `surface_accepting_input`
 - `surface_editing_input`
 - `surface_ready_posture`
+- `surface_pending_input`
 - `turn_phase`
 - `last_turn_result`
 - `last_turn_source`

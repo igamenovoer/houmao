@@ -87,6 +87,8 @@ def _differing_fields(
         fields.append("surface_editing_input")
     if ground_item.surface_ready_posture != replay_item.surface_ready_posture:
         fields.append("surface_ready_posture")
+    if ground_item.surface_pending_input != replay_item.surface_pending_input:
+        fields.append("surface_pending_input")
     if ground_item.turn_phase != replay_item.turn_phase:
         fields.append("turn_phase")
     if ground_item.last_turn_result != replay_item.last_turn_result:
@@ -98,17 +100,18 @@ def _differing_fields(
 
 def _transition_sequence(
     timeline: list[TrackedTimelineState],
-) -> list[tuple[str, str, str, str, str, str, str]]:
+) -> list[tuple[str, str, str, str, str, str, str, str]]:
     """Return ordered public-state transitions for one timeline."""
 
-    transitions: list[tuple[str, str, str, str, str, str, str]] = []
-    previous: tuple[str, str, str, str, str, str, str] | None = None
+    transitions: list[tuple[str, str, str, str, str, str, str, str]] = []
+    previous: tuple[str, str, str, str, str, str, str, str] | None = None
     for item in timeline:
         current = (
             item.diagnostics_availability,
             item.surface_accepting_input,
             item.surface_editing_input,
             item.surface_ready_posture,
+            item.surface_pending_input,
             item.turn_phase,
             item.last_turn_result,
             item.last_turn_source,

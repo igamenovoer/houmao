@@ -98,80 +98,6 @@ For Claude, the system SHALL support a non-CAO interactive backend using repeate
 - **THEN** the system captures the returned Claude `session_id` and persists it in the session manifest
 - **AND THEN** the system sends subsequent prompts with `--resume <session_id>` and receives replies in the same logical session
 
-### Requirement: Gemini headless backend via `gemini -p` + `--resume`
-For Gemini, the system SHALL support a non-CAO interactive backend using repeated headless CLI invocations with machine-readable output and session resume.
-
-The runtime SHALL:
-
-- start Gemini headless turns using machine-readable Gemini headless output,
-- capture the returned Gemini `session_id` from the first successful headless turn,
-- persist that Gemini `session_id` in the session manifest, and
-- resume subsequent Gemini turns using `--resume <session_id>` in the same recorded working directory/project context.
-
-#### Scenario: Start Gemini headless session and persist the returned `session_id`
-- **WHEN** a developer starts a Gemini session in headless mode and sends a first prompt using a constructed brain home
-- **THEN** the system captures the returned Gemini `session_id` from machine-readable Gemini output
-- **AND THEN** the system persists that `session_id` in the session manifest
-
-#### Scenario: Follow-up Gemini turn resumes by exact persisted session id
-- **WHEN** a developer sends a follow-up prompt to a Gemini headless session
-- **AND WHEN** the session manifest contains a persisted Gemini `session_id`
-- **THEN** the system resumes Gemini with `--resume <session_id>`
-- **AND THEN** the system does not substitute `--resume latest` for that follow-up turn
-
-#### Scenario: Gemini resume uses the recorded project context
-- **WHEN** a developer resumes a Gemini headless session from a persisted session manifest
-- **THEN** the resumed turn uses the same working directory/project context recorded in the session manifest
-- **AND THEN** the runtime returns an explicit error instead of silently resuming from a different project context
-
-### Requirement: Gemini headless startup supports API-key and OAuth auth families
-When the runtime constructs a Gemini headless home, the system SHALL support these Gemini auth families for headless startup:
-
-- API key mode using `GEMINI_API_KEY`
-- API key mode with optional `GOOGLE_GEMINI_BASE_URL`
-- OAuth mode using projected `oauth_creds.json`
-
-#### Scenario: Gemini API-key launch projects the API key into the headless runtime
-- **WHEN** the runtime builds a Gemini headless home from an auth bundle that provides `GEMINI_API_KEY`
-- **THEN** the launched Gemini process receives that API key through the supported runtime environment contract
-- **AND THEN** the first Gemini headless turn can start non-interactively without requiring OAuth-specific runtime files
-
-#### Scenario: Gemini API-key launch preserves an explicit endpoint override
-- **WHEN** the runtime builds a Gemini headless home from an auth bundle that provides both `GEMINI_API_KEY` and `GOOGLE_GEMINI_BASE_URL`
-- **THEN** the launched Gemini process receives both values through the supported runtime environment contract
-- **AND THEN** the runtime does not drop the configured Gemini endpoint override during headless startup
-
-### Requirement: Gemini OAuth-backed runtime homes are non-interactive-ready for headless startup
-When the runtime constructs a Gemini headless home from OAuth-backed credential material, the system SHALL make the launched Gemini process non-interactive-ready without depending on prior user-global interactive Gemini setup state.
-
-#### Scenario: Fresh Gemini OAuth home selects the Google-login auth path automatically
-- **WHEN** the runtime builds a Gemini headless home that projects `oauth_creds.json`
-- **AND WHEN** the effective Gemini launch environment does not already select API-key auth
-- **THEN** the runtime exports the Gemini auth selector needed for Google-login OAuth headless startup
-- **AND THEN** the first headless Gemini turn can start non-interactively without requiring a pre-existing user-global `settings.json`
-
-#### Scenario: Explicit API-key Gemini auth selection is preserved
-- **WHEN** the effective Gemini launch environment explicitly selects API-key auth
-- **THEN** the runtime does not override that selection only because an OAuth credential file is present
-
-### Requirement: Gemini managed skill projection uses the generic `.agents/skills` root
-When Houmao projects Gemini skills into a managed Gemini home or performs default Houmao-owned Gemini skill installation for an adopted session, the system SHALL use `.gemini/skills` as the discoverable Gemini skill root.
-
-#### Scenario: Constructed Gemini home projects selected skills into `.agents/skills`
-- **WHEN** the runtime builds a Gemini managed home with one or more selected skills
-- **THEN** the projected Gemini skills are created under `.gemini/skills` in that managed home
-- **AND THEN** the runtime does not target `.agents/skills` as the primary Gemini skills destination for that managed home
-
-#### Scenario: Default Gemini join-time skill installation uses `.agents/skills`
-- **WHEN** Houmao adopts a Gemini session and performs the default Houmao-owned skill projection for that session
-- **THEN** the installed Gemini skills are created under the adopted session's `.gemini/skills` root
-- **AND THEN** the default projection contract does not require a parallel mirror under `.agents/skills`
-
-#### Scenario: Reused Gemini managed home removes the legacy alias root
-- **WHEN** the runtime rebuilds or refreshes a Houmao-managed Gemini home that still contains Houmao-managed Gemini skill content under `.agents/skills`
-- **THEN** the runtime removes the legacy Houmao-managed `.agents/skills` entries before or during projection into `.gemini/skills`
-- **AND THEN** `.agents/skills` is not left behind as the maintained Houmao-managed Gemini skill root
-
 ### Requirement: Kimi headless backend via prompt-mode stream JSON
 For Kimi, the system SHALL support a non-CAO interactive backend using repeated Kimi Code CLI prompt-mode invocations with machine-readable stream JSON output and session resume.
 
@@ -2124,24 +2050,6 @@ That failure SHALL preserve enough structured detail for higher-level launch sur
 - **THEN** the runtime fails the launch before starting the provider process
 - **AND THEN** the error identifies the requested policy, tool, backend, and why no compatible strategy could be selected
 
-### Requirement: Gemini headless runtime honors unattended launch policy when compatible registry coverage exists
-When a session requests `operator_prompt_mode = unattended` on the `gemini_headless` backend and a compatible Gemini launch-policy strategy exists for the detected Gemini CLI version, the runtime SHALL apply that strategy before provider process start and SHALL allow Gemini startup to continue on the maintained unattended path with full built-in tool availability and no interactive approval prompts.
-
-The maintained Gemini unattended strategy SHALL own the effective approval posture and sandbox posture for runtime-owned Gemini headless launches.
-
-#### Scenario: Compatible Gemini unattended strategy enables headless provider start with full-permission posture
-- **WHEN** a session requests `operator_prompt_mode = unattended`
-- **AND WHEN** the selected backend is `gemini_headless`
-- **AND WHEN** the detected Gemini CLI version matches one compatible maintained Gemini strategy
-- **THEN** the runtime applies the Gemini unattended strategy before provider start
-- **AND THEN** the effective Gemini startup uses the strategy-owned approval and sandbox posture rather than the headless default read-only posture
-- **AND THEN** Gemini startup continues on the unattended headless path without interactive approval prompts
-
-#### Scenario: Managed Gemini unattended turn preserves shell and write tool availability
-- **WHEN** the runtime starts or resumes a runtime-owned Gemini headless session under unattended launch policy
-- **THEN** the effective Gemini turn keeps built-in shell and file mutation tools available to the managed prompt
-- **AND THEN** the runtime does not leave those tools absent from the active tool registry only because the backend is non-interactive
-
 ### Requirement: Runtime unattended launch covers startup operator prompts beyond classic permission dialogs
 For `operator_prompt_mode = unattended`, the runtime SHALL treat version-supported startup operator prompts that block provider readiness as part of the launch policy surface, even when those prompts are not labeled as permission prompts by the provider.
 
@@ -3316,3 +3224,10 @@ When a Kimi Code local-interactive launch resolves `operator_prompt_mode = as_is
 - **WHEN** Kimi unattended local-interactive launch has entered Kimi auto permission mode
 - **THEN** Kimi tool approval prompts and `AskUserQuestion` requests do not require operator input during normal agent work
 - **AND THEN** Kimi may still block work through explicit provider hard-deny policies or user-configured deny rules
+
+### Requirement: Brain launch runtime excludes Gemini backends
+The brain launch runtime SHALL NOT resolve, validate, start, resume, or dispatch a Gemini interactive or headless backend.
+
+#### Scenario: Gemini backend cannot reach runtime dispatch
+- **WHEN** a launch plan or persisted manifest names `gemini_cli` or `gemini_headless`
+- **THEN** runtime validation rejects the unsupported value before provider start

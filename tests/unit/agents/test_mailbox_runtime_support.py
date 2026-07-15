@@ -465,11 +465,11 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
 def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_destination(
     tmp_path: Path,
 ) -> None:
-    home_path = tmp_path / "gemini-home"
+    home_path = tmp_path / "kimi-home"
 
-    references = install_runtime_mailbox_system_skills_for_tool(tool="gemini", home_path=home_path)
+    references = install_runtime_mailbox_system_skills_for_tool(tool="kimi", home_path=home_path)
 
-    assert mailbox_skills_destination_for_tool("gemini") == ".gemini/skills"
+    assert mailbox_skills_destination_for_tool("kimi") == "skills"
     assert set(references) == {
         "houmao-process-emails-via-gateway",
         "houmao-agent-email-comms",
@@ -477,20 +477,20 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
     }
     assert (
         home_path
-        / mailbox_skills_destination_for_tool("gemini")
+        / mailbox_skills_destination_for_tool("kimi")
         / "houmao-process-emails-via-gateway/SKILL.md"
     ).is_file()
     assert (
         home_path
-        / mailbox_skills_destination_for_tool("gemini")
+        / mailbox_skills_destination_for_tool("kimi")
         / "houmao-agent-email-comms/SKILL.md"
     ).is_file()
     assert (
         home_path
-        / mailbox_skills_destination_for_tool("gemini")
+        / mailbox_skills_destination_for_tool("kimi")
         / "houmao-adv-usage-pattern/SKILL.md"
     ).is_file()
-    assert not (home_path / mailbox_skills_destination_for_tool("gemini") / "mailbox").exists()
+    assert not (home_path / mailbox_skills_destination_for_tool("kimi") / "mailbox").exists()
 
 
 def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_level_skills(

@@ -9,9 +9,6 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_MANIFEST_PATH_ENV_VAR,
 )
-from houmao.agents.realm_controller.backends.gemini_headless import (
-    GeminiHeadlessSession,
-)
 from houmao.agents.realm_controller.backends.kimi_headless import (
     KimiHeadlessSession,
 )
@@ -23,7 +20,6 @@ from houmao.agents.realm_controller.backends.headless_base import (
 )
 from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessRunResult,
-    HeadlessCliRunner,
 )
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
@@ -43,28 +39,6 @@ def _fake_tool_executable(tmp_path: Path, name: str) -> Path:
     executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     executable.chmod(0o755)
     return executable
-
-
-def _sample_gemini_launch_plan(tmp_path: Path, *, executable: str | None = None) -> LaunchPlan:
-    resolved_executable = executable or str(_fake_tool_executable(tmp_path, "gemini"))
-    return LaunchPlan(
-        backend="gemini_headless",
-        tool="gemini",
-        executable=resolved_executable,
-        args=[],
-        working_directory=tmp_path,
-        home_env_var="GEMINI_CLI_HOME",
-        home_path=tmp_path / "home",
-        env={},
-        env_var_names=[],
-        role_injection=RoleInjectionPlan(
-            method="bootstrap_message",
-            role_name="gpu-kernel-coder",
-            prompt="role prompt",
-            bootstrap_message="bootstrap",
-        ),
-        metadata={},
-    )
 
 
 def _sample_kimi_launch_plan(
@@ -346,151 +320,6 @@ def test_kimi_headless_execution_model_projects_model_arg_before_prompt(
     ]
 
 
-def test_gemini_headless_surfaces_stderr_on_failure(tmp_path: Path) -> None:
-    session = GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
-        role_name="gpu-kernel-coder",
-        session_manifest_path=tmp_path / "session.json",
-        state=HeadlessSessionState(
-            working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
-        ),
-    )
-
-    class _FakeRunner:
-        def run(  # type: ignore[no-untyped-def]
-            self,
-            *,
-            command,
-            env,
-            cwd,
-            turn_index,
-            output_format,
-            tmux_session_name,
-            turn_artifacts_root,
-            **_kwargs,
-        ) -> HeadlessRunResult:
-            return HeadlessRunResult(
-                events=[],
-                stderr="Please set an Auth method",
-                returncode=41,
-                session_id=None,
-            )
-
-    session._runner = _FakeRunner()  # type: ignore[attr-defined]
-
-    with pytest.raises(BackendExecutionError, match=r"Please set an Auth method"):
-        session.send_prompt("hello")
-
-
-def test_gemini_headless_builds_exact_resume_turn_command(tmp_path: Path) -> None:
-    captured: dict[str, object] = {}
-
-    session = GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
-        role_name="gpu-kernel-coder",
-        session_manifest_path=tmp_path / "session.json",
-        state=HeadlessSessionState(
-            session_id="sess-1",
-            turn_index=1,
-            role_bootstrap_applied=True,
-            working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
-        ),
-    )
-
-    class _FakeRunner:
-        def run(  # type: ignore[no-untyped-def]
-            self,
-            *,
-            command,
-            env,
-            cwd,
-            turn_index,
-            output_format,
-            tmux_session_name,
-            turn_artifacts_root,
-            **_kwargs,
-        ) -> HeadlessRunResult:
-            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
-            captured["command"] = list(command)
-            return HeadlessRunResult(
-                events=[],
-                stderr="",
-                returncode=0,
-                session_id="sess-1",
-            )
-
-    session._runner = _FakeRunner()  # type: ignore[attr-defined]
-
-    session.send_prompt("hello")
-
-    assert captured["command"] == [
-        str(tmp_path / "fake-bin" / "gemini"),
-        "--resume",
-        "sess-1",
-        "-p",
-        "hello",
-        "--output-format",
-        "stream-json",
-    ]
-
-
-def test_gemini_headless_builds_latest_resume_turn_command_from_selector(
-    tmp_path: Path,
-) -> None:
-    captured: dict[str, object] = {}
-
-    session = GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
-        role_name="gpu-kernel-coder",
-        session_manifest_path=tmp_path / "session.json",
-        state=HeadlessSessionState(
-            working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
-        ),
-    )
-
-    class _FakeRunner:
-        def run(  # type: ignore[no-untyped-def]
-            self,
-            *,
-            command,
-            env,
-            cwd,
-            turn_index,
-            output_format,
-            tmux_session_name,
-            turn_artifacts_root,
-            **_kwargs,
-        ) -> HeadlessRunResult:
-            del env, cwd, turn_index, output_format, tmux_session_name, turn_artifacts_root
-            captured["command"] = list(command)
-            return HeadlessRunResult(
-                events=[],
-                stderr="",
-                returncode=0,
-                session_id="sess-latest",
-            )
-
-    session._runner = _FakeRunner()  # type: ignore[attr-defined]
-
-    session.send_prompt(
-        "hello",
-        session_selection=HeadlessTurnSessionSelection(mode="tool_last_or_new"),
-    )
-
-    assert captured["command"] == [
-        str(tmp_path / "fake-bin" / "gemini"),
-        "--resume",
-        "latest",
-        "-p",
-        "hello",
-        "--output-format",
-        "stream-json",
-    ]
-
-
 def test_headless_relaunch_selector_sets_next_prompt_resume_policy(tmp_path: Path) -> None:
     session = object.__new__(ClaudeHeadlessSession)
     session._state = HeadlessSessionState(  # type: ignore[attr-defined]
@@ -514,101 +343,6 @@ def test_headless_relaunch_selector_sets_next_prompt_resume_policy(tmp_path: Pat
     assert session._state.resume_selection_kind == "none"  # noqa: SLF001
     assert session._state.resume_selection_value is None  # noqa: SLF001
     assert session._state.role_bootstrap_applied is False  # noqa: SLF001
-
-
-def test_gemini_headless_executes_direct_prompt_with_unattended_full_permission_args(
-    tmp_path: Path,
-) -> None:
-    fake_gemini = tmp_path / "fake-gemini.sh"
-    fake_gemini.write_text(
-        "\n".join(
-            [
-                "#!/usr/bin/env bash",
-                'if [[ "${1:-}" == "--version" ]]; then',
-                '  echo "0.36.0"',
-                "  exit 0",
-                "fi",
-                'if [[ "$*" != *"--approval-mode=yolo"* ]]; then',
-                '  echo "missing approval mode" >&2',
-                "  exit 41",
-                "fi",
-                'if [[ "$*" != *"--sandbox=false"* ]]; then',
-                '  echo "missing sandbox override" >&2',
-                "  exit 42",
-                "fi",
-                'if [[ "$*" == *"write-direct-artifact"* ]]; then',
-                "  mkdir -p tmp",
-                '  printf "created by fake gemini\\n" > tmp/direct-tool.txt',
-                "fi",
-                'echo \'{"type":"init","session_id":"sess-direct"}\'',
-                'echo \'{"type":"final","session_id":"sess-direct","text":"done"}\'',
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    fake_gemini.chmod(0o755)
-
-    session = GeminiHeadlessSession(
-        launch_plan=LaunchPlan(
-            backend="gemini_headless",
-            tool="gemini",
-            executable=str(fake_gemini),
-            args=["--approval-mode=yolo", "--sandbox=false"],
-            working_directory=tmp_path,
-            home_env_var="GEMINI_CLI_HOME",
-            home_path=tmp_path / "home",
-            env={},
-            env_var_names=[],
-            role_injection=RoleInjectionPlan(
-                method="bootstrap_message",
-                role_name="gpu-kernel-coder",
-                prompt="role prompt",
-                bootstrap_message="bootstrap",
-            ),
-            metadata={},
-        ),
-        role_name="gpu-kernel-coder",
-        session_manifest_path=tmp_path / "session.json",
-        state=HeadlessSessionState(
-            working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
-        ),
-    )
-    direct_runner = HeadlessCliRunner()
-
-    class _DirectRunner:
-        def run(  # type: ignore[no-untyped-def]
-            self,
-            *,
-            command,
-            env,
-            cwd,
-            turn_index,
-            output_format,
-            tmux_session_name,
-            turn_artifacts_root,
-            turn_artifact_dir_name=None,
-            **_kwargs,
-        ) -> HeadlessRunResult:
-            del tmux_session_name, turn_artifacts_root, turn_artifact_dir_name
-            return direct_runner.run(
-                command=command,
-                env=env,
-                cwd=cwd,
-                turn_index=turn_index,
-                output_format=output_format,
-            )
-
-    session._runner = _DirectRunner()  # type: ignore[attr-defined]
-
-    events = session.send_prompt("write-direct-artifact")
-
-    assert (tmp_path / "tmp" / "direct-tool.txt").read_text(encoding="utf-8") == (
-        "created by fake gemini\n"
-    )
-    assert session.state.session_id == "sess-direct"
-    assert events[-1].kind == "done"
 
 
 def test_claude_headless_uses_launch_plan_environment(
@@ -961,19 +695,19 @@ def test_headless_resume_republishes_manifest_and_agent_def_dir_to_tmux_env(
         lambda *, session_name: prepared_sessions.append(session_name),
     )
 
-    GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
+    KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
         role_name="gpu-kernel-coder",
         session_manifest_path=tmp_path / "session.json",
         agent_def_dir=agent_def_dir,
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
+            tmux_session_name="HOUMAO-kimi",
         ),
     )
 
-    assert captured_tmux_env["session_name"] == "HOUMAO-gemini"
-    assert prepared_sessions == ["HOUMAO-gemini"]
+    assert captured_tmux_env["session_name"] == "HOUMAO-kimi"
+    assert prepared_sessions == ["HOUMAO-kimi"]
     env_vars = captured_tmux_env["env_vars"]
     assert isinstance(env_vars, dict)
     assert env_vars[AGENT_MANIFEST_PATH_ENV_VAR] == str((tmp_path / "session.json").resolve())
@@ -999,13 +733,13 @@ def test_headless_resume_preserves_color_env_when_tmux_injection_disabled(
         ),
     )
 
-    GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
+    KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
         role_name="gpu-kernel-coder",
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
+            tmux_session_name="HOUMAO-kimi",
         ),
     )
 
@@ -1023,13 +757,13 @@ def test_headless_env_injects_loopback_no_proxy_by_default(
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.internal:8080")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
-    session = GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
+    session = KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
         role_name="gpu-kernel-coder",
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
+            tmux_session_name="HOUMAO-kimi",
         ),
     )
     captured_env: dict[str, str] = {}
@@ -1076,13 +810,13 @@ def test_headless_env_preserve_mode_leaves_no_proxy_untouched(
     monkeypatch.setenv("HOUMAO_PRESERVE_NO_PROXY_ENV", "1")
     monkeypatch.setenv("NO_PROXY", "corp.internal")
     monkeypatch.delenv("no_proxy", raising=False)
-    session = GeminiHeadlessSession(
-        launch_plan=_sample_gemini_launch_plan(tmp_path),
+    session = KimiHeadlessSession(
+        launch_plan=_sample_kimi_launch_plan(tmp_path),
         role_name="gpu-kernel-coder",
         session_manifest_path=tmp_path / "session.json",
         state=HeadlessSessionState(
             working_directory=str(tmp_path),
-            tmux_session_name="HOUMAO-gemini",
+            tmux_session_name="HOUMAO-kimi",
         ),
     )
     captured_env: dict[str, str] = {}
@@ -1123,17 +857,17 @@ def test_headless_preflight_fails_when_tool_executable_missing(
 ) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.backends.headless_base.shutil.which",
-        lambda name: None if name == "gemini" else "/usr/bin/tmux",
+        lambda name: None if name == "kimi" else "/usr/bin/tmux",
     )
 
-    with pytest.raises(BackendExecutionError, match="command -v gemini"):
-        GeminiHeadlessSession(
-            launch_plan=_sample_gemini_launch_plan(tmp_path, executable="gemini"),
+    with pytest.raises(BackendExecutionError, match="command -v kimi"):
+        KimiHeadlessSession(
+            launch_plan=_sample_kimi_launch_plan(tmp_path, executable="kimi"),
             role_name="gpu-kernel-coder",
             session_manifest_path=tmp_path / "session.json",
             state=HeadlessSessionState(
                 working_directory=str(tmp_path),
-                tmux_session_name="HOUMAO-gemini",
+                tmux_session_name="HOUMAO-kimi",
             ),
         )
 

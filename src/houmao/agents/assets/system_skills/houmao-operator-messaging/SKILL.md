@@ -41,7 +41,7 @@ Clarification state:
 
 Related skills and boundaries:
 
-- Use `houmao-agent-messaging` for last-mile prompt dispatch. That lower-level skill owns gateway-preferred prompting: use the target gateway when available, otherwise use direct managed-agent prompting with forced fallback behavior when the prompt surface supports it.
+- Use `houmao-agent-messaging` for last-mile prompt dispatch. That lower-level skill owns gateway-preferred prompting: use ready-only gateway prompt control when available, otherwise use ordinary direct managed-agent prompting.
 - Use `houmao-agent-email-comms` for mailbox dispatch only when the operator prompt or chat context asks for mail, inbox, threaded, asynchronous, or mailbox delivery.
 - Use `houmao-agent-loop-pro` or `houmao-agent-loop-lite` when the requested work needs durable orchestration, generated loop state, validation, retries, scheduling, topology contracts, or recovery.
 
@@ -66,7 +66,7 @@ Prompt-only workflow:
 - Let the user's task determine target count, ordering, reply expectations, and whether messages are identical or tailored per target.
 - Default every packet to prompt delivery unless the operator prompt or chat context indicates mailbox delivery.
 - Prepare a compact packet plan before sending any message.
-- Route prompt packets through `houmao-agent-messaging`; use the target gateway when available, otherwise use direct managed-agent prompting with forced fallback behavior when the prompt surface supports `--force`.
+- Route prompt packets through `houmao-agent-messaging`; use ready-only target-gateway prompt control when available, otherwise use ordinary direct managed-agent prompting. Select `if-no-pending` or `always` only when the operator explicitly asks for those busy-TUI semantics.
 - Route mailbox packets through `houmao-agent-email-comms`; choose mailbox only from operator intent or chat context, not merely because a target has a mailbox.
 - Report a concise summary after dispatch, including targets, routes, sent packets, blocked packets, and record updates.
 

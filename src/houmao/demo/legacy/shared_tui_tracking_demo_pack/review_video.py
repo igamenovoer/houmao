@@ -51,6 +51,7 @@ def render_review_frames(
             state.surface_accepting_input,
             state.surface_editing_input,
             state.surface_ready_posture,
+            state.surface_pending_input,
             state.turn_phase,
             state.last_turn_result,
             state.last_turn_source,
@@ -167,7 +168,7 @@ def _render_snapshot_frame(
             "turn="
             f"{state.turn_phase}  last={state.last_turn_result}/{state.last_turn_source}  "
             f"input={state.surface_accepting_input}  editing={state.surface_editing_input}  "
-            f"ready={state.surface_ready_posture}"
+            f"ready={state.surface_ready_posture}  pending={state.surface_pending_input}"
         ),
         font=small_font,
         fill=_DIM,

@@ -1,0 +1,35 @@
+{
+  "id": "codex_delegated_agent_success",
+  "tool": "codex",
+  "description": "Exercise GPT-5.6 delegated-agent activity and parent ready return.",
+  "launch": {},
+  "steps": [
+    {
+      "action": "wait_for_ready",
+      "name": "wait-for-ready"
+    },
+    {
+      "action": "send_text",
+      "name": "send-delegation-prompt",
+      "text": "Use spawn_agent to delegate one task to an explorer agent: ask it to report the first Markdown heading in README.md. Wait for that agent to finish, then reply with the single token DELEGATION_DONE.",
+      "submit": true
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-delegation-cell",
+      "pattern": "(?m)^\\s*• (?:Spawned|Waiting for) ",
+      "timeout_seconds": 90
+    },
+    {
+      "action": "wait_for_pattern",
+      "name": "wait-for-delegation-result",
+      "pattern": "(?m)^\\s*(?:[●•]\\s*)?DELEGATION_DONE\\s*$",
+      "timeout_seconds": 120
+    },
+    {
+      "action": "wait_seconds",
+      "name": "settle-delegation-success",
+      "seconds": 2
+    }
+  ]
+}

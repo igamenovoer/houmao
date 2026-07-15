@@ -114,8 +114,22 @@ def ensure_command_available(command_name: str) -> None:
         raise RuntimeError(f"`{command_name}` was not found on PATH")
 
 
-def launch_tmux_session(*, session_name: str, workdir: Path, launch_script: Path) -> None:
-    """Launch one detached tmux session and keep the pane visible on exit."""
+def launch_tmux_session(
+    *,
+    session_name: str,
+    workdir: Path,
+    launch_script: Path,
+    retain_shell_after_exit: bool = False,
+) -> None:
+    """Launch one detached tmux session and optionally retain a restart shell."""
+
+    launch_argv = [str(launch_script)]
+    if retain_shell_after_exit:
+        launch_argv = [
+            "bash",
+            "-lc",
+            f"{shlex.quote(str(launch_script))}; exec bash --noprofile --norc",
+        ]
 
     result = run_tmux(
         [
@@ -125,7 +139,7 @@ def launch_tmux_session(*, session_name: str, workdir: Path, launch_script: Path
             session_name,
             "-c",
             str(workdir),
-            str(launch_script),
+            *launch_argv,
         ]
     )
     if result.returncode != 0:

@@ -10,7 +10,6 @@ from houmao.demo.single_agent_gateway_wakeup_headless.models import (
     DemoState,
     DeliveryState,
     build_demo_layout,
-    load_demo_parameters,
 )
 from houmao.project.catalog import ProjectCatalog
 from houmao.project.overlay import (
@@ -189,113 +188,6 @@ def test_import_project_auth_from_fixture_shapes_codex_command(
     assert "--auth-json" in command
 
 
-def test_import_project_auth_from_fixture_shapes_gemini_oauth_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_root = tmp_path / "repo"
-    fixture_root = repo_root / "fixtures/gemini/personal-a-default"
-    (fixture_root / "env").mkdir(parents=True)
-    (fixture_root / "files").mkdir(parents=True)
-    (fixture_root / "env/vars.env").write_text("GOOGLE_GENAI_USE_GCA=true\n", encoding="utf-8")
-    (fixture_root / "files/oauth_creds.json").write_text(
-        '{"refresh_token": "token"}\n',
-        encoding="utf-8",
-    )
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
-    paths.project_dir.mkdir(parents=True)
-    _bootstrap_demo_overlay(paths)
-
-    captured: dict[str, object] = {}
-
-    def fake_run_json_command(command: object, **kwargs: object) -> dict[str, object]:
-        captured["command"] = command
-        captured.update(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
-
-    runtime.import_project_auth_from_fixture(
-        paths=paths,
-        env={},
-        tool="gemini",
-        tool_parameters=type(
-            "_Tool",
-            (),
-            {
-                "auth_fixture_dir": Path("fixtures/gemini/personal-a-default"),
-                "auth_name": "personal-a-default",
-            },
-        )(),
-        repo_root=repo_root,
-        timeout_seconds=30.0,
-    )
-
-    command = captured["command"]
-    assert command[:8] == [
-        "pixi",
-        "run",
-        "houmao-mgr",
-        "--print-json",
-        "project",
-        "credentials",
-        "gemini",
-        "add",
-    ]
-    assert "--name" in command
-    assert "personal-a-default" in command
-    assert "--oauth-creds" in command
-    assert str((fixture_root / "files/oauth_creds.json").resolve()) in command
-
-
-def test_import_project_auth_from_fixture_shapes_gemini_api_key_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo_root = tmp_path / "repo"
-    fixture_root = repo_root / "fixtures/gemini/api-key-a-default"
-    (fixture_root / "env").mkdir(parents=True)
-    (fixture_root / "files").mkdir(parents=True)
-    (fixture_root / "env/vars.env").write_text(
-        "GEMINI_API_KEY=sk-gemini\nGOOGLE_GEMINI_BASE_URL=https://gemini.example.test\n",
-        encoding="utf-8",
-    )
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
-    paths.project_dir.mkdir(parents=True)
-    _bootstrap_demo_overlay(paths)
-
-    captured: dict[str, object] = {}
-
-    def fake_run_json_command(command: object, **kwargs: object) -> dict[str, object]:
-        captured["command"] = command
-        captured.update(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(runtime, "run_json_command", fake_run_json_command)
-
-    runtime.import_project_auth_from_fixture(
-        paths=paths,
-        env={},
-        tool="gemini",
-        tool_parameters=type(
-            "_Tool",
-            (),
-            {
-                "auth_fixture_dir": Path("fixtures/gemini/api-key-a-default"),
-                "auth_name": "api-key-a-default",
-            },
-        )(),
-        repo_root=repo_root,
-        timeout_seconds=30.0,
-    )
-
-    command = captured["command"]
-    assert "--api-key" in command
-    assert "sk-gemini" in command
-    assert "--base-url" in command
-    assert "https://gemini.example.test" in command
-
-
 def test_import_project_auth_from_fixture_reuses_existing_bundle_with_set(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -360,7 +252,7 @@ def test_driver_parser_accepts_supported_command_surface() -> None:
     parser = driver._build_parser()  # type: ignore[attr-defined]
 
     assert parser.parse_args(["start", "--tool", "claude"]).command == "start"
-    assert parser.parse_args(["start", "--tool", "gemini"]).command == "start"
+    assert parser.parse_args(["start", "--tool", "codex"]).command == "start"
     assert parser.parse_args(["send"]).command == "send"
     assert parser.parse_args(["manual-send"]).command == "manual-send"
     assert parser.parse_args(["attach"]).command == "attach"
@@ -379,19 +271,8 @@ def test_driver_parser_accepts_supported_command_surface() -> None:
     assert parser.parse_args(["verify"]).command == "verify"
     assert parser.parse_args(["stop"]).command == "stop"
     assert parser.parse_args(["auto", "--tool", "codex"]).command == "auto"
-    assert parser.parse_args(["auto", "--tool", "gemini"]).command == "auto"
+    assert parser.parse_args(["auto", "--tool", "codex"]).command == "auto"
     assert parser.parse_args(["matrix"]).command == "matrix"
-
-
-def test_tracked_demo_parameters_include_gemini_lane() -> None:
-    parameters = load_demo_parameters(
-        Path("scripts/demo/single-agent-gateway-wakeup-headless/inputs/demo_parameters.json")
-    )
-
-    assert set(parameters.tools.keys()) == {"claude", "codex", "gemini"}
-    gemini = parameters.tool_parameters(tool="gemini")
-    assert gemini.provider == "gemini_cli"
-    assert gemini.auth_name == "personal-a-default"
 
 
 def test_command_matrix_runs_all_supported_tools(
@@ -427,8 +308,8 @@ def test_command_matrix_runs_all_supported_tools(
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert tool_calls == ["claude", "codex", "gemini"]
-    assert [item["tool"] for item in payload["results"]] == ["claude", "codex", "gemini"]
+    assert tool_calls == ["claude", "codex"]
+    assert [item["tool"] for item in payload["results"]] == ["claude", "codex"]
 
 
 def test_attach_gateway_can_request_foreground_window(
@@ -468,64 +349,6 @@ def test_attach_gateway_can_request_foreground_window(
         "single-mail-claude-demo",
         "--foreground",
     ]
-
-
-def test_launch_instance_uses_headless_project_easy_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    paths = build_demo_layout(demo_output_dir=tmp_path / "outputs")
-    paths.project_dir.mkdir(parents=True)
-
-    captured: dict[str, object] = {}
-
-    def fake_run_command(command: object, **kwargs: object) -> runtime.CommandResult:
-        captured["command"] = command
-        captured.update(kwargs)
-        return runtime.CommandResult(
-            args=tuple(str(part) for part in command),
-            returncode=0,
-            stdout='{"manifest_path": "/tmp/demo-manifest.json"}\n',
-            stderr="",
-            stdout_path=paths.logs_dir / "instance-launch.stdout",
-            stderr_path=paths.logs_dir / "instance-launch.stderr",
-        )
-
-    monkeypatch.setattr(runtime, "run_command", fake_run_command)
-
-    payload = runtime.launch_instance(
-        paths=paths,
-        env={},
-        specialist_name="single-headless-mail-codex",
-        instance_name="single-headless-mail-codex-demo",
-        session_name="hm-single-headless-mail-codex-demo",
-        mail_root=(paths.overlay_dir / "mailbox").resolve(),
-        timeout_seconds=30.0,
-    )
-
-    command = captured["command"]
-    assert command == [
-        "pixi",
-        "run",
-        "houmao-mgr",
-        "--print-json",
-        "project",
-        "easy",
-        "instance",
-        "launch",
-        "--specialist",
-        "single-headless-mail-codex",
-        "--name",
-        "single-headless-mail-codex-demo",
-        "--session-name",
-        "hm-single-headless-mail-codex-demo",
-        "--headless",
-        "--mail-transport",
-        "filesystem",
-        "--mail-root",
-        str((paths.overlay_dir / "mailbox").resolve()),
-    ]
-    assert payload["manifest_path"] == "/tmp/demo-manifest.json"
 
 
 def test_capture_gateway_console_uses_authoritative_gateway_window(
@@ -716,17 +539,17 @@ def test_collect_headless_runtime_snapshot_prefers_completed_turn_artifacts_over
         created_at_utc="2026-03-31T00:00:00Z",
         repo_root=tmp_path.resolve(),
         output_root=output_root,
-        selected_tool="gemini",
-        provider="gemini_cli",
+        selected_tool="codex",
+        provider="codex_cli",
         setup_name="default",
         run_id="single-agent-gateway-wakeup-headless-20260331T000000Z-demo",
         project_fixture=tmp_path / "fixture",
         project_workdir=project_root,
         overlay_root=overlay_root,
         agent_def_dir=overlay_root / "agents",
-        specialist_name="single-headless-mail-gemini",
-        instance_name="single-headless-mail-gemini-demo",
-        session_name="hm-single-headless-mail-gemini-demo",
+        specialist_name="single-headless-mail-codex",
+        instance_name="single-headless-mail-codex-demo",
+        session_name="hm-single-headless-mail-codex-demo",
         auth_bundle_name="personal-a-default",
         brain_manifest_path=session_root / "brain/manifest.json",
         brain_home_path=session_root / "brain/home",
@@ -734,11 +557,11 @@ def test_collect_headless_runtime_snapshot_prefers_completed_turn_artifacts_over
         session_manifest_path=manifest_path,
         session_root=session_root,
         tracked_agent_id="tracked-demo",
-        agent_name="single-headless-mail-gemini-demo",
+        agent_name="single-headless-mail-codex-demo",
         agent_id="agent-demo",
         tmux_session_name="tmux-demo",
-        mailbox_principal_id="single-headless-mail-gemini-demo",
-        mailbox_address="single-headless-mail-gemini-demo@agents.localhost",
+        mailbox_principal_id="single-headless-mail-codex-demo",
+        mailbox_address="single-headless-mail-codex-demo@agents.localhost",
         operator_principal_id="operator",
         operator_address="operator@agents.localhost",
         gateway_root=session_root / "gateway",
@@ -815,8 +638,8 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
         created_at_utc="2026-03-31T00:00:00Z",
         repo_root=tmp_path.resolve(),
         output_root=output_root,
-        selected_tool="gemini",
-        provider="gemini_headless",
+        selected_tool="codex",
+        provider="codex_headless",
         setup_name="default",
         run_id="single-agent-gateway-wakeup-headless-20260331T000000Z-e72b254f",
         project_fixture=tmp_path / "fixture",
@@ -943,7 +766,7 @@ def test_report_contract_accepts_structural_project_mailbox_without_read_state(
     )
 
 
-@pytest.mark.parametrize("tool", ["claude", "codex", "gemini"])
+@pytest.mark.parametrize("tool", ["claude", "codex", "codex"])
 def test_expose_project_mailbox_skills_skips_project_mirror(
     tmp_path: Path,
     tool: str,
@@ -977,17 +800,17 @@ def test_collect_verification_snapshot_waits_for_headless_and_queue_completion(
         created_at_utc="2026-03-31T00:00:00Z",
         repo_root=tmp_path.resolve(),
         output_root=output_root,
-        selected_tool="gemini",
-        provider="gemini_cli",
+        selected_tool="codex",
+        provider="codex_cli",
         setup_name="default",
         run_id="single-agent-gateway-wakeup-headless-20260331T000000Z-demo",
         project_fixture=tmp_path / "fixture",
         project_workdir=project_root,
         overlay_root=overlay_root,
         agent_def_dir=overlay_root / "agents",
-        specialist_name="single-headless-mail-gemini",
-        instance_name="single-headless-mail-gemini-demo",
-        session_name="hm-single-headless-mail-gemini-demo",
+        specialist_name="single-headless-mail-codex",
+        instance_name="single-headless-mail-codex-demo",
+        session_name="hm-single-headless-mail-codex-demo",
         auth_bundle_name="personal-a-default",
         brain_manifest_path=session_root / "brain/manifest.json",
         brain_home_path=session_root / "brain/home",
@@ -995,11 +818,11 @@ def test_collect_verification_snapshot_waits_for_headless_and_queue_completion(
         session_manifest_path=session_root / "manifest.json",
         session_root=session_root,
         tracked_agent_id="tracked-demo",
-        agent_name="single-headless-mail-gemini-demo",
+        agent_name="single-headless-mail-codex-demo",
         agent_id="agent-demo",
         tmux_session_name="tmux-demo",
-        mailbox_principal_id="single-headless-mail-gemini-demo",
-        mailbox_address="single-headless-mail-gemini-demo@agents.localhost",
+        mailbox_principal_id="single-headless-mail-codex-demo",
+        mailbox_address="single-headless-mail-codex-demo@agents.localhost",
         operator_principal_id="operator",
         operator_address="operator@agents.localhost",
         gateway_root=session_root / "gateway",

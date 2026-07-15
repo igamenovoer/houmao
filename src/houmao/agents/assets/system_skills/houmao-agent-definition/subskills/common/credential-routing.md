@@ -49,13 +49,12 @@ Load only the selected tool's credential-kind page:
 
 - Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
 - Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
-- Gemini: [../../../houmao-credential-mgr/references/gemini-credential-kinds.md](../../../houmao-credential-mgr/references/gemini-credential-kinds.md)
 - Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 ## Guardrails
 
 - Do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless a supported discovery mode is active.
 - Do not infer specialist tool from installed CLIs, project language, file names, or vendor tool homes.
-- Do not execute browser login flows, `codex login`, `claude auth login`, `gemini` interactive login, `apiKeyHelper`, or other auth-generation flows.
+- Do not execute browser login flows, `codex login`, `claude auth login`, `apiKeyHelper`, or other auth-generation flows.
 - Do not infer auth identity from `.houmao/content/auth/...` or `.houmao/agents/tools/<tool>/auth/...` directory basenames.
 - Do not treat profile `--auth` changes as credential-bundle content mutation.

@@ -413,6 +413,7 @@ def run_dashboard(*, run_root: Path) -> int:
                         surface_accepting_input=observation_state.surface_accepting_input,
                         surface_editing_input=observation_state.surface_editing_input,
                         surface_ready_posture=observation_state.surface_ready_posture,
+                        surface_pending_input=observation_state.surface_pending_input,
                         turn_phase=observation_state.turn_phase,
                         last_turn_result=observation_state.last_turn_result,
                         last_turn_source=observation_state.last_turn_source,
@@ -791,6 +792,7 @@ def _append_transition_events(
                 surface_accepting_input=latest_signals.accepting_input,
                 surface_editing_input=latest_signals.editing_input,
                 surface_ready_posture=latest_signals.ready_posture,
+                surface_pending_input=latest_signals.pending_input,
                 turn_phase=event.turn_phase,
                 last_turn_result=event.last_turn_result,
                 last_turn_source=event.last_turn_source,
@@ -840,6 +842,9 @@ def _render_dashboard(
                 _styled_state_line("editing", str(latest_state_payload["surface_editing_input"])),
                 _styled_state_line(
                     "ready_posture", str(latest_state_payload["surface_ready_posture"])
+                ),
+                _styled_state_line(
+                    "pending_input", str(latest_state_payload["surface_pending_input"])
                 ),
                 Text(
                     "sample: "

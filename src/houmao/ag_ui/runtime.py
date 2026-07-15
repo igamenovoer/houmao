@@ -89,7 +89,7 @@ class AgUiRuntimeObservationProtocol(Protocol):
 def ag_ui_target_transport_family_for_backend(backend: str) -> AgUiTargetTransportFamily:
     """Map one gateway backend value to the AG-UI observation family."""
 
-    if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
+    if backend in {"claude_headless", "codex_headless", "kimi_headless"}:
         return "headless"
     if backend in {"local_interactive", "cao_rest"}:
         return "tui"

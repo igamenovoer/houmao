@@ -283,7 +283,7 @@ def _prompt_control_result() -> HoumaoManagedAgentGatewayPromptControlResponse:
 
     return HoumaoManagedAgentGatewayPromptControlResponse(
         sent=True,
-        forced=False,
+        admission_policy="ready_only",
         detail="Prompt dispatched.",
     )
 
@@ -501,7 +501,7 @@ class TestGatewayPromptControl:
                         "action": "submit_prompt",
                         "detail": "not ready",
                         "error_code": "not_ready",
-                        "forced": False,
+                        "admission_policy": "ready_only",
                         "sent": False,
                         "status": "error",
                     },

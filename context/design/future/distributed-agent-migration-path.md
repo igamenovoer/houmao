@@ -147,7 +147,7 @@ The migration is structured so that each phase delivers independently useful val
 
 6. **Clean up `BackendKind` for new launches.** For new agent launches, the only backends a user should normally encounter are:
    - `local_interactive` (tmux-backed TUI)
-   - `claude_headless`, `codex_headless`, `gemini_headless` (tmux-backed headless)
+   - `claude_headless`, `codex_headless`, `kimi_headless` (tmux-backed headless)
    - `codex_app_server` (remote Codex server — a special case)
 
    `cao_rest` and `houmao_server_rest` remain in the type system for resume of existing sessions but should not appear in default selection logic or documentation.

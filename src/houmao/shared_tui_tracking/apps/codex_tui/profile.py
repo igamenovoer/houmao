@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from houmao.shared_tui_tracking.apps.codex_tui.signals.activity import (
+    assistant_response_visible,
     detect_activity,
     latest_turn_region_signature,
 )
@@ -25,6 +26,7 @@ from houmao.shared_tui_tracking.apps.codex_tui.signals.overlays import has_block
 from houmao.shared_tui_tracking.apps.codex_tui.signals.prompt_behavior import (
     CodexPromptBehaviorVariant,
     CodexPromptBehaviorVariantV0_116_X,
+    CodexPromptBehaviorVariantV0_144_X,
     FallbackCodexPromptBehaviorVariant,
     build_prompt_area_snapshot,
     latest_turn_live_edge_lines,
@@ -43,6 +45,7 @@ from houmao.shared_tui_tracking.models import (
     ParsedSurfaceContext,
     RecentProfileFrame,
     TemporalHintSignals,
+    Tristate,
 )
 from houmao.shared_tui_tracking.surface import SurfaceView
 
@@ -54,6 +57,7 @@ _MIN_GROWTH_CHARS = 48
 _MIN_ADDED_LINES = 2
 _MAX_DEGRADED_MESSAGE_PREVIEW_CHARS = 240
 LOGGER = logging.getLogger(__name__)
+_CODEX_PROVIDER_MARKERS = ("OpenAI Codex",)
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,8 @@ class _CodexTuiFrame:
     prompt_visible: bool
     blocking_overlay: bool
     active_status_row_visible: bool
+    active_evidence: bool
+    assistant_response_visible: bool
     current_error_present: bool
     interrupted: bool
     ready_posture: str
@@ -79,12 +85,22 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         *,
         detector_version: str,
         prompt_behavior_variant: CodexPromptBehaviorVariant,
+        include_collaboration_cells: bool = False,
+        include_queued_follow_up: bool = True,
+        temporal_growth_requires_prior_activity: bool = False,
+        infer_silent_interruption: bool = False,
         profile_notes: tuple[str, ...] = (),
     ) -> None:
         """Initialize one Codex detector profile."""
 
         self.m_detector_version: str = detector_version
         self.m_prompt_behavior_variant: CodexPromptBehaviorVariant = prompt_behavior_variant
+        self.m_include_collaboration_cells: bool = include_collaboration_cells
+        self.m_include_queued_follow_up: bool = include_queued_follow_up
+        self.m_temporal_growth_requires_prior_activity: bool = (
+            temporal_growth_requires_prior_activity
+        )
+        self.m_infer_silent_interruption: bool = infer_silent_interruption
         self.m_profile_notes: tuple[str, ...] = profile_notes
 
     @property
@@ -108,7 +124,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         """Return normalized tracked signals for one Codex TUI surface."""
 
         del parsed_surface
-        surface = SurfaceView.from_text(output_text or "")
+        surface, surface_fresh = _current_codex_surface(output_text)
         prompt_snapshot = build_prompt_area_snapshot(surface)
         latest_turn_region_lines = latest_turn_lines(
             surface=surface,
@@ -122,6 +138,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             live_edge_lines=live_edge_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
+            include_collaboration_cells=self.m_include_collaboration_cells,
+            include_queued_follow_up=self.m_include_queued_follow_up,
         )
         interrupted = is_interrupted_surface(
             latest_turn_lines=latest_turn_region_lines,
@@ -187,6 +205,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
                 classification=prompt_classification,
             ),
         ]
+        if not surface_fresh:
+            notes.append("provider_surface_not_fresh")
         if activity.steer_handoff:
             notes.append("steer_handoff_active")
         if interrupted:
@@ -213,12 +233,20 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             or activity.active_evidence
             or interrupted
         )
+        pending_input: Tristate
+        if activity.pending_input_visible:
+            pending_input = "yes"
+        elif surface_fresh and prompt_snapshot.prompt_visible and not blocking_overlay:
+            pending_input = "no"
+        else:
+            pending_input = "unknown"
         return DetectedTurnSignals(
             detector_name="codex_tui",
             detector_version=self.detector_version,
             accepting_input=accepting_input,
             editing_input=editing_input,
             ready_posture=ready_posture,
+            pending_input=pending_input,
             prompt_visible=prompt_snapshot.prompt_visible,
             prompt_text=prompt_classification.prompt_text,
             footer_interruptable=activity.active_status_row_visible,
@@ -249,7 +277,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
 
         del observed_at_seconds
         del signals
-        surface = SurfaceView.from_text(output_text or "")
+        surface, _surface_fresh = _current_codex_surface(output_text)
         prompt_snapshot = build_prompt_area_snapshot(surface)
         latest_turn_region_lines = latest_turn_lines(
             surface=surface,
@@ -261,6 +289,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             live_edge_lines=live_edge_lines,
             prompt_visible=prompt_snapshot.prompt_visible,
             steer_interruption_text=CODEX_STEER_INTERRUPTION_TEXT,
+            include_collaboration_cells=self.m_include_collaboration_cells,
+            include_queued_follow_up=self.m_include_queued_follow_up,
         )
         terminal_signal = prompt_adjacent_terminal_signal(latest_turn_region_lines)
         blocking_overlay = has_blocking_overlay(surface)
@@ -278,6 +308,8 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             prompt_visible=prompt_snapshot.prompt_visible,
             blocking_overlay=blocking_overlay,
             active_status_row_visible=activity.active_status_row_visible,
+            active_evidence=activity.active_evidence,
+            assistant_response_visible=assistant_response_visible(latest_turn_region_lines),
             current_error_present=terminal_signal is not None,
             interrupted=interrupted,
             ready_posture=ready_posture,
@@ -317,6 +349,36 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             return TemporalHintSignals()
         if newest.active_status_row_visible:
             return TemporalHintSignals()
+        if self.m_infer_silent_interruption and newest.assistant_response_visible:
+            return TemporalHintSignals()
+        if self.m_infer_silent_interruption and newest.ready_posture == "yes":
+            latest_active_frame = next(
+                (
+                    item.payload
+                    for item in reversed(contiguous_frames[:-1])
+                    if isinstance(item.payload, _CodexTuiFrame) and item.payload.active_evidence
+                ),
+                None,
+            )
+            if (
+                latest_active_frame is not None
+                and not newest.assistant_response_visible
+                and newest.latest_turn_region_signature
+                != latest_active_frame.latest_turn_region_signature
+            ):
+                return TemporalHintSignals(
+                    interrupted=True,
+                    active_evidence=False,
+                    ready_posture="yes",
+                    success_candidate=False,
+                    success_blocked=True,
+                    notes=("temporal_silent_interruption",),
+                )
+        if self.m_temporal_growth_requires_prior_activity and not any(
+            isinstance(item.payload, _CodexTuiFrame) and item.payload.active_evidence
+            for item in contiguous_frames[:-1]
+        ):
+            return TemporalHintSignals()
         growth_chars = newest.latest_turn_region_length - oldest.latest_turn_region_length
         growth_lines = newest.latest_turn_region_line_count - oldest.latest_turn_region_line_count
         if newest.latest_turn_region_signature == oldest.latest_turn_region_signature:
@@ -349,6 +411,15 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         return hints
 
 
+def _current_codex_surface(output_text: str | None) -> tuple[SurfaceView, bool]:
+    """Return the current Codex surface and whether it belongs to the latest launch."""
+
+    surface = SurfaceView.from_text(output_text or "")
+    if surface.has_unrendered_shell_launch(provider_markers=_CODEX_PROVIDER_MARKERS):
+        return SurfaceView.from_text(""), False
+    return surface, True
+
+
 class CodexTuiSignalDetectorV0_116_X(_BaseCodexTuiSignalDetector):
     """Tracked-TUI detector for observed Codex `0.116.x` surfaces."""
 
@@ -358,6 +429,23 @@ class CodexTuiSignalDetectorV0_116_X(_BaseCodexTuiSignalDetector):
         super().__init__(
             detector_version="0.116.x",
             prompt_behavior_variant=CodexPromptBehaviorVariantV0_116_X(),
+        )
+
+
+class CodexTuiSignalDetectorV0_144_X(_BaseCodexTuiSignalDetector):
+    """Tracked-TUI detector for recorded Codex `0.144.x` surfaces."""
+
+    def __init__(self) -> None:
+        """Initialize the `0.144.x` detector family."""
+
+        super().__init__(
+            detector_version="0.144.x",
+            prompt_behavior_variant=CodexPromptBehaviorVariantV0_144_X(),
+            include_collaboration_cells=True,
+            include_queued_follow_up=True,
+            temporal_growth_requires_prior_activity=True,
+            infer_silent_interruption=True,
+            profile_notes=("source_profile=codex-0.144.x",),
         )
 
 

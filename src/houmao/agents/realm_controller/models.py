@@ -19,7 +19,6 @@ BackendKind = Literal[
     "codex_headless",
     "codex_app_server",
     "claude_headless",
-    "gemini_headless",
     "kimi_headless",
     "cao_rest",
     "houmao_server_rest",
@@ -134,7 +133,7 @@ class LaunchPlan:
     backend:
         Concrete backend selected for session execution.
     tool:
-        Tool identity from the brain manifest (`codex`, `claude`, `gemini`).
+        Tool identity from the brain manifest (`codex`, `claude`, `kimi`).
     executable:
         Executable name/path for the backend command.
     args:

@@ -79,12 +79,24 @@ houmao-mgr agents single --agent-id <id> gateway prompt [OPTIONS]
 | Option | Description |
 |---|---|
 | `--prompt TEXT` | Prompt text to submit. If omitted, piped stdin is used. |
-| `--force` | Send the prompt even when the gateway does not judge the target prompt-ready. |
+| `--admission-policy [ready-only\|if-no-pending\|always]` | Select the immediate prompt-admission policy. Default: `ready-only`. |
 | `--model TEXT` | Request-scoped headless execution model override for this prompt only. |
 | `--reasoning-level INTEGER` | Optional tool/model-specific reasoning preset index override for this prompt only. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway prompt. |
 
-These override flags are accepted only when the resolved managed agent is headless. TUI-backed targets fail clearly instead of silently ignoring them. The override applies to exactly the addressed gateway prompt submission — including when that submission is queued through `submit_prompt` — and does not mutate launch profiles, recipes, specialists, manifests, or any other live session defaults. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper. The meaning of `--reasoning-level` depends on the resolved tool/model ladder, higher unused numbers saturate to that ladder's highest maintained Houmao preset, and `0` means explicit off only when that ladder supports it.
+The admission policies apply as follows:
+
+| Policy | TUI decision | Native headless scope |
+|---|---|---|
+| `ready-only` | Require the established stable prompt-ready posture and `surface.pending_input=no`. | Supported; retains headless overlap protection. |
+| `if-no-pending` | Ignore busy, editing, readiness, and stability, but require `surface.pending_input=no`. | Rejected. |
+| `always` | Ignore tracked readiness and pending input. | Rejected. |
+
+Both conditional policies fail closed when pending input is `unknown`. `if-no-pending` returns `pending_input` for an observed queue and `pending_input_unknown` for ambiguous or incomplete provider surfaces. Attachment, availability, reconciliation, selector, adapter, and execution-override checks still apply to every policy. TUI `chat_session.mode=new` accepts only `ready-only`.
+
+Admission is observational. The gateway reads the latest tracked provider surface and does not reserve a pending slot or wait under a lock for the provider to repaint. Two closely spaced `if-no-pending` calls can therefore both dispatch before the TUI exposes its queue; later calls react to the next observed `surface.pending_input=yes`.
+
+The `--model` and `--reasoning-level` override flags are accepted only when the resolved managed agent is headless. TUI-backed targets fail clearly instead of silently ignoring them. The override applies to exactly the addressed gateway prompt submission, including when that submission is queued through `submit_prompt`, and does not mutate launch profiles, recipes, specialists, manifests, or any other live session defaults. Partial overrides are supported: supplying `--reasoning-level` without `--model` merges with the launch-resolved model defaults through the shared headless resolution helper. The meaning of `--reasoning-level` depends on the resolved tool/model ladder, higher unused numbers saturate to that ladder's highest maintained Houmao preset, and `0` means explicit off only when that ladder supports it.
 
 ### `interrupt`
 

@@ -8,7 +8,7 @@ strategies:
       - codex_headless
       - codex_app_server
       - cao_rest
-    supported_versions: ">=0.116.0"
+    supported_versions: ">=0.140.0"
     minimal_inputs:
       credential_forms:
         - auth.json
@@ -37,7 +37,7 @@ strategies:
         note: Codex source defines project trust, notice.hide_full_access_warning, model_migrations, and TUI config edit surfaces.
       - kind: live_probe
         ref: codex --version
-        note: Fresh-home probe on installed codex-cli 0.116.0 required trust plus no-prompt state to avoid startup prompts.
+        note: Fresh-home probe on installed codex-cli 0.140.0 required trust plus no-prompt state to avoid startup prompts.
     owned_paths:
       - path: config.toml
         keys:

@@ -288,6 +288,7 @@ class _AppServiceDouble:
                 accepting_input="yes",
                 editing_input="no",
                 ready_posture="yes",
+                pending_input="no",
             ),
             turn=HoumaoTrackedTurn(phase="ready"),
             last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
@@ -311,6 +312,7 @@ class _AppServiceDouble:
                     summary=f"limit={limit}",
                     changed_fields=["turn_phase"],
                     diagnostics_availability="available",
+                    surface_pending_input="no",
                     turn_phase="ready",
                     last_turn_result="none",
                     last_turn_source="none",
@@ -605,7 +607,7 @@ class _AppServiceDouble:
         self.m_gateway_prompt_control_calls.append((agent_ref, request_model))
         return HoumaoManagedAgentGatewayPromptControlResponse(
             sent=True,
-            forced=request_model.force,
+            admission_policy=request_model.admission_policy,
             detail="Prompt dispatched.",
         )
 
@@ -1477,10 +1479,13 @@ def test_managed_agent_routes_delegate_to_service_methods() -> None:
     assert gateway_request_response.request_id == "greq-123"
     gateway_prompt_control_response = gateway_prompt_control_route.endpoint(
         agent_ref="claude-headless-1",
-        request_model=HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello", force=True),
+        request_model=HoumaoManagedAgentGatewayPromptControlRequest(
+            prompt="hello",
+            admission_policy="always",
+        ),
     )
     assert gateway_prompt_control_response.sent is True
-    assert gateway_prompt_control_response.forced is True
+    assert gateway_prompt_control_response.admission_policy == "always"
     gateway_control_response = gateway_control_route.endpoint(
         agent_ref="claude-headless-1",
         request_model=GatewayControlInputRequestV1(sequence="<[Escape]>"),

@@ -65,7 +65,7 @@ def _write_fake_codex(fake_bin: Path, *, capture_path: Path, ready_path: Path) -
                 "#!/usr/bin/env bash",
                 "set -eu",
                 'if [[ "${1:-}" == "--version" ]]; then',
-                '  printf "codex-cli 0.116.0\\n"',
+                '  printf "codex-cli 0.140.0\\n"',
                 "  exit 0",
                 "fi",
                 (
@@ -133,7 +133,6 @@ def test_easy_profile_env_reaches_codex_tui_tmux_session(
             [
                 "--print-json",
                 "project",
-                "easy",
                 "specialist",
                 "create",
                 "--name",
@@ -156,7 +155,6 @@ def test_easy_profile_env_reaches_codex_tui_tmux_session(
             [
                 "--print-json",
                 "project",
-                "easy",
                 "profile",
                 "create",
                 "--name",
@@ -189,8 +187,7 @@ def test_easy_profile_env_reaches_codex_tui_tmux_session(
             [
                 "--print-json",
                 "project",
-                "easy",
-                "instance",
+                "agents",
                 "launch",
                 "--profile",
                 "proxy-profile",

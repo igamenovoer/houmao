@@ -48,7 +48,7 @@ This workflow creates or selects a specialist, creates or updates a project prof
 - default filesystem mailbox posture: `--mail-transport filesystem`, `--mail-principal-id HOUMAO-<agent-name>`, `--mail-address <agent-name>@houmao.localhost`, `--mail-root <selected-root>`
 - workdir: `--workdir`
 - prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution. For Kimi, prompt mode is the managed no-question control and should not be replaced with raw `--auto` or `--yolo` launch flags
-- launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane; Kimi is TUI/local-interactive capable here and Gemini remains the selected-tool required-headless exception
+- launch posture: prefer TUI/local-interactive when supported; store `--headless` only when explicitly requested or required by the selected tool/lane; Kimi is TUI/local-interactive capable here
 - model: `--model`
 - reasoning: `--reasoning-level`
 - env: repeatable `--env-set NAME=value`

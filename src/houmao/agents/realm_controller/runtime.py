@@ -73,7 +73,6 @@ from .backends.codex_app_server import (
     CodexAppServerSession,
     codex_backend_state_payload,
 )
-from .backends.gemini_headless import GeminiHeadlessSession
 from .backends.headless_base import (
     HeadlessInteractiveSession,
     HeadlessSessionState,
@@ -123,6 +122,7 @@ from .gateway_models import (
     GatewayDiagnosticLoggingConfigV1,
     GatewayHost,
     GatewayJsonObject,
+    GatewayPromptAdmissionPolicy,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
@@ -244,7 +244,6 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "local_interactive",
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
         "cao_rest",
     }
@@ -254,7 +253,6 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
     "local_interactive",
     "codex_headless",
     "claude_headless",
-    "gemini_headless",
     "kimi_headless",
     "cao_rest",
 )
@@ -263,7 +261,6 @@ _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
         "local_interactive",
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
     }
 )
@@ -1049,13 +1046,16 @@ class RuntimeSessionController:
         self,
         prompt: str,
         *,
-        force: bool = False,
+        admission_policy: GatewayPromptAdmissionPolicy = "ready_only",
     ) -> GatewayPromptControlResultV1:
         """Submit one prompt through the live gateway direct-control path."""
 
         return _submit_gateway_prompt_control_for_controller(
             self,
-            GatewayPromptControlRequestV1(prompt=prompt, force=force),
+            GatewayPromptControlRequestV1(
+                prompt=prompt,
+                admission_policy=admission_policy,
+            ),
         )
 
     def interrupt_via_gateway(self) -> GatewayAcceptedRequestV1:
@@ -1804,34 +1804,6 @@ def _create_backend_session(
         return cast(
             InteractiveSession,
             ClaudeHeadlessSession(
-                launch_plan=launch_plan,
-                role_name=role_name,
-                session_manifest_path=_require_session_manifest_path(
-                    session_manifest_path,
-                    backend=launch_plan.backend,
-                ),
-                agent_def_dir=agent_def_dir,
-                state=state,
-                tmux_session_name=agent_identity,
-            ),
-        )
-
-    if launch_plan.backend == "gemini_headless":
-        state = _resume_headless_state(
-            resume_state,
-            launch_plan=launch_plan,
-            stopped_revival=stopped_revival,
-        )
-        if (
-            state is not None
-            and Path(state.working_directory).resolve() != launch_plan.working_directory
-        ):
-            raise SessionManifestError(
-                "Gemini resume requires the same working directory as the persisted session"
-            )
-        return cast(
-            InteractiveSession,
-            GeminiHeadlessSession(
                 launch_plan=launch_plan,
                 role_name=role_name,
                 session_manifest_path=_require_session_manifest_path(
@@ -2868,7 +2840,6 @@ def _launch_plan_with_headless_display_controls(
     if launch_plan.backend not in {
         "claude_headless",
         "codex_headless",
-        "gemini_headless",
         "kimi_headless",
     }:
         return launch_plan
@@ -2890,7 +2861,6 @@ def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
         "local_interactive",
         "codex_headless",
         "claude_headless",
-        "gemini_headless",
         "kimi_headless",
     }
 
@@ -3217,7 +3187,7 @@ def _preserve_server_managed_headless_gateway_authority(
 ) -> dict[str, object]:
     """Preserve server-managed headless pair routing when runtime state omits it."""
 
-    if backend not in {"codex_headless", "claude_headless", "gemini_headless", "kimi_headless"}:
+    if backend not in {"codex_headless", "claude_headless", "kimi_headless"}:
         return payload
 
     raw_gateway_authority = payload.get("gateway_authority")

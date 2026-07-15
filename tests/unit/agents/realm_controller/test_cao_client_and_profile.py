@@ -709,7 +709,7 @@ def test_render_and_install_cao_profile(tmp_path: Path) -> None:
 def test_cao_backend_rejects_unsupported_tool(tmp_path: Path) -> None:
     with pytest.raises(BackendExecutionError, match="Unsupported CAO provider mapping"):
         CaoRestSession(
-            launch_plan=_sample_launch_plan(tmp_path, tool="gemini"),
+            launch_plan=_sample_launch_plan(tmp_path, tool="unknown"),
             api_base_url="http://localhost:9889",
             role_name="gpu-kernel-coder",
             role_prompt="role prompt",
@@ -721,11 +721,11 @@ def test_cao_backend_rejects_shadow_only_without_runtime_shadow_parser_support(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setitem(cao_rest_backend._CAO_PROVIDER_BY_TOOL, "gemini", "gemini_cli")
+    monkeypatch.setitem(cao_rest_backend._CAO_PROVIDER_BY_TOOL, "unknown", "unknown_cli")
 
     with pytest.raises(BackendExecutionError, match="no runtime shadow parser is available"):
         CaoRestSession(
-            launch_plan=_sample_launch_plan(tmp_path, tool="gemini"),
+            launch_plan=_sample_launch_plan(tmp_path, tool="unknown"),
             api_base_url="http://localhost:9889",
             role_name="gpu-kernel-coder",
             role_prompt="role prompt",

@@ -130,3 +130,10 @@ Non-extension packaged system skills SHALL NOT require, delegate to, or route or
 - **WHEN** an agent reads a packaged non-extension system skill
 - **THEN** the skill does not present `houmao-ext-graphing` as a required related skill, delegated workflow, or routing target
 - **AND THEN** users can ignore extension skills without breaking non-extension skill guidance
+
+### Requirement: System-skill families contain no Gemini provider guidance
+Packaged current system-skill families SHALL NOT define Gemini-specific projection, credential, launch, or discovery behavior.
+
+#### Scenario: Packaged skill audit excludes Gemini provider instructions
+- **WHEN** maintainers scan current system-skill content and catalog metadata
+- **THEN** no active provider route or example claims Gemini support

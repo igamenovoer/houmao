@@ -29,7 +29,7 @@ Available functionality:
 
 - `list` and `get` credentials with safe inspection posture.
 - `add` and `set` credential bundle contents for supported tool families.
-- `login` through maintained Claude, Codex, and Gemini provider login/import workflows.
+- `login` through maintained Claude and Codex provider login/import workflows.
 - Kimi Code OAuth login handling through `kimi login` in an isolated `KIMI_CODE_HOME`, followed by existing Kimi `add` or `set --code-home` import.
 - `rename` or `remove` one existing credential.
 - Choose project-backed versus direct native-agent targets.
@@ -39,7 +39,6 @@ Common starting prompts:
 - `$houmao-credential-mgr help`
 - `$houmao-credential-mgr list codex credentials`
 - `$houmao-credential-mgr add claude credential`
-- `$houmao-credential-mgr login gemini`
 - `$houmao-credential-mgr login kimi`
 - `$houmao-credential-mgr add kimi credential`
 
@@ -101,8 +100,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
    - project lane: `project credentials <tool> <verb>`
    - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
-   - supported CRUD tools: `claude`, `codex`, `kimi`, `gemini`
-   - supported login-helper tools: `claude`, `codex`, `gemini`
+   - supported CRUD tools: `claude`, `codex`, `kimi`
+   - supported login-helper tools: `claude`, `codex`
    - supported CRUD verbs: `add`, `set`, `list`, `get`, `rename`, `remove`
    - supported login-helper verb: `login`
    - Kimi Code login/import requests use `subskills/kimi-code-login-handling.md` and must end in an existing Kimi `add` or `set --code-home` import, not a `credentials kimi login` helper command
@@ -137,7 +136,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Use `actions/get.md` only when the user wants to inspect one credential safely through redacted CLI output.
 - Use `actions/add.md` only when the user wants to create one new credential.
 - Use `actions/set.md` only when the user wants to update one existing credential.
-- Use `actions/login.md` only when the user wants to run a maintained provider login helper for a fresh Claude, Codex, or Gemini account and import the resulting auth files into Houmao storage.
+- Use `actions/login.md` only when the user wants to run a maintained provider login helper for a fresh Claude or Codex account and import the resulting auth files into Houmao storage.
 - Use `subskills/kimi-code-login-handling.md` only when the user wants a fresh default Kimi Code OAuth login through `kimi login` and import through Kimi `add` or `set --code-home`.
 - Use `actions/rename.md` only when the user wants to rename one existing credential.
 - Use `actions/remove.md` only when the user wants to remove one existing credential.
@@ -163,6 +162,5 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 
 - `references/claude-credential-kinds.md` — explanatory credential-kind notes for Claude when a user needs help choosing input material
 - `references/codex-credential-kinds.md` — explanatory credential-kind notes for Codex when a user needs help choosing input material
-- `references/gemini-credential-kinds.md` — explanatory credential-kind notes for Gemini when a user needs help choosing input material
 - `references/kimi-credential-kinds.md` — explanatory credential-kind notes for Kimi when a user needs help choosing input material
 - `subskills/kimi-code-login-handling.md` — Kimi-specific default OAuth login/import workflow using `kimi login`, isolated `KIMI_CODE_HOME`, tmux, and `--code-home`

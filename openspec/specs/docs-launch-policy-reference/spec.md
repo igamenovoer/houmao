@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the documentation requirements for the launch policy reference page.
-
 ## Requirements
-
 ### Requirement: Launch policy reference page exists
 
 The build-phase reference SHALL include a page at `docs/reference/build-phase/launch-policy.md` documenting the launch policy engine. The page SHALL explain:
@@ -57,3 +55,10 @@ The reference SHALL state that Kimi auto permission mode is the provider-native 
 - **WHEN** a reader checks what Kimi unattended does
 - **THEN** the reference says Kimi auto mode avoids tool approval prompts and user questions during normal work
 - **AND THEN** it does not claim that Houmao bypasses explicit Kimi hard-deny rules
+
+### Requirement: Launch-policy reference excludes Gemini
+The launch-policy reference SHALL document no Gemini strategy, version range, owned path, provider hook, unattended behavior, or auth readiness claim.
+
+#### Scenario: Launch-policy inventory omits Gemini
+- **WHEN** a reader inspects maintained strategy tables and examples
+- **THEN** no Gemini launch-policy entry appears

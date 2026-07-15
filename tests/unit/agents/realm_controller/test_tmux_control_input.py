@@ -126,7 +126,7 @@ def _make_kimi_local_interactive_session(tmp_path: Path) -> LocalInteractiveSess
         backend="local_interactive",
         tool="kimi",
         executable="kimi",
-        args=[],
+        args=["--auto"],
         working_directory=tmp_path,
         home_env_var="KIMI_CODE_HOME",
         home_path=tmp_path / "kimi-home",
@@ -147,16 +147,6 @@ def _make_kimi_local_interactive_session(tmp_path: Path) -> LocalInteractiveSess
         tmux_session_name="HOUMAO-kimi",
     )
     return session
-
-
-def _enable_kimi_auto_mode_refresh(session: LocalInteractiveSession) -> None:
-    session._plan.metadata["kimi_tui_auto_mode_refresh"] = {  # noqa: SLF001
-        "enabled": True,
-        "command": "/auto on",
-        "phase": "after_tui_ready_before_managed_prompts",
-        "operator_prompt_mode": "unattended",
-        "strategy_id": "kimi-tui-unattended-0.10.x",
-    }
 
 
 def _install_fake_local_interactive_launch_surface(
@@ -234,6 +224,15 @@ def test_parse_tmux_control_input_mixes_literal_and_special_keys() -> None:
         TmuxControlInputSegment(kind="special", value="Enter"),
         TmuxControlInputSegment(kind="special", value="Down"),
         TmuxControlInputSegment(kind="special", value="Enter"),
+    )
+
+
+def test_parse_tmux_control_input_supports_editor_clear_key() -> None:
+    segments = parse_tmux_control_input(sequence="draft<[C-u]>")
+
+    assert segments == (
+        TmuxControlInputSegment(kind="literal", value="draft"),
+        TmuxControlInputSegment(kind="special", value="C-u"),
     )
 
 
@@ -392,13 +391,12 @@ def test_kimi_local_interactive_send_prompt_uses_semantic_submit_path(
     assert sent_sequences == ["<[Enter]>"]
 
 
-def test_kimi_unattended_startup_refresh_precedes_role_bootstrap(
+def test_kimi_unattended_startup_uses_native_auto_before_role_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     session = _make_kimi_local_interactive_session(tmp_path)
     session._state.role_bootstrap_applied = False  # noqa: SLF001
-    _enable_kimi_auto_mode_refresh(session)
     events: list[tuple[str, object]] = []
     _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
     session._submit_semantic_prompt = lambda text: events.append(  # type: ignore[method-assign]  # noqa: SLF001
@@ -414,19 +412,19 @@ def test_kimi_unattended_startup_refresh_precedes_role_bootstrap(
 
     assert [event for event in events if event[0] in {"ready", "submit"}] == [
         ("ready", None),
-        ("submit", "/auto on"),
         ("submit", "bootstrap"),
     ]
+    tmux_event = next(event for event in events if event[0] == "tmux")
+    assert "--auto" in str(tmux_event[1])
     assert session._state.role_bootstrap_applied is True  # noqa: SLF001
 
 
-def test_kimi_unattended_resumed_relaunch_refreshes_auto_mode_without_bootstrap(
+def test_kimi_unattended_resumed_relaunch_keeps_native_auto_without_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     session = _make_kimi_local_interactive_session(tmp_path)
     session._state.role_bootstrap_applied = False  # noqa: SLF001
-    _enable_kimi_auto_mode_refresh(session)
     events: list[tuple[str, object]] = []
     _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
     session._submit_semantic_prompt = lambda text: events.append(  # type: ignore[method-assign]  # noqa: SLF001
@@ -438,33 +436,22 @@ def test_kimi_unattended_resumed_relaunch_refreshes_auto_mode_without_bootstrap(
     )
 
     assert result.status == "ok"
-    assert [event for event in events if event[0] == "submit"] == [("submit", "/auto on")]
+    assert [event for event in events if event[0] == "submit"] == []
     assert session._state.role_bootstrap_applied is True  # noqa: SLF001
     tmux_event = next(event for event in events if event[0] == "tmux")
     assert "--session kimi-session-1" in str(tmux_event[1])
-    assert "--auto" not in str(tmux_event[1])
+    assert "--auto" in str(tmux_event[1])
 
 
-def test_kimi_unattended_auto_refresh_failure_blocks_launch(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_kimi_tui_rejects_auto_with_yolo(tmp_path: Path) -> None:
     session = _make_kimi_local_interactive_session(tmp_path)
-    _enable_kimi_auto_mode_refresh(session)
-    events: list[tuple[str, object]] = []
-    _install_fake_local_interactive_launch_surface(monkeypatch, session, events)
+    session._plan.args.append("--yolo")  # noqa: SLF001
 
-    def _fail_submit(text: str) -> None:
-        assert text == "/auto on"
-        raise BackendExecutionError("tmux input refused")
-
-    session._submit_semantic_prompt = _fail_submit  # type: ignore[method-assign]  # noqa: SLF001
-
-    with pytest.raises(BackendExecutionError, match="Kimi unattended auto-mode setup failed"):
-        session._launch_provider_surface()  # noqa: SLF001
+    with pytest.raises(BackendExecutionError, match="cannot combine `--auto` with `--yolo`"):
+        session._build_launch_command()  # noqa: SLF001
 
 
-def test_kimi_as_is_startup_does_not_send_auto_refresh_before_bootstrap(
+def test_kimi_startup_does_not_send_policy_command_before_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -983,18 +970,6 @@ def test_local_interactive_build_launch_command_adds_codex_latest_resume_args(
             ["--resume", "claude-session-1"],
         ),
         (
-            "gemini",
-            "gemini",
-            RelaunchChatSessionSelection(mode="tool_last_or_new"),
-            ["--resume", "latest"],
-        ),
-        (
-            "gemini",
-            "gemini",
-            RelaunchChatSessionSelection(mode="exact", session_id="gemini-session-1"),
-            ["--resume", "gemini-session-1"],
-        ),
-        (
             "kimi",
             "kimi",
             RelaunchChatSessionSelection(mode="tool_last_or_new"),
@@ -1092,7 +1067,7 @@ def test_kimi_local_interactive_new_relaunch_uses_no_session_picker_args(tmp_pat
     ) == ["kimi"]
 
 
-@pytest.mark.parametrize("conflict_arg", ["--yolo", "--auto", "--plan"])
+@pytest.mark.parametrize("startup_arg", ["--yolo", "--auto", "--plan"])
 @pytest.mark.parametrize(
     "selection",
     [
@@ -1100,9 +1075,9 @@ def test_kimi_local_interactive_new_relaunch_uses_no_session_picker_args(tmp_pat
         RelaunchChatSessionSelection(mode="exact", session_id="session_abc"),
     ],
 )
-def test_kimi_local_interactive_relaunch_rejects_resume_permission_conflicts(
+def test_kimi_local_interactive_relaunch_accepts_current_resume_options(
     tmp_path: Path,
-    conflict_arg: str,
+    startup_arg: str,
     selection: RelaunchChatSessionSelection,
 ) -> None:
     session = object.__new__(LocalInteractiveSession)
@@ -1110,7 +1085,7 @@ def test_kimi_local_interactive_relaunch_rejects_resume_permission_conflicts(
         backend="local_interactive",
         tool="kimi",
         executable="kimi",
-        args=[conflict_arg],
+        args=[startup_arg],
         working_directory=tmp_path,
         home_env_var="KIMI_CODE_HOME",
         home_path=tmp_path / "home",
@@ -1124,8 +1099,13 @@ def test_kimi_local_interactive_relaunch_rejects_resume_permission_conflicts(
         metadata={},
     )
 
-    with pytest.raises(BackendExecutionError, match="Unsupported Kimi TUI relaunch"):
-        session._build_launch_command(chat_session=selection)  # noqa: SLF001
+    command = session._build_launch_command(chat_session=selection)  # noqa: SLF001
+
+    assert startup_arg in command
+    if selection.mode == "tool_last_or_new":
+        assert "--continue" in command
+    else:
+        assert command[-2:] == ["--session", "session_abc"]
 
 
 def test_local_interactive_relaunch_suppresses_bootstrap_when_resuming_chat(

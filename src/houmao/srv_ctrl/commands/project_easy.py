@@ -789,14 +789,6 @@ def easy_specialist_group() -> None:
     default=None,
     help="Optional Codex `auth.json` file.",
 )
-@click.option("--google-api-key", default=None, help="Optional Gemini Google API key input.")
-@click.option("--use-vertex-ai", is_flag=True, help="Enable Gemini Vertex AI mode.")
-@click.option(
-    "--gemini-oauth-creds",
-    type=click.Path(path_type=Path, exists=True, file_okay=True, dir_okay=False),
-    default=None,
-    help="Optional Gemini `oauth_creds.json` file.",
-)
 @click.option(
     "--kimi-model-name",
     default=None,
@@ -891,9 +883,6 @@ def create_easy_specialist_command(
     claude_config_dir: Path | None,
     codex_org_id: str | None,
     codex_auth_json: Path | None,
-    google_api_key: str | None,
-    use_vertex_ai: bool,
-    gemini_oauth_creds: Path | None,
     kimi_model_name: str | None,
     kimi_config_toml: Path | None,
     kimi_credential_json: Path | None,
@@ -1012,18 +1001,13 @@ def create_easy_specialist_command(
         claude_config_dir=claude_config_dir,
         codex_org_id=codex_org_id,
         codex_auth_json=codex_auth_json,
-        google_api_key=google_api_key,
-        use_vertex_ai=use_vertex_ai,
-        gemini_oauth_creds=gemini_oauth_creds,
         kimi_model_name=resolved_kimi_model_name,
         kimi_config_toml=kimi_config_toml,
         kimi_credential_json=kimi_credential_json,
         kimi_code_home=kimi_code_home,
     )
     prompt_mode = (
-        "as_is"
-        if no_unattended or tool_name not in {"claude", "codex", "gemini", "kimi"}
-        else "unattended"
+        "as_is" if no_unattended or tool_name not in {"claude", "codex", "kimi"} else "unattended"
     )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}
     model_payload = _model_mapping_payload(resolved_model_config)
@@ -2030,10 +2014,6 @@ def launch_easy_instance_command(
             source=f"project specialist `{getattr(specialist_metadata, 'name', specialist)}`",
         )
 
-    if specialist_metadata.tool == "gemini" and not resolved_headless:
-        raise click.ClickException(
-            "Gemini specialists are currently headless-only. Use `--headless`."
-        )
     if no_gateway and gateway_port is not None:
         raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
     if no_gateway and gateway_background:

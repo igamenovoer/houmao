@@ -19,7 +19,7 @@ from houmao.agents.realm_controller.models import SessionEvent
 
 HeadlessDisplayStyle = Literal["plain", "json", "fancy"]
 HeadlessDisplayDetail = Literal["concise", "detail"]
-HeadlessProvider = Literal["claude", "codex", "gemini", "kimi"]
+HeadlessProvider = Literal["claude", "codex", "kimi"]
 
 CANONICAL_HEADLESS_EVENTS_ARTIFACT = "canonical-events.jsonl"
 """Artifact name for canonical normalized headless events."""
@@ -250,8 +250,6 @@ class CanonicalHeadlessEventParser:
             return self._consume_claude_payload(payload)
         if self.m_provider == "codex":
             return self._consume_codex_payload(payload)
-        if self.m_provider == "gemini":
-            return self._consume_gemini_payload(payload)
         return self._consume_kimi_payload(payload)
 
     def _consume_claude_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
@@ -610,7 +608,13 @@ class CanonicalHeadlessEventParser:
                     raw_payload=dict(payload),
                 )
             ]
-        if item_type in {"command_execution", "mcp_tool_call", "web_search", "file_change"}:
+        if item_type in {
+            "command_execution",
+            "mcp_tool_call",
+            "collab_tool_call",
+            "web_search",
+            "file_change",
+        }:
             return self._consume_codex_action_item(
                 record_type=record_type,
                 item=item,
@@ -657,6 +661,19 @@ class CanonicalHeadlessEventParser:
         if record_type == "item.updated" and item_type != "todo_list":
             status = _optional_text(item.get("status"))
             if status == "in_progress":
+                if item_type == "collab_tool_call":
+                    progress_data = _codex_action_request_data(item)
+                    progress_data["status"] = status
+                    return [
+                        self._event(
+                            kind="progress",
+                            message=f"{_codex_action_request_message(item)} in progress",
+                            provider_event_type=f"{record_type}.{item_type}",
+                            session_id=session_id,
+                            data=progress_data,
+                            raw_payload=raw_payload,
+                        )
+                    ]
                 return []
         return [
             self._event(
@@ -666,145 +683,6 @@ class CanonicalHeadlessEventParser:
                 session_id=session_id,
                 data=_codex_action_result_data(item),
                 raw_payload=raw_payload,
-            )
-        ]
-
-    def _consume_gemini_payload(self, payload: Mapping[str, Any]) -> list[CanonicalHeadlessEvent]:
-        """Parse one Gemini stream-json payload."""
-
-        record_type = str(payload.get("type", "event"))
-        session_id = _extract_session_id_from_payload(payload) or self.m_session_id
-        if record_type == "init":
-            init_session_id = _optional_text(payload.get("session_id"))
-            if init_session_id is not None:
-                self.m_session_id = init_session_id
-            return [
-                self._event(
-                    kind="session",
-                    message=init_session_id or "session started",
-                    provider_event_type=record_type,
-                    session_id=init_session_id,
-                    data={
-                        "session_id": init_session_id,
-                        "model": _optional_text(payload.get("model")),
-                    },
-                    raw_payload=dict(payload),
-                )
-            ]
-        if record_type == "message":
-            if _optional_text(payload.get("role")) != "assistant":
-                return []
-            text = _optional_text(payload.get("content"))
-            if text is None:
-                return []
-            return [
-                self._event(
-                    kind="assistant",
-                    message=text,
-                    provider_event_type=record_type,
-                    session_id=session_id,
-                    data={
-                        "text": text,
-                        "delta": bool(payload.get("delta")),
-                        "role": "assistant",
-                    },
-                    raw_payload=dict(payload),
-                )
-            ]
-        if record_type == "tool_use":
-            tool_name = _optional_text(payload.get("tool_name")) or "tool"
-            tool_id = _optional_text(payload.get("tool_id"))
-            if tool_id is not None:
-                self.m_seen_action_requests.add(tool_id)
-            args = payload.get("parameters")
-            return [
-                self._event(
-                    kind="action_request",
-                    message=f"{tool_name} {_summarize_arguments(args)}".strip(),
-                    provider_event_type=record_type,
-                    session_id=session_id,
-                    data={
-                        "action_id": tool_id,
-                        "action_kind": "tool_use",
-                        "name": tool_name,
-                        "arguments": args,
-                        "arguments_summary": _summarize_arguments(args),
-                    },
-                    raw_payload=dict(payload),
-                )
-            ]
-        if record_type == "tool_result":
-            status = _optional_text(payload.get("status")) or "unknown"
-            output_text = _optional_text(payload.get("output"))
-            error_payload = _optional_mapping(payload.get("error"))
-            result_summary = (
-                _single_line_summary(output_text, fallback="")
-                if output_text is not None
-                else _single_line_summary(
-                    _optional_text((error_payload or {}).get("message")),
-                    fallback=status,
-                )
-            )
-            return [
-                self._event(
-                    kind="action_result",
-                    message=result_summary or status,
-                    provider_event_type=record_type,
-                    session_id=session_id,
-                    data={
-                        "action_id": _optional_text(payload.get("tool_id")),
-                        "action_kind": "tool_use",
-                        "status": status,
-                        "result_summary": result_summary,
-                        "error": error_payload,
-                    },
-                    raw_payload=dict(payload),
-                )
-            ]
-        if record_type == "error":
-            return [
-                self._event(
-                    kind="diagnostic",
-                    message=_optional_text(payload.get("message")) or "error",
-                    provider_event_type=record_type,
-                    session_id=session_id,
-                    data={
-                        "severity": _optional_text(payload.get("severity")) or "error",
-                        "text": _optional_text(payload.get("message")),
-                    },
-                    raw_payload=dict(payload),
-                )
-            ]
-        if record_type == "result":
-            stats = _normalize_usage_mapping(_optional_mapping(payload.get("stats")))
-            status = _optional_text(payload.get("status")) or "success"
-            error_payload = _optional_mapping(payload.get("error"))
-            return [
-                self._event(
-                    kind="completion",
-                    message=_completion_message(
-                        status=status,
-                        usage=stats,
-                        error_message=_optional_text((error_payload or {}).get("message")),
-                    ),
-                    provider_event_type=record_type,
-                    session_id=session_id,
-                    data={
-                        "status": status,
-                        "usage": stats,
-                        "error": error_payload,
-                    },
-                    raw_payload=dict(payload),
-                )
-            ]
-        return [
-            self._event(
-                kind="passthrough",
-                message=record_type,
-                provider_event_type=record_type,
-                session_id=session_id,
-                data={"summary": record_type},
-                raw_payload=dict(payload),
             )
         ]
 
@@ -829,6 +707,42 @@ class CanonicalHeadlessEventParser:
                         "session_id": resume_session_id,
                         "command": _optional_text(payload.get("command")),
                         "content": _optional_text(payload.get("content")),
+                    },
+                    raw_payload=dict(payload),
+                )
+            ]
+
+        if role == "meta" and payload_type == "turn.step.retrying":
+            failed_attempt = _coerce_optional_int(payload.get("failed_attempt"))
+            next_attempt = _coerce_optional_int(payload.get("next_attempt"))
+            max_attempts = _coerce_optional_int(payload.get("max_attempts"))
+            delay_ms = _coerce_optional_int(payload.get("delay_ms"))
+            error_message = _optional_text(payload.get("error_message"))
+            attempt_summary = (
+                f"attempt {next_attempt}/{max_attempts}"
+                if next_attempt is not None and max_attempts is not None
+                else "retrying"
+            )
+            delay_summary = f" after {delay_ms}ms" if delay_ms is not None else ""
+            message = f"{attempt_summary}{delay_summary}"
+            if error_message is not None:
+                message += f": {error_message}"
+            return [
+                self._event(
+                    kind="progress",
+                    message=message,
+                    provider_event_type=payload_type,
+                    session_id=session_id,
+                    data={
+                        "summary": message,
+                        "status": "retrying",
+                        "failed_attempt": failed_attempt,
+                        "next_attempt": next_attempt,
+                        "max_attempts": max_attempts,
+                        "delay_ms": delay_ms,
+                        "error_name": _optional_text(payload.get("error_name")),
+                        "error_message": error_message,
+                        "status_code": _coerce_optional_int(payload.get("status_code")),
                     },
                     raw_payload=dict(payload),
                 )
@@ -1164,8 +1078,6 @@ def resolve_headless_provider(
             return "claude"
         if lowered.startswith("codex"):
             return "codex"
-        if lowered.startswith("gemini"):
-            return "gemini"
         if lowered.startswith("kimi"):
             return "kimi"
     raise ValueError(
@@ -1707,6 +1619,29 @@ def _codex_action_request_data(item: Mapping[str, Any]) -> dict[str, Any]:
             "arguments_summary": _summarize_arguments(item.get("arguments")),
             "arguments": item.get("arguments"),
         }
+    if item_type == "collab_tool_call":
+        tool_name = _optional_text(item.get("tool")) or "collab_tool"
+        prompt = _optional_text(item.get("prompt"))
+        receiver_thread_ids = item.get("receiver_thread_ids")
+        receivers = (
+            [value for value in receiver_thread_ids if isinstance(value, str)]
+            if isinstance(receiver_thread_ids, list)
+            else []
+        )
+        arguments_summary = prompt or (
+            f"receivers={','.join(receivers)}" if receivers else tool_name
+        )
+        return {
+            "action_id": _optional_text(item.get("id")),
+            "action_kind": item_type,
+            "name": tool_name,
+            "arguments_summary": arguments_summary,
+            "tool": tool_name,
+            "sender_thread_id": _optional_text(item.get("sender_thread_id")),
+            "receiver_thread_ids": receivers,
+            "prompt": prompt,
+            "agents_states": item.get("agents_states"),
+        }
     if item_type == "web_search":
         query = _optional_text(item.get("query"))
         return {
@@ -1760,6 +1695,12 @@ def _codex_action_result_data(item: Mapping[str, Any]) -> dict[str, Any]:
         )
         result_data["error"] = item.get("error")
         return result_data
+    if item_type == "collab_tool_call":
+        result_data["result_summary"] = _summarize_collab_agent_states(
+            item.get("agents_states"),
+            fallback=status,
+        )
+        return result_data
     if item_type == "web_search":
         result_data["result_summary"] = _optional_text(item.get("query")) or status
         return result_data
@@ -1777,6 +1718,24 @@ def _codex_action_result_message(item: Mapping[str, Any]) -> str:
     if summary:
         return f"{name} {status}: {summary}"
     return f"{name} {status}"
+
+
+def _summarize_collab_agent_states(value: object, *, fallback: str) -> str:
+    """Return one concise summary of Codex collaboration agent states."""
+
+    if not isinstance(value, dict) or not value:
+        return fallback
+    summaries: list[str] = []
+    for thread_id, state in value.items():
+        if not isinstance(thread_id, str) or not isinstance(state, dict):
+            continue
+        status = _optional_text(state.get("status")) or "unknown"
+        message = _optional_text(state.get("message"))
+        summary = f"{thread_id}={status}"
+        if message is not None:
+            summary += f" ({_single_line_summary(message, fallback=status)})"
+        summaries.append(summary)
+    return ", ".join(summaries) if summaries else fallback
 
 
 def _summarize_arguments(value: object) -> str:
@@ -1964,8 +1923,6 @@ def _coerce_provider(value: str) -> HeadlessProvider:
         return "claude"
     if value == "codex":
         return "codex"
-    if value == "gemini":
-        return "gemini"
     if value == "kimi":
         return "kimi"
     raise ValueError(f"Unsupported canonical headless provider `{value}`.")

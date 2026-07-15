@@ -1,1 +1,0 @@
-Respond with one short sentence that mentions "Gemini runtime".

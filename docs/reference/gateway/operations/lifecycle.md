@@ -71,6 +71,27 @@ houmao-mgr agents self gateway send-keys --sequence "<[Escape]>"
 houmao-mgr agents self gateway mail-notifier status
 ```
 
+After attach, direct prompt control uses an explicit admission policy:
+
+```bash
+houmao-mgr agents single --agent-name writer gateway prompt --prompt "Start only when ready"
+houmao-mgr agents single --agent-name writer gateway prompt --admission-policy if-no-pending --prompt "Queue this only if no submitted prompt is waiting"
+houmao-mgr agents single --agent-name writer gateway prompt --admission-policy always --prompt "Submit regardless of tracked TUI posture"
+```
+
+`ready-only` is the default. `if-no-pending` and `always` apply only to attached TUI targets; native headless targets retain overlap-safe `ready-only` admission. Provider-native `surface.pending_input` is independent from an unsubmitted composer draft, gateway-durable work, and Houmao prompt notes. The conditional decision uses the latest observed provider surface and does not reserve a slot while the provider repaints.
+
+| Latest tracked TUI observation | `ready-only` | `if-no-pending` | `always` |
+|---|---|---|---|
+| Ready, pending `no` | Dispatch | Dispatch | Dispatch |
+| Busy, pending `no` | Refuse `not_ready` | Dispatch | Dispatch |
+| Ready, pending `yes` | Refuse `pending_input` | Refuse `pending_input` | Dispatch |
+| Busy, pending `yes` | Refuse `not_ready` | Refuse `pending_input` | Dispatch |
+| Ready, pending `unknown` | Refuse `pending_input_unknown` | Refuse `pending_input_unknown` | Dispatch |
+| Busy, pending `unknown` | Refuse `not_ready` | Refuse `pending_input_unknown` | Dispatch |
+
+No policy bypasses detached or unavailable state, reconciliation blocking, invalid target selectors, adapter incompatibility, or invalid execution overrides. TUI `chat_session.mode=new` requires `ready-only`.
+
 Current-session mode must run inside the target tmux session and validates all of the following before it calls the managed-agent route:
 
 - `HOUMAO_MANIFEST_PATH` points to a readable runtime-owned `manifest.json`, or `HOUMAO_AGENT_ID` resolves a fresh shared-registry `runtime.manifest_path`

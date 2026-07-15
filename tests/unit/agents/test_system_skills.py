@@ -345,6 +345,22 @@ def test_agent_loop_lite_packaged_asset_contract() -> None:
         assert f"<placeholder {envelope_field}" not in template_example
 
 
+def test_houmao_agent_messaging_prompt_admission_contract() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-messaging")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    prompt_text = (skill_root / "actions/prompt.md").read_text(encoding="utf-8")
+    gateway_text = (skill_root / "actions/gateway-queue.md").read_text(encoding="utf-8")
+    matrix_text = (skill_root / "references/intent-matrix.md").read_text(encoding="utf-8")
+    combined = "\n".join((skill_text, prompt_text, gateway_text, matrix_text))
+
+    assert "--admission-policy ready-only" in prompt_text
+    assert "--admission-policy <ready-only|if-no-pending|always>" in gateway_text
+    assert "Pending `yes` or `unknown`" in matrix_text
+    assert "observational" in gateway_text
+    assert "gateway-durable" in matrix_text.lower()
+    assert "--force" not in combined
+
+
 def test_houmao_operator_messaging_packaged_asset_contract() -> None:
     skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_OPERATOR_MESSAGING)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
@@ -368,8 +384,10 @@ def test_houmao_operator_messaging_packaged_asset_contract() -> None:
     assert "subskills/clarify.md" in skill_text
     assert "subskills/dispatch.md" in skill_text
     assert "Default every packet to prompt delivery" in skill_text
-    assert "use the target gateway when available" in skill_text
-    assert "prompt surface supports `--force`" in skill_text
+    assert "use ready-only target-gateway prompt control when available" in skill_text
+    assert "ready-only target-gateway prompt control" in skill_text
+    assert "`if-no-pending` or `always`" in skill_text
+    assert "--force" not in skill_text
     assert "choose mailbox only from operator intent or chat context" in skill_text
     assert "Do not depend on loop-internal pages" in skill_text
 
@@ -387,8 +405,11 @@ def test_houmao_operator_messaging_packaged_asset_contract() -> None:
         dispatch_text
     )
     assert "Default to prompt delivery" in dispatch_text
-    assert "If the target has a live gateway, use gateway-backed prompt delivery" in (dispatch_text)
-    assert "request forced fallback behavior" in dispatch_text
+    assert "If the target has a live gateway, use ready-only gateway-backed prompt delivery" in (
+        dispatch_text
+    )
+    assert "Select `if-no-pending` or `always`" in dispatch_text
+    assert "--force" not in dispatch_text
     assert "Do not choose mailbox merely because the target has a mailbox" in dispatch_text
     assert "Use `houmao-agent-messaging`" in dispatch_text
     assert "Use `houmao-agent-email-comms`" in dispatch_text
@@ -1438,7 +1459,6 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "no target: initialize/select a Houmao project" in definition_credential_routing
     assert "houmao-credential-mgr/references/claude-credential-kinds.md" in easy_specialists
     assert "houmao-credential-mgr/references/codex-credential-kinds.md" in easy_specialists
-    assert "houmao-credential-mgr/references/gemini-credential-kinds.md" in easy_specialists
     assert "houmao-credential-mgr/references/kimi-credential-kinds.md" in easy_specialists
     assert "--claude-oauth-token" in easy_specialists
     assert "--claude-config-dir" in easy_specialists
@@ -1678,9 +1698,7 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "When showing participants, routes, phases, unknowns, coverage, or loop shape" in (
         loop_lite_clarify_intent
     )
-    assert "When showing generated Markdown, template, SQLite state" in (
-        loop_lite_clarify_execplan
-    )
+    assert "When showing generated Markdown, template, SQLite state" in (loop_lite_clarify_execplan)
     assert "This chat-output rule does not change generated lite execplan artifact behavior" in (
         loop_lite_clarify_intent
     )
@@ -1796,16 +1814,13 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
 
     claude_reference_path = manage_credentials_references / "claude-credential-kinds.md"
     codex_reference_path = manage_credentials_references / "codex-credential-kinds.md"
-    gemini_reference_path = manage_credentials_references / "gemini-credential-kinds.md"
     kimi_reference_path = manage_credentials_references / "kimi-credential-kinds.md"
     assert claude_reference_path.is_file()
     assert codex_reference_path.is_file()
-    assert gemini_reference_path.is_file()
     assert kimi_reference_path.is_file()
 
     claude_reference = claude_reference_path.read_text(encoding="utf-8")
     codex_reference = codex_reference_path.read_text(encoding="utf-8")
-    gemini_reference = gemini_reference_path.read_text(encoding="utf-8")
     kimi_reference = kimi_reference_path.read_text(encoding="utf-8")
 
     assert "CLAUDE_CODE_OAUTH_TOKEN" in claude_reference
@@ -1824,11 +1839,6 @@ def test_install_system_skills_for_home_projects_selected_skills_and_preserves_u
     assert "--auth-json" in codex_reference
     assert "Cached Login State" in codex_reference
     assert deprecated_fixture_root not in codex_reference
-
-    assert "oauth_creds.json" in gemini_reference
-    assert "--oauth-creds" in gemini_reference
-    assert "Vertex AI" in gemini_reference
-    assert deprecated_fixture_root not in gemini_reference
 
     assert "Existing Kimi Code Home" in kimi_reference
     assert "Fresh Default Kimi Code OAuth Login" in kimi_reference
@@ -1916,23 +1926,6 @@ def test_uninstall_system_skills_for_home_does_not_create_missing_home(tmp_path:
     assert result.absent_retired_projected_relative_dirs == tuple(
         f"skills/{skill_name}" for skill_name in catalog.retired_skill_names
     )
-
-
-def test_uninstall_system_skills_for_home_targets_gemini_dot_gemini_root(
-    tmp_path: Path,
-) -> None:
-    home_path = tmp_path.resolve()
-    gemini_skill_path = home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md"
-    upstream_alias_path = home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md"
-    _write(gemini_skill_path, "gemini skill\n")
-    _write(upstream_alias_path, "upstream alias\n")
-
-    result = uninstall_system_skills_for_home(tool="gemini", home_path=home_path)
-
-    assert result.removed_skill_names == ("houmao-specialist-mgr",)
-    assert result.removed_projected_relative_dirs == (".gemini/skills/houmao-specialist-mgr",)
-    assert not (home_path / ".gemini/skills/houmao-specialist-mgr").exists()
-    assert upstream_alias_path.is_file()
 
 
 def test_install_system_skills_for_home_cli_default_includes_agent_instance_messaging_and_gateway_skills(
@@ -2341,13 +2334,13 @@ def test_install_system_skills_for_home_ignores_obsolete_state_version(
 def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_and_state(
     tmp_path: Path,
 ) -> None:
-    home_path = (tmp_path / "gemini-home").resolve()
+    home_path = (tmp_path / "kimi-home").resolve()
     _write(
         home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md",
         "old specialist path\n",
     )
     _write(
-        home_path / ".gemini/skills/houmao-project-mgr/SKILL.md",
+        home_path / "skills/houmao-project-mgr/SKILL.md",
         "unselected current skill\n",
     )
     _write(home_path / "notes/unrelated.txt", "unrelated\n")
@@ -2357,14 +2350,14 @@ def test_install_system_skills_for_home_preserves_unselected_legacy_unrelated_an
     state_path.write_text(stale_state, encoding="utf-8")
 
     install_system_skills_for_home(
-        tool="gemini",
+        tool="kimi",
         home_path=home_path,
         skill_names=("houmao-specialist-mgr",),
     )
 
-    assert (home_path / ".gemini/skills/houmao-specialist-mgr/SKILL.md").is_file()
+    assert (home_path / "skills/houmao-specialist-mgr/SKILL.md").is_file()
     assert (home_path / ".agents/skills/houmao-specialist-mgr/SKILL.md").is_file()
-    assert (home_path / ".gemini/skills/houmao-project-mgr/SKILL.md").read_text(
+    assert (home_path / "skills/houmao-project-mgr/SKILL.md").read_text(
         encoding="utf-8"
     ) == "unselected current skill\n"
     assert (home_path / "notes/unrelated.txt").read_text(encoding="utf-8") == "unrelated\n"

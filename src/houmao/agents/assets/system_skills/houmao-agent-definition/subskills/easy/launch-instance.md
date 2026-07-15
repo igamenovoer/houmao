@@ -53,13 +53,13 @@ Add optional flags only when the user supplied them explicitly or the selected t
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
 - When the user does not specify headless or TUI posture, prefer TUI/local-interactive launch when the selected tool supports it.
 - Add `--headless` only when the user explicitly asks for headless execution, when an existing selected profile stores headless posture, or when the selected tool/lane requires headless.
-- Kimi supports TUI/local-interactive launch here when headless is omitted; Gemini is the selected-tool exception that requires `--headless`.
+- Kimi supports TUI/local-interactive launch here when headless is omitted.
 - `--prompt-mode unattended` and other stored automation defaults do not imply headless launch. For Kimi, unattended prompt mode is the supported managed no-question control; do not add raw `--auto` or `--yolo` launch flags.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.
 - Direct specialist-backed launch does not apply a stored memo seed because no reusable profile was selected.
 - Launch-time gateway auto-attach is enabled by default unless `--no-gateway` or stored profile posture disables it.
 - Default launch-time gateway auto-attach uses foreground same-session auxiliary-window execution when supported.
-- A headless managed-agent launch, including a required Gemini headless launch, does not by itself justify `--gateway-background`.
+- A headless managed-agent launch does not by itself justify `--gateway-background`.
 - Unlike `project profile create`, launch does not accept declarative mailbox fields such as `--mail-address`, `--mail-principal-id`, `--mail-base-url`, `--mail-jmap-url`, or `--mail-management-url`.
 - For launch-time filesystem mailbox support, use `--mail-transport filesystem`, `--mail-root <shared-root>`, and optional `--mail-account-dir <private-path>`.
 - When launch derives the ordinary filesystem mailbox identity, `--name` seeds the managed-agent mailbox address and principal id.

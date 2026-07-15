@@ -1,6 +1,6 @@
 # Login Credential
 
-Use this action only when the user wants to run a maintained provider login helper for a fresh Claude, Codex, or Gemini account and import the resulting auth file into Houmao credential storage. Kimi credential CRUD is supported by the other action pages, and fresh default Kimi Code OAuth login/import is handled by `../subskills/kimi-code-login-handling.md`; Kimi does not have a maintained Houmao credential login helper in this change.
+Use this action only when the user wants to run a maintained provider login helper for a fresh Claude or Codex account and import the resulting auth file into Houmao credential storage. Kimi credential CRUD is supported by the other action pages, and fresh default Kimi Code OAuth login/import is handled by `../subskills/kimi-code-login-handling.md`; Kimi does not have a maintained Houmao credential login helper.
 
 ## Workflow
 
@@ -16,7 +16,7 @@ Use this action only when the user wants to run a maintained provider login help
 
 ## Required Inputs
 
-- `tool`: one of `claude`, `codex`, or `gemini`
+- `tool`: one of `claude` or `codex`
 - `name`
 - a resolved target
 
@@ -71,5 +71,4 @@ Do not add `--inherit-auth-env` for ordinary proxy preservation. Proxy variables
 - Do not print proxy values, provider tokens, API keys, or raw auth-file contents while preparing or reporting the tmux login session.
 - Do not use `--inherit-auth-env` as a proxy-inheritance mechanism.
 - Do not scan existing provider homes to infer the account unless the user explicitly asks for a lower-level recovery workflow.
-- Do not promise fully headless Gemini login; the supported flow launches Gemini in an isolated home and the user may need to finish OAuth interactively before exiting Gemini.
 - If the command fails and reports a preserved temp home, report that path as recovery context instead of deleting it yourself.

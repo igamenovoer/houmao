@@ -346,3 +346,11 @@ When Houmao needs to suppress non-essential Codex startup notices or tooltips fo
 - **AND WHEN** no launch-owned model name is resolved
 - **THEN** the generated Codex config or CLI overrides include only non-model prompt-suppression settings
 - **AND THEN** model selection remains provider-owned
+
+### Requirement: Model selection has no Gemini projection target
+Houmao model-name and reasoning-level resolution SHALL NOT recognize Gemini or mutate `GEMINI_CLI_HOME` settings.
+
+#### Scenario: Gemini model request is unsupported
+- **WHEN** model selection receives Gemini as the resolved tool
+- **THEN** it rejects the unsupported tool
+- **AND THEN** it does not write `.gemini/settings.json` or Gemini thinking configuration

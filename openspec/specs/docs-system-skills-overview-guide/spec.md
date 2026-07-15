@@ -469,3 +469,10 @@ The guide SHALL distinguish `houmao-ext-graphing` from `houmao-interop-ag-ui` by
 - **WHEN** a reader compares the `houmao-ext-graphing` and `houmao-interop-ag-ui` rows
 - **THEN** the graphing row covers built-in graphing payload authoring
 - **AND THEN** the interop row covers AG-UI protocol, implementation rendering for already-chosen payloads, gateway publishing, and delivery-result interpretation
+
+### Requirement: System-skills guide excludes Gemini
+The system-skills overview and reference SHALL not name Gemini as an install target or describe Gemini credential, discovery, or `.gemini/skills` behavior.
+
+#### Scenario: Reader checks supported system-skill targets
+- **WHEN** a reader inspects the current system-skills documentation
+- **THEN** Gemini is absent from target lists, examples, and path tables

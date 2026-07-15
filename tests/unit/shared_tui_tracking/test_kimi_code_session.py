@@ -5,7 +5,12 @@ from pathlib import Path
 from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
-from houmao.shared_tui_tracking.apps.kimi_code.profile import analyze_kimi_surface
+from houmao.shared_tui_tracking.apps.kimi_code.profile import (
+    FallbackKimiCodeSignalDetector,
+    KimiCodeSignalDetector,
+    KimiCodeSignalDetectorV0_23_X,
+    analyze_kimi_surface,
+)
 
 
 _FIXTURE_ROOT = (
@@ -27,6 +32,8 @@ _KIMI_DRAFT = (
 )
 _KIMI_ACTIVE = _fixture("active_response.txt")
 _KIMI_APPROVAL = _fixture("command_approval.txt")
+_KIMI_STALE_RESTART = f"{_KIMI_READY_WITH_FOOTER_THINKING}\nbash-5.2$ /tmp/kimi-launch.sh\n"
+_KIMI_FRESH_RESTART = f"{_KIMI_STALE_RESTART}│ > \nkimi-for-coding kimi-k2.5 thinking\n"
 
 
 def _kimi_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
@@ -54,6 +61,7 @@ def test_kimi_ready_footer_thinking_does_not_mark_active() -> None:
     assert state.turn_phase == "ready"
     assert state.surface_accepting_input == "yes"
     assert state.surface_ready_posture == "yes"
+    assert state.surface_pending_input == "no"
     assert "footer_thinking_metadata_ignored" in state.notes
 
 
@@ -125,3 +133,179 @@ def test_kimi_rejected_command_fixture_is_ready_not_known_failure() -> None:
     assert state.turn_phase == "ready"
     assert state.surface_accepting_input == "yes"
     assert state.last_turn_result == "none"
+
+
+def test_kimi_023_detector_ignores_historical_moon_spinner_after_completion() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    completed = (
+        "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
+        "● Finished the requested task.\n\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking\n"
+        "context: 10.0%\n"
+    )
+
+    signals = detector.detect(output_text=completed)
+
+    assert signals.active_evidence is False
+    assert signals.ready_posture == "yes"
+    assert signals.accepting_input == "yes"
+    assert "footer_thinking_metadata_ignored" in signals.notes
+
+
+def test_kimi_023_detector_tracks_live_edge_moon_spinner() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    active = (
+        "✨ Inspect the repository.\n\n"
+        "🌑 · Tip: ctrl+s: steer mid-turn\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking  context: 0.0%\n"
+    )
+
+    signals = detector.detect(output_text=active)
+
+    assert signals.active_evidence is True
+    assert "moon_spinner" in signals.active_reasons
+    assert signals.ready_posture == "no"
+
+
+def test_kimi_023_detector_tracks_streaming_queue_when_spinner_is_displaced() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    active = (
+        "🌑 · Tip: ctrl+s: steer mid-turn\n"
+        "────────────────────────────────────────\n"
+        "  ❯ queued follow-up\n"
+        "  ↑ to edit · ctrl-s to steer immediately\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
+    )
+
+    signals = detector.detect(output_text=active)
+    analysis = analyze_kimi_surface(active, activity_window_lines=4)
+
+    assert analysis.queue_visible is True
+    assert analysis.queue_hint == "↑ to edit · ctrl-s to steer immediately"
+    assert signals.active_evidence is True
+    assert signals.active_reasons == ("queued_message",)
+    assert signals.ready_posture == "no"
+    assert signals.success_blocked is True
+    assert signals.pending_input == "yes"
+
+
+def test_kimi_023_detector_tracks_each_deferred_queue_mode() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+
+    for hint in (
+        "↑ to edit · will send after current task",
+        "↑ to edit · will send after compaction",
+    ):
+        surface = (
+            "● Current task output\n"
+            "────────────────────────────────────────\n"
+            "  ❯ queued follow-up\n"
+            f"  {hint}\n"
+            "╭────────────────────────────────────────╮\n"
+            "│ >                                      │\n"
+            "╰────────────────────────────────────────╯\n"
+            "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
+        )
+
+        signals = detector.detect(output_text=surface)
+
+        assert signals.active_evidence is True
+        assert "queued_message" in signals.active_reasons
+        assert signals.ready_posture == "no"
+        assert signals.pending_input == "yes"
+
+
+def test_kimi_023_detector_ignores_historical_queue_after_settled_response() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    historical = (
+        "  ↑ to edit · ctrl-s to steer immediately\n"
+        + "\n".join(f"● settled response line {index}" for index in range(30))
+        + "\n╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking  context: 2.0%\n"
+    )
+
+    signals = detector.detect(output_text=historical)
+
+    assert signals.active_evidence is False
+    assert signals.ready_posture == "yes"
+    assert signals.pending_input == "no"
+
+
+def test_kimi_pending_input_remains_binary_for_one_two_or_three_rows() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+
+    for count in (1, 2, 3):
+        rows = "\n".join(f"  ❯ queued follow-up {index}" for index in range(1, count + 1))
+        surface = (
+            "🌑 · Tip: ctrl+s: steer mid-turn\n"
+            f"{rows}\n"
+            "  ↑ to edit · will send after current task\n"
+            "╭────────────────────────╮\n"
+            "│ >                      │\n"
+            "╰────────────────────────╯\n"
+            "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
+        )
+
+        assert detector.detect(output_text=surface).pending_input == "yes"
+
+
+def test_kimi_pending_input_handles_wrapping_consumption_and_incomplete_capture() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    wrapped = (
+        "  ❯ queued follow-up with a wrapped body\n"
+        "    continuing on a resized pane\n"
+        "  ↑ to edit · will send after compaction\n"
+        "╭────────────────╮\n"
+        "│ >              │\n"
+        "╰────────────────╯\n"
+    )
+    consumed = (
+        "● Finished queued follow-up.\n╭────────────────╮\n│ >              │\n╰────────────────╯\n"
+    )
+
+    assert detector.detect(output_text=wrapped).pending_input == "yes"
+    assert detector.detect(output_text=consumed).pending_input == "no"
+    assert detector.detect(output_text="│ >\n").pending_input == "unknown"
+
+
+def test_kimi_maintained_and_fallback_profiles_carry_pending_input() -> None:
+    queued = (
+        "  ❯ queued follow-up\n"
+        "  ↑ to edit · will send after current task\n"
+        "╭────────────────────────╮\n"
+        "│ >                      │\n"
+        "╰────────────────────────╯\n"
+    )
+
+    for detector in (
+        KimiCodeSignalDetector(),
+        KimiCodeSignalDetectorV0_23_X(),
+        FallbackKimiCodeSignalDetector(),
+    ):
+        assert detector.detect(output_text=queued).pending_input == "yes"
+
+
+def test_kimi_restart_does_not_reuse_prompt_above_latest_shell_launch() -> None:
+    """Kimi readiness belongs to provider chrome below the replacement launch."""
+
+    detector = KimiCodeSignalDetectorV0_23_X()
+
+    stale = detector.detect(output_text=_KIMI_STALE_RESTART)
+    fresh = detector.detect(output_text=_KIMI_FRESH_RESTART)
+
+    assert stale.ready_posture == "unknown"
+    assert stale.accepting_input == "unknown"
+    assert "provider_surface_not_fresh" in stale.notes
+    assert fresh.ready_posture == "yes"
+    assert fresh.accepting_input == "yes"

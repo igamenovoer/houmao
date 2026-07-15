@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the project-local `houmao-mgr internals native-agent tools` workflow for managing tool-scoped setup content in the active project-local overlay.
-
 ## Requirements
-
 ### Requirement: `houmao-mgr internals native-agent tools` mirrors the project-local tool tree
 `houmao-mgr` SHALL expose a project-local tool administration subtree shaped as:
 
@@ -90,3 +88,11 @@ The starter adapter SHALL NOT embed one operator-specific absolute executable pa
 - **WHEN** an operator runs `houmao-mgr internals native-agent tools claude setups add --name research`
 - **THEN** the command clones `.houmao/agents/tools/claude/setups/default/` into `.houmao/agents/tools/claude/setups/research/`
 - **AND THEN** the new setup becomes available for later role presets
+
+### Requirement: Project agent-tool administration excludes Gemini
+Project agent-tool inspection and setup administration SHALL expose only maintained tool subtrees and SHALL NOT expose Gemini.
+
+#### Scenario: Gemini project tool lookup is unavailable
+- **WHEN** an operator requests `project agents tools gemini get`
+- **THEN** command validation rejects the tool
+- **AND THEN** no Gemini starter subtree is materialized

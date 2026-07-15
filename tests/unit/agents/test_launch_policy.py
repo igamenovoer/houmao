@@ -71,7 +71,7 @@ def test_codex_unattended_strategy_supports_auth_json_fresh_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -112,7 +112,7 @@ def test_codex_unattended_strategy_supports_env_only_custom_provider(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "config.toml").write_text(
@@ -159,7 +159,7 @@ def test_codex_unattended_strategy_preserves_explicit_model_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -187,7 +187,7 @@ def test_codex_unattended_strategy_canonicalizes_conflicting_launch_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -244,7 +244,7 @@ def test_codex_unattended_strategy_rejects_api_key_only_without_provider_contrac
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
 
@@ -496,7 +496,7 @@ def test_codex_provider_start_repairs_blank_owned_toml_via_atomic_replace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="codex-cli 0.116.0")
+    _stub_version(monkeypatch, output="codex-cli 0.140.0")
     home = tmp_path / "codex-home"
     home.mkdir()
     (home / "auth.json").write_text('{"session_id":"abc"}\n', encoding="utf-8")
@@ -542,41 +542,13 @@ def test_codex_registry_declares_final_cli_config_override_hook() -> None:
     assert strategy.actions[-1].params == {"hook_id": "codex.append_unattended_cli_overrides"}
 
 
-def test_gemini_registry_declares_owned_startup_surfaces_and_actions() -> None:
-    documents = load_registry_documents(tool="gemini")
-
-    assert len(documents) == 1
-    assert len(documents[0].strategies) == 1
-    strategy = documents[0].strategies[0]
-    assert strategy.strategy_id == "gemini-unattended-0.36.0"
-    assert strategy.owned_paths == (
-        type(strategy.owned_paths[0])(
-            path=".gemini/settings.json",
-            keys=(
-                "tools.sandbox",
-                "tools.core",
-                "tools.exclude",
-                "security.disableYoloMode",
-                "security.toolSandboxing",
-                "admin.secureModeEnabled",
-            ),
-        ),
-    )
-    assert [action.kind for action in strategy.actions] == [
-        "provider_hook.call",
-        "cli_arg.ensure_present",
-        "cli_arg.ensure_present",
-        "provider_hook.call",
-    ]
-
-
 def test_kimi_registry_declares_startup_visible_auto_skill_bootstrap() -> None:
     documents = load_registry_documents(tool="kimi")
 
     assert len(documents) == 1
     assert {strategy.strategy_id for strategy in documents[0].strategies} == {
-        "kimi-unattended-0.10.x",
-        "kimi-tui-unattended-0.10.x",
+        "kimi-unattended-0.23.x",
+        "kimi-tui-unattended-0.23.x",
     }
     for strategy in documents[0].strategies:
         capabilities = strategy.system_prompt_bootstrap
@@ -598,175 +570,6 @@ def test_native_prompt_registries_declare_native_bootstrap(tool: str) -> None:
     for strategy in documents[0].strategies:
         assert strategy.system_prompt_bootstrap.native_system_prompt is True
         assert strategy.system_prompt_bootstrap.startup_visible_skill_metadata is False
-
-
-def test_gemini_unattended_strategy_applies_full_permission_launch_args_for_fresh_oauth_home(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _stub_version(monkeypatch, output="0.36.0")
-    home = tmp_path / "gemini-home"
-    home.mkdir()
-    oauth_path = home / ".gemini" / "oauth_creds.json"
-    oauth_path.parent.mkdir(parents=True)
-    oauth_path.write_text('{"refresh_token":"token"}\n', encoding="utf-8")
-
-    result = apply_launch_policy(
-        LaunchPolicyRequest(
-            tool="gemini",
-            backend="gemini_headless",
-            executable="gemini",
-            base_args=("-p", "--output-format", "stream-json"),
-            requested_operator_prompt_mode="unattended",
-            working_directory=tmp_path / "workspace",
-            home_path=home,
-            env={"GOOGLE_GENAI_USE_GCA": "true"},
-        )
-    )
-
-    assert result.args == (
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--approval-mode=yolo",
-        "--sandbox=false",
-    )
-    assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "gemini-unattended-0.36.0"
-    assert result.strategy is not None
-    assert result.strategy.owned_paths[0].path == ".gemini/settings.json"
-    assert [action.kind for action in result.strategy.actions] == [
-        "provider_hook.call",
-        "cli_arg.ensure_present",
-        "cli_arg.ensure_present",
-        "provider_hook.call",
-    ]
-    assert oauth_path.read_text(encoding="utf-8") == '{"refresh_token":"token"}\n'
-    assert not (home / ".gemini" / "settings.json").exists()
-
-
-def test_gemini_unattended_strategy_canonicalizes_conflicting_inputs_and_repairs_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _stub_version(monkeypatch, output="0.36.0")
-    home = tmp_path / "gemini-home"
-    settings_path = home / ".gemini" / "settings.json"
-    settings_path.parent.mkdir(parents=True)
-    settings_path.write_text(
-        json.dumps(
-            {
-                "tools": {
-                    "sandbox": "docker",
-                    "core": ["read_file"],
-                    "exclude": ["run_shell_command"],
-                    "allowed": ["run_shell_command(git status)"],
-                },
-                "security": {
-                    "disableYoloMode": True,
-                    "toolSandboxing": True,
-                },
-                "admin": {"secureModeEnabled": True},
-                "ui": {"theme": "light"},
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    result = apply_launch_policy(
-        LaunchPolicyRequest(
-            tool="gemini",
-            backend="gemini_headless",
-            executable="gemini",
-            base_args=(
-                "-p",
-                "--approval-mode=default",
-                "--approval-mode",
-                "auto_edit",
-                "--sandbox=true",
-                "--sandbox",
-                "docker",
-                "--yolo",
-                "--model",
-                "gemini-2.5-pro",
-            ),
-            requested_operator_prompt_mode="unattended",
-            working_directory=tmp_path / "workspace",
-            home_path=home,
-            env={"GOOGLE_GENAI_USE_GCA": "true"},
-        )
-    )
-
-    assert result.args == (
-        "-p",
-        "--model",
-        "gemini-2.5-pro",
-        "--approval-mode=yolo",
-        "--sandbox=false",
-    )
-    payload = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert payload["tools"] == {
-        "sandbox": False,
-        "allowed": ["run_shell_command(git status)"],
-    }
-    assert payload["security"] == {
-        "disableYoloMode": False,
-        "toolSandboxing": False,
-    }
-    assert payload["admin"] == {"secureModeEnabled": False}
-    assert payload["ui"] == {"theme": "light"}
-
-
-def test_gemini_resume_control_preserves_owned_settings_file_while_reapplying_cli_ownership(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _stub_version(monkeypatch, output="0.36.0")
-    home = tmp_path / "gemini-home"
-    settings_path = home / ".gemini" / "settings.json"
-    settings_path.parent.mkdir(parents=True)
-    original_settings = json.dumps(
-        {
-            "tools": {
-                "sandbox": "docker",
-                "core": ["read_file"],
-                "exclude": ["run_shell_command"],
-            },
-            "security": {"disableYoloMode": True},
-        }
-    )
-    settings_path.write_text(original_settings + "\n", encoding="utf-8")
-
-    result = apply_launch_policy(
-        LaunchPolicyRequest(
-            tool="gemini",
-            backend="gemini_headless",
-            executable="gemini",
-            base_args=(
-                "-p",
-                "--sandbox=podman",
-                "--approval-mode",
-                "default",
-                "--resume",
-                "sess-1",
-            ),
-            requested_operator_prompt_mode="unattended",
-            working_directory=tmp_path / "workspace",
-            home_path=home,
-            env={"GOOGLE_GENAI_USE_GCA": "true"},
-            application_kind="resume_control",
-        )
-    )
-
-    assert result.args == (
-        "-p",
-        "--resume",
-        "sess-1",
-        "--approval-mode=yolo",
-        "--sandbox=false",
-    )
-    assert settings_path.read_text(encoding="utf-8") == original_settings + "\n"
 
 
 def test_toml_rewrite_preserves_float_scalars(tmp_path: Path) -> None:
@@ -796,7 +599,7 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.10.1")
+    _stub_version(monkeypatch, output="0.23.4")
     home = tmp_path / "kimi-home"
     home.mkdir()
 
@@ -829,7 +632,7 @@ def test_kimi_unattended_strategy_canonicalizes_prompt_mode_conflicts(
 
     assert result.args == ("--model", "kimi-code/kimi-for-coding")
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-unattended-0.10.x"
+    assert result.provenance.selected_strategy_id == "kimi-unattended-0.23.x"
     assert result.strategy is not None
     assert result.strategy.backends == ("kimi_headless",)
     assert [action.kind for action in result.strategy.actions] == ["provider_hook.call"]
@@ -840,7 +643,7 @@ def test_kimi_raw_launch_unattended_sets_auto_config_and_strips_tui_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.11.0")
+    _stub_version(monkeypatch, output="0.23.4")
     home = tmp_path / "kimi-home"
     home.mkdir()
     (home / "config.toml").write_text(
@@ -892,13 +695,16 @@ enabled = false
         "kimi-code/kimi-for-coding",
         "--temperature",
         "0",
+        "--auto",
     )
     assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-0.10.x"
+    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-0.23.x"
     assert result.strategy is not None
     assert result.strategy.backends == ("raw_launch",)
     assert result.strategy.owned_paths[0].path == "config.toml"
     assert result.strategy.owned_paths[0].keys == ("default_permission_mode",)
+    assert result.strategy.owned_paths[1].path == ".skip-migration-from-kimi-cli"
+    assert (home / ".skip-migration-from-kimi-cli").is_file()
     assert payload["default_permission_mode"] == "auto"
     assert payload["default_model"] == "kimi-code/kimi-for-coding"
     assert payload["extra_skill_dirs"] == ["/opt/project-skills"]
@@ -936,9 +742,9 @@ def test_kimi_registry_declares_separate_headless_and_tui_unattended_strategies(
     documents = load_registry_documents(tool="kimi")
 
     strategies = {strategy.strategy_id: strategy for strategy in documents[0].strategies}
-    assert strategies["kimi-unattended-0.10.x"].backends == ("kimi_headless",)
-    assert strategies["kimi-tui-unattended-0.10.x"].backends == ("raw_launch",)
-    assert [action.kind for action in strategies["kimi-tui-unattended-0.10.x"].actions] == [
+    assert strategies["kimi-unattended-0.23.x"].backends == ("kimi_headless",)
+    assert strategies["kimi-tui-unattended-0.23.x"].backends == ("raw_launch",)
+    assert [action.kind for action in strategies["kimi-tui-unattended-0.23.x"].actions] == [
         "provider_hook.call",
         "toml.set",
     ]
@@ -948,7 +754,7 @@ def test_kimi_unattended_strategy_fails_closed_for_unknown_version(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _stub_version(monkeypatch, output="0.12.0")
+    _stub_version(monkeypatch, output="0.22.0")
     home = tmp_path / "kimi-home"
     home.mkdir()
 
@@ -1081,26 +887,4 @@ def test_installed_claude_version_is_covered_by_declared_supported_versions_when
         "Installed Claude version is not covered by exactly one declared unattended strategy "
         f"for backend={backend!r}: version={detected_version.raw!r}, "
         f"matches={[item.strategy_id for item in matches]!r}"
-    )
-
-
-def test_installed_gemini_version_is_covered_by_declared_supported_versions_when_available() -> (
-    None
-):
-    if shutil.which("gemini") is None:
-        pytest.skip("gemini is not available on PATH")
-
-    detected_version = detect_tool_version(executable="gemini")
-    matches = [
-        strategy
-        for document in load_registry_documents(tool="gemini")
-        for strategy in document.strategies
-        if strategy.operator_prompt_mode == "unattended"
-        and "gemini_headless" in strategy.backends
-        and strategy.supported_versions.contains(detected_version)
-    ]
-
-    assert len(matches) == 1, (
-        "Installed Gemini version is not covered by exactly one declared unattended strategy "
-        f"for version={detected_version.raw!r}, matches={[item.strategy_id for item in matches]!r}"
     )

@@ -73,8 +73,8 @@ def render_prompt_result_plain(payload: object) -> None:
     data = _as_dict(payload)
     status = data.get("status", "unknown")
     detail = data.get("detail", "")
-    forced = data.get("forced", False)
-    click.echo(f"Prompt: {status}  forced={_pv(forced)}  {detail}")
+    admission_policy = data.get("admission_policy", "unknown")
+    click.echo(f"Prompt: {status}  admission_policy={_pv(admission_policy)}  {detail}")
 
 
 def render_prompt_result_fancy(payload: object) -> None:
@@ -84,10 +84,10 @@ def render_prompt_result_fancy(payload: object) -> None:
     data = _as_dict(payload)
     status = data.get("status", "unknown")
     detail = data.get("detail", "")
-    forced = data.get("forced", False)
+    admission_policy = data.get("admission_policy", "unknown")
     style = "green" if status == "ok" else "red"
     Console().print(
-        f"[{style}]Prompt: {status}[/{style}]  forced={'yes' if forced else 'no'}  {detail}"
+        f"[{style}]Prompt: {status}[/{style}]  admission_policy={admission_policy}  {detail}"
     )
 
 

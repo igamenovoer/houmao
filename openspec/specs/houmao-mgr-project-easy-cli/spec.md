@@ -47,31 +47,6 @@ The rest of the specialist-create contract remains unchanged, including unattend
 - **THEN** the command ensures `<cwd>/.houmao` exists before storing the specialist
 - **AND THEN** the persisted specialist lands in the resulting project-local catalog and managed content store
 
-### Requirement: Gemini specialists default to unattended headless launch posture
-`houmao-mgr project specialist create --tool gemini` SHALL treat Gemini as a maintained unattended easy-launch lane for headless use.
-
-By default, Gemini specialists SHALL persist `launch.prompt_mode: unattended` into both the project-local specialist metadata and the generated compatibility preset.
-
-`--no-unattended` SHALL remain the explicit opt-out that persists `launch.prompt_mode: as_is`.
-
-`houmao-mgr project agents launch` SHALL continue to require `--headless` for Gemini specialists even when the stored specialist launch posture is unattended.
-
-#### Scenario: Default Gemini specialist persists unattended launch posture
-- **WHEN** an operator runs `houmao-mgr project specialist create --name gemini-reviewer --tool gemini --api-key gm-test`
-- **THEN** the persisted specialist metadata records `launch.prompt_mode: unattended`
-- **AND THEN** the generated compatibility preset records the same unattended launch posture
-
-#### Scenario: Gemini specialist can still opt out to as-is launch posture
-- **WHEN** an operator runs `houmao-mgr project specialist create --name gemini-reviewer --tool gemini --api-key gm-test --no-unattended`
-- **THEN** the persisted specialist metadata records `launch.prompt_mode: as_is`
-- **AND THEN** the generated compatibility preset records the same `as_is` launch posture
-
-#### Scenario: Gemini easy instance launch remains headless-only
-- **WHEN** a Gemini specialist already exists
-- **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist gemini-reviewer --name gemini-reviewer-1` without `--headless`
-- **THEN** the command fails clearly
-- **AND THEN** it identifies that Gemini specialists remain headless-only on the easy instance surface
-
 ### Requirement: `project specialist list/get/remove` manages persisted specialist definitions
 
 `houmao-mgr project specialist list` SHALL enumerate persisted specialist definitions from the project-local catalog.
@@ -1364,3 +1339,11 @@ The existing Gemini headless-only rule SHALL remain unchanged. A Gemini-backed l
 - **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist gemini-reviewer --name gemini-reviewer-1` without `--headless`
 - **THEN** the command fails clearly before launch
 - **AND THEN** it identifies Gemini as the project easy launch surface's required-headless provider
+
+### Requirement: Project-easy commands exclude Gemini
+Project specialist, profile, and agent commands SHALL NOT accept Gemini as a tool or launch lane.
+
+#### Scenario: Gemini specialist creation is unavailable
+- **WHEN** an operator supplies `--tool gemini` to `houmao-mgr project specialist create`
+- **THEN** command parsing rejects the unsupported tool
+- **AND THEN** no Gemini specialist, credential, recipe, or profile is persisted

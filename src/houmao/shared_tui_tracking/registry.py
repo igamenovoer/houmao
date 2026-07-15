@@ -10,11 +10,13 @@ from houmao.shared_tui_tracking.detectors import (
     BaseTrackedTurnSignalDetector,
     ClaudeCodeSignalDetectorV2_1_X,
     CodexTuiSignalDetectorV0_116_X,
+    CodexTuiSignalDetectorV0_144_X,
     FallbackClaudeDetector,
     FallbackCodexTuiSignalDetector,
     FallbackTrackedTurnSignalDetector,
     FallbackKimiCodeSignalDetector,
     KimiCodeSignalDetectorV0_11_X,
+    KimiCodeSignalDetectorV0_23_X,
 )
 
 
@@ -30,6 +32,21 @@ class DetectorProfileRegistration:
     detector_version: str
     minimum_supported_version: tuple[int, ...] | None
     profile_factory: Callable[[], BaseTrackedTurnSignalDetector]
+    maximum_supported_version: tuple[int, ...] | None = None
+
+    def __post_init__(self) -> None:
+        """Validate one evidence-backed compatibility interval."""
+
+        if self.minimum_supported_version is None:
+            if self.maximum_supported_version is not None:
+                raise ValueError("Fallback detector registrations cannot define a maximum version.")
+            return
+        if self.maximum_supported_version is None:
+            raise ValueError(
+                "Maintained detector registrations require an exclusive maximum version."
+            )
+        if self.maximum_supported_version <= self.minimum_supported_version:
+            raise ValueError("Detector maximum version must be greater than its minimum version.")
 
 
 @dataclass(frozen=True)
@@ -40,6 +57,7 @@ class ResolvedDetectorProfile:
     detector_name: str
     detector_version: str
     minimum_supported_version: tuple[int, ...] | None
+    maximum_supported_version: tuple[int, ...] | None
     profile: BaseTrackedTurnSignalDetector
 
     @property
@@ -68,6 +86,7 @@ class DetectorProfileRegistry:
                     detector_name="claude_code",
                     detector_version="2.1.x",
                     minimum_supported_version=(2, 1, 0),
+                    maximum_supported_version=(2, 2, 0),
                     profile_factory=ClaudeCodeSignalDetectorV2_1_X,
                 ),
                 DetectorProfileRegistration(
@@ -82,7 +101,16 @@ class DetectorProfileRegistry:
                     detector_name="codex_tui",
                     detector_version="0.116.x",
                     minimum_supported_version=(0, 116, 0),
+                    maximum_supported_version=(0, 117, 0),
                     profile_factory=CodexTuiSignalDetectorV0_116_X,
+                ),
+                DetectorProfileRegistration(
+                    app_id="codex_tui",
+                    detector_name="codex_tui",
+                    detector_version="0.144.x",
+                    minimum_supported_version=(0, 144, 0),
+                    maximum_supported_version=(0, 145, 0),
+                    profile_factory=CodexTuiSignalDetectorV0_144_X,
                 ),
                 DetectorProfileRegistration(
                     app_id="codex_tui",
@@ -96,7 +124,16 @@ class DetectorProfileRegistry:
                     detector_name="kimi_code",
                     detector_version="0.11.x",
                     minimum_supported_version=(0, 11, 0),
+                    maximum_supported_version=(0, 12, 0),
                     profile_factory=KimiCodeSignalDetectorV0_11_X,
+                ),
+                DetectorProfileRegistration(
+                    app_id="kimi_code",
+                    detector_name="kimi_code",
+                    detector_version="0.23.x",
+                    minimum_supported_version=(0, 23, 0),
+                    maximum_supported_version=(0, 24, 0),
+                    profile_factory=KimiCodeSignalDetectorV0_23_X,
                 ),
                 DetectorProfileRegistration(
                     app_id="kimi_code",
@@ -120,6 +157,7 @@ class DetectorProfileRegistry:
         *,
         app_id: str,
         observed_version: str | None,
+        detector_version_override: str | None = None,
     ) -> ResolvedDetectorProfile:
         """Resolve one app id and observed version to the best detector profile."""
 
@@ -127,15 +165,28 @@ class DetectorProfileRegistry:
             item for item in self.m_registrations if item.app_id == "unsupported_tool"
         ]
         observed_version_tuple = _parse_version(observed_version)
-        selected = _select_best_registration(
-            registrations=tuple(candidates),
-            observed_version=observed_version_tuple,
-        )
+        if detector_version_override is None:
+            selected = _select_best_registration(
+                registrations=tuple(candidates),
+                observed_version=observed_version_tuple,
+            )
+        else:
+            override_selected = next(
+                (item for item in candidates if item.detector_version == detector_version_override),
+                None,
+            )
+            if override_selected is None:
+                raise ValueError(
+                    f"Detector profile override {detector_version_override!r} is not registered "
+                    f"for app {app_id!r}."
+                )
+            selected = override_selected
         return ResolvedDetectorProfile(
             app_id=selected.app_id,
             detector_name=selected.detector_name,
             detector_version=selected.detector_version,
             minimum_supported_version=selected.minimum_supported_version,
+            maximum_supported_version=selected.maximum_supported_version,
             profile=selected.profile_factory(),
         )
 
@@ -184,6 +235,10 @@ def _select_best_registration(
         for item in registrations
         if item.minimum_supported_version is not None
         and item.minimum_supported_version <= observed_version
+        and (
+            item.maximum_supported_version is None
+            or observed_version < item.maximum_supported_version
+        )
     ]
     if compatible:
         return max(compatible, key=lambda item: item.minimum_supported_version or (0, 0, 0))

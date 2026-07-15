@@ -1,4 +1,4 @@
-"""Provider-specific launch-policy hooks for Claude, Codex, Gemini, and Kimi."""
+"""Provider-specific launch-policy hooks for Claude, Codex, and Kimi."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ _CODEX_UNATTENDED_SANDBOX_MODE = "danger-full-access"
 _CODEX_UNATTENDED_SHOW_TOOLTIPS = False
 _CODEX_MODEL_MIGRATION_SOURCE = "gpt-5.3-codex"
 _CODEX_MODEL_MIGRATION_TARGET = "gpt-5.4"
-_GEMINI_SETTINGS_PATH = Path(".gemini") / "settings.json"
+_KIMI_SKIP_LEGACY_MIGRATION_FILENAME = ".skip-migration-from-kimi-cli"
 _PROVIDER_STATE_LOCK_FILENAME = ".houmao-launch-policy.lock"
 
 
@@ -62,17 +62,11 @@ def run_provider_hook(
     if hook_id == "codex.append_unattended_cli_overrides":
         _codex_append_unattended_cli_overrides(args)
         return
-    if hook_id == "gemini.canonicalize_unattended_launch_inputs":
-        _gemini_canonicalize_unattended_launch_inputs(args)
-        return
-    if hook_id == "gemini.ensure_unattended_runtime_state":
-        _gemini_ensure_unattended_runtime_state(request)
-        return
     if hook_id == "kimi.canonicalize_unattended_launch_inputs":
         _kimi_canonicalize_unattended_launch_inputs(args)
         return
     if hook_id == "kimi.canonicalize_unattended_tui_launch_inputs":
-        _kimi_canonicalize_unattended_tui_launch_inputs(args)
+        _kimi_canonicalize_unattended_tui_launch_inputs(request, args)
         return
     raise LaunchPolicyError(f"Unknown provider hook `{hook_id}`.")
 
@@ -263,12 +257,6 @@ def _codex_config_path(request: LaunchPolicyRequest) -> Path:
     return request.home_path / _CODEX_CONFIG_FILENAME
 
 
-def _gemini_settings_path(request: LaunchPolicyRequest) -> Path:
-    """Return the runtime Gemini settings path."""
-
-    return request.home_path / _GEMINI_SETTINGS_PATH
-
-
 def validate_codex_credential_readiness(
     *,
     home_path: Path,
@@ -384,33 +372,6 @@ def canonicalize_codex_unattended_launch_args(args: list[str]) -> None:
     args[:] = canonicalized
 
 
-def canonicalize_gemini_unattended_launch_args(args: list[str]) -> None:
-    """Strip caller overrides that target Gemini unattended-owned launch surfaces."""
-
-    canonicalized: list[str] = []
-    index = 0
-    while index < len(args):
-        token = args[index]
-        next_token = args[index + 1] if index + 1 < len(args) else None
-
-        if token in {"-y", "--yolo"}:
-            index += 1
-            continue
-        if token.startswith("--approval-mode=") or token.startswith("--sandbox="):
-            index += 1
-            continue
-        if token in {"--approval-mode", "--sandbox"}:
-            index += 1
-            if next_token is not None and not next_token.startswith("-"):
-                index += 1
-            continue
-
-        canonicalized.append(token)
-        index += 1
-
-    args[:] = canonicalized
-
-
 def canonicalize_kimi_unattended_launch_args(args: list[str]) -> None:
     """Strip caller overrides that target Kimi prompt-mode-owned surfaces."""
 
@@ -450,7 +411,7 @@ def canonicalize_kimi_unattended_launch_args(args: list[str]) -> None:
 
 
 def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
-    """Strip caller overrides that target Kimi TUI unattended startup surfaces."""
+    """Canonicalize Kimi TUI args and append strategy-owned native auto mode."""
 
     flags_with_values = {
         "-S",
@@ -481,6 +442,7 @@ def canonicalize_kimi_tui_unattended_launch_args(args: list[str]) -> None:
         index += 1
 
     args[:] = canonicalized
+    args.append("--auto")
 
 
 def _claude_ensure_api_key_approval(request: LaunchPolicyRequest) -> None:
@@ -547,14 +509,6 @@ def _codex_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None
     canonicalize_codex_unattended_launch_args(args)
 
 
-def _gemini_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
-    """Canonicalize caller launch args for the Gemini unattended strategy."""
-
-    if args is None:
-        return
-    canonicalize_gemini_unattended_launch_args(args)
-
-
 def _kimi_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
     """Canonicalize caller launch args for the Kimi unattended strategy."""
 
@@ -563,12 +517,15 @@ def _kimi_canonicalize_unattended_launch_inputs(args: list[str] | None) -> None:
     canonicalize_kimi_unattended_launch_args(args)
 
 
-def _kimi_canonicalize_unattended_tui_launch_inputs(args: list[str] | None) -> None:
+def _kimi_canonicalize_unattended_tui_launch_inputs(
+    request: LaunchPolicyRequest,
+    args: list[str] | None,
+) -> None:
     """Canonicalize caller launch args for the Kimi unattended TUI strategy."""
 
-    if args is None:
-        return
-    canonicalize_kimi_tui_unattended_launch_args(args)
+    if args is not None:
+        canonicalize_kimi_tui_unattended_launch_args(args)
+    _atomic_write_text(request.home_path / _KIMI_SKIP_LEGACY_MIGRATION_FILENAME, "")
 
 
 def _codex_validate_credential_readiness(request: LaunchPolicyRequest) -> None:
@@ -624,27 +581,6 @@ def _codex_append_unattended_cli_overrides(args: list[str] | None) -> None:
             CodexCliConfigOverride(("tui", "show_tooltips"), _CODEX_UNATTENDED_SHOW_TOOLTIPS),
         ),
     )
-
-
-def _gemini_ensure_unattended_runtime_state(request: LaunchPolicyRequest) -> None:
-    """Repair or sanitize Gemini runtime-home settings for unattended launch."""
-
-    settings_path = _gemini_settings_path(request)
-    if not settings_path.exists():
-        return
-
-    payload = _load_json_state_with_repair(
-        settings_path,
-        repair_invalid=request.application_kind == "provider_start",
-    )
-    _set_nested_json_value(payload, ("tools", "sandbox"), False)
-    _delete_nested_json_key(payload, ("tools", "core"))
-    _delete_nested_json_key(payload, ("tools", "exclude"))
-    _set_nested_json_value(payload, ("security", "disableYoloMode"), False)
-    _set_nested_json_value(payload, ("security", "toolSandboxing"), False)
-    _set_nested_json_value(payload, ("admin", "secureModeEnabled"), False)
-    _prune_empty_mappings(payload)
-    write_json_state(settings_path, payload)
 
 
 def _has_usable_auth_json(path: Path) -> bool:
@@ -743,23 +679,6 @@ def _codex_override_targets_owned_surface(raw_override: str) -> bool:
     return normalized.startswith("projects.") and normalized.endswith(".trust_level")
 
 
-def _set_nested_json_value(
-    payload: dict[str, Any],
-    key_path: tuple[str, ...],
-    value: Any,
-) -> None:
-    """Set one nested JSON key while preserving sibling content."""
-
-    target: dict[str, Any] = payload
-    for key in key_path[:-1]:
-        existing = target.get(key)
-        if not isinstance(existing, dict):
-            existing = {}
-            target[key] = existing
-        target = existing
-    target[key_path[-1]] = value
-
-
 def _delete_nested_json_key(payload: dict[str, Any], key_path: tuple[str, ...]) -> None:
     """Delete one nested JSON key when present."""
 
@@ -780,17 +699,6 @@ def _delete_nested_json_key(payload: dict[str, Any], key_path: tuple[str, ...]) 
         child = parent.get(key)
         if isinstance(child, dict) and not child:
             parent.pop(key, None)
-
-
-def _prune_empty_mappings(payload: dict[str, Any]) -> None:
-    """Remove empty nested mappings created during Gemini settings repair."""
-
-    for value in payload.values():
-        if isinstance(value, dict):
-            _prune_empty_mappings(value)
-    empty_keys = [key for key, value in payload.items() if isinstance(value, dict) and not value]
-    for key in empty_keys:
-        payload.pop(key, None)
 
 
 def _ensure_codex_model_migration_state(*, config_path: Path, repair_invalid: bool) -> None:

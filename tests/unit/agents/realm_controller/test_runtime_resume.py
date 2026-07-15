@@ -91,12 +91,12 @@ def _seed_manifest(
     if tool == "claude":
         env_var = "ANTHROPIC_API_KEY"
         home_env_var = "CLAUDE_CONFIG_DIR"
-    elif tool == "gemini":
-        env_var = "GEMINI_API_KEY"
-        home_env_var = "GEMINI_CLI_HOME"
-    else:
+    elif tool == "codex":
         env_var = "OPENAI_API_KEY"
         home_env_var = "CODEX_HOME"
+    else:
+        env_var = "KIMI_MODEL_API_KEY"
+        home_env_var = "KIMI_CODE_HOME"
 
     env_file = tmp_path / "vars.env"
     env_file.write_text(f"{env_var}=secret\n", encoding="utf-8")
@@ -293,39 +293,6 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
     session_path.write_text(json.dumps(session_payload), encoding="utf-8")
 
     with pytest.raises(SessionManifestError, match="session_id"):
-        resume_runtime_session(
-            agent_def_dir=agent_def_dir,
-            session_manifest_path=session_path,
-        )
-
-
-def test_resume_gemini_rejects_mismatched_working_directory(tmp_path: Path) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True)
-    persisted_workdir = (tmp_path / "persisted").resolve()
-    resumed_workdir = (tmp_path / "resumed").resolve()
-    persisted_workdir.mkdir(parents=True)
-    resumed_workdir.mkdir(parents=True)
-
-    _, session_payload = _build_session_payload(
-        agent_def_dir,
-        tmp_path,
-        tool="gemini",
-        backend="gemini_headless",
-        backend_state={
-            "session_id": "sess-1",
-            "turn_index": 1,
-            "role_bootstrap_applied": True,
-            "working_directory": str(persisted_workdir),
-            "tmux_session_name": "HOUMAO-r",
-        },
-    )
-    session_payload["working_directory"] = str(resumed_workdir)
-    session_payload["interactive"]["working_directory"] = str(persisted_workdir)
-    session_path = tmp_path / "session-gemini-mismatch.json"
-    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
-
-    with pytest.raises(SessionManifestError, match="same working directory"):
         resume_runtime_session(
             agent_def_dir=agent_def_dir,
             session_manifest_path=session_path,

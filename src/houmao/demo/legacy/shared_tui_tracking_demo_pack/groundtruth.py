@@ -30,6 +30,7 @@ _REQUIRED_EXPECTATION_FIELDS = (
     "surface_accepting_input",
     "surface_editing_input",
     "surface_ready_posture",
+    "surface_pending_input",
     "turn_phase",
     "last_turn_result",
     "last_turn_source",
@@ -149,6 +150,7 @@ def expand_labels_to_groundtruth_timeline(
                 ),
                 surface_editing_input=cast(Tristate, str(expectations["surface_editing_input"])),
                 surface_ready_posture=cast(Tristate, str(expectations["surface_ready_posture"])),
+                surface_pending_input=cast(Tristate, str(expectations["surface_pending_input"])),
                 turn_phase=cast(TurnPhase, str(expectations["turn_phase"])),
                 last_turn_result=cast(
                     TrackedLastTurnResult,

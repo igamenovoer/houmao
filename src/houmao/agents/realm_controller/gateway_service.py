@@ -116,6 +116,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierPreNotificationContextAction,
     GatewayMailNotifierPutV1,
     GatewayMailNotifierStatusV1,
+    GatewayPromptAdmissionPolicy,
     GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
@@ -856,7 +857,6 @@ class _LocalHeadlessGatewayAdapter:
             "local_interactive",
             "claude_headless",
             "codex_headless",
-            "gemini_headless",
             "kimi_headless",
         }:
             raise GatewayError(
@@ -981,7 +981,6 @@ class _ServerManagedHeadlessGatewayAdapter:
         if attach_contract.backend not in {
             "claude_headless",
             "codex_headless",
-            "gemini_headless",
             "kimi_headless",
         }:
             raise GatewayError(
@@ -1150,7 +1149,6 @@ def _build_gateway_execution_adapter(
         "local_interactive",
         "claude_headless",
         "codex_headless",
-        "gemini_headless",
         "kimi_headless",
     }:
         metadata = attach_contract.backend_metadata
@@ -1701,7 +1699,6 @@ class GatewayServiceRuntime:
         if self.m_attach_contract.backend not in {
             "claude_headless",
             "codex_headless",
-            "gemini_headless",
             "kimi_headless",
         }:
             raise HTTPException(
@@ -1781,7 +1778,7 @@ class GatewayServiceRuntime:
                 )
             if (
                 self.m_attach_contract.backend
-                in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}
+                in {"claude_headless", "codex_headless", "kimi_headless"}
                 and request_payload.kind == "submit_prompt"
                 and (
                     status.active_execution == "running"
@@ -1794,7 +1791,7 @@ class GatewayServiceRuntime:
                 )
             if request_payload.kind == "submit_prompt":
                 submit_payload = cast(GatewayRequestPayloadSubmitPromptV1, request_payload.payload)
-                dispatch_mode = self._prompt_dispatch_mode_locked(forced=False)
+                dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy="ready_only")
                 execution_rejection = self._execution_override_rejection_detail(
                     dispatch_mode=dispatch_mode,
                     request_execution=submit_payload.execution,
@@ -2289,14 +2286,15 @@ class GatewayServiceRuntime:
         tracking: SingleSessionTrackingRuntime | None = None
         use_tui_reset_workflow = False
         prompt = request_payload.prompt
-        forced = request_payload.force
+        admission_policy = request_payload.admission_policy
+        admission_facts: dict[str, GatewayJsonValue]
 
         with self.m_lock:
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
-            dispatch_mode = self._prompt_dispatch_mode_locked(forced=forced)
+            dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy=admission_policy)
             self._validate_prompt_control_locked(
                 status=status,
-                forced=forced,
+                admission_policy=admission_policy,
                 dispatch_mode=dispatch_mode,
                 request_chat_session=request_payload.chat_session,
             )
@@ -2307,16 +2305,18 @@ class GatewayServiceRuntime:
             if execution_rejection is not None:
                 self._raise_prompt_control_http_error(
                     status_code=422,
-                    forced=forced,
+                    admission_policy=admission_policy,
                     error_code="invalid_execution",
                     detail=execution_rejection,
                 )
-            if not forced:
+            if admission_policy == "ready_only":
                 self._require_prompt_ready_locked(
                     status=status,
                     dispatch_mode=dispatch_mode,
-                    forced=forced,
+                    admission_policy=admission_policy,
                 )
+            elif admission_policy == "if_no_pending":
+                self._require_tui_no_pending_locked(admission_policy=admission_policy)
 
             if dispatch_mode in {"local_headless", "server_headless"}:
                 (
@@ -2325,14 +2325,14 @@ class GatewayServiceRuntime:
                 ) = self._resolve_headless_prompt_selection_locked(
                     request_chat_session=request_payload.chat_session,
                     allow_next_prompt_override=True,
-                    forced=forced,
+                    admission_policy=admission_policy,
                 )
             if dispatch_mode == "local_headless":
                 turn_id = self._next_direct_headless_turn_id_locked()
                 return self._start_direct_headless_prompt_locked(
                     prompt=prompt,
                     turn_id=turn_id,
-                    forced=forced,
+                    admission_policy=admission_policy,
                     session_selection=headless_session_selection,
                     execution_model=execution_model,
                     consume_next_prompt_override=consume_headless_override,
@@ -2341,6 +2341,7 @@ class GatewayServiceRuntime:
             use_tui_reset_workflow = (
                 dispatch_mode == "tui" and request_payload.chat_session is not None
             )
+            admission_facts = self._prompt_admission_facts_locked()
 
         try:
             if use_tui_reset_workflow:
@@ -2354,7 +2355,7 @@ class GatewayServiceRuntime:
         except (GatewayError, CaoApiError, ValidationError) as exc:
             self._raise_prompt_control_http_error(
                 status_code=422,
-                forced=forced,
+                admission_policy=admission_policy,
                 error_code="dispatch_failed",
                 detail=str(exc),
             )
@@ -2369,12 +2370,13 @@ class GatewayServiceRuntime:
             self.m_paths,
             {
                 "kind": "control_prompt_submitted",
-                "forced": forced,
+                "admission_policy": admission_policy,
+                **admission_facts,
                 "submitted_at_utc": now_utc_iso(),
             },
         )
         return GatewayPromptControlResultV1(
-            forced=forced,
+            admission_policy=admission_policy,
             detail="Prompt dispatched.",
         )
 
@@ -2527,7 +2529,7 @@ class GatewayServiceRuntime:
         *,
         request_chat_session: GatewayChatSessionSelectorV1 | None,
         allow_next_prompt_override: bool,
-        forced: bool,
+        admission_policy: GatewayPromptAdmissionPolicy,
     ) -> tuple[HeadlessTurnSessionSelection, bool]:
         """Resolve one headless prompt selector into the backend execution selection."""
         chat_session_state = self._headless_chat_session_state_locked()
@@ -2551,7 +2553,7 @@ class GatewayServiceRuntime:
             if current is None:
                 self._raise_prompt_control_http_error(
                     status_code=409,
-                    forced=False,
+                    admission_policy=admission_policy,
                     error_code="missing_current_chat_session",
                     detail=(
                         "chat_session.mode=`current` requires a pinned current provider "
@@ -2579,21 +2581,21 @@ class GatewayServiceRuntime:
     def _prompt_dispatch_mode_locked(
         self,
         *,
-        forced: bool,
+        admission_policy: GatewayPromptAdmissionPolicy,
     ) -> Literal["tui", "local_headless", "server_headless"]:
         """Return the direct prompt-control execution mode for the attached backend."""
 
         backend = self.m_attach_contract.backend
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
             return "tui"
-        if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
+        if backend in {"claude_headless", "codex_headless", "kimi_headless"}:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
             if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
                 return "local_headless"
         self._raise_prompt_control_http_error(
             status_code=501,
-            forced=forced,
+            admission_policy=admission_policy,
             error_code="unsupported_backend",
             detail=f"Gateway prompt control is not implemented for backend `{backend}`.",
         )
@@ -2602,7 +2604,7 @@ class GatewayServiceRuntime:
         self,
         *,
         status: GatewayStatusV1,
-        forced: bool,
+        admission_policy: GatewayPromptAdmissionPolicy,
         dispatch_mode: Literal["tui", "local_headless", "server_headless"],
         request_chat_session: GatewayChatSessionSelectorV1 | None,
     ) -> None:
@@ -2611,36 +2613,55 @@ class GatewayServiceRuntime:
         if status.request_admission == "blocked_reconciliation":
             self._raise_prompt_control_http_error(
                 status_code=409,
-                forced=forced,
+                admission_policy=admission_policy,
                 error_code="blocked_reconciliation",
                 detail="Gateway prompt control is blocked pending managed-agent reconciliation.",
             )
         if status.managed_agent_connectivity != "connected":
             self._raise_prompt_control_http_error(
                 status_code=503,
-                forced=forced,
+                admission_policy=admission_policy,
                 error_code="unavailable",
                 detail="Gateway prompt control is unavailable because the managed agent is detached.",
             )
-        if request_chat_session is None:
-            return
         if dispatch_mode == "tui":
+            if request_chat_session is None:
+                return
             if request_chat_session.mode != "new":
                 self._raise_prompt_control_http_error(
                     status_code=422,
-                    forced=forced,
+                    admission_policy=admission_policy,
                     error_code="invalid_chat_session",
                     detail=(
                         "TUI prompt control only supports chat_session.mode=`new`; "
                         f"got `{request_chat_session.mode}`."
                     ),
                 )
+            if admission_policy != "ready_only":
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    admission_policy=admission_policy,
+                    error_code="invalid_admission_policy",
+                    detail=("TUI chat_session.mode=`new` requires admission_policy=`ready_only`."),
+                )
             return
         if dispatch_mode in {"local_headless", "server_headless"}:
+            if admission_policy != "ready_only":
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    admission_policy=admission_policy,
+                    error_code="invalid_admission_policy",
+                    detail=(
+                        "Native headless prompt control only supports "
+                        "admission_policy=`ready_only`."
+                    ),
+                )
+            return
+        if request_chat_session is None:
             return
         self._raise_prompt_control_http_error(
             status_code=422,
-            forced=forced,
+            admission_policy=admission_policy,
             error_code="invalid_chat_session",
             detail="chat_session is unsupported for this gateway target.",
         )
@@ -2666,9 +2687,9 @@ class GatewayServiceRuntime:
         *,
         status: GatewayStatusV1,
         dispatch_mode: Literal["tui", "local_headless", "server_headless"],
-        forced: bool,
+        admission_policy: GatewayPromptAdmissionPolicy,
     ) -> None:
-        """Require prompt-ready posture for non-forced direct prompt control."""
+        """Require prompt-ready posture for ready-only direct prompt control."""
 
         if status.active_execution != "idle" or status.queue_depth > 0:
             reasons: list[str] = []
@@ -2678,7 +2699,7 @@ class GatewayServiceRuntime:
                 reasons.append(f"queue_depth={status.queue_depth}")
             self._raise_prompt_control_http_error(
                 status_code=409,
-                forced=forced,
+                admission_policy=admission_policy,
                 error_code="not_ready",
                 detail=(
                     "Gateway prompt rejected because gateway-managed work is already active "
@@ -2687,14 +2708,15 @@ class GatewayServiceRuntime:
             )
 
         if dispatch_mode == "tui":
-            self._require_tui_prompt_ready_locked(forced=forced)
+            self._require_tui_prompt_ready_locked(admission_policy=admission_policy)
+            self._require_tui_no_pending_locked(admission_policy=admission_policy)
             return
         if dispatch_mode == "local_headless":
             active_turn_id = self._active_headless_turn_id_locked()
             if active_turn_id is not None:
                 self._raise_prompt_control_http_error(
                     status_code=409,
-                    forced=forced,
+                    admission_policy=admission_policy,
                     error_code="not_ready",
                     detail=(
                         "Gateway prompt rejected because a headless turn is already active "
@@ -2705,7 +2727,7 @@ class GatewayServiceRuntime:
         if status.terminal_surface_eligibility != "ready":
             self._raise_prompt_control_http_error(
                 status_code=409,
-                forced=forced,
+                admission_policy=admission_policy,
                 error_code="not_ready",
                 detail=(
                     "Gateway prompt rejected because the managed headless target is not ready "
@@ -2713,7 +2735,9 @@ class GatewayServiceRuntime:
                 ),
             )
 
-    def _require_tui_prompt_ready_locked(self, *, forced: bool) -> None:
+    def _require_tui_prompt_ready_locked(
+        self, *, admission_policy: GatewayPromptAdmissionPolicy
+    ) -> None:
         """Require a stable prompt-ready TUI posture for direct prompt control."""
 
         reasons = self._tui_prompt_not_ready_reasons_locked()
@@ -2721,12 +2745,36 @@ class GatewayServiceRuntime:
             return
         self._raise_prompt_control_http_error(
             status_code=409,
-            forced=forced,
+            admission_policy=admission_policy,
             error_code="not_ready",
             detail=(
                 "Gateway prompt rejected because the TUI is not submit-ready "
                 f"({', '.join(reasons)})."
             ),
+        )
+
+    def _require_tui_no_pending_locked(
+        self, *, admission_policy: GatewayPromptAdmissionPolicy
+    ) -> None:
+        """Require a decisive absence of provider-native pending input."""
+
+        pending_input = self._require_tui_tracking_locked().current_state().surface.pending_input
+        if pending_input == "no":
+            return
+        if pending_input == "yes":
+            error_code = "pending_input"
+            detail = "Gateway prompt rejected because the provider TUI already has pending input."
+        else:
+            error_code = "pending_input_unknown"
+            detail = (
+                "Gateway prompt rejected because provider-native pending input "
+                "cannot be determined from the latest tracked surface."
+            )
+        self._raise_prompt_control_http_error(
+            status_code=409,
+            admission_policy=admission_policy,
+            error_code=error_code,
+            detail=detail,
         )
 
     def _tui_prompt_not_ready_reasons_locked(self) -> list[str]:
@@ -2760,7 +2808,7 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
             return "tui"
-        if backend in {"claude_headless", "codex_headless", "gemini_headless", "kimi_headless"}:
+        if backend in {"claude_headless", "codex_headless", "kimi_headless"}:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
             if isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter):
@@ -2849,7 +2897,7 @@ class GatewayServiceRuntime:
         *,
         prompt: str,
         turn_id: str,
-        forced: bool,
+        admission_policy: GatewayPromptAdmissionPolicy,
         session_selection: HeadlessTurnSessionSelection | None,
         execution_model: ModelConfig | None,
         consume_next_prompt_override: bool,
@@ -2876,14 +2924,15 @@ class GatewayServiceRuntime:
             self.m_paths,
             {
                 "kind": "control_prompt_submitted",
-                "forced": forced,
+                "admission_policy": admission_policy,
+                **self._prompt_admission_facts_locked(),
                 "submitted_at_utc": now_utc_iso(),
                 "turn_id": turn_id,
             },
         )
         self._refresh_status_snapshot(active_execution=self._active_execution_state())
         return GatewayPromptControlResultV1(
-            forced=forced,
+            admission_policy=admission_policy,
             detail="Prompt dispatched.",
         )
 
@@ -2936,18 +2985,52 @@ class GatewayServiceRuntime:
         self,
         *,
         status_code: int,
-        forced: bool,
+        admission_policy: GatewayPromptAdmissionPolicy,
         error_code: str,
         detail: str,
     ) -> NoReturn:
         """Raise one structured HTTP refusal for direct prompt control."""
 
         payload = GatewayPromptControlErrorV1(
-            forced=forced,
+            admission_policy=admission_policy,
             error_code=error_code,
             detail=detail,
         )
+        append_gateway_event(
+            self.m_paths,
+            {
+                "kind": "control_prompt_refused",
+                "admission_policy": admission_policy,
+                "error_code": error_code,
+                "detail": detail,
+                **self._prompt_admission_facts_locked(),
+                "refused_at_utc": now_utc_iso(),
+            },
+        )
         raise HTTPException(status_code=status_code, detail=payload.model_dump(mode="json"))
+
+    def _prompt_admission_facts_locked(self) -> dict[str, GatewayJsonValue]:
+        """Return tracked facts recorded with one direct prompt decision."""
+
+        tracking = self.m_tui_tracking
+        if tracking is None:
+            return {
+                "tracked_turn_phase": None,
+                "tracked_accepting_input": None,
+                "tracked_editing_input": None,
+                "tracked_ready_posture": None,
+                "tracked_pending_input": None,
+                "tracked_stable": None,
+            }
+        state = tracking.current_state()
+        return {
+            "tracked_turn_phase": state.turn.phase,
+            "tracked_accepting_input": state.surface.accepting_input,
+            "tracked_editing_input": state.surface.editing_input,
+            "tracked_ready_posture": state.surface.ready_posture,
+            "tracked_pending_input": state.surface.pending_input,
+            "tracked_stable": state.stability.stable,
+        }
 
     def get_mail_status(self) -> GatewayMailStatusV1:
         """Return shared mailbox availability for the attached session."""
@@ -3440,10 +3523,6 @@ class GatewayServiceRuntime:
                 [
                     f"${mailbox_processing_skill_name()} {gateway_base_url}",
                 ]
-            )
-        elif tool == "gemini":
-            lines.append(
-                f"Use `{mailbox_processing_skill_name()}` with the gateway above for this round."
             )
         elif tool == "kimi":
             lines.append(
@@ -4469,7 +4548,7 @@ class GatewayServiceRuntime:
                     payload.execution.to_model_config() if payload.execution is not None else None
                 )
                 with self.m_lock:
-                    dispatch_mode = self._prompt_dispatch_mode_locked(forced=False)
+                    dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy="ready_only")
                     execution_rejection = self._execution_override_rejection_detail(
                         dispatch_mode=dispatch_mode,
                         request_execution=payload.execution,
@@ -4486,7 +4565,7 @@ class GatewayServiceRuntime:
                             session_selection, _ = self._resolve_headless_prompt_selection_locked(
                                 request_chat_session=payload.chat_session,
                                 allow_next_prompt_override=False,
-                                forced=False,
+                                admission_policy="ready_only",
                             )
                         except HTTPException as exc:
                             raise GatewayError(str(exc.detail)) from exc

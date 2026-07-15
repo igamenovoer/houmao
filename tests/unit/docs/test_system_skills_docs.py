@@ -49,12 +49,17 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "Managed launch defaults to the same `core` plus `extensions` selection" in overview
     assert "managed system-skill policy that extends, replaces, or disables" in overview
     assert "uses the catalog's `all` set" in overview
-    assert "claude,codex,kimi,gemini,copilot,universal" in overview
+    assert "claude,codex,kimi,copilot,universal" in overview
     assert "`kimi` target means Kimi Code CLI" in overview
     assert "legacy MoonshotAI `kimi-cli`" in overview
     assert "omitted-home Universal installs land under `~/.agents/skills/`" in overview
-    assert "Kimi Code discovers those files when a later launch uses the same path as `KIMI_CODE_HOME`" in overview
-    assert "current Kimi Code only discovers project `.kimi-code/skills` automatically" not in overview
+    assert (
+        "Kimi Code discovers those files when a later launch uses the same path as `KIMI_CODE_HOME`"
+        in overview
+    )
+    assert (
+        "current Kimi Code only discovers project `.kimi-code/skills` automatically" not in overview
+    )
     assert "Every current packaged Houmao system skill supports explicit skill-level help" in (
         overview
     )
@@ -77,7 +82,10 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "The `kimi` target means Kimi Code CLI" in cli_reference
     assert "legacy MoonshotAI `kimi-cli`" in cli_reference
     assert "Omitted-home universal installs land under `~/.agents/skills/`" in cli_reference
-    assert "passing `--home ~/.agents/skills` would therefore create `~/.agents/skills/skills/`" in cli_reference
+    assert (
+        "passing `--home ~/.agents/skills` would therefore create `~/.agents/skills/skills/`"
+        in cli_reference
+    )
     assert "pixi run houmao-mgr system-skills install --tool universal" in cli_reference
     assert "pixi run houmao-mgr system-skills install --tool universal --home ~/.agents" in (
         cli_reference
@@ -93,9 +101,8 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "├── install --tool <tool>[,<tool>...]" in cli_reference
     assert "└── uninstall --tool <tool>[,<tool>...]" in cli_reference
     assert "`houmao-ext-graphing` for extension-owned built-in Plotly.js" in cli_reference
-    assert (
-        "pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing"
-        in (cli_reference)
+    assert "pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing" in (
+        cli_reference
     )
     assert "- utils: `houmao-utils-workspace-mgr`" in cli_reference
     assert "- extensions: `houmao-ext-graphing`" in cli_reference

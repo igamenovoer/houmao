@@ -40,7 +40,6 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "claude": "skills",
     "codex": "skills",
     "copilot": "skills",
-    "gemini": ".gemini/skills",
     "kimi": "skills",
     "universal": "skills",
 }

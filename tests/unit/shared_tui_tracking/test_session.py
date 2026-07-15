@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 
+import pytest
 from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import DetectorProfileRegistry, TrackerConfig, TuiTrackerSession
@@ -58,7 +59,7 @@ def test_tracker_session_settles_success_with_virtual_time() -> None:
     assert any(item.note == "success_settled" for item in settled_events)
 
 
-def test_detector_profile_registry_uses_closest_compatible_floor() -> None:
+def test_detector_profile_registry_uses_bounded_compatible_interval() -> None:
     registry = DetectorProfileRegistry.default()
 
     exact_family = registry.resolve(
@@ -69,9 +70,16 @@ def test_detector_profile_registry_uses_closest_compatible_floor() -> None:
         app_id="claude_code",
         observed_version="1.9.0",
     )
+    future_family = registry.resolve(
+        app_id="claude_code",
+        observed_version="2.2.0",
+    )
 
     assert exact_family.detector_version == "2.1.x"
+    assert exact_family.minimum_supported_version == (2, 1, 0)
+    assert exact_family.maximum_supported_version == (2, 2, 0)
     assert fallback_family.detector_version == "fallback"
+    assert future_family.detector_version == "fallback"
 
 
 def test_detector_profile_registry_resolves_codex_version_family_and_fallback() -> None:
@@ -89,10 +97,63 @@ def test_detector_profile_registry_resolves_codex_version_family_and_fallback() 
         app_id="codex_tui",
         observed_version=None,
     )
+    gap_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.120.0",
+    )
+    refreshed_current_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.144.1",
+    )
+    future_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.145.0",
+    )
+    overridden_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.144.1",
+        detector_version_override="0.116.x",
+    )
+    explicitly_selected_current_family = registry.resolve(
+        app_id="codex_tui",
+        observed_version="0.144.1",
+        detector_version_override="0.144.x",
+    )
 
     assert current_family.detector_version == "0.116.x"
     assert fallback_family.detector_version == "fallback"
     assert missing_version_family.detector_version == "fallback"
+    assert gap_family.detector_version == "fallback"
+    assert refreshed_current_family.detector_version == "0.144.x"
+    assert future_family.detector_version == "fallback"
+    assert overridden_family.detector_version == "0.116.x"
+    assert explicitly_selected_current_family.detector_version == "0.144.x"
+    assert explicitly_selected_current_family.maximum_supported_version == (0, 145, 0)
+
+
+def test_detector_profile_registry_resolves_refreshed_kimi_family() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    refreshed_family = registry.resolve(app_id="kimi_code", observed_version="0.23.4")
+    prior_gap = registry.resolve(app_id="kimi_code", observed_version="0.22.9")
+    future_family = registry.resolve(app_id="kimi_code", observed_version="0.24.0")
+
+    assert refreshed_family.detector_version == "0.23.x"
+    assert refreshed_family.minimum_supported_version == (0, 23, 0)
+    assert refreshed_family.maximum_supported_version == (0, 24, 0)
+    assert prior_gap.detector_version == "fallback"
+    assert future_family.detector_version == "fallback"
+
+
+def test_detector_profile_registry_rejects_unknown_experimental_override() -> None:
+    registry = DetectorProfileRegistry.default()
+
+    with pytest.raises(ValueError, match="is not registered"):
+        registry.resolve(
+            app_id="kimi_code",
+            observed_version="0.23.4",
+            detector_version_override="0.23.x-experimental",
+        )
 
 
 def test_tracker_session_accepts_direct_tmux_raw_text_fixture() -> None:

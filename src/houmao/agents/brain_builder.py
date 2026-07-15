@@ -40,9 +40,7 @@ from houmao.agents.managed_launch_force import (
     ManagedLaunchForceMode,
 )
 from houmao.agents.launch_policy.provider_hooks import (
-    load_json_state,
     load_toml_state,
-    set_json_key,
     set_toml_key,
 )
 from houmao.agents.auto_skills import (
@@ -865,6 +863,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             tool=request.tool,
             requested_level=resolved_model_config.config.reasoning.level,
             model_name=resolved_model_config.config.name,
+            env_model_values=env_values,
         )
     provider_model_selection_cli_args = _provider_model_selection_cli_args(
         tool=request.tool,
@@ -1138,34 +1137,8 @@ def _derive_tool_launch_env_records(
 ) -> dict[str, str]:
     """Return runtime-derived launch env overlays for one built home."""
 
-    if tool != "gemini":
-        return {}
-    return _derive_gemini_launch_env_records(
-        projected_auth_files=projected_auth_files,
-        env_values=env_values,
-    )
-
-
-def _derive_gemini_launch_env_records(
-    *,
-    projected_auth_files: set[str],
-    env_values: dict[str, str],
-) -> dict[str, str]:
-    """Return Gemini runtime env overlays derived from auth-bundle state."""
-
-    if "oauth_creds.json" not in projected_auth_files:
-        return {}
-    if any(
-        _has_non_empty_env_value(env_values, key)
-        for key in (
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "GOOGLE_GENAI_USE_GCA",
-            "GOOGLE_GENAI_USE_VERTEXAI",
-        )
-    ):
-        return {}
-    return {"GOOGLE_GENAI_USE_GCA": "true"}
+    del tool, projected_auth_files, env_values
+    return {}
 
 
 def _codex_cli_config_overrides(
@@ -1219,18 +1192,6 @@ def _extract_native_model_config_baseline(
         model_name = _non_empty_str(payload.get("model"))
         return ModelConfig(name=model_name) if model_name is not None else None
 
-    if tool == "gemini":
-        settings_path = home_path / ".gemini" / "settings.json"
-        try:
-            payload = load_json_state(settings_path)
-        except Exception:
-            payload = {}
-        model_payload = payload.get("model")
-        model_name = None
-        if isinstance(model_payload, dict):
-            model_name = _non_empty_str(model_payload.get("name"))
-        return ModelConfig(name=model_name) if model_name is not None else None
-
     if tool == "kimi":
         env_model_name = _non_empty_str(auth_env_values.get("KIMI_MODEL_NAME"))
         if env_model_name is not None:
@@ -1277,19 +1238,6 @@ def _project_model_name(
             "surface": "toml",
             "path": "config.toml",
             "key_path": ["model"],
-            "value": model_name,
-        }
-    if tool == "gemini":
-        set_json_key(
-            path=home_path / ".gemini" / "settings.json",
-            key_path=("model", "name"),
-            value=model_name,
-            repair_invalid=True,
-        )
-        return {
-            "surface": "json",
-            "path": ".gemini/settings.json",
-            "key_path": ["model", "name"],
             "value": model_name,
         }
     if tool == "kimi":
@@ -1372,7 +1320,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Runtime root for generated homes/manifests",
     )
-    parser.add_argument("--tool", help="Tool name (codex/claude/gemini)")
+    parser.add_argument("--tool", help="Tool name (codex/claude/kimi)")
     parser.add_argument(
         "--skill",
         dest="skills",

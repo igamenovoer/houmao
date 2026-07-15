@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+import pytest
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
@@ -22,6 +23,8 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailStatusV1,
     GatewayMailboxMessageV1,
     GatewayMailboxParticipantV1,
+    GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayReminderCreateBatchV1,
     GatewayReminderCreateResultV1,
     GatewayReminderDeleteResultV1,
@@ -480,7 +483,7 @@ def _stub_prompt_control_result() -> HoumaoManagedAgentGatewayPromptControlRespo
 
     return HoumaoManagedAgentGatewayPromptControlResponse(
         sent=True,
-        forced=False,
+        admission_policy="ready_only",
         detail="Prompt dispatched.",
     )
 
@@ -629,6 +632,7 @@ def _stub_tui_state() -> HoumaoTerminalStateResponse:
             accepting_input="yes",
             editing_input="no",
             ready_posture="yes",
+            pending_input="no",
         ),
         turn=HoumaoTrackedTurn(phase="ready"),
         last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
@@ -830,29 +834,71 @@ class TestGatewayCreateRequestEndpoint:
 class TestGatewayPromptControlEndpoint:
     """POST /houmao/agents/{agent_ref}/gateway/control/prompt."""
 
-    def test_returns_200_with_mocked_client(self, tmp_path: object) -> None:
+    @pytest.mark.parametrize("admission_policy", ["ready_only", "if_no_pending", "always"])
+    def test_returns_200_with_mocked_client(
+        self,
+        tmp_path: object,
+        admission_policy: str,
+    ) -> None:
         agent = _agent_with_gateway()
         client = _make_agent_client(tmp_path, [agent])
+        forwarded: list[GatewayPromptControlRequestV1] = []
+
+        def _control_prompt(
+            payload: GatewayPromptControlRequestV1,
+        ) -> GatewayPromptControlResultV1:
+            forwarded.append(payload)
+            return GatewayPromptControlResultV1(
+                admission_policy=payload.admission_policy,
+                detail="Prompt dispatched.",
+            )
+
         with (
             client,
-            patch.object(
-                GatewayClient, "control_prompt", return_value=_stub_prompt_control_result()
-            ),
+            patch.object(GatewayClient, "control_prompt", side_effect=_control_prompt),
         ):
             resp = client.post(
                 "/houmao/agents/abc123/gateway/control/prompt",
-                json={"schema_version": 1, "prompt": "hello", "force": True},
+                json={
+                    "schema_version": 2,
+                    "prompt": "hello",
+                    "admission_policy": admission_policy,
+                },
             )
         assert resp.status_code == 200
         assert resp.json()["sent"] is True
-        assert resp.json()["forced"] is False
+        assert resp.json()["admission_policy"] == admission_policy
+        assert forwarded[0].schema_version == 2
+        assert forwarded[0].admission_policy == admission_policy
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"schema_version": 1, "prompt": "hello"},
+            {"schema_version": 2, "prompt": "hello", "force": True},
+        ],
+    )
+    def test_rejects_removed_prompt_control_contract(
+        self,
+        tmp_path: object,
+        payload: dict[str, object],
+    ) -> None:
+        client = _make_agent_client(tmp_path, [_agent_with_gateway()])
+
+        with client:
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json=payload,
+            )
+
+        assert resp.status_code == 422
 
     def test_not_found_returns_404(self, tmp_path: object) -> None:
         client = _make_agent_client(tmp_path, [])
         with client:
             resp = client.post(
                 "/houmao/agents/unknown/gateway/control/prompt",
-                json={"schema_version": 1, "prompt": "hello", "force": False},
+                json={"schema_version": 2, "prompt": "hello"},
             )
         assert resp.status_code == 404
 
@@ -861,7 +907,7 @@ class TestGatewayPromptControlEndpoint:
         with client:
             resp = client.post(
                 "/houmao/agents/abc123/gateway/control/prompt",
-                json={"schema_version": 1, "prompt": "hello", "force": False},
+                json={"schema_version": 2, "prompt": "hello"},
             )
         assert resp.status_code == 502
 
@@ -877,16 +923,51 @@ class TestGatewayPromptControlEndpoint:
                     method="POST",
                     url="http://127.0.0.1:9901/v1/control/prompt",
                     status_code=409,
-                    detail='{"action":"submit_prompt","detail":"not ready","error_code":"not_ready","forced":false,"sent":false,"status":"error"}',
+                    detail='{"action":"submit_prompt","admission_policy":"ready_only","detail":"not ready","error_code":"not_ready","sent":false,"status":"error"}',
                 ),
             ),
         ):
             resp = client.post(
                 "/houmao/agents/abc123/gateway/control/prompt",
-                json={"schema_version": 1, "prompt": "hello", "force": False},
+                json={"schema_version": 2, "prompt": "hello"},
             )
         assert resp.status_code == 409
         assert resp.json()["detail"]["error_code"] == "not_ready"
+
+    def test_pending_refusal_is_forwarded_unchanged(self, tmp_path: object) -> None:
+        client = _make_agent_client(tmp_path, [_agent_with_gateway()])
+        detail = {
+            "action": "submit_prompt",
+            "admission_policy": "if_no_pending",
+            "detail": "Provider queue is occupied.",
+            "error_code": "pending_input",
+            "sent": False,
+            "status": "error",
+        }
+        with (
+            client,
+            patch.object(
+                GatewayClient,
+                "control_prompt",
+                side_effect=GatewayHttpError(
+                    method="POST",
+                    url="http://127.0.0.1:9901/v1/control/prompt",
+                    status_code=409,
+                    detail=json.dumps(detail, sort_keys=True),
+                ),
+            ),
+        ):
+            resp = client.post(
+                "/houmao/agents/abc123/gateway/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": "hello",
+                    "admission_policy": "if_no_pending",
+                },
+            )
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == detail
 
 
 # ---------------------------------------------------------------------------
@@ -1569,6 +1650,7 @@ class TestAgentStateEndpoint:
         assert body["agent_id"] == "abc123"
         assert "diagnostics" in body
         assert "surface" in body
+        assert body["surface"]["pending_input"] == "unknown"
         assert "turn" in body
         assert "last_turn" in body
         assert "stability" in body
@@ -1614,6 +1696,7 @@ class TestAgentStateDetailEndpoint:
         assert body["agent_id"] == "abc123"
         assert "diagnostics" in body
         assert "surface" in body
+        assert body["surface"]["pending_input"] == "unknown"
         # Detail response includes probe_snapshot and parsed_surface keys
         assert "probe_snapshot" in body
         assert "parsed_surface" in body

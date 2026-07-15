@@ -697,3 +697,9 @@ The parser SHALL classify recognized startup or modal surfaces that block normal
 - **AND WHEN** no current active response, tool-use, or progress surface is visible
 - **THEN** the parser does not report active business state solely from that footer text
 
+### Requirement: Official TUI ownership does not recognize Gemini processes
+Official TUI tracking ownership and profile selection SHALL NOT treat Gemini CLI as a supported process or tool family.
+
+#### Scenario: Gemini process is unsupported for tracked TUI ownership
+- **WHEN** ownership inspection observes a `gemini` process
+- **THEN** it does not claim a maintained Gemini tracker profile or supported TUI session

@@ -2,9 +2,7 @@
 
 ## Purpose
 Define the maintained credential-management command families for Houmao project overlays and retained direct native-agent credential internals.
-
 ## Requirements
-
 ### Requirement: Project credentials are selected through the project command group
 Project-backed credential management SHALL be exposed through:
 
@@ -263,3 +261,11 @@ When credential commands consume caller-provided source files, those files SHALL
 - **WHEN** an operator runs a credential update that copies one caller-provided source file into a managed credential bundle
 - **THEN** the managed credential bundle is updated
 - **AND THEN** the caller-provided source file remains intact
+
+### Requirement: Credential CLI exposes no Gemini command family
+The supported credential tools SHALL be Claude, Codex, and Kimi. The CLI SHALL NOT register Gemini credential CRUD, login, import, rename, or removal commands.
+
+#### Scenario: Gemini credential command is unavailable
+- **WHEN** an operator invokes `houmao-mgr project credentials gemini`
+- **THEN** command parsing rejects `gemini` as an unsupported credential tool
+- **AND THEN** no Gemini auth profile or projected files are created

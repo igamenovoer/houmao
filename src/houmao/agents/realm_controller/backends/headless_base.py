@@ -90,7 +90,6 @@ class HeadlessInteractiveSession:
             "local_interactive",
             "codex_headless",
             "claude_headless",
-            "gemini_headless",
             "kimi_headless",
         }:
             raise BackendExecutionError(f"Invalid tmux-backed backend: {backend}")
@@ -157,6 +156,7 @@ class HeadlessInteractiveSession:
             home_path=self._plan.home_path,
             tool=self._plan.tool,
             model_config=execution_model,
+            base_env=self._plan.env,
         ) as execution_projection:
             command, input_prompt = self._build_command(
                 prompt=prompt,

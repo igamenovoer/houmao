@@ -19,7 +19,6 @@ _SUPPORTED_PROVIDER_IDS = frozenset(
     {
         "claude_code",
         "codex",
-        "gemini_cli",
         "kiro_cli",
         "kimi_cli",
         "q_cli",
@@ -327,61 +326,6 @@ class KiroCompatibilityProvider(_PromptNamedAgentCompatibilityProvider):
     executable = "kiro-cli"
 
 
-class GeminiCompatibilityProvider(CompatibilityProviderAdapter):
-    """Compatibility adapter for Gemini CLI."""
-
-    provider_id = "gemini_cli"
-
-    def build_command(
-        self,
-        *,
-        profile: CompatibilityAgentProfile,
-        profile_name: str,
-        terminal_id: str,
-        working_directory: Path,
-    ) -> str:
-        """Return the Gemini startup command."""
-
-        del profile_name, terminal_id, working_directory
-        command_parts = ["gemini", "--yolo", "--sandbox", "false"]
-        system_prompt = (profile.system_prompt or "").strip()
-        if system_prompt:
-            command_parts.extend(["-i", system_prompt])
-        return shlex.join(command_parts)
-
-    def get_status(self, *, output_text: str, profile_name: str) -> CompatibilityTerminalStatus:
-        """Return Gemini status from rendered output."""
-
-        del profile_name
-        if not output_text.strip():
-            return "error"
-        clean_output = re.sub(_ANSI_CODE_PATTERN, "", output_text)
-        if re.search(r"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏].*\(esc to cancel", clean_output):
-            return "processing"
-        if re.search(
-            r"^(?:Error:|ERROR:|Traceback \(most recent call last\):|ConnectionError:|APIError:)",
-            clean_output,
-            re.MULTILINE,
-        ):
-            return "error"
-        idle_match = re.search(r"\*\s+Type your message", clean_output)
-        if re.search(r"✦\s", clean_output) and idle_match:
-            return "completed"
-        if idle_match:
-            return "idle"
-        return "processing"
-
-    def exit_terminal(
-        self,
-        *,
-        tmux: CompatibilityTmuxController,
-        window_id: str,
-    ) -> None:
-        """Deliver Gemini interrupt using the shared TUI escape key."""
-
-        tmux.send_special_key(window_id=window_id, key_name="Escape")
-
-
 class KimiCompatibilityProvider(CompatibilityProviderAdapter):
     """Compatibility adapter for Kimi CLI."""
 
@@ -456,7 +400,6 @@ def require_provider_adapter(provider_id: str) -> CompatibilityProviderAdapter:
     adapters: dict[str, CompatibilityProviderAdapter] = {
         "claude_code": ClaudeCompatibilityProvider(),
         "codex": CodexCompatibilityProvider(),
-        "gemini_cli": GeminiCompatibilityProvider(),
         "kiro_cli": KiroCompatibilityProvider(),
         "kimi_cli": KimiCompatibilityProvider(),
         "q_cli": QCompatibilityProvider(),

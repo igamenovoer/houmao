@@ -143,3 +143,9 @@ That projection SHALL be one-way from the project model for ordinary project wor
 - **THEN** the command mutates the selected native-agent root
 - **AND THEN** it does not update any Houmao project catalog unless a separate project import or mutation command is run
 
+### Requirement: Native-agent internals exclude Gemini
+Native-agent tool, credential, recipe, build, launch, and join surfaces SHALL NOT accept Gemini tool or backend identities.
+
+#### Scenario: Native-agent Gemini selection fails before mutation
+- **WHEN** an operator selects Gemini through a native-agent internals command
+- **THEN** the command rejects the unsupported selection before writing agent-definition or runtime state

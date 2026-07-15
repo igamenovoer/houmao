@@ -2,7 +2,7 @@
 # run_demo.sh — orchestrate the agents-join demo end-to-end.
 #
 # Usage:
-#   scripts/demo/agents-join-demo-pack/run_demo.sh [--provider claude|codex|gemini]
+#   scripts/demo/agents-join-demo-pack/run_demo.sh [--provider claude|codex]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +19,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -h|--help)
-            echo "Usage: $0 [--provider claude|codex|gemini]"
+            echo "Usage: $0 [--provider claude|codex]"
             exit 0
             ;;
         *)
@@ -30,9 +30,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$PROVIDER" in
-    claude|codex|gemini) ;;
+    claude|codex) ;;
     *)
-        echo "Error: unsupported provider '$PROVIDER'. Use one of: claude, codex, gemini." >&2
+        echo "Error: unsupported provider '$PROVIDER'. Use one of: claude, codex." >&2
         exit 1
         ;;
 esac

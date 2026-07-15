@@ -81,7 +81,6 @@ Representative legacy/internal `houmao_server_rest` bootstrap payload:
 Current v1 scope:
 
 - Runtime-owned tmux-backed sessions publish gateway capability.
-- Live attach and request execution currently support runtime-owned `local_interactive` sessions and runtime-owned native headless sessions (`claude_headless`, `codex_headless`, `kimi_headless`, `gemini_headless`). Legacy REST-backed manifest records may still be recognized for old-artifact inspection or explicit rejection, but new public launches do not create them.
 - Gateway-owned live TUI tracking routes currently support attached runtime-owned `local_interactive` sessions. For `local_interactive`, the gateway derives tracked identity from durable internal bootstrap metadata plus manifest-backed authority and uses the runtime session id as the public `terminal_id` compatibility value because no backend-provided terminal alias exists on that path.
 - Native headless internal bootstrap metadata may also carry `managed_api_base_url` and `managed_agent_ref` together when the live gateway should route requests back through `houmao-passive-server` for a passive-server-managed headless agent instead of resuming that headless session locally.
 - `attach.json` may keep `manifest_path` for gateway internals, but the runtime-owned session manifest remains the supported persisted mailbox-capability contract for gateway mailbox routes and mail notifier support.
@@ -439,9 +438,9 @@ Representative request:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "prompt": "hello",
-  "force": false,
+  "admission_policy": "ready_only",
   "execution": {
     "model": {
       "name": "claude-3-7-sonnet"
@@ -454,9 +453,9 @@ Headless prompt control also accepts an optional structured chat-session selecto
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "prompt": "hello",
-  "force": false,
+  "admission_policy": "ready_only",
   "chat_session": {
     "mode": "tool_last_or_new"
   }
@@ -470,7 +469,7 @@ Representative success response:
   "status": "ok",
   "action": "submit_prompt",
   "sent": true,
-  "forced": false,
+  "admission_policy": "ready_only",
   "detail": "Prompt dispatched."
 }
 ```
@@ -483,35 +482,42 @@ Representative refusal payload (returned under an HTTP error status):
     "status": "error",
     "action": "submit_prompt",
     "sent": false,
-    "forced": false,
-    "error_code": "not_ready",
-    "detail": "Gateway prompt rejected because the TUI is not submit-ready."
+    "admission_policy": "if_no_pending",
+    "error_code": "pending_input",
+    "detail": "Gateway prompt rejected because the provider TUI already has pending input."
   }
 }
 ```
 
 Current behavior:
 
-- TUI-backed sessions require gateway-owned tracked TUI state to report a stable ready posture before prompt dispatch unless `force=true`
+- `admission_policy` is `ready_only`, `if_no_pending`, or `always`; omission selects `ready_only`
+- `ready_only` requires gateway-idle posture, the established stable TUI prompt-ready predicate, and `surface.pending_input=no`
+- `if_no_pending` ignores tracked busy, editing, readiness, and stability posture, but requires `surface.pending_input=no`
+- `always` bypasses tracked readiness and pending-input checks
+- pending `yes` returns `error_code=pending_input`; pending `unknown` returns `error_code=pending_input_unknown` for either conditional policy once its earlier readiness checks pass
+- every policy still enforces gateway attachment, availability, reconciliation, target selection, adapter compatibility, and execution-override validation
+- admission reads the latest tracked snapshot and is not a reservation: two conditional submissions may both dispatch before a provider repaint exposes pending input
 - Recoverable degraded chat context and current-error diagnostics do not by themselves block ordinary prompt dispatch when the TUI-backed session otherwise satisfies the prompt-ready contract
-- TUI-backed sessions accept `chat_session.mode = "new"` as a reset-then-send workflow that submits the tool-appropriate context-reset signal, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
+- TUI-backed sessions accept `chat_session.mode = "new"` only with `admission_policy=ready_only` as a reset-then-send workflow that submits the tool-appropriate context-reset signal, waits for the tracked TUI surface to stabilize back to prompt-ready, and only then sends the caller prompt
 - Codex TUI reset-then-send uses `/new`; other TUI tools use their configured reset signal, commonly `/clear`
 - TUI-backed sessions reject explicit `chat_session.mode = "auto" | "current" | "tool_last_or_new" | "exact"` with HTTP `422`
 - TUI-backed sessions also reject any `execution.model` override with HTTP `422`
-- native local headless sessions require no active gateway-managed execution and no queued gateway work before prompt dispatch unless `force=true`
+- native local headless sessions accept only `admission_policy=ready_only` and require no active gateway-managed execution or queued gateway work before prompt dispatch
 - native headless sessions accept `chat_session.mode = "auto" | "new" | "current" | "tool_last_or_new" | "exact"`; `chat_session.id` is required only for `mode = "exact"`
 - native headless sessions accept optional `execution.model.name` plus optional `execution.model.reasoning.level`; the effective value merges with launch-resolved defaults for the current turn only and does not persist after the prompt completes
 - omitted headless `chat_session` means `mode = "auto"`, which resolves in order as pending `next_prompt_override`, pinned `current`, persisted `startup_default`, then fresh `new`
 - recoverable degraded chat context does not force headless `chat_session.mode = "new"`; ordinary headless selector resolution still applies unless the caller explicitly requests fresh context
 - `chat_session.mode = "current"` fails explicitly when the managed session has no pinned current provider session
-- passive-server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work unless `force=true`
-- `force=true` bypasses only readiness/busy posture; it does not bypass blank prompt validation, detached state, reconciliation blocking, or unsupported backends
+- passive-server-managed native headless sessions reuse the managed-agent `can_accept_prompt_now` posture and reject overlapping work
 - `codex_app_server` direct gateway prompt control is not implemented
-- successful direct prompt control records gateway-owned prompt-note evidence for TUI-backed sessions
+- successful direct prompt control records gateway-owned prompt-note evidence for TUI-backed sessions, but that note never sets or predicts provider-native pending input
 
 ### `GET /v1/control/tui/state`
 
 This route returns the gateway-owned live `HoumaoTerminalStateResponse` for one attached TUI-backed session.
+
+The canonical `surface` object includes `accepting_input`, `editing_input`, `ready_posture`, and `pending_input`. `pending_input=yes` means the provider CLI visibly holds submitted user input behind the current turn. It does not mean that the composer contains an unsubmitted draft, that `queue.sqlite` contains gateway-durable work, or that Houmao recently noted a prompt submission. Ambiguous or cropped provider surfaces report `unknown`.
 
 Current availability rules:
 
@@ -536,7 +542,7 @@ For attached runtime-owned `local_interactive` sessions outside passive-server, 
 
 This route records explicit-input evidence on the gateway-owned tracker for the attached session and returns the updated `HoumaoTerminalStateResponse`.
 
-It accepts the same payload shape as prompt submission (`GatewayRequestPayloadSubmitPromptV1`), but only the `prompt` value is consumed by the tracker. Successful `submit_prompt` execution through `POST /v1/requests` already records this prompt note automatically, so callers only need this route when they must preserve explicit-input provenance without routing the prompt through the gateway request queue.
+It accepts the same payload shape as prompt submission (`GatewayRequestPayloadSubmitPromptV1`), but only the `prompt` value is consumed by the tracker. Successful `submit_prompt` execution through `POST /v1/requests` already records this prompt note automatically, so callers only need this route when they must preserve explicit-input provenance without routing the prompt through the gateway request queue. A prompt note can arm explicit-input turn provenance, but it does not change `surface.pending_input`; only a later provider-surface observation can do that.
 
 ### `POST /v1/control/send-keys`
 

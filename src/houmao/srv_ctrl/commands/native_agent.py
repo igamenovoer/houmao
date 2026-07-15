@@ -24,7 +24,7 @@ from .credentials import native_agent_credentials_group
 from .common import overwrite_confirm_option
 from .output import emit
 
-_SUPPORTED_NATIVE_TOOLS: tuple[str, ...] = ("claude", "codex", "gemini", "kimi")
+_SUPPORTED_NATIVE_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi")
 
 
 @dataclass(frozen=True)

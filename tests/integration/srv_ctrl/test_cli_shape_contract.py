@@ -23,7 +23,6 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.registry_storage import resolve_live_agent_record
 from houmao.project.overlay import bootstrap_project_overlay
-from houmao.server.tui.process import PaneProcessInspection
 from houmao.server.models import (
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
@@ -67,8 +66,8 @@ def _seed_role(agent_def_dir: Path) -> None:
     _write(agent_def_dir / "roles/r/system-prompt.md", "Role prompt\n")
 
 
-def _create_easy_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Path) -> None:
-    """Bootstrap one project and create one easy specialist for launch tests."""
+def _create_project_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Path) -> None:
+    """Bootstrap one project and create one specialist for launch tests."""
 
     auth_json_path = (tmp_path / "auth.json").resolve()
     auth_json_path.write_text('{"logged_in": true}\n', encoding="utf-8")
@@ -81,7 +80,6 @@ def _create_easy_specialist(runner: CliRunner, *, repo_root: Path, tmp_path: Pat
         [
             "--print-json",
             "project",
-            "easy",
             "specialist",
             "create",
             "--name",
@@ -282,6 +280,7 @@ class _FakeSingleSessionTrackingRuntime:
                 accepting_input="yes",
                 editing_input="no",
                 ready_posture="yes",
+                pending_input="no",
             ),
             turn=HoumaoTrackedTurn(phase="ready"),
             last_turn=HoumaoTrackedLastTurn(
@@ -310,6 +309,7 @@ class _FakeSingleSessionTrackingRuntime:
                     recorded_at_utc="2026-01-01T00:00:00+00:00",
                     summary="ready",
                     diagnostics_availability="available",
+                    surface_pending_input="no",
                     turn_phase="ready",
                     last_turn_result="none",
                     last_turn_source="none",
@@ -928,17 +928,17 @@ def test_houmao_mgr_project_status_supports_cwd_only_discovery_mode_in_subproces
     )
 
 
-def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to_foreground(
+def test_houmao_mgr_project_agents_launch_defaults_gateway_auto_attach_to_foreground(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Easy launch should default gateway auto-attach to foreground execution."""
+    """Project-agent launch should default gateway auto-attach to foreground execution."""
 
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
-    _create_easy_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
+    _create_project_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
 
     captured: dict[str, object] = {}
 
@@ -965,8 +965,7 @@ def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -981,17 +980,17 @@ def test_houmao_mgr_project_easy_instance_launch_defaults_gateway_auto_attach_to
     assert captured["gateway_execution_mode"] == "tmux_auxiliary_window"
 
 
-def test_houmao_mgr_project_easy_instance_launch_supports_gateway_background_override(
+def test_houmao_mgr_project_agents_launch_supports_gateway_background_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Easy launch should allow detached gateway execution as an explicit override."""
+    """Project-agent launch should allow detached gateway execution as an override."""
 
     runner = CliRunner()
     repo_root = (tmp_path / "repo").resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
-    _create_easy_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
+    _create_project_specialist(runner, repo_root=repo_root, tmp_path=tmp_path)
 
     captured: dict[str, object] = {}
 
@@ -1018,8 +1017,7 @@ def test_houmao_mgr_project_easy_instance_launch_supports_gateway_background_ove
         cli,
         [
             "project",
-            "easy",
-            "instance",
+            "agents",
             "launch",
             "--specialist",
             "researcher",
@@ -1397,26 +1395,3 @@ def test_houmao_mgr_agents_join_rejects_blank_resume_selector(
 
     assert result.exit_code != 0
     assert "`--resume-id` must not be blank" in result.output
-
-
-def test_detect_join_provider_supports_gemini_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _FakeInspector:
-        def inspect(self, *, tool: str, pane_pid: int | None) -> PaneProcessInspection:
-            del pane_pid
-            if tool == "gemini":
-                return PaneProcessInspection(
-                    process_state="tui_up",
-                    matched_process_names=("gemini",),
-                    matched_processes=(),
-                )
-            return PaneProcessInspection(
-                process_state="tui_down",
-                matched_process_names=(),
-                matched_processes=(),
-            )
-
-    monkeypatch.setattr(
-        agents_core, "PaneProcessInspector", lambda supported_processes: _FakeInspector()
-    )
-
-    assert agents_core._detect_join_provider(123) == "gemini_cli"

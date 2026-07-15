@@ -101,30 +101,93 @@ def test_headless_runner_extracts_codex_thread_id_from_stream_json(
     assert result.session_id == "thread-abc"
 
 
-def test_headless_runner_prefers_first_stream_json_session_id_for_gemini_resume_identity(
+@pytest.mark.parametrize(
+    ("provider", "raw_line", "expected_kind", "expected_provider_event"),
+    (
+        (
+            "codex",
+            (
+                '{"type":"item.completed","item":{"id":"collab-1",'
+                '"type":"collab_tool_call","tool":"wait","sender_thread_id":"parent",'
+                '"receiver_thread_ids":["child"],"prompt":null,"agents_states":'
+                '{"child":{"status":"completed","message":null}},"status":"completed"}}'
+            ),
+            "action_result",
+            "item.completed.collab_tool_call",
+        ),
+        (
+            "kimi",
+            (
+                '{"role":"meta","type":"turn.step.retrying","failed_attempt":1,'
+                '"next_attempt":2,"max_attempts":3,"delay_ms":100,'
+                '"error_name":"RetryError","error_message":"retry","status_code":429}'
+            ),
+            "progress",
+            "turn.step.retrying",
+        ),
+    ),
+)
+def test_headless_runner_preserves_current_provider_raw_records_while_canonicalizing(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    provider: str,
+    raw_line: str,
+    expected_kind: str,
+    expected_provider_event: str,
 ) -> None:
-    script = tmp_path / "emit_gemini_jsonl.sh"
-    script.write_text(
-        "#!/usr/bin/env bash\n"
-        'echo \'{"type":"init","session_id":"sess-init"}\'\n'
-        'echo \'{"type":"delta","text":"hello"}\'\n'
-        'echo \'{"type":"final","session_id":"sess-final","text":"done"}\'\n',
-        encoding="utf-8",
-    )
+    script = tmp_path / f"emit_{provider}_current_event.sh"
+    script.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' '{raw_line}'\n", encoding="utf-8")
     script.chmod(0o755)
+    idle_shell = _write_idle_shell(tmp_path)
 
-    runner = HeadlessCliRunner()
-    result = runner.run(
+    def _fake_run_tmux(args: list[str]) -> subprocess.CompletedProcess[str]:
+        if args[:1] == ["respawn-pane"]:
+            subprocess.run(
+                ["sh", "-lc", str(args[-1])],
+                cwd=tmp_path,
+                env={**os.environ, "SHELL": str(idle_shell)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(headless_runner_module, "run_tmux_shared", _fake_run_tmux)
+    monkeypatch.setattr(
+        headless_runner_module,
+        "prepare_headless_agent_window_shared",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        headless_runner_module,
+        "wait_for_tmux_signal_shared",
+        lambda **_kwargs: _tmux_wait_timeout(),
+    )
+
+    result = HeadlessCliRunner().run(
         command=[str(script)],
         env={},
         cwd=tmp_path,
         turn_index=1,
         output_format="stream-json",
+        provider=provider,  # type: ignore[arg-type]
+        tmux_session_name=f"HOUMAO-{provider}-raw-current",
+        turn_artifacts_root=tmp_path / "turn-artifacts",
     )
 
     assert result.returncode == 0
-    assert result.session_id == "sess-init"
+    assert result.stdout_path is not None
+    assert result.stdout_path.read_text(encoding="utf-8") == raw_line + "\n"
+    assert result.canonical_path is not None
+    records = [
+        json.loads(line)
+        for line in result.canonical_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [record["kind"] for record in records] == [expected_kind]
+    assert records[0]["provider_event_type"] == expected_provider_event
+    assert records[0]["raw_payload"] == json.loads(raw_line)
 
 
 def test_headless_runner_tmux_persists_process_metadata(

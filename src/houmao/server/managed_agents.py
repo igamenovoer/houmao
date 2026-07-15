@@ -30,7 +30,7 @@ class ManagedHeadlessAuthorityRecord(_ManagedAgentStoreModel):
     """Server-owned native headless authority record."""
 
     tracked_agent_id: str
-    backend: Literal["claude_headless", "codex_headless", "gemini_headless", "kimi_headless"]
+    backend: Literal["claude_headless", "codex_headless", "kimi_headless"]
     tool: str
     manifest_path: str
     session_root: str

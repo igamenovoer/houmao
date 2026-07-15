@@ -2,7 +2,7 @@
 # start_provider.sh — create a tmux session and launch a provider TUI.
 #
 # Usage: start_provider.sh <provider>
-#   provider: claude | codex | gemini
+#   provider: claude | codex
 set -euo pipefail
 
 PROVIDER="${1:?Usage: start_provider.sh <provider>}"
@@ -11,7 +11,6 @@ SESSION_NAME="demo-join-agent"
 case "$PROVIDER" in
     claude)  CMD="claude" ;;
     codex)   CMD="codex"  ;;
-    gemini)  CMD="gemini" ;;
     *)
         echo "Error: unsupported provider '$PROVIDER'." >&2
         exit 1

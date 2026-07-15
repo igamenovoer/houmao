@@ -19,7 +19,7 @@ Purpose: communicate with already-running Houmao-managed agents through supporte
 Available functionality:
 
 - Discover target agents and current gateway or mailbox capability.
-- Send ordinary prompts, interrupts, gateway-queued work, and raw key input.
+- Send ordinary prompts, interrupts, policy-controlled gateway prompts, and raw key input.
 - Route mailbox handoff work to the correct mailbox skill after resolving live bindings.
 - Apply reset-context or reset-then-send workflow guidance.
 
@@ -77,7 +77,7 @@ This packaged skill does not cover:
 
 Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
 
-1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway queueing, raw control input, mailbox handoff, or reset-context.
+1. Identify which messaging intent the user actually wants: discovery, ordinary prompt with gateway preference, interrupt, explicit gateway prompt admission, raw control input, mailbox handoff, or reset-context.
 2. If the request is really about generic read-only inspection of liveness, mailbox posture, logs, runtime artifacts, or tmux backing, route it to `houmao-agent-inspect` instead of handling it as messaging.
 3. Recover the target managed-agent selector from the current prompt first and recent chat context second when it was stated explicitly.
 4. If the selected action still lacks a required target or explicit message input, ask the user in Markdown before proceeding.
@@ -127,7 +127,7 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 - Use `actions/discover.md` when you first need to identify the target managed agent or discover current gateway and mailbox capability.
 - Use `actions/prompt.md` when the user wants one normal conversational turn; discover gateway availability first and prefer the gateway-backed prompt lane when a live gateway exists.
 - Use `actions/interrupt.md` when the user wants the transport-neutral interrupt path for one managed agent.
-- Use `actions/gateway-queue.md` when the user explicitly wants gateway queue management, raw gateway-owned TUI inspection, or prompt-note provenance beyond the ordinary gateway-preferred prompt path.
+- Use `actions/gateway-queue.md` when the user explicitly wants a nondefault gateway prompt-admission policy, raw gateway-owned TUI inspection, or prompt-note provenance beyond the ordinary gateway-preferred prompt path.
 - Use `actions/send-keys.md` when the user needs exact key delivery such as slash-command menus, arrow navigation, `Escape`, or partial typing in a live TUI session.
 - Use `actions/mail.md` when the target has mailbox capability and you need to route the work to the correct mailbox skill after resolving live bindings.
 - Use `actions/reset-context.md` when the user wants clear-context, reset-then-send, or next-prompt chat-session control.

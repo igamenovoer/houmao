@@ -586,12 +586,43 @@ def test_analyze_terminal_record_emits_parser_and_state_observations(tmp_path: P
     assert state_payload["diagnostics_availability"] == "available"
     assert state_payload["surface_accepting_input"] == "yes"
     assert state_payload["surface_ready_posture"] == "yes"
+    assert state_payload["surface_pending_input"] == "no"
     assert state_payload["turn_phase"] == "ready"
     assert state_payload["last_turn_result"] == "none"
     assert state_payload["last_turn_source"] == "none"
     assert state_payload["readiness_state"] == "ready"
     assert state_payload["completion_state"] == "inactive"
     assert state_payload["sample_id"] == "s000001"
+
+
+def test_analyze_terminal_record_accepts_experimental_detector_override(tmp_path: Path) -> None:
+    run_root = tmp_path / "run-codex-experimental"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="codex")
+    paths.pane_snapshots_path.write_text(
+        json.dumps(
+            {
+                "sample_id": "s000001",
+                "elapsed_seconds": 0.0,
+                "ts_utc": "2026-07-13T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": "• Waiting for Robie [explorer]\n\n› \n",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    analyze_terminal_record(
+        run_root=run_root,
+        tool=None,
+        observed_version="0.144.1",
+        detector_version_override="0.144.x",
+    )
+
+    state_payload = _read_ndjson(paths.state_observed_path)[0]
+    assert state_payload["detector_version"] == "0.144.x"
+    assert state_payload["turn_phase"] == "active"
 
 
 def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
@@ -630,8 +661,47 @@ def test_analyze_terminal_record_accepts_kimi_snapshots(tmp_path: Path) -> None:
     assert parser_payload["ui_context"] == "normal_prompt"
     assert parser_payload["footer_model_thinking"] is True
     assert state_payload["detector_name"] == "kimi_code"
+
+
+def test_analyze_terminal_record_selects_versioned_kimi_profile(tmp_path: Path) -> None:
+    run_root = tmp_path / "recording"
+    paths = _write_run_artifacts(
+        run_root=run_root,
+        mode="passive",
+        status="stopped",
+        tool="kimi",
+    )
+    output_text = (
+        "🌗 · Tip: ctrl+s: steer mid-turn\n\n"
+        "● Finished.\n\n"
+        "╭────────────────────────────────────────╮\n"
+        "│ >                                      │\n"
+        "╰────────────────────────────────────────╯\n"
+        "auto  kimi-for-coding-highspeed thinking\n"
+    )
+    paths.pane_snapshots_path.write_text(
+        json.dumps(
+            {
+                "sample_id": "s000001",
+                "elapsed_seconds": 0.0,
+                "ts_utc": "2026-07-11T00:00:00+00:00",
+                "target_pane_id": "%1",
+                "output_text": output_text,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    analyze_terminal_record(run_root=run_root, tool=None, observed_version="0.23.4")
+
+    state_payload = _read_ndjson(paths.state_observed_path)[0]
+    assert state_payload["detector_version"] == "0.23.x"
+    assert state_payload["turn_phase"] == "ready"
     assert state_payload["surface_accepting_input"] == "yes"
     assert state_payload["surface_ready_posture"] == "yes"
+    assert state_payload["surface_pending_input"] == "no"
     assert state_payload["turn_phase"] == "ready"
 
 
@@ -667,6 +737,86 @@ def test_derive_terminal_record_stream_preserves_source_mapping(tmp_path: Path) 
     assert all(item["stream_kind"] == "derived" for item in derived_rows)
 
 
+def test_derive_terminal_record_stream_supports_deterministic_irregular_schedules(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run-irregular-derive"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    rows = [
+        {
+            "sample_id": f"s{index + 1:06d}",
+            "elapsed_seconds": index / 20,
+            "ts_utc": "2026-07-11T00:00:00+00:00",
+            "target_pane_id": "%1",
+            "output_text": f"frame {index + 1}",
+        }
+        for index in range(101)
+    ]
+    paths.pane_snapshots_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    source_sequences: dict[str, list[str]] = {}
+    for mode in ("jitter", "drop", "burst"):
+        output_path = run_root / f"pane_snapshots_{mode}.ndjson"
+        result = derive_terminal_record_stream(
+            run_root=run_root,
+            output_path=output_path,
+            target_sample_interval_seconds=0.5,
+            sampling_mode=mode,
+            seed=17,
+        )
+        derived_rows = _read_ndjson(output_path)
+        source_sequences[mode] = [str(item["source_sample_id"]) for item in derived_rows]
+        assert result["sampling_mode"] == mode
+        assert all(item["source_elapsed_seconds"] is not None for item in derived_rows)
+
+    repeated_path = run_root / "pane_snapshots_jitter_repeat.ndjson"
+    derive_terminal_record_stream(
+        run_root=run_root,
+        output_path=repeated_path,
+        target_sample_interval_seconds=0.5,
+        sampling_mode="jitter",
+        seed=17,
+    )
+    assert source_sequences["jitter"] == [
+        str(item["source_sample_id"]) for item in _read_ndjson(repeated_path)
+    ]
+    assert source_sequences["burst"] != source_sequences["drop"]
+
+
+def test_derive_terminal_record_stream_supports_required_fixed_cadences(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run-fixed-cadences"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    rows = [
+        {
+            "sample_id": f"s{index + 1:06d}",
+            "elapsed_seconds": index / 20,
+            "ts_utc": "2026-07-11T00:00:00+00:00",
+            "target_pane_id": "%1",
+            "output_text": f"frame {index + 1}",
+        }
+        for index in range(101)
+    ]
+    source_payload = "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n"
+    paths.pane_snapshots_path.write_text(source_payload, encoding="utf-8")
+
+    for hz, expected_count in ((10, 51), (5, 26), (2, 11)):
+        output_path = run_root / f"pane_snapshots_{hz}hz.ndjson"
+        result = derive_terminal_record_stream(
+            run_root=run_root,
+            output_path=output_path,
+            target_sample_interval_seconds=1.0 / hz,
+        )
+        assert result["derived_sample_count"] == expected_count
+        assert all(row["source_sample_id"] for row in _read_ndjson(output_path))
+
+    assert paths.pane_snapshots_path.read_text(encoding="utf-8") == source_payload
+
+
 def test_validate_terminal_record_compares_labels_to_observed_state(tmp_path: Path) -> None:
     run_root = tmp_path / "run-validate"
     paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
@@ -682,6 +832,7 @@ def test_validate_terminal_record_compares_labels_to_observed_state(tmp_path: Pa
                     "surface_accepting_input": "yes",
                     "surface_editing_input": "no",
                     "surface_ready_posture": "yes",
+                    "surface_pending_input": "no",
                     "turn_phase": "ready",
                     "last_turn_result": "none",
                     "last_turn_source": "none",
@@ -697,6 +848,7 @@ def test_validate_terminal_record_compares_labels_to_observed_state(tmp_path: Pa
                     "surface_accepting_input": "no",
                     "surface_editing_input": "no",
                     "surface_ready_posture": "no",
+                    "surface_pending_input": "no",
                     "turn_phase": "active",
                     "last_turn_result": "none",
                     "last_turn_source": "surface_inference",
@@ -719,6 +871,7 @@ def test_validate_terminal_record_compares_labels_to_observed_state(tmp_path: Pa
         scenario_id="kimi-validation",
         expectations={
             "diagnostics_availability": "available",
+            "surface_pending_input": "no",
             "turn_phase": "ready",
             "business_state": "idle",
         },
@@ -748,6 +901,7 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
         expectations={
             "business_state": "awaiting_operator",
             "diagnostics_availability": "available",
+            "surface_pending_input": "unknown",
             "turn_phase": "unknown",
         },
         note="Operator approval requested",
@@ -762,6 +916,7 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
         expectations={
             "business_state": "awaiting_operator",
             "surface_accepting_input": "no",
+            "surface_pending_input": "unknown",
             "last_turn_source": "none",
         },
         note=None,
@@ -782,12 +937,168 @@ def test_add_terminal_record_label_writes_exportable_structured_labels(tmp_path:
                 expectations={
                     "business_state": "awaiting_operator",
                     "surface_accepting_input": "no",
+                    "surface_pending_input": "unknown",
                     "last_turn_source": "none",
                 },
                 note=None,
             ),
         ),
     )
+
+
+def test_terminal_record_labels_require_pending_input_expectation(tmp_path: Path) -> None:
+    labels_path = tmp_path / "labels.json"
+    labels_path.write_text(
+        json.dumps(
+            {
+                "schema_version": TERMINAL_RECORD_SCHEMA_VERSION,
+                "labels": [
+                    {
+                        "label_id": "legacy",
+                        "scenario_id": None,
+                        "sample_id": "s000001",
+                        "sample_end_id": None,
+                        "expectations": {"turn_phase": "ready"},
+                        "note": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="surface_pending_input"):
+        load_labels(labels_path)
+    with pytest.raises(TerminalRecordError, match="surface_pending_input"):
+        add_terminal_record_label(
+            run_root=tmp_path,
+            output_dir=None,
+            label_id="legacy",
+            sample_id="s000001",
+            sample_end_id=None,
+            scenario_id=None,
+            expectations={"turn_phase": "ready"},
+            note=None,
+        )
+
+
+def test_validate_terminal_record_groups_pending_mismatches_by_contiguous_range(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run-pending-range"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    paths.state_observed_path.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "sample_id": f"d{index:06d}",
+                    "source_sample_id": f"s{index + 1:06d}",
+                    "elapsed_seconds": (index - 1) * 0.5,
+                    "surface_pending_input": "no",
+                },
+                sort_keys=True,
+            )
+            for index in range(1, 4)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    paths.parser_observed_path.write_text("", encoding="utf-8")
+    add_terminal_record_label(
+        run_root=run_root,
+        output_dir=None,
+        label_id="pending-span",
+        sample_id="s000002",
+        sample_end_id="s000004",
+        scenario_id="pending-range",
+        expectations={"surface_pending_input": "yes"},
+        note="Audited queued span",
+    )
+
+    result = validate_terminal_record(run_root=run_root)
+
+    assert result["passed"] is False
+    assert result["failure_count"] == 3
+    assert result["mismatch_ranges"] == [
+        {
+            "label_id": "pending-span",
+            "field": "surface_pending_input",
+            "expected": "yes",
+            "actual": "no",
+            "sample_id": "d000001",
+            "sample_end_id": "d000003",
+            "source_sample_id": "s000002",
+            "source_sample_end_id": "s000004",
+            "sample_count": 3,
+        }
+    ]
+
+
+def test_validate_derived_stream_skips_unretained_labels_and_reports_pending_drift(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run-derived-validation"
+    paths = _write_run_artifacts(run_root=run_root, mode="passive", status="stopped", tool="kimi")
+    rows = [
+        {
+            "sample_id": "d000001",
+            "source_sample_id": "s000001",
+            "elapsed_seconds": 0.0,
+            "surface_pending_input": "no",
+        },
+        {
+            "sample_id": "d000002",
+            "source_sample_id": "s000003",
+            "elapsed_seconds": 0.5,
+            "surface_pending_input": "unknown",
+        },
+        {
+            "sample_id": "d000003",
+            "source_sample_id": "s000005",
+            "elapsed_seconds": 1.0,
+            "surface_pending_input": "yes",
+        },
+    ]
+    paths.state_observed_path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    paths.parser_observed_path.write_text("", encoding="utf-8")
+    for label_id, sample_id, pending in (
+        ("ready", "s000001", "no"),
+        ("pending-onset", "s000003", "yes"),
+        ("pending-stable", "s000005", "yes"),
+        ("unretained-transition", "s000004", "no"),
+    ):
+        add_terminal_record_label(
+            run_root=run_root,
+            output_dir=None,
+            label_id=label_id,
+            sample_id=sample_id,
+            sample_end_id=None,
+            scenario_id="derived",
+            expectations={"surface_pending_input": pending},
+            note="Audited source label",
+        )
+
+    result = validate_terminal_record(run_root=run_root)
+
+    assert result["skipped_unobserved_label_count"] == 1
+    assert result["skipped_unobserved_labels"][0]["label_id"] == "unretained-transition"
+    cadence = result["pending_cadence"]
+    assert cadence["retained_sample_count"] == 3
+    assert cadence["transition_drift_within_bound"] is True
+    assert cadence["transition_drift"] == [
+        {
+            "expected_sample_id": "d000002",
+            "actual_sample_id": "d000003",
+            "value": "yes",
+            "drift_seconds": 0.5,
+            "bound_seconds": 0.5,
+            "within_bound": True,
+        }
+    ]
+    assert cadence["cadence_only_yes_no_oscillation_samples"] == []
 
 
 def test_analyze_terminal_record_keeps_state_fields_consistent(tmp_path: Path) -> None:
@@ -821,6 +1132,7 @@ def test_analyze_terminal_record_keeps_state_fields_consistent(tmp_path: Path) -
     assert state_payload["diagnostics_availability"] == "available"
     assert state_payload["surface_accepting_input"] == "yes"
     assert state_payload["surface_ready_posture"] == "yes"
+    assert state_payload["surface_pending_input"] == "no"
     assert state_payload["turn_phase"] == "ready"
     assert state_payload["last_turn_result"] == "none"
     assert state_payload["last_turn_source"] == "none"

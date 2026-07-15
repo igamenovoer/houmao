@@ -2176,6 +2176,7 @@ def _gateway_tui_state_response() -> HoumaoTerminalStateResponse:
             accepting_input="yes",
             editing_input="no",
             ready_posture="yes",
+            pending_input="no",
         ),
         turn=HoumaoTrackedTurn(phase="ready"),
         last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
@@ -2280,6 +2281,7 @@ def _sample_local_tui_state(
             accepting_input="yes",
             editing_input="no",
             ready_posture="yes",
+            pending_input="no",
         ),
         turn=HoumaoTrackedTurn(phase="ready"),
         last_turn=HoumaoTrackedLastTurn(
@@ -2393,13 +2395,13 @@ class _FakePassivePairClient:
             (
                 agent_ref,
                 getattr(request_model, "prompt"),
-                getattr(request_model, "force"),
+                getattr(request_model, "admission_policy"),
             )
         )
         self.gateway_prompt_request_models.append(request_model)
         return HoumaoManagedAgentGatewayPromptControlResponse(
             sent=True,
-            forced=getattr(request_model, "force"),
+            admission_policy=getattr(request_model, "admission_policy"),
             detail="Prompt dispatched.",
         )
 
@@ -2605,11 +2607,11 @@ def test_gateway_prompt_uses_passive_pair_client() -> None:
         client=client,
     )
 
-    response = gateway_prompt(target, prompt="hello", force=True)
+    response = gateway_prompt(target, prompt="hello", admission_policy="always")
 
     assert response.sent is True
-    assert response.forced is True
-    assert client.gateway_prompt_calls == [("published-alpha", "hello", True)]
+    assert response.admission_policy == "always"
+    assert client.gateway_prompt_calls == [("published-alpha", "hello", "always")]
 
 
 def test_gateway_prompt_passes_execution_override_to_passive_pair_client() -> None:
@@ -2624,7 +2626,7 @@ def test_gateway_prompt_passes_execution_override_to_passive_pair_client() -> No
     gateway_prompt(
         target,
         prompt="hello",
-        force=True,
+        admission_policy="always",
         model="claude-3-7-sonnet",
         reasoning_level=6,
     )
@@ -3173,7 +3175,7 @@ def test_headless_detail_uses_exit_artifact_even_when_tmux_session_is_live(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="gemini_headless", tool="gemini")
+    launch_plan = _sample_launch_plan(tmp_path=tmp_path, backend="kimi_headless", tool="kimi")
     manifest_path = _write_manifest(
         tmp_path=tmp_path,
         launch_plan=launch_plan,

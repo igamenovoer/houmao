@@ -1,3 +1,0 @@
-# Keep the auth root present while ignoring local plaintext bundles.
-*
-!.gitignore

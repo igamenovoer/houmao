@@ -12,6 +12,15 @@ from typing import Any
 
 from .config import resolve_demo_config
 from .live_watch import inspect_live_watch, run_dashboard, start_live_watch, stop_live_watch
+from .long_horizon.orchestrator import (
+    capture_cells as capture_long_horizon_cells,
+    cleanup_suite as cleanup_long_horizon_suite,
+    label_status as long_horizon_label_status,
+    plan_suite as plan_long_horizon_suite,
+    preflight_cells as preflight_long_horizon_cells,
+    replay_cells as replay_long_horizon_cells,
+    report_suite as report_long_horizon_suite,
+)
 from .ownership import cleanup_demo_run
 from .recorded import run_recorded_capture, validate_fixture_corpus, validate_recorded_fixture
 from .scenario import load_scenario
@@ -32,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv or sys.argv[1:])
     try:
+        if args.command == "long-horizon":
+            return _run_long_horizon_command(args)
         if args.command == "recorded-capture":
             scenario = load_scenario(_resolve_path(args.scenario))
             demo_config = resolve_demo_config(
@@ -339,7 +350,78 @@ def _build_parser() -> argparse.ArgumentParser:
 
     dashboard = subparsers.add_parser("dashboard", help="Run the live dashboard loop")
     dashboard.add_argument("--run-root", required=True)
+    long_horizon = subparsers.add_parser(
+        "long-horizon", help="Run the UC-02 long-horizon qualification workflow"
+    )
+    long_horizon_subparsers = long_horizon.add_subparsers(
+        dest="long_horizon_command", required=True
+    )
+    long_horizon_plan = long_horizon_subparsers.add_parser("plan")
+    long_horizon_plan.add_argument("--run-root", required=True)
+    long_horizon_plan.add_argument("--json", action="store_true")
+    for name in ("preflight", "capture", "replay"):
+        command = long_horizon_subparsers.add_parser(name)
+        command.add_argument("--run-root", required=True)
+        selection = command.add_mutually_exclusive_group(required=True)
+        selection.add_argument("--cell", action="append")
+        selection.add_argument("--all", action="store_true")
+        command.add_argument("--json", action="store_true")
+    long_horizon_labels = long_horizon_subparsers.add_parser("label-status")
+    long_horizon_labels.add_argument("--run-root", required=True)
+    long_horizon_labels.add_argument("--cell", required=True)
+    long_horizon_labels.add_argument("--labels-path")
+    long_horizon_labels.add_argument("--json", action="store_true")
+    long_horizon_report = long_horizon_subparsers.add_parser("report")
+    long_horizon_report.add_argument("--run-root", required=True)
+    long_horizon_report.add_argument("--json", action="store_true")
+    long_horizon_cleanup = long_horizon_subparsers.add_parser("cleanup")
+    long_horizon_cleanup.add_argument("--run-root", required=True)
+    long_horizon_cleanup.add_argument("--json", action="store_true")
     return parser
+
+
+def _run_long_horizon_command(args: argparse.Namespace) -> int:
+    """Dispatch one nested long-horizon workflow command."""
+
+    repo_root = _repo_root()
+    run_root = Path(str(args.run_root))
+    command = str(args.long_horizon_command)
+    selected_cells = tuple(args.cell or ()) if hasattr(args, "cell") else ()
+    if command == "plan":
+        payload = plan_long_horizon_suite(repo_root=repo_root, run_root=run_root)
+    elif command == "preflight":
+        payload = preflight_long_horizon_cells(
+            repo_root=repo_root,
+            run_root=run_root,
+            selected_cells=selected_cells,
+        )
+    elif command == "capture":
+        payload = capture_long_horizon_cells(
+            repo_root=repo_root,
+            run_root=run_root,
+            selected_cells=selected_cells,
+        )
+    elif command == "label-status":
+        payload = long_horizon_label_status(
+            repo_root=repo_root,
+            run_root=run_root,
+            cell_id=str(args.cell),
+            labels_path=Path(args.labels_path).resolve() if args.labels_path else None,
+        )
+    elif command == "replay":
+        payload = replay_long_horizon_cells(
+            repo_root=repo_root,
+            run_root=run_root,
+            selected_cells=selected_cells,
+        )
+    elif command == "report":
+        payload = report_long_horizon_suite(repo_root=repo_root, run_root=run_root)
+    elif command == "cleanup":
+        payload = cleanup_long_horizon_suite(repo_root=repo_root, run_root=run_root)
+    else:
+        raise ValueError(f"Unsupported long-horizon command: {command}")
+    _emit_payload(payload, json_output=bool(args.json))
+    return 0
 
 
 def _configure_logging_from_env() -> None:

@@ -1,0 +1,832 @@
+{
+  "schema_version": 1,
+  "suite_id": "uc-02-pressure-test-long-horizon-tui-state-tracking",
+  "source_path": "context/features/2026-07-11-tui-state-tracking-test-plan/usecases/uc-02-pressure-test-long-horizon-tui-state-tracking.md",
+  "source_sha256": "4d7b8deed94c8353191e6c91c9df87df55c9d5cb05da24ac84dad90fe7ea79c0",
+  "fixture": {
+    "path": "tests/fixtures/test-projects/boltons",
+    "upstream_revision": "979fa9b613fa8c0a455ae16ea6f2ec91c11ecafe",
+    "expected_collection_count": 437
+  },
+  "safe_prefix": "Work only in this Boltons checkout. Do not use the network, install packages, modify dependency files, or ask questions.",
+  "allowed_tokens": [
+    "SAFE",
+    "PLACEHOLDER_LITERAL",
+    "PANE",
+    "LAUNCH_COMMAND"
+  ],
+  "capture_sample_interval_seconds": 0.05,
+  "procedures": [
+    {
+      "id": "st-01",
+      "title": "Boltons Read-Only Draft Editing and Successful Turns",
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "allowed_final_paths": [],
+      "transition_families": [
+        "startup_readiness",
+        "draft_editing",
+        "explicit_input_authority",
+        "active_success",
+        "success_invalidation",
+        "overlay_unknown"
+      ],
+      "operations": [
+        {
+          "number": 1,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read boltons/iterutils.py and tests/test_iterutils.py. Do not edit files. Report the definition line and test line for pairwise, then end with ST01-A`",
+          "engineering_checkpoint": "No process or file action yet",
+          "tracker_checkpoint": "Editing `yes`; last-turn result `none`"
+        },
+        {
+          "number": 2,
+          "kind": "type_text",
+          "instruction": "Append the literal nine characters ` WINDOWED`",
+          "engineering_checkpoint": "Draft now ends in `ST01-A WINDOWED`",
+          "tracker_checkpoint": "Editing remains `yes`; no success candidate"
+        },
+        {
+          "number": 3,
+          "kind": "send_keys",
+          "instruction": "Press `Backspace` exactly nine times",
+          "engineering_checkpoint": "Draft returns byte-for-byte to operation 1",
+          "tracker_checkpoint": "Draft authority remains current; no terminal result"
+        },
+        {
+          "number": 4,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Response cites both files, ends with `ST01-A`, and `git status --short` remains empty",
+          "tracker_checkpoint": "Explicit-input authority; active then one success"
+        },
+        {
+          "number": 5,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read boltons/strutils.py and tests/test_strutils.py. Do not edit files. Report the definition line of parse_int_list and two existing test inputs. End with ST01-B`",
+          "engineering_checkpoint": "No new file change",
+          "tracker_checkpoint": "Prior success clears; editing `yes`"
+        },
+        {
+          "number": 6,
+          "kind": "send_keys",
+          "instruction": "Press `Left` once",
+          "engineering_checkpoint": "Cursor is immediately before the final `B`",
+          "tracker_checkpoint": "Editing remains `yes`"
+        },
+        {
+          "number": 7,
+          "kind": "type_text",
+          "instruction": "Type the literal `EDITED-`",
+          "engineering_checkpoint": "Draft ends with `ST01-EDITED-B`",
+          "tracker_checkpoint": "No terminal result is inferred"
+        },
+        {
+          "number": 8,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Response ends with `ST01-EDITED-B`; worktree remains clean",
+          "tracker_checkpoint": "Fresh active turn then one success"
+        },
+        {
+          "number": 9,
+          "kind": "type_text",
+          "instruction": "Type `/` without submitting",
+          "engineering_checkpoint": "Slash menu is visible",
+          "tracker_checkpoint": "Conservative overlay state; no success settlement"
+        },
+        {
+          "number": 10,
+          "kind": "send_keys",
+          "instruction": "Press `Escape`",
+          "engineering_checkpoint": "Slash menu closes and empty editor returns",
+          "tracker_checkpoint": "Ready posture returns without a new outcome"
+        },
+        {
+          "number": 11,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read boltons/urlutils.py only. Do not edit files. Name the URL class and the find_all_links function. End with ST01-C`",
+          "engineering_checkpoint": "No file change",
+          "tracker_checkpoint": "Editing `yes` with fresh authority"
+        },
+        {
+          "number": 12,
+          "kind": "send_keys",
+          "instruction": "Press `Ctrl+U`",
+          "engineering_checkpoint": "Editor is empty",
+          "tracker_checkpoint": "Ready/non-editing; no fabricated result"
+        },
+        {
+          "number": 13,
+          "kind": "repeat_operation",
+          "instruction": "Retype operation 11 exactly",
+          "engineering_checkpoint": "Draft matches operation 11 byte-for-byte",
+          "tracker_checkpoint": "Editing authority is reacquired"
+        },
+        {
+          "number": 14,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Response ends with `ST01-C`; worktree remains clean",
+          "tracker_checkpoint": "Active then one success"
+        },
+        {
+          "number": 15,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read boltons/fileutils.py and tests/test_fileutils.py. Do not edit files. State the default keep value of rotate_file and end with ST01-D`",
+          "engineering_checkpoint": "No file change",
+          "tracker_checkpoint": "Prior success clears"
+        },
+        {
+          "number": 16,
+          "kind": "send_keys",
+          "instruction": "Send `Space Space Backspace Backspace` as one recorded key sequence",
+          "engineering_checkpoint": "Draft text is unchanged",
+          "tracker_checkpoint": "State family does not oscillate"
+        },
+        {
+          "number": 17,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Response reports `keep=5`, ends with `ST01-D`, and worktree remains clean",
+          "tracker_checkpoint": "Active then one success"
+        },
+        {
+          "number": 18,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read pyproject.toml only. Do not edit files. Reply exactly ST01-E PYTHON>=3.7`",
+          "engineering_checkpoint": "No file change",
+          "tracker_checkpoint": "Prior success clears; editing `yes`"
+        },
+        {
+          "number": 19,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Visible response contains exactly `ST01-E PYTHON>=3.7` as its substantive answer",
+          "tracker_checkpoint": "Fifth active turn settles once"
+        },
+        {
+          "number": 20,
+          "kind": "send_keys",
+          "instruction": "Press `Escape` once at the empty ready editor",
+          "engineering_checkpoint": "No project change",
+          "tracker_checkpoint": "Final success remains current; no new authority or outcome"
+        }
+      ]
+    },
+    {
+      "id": "st-02",
+      "title": "Boltons Interruption, Steering, Recovery, and Re-Interruption",
+      "providers": [
+        "claude",
+        "codex"
+      ],
+      "allowed_final_paths": [],
+      "transition_families": [
+        "active_steering",
+        "interruption_identity",
+        "interruption_recovery",
+        "active_editing_overlap",
+        "overlay_unknown"
+      ],
+      "operations": [
+        {
+          "number": 1,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read boltons/iterutils.py, boltons/dictutils.py, boltons/urlutils.py, and their matching test files. Do not edit files. Produce at least 40 numbered bullets, each naming one public symbol, its definition line, and one tested behavior. End with ST02-A`",
+          "engineering_checkpoint": "Agent begins multi-file inspection; worktree remains clean",
+          "tracker_checkpoint": "Active turn 1"
+        },
+        {
+          "number": 2,
+          "kind": "type_text",
+          "instruction": "While turn 1 is active, type without submitting: `Steer: cover iterutils.py first and put pairwise, windowed, and backoff in the first three bullets.`",
+          "engineering_checkpoint": "Steering draft is visible",
+          "tracker_checkpoint": "Active plus editing when supported"
+        },
+        {
+          "number": 3,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Steer text is accepted",
+          "tracker_checkpoint": "Steer handoff remains active; no terminal result"
+        },
+        {
+          "number": 4,
+          "kind": "send_keys",
+          "instruction": "After one post-steer active frame, press `Ctrl+C` once",
+          "engineering_checkpoint": "Worktree remains clean",
+          "tracker_checkpoint": "Interrupted result 1; exactly one terminal interruption"
+        },
+        {
+          "number": 5,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Re-read boltons/iterutils.py and tests/test_iterutils.py. Do not edit files. Produce 30 numbered behavior examples for pairwise, windowed, and backoff. End with ST02-RECOVERY-A`",
+          "engineering_checkpoint": "No file change",
+          "tracker_checkpoint": "Interruption clears under fresh draft authority"
+        },
+        {
+          "number": 6,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Multi-file read begins",
+          "tracker_checkpoint": "Active turn 2"
+        },
+        {
+          "number": 7,
+          "kind": "send_keys",
+          "instruction": "After the first visible response line while still active, press `Ctrl+C` once",
+          "engineering_checkpoint": "Worktree remains clean",
+          "tracker_checkpoint": "Interrupted result 2, distinct from result 1"
+        },
+        {
+          "number": 8,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read pyproject.toml only. Do not edit files. Reply exactly ST02-B PYTHON>=3.7`",
+          "engineering_checkpoint": "No file change",
+          "tracker_checkpoint": "Fresh draft authority"
+        },
+        {
+          "number": 9,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Response contains `ST02-B PYTHON>=3.7`",
+          "tracker_checkpoint": "Active then success 1"
+        },
+        {
+          "number": 10,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read every Python module directly under boltons/ and every test_*.py file directly under tests/. Do not edit files. Produce a module-to-test coverage table with at least 35 rows and end with ST02-C`",
+          "engineering_checkpoint": "Broad read-only traversal begins",
+          "tracker_checkpoint": "Prior success clears; active turn 4"
+        },
+        {
+          "number": 11,
+          "kind": "type_text",
+          "instruction": "While turn 4 is active, type without submitting: `Steer: sort the coverage table alphabetically and include cacheutils.py, iterutils.py, strutils.py, and urlutils.py first.`",
+          "engineering_checkpoint": "Steering draft is visible",
+          "tracker_checkpoint": "Active/editing overlap"
+        },
+        {
+          "number": 12,
+          "kind": "send_keys",
+          "instruction": "Press `Ctrl+U`",
+          "engineering_checkpoint": "Steering editor becomes empty",
+          "tracker_checkpoint": "Active continues; no completion"
+        },
+        {
+          "number": 13,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `Steer: instead group the table into data structures, iteration, text, files, time, and networking.`",
+          "engineering_checkpoint": "Replacement steering draft is visible",
+          "tracker_checkpoint": "Editing returns without new terminal state"
+        },
+        {
+          "number": 14,
+          "kind": "send_keys",
+          "instruction": "Press `Enter`",
+          "engineering_checkpoint": "Replacement steer is accepted",
+          "tracker_checkpoint": "Active handoff"
+        },
+        {
+          "number": 15,
+          "kind": "send_keys",
+          "instruction": "After one post-steer active frame, press `Ctrl+C` once",
+          "engineering_checkpoint": "Worktree remains clean",
+          "tracker_checkpoint": "Interrupted result 3; no duplicate outcome"
+        },
+        {
+          "number": 16,
+          "kind": "type_text",
+          "instruction": "Type `/` without submitting",
+          "engineering_checkpoint": "Slash menu appears",
+          "tracker_checkpoint": "Overlay does not revive interruption as activity"
+        },
+        {
+          "number": 17,
+          "kind": "send_keys",
+          "instruction": "Press `Escape`",
+          "engineering_checkpoint": "Slash menu closes",
+          "tracker_checkpoint": "Ready/interrupted posture remains coherent"
+        },
+        {
+          "number": 18,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read README.md and CHANGELOG.md only. Do not edit files. Reply with the current package name and end with ST02-RECOVERED`",
+          "engineering_checkpoint": "No file change",
+          "tracker_checkpoint": "Interrupted result clears"
+        },
+        {
+          "number": 19,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Response ends with `ST02-RECOVERED`; worktree remains clean",
+          "tracker_checkpoint": "Active then success 2"
+        },
+        {
+          "number": 20,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read boltons/cacheutils.py next, but do not start until I submit this draft.`",
+          "engineering_checkpoint": "No tool starts and no file changes",
+          "tracker_checkpoint": "Final state is editing `yes` with no extra outcome"
+        }
+      ]
+    },
+    {
+      "id": "st-03",
+      "title": "Concrete Unattended Boltons Tool and Edit Workflow",
+      "providers": [
+        "claude",
+        "codex",
+        "kimi"
+      ],
+      "allowed_final_paths": [
+        "tests/test_houmao_long_horizon.py",
+        "docs/houmao-long-horizon.rst"
+      ],
+      "transition_families": [
+        "unattended_command",
+        "unattended_read",
+        "unattended_write",
+        "unattended_edit",
+        "unattended_plan",
+        "active_success"
+      ],
+      "operations": [
+        {
+          "number": 1,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Use terminal tools now. Run pwd and git status --short. Do not edit files. Reply with the working-directory basename, the status output, and ST03-01.`",
+          "engineering_checkpoint": "Basename is `boltons`; status is empty",
+          "tracker_checkpoint": "Active then success without confirmation"
+        },
+        {
+          "number": 2,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Read pairwise and windowed in boltons/iterutils.py and their tests in tests/test_iterutils.py. Do not edit files. Report their definition and test line numbers, then end with ST03-02.`",
+          "engineering_checkpoint": "Both source and test files are read; status remains empty",
+          "tracker_checkpoint": "Fresh active turn and one success"
+        },
+        {
+          "number": 3,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Create tests/test_houmao_long_horizon.py. It must import pairwise from boltons.iterutils and define test_pairwise_contract asserting pairwise([1, 2, 3]) == [(1, 2), (2, 3)]. Modify no other file. End with ST03-03.`",
+          "engineering_checkpoint": "New file exists with one import and one test",
+          "tracker_checkpoint": "Write is unattended; active then success"
+        },
+        {
+          "number": 4,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run python -m pytest -q tests/test_houmao_long_horizon.py. Do not edit files. Report the pass count and end with ST03-04.`",
+          "engineering_checkpoint": "Command exits zero with one passing test",
+          "tracker_checkpoint": "Command remains active until one success"
+        },
+        {
+          "number": 5,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Edit only tests/test_houmao_long_horizon.py. Add windowed to the boltons.iterutils import and add test_windowed_contract asserting windowed([1, 2, 3, 4], 3) == [(1, 2, 3), (2, 3, 4)]. End with ST03-05.`",
+          "engineering_checkpoint": "File contains two named tests",
+          "tracker_checkpoint": "Edit completes without confirmation"
+        },
+        {
+          "number": 6,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run python -m pytest -q tests/test_houmao_long_horizon.py. Do not edit files. Report the pass count and end with ST03-06.`",
+          "engineering_checkpoint": "Command exits zero with two passing tests",
+          "tracker_checkpoint": "Fresh command turn; one success"
+        },
+        {
+          "number": 7,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Read parse_int_list in boltons/strutils.py and its existing tests in tests/test_strutils.py. Do not edit files. Report one ascending and one descending range example, then end with ST03-07.`",
+          "engineering_checkpoint": "Both files are read; test file unchanged",
+          "tracker_checkpoint": "Read completes without blocked state"
+        },
+        {
+          "number": 8,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Edit only tests/test_houmao_long_horizon.py. Import parse_int_list from boltons.strutils and add test_parse_int_list_contract asserting parse_int_list('3,1,5-7') == [1, 3, 5, 6, 7]. End with ST03-08.`",
+          "engineering_checkpoint": "File contains three named tests",
+          "tracker_checkpoint": "Edit is unattended and settles once"
+        },
+        {
+          "number": 9,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run python -m pytest -q tests/test_houmao_long_horizon.py. Do not edit files. Report the pass count and end with ST03-09.`",
+          "engineering_checkpoint": "Command exits zero with three passing tests",
+          "tracker_checkpoint": "No stale blocked or prior result"
+        },
+        {
+          "number": 10,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Read find_all_links in boltons/urlutils.py and its tests in tests/test_urlutils.py. Do not edit files. Report its with_text option and end with ST03-10.`",
+          "engineering_checkpoint": "Source and tests are read",
+          "tracker_checkpoint": "Read turn settles once"
+        },
+        {
+          "number": 11,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Edit only tests/test_houmao_long_horizon.py. Import find_all_links from boltons.urlutils and add test_find_all_links_contract asserting [str(url) for url in find_all_links('see https://example.com/a')] == ['https://example.com/a']. End with ST03-11.`",
+          "engineering_checkpoint": "File contains four named tests",
+          "tracker_checkpoint": "Edit completes without confirmation"
+        },
+        {
+          "number": 12,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run python -m pytest -q tests/test_houmao_long_horizon.py. Do not edit files. Report the pass count and end with ST03-12.`",
+          "engineering_checkpoint": "Command exits zero with four passing tests",
+          "tracker_checkpoint": "Active then one success"
+        },
+        {
+          "number": 13,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Create docs/houmao-long-horizon.rst with exactly seven lines in this order: 'Houmao Long-Horizon Notes', '=========================', one blank line, '* pairwise: adjacent pairs', '* windowed: sliding tuples', '* parse_int_list: integer ranges', and '* find_all_links: URL discovery'. Modify no other file. End with ST03-13.`",
+          "engineering_checkpoint": "Documentation file has the exact seven requested lines",
+          "tracker_checkpoint": "Write completes unattended"
+        },
+        {
+          "number": 14,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run sha256sum docs/houmao-long-horizon.rst. Do not edit files. Reply with the 64-character digest and ST03-14.`",
+          "engineering_checkpoint": "Visible digest matches the file",
+          "tracker_checkpoint": "Command turn has one terminal outcome"
+        },
+        {
+          "number": 15,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Edit only docs/houmao-long-horizon.rst. Append a blank line and the exact line 'Validation command: python -m pytest -q tests/test_houmao_long_horizon.py'. End with ST03-15.`",
+          "engineering_checkpoint": "Exact validation line is present once",
+          "tracker_checkpoint": "Edit completes without confirmation"
+        },
+        {
+          "number": 16,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run python -m pytest -q tests/test_houmao_long_horizon.py tests/test_iterutils.py tests/test_strutils.py tests/test_urlutils.py. Do not edit files. Report the exit status and pass count, then end with ST03-16.`",
+          "engineering_checkpoint": "Command exits zero",
+          "tracker_checkpoint": "Long command remains active until one success"
+        },
+        {
+          "number": 17,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run git status --short and read tests/test_houmao_long_horizon.py and docs/houmao-long-horizon.rst. Do not edit files. In chat, give exactly three plan steps for adding a pairwise end-value test, then end with ST03-17.`",
+          "engineering_checkpoint": "Status shows only the two declared untracked files; no change occurs during planning",
+          "tracker_checkpoint": "Plan response requires no approval or user answer"
+        },
+        {
+          "number": 18,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Apply the plan by editing only tests/test_houmao_long_horizon.py. Add test_pairwise_end_contract asserting pairwise([1], end=None) == [(1, None)]. End with ST03-18.`",
+          "engineering_checkpoint": "Test file contains five named tests",
+          "tracker_checkpoint": "Planned edit completes unattended"
+        },
+        {
+          "number": 19,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run git diff --no-index /dev/null tests/test_houmao_long_horizon.py and git diff --no-index /dev/null docs/houmao-long-horizon.rst. Exit status 1 is expected because both files are new. Summarize only the two paths and five test names. Do not edit files. End with ST03-19.`",
+          "engineering_checkpoint": "Both no-index diffs show only the declared files",
+          "tracker_checkpoint": "Read/diff turn receives fresh authority"
+        },
+        {
+          "number": 20,
+          "kind": "submit_text",
+          "instruction": "`{{SAFE}} Run python -m pytest -q tests/test_houmao_long_horizon.py and git status --short. Do not edit files. Report five passing tests, both changed paths, and ST03-20.`",
+          "engineering_checkpoint": "Five tests pass; status lists only the declared new files",
+          "tracker_checkpoint": "Final ready/success with zero interventions"
+        }
+      ]
+    },
+    {
+      "id": "st-04",
+      "title": "Boltons UI Overlays, Resize, and Stale Scrollback",
+      "providers": [
+        "claude",
+        "codex",
+        "kimi"
+      ],
+      "allowed_final_paths": [],
+      "transition_families": [
+        "overlay_unknown",
+        "stalled_unknown",
+        "terminal_resize",
+        "stale_scrollback",
+        "interruption_recovery",
+        "active_success"
+      ],
+      "operations": [
+        {
+          "number": 1,
+          "kind": "type_text",
+          "instruction": "Type `/` without submitting",
+          "engineering_checkpoint": "Slash menu is visible",
+          "tracker_checkpoint": "Unknown/overlay, never success"
+        },
+        {
+          "number": 2,
+          "kind": "send_keys",
+          "instruction": "Press `Down` once",
+          "engineering_checkpoint": "Selection moves down once",
+          "tracker_checkpoint": "Overlay remains bounded"
+        },
+        {
+          "number": 3,
+          "kind": "send_keys",
+          "instruction": "Press `Up` once",
+          "engineering_checkpoint": "Selection returns",
+          "tracker_checkpoint": "No turn result change"
+        },
+        {
+          "number": 4,
+          "kind": "send_keys",
+          "instruction": "Press `Escape`",
+          "engineering_checkpoint": "Slash menu closes",
+          "tracker_checkpoint": "Ready returns"
+        },
+        {
+          "number": 5,
+          "kind": "type_text",
+          "instruction": "Type `{{PLACEHOLDER_LITERAL}}` without submitting",
+          "engineering_checkpoint": "Literal appears as user-entered editor text",
+          "tracker_checkpoint": "Editing `yes`, not provider placeholder"
+        },
+        {
+          "number": 6,
+          "kind": "send_keys",
+          "instruction": "Press `Ctrl+U`",
+          "engineering_checkpoint": "Editor becomes empty",
+          "tracker_checkpoint": "Ready/non-editing"
+        },
+        {
+          "number": 7,
+          "kind": "tmux_control",
+          "instruction": "Run `tmux resize-window -t {{PANE}} -x 72 -y 24`",
+          "engineering_checkpoint": "Pane is exactly 72 columns by 24 rows",
+          "tracker_checkpoint": "Wrapping does not fabricate activity or interruption"
+        },
+        {
+          "number": 8,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read README.md only. Do not edit files. Reply with the upstream URL in the Houmao Vendored Test Fixture section and end with ST04-A`",
+          "engineering_checkpoint": "Draft is visible in narrow pane",
+          "tracker_checkpoint": "Editing authority survives wrapping"
+        },
+        {
+          "number": 9,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Response includes `https://github.com/mahmoud/boltons` and `ST04-A`",
+          "tracker_checkpoint": "Active then one success"
+        },
+        {
+          "number": 10,
+          "kind": "tmux_control",
+          "instruction": "Run `tmux copy-mode -t {{PANE}}` followed by `tmux send-keys -t {{PANE}} -X page-up` as one control event",
+          "engineering_checkpoint": "Visible pane shows older scrollback",
+          "tracker_checkpoint": "Tracker remains conservative about copied scrollback"
+        },
+        {
+          "number": 11,
+          "kind": "tmux_control",
+          "instruction": "Run `tmux send-keys -t {{PANE}} -X cancel`",
+          "engineering_checkpoint": "Current provider surface returns",
+          "tracker_checkpoint": "Current visible region regains precedence"
+        },
+        {
+          "number": 12,
+          "kind": "tmux_control",
+          "instruction": "Run `tmux resize-window -t {{PANE}} -x 120 -y 36`",
+          "engineering_checkpoint": "Pane is exactly 120 by 36",
+          "tracker_checkpoint": "State remains coherent after reflow"
+        },
+        {
+          "number": 13,
+          "kind": "send_keys",
+          "instruction": "Send the key sequence `/model Enter` as one navigation event",
+          "engineering_checkpoint": "Provider model selector opens",
+          "tracker_checkpoint": "Modal/unknown posture; no requested intervention"
+        },
+        {
+          "number": 14,
+          "kind": "send_keys",
+          "instruction": "Press `Down` once",
+          "engineering_checkpoint": "Selector highlight moves once",
+          "tracker_checkpoint": "No terminal outcome"
+        },
+        {
+          "number": 15,
+          "kind": "send_keys",
+          "instruction": "Press `Escape`",
+          "engineering_checkpoint": "Selector closes without changing model",
+          "tracker_checkpoint": "Ready returns"
+        },
+        {
+          "number": 16,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read boltons/cacheutils.py, boltons/dictutils.py, boltons/iterutils.py, boltons/strutils.py, and their matching tests. Do not edit files. Produce 30 numbered bullets comparing their public APIs and end with ST04-B.`",
+          "engineering_checkpoint": "Broad read-only inspection begins",
+          "tracker_checkpoint": "Active turn; prior success cleared"
+        },
+        {
+          "number": 17,
+          "kind": "send_keys",
+          "instruction": "After the first visible response line while active, press `Ctrl+C` once",
+          "engineering_checkpoint": "Worktree remains clean",
+          "tracker_checkpoint": "One interrupted outcome"
+        },
+        {
+          "number": 18,
+          "kind": "tmux_control",
+          "instruction": "Run `tmux resize-window -t {{PANE}} -x 88 -y 28`",
+          "engineering_checkpoint": "Pane is exactly 88 by 28 while interruption evidence remains",
+          "tracker_checkpoint": "Interruption survives reflow without duplication"
+        },
+        {
+          "number": 19,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read pyproject.toml only. Do not edit files. Reply exactly ST04-RECOVERED`",
+          "engineering_checkpoint": "Recovery draft is visible",
+          "tracker_checkpoint": "Stale interruption clears"
+        },
+        {
+          "number": 20,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Response contains `ST04-RECOVERED`; worktree remains clean",
+          "tracker_checkpoint": "Active then one success; stale scrollback does not contaminate it"
+        }
+      ]
+    },
+    {
+      "id": "st-05",
+      "title": "Mixed Boltons Session with Downstream Consumption and Restart",
+      "providers": [
+        "codex",
+        "kimi"
+      ],
+      "allowed_final_paths": [
+        "houmao_artifacts/st05.txt"
+      ],
+      "transition_families": [
+        "active_success",
+        "success_invalidation",
+        "interruption_recovery",
+        "overlay_unknown",
+        "unattended_command",
+        "process_loss",
+        "turn_anchor_loss",
+        "restart_recovery",
+        "downstream_admission"
+      ],
+      "operations": [
+        {
+          "number": 1,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read README.md only. Do not edit files. Reply exactly ST05-A BOLTONS`",
+          "engineering_checkpoint": "Worktree remains clean",
+          "tracker_checkpoint": "Active then success"
+        },
+        {
+          "number": 2,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Read pyproject.toml and report the minimum Python version. End with ST05-B`",
+          "engineering_checkpoint": "Draft visible; no tools started yet",
+          "tracker_checkpoint": "Success clears under new draft authority"
+        },
+        {
+          "number": 3,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Response includes `>=3.7` and `ST05-B`",
+          "tracker_checkpoint": "Active then one success"
+        },
+        {
+          "number": 4,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read every Python file directly under boltons/ and produce at least 35 numbered bullets mapping modules to representative public symbols. Do not edit files. End with ST05-C`",
+          "engineering_checkpoint": "Broad read-only traversal begins",
+          "tracker_checkpoint": "Active turn"
+        },
+        {
+          "number": 5,
+          "kind": "send_keys",
+          "instruction": "After the first visible response line while active, press `Ctrl+C` once",
+          "engineering_checkpoint": "Worktree remains clean",
+          "tracker_checkpoint": "One interrupted outcome"
+        },
+        {
+          "number": 6,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Run git status --short. Do not edit files. Reply exactly ST05-D CLEAN if the output is empty.`",
+          "engineering_checkpoint": "Recovery draft visible",
+          "tracker_checkpoint": "Interruption clears"
+        },
+        {
+          "number": 7,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Response contains `ST05-D CLEAN`",
+          "tracker_checkpoint": "Active then success"
+        },
+        {
+          "number": 8,
+          "kind": "type_text",
+          "instruction": "Type `/` without submitting",
+          "engineering_checkpoint": "Slash menu appears",
+          "tracker_checkpoint": "Unknown/modal without outcome"
+        },
+        {
+          "number": 9,
+          "kind": "send_keys",
+          "instruction": "Press `Escape`",
+          "engineering_checkpoint": "Slash menu closes",
+          "tracker_checkpoint": "Ready returns"
+        },
+        {
+          "number": 10,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Use terminal tools now. Create houmao_artifacts/st05.txt with exactly the line 'boltons long horizon state'. Modify no other file. End with ST05-E.`",
+          "engineering_checkpoint": "File exists with exact one-line content",
+          "tracker_checkpoint": "Tool turn completes without confirmation"
+        },
+        {
+          "number": 11,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read houmao_artifacts/st05.txt and run sha256sum on it. Do not edit files. Reply with its exact content, the digest, and ST05-E-READ.`",
+          "engineering_checkpoint": "Visible content and digest match file",
+          "tracker_checkpoint": "Fresh active turn; one success"
+        },
+        {
+          "number": 12,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read boltons/fileutils.py, boltons/iterutils.py, boltons/strutils.py, and their tests. Do not edit files. Produce 25 numbered comparison bullets and end with ST05-F.`",
+          "engineering_checkpoint": "Long read-only analysis begins",
+          "tracker_checkpoint": "Active turn with fresh authority"
+        },
+        {
+          "number": 13,
+          "kind": "type_text",
+          "instruction": "While operation 12 is active, type without submitting: `Steer: put atomic_save, pairwise, windowed, parse_int_list, and human_readable_list in the first five bullets.`",
+          "engineering_checkpoint": "Steering draft visible",
+          "tracker_checkpoint": "Active/editing overlap where supported"
+        },
+        {
+          "number": 14,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for final ready",
+          "engineering_checkpoint": "Steer is accepted; no files change",
+          "tracker_checkpoint": "Still active, then exactly one success"
+        },
+        {
+          "number": 15,
+          "kind": "type_text",
+          "instruction": "Type without submitting: `{{SAFE}} Run python -m pytest -q tests/test_fileutils.py tests/test_iterutils.py tests/test_strutils.py. Report the exit status and end with ST05-G.`",
+          "engineering_checkpoint": "Draft visible; tests not started yet",
+          "tracker_checkpoint": "Prior success clears"
+        },
+        {
+          "number": 16,
+          "kind": "send_keys",
+          "instruction": "Press `Ctrl+U`",
+          "engineering_checkpoint": "Editor becomes empty",
+          "tracker_checkpoint": "Ready/non-editing; no terminal outcome"
+        },
+        {
+          "number": 17,
+          "kind": "repeat_operation",
+          "instruction": "Retype operation 15 exactly",
+          "engineering_checkpoint": "Draft restored byte-for-byte",
+          "tracker_checkpoint": "Editing authority reacquired"
+        },
+        {
+          "number": 18,
+          "kind": "send_keys",
+          "instruction": "Press `Enter` and wait for ready",
+          "engineering_checkpoint": "Targeted tests exit zero and response ends `ST05-G`",
+          "tracker_checkpoint": "Active then one success"
+        },
+        {
+          "number": 19,
+          "kind": "send_keys",
+          "instruction": "At the empty ready editor, press `Ctrl+D` once",
+          "engineering_checkpoint": "Provider exits to the owned shell; copied project remains",
+          "tracker_checkpoint": "`tui_down`; old turn anchor absent or lost; no stale admission"
+        },
+        {
+          "number": 20,
+          "kind": "restart_provider",
+          "instruction": "At the shell prompt, send expanded `{{LAUNCH_COMMAND}}` followed by `Enter`",
+          "engineering_checkpoint": "Same provider restarts in same pane and working directory without a prompt",
+          "tracker_checkpoint": "Conservative startup/unknown then ready; old success not resurrected"
+        },
+        {
+          "number": 21,
+          "kind": "submit_text",
+          "instruction": "Submit: `{{SAFE}} Read houmao_artifacts/st05.txt. Do not edit files. Reply exactly ST05-H boltons long horizon state`",
+          "engineering_checkpoint": "Restarted process reads the pre-restart artifact",
+          "tracker_checkpoint": "Fresh authority, active, then one success"
+        }
+      ]
+    }
+  ]
+}

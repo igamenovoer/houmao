@@ -81,7 +81,7 @@ def test_top_level_credentials_is_hidden_and_native_help_mentions_supported_tool
     assert group_result.exit_code == 0
     assert "claude" in group_result.output
     assert "codex" in group_result.output
-    assert "gemini" in group_result.output
+    assert "kimi" in group_result.output
 
     tool_result = CliRunner().invoke(
         cli, ["internals", "native-agent", "credentials", "codex", "--help"]
@@ -280,96 +280,6 @@ printf '{"hasCompletedOnboarding": true}\\n' > "$CLAUDE_CONFIG_DIR/.claude.json"
     }
 
 
-def test_credentials_gemini_login_requires_update_for_existing_direct_credential(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    runner = CliRunner()
-    agent_def_dir = _copy_agent_def_fixture(tmp_path)
-    bin_dir = (tmp_path / "bin").resolve()
-    record_dir = (tmp_path / "records").resolve()
-    bin_dir.mkdir()
-    record_dir.mkdir()
-    _write_fake_provider_bin(
-        bin_dir,
-        name="gemini",
-        body="""
-printf '%s\\n' "$GEMINI_CLI_HOME" > "$RECORD_DIR/gemini.home"
-if [ -f "$GEMINI_CLI_HOME/.gemini/settings.json" ]; then printf present > "$RECORD_DIR/gemini_settings"; fi
-if [ "${GEMINI_API_KEY+x}" = x ]; then printf present > "$RECORD_DIR/gemini_api_key"; fi
-if [ "${NO_BROWSER:-}" = true ]; then printf true > "$RECORD_DIR/no_browser"; fi
-printf '{"refresh_token": "gemini-token"}\\n' > "$GEMINI_CLI_HOME/.gemini/oauth_creds.json"
-""",
-    )
-    monkeypatch.chdir(tmp_path)
-    env = _provider_env(
-        bin_dir=bin_dir,
-        record_dir=record_dir,
-        extra={"GEMINI_API_KEY": "old-key"},
-    )
-
-    add_result = runner.invoke(
-        cli,
-        [
-            "internals",
-            "native-agent",
-            "credentials",
-            "gemini",
-            "login",
-            "--native-agent-root",
-            str(agent_def_dir),
-            "--name",
-            "personal",
-        ],
-        env=env,
-    )
-    assert add_result.exit_code == 0, add_result.output
-    assert not (record_dir / "gemini_api_key").exists()
-    assert (record_dir / "gemini_settings").read_text(encoding="utf-8") == "present"
-
-    duplicate_result = runner.invoke(
-        cli,
-        [
-            "internals",
-            "native-agent",
-            "credentials",
-            "gemini",
-            "login",
-            "--native-agent-root",
-            str(agent_def_dir),
-            "--name",
-            "personal",
-        ],
-        env=env,
-    )
-    assert duplicate_result.exit_code != 0
-    assert "--update" in duplicate_result.output
-
-    update_result = runner.invoke(
-        cli,
-        [
-            "internals",
-            "native-agent",
-            "credentials",
-            "gemini",
-            "login",
-            "--native-agent-root",
-            str(agent_def_dir),
-            "--name",
-            "personal",
-            "--update",
-            "--keep-temp-home",
-            "--no-browser",
-        ],
-        env=env,
-    )
-    assert update_result.exit_code == 0, update_result.output
-    update_payload = json.loads(update_result.output)
-    assert update_payload["operation"] == "set"
-    assert Path(update_payload["login"]["temp_home"]).is_dir()
-    assert (record_dir / "no_browser").read_text(encoding="utf-8") == "true"
-
-
 def test_credentials_login_failures_preserve_temp_home(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -468,7 +378,7 @@ def test_credentials_fail_clearly_without_resolvable_target(
     repo_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(repo_root)
 
-    result = runner.invoke(cli, ["internals", "native-agent", "credentials", "gemini", "list"])
+    result = runner.invoke(cli, ["internals", "native-agent", "credentials", "kimi", "list"])
 
     assert result.exit_code != 0
     assert NATIVE_AGENT_ROOT_ENV_VAR in result.output

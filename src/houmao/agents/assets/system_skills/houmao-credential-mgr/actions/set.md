@@ -14,7 +14,7 @@ Use this action only when the user wants to update one existing credential.
 
 ## Required Inputs
 
-- `tool`: one of `claude`, `codex`, `kimi`, or `gemini`
+- `tool`: one of `claude`, `codex`, or `kimi`
 - `name`
 - a resolved target
 - at least one supported change:
@@ -40,4 +40,4 @@ Use the selected tool's credential-kind reference for supported update and clear
 - Do not dump raw secret values while explaining the update result.
 - Do not use `set` when the requested change is only to repoint a reusable project profile or native launch dossier at a different credential name.
 - Do not route update requests through `add` or direct file editing when `set` is the supported patch-style surface.
-- Do not duplicate unsupported Claude/Codex/Gemini/Kimi options; use the selected tool reference before choosing update or clear flags.
+- Do not duplicate unsupported Claude/Codex/Kimi options; use the selected tool reference before choosing update or clear flags.

@@ -1,0 +1,65 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: startup surface incomplete"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "unknown"
+      },
+      "label_id": "startup-unknown",
+      "note": null,
+      "sample_end_id": "s000016",
+      "sample_id": "s000001",
+      "scenario_id": "uc05-codex"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: complete prompt without queued-follow-up block"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "no"
+      },
+      "label_id": "ready-no-pending",
+      "note": null,
+      "sample_end_id": null,
+      "sample_id": "s000017",
+      "scenario_id": "uc05-codex"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: bounded queued-follow-up block and arrow row"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "yes"
+      },
+      "label_id": "pending-span",
+      "note": null,
+      "sample_end_id": "s000169",
+      "sample_id": "s000018",
+      "scenario_id": "uc05-codex"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: queued block disappears after consumption; final prompt is empty"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "no"
+      },
+      "label_id": "pending-consumed",
+      "note": null,
+      "sample_end_id": "s001050",
+      "sample_id": "s000170",
+      "scenario_id": "uc05-codex"
+    }
+  ],
+  "schema_version": 1
+}
