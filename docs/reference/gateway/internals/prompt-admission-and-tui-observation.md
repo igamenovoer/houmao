@@ -17,7 +17,7 @@ sequenceDiagram
     participant TR as Houmao Tracker
     participant GW as Gateway
     CLI->>TUI: Stream a long response
-    TUI->>TR: Output changes; surface is unstable
+    TUI->>TR: Output changes and surface is unstable
     Note over GW: ready-only remains closed
     CLI-->>TUI: Busy but visually quiet
     TUI->>TR: Empty composer, no recognized activity

@@ -45,18 +45,18 @@ sequenceDiagram
     participant Req as Register<br/>request
     participant Scr as register_mailbox.py
     participant DB as index.sqlite
-    participant Box as mailboxes/<address>
+    participant Mbx as mailboxes/<address>
     Req->>Scr: mode=safe|force|stash
     Scr->>DB: load active or occupying<br/>registration
     alt safe and matching
         Scr-->>Req: reuse existing active<br/>registration
     else force replace
         Scr->>DB: mark old inactive and<br/>purge registration state
-        Scr->>Box: replace active artifact
+        Scr->>Mbx: replace active artifact
         Scr->>DB: insert new active registration
         Scr-->>Req: replaced_registration_id
     else stash replace
-        Scr->>Box: rename old artifact to<br/><address>--<uuid4hex>
+        Scr->>Mbx: rename old artifact to<br/><address>--<uuid4hex>
         Scr->>DB: mark old registration stashed
         Scr->>DB: insert new active registration
         Scr-->>Req: stashed_registration_id
@@ -88,7 +88,7 @@ sequenceDiagram
     participant Req as Deregister<br/>request
     participant Scr as deregister_mailbox.py
     participant DB as index.sqlite
-    participant Box as mailbox artifact
+    participant Mbx as mailbox artifact
     Req->>Scr: mode=deactivate|purge
     Scr->>DB: load active registration
     alt deactivate
@@ -96,7 +96,7 @@ sequenceDiagram
         Scr-->>Req: resulting_status=inactive
     else purge
         Scr->>DB: remove registration-scoped<br/>state and registration row
-        Scr->>Box: remove shared-root entry
+        Scr->>Mbx: remove shared-root entry
         Scr-->>Req: resulting_status=purged
     end
 ```
