@@ -115,6 +115,7 @@ class LiveStateSample:
     surface_accepting_input: Tristate
     surface_editing_input: Tristate
     surface_ready_posture: Tristate
+    surface_pending_input: Tristate
     turn_phase: TurnPhase
     last_turn_result: LastTurnResult
     last_turn_source: LastTurnSource

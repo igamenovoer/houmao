@@ -45,6 +45,7 @@ from houmao.shared_tui_tracking.models import (
     ParsedSurfaceContext,
     RecentProfileFrame,
     TemporalHintSignals,
+    Tristate,
 )
 from houmao.shared_tui_tracking.surface import SurfaceView
 
@@ -85,7 +86,7 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
         detector_version: str,
         prompt_behavior_variant: CodexPromptBehaviorVariant,
         include_collaboration_cells: bool = False,
-        include_queued_follow_up: bool = False,
+        include_queued_follow_up: bool = True,
         temporal_growth_requires_prior_activity: bool = False,
         infer_silent_interruption: bool = False,
         profile_notes: tuple[str, ...] = (),
@@ -232,12 +233,20 @@ class _BaseCodexTuiSignalDetector(BaseTrackedTurnSignalDetector):
             or activity.active_evidence
             or interrupted
         )
+        pending_input: Tristate
+        if activity.pending_input_visible:
+            pending_input = "yes"
+        elif surface_fresh and prompt_snapshot.prompt_visible and not blocking_overlay:
+            pending_input = "no"
+        else:
+            pending_input = "unknown"
         return DetectedTurnSignals(
             detector_name="codex_tui",
             detector_version=self.detector_version,
             accepting_input=accepting_input,
             editing_input=editing_input,
             ready_posture=ready_posture,
+            pending_input=pending_input,
             prompt_visible=prompt_snapshot.prompt_visible,
             prompt_text=prompt_classification.prompt_text,
             footer_interruptable=activity.active_status_row_visible,

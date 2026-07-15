@@ -73,6 +73,7 @@ class TrackedStateSnapshot:
     surface_accepting_input: Tristate
     surface_editing_input: Tristate
     surface_ready_posture: Tristate
+    surface_pending_input: Tristate
     turn_phase: TurnPhase
     last_turn_result: TrackedLastTurnResult
     last_turn_source: TrackedLastTurnSource
@@ -105,6 +106,7 @@ class TrackedStateTransition:
     surface_accepting_input: Tristate
     surface_editing_input: Tristate
     surface_ready_posture: Tristate
+    surface_pending_input: Tristate
     turn_phase: TurnPhase
     last_turn_result: TrackedLastTurnResult
     last_turn_source: TrackedLastTurnSource
@@ -201,6 +203,7 @@ class DetectedTurnSignals:
     accepting_input: Tristate
     editing_input: Tristate
     ready_posture: Tristate
+    pending_input: Tristate
     prompt_visible: bool
     prompt_text: str | None
     footer_interruptable: bool
@@ -232,6 +235,7 @@ class TemporalHintSignals:
     accepting_input: Tristate | None = None
     editing_input: Tristate | None = None
     ready_posture: Tristate | None = None
+    pending_input: Tristate | None = None
     active_evidence: bool | None = None
     active_reasons: tuple[str, ...] = ()
     interrupted: bool | None = None
@@ -266,6 +270,7 @@ class TrackedTimelineState:
     surface_accepting_input: Tristate
     surface_editing_input: Tristate
     surface_ready_posture: Tristate
+    surface_pending_input: Tristate
     turn_phase: TurnPhase
     last_turn_result: TrackedLastTurnResult
     last_turn_source: TrackedLastTurnSource
@@ -294,6 +299,7 @@ class TrackedTimelineState:
             surface_accepting_input=cast(Tristate, str(payload["surface_accepting_input"])),
             surface_editing_input=cast(Tristate, str(payload["surface_editing_input"])),
             surface_ready_posture=cast(Tristate, str(payload["surface_ready_posture"])),
+            surface_pending_input=cast(Tristate, str(payload["surface_pending_input"])),
             turn_phase=cast(TurnPhase, str(payload["turn_phase"])),
             last_turn_result=cast(TrackedLastTurnResult, str(payload["last_turn_result"])),
             last_turn_source=cast(TrackedLastTurnSource, str(payload["last_turn_source"])),

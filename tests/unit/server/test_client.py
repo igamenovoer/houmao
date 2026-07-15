@@ -103,6 +103,7 @@ def test_terminal_state_parses_simplified_tracked_state_contract(monkeypatch) ->
             "accepting_input": "yes",
             "editing_input": "no",
             "ready_posture": "yes",
+            "pending_input": "no",
         },
         "turn": {"phase": "ready"},
         "last_turn": {
@@ -485,13 +486,16 @@ def test_submit_managed_agent_gateway_request_posts_typed_json_body(monkeypatch)
 
 def test_control_managed_agent_gateway_prompt_posts_typed_json_body(monkeypatch) -> None:
     client = HoumaoServerClient("http://127.0.0.1:9889")
-    request_model = HoumaoManagedAgentGatewayPromptControlRequest(prompt="hello", force=True)
+    request_model = HoumaoManagedAgentGatewayPromptControlRequest(
+        prompt="hello",
+        admission_policy="always",
+    )
     recorded: dict[str, object] = {}
     response_payload = {
         "status": "ok",
         "action": "submit_prompt",
         "sent": True,
-        "forced": True,
+        "admission_policy": "always",
         "detail": "Prompt dispatched.",
     }
 
@@ -1359,6 +1363,7 @@ def test_houmao_server_client_gateway_tui_routes(monkeypatch) -> None:
             "accepting_input": "yes",
             "editing_input": "no",
             "ready_posture": "yes",
+            "pending_input": "no",
         },
         "turn": {"phase": "ready"},
         "last_turn": {"result": "none", "source": "none", "updated_at_utc": None},

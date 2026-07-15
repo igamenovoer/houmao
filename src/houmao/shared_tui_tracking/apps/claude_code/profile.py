@@ -12,6 +12,9 @@ from houmao.shared_tui_tracking.apps.claude_code.signals.prompt_behavior import 
     build_prompt_area_snapshot,
     prompt_behavior_notes,
 )
+from houmao.shared_tui_tracking.apps.claude_code.signals.pending_input import (
+    pending_input_state,
+)
 
 from houmao.shared_tui_tracking.detectors import BaseVersionedClaudeDetector
 from houmao.shared_tui_tracking.models import DetectedTurnSignals, ParsedSurfaceContext, Tristate
@@ -193,6 +196,7 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
             prompt_visible=prompt_visible,
             prompt_kind=prompt_classification.kind,
         )
+        pending_input = pending_input_state(surface=surface, composer=prompt_snapshot)
         if ambiguous_interactive_surface:
             ready_posture = "unknown"
         if active_evidence:
@@ -212,6 +216,7 @@ class _BaseClaudeCodeSignalDetector(BaseVersionedClaudeDetector):
             accepting_input=accepting_input,
             editing_input=editing_input,
             ready_posture=ready_posture,
+            pending_input=pending_input,
             prompt_visible=prompt_visible,
             prompt_text=prompt_text,
             footer_interruptable=footer_interruptable,

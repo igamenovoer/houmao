@@ -16,7 +16,7 @@ If the requested composition is not supported by the maintained renderer, use th
 | Mode | Required Inputs | Allowed Before Label Freeze | Required Panels |
 | --- | --- | --- | --- |
 | `blind` | Frozen source snapshots | Yes | terminal, source sample ID, elapsed time; no tracker or GT |
-| `ground-truth` | Frozen source plus frozen labels | No | terminal plus all seven GT fields and GT transition marker |
+| `ground-truth` | Frozen source plus frozen labels | No | terminal plus all eight GT fields and GT transition marker |
 | `detector-comparison` | Frozen source, GT timeline, replay timeline, comparison | No | terminal, GT, current replay, mismatch/admission marker |
 
 Never call a ground-truth or detector-comparison video blind.

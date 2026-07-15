@@ -409,6 +409,7 @@ class AgentTuiObserver:
             accepting_input=snap.surface_accepting_input,
             editing_input=snap.surface_editing_input,
             ready_posture=snap.surface_ready_posture,
+            pending_input=snap.surface_pending_input,
         )
 
     @staticmethod
@@ -445,6 +446,7 @@ class AgentTuiObserver:
                     process_state=self.m_process_state,
                     parse_status=self.m_parse_status,
                 ),
+                surface_pending_input=event.surface_pending_input,
                 turn_phase=event.turn_phase,
                 last_turn_result=event.last_turn_result,
                 last_turn_source=event.last_turn_source,

@@ -1,0 +1,65 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: startup surface incomplete"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "unknown"
+      },
+      "label_id": "startup-unknown",
+      "note": null,
+      "sample_end_id": "s000017",
+      "sample_id": "s000001",
+      "scenario_id": "uc05-kimi"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: complete Kimi editor with no queued row"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "no"
+      },
+      "label_id": "no-pending-before",
+      "note": null,
+      "sample_end_id": "s000085",
+      "sample_id": "s000018",
+      "scenario_id": "uc05-kimi"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: submitted queued row and edit/steer hint below composer region"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "yes"
+      },
+      "label_id": "pending-span",
+      "note": null,
+      "sample_end_id": "s001015",
+      "sample_id": "s000086",
+      "scenario_id": "uc05-kimi"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: queued row consumed; final complete editor has no queue"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "no"
+      },
+      "label_id": "pending-consumed",
+      "note": null,
+      "sample_end_id": "s001038",
+      "sample_id": "s001016",
+      "scenario_id": "uc05-kimi"
+    }
+  ],
+  "schema_version": 1
+}

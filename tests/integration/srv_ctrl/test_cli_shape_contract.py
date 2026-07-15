@@ -280,6 +280,7 @@ class _FakeSingleSessionTrackingRuntime:
                 accepting_input="yes",
                 editing_input="no",
                 ready_posture="yes",
+                pending_input="no",
             ),
             turn=HoumaoTrackedTurn(phase="ready"),
             last_turn=HoumaoTrackedLastTurn(
@@ -308,6 +309,7 @@ class _FakeSingleSessionTrackingRuntime:
                     recorded_at_utc="2026-01-01T00:00:00+00:00",
                     summary="ready",
                     diagnostics_availability="available",
+                    surface_pending_input="no",
                     turn_phase="ready",
                     last_turn_result="none",
                     last_turn_source="none",

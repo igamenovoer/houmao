@@ -1196,8 +1196,19 @@ def test_agents_gateway_send_keys_with_explicit_selector_forwards_options(
     assert json.loads(result.output) == {"status": "ok", "detail": "delivered"}
 
 
-def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
+@pytest.mark.parametrize(
+    ("policy_args", "expected_policy"),
+    [
+        ([], "ready_only"),
+        (["--admission-policy", "ready-only"], "ready_only"),
+        (["--admission-policy", "if-no-pending"], "if_no_pending"),
+        (["--admission-policy", "always"], "always"),
+    ],
+)
+def test_agents_gateway_prompt_forwards_admission_policy(
     monkeypatch: pytest.MonkeyPatch,
+    policy_args: list[str],
+    expected_policy: str,
 ) -> None:
     captured: dict[str, object] = {}
     target = SimpleNamespace(agent_ref="published-alpha")
@@ -1208,17 +1219,21 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_prompt",
-        lambda resolved_target, *, prompt, force, model=None, reasoning_level=None: (
+        lambda resolved_target, *, prompt, admission_policy, model=None, reasoning_level=None: (
             captured.update(
                 {
                     "target": resolved_target,
                     "prompt": prompt,
-                    "force": force,
+                    "admission_policy": admission_policy,
                     "model": model,
                     "reasoning_level": reasoning_level,
                 }
             )
-            or {"status": "ok", "sent": True, "forced": force}
+            or {
+                "status": "ok",
+                "sent": True,
+                "admission_policy": admission_policy,
+            }
         ),
     )
 
@@ -1235,7 +1250,7 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
             "9889",
             "--prompt",
             "hello",
-            "--force",
+            *policy_args,
         ],
     )
 
@@ -1247,10 +1262,34 @@ def test_agents_gateway_prompt_with_explicit_selector_forwards_force_flag(
     }
     assert captured["target"] is target
     assert captured["prompt"] == "hello"
-    assert captured["force"] is True
+    assert captured["admission_policy"] == expected_policy
     assert captured["model"] is None
     assert captured["reasoning_level"] is None
-    assert json.loads(result.output) == {"status": "ok", "sent": True, "forced": True}
+    assert json.loads(result.output) == {
+        "status": "ok",
+        "sent": True,
+        "admission_policy": expected_policy,
+    }
+
+
+def test_agents_gateway_prompt_rejects_removed_force_option() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "single",
+            "--agent-name",
+            "gpu",
+            "gateway",
+            "prompt",
+            "--prompt",
+            "hello",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "No such option: --force" in result.output
 
 
 def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
@@ -1267,7 +1306,7 @@ def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             GatewayPromptControlCliError(
                 GatewayPromptControlErrorV1(
-                    forced=False,
+                    admission_policy="ready_only",
                     error_code="not_ready",
                     detail="Gateway prompt rejected because the TUI is not submit-ready.",
                 )
@@ -1294,7 +1333,7 @@ def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
         "action": "submit_prompt",
         "detail": "Gateway prompt rejected because the TUI is not submit-ready.",
         "error_code": "not_ready",
-        "forced": False,
+        "admission_policy": "ready_only",
         "sent": False,
         "status": "error",
     }
@@ -1779,7 +1818,8 @@ def test_agents_gateway_tui_state_inside_tmux_uses_current_session_resolution(
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.gateway_tui_state",
         lambda resolved_target: (
-            captured.update({"target": resolved_target}) or {"terminal_id": "term-123"}
+            captured.update({"target": resolved_target})
+            or {"terminal_id": "term-123", "surface": {"pending_input": "yes"}}
         ),
     )
 
@@ -1788,7 +1828,10 @@ def test_agents_gateway_tui_state_inside_tmux_uses_current_session_resolution(
     assert result.exit_code == 0, result.output
     assert captured["session_name"] is None
     assert captured["target"] is target
-    assert json.loads(result.output) == {"terminal_id": "term-123"}
+    assert json.loads(result.output) == {
+        "terminal_id": "term-123",
+        "surface": {"pending_input": "yes"},
+    }
 
 
 def test_agents_gateway_tui_note_prompt_forwards_prompt(
@@ -1844,7 +1887,11 @@ def test_agents_gateway_tui_watch_emits_polled_state_until_interrupted(
     class _WatchedState:
         def model_dump(self, mode: str = "json") -> dict[str, object]:
             assert mode == "json"
-            return {"terminal_id": "term-123", "turn": {"phase": "ready"}}
+            return {
+                "terminal_id": "term-123",
+                "surface": {"pending_input": "no"},
+                "turn": {"phase": "ready"},
+            }
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
@@ -1883,6 +1930,7 @@ def test_agents_gateway_tui_watch_emits_polled_state_until_interrupted(
     assert captured["target"] is target
     assert json.loads(result.output.strip()) == {
         "terminal_id": "term-123",
+        "surface": {"pending_input": "no"},
         "turn": {"phase": "ready"},
     }
 

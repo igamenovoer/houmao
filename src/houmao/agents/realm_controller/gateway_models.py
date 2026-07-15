@@ -51,6 +51,7 @@ GatewayAdmissionState = Literal[
 ]
 GatewaySurfaceEligibilityState = Literal["ready", "unknown", "not_ready"]
 GatewayExecutionState = Literal["idle", "running"]
+GatewayPromptAdmissionPolicy = Literal["ready_only", "if_no_pending", "always"]
 GatewayCurrentExecutionMode = Literal["detached_process", "tmux_auxiliary_window"]
 GatewayStoredRequestState = Literal[
     "accepted",
@@ -79,7 +80,7 @@ GATEWAY_STATE_SCHEMA_VERSION = 1
 GATEWAY_DESIRED_CONFIG_SCHEMA_VERSION = 1
 GATEWAY_CURRENT_INSTANCE_SCHEMA_VERSION = 1
 GATEWAY_REQUEST_SCHEMA_VERSION = 1
-GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 1
+GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION = 2
 GATEWAY_NEXT_PROMPT_SESSION_SCHEMA_VERSION = 1
 GATEWAY_REMINDER_SCHEMA_VERSION = 1
 GATEWAY_MAIL_NOTIFIER_SCHEMA_VERSION = 1
@@ -1014,7 +1015,7 @@ class GatewayPromptControlRequestV1(_StrictGatewayModel):
 
     schema_version: int = Field(default=GATEWAY_PROMPT_CONTROL_SCHEMA_VERSION)
     prompt: str
-    force: bool = False
+    admission_policy: GatewayPromptAdmissionPolicy = "ready_only"
     chat_session: GatewayChatSessionSelectorV1 | None = None
     execution: GatewayExecutionOverrideV1 | None = None
 
@@ -1042,7 +1043,7 @@ class GatewayPromptControlResultV1(_StrictGatewayModel):
     status: Literal["ok"] = "ok"
     action: Literal["submit_prompt"] = "submit_prompt"
     sent: Literal[True] = True
-    forced: bool
+    admission_policy: GatewayPromptAdmissionPolicy
     detail: str
 
     @field_validator("detail")
@@ -1076,7 +1077,7 @@ class GatewayPromptControlErrorV1(_StrictGatewayModel):
     status: Literal["error"] = "error"
     action: Literal["submit_prompt"] = "submit_prompt"
     sent: Literal[False] = False
-    forced: bool
+    admission_policy: GatewayPromptAdmissionPolicy
     error_code: str
     detail: str
 

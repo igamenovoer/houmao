@@ -86,6 +86,7 @@ def classify_groundtruth(
                 surface_accepting_input=getattr(signals, "accepting_input"),
                 surface_editing_input=getattr(signals, "editing_input"),
                 surface_ready_posture=getattr(signals, "ready_posture"),
+                surface_pending_input=getattr(signals, "pending_input"),
                 turn_phase=row.phase,
                 last_turn_result=last_result,
                 last_turn_source=last_source,

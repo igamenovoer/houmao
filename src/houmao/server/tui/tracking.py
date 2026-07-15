@@ -218,6 +218,7 @@ class LiveSessionTracker:
                             accepting_input=tracker_state.surface_accepting_input,
                             editing_input=tracker_state.surface_editing_input,
                             ready_posture=tracker_state.surface_ready_posture,
+                            pending_input=tracker_state.surface_pending_input,
                         ),
                         "turn": HoumaoTrackedTurn(phase=tracker_state.turn_phase),
                         "last_turn": HoumaoTrackedLastTurn(
@@ -426,6 +427,7 @@ class LiveSessionTracker:
                         accepting_input=tracker_state.surface_accepting_input,
                         editing_input=tracker_state.surface_editing_input,
                         ready_posture=tracker_state.surface_ready_posture,
+                        pending_input=tracker_state.surface_pending_input,
                     ),
                     "turn": HoumaoTrackedTurn(phase=tracker_state.turn_phase),
                     "last_turn": _build_tracker_last_turn(
@@ -606,6 +608,7 @@ class LiveSessionTracker:
                 accepting_input=tracker_state.surface_accepting_input,
                 editing_input=tracker_state.surface_editing_input,
                 ready_posture=tracker_state.surface_ready_posture,
+                pending_input=tracker_state.surface_pending_input,
             )
             last_turn = _build_tracker_last_turn(
                 previous=self.m_last_state.last_turn,
@@ -1389,6 +1392,7 @@ def _build_initial_state(
             accepting_input="unknown",
             editing_input="unknown",
             ready_posture="unknown",
+            pending_input="unknown",
         ),
         turn=HoumaoTrackedTurn(phase="unknown"),
         last_turn=HoumaoTrackedLastTurn(
@@ -1597,6 +1601,11 @@ def _build_transition(
             previous.surface.ready_posture,
             current.surface.ready_posture,
         ),
+        (
+            "surface_pending_input",
+            previous.surface.pending_input,
+            current.surface.pending_input,
+        ),
         ("turn_phase", previous.turn.phase, current.turn.phase),
         ("last_turn_result", previous.last_turn.result, current.last_turn.result),
         ("last_turn_source", previous.last_turn.source, current.last_turn.source),
@@ -1639,6 +1648,7 @@ def _build_transition(
         summary=summary,
         changed_fields=list(changed_fields),
         diagnostics_availability=current.diagnostics.availability,
+        surface_pending_input=current.surface.pending_input,
         turn_phase=current.turn.phase,
         last_turn_result=current.last_turn.result,
         last_turn_source=current.last_turn.source,

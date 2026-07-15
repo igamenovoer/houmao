@@ -36,6 +36,7 @@ class FallbackTrackedTurnSignalDetector(BaseTrackedTurnSignalDetector):
             accepting_input=accepting_input,
             editing_input=editing_input,
             ready_posture=ready_posture,
+            pending_input="unknown",
             prompt_visible=False,
             prompt_text=None,
             footer_interruptable=False,

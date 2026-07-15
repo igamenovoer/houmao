@@ -114,6 +114,33 @@ _CLAUDE_CURRENT_SPINNER_READY_SURFACE = (
     "────────────────────────────────────────────────────────────────\n"
     "  ⏵⏵ bypass permissions on (shift+tab to cycle)\n"
 )
+_CLAUDE_RULE = "────────────────────────────────────────────────────────────────"
+_CLAUDE_QUEUED_STYLE = "\x1b[38;5;239m\x1b[48;5;237m❯ \x1b[38;5;231m"
+_CLAUDE_GHOST_STYLE = "\x1b[38;5;246m❯ \x1b[7m\x1b[39mP\x1b[0;2m"
+
+
+def _claude_pending_surface(
+    *,
+    queued_lines: tuple[str, ...],
+    suggestion: str | None = "Press up to edit queued messages",
+    rule: str = _CLAUDE_RULE,
+) -> str:
+    """Build one bounded Claude busy composer with queued-preview rows."""
+
+    composer = "\x1b[39m❯\xa0\x1b[7m \x1b[0m"
+    if suggestion is not None:
+        composer = f"{_CLAUDE_GHOST_STYLE}{suggestion}\x1b[0m"
+    return (
+        "❯ Run the active task.\n\n"
+        "✢ Working…\n\n" + "\n".join(queued_lines) + f"\n{rule}\n{composer}\n{rule}\n"
+        "  ⏵⏵ bypass permissions on · esc to interrupt\n"
+    )
+
+
+def _queued_row(text: str, *, style: str = _CLAUDE_QUEUED_STYLE) -> str:
+    """Return one indented Claude queued-preview row."""
+
+    return f"  {style}{text}\x1b[39m\x1b[49m"
 
 
 def _claude_session(*, scheduler: TestScheduler) -> TuiTrackerSession:
@@ -138,6 +165,103 @@ def test_claude_startup_placeholder_prompt_does_not_count_as_editing() -> None:
     assert state.surface_ready_posture == "yes"
     assert state.surface_editing_input == "no"
     assert state.turn_phase == "ready"
+    assert state.surface_pending_input == "unknown"
+
+
+def test_claude_pending_input_uses_queued_row_not_suggestion_wording() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+
+    arbitrary = detector.detect(
+        output_text=_claude_pending_surface(
+            queued_lines=(_queued_row("Continue with the audit."),),
+            suggestion="Reprendre le message en attente",
+        )
+    )
+    empty_composer = detector.detect(
+        output_text=_claude_pending_surface(
+            queued_lines=(_queued_row("Continue with the audit."),),
+            suggestion=None,
+        )
+    )
+
+    assert arbitrary.pending_input == "yes"
+    assert empty_composer.pending_input == "yes"
+    assert (
+        FallbackClaudeDetector()
+        .detect(
+            output_text=_claude_pending_surface(
+                queued_lines=(_queued_row("Continue with the audit."),),
+            )
+        )
+        .pending_input
+        == "yes"
+    )
+
+
+def test_claude_pending_input_handles_multiple_wrapped_and_resized_rows() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+    multiple = _claude_pending_surface(
+        queued_lines=(
+            _queued_row("First follow-up."),
+            _queued_row("Second follow-up."),
+        )
+    )
+    wrapped = _claude_pending_surface(
+        queued_lines=(
+            _queued_row("Review the long wrapped follow-up and"),
+            "    continue checking its final clause.",
+        ),
+        rule="────────────────────────",
+    )
+
+    assert detector.detect(output_text=multiple).pending_input == "yes"
+    assert detector.detect(output_text=wrapped).pending_input == "yes"
+
+
+def test_claude_pending_input_allows_one_live_composer_spacer_but_not_two() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+    direct = _claude_pending_surface(
+        queued_lines=(_queued_row("Continue after the shell command."),)
+    )
+    one_spacer = direct.replace(f"\n{_CLAUDE_RULE}\n", f"\n\n{_CLAUDE_RULE}\n", 1)
+    two_spacers = direct.replace(f"\n{_CLAUDE_RULE}\n", f"\n\n\n{_CLAUDE_RULE}\n", 1)
+
+    assert detector.detect(output_text=one_spacer).pending_input == "yes"
+    assert detector.detect(output_text=two_spacers).pending_input == "no"
+
+
+def test_claude_pending_input_rejects_non_queue_lookalikes() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+    queue_prose = _claude_pending_surface(
+        queued_lines=("The transcript says Press up to edit queued messages.",)
+    )
+    separated_history = _claude_pending_surface(
+        queued_lines=(
+            _queued_row("Historical user cell."),
+            "● Later assistant output separates the old cell.",
+        )
+    )
+
+    assert (
+        detector.detect(output_text="\n" + _CLAUDE_GHOST_SUGGESTION_READY_SURFACE).pending_input
+        == "no"
+    )
+    assert detector.detect(output_text=queue_prose).pending_input == "no"
+    assert detector.detect(output_text=separated_history).pending_input == "no"
+    assert (
+        detector.detect(output_text="\n" + _CLAUDE_TYPED_DRAFT_READY_SURFACE).pending_input == "no"
+    )
+
+
+def test_claude_pending_input_degrades_cropped_or_unrecognized_structure() -> None:
+    detector = ClaudeCodeSignalDetectorV2_1_X()
+    cropped = "❯ composer without its frame\n"
+    unrecognized_style = _claude_pending_surface(
+        queued_lines=(_queued_row("Queued-looking row.", style="\x1b[4m❯ "),)
+    )
+
+    assert detector.detect(output_text=cropped).pending_input == "unknown"
+    assert detector.detect(output_text=unrecognized_style).pending_input == "unknown"
 
 
 def test_claude_ghost_suggestion_prompt_does_not_count_as_editing() -> None:

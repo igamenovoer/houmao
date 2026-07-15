@@ -55,6 +55,7 @@ class CodexActivitySignals:
     active_reasons: tuple[str, ...]
     steer_handoff: bool
     in_flight_tool_cell: bool
+    pending_input_visible: bool
 
 
 def detect_activity(
@@ -121,6 +122,7 @@ def detect_activity(
         active_reasons=tuple(dict.fromkeys(active_reasons)),
         steer_handoff=steer_handoff,
         in_flight_tool_cell=in_flight_tool_cell,
+        pending_input_visible=pending_input_prefix is not None,
     )
 
 

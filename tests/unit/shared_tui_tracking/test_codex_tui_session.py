@@ -815,6 +815,7 @@ def test_codex_0144_pending_steer_preserves_working_activity() -> None:
     assert "status_row" in signals.active_reasons
     assert "pending_input" in signals.active_reasons
     assert signals.ready_posture == "no"
+    assert signals.pending_input == "yes"
 
 
 def test_codex_0144_pending_steer_is_active_when_status_is_hidden() -> None:
@@ -825,6 +826,67 @@ def test_codex_0144_pending_steer_is_active_when_status_is_hidden() -> None:
     assert signals.active_evidence is True
     assert signals.active_reasons == ("pending_input",)
     assert signals.ready_posture == "no"
+    assert signals.pending_input == "yes"
+
+
+def test_codex_pending_input_handles_multiple_wrapped_items_and_consumption() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+    multiple = (
+        "› Produce the report.\n\n"
+        "• Working (3s • esc to interrupt)\n\n"
+        "• Queued follow-up inputs\n"
+        "  ↳ First queued instruction wraps across this line\n"
+        "    and continues on the next visible row.\n"
+        "  ↳ Second queued instruction.\n\n"
+        "› \n"
+    )
+
+    assert detector.detect(output_text=multiple).pending_input == "yes"
+    assert detector.detect(output_text=_CODEX_READY_SURFACE).pending_input == "no"
+
+
+def test_codex_pending_input_ignores_stale_queue_section_after_response() -> None:
+    detector = CodexTuiSignalDetectorV0_144_X()
+    stale = (
+        "• Queued follow-up inputs\n"
+        "  ↳ Old instruction.\n\n"
+        "• The old instruction was consumed and answered.\n\n"
+        "› \n"
+    )
+
+    assert detector.detect(output_text=stale).pending_input == "no"
+    assert detector.detect(output_text="").pending_input == "unknown"
+
+
+def test_codex_maintained_and_fallback_profiles_carry_pending_input() -> None:
+    for detector in (
+        CodexTuiSignalDetector(),
+        CodexTuiSignalDetectorV0_144_X(),
+        FallbackCodexTuiSignalDetector(),
+    ):
+        assert detector.detect(output_text=_CODEX_PENDING_STEER_SURFACE).pending_input == "yes"
+
+
+def test_codex_session_emits_pending_only_transitions_and_preserves_observation_authority() -> None:
+    scheduler = TestScheduler()
+    session = _codex_session(scheduler=scheduler)
+
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    assert session.current_state().surface_pending_input == "no"
+    session.drain_events()
+
+    session.on_snapshot(_CODEX_PENDING_STEER_SURFACE)
+    pending_events = session.drain_events()
+    assert session.current_state().surface_pending_input == "yes"
+    assert any(event.surface_pending_input == "yes" for event in pending_events)
+
+    session.on_snapshot(_CODEX_ACTIVE_SURFACE)
+    consumed_events = session.drain_events()
+    assert session.current_state().surface_pending_input == "no"
+    assert any(event.surface_pending_input == "no" for event in consumed_events)
+
+    session.on_input_submitted()
+    assert session.current_state().surface_pending_input == "no"
 
 
 def test_codex_0144_model_selector_is_blocking_overlay() -> None:

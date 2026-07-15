@@ -105,6 +105,7 @@ Frozen dataclass representing one row in the tracked state timeline produced by 
 | `surface_accepting_input` | `Tristate` | Whether the surface is accepting input |
 | `surface_editing_input` | `Tristate` | Whether the surface is in input-editing mode |
 | `surface_ready_posture` | `Tristate` | Whether the surface is in a ready/idle posture |
+| `surface_pending_input` | `Tristate` | Whether provider-native submitted input is waiting behind the active turn |
 | `turn_phase` | `TurnPhase` | Current turn phase at this point in the timeline |
 | `last_turn_result` | `TrackedLastTurnResult` | Result of the most recently completed turn |
 | `last_turn_source` | `TrackedLastTurnSource` | How the most recent turn was initiated |

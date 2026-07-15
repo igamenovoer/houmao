@@ -226,6 +226,20 @@ def prompt_behavior_notes(
     )
 
 
+def payload_uses_ghost_render_style(snapshot: PromptAreaSnapshot) -> bool | None:
+    """Return whether a prompt-like payload uses Claude's semantic ghost style.
+
+    ``None`` means the payload styling could not be classified.  The helper is
+    shared by composer suggestion and queued-preview detection so neither path
+    depends on the rendered suggestion wording.
+    """
+
+    render_state = _prompt_payload_render_state(snapshot)
+    if render_state is None:
+        return None
+    return render_state.all_ghost_suggestion
+
+
 def _prompt_payload_render_state(
     snapshot: PromptAreaSnapshot,
 ) -> _PromptPayloadRenderState | None:

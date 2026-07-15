@@ -3,7 +3,7 @@
 ## Workflow
 
 1. **Load and verify the evidence manifest.** Require matching recording and label digests plus a replay manifest with source mapping.
-2. **Run strict sample-aligned comparison for the canonical source.** Compare all seven public fields and ordered transitions.
+2. **Run strict sample-aligned comparison for the canonical source.** Compare all eight public fields and ordered transitions.
 3. **Run cadence-aware semantic comparison for each derived stream.** Measure source-mapped differences, admission safety, required transition order, terminal outcome, stuck-state behavior, and drift.
 4. **Classify divergences.** Separate sustained semantic errors from boundary quantization, omitted short states, missing diagnostics, and invalid evidence.
 5. **Write machine-readable and human-readable comparison artifacts.** Never rewrite labels or discard failing variants.
@@ -34,7 +34,7 @@ pixi run python -m tools.terminal_record validate \
 
 Do not use the surface-only validator for a runtime-state claim. Capture its JSON output under `<run-root>/comparison/source.json`. The hard canonical contract is:
 
-- every selected source sample matches all seven labeled fields
+- every selected source sample matches all eight labeled fields
 - sample IDs and time order align
 - public transition order matches
 - no false terminal result is manufactured

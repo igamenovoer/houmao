@@ -7,7 +7,15 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal, Sequence
 
 
-SamplingMode = Literal["regular", "jittered", "bursty", "gapped"]
+SamplingMode = Literal[
+    "regular",
+    "jitter",
+    "drop",
+    "burst",
+    "jittered",
+    "gapped",
+    "bursty",
+]
 
 
 @dataclass(frozen=True)
@@ -95,8 +103,15 @@ def derive_schedule_boundaries(
     while cursor < last_elapsed:
         if sampling_mode == "regular":
             multiplier = 1.0
-        elif sampling_mode == "jittered":
+        elif sampling_mode in {"jitter", "jittered"}:
             multiplier = rng.uniform(0.65, 1.35)
+        elif sampling_mode == "burst":
+            if step_index % 4 == 3:
+                multiplier = rng.uniform(2.6, 3.2)
+            else:
+                multiplier = rng.uniform(0.25, 0.45)
+        elif sampling_mode == "drop":
+            multiplier = rng.choice((1.0, 1.0, 1.0, 2.0, 3.0))
         elif sampling_mode == "bursty":
             multiplier = (0.35, 0.35, 0.35, 2.95)[step_index % 4]
         elif sampling_mode == "gapped":

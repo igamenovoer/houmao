@@ -122,6 +122,7 @@ from .gateway_models import (
     GatewayDiagnosticLoggingConfigV1,
     GatewayHost,
     GatewayJsonObject,
+    GatewayPromptAdmissionPolicy,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
@@ -1045,13 +1046,16 @@ class RuntimeSessionController:
         self,
         prompt: str,
         *,
-        force: bool = False,
+        admission_policy: GatewayPromptAdmissionPolicy = "ready_only",
     ) -> GatewayPromptControlResultV1:
         """Submit one prompt through the live gateway direct-control path."""
 
         return _submit_gateway_prompt_control_for_controller(
             self,
-            GatewayPromptControlRequestV1(prompt=prompt, force=force),
+            GatewayPromptControlRequestV1(
+                prompt=prompt,
+                admission_policy=admission_policy,
+            ),
         )
 
     def interrupt_via_gateway(self) -> GatewayAcceptedRequestV1:

@@ -162,6 +162,7 @@ Frozen dataclass representing a point-in-time snapshot of the tracked TUI state.
 | `surface_accepting_input` | `Tristate` | Whether the surface is accepting new input |
 | `surface_editing_input` | `Tristate` | Whether the surface is in an input-editing state |
 | `surface_ready_posture` | `Tristate` | Whether the detector judged the surface to be in a ready posture |
+| `surface_pending_input` | `Tristate` | Whether the provider TUI visibly holds submitted input behind the active turn |
 | `turn_phase` | `TurnPhase` | Current turn phase |
 | `last_turn_result` | `TrackedLastTurnResult` | Result of the last completed turn |
 | `last_turn_source` | `TrackedLastTurnSource` | How the last turn was initiated |
@@ -188,6 +189,7 @@ Frozen dataclass representing the raw signals extracted by a detector from a sin
 | `accepting_input` | `Tristate` | Whether the surface appears to accept input |
 | `editing_input` | `Tristate` | Whether the surface appears to be editing input |
 | `ready_posture` | `Tristate` | Whether the surface appears idle/ready in this one frame |
+| `pending_input` | `Tristate` | Whether provider-owned queue structure shows submitted input waiting behind the active turn |
 | `prompt_visible` | `bool` | Whether a prompt is visible on the surface |
 | `prompt_text` | `str \| None` | Extracted prompt text, if visible |
 | `footer_interruptable` | `bool` | Whether the footer indicates the agent can be interrupted |

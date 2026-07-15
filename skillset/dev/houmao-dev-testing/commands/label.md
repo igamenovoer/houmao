@@ -5,7 +5,7 @@
 1. **Verify blind-label admission.** Require a stopped, digested source recording and refuse to use any tracker-generated artifact.
 2. **Prepare tracker-free review material.** Use raw pane snapshots and `session.cast`, with sample IDs and elapsed time visible.
 3. **Segment the source timeline into complete, non-overlapping ranges.** Mark operation boundaries, surface changes, ambiguous spans, and settle boundaries.
-4. **Assign all seven public fields and evidence to every range.** Follow [../references/state-labeling.md](../references/state-labeling.md).
+4. **Assign all eight public fields and evidence to every range.** Follow [../references/state-labeling.md](../references/state-labeling.md).
 5. **Validate coverage and freeze the labels.** Resolve gaps, overlaps, reversed ranges, invalid values, and recording-digest mismatches before replay.
 6. **Record reviewer provenance and label digest.** State uncertainty in evidence notes; never consult current detector output to settle it.
 
@@ -48,13 +48,14 @@ pixi run python -m tools.terminal_record add-label \
   --surface-accepting-input "<yes|no|unknown>" \
   --surface-editing-input "<yes|no|unknown>" \
   --surface-ready-posture "<yes|no|unknown>" \
+  --surface-pending-input "<yes|no|unknown>" \
   --turn-phase "<ready|active|unknown>" \
   --last-turn-result "<success|interrupted|known_failure|none>" \
   --last-turn-source "<explicit_input|surface_inference|none>" \
   --evidence-note "<raw visible or runtime evidence>"
 ```
 
-Every label used as ground truth must include all seven fields. Do not use the legacy `readiness_state` or `completion_state` fields as comparison authority.
+Every label used as ground truth must include all eight fields. `surface_pending_input` describes provider-native submitted input waiting behind an active turn, not a composer draft, Houmao prompt note, or gateway-durable request. Do not use the legacy `readiness_state` or `completion_state` fields as comparison authority.
 
 ## Readiness Adjudication
 

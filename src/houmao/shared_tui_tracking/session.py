@@ -46,6 +46,7 @@ class _MutableTrackerState:
     surface_accepting_input: Tristate
     surface_editing_input: Tristate
     surface_ready_posture: Tristate
+    surface_pending_input: Tristate
     turn_phase: TurnPhase
     last_turn_result: TrackedLastTurnResult
     last_turn_source: TrackedLastTurnSource
@@ -106,6 +107,7 @@ class TuiTrackerSession:
             surface_accepting_input="unknown",
             surface_editing_input="unknown",
             surface_ready_posture="unknown",
+            surface_pending_input="unknown",
             turn_phase="unknown",
             last_turn_result="none",
             last_turn_source="none",
@@ -244,6 +246,7 @@ class TuiTrackerSession:
                 surface_accepting_input=self.m_state.surface_accepting_input,
                 surface_editing_input=self.m_state.surface_editing_input,
                 surface_ready_posture=self.m_state.surface_ready_posture,
+                surface_pending_input=self.m_state.surface_pending_input,
                 turn_phase="active",
                 last_turn_result=last_turn_result,
                 last_turn_source=last_turn_source,
@@ -491,6 +494,7 @@ class TuiTrackerSession:
             surface_accepting_input=signals.accepting_input,
             surface_editing_input=signals.editing_input,
             surface_ready_posture=signals.ready_posture,
+            surface_pending_input=signals.pending_input,
             turn_phase=turn_phase,
             last_turn_result=last_turn_result,
             last_turn_source=last_turn_source,
@@ -583,6 +587,7 @@ class TuiTrackerSession:
                 surface_accepting_input=signals.accepting_input,
                 surface_editing_input=signals.editing_input,
                 surface_ready_posture=signals.ready_posture,
+                surface_pending_input=signals.pending_input,
                 turn_phase="ready",
                 last_turn_result="success",
                 last_turn_source=self._terminal_turn_source_locked(),
@@ -638,6 +643,7 @@ class TuiTrackerSession:
             accepting_input=signals.accepting_input,
             editing_input=signals.editing_input,
             ready_posture=signals.ready_posture,
+            pending_input=signals.pending_input,
             prompt_visible=signals.prompt_visible,
             prompt_text=signals.prompt_text,
             footer_interruptable=signals.footer_interruptable,
@@ -733,6 +739,7 @@ class TuiTrackerSession:
         surface_accepting_input: Tristate,
         surface_editing_input: Tristate,
         surface_ready_posture: Tristate,
+        surface_pending_input: Tristate,
         turn_phase: TurnPhase,
         last_turn_result: TrackedLastTurnResult,
         last_turn_source: TrackedLastTurnSource,
@@ -750,6 +757,7 @@ class TuiTrackerSession:
             surface_accepting_input=surface_accepting_input,
             surface_editing_input=surface_editing_input,
             surface_ready_posture=surface_ready_posture,
+            surface_pending_input=surface_pending_input,
             turn_phase=turn_phase,
             last_turn_result=last_turn_result,
             last_turn_source=last_turn_source,
@@ -788,6 +796,7 @@ class TuiTrackerSession:
             surface_accepting_input=snapshot.surface_accepting_input,
             surface_editing_input=snapshot.surface_editing_input,
             surface_ready_posture=snapshot.surface_ready_posture,
+            surface_pending_input=snapshot.surface_pending_input,
             turn_phase=snapshot.turn_phase,
             last_turn_result=snapshot.last_turn_result,
             last_turn_source=snapshot.last_turn_source,
@@ -826,6 +835,7 @@ class TuiTrackerSession:
                 "surface_accepting_input": snapshot.surface_accepting_input,
                 "surface_editing_input": snapshot.surface_editing_input,
                 "surface_ready_posture": snapshot.surface_ready_posture,
+                "surface_pending_input": snapshot.surface_pending_input,
                 "turn_phase": snapshot.turn_phase,
                 "last_turn_result": snapshot.last_turn_result,
                 "last_turn_source": snapshot.last_turn_source,
@@ -842,6 +852,7 @@ class TuiTrackerSession:
             surface_accepting_input=self.m_state.surface_accepting_input,
             surface_editing_input=self.m_state.surface_editing_input,
             surface_ready_posture=self.m_state.surface_ready_posture,
+            surface_pending_input=self.m_state.surface_pending_input,
             turn_phase=self.m_state.turn_phase,
             last_turn_result=self.m_state.last_turn_result,
             last_turn_source=self.m_state.last_turn_source,
@@ -895,6 +906,7 @@ def _state_signature(state: _MutableTrackerState) -> str:
             "surface_accepting_input": state.surface_accepting_input,
             "surface_editing_input": state.surface_editing_input,
             "surface_ready_posture": state.surface_ready_posture,
+            "surface_pending_input": state.surface_pending_input,
             "turn_phase": state.turn_phase,
             "last_turn_result": state.last_turn_result,
             "last_turn_source": state.last_turn_source,
@@ -936,6 +948,7 @@ def _summarize_mutable_tracker_state(state: _MutableTrackerState) -> dict[str, A
         "surface_accepting_input": state.surface_accepting_input,
         "surface_editing_input": state.surface_editing_input,
         "surface_ready_posture": state.surface_ready_posture,
+        "surface_pending_input": state.surface_pending_input,
         "turn_phase": state.turn_phase,
         "last_turn_result": state.last_turn_result,
         "last_turn_source": state.last_turn_source,
@@ -957,6 +970,7 @@ def _summarize_detected_turn_signals(signals: DetectedTurnSignals) -> dict[str, 
         "accepting_input": signals.accepting_input,
         "editing_input": signals.editing_input,
         "ready_posture": signals.ready_posture,
+        "pending_input": signals.pending_input,
         "prompt_visible": signals.prompt_visible,
         "prompt_text_present": bool(signals.prompt_text),
         "prompt_text_length": len(signals.prompt_text or ""),
@@ -985,6 +999,7 @@ def _summarize_temporal_hint_signals(hints: TemporalHintSignals) -> dict[str, An
         "accepting_input": hints.accepting_input,
         "editing_input": hints.editing_input,
         "ready_posture": hints.ready_posture,
+        "pending_input": hints.pending_input,
         "active_evidence": hints.active_evidence,
         "active_reasons": list(hints.active_reasons),
         "interrupted": hints.interrupted,
@@ -1011,6 +1026,9 @@ def _merge_temporal_hints(
     )
     ready_posture = (
         hints.ready_posture if hints.ready_posture is not None else signals.ready_posture
+    )
+    pending_input = (
+        hints.pending_input if hints.pending_input is not None else signals.pending_input
     )
     active_evidence = (
         hints.active_evidence if hints.active_evidence is not None else signals.active_evidence
@@ -1047,6 +1065,7 @@ def _merge_temporal_hints(
         accepting_input=accepting_input,
         editing_input=editing_input,
         ready_posture=ready_posture,
+        pending_input=pending_input,
         prompt_visible=signals.prompt_visible,
         prompt_text=signals.prompt_text,
         footer_interruptable=signals.footer_interruptable,

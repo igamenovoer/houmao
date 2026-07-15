@@ -6,6 +6,8 @@ from reactivex.testing import TestScheduler
 
 from houmao.shared_tui_tracking import TrackerConfig, TuiTrackerSession, app_id_from_tool
 from houmao.shared_tui_tracking.apps.kimi_code.profile import (
+    FallbackKimiCodeSignalDetector,
+    KimiCodeSignalDetector,
     KimiCodeSignalDetectorV0_23_X,
     analyze_kimi_surface,
 )
@@ -59,6 +61,7 @@ def test_kimi_ready_footer_thinking_does_not_mark_active() -> None:
     assert state.turn_phase == "ready"
     assert state.surface_accepting_input == "yes"
     assert state.surface_ready_posture == "yes"
+    assert state.surface_pending_input == "no"
     assert "footer_thinking_metadata_ignored" in state.notes
 
 
@@ -192,6 +195,7 @@ def test_kimi_023_detector_tracks_streaming_queue_when_spinner_is_displaced() ->
     assert signals.active_reasons == ("queued_message",)
     assert signals.ready_posture == "no"
     assert signals.success_blocked is True
+    assert signals.pending_input == "yes"
 
 
 def test_kimi_023_detector_tracks_each_deferred_queue_mode() -> None:
@@ -217,6 +221,7 @@ def test_kimi_023_detector_tracks_each_deferred_queue_mode() -> None:
         assert signals.active_evidence is True
         assert "queued_message" in signals.active_reasons
         assert signals.ready_posture == "no"
+        assert signals.pending_input == "yes"
 
 
 def test_kimi_023_detector_ignores_historical_queue_after_settled_response() -> None:
@@ -234,6 +239,61 @@ def test_kimi_023_detector_ignores_historical_queue_after_settled_response() -> 
 
     assert signals.active_evidence is False
     assert signals.ready_posture == "yes"
+    assert signals.pending_input == "no"
+
+
+def test_kimi_pending_input_remains_binary_for_one_two_or_three_rows() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+
+    for count in (1, 2, 3):
+        rows = "\n".join(f"  ❯ queued follow-up {index}" for index in range(1, count + 1))
+        surface = (
+            "🌑 · Tip: ctrl+s: steer mid-turn\n"
+            f"{rows}\n"
+            "  ↑ to edit · will send after current task\n"
+            "╭────────────────────────╮\n"
+            "│ >                      │\n"
+            "╰────────────────────────╯\n"
+            "auto  kimi-for-coding-highspeed thinking  context: 1.0%\n"
+        )
+
+        assert detector.detect(output_text=surface).pending_input == "yes"
+
+
+def test_kimi_pending_input_handles_wrapping_consumption_and_incomplete_capture() -> None:
+    detector = KimiCodeSignalDetectorV0_23_X()
+    wrapped = (
+        "  ❯ queued follow-up with a wrapped body\n"
+        "    continuing on a resized pane\n"
+        "  ↑ to edit · will send after compaction\n"
+        "╭────────────────╮\n"
+        "│ >              │\n"
+        "╰────────────────╯\n"
+    )
+    consumed = (
+        "● Finished queued follow-up.\n╭────────────────╮\n│ >              │\n╰────────────────╯\n"
+    )
+
+    assert detector.detect(output_text=wrapped).pending_input == "yes"
+    assert detector.detect(output_text=consumed).pending_input == "no"
+    assert detector.detect(output_text="│ >\n").pending_input == "unknown"
+
+
+def test_kimi_maintained_and_fallback_profiles_carry_pending_input() -> None:
+    queued = (
+        "  ❯ queued follow-up\n"
+        "  ↑ to edit · will send after current task\n"
+        "╭────────────────────────╮\n"
+        "│ >                      │\n"
+        "╰────────────────────────╯\n"
+    )
+
+    for detector in (
+        KimiCodeSignalDetector(),
+        KimiCodeSignalDetectorV0_23_X(),
+        FallbackKimiCodeSignalDetector(),
+    ):
+        assert detector.detect(output_text=queued).pending_input == "yes"
 
 
 def test_kimi_restart_does_not_reuse_prompt_above_latest_shell_launch() -> None:

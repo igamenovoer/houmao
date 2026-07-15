@@ -43,8 +43,9 @@ Default to prompt delivery:
 
 - Use prompt delivery for every packet unless the current operator prompt or chat context indicates mailbox delivery.
 - Use `houmao-agent-messaging` ordinary prompt behavior for prompt packets.
-- If the target has a live gateway, use gateway-backed prompt delivery.
-- If the target has no live gateway, use direct managed-agent prompt delivery and request forced fallback behavior where the selected prompt surface supports `--force`.
+- If the target has a live gateway, use ready-only gateway-backed prompt delivery.
+- If the target has no live gateway, use ordinary direct managed-agent prompt delivery.
+- Select `if-no-pending` or `always` only when the operator explicitly requests the corresponding busy-TUI behavior.
 - Do not choose mailbox merely because the target has a mailbox.
 
 Use mailbox only when:
@@ -60,7 +61,7 @@ If a required route is unavailable, report the blocker or ask whether an alterna
 For `prompt` packets:
 
 - Use `houmao-agent-messaging`.
-- Let that skill own discovery, prompt, gateway-preferred delivery, forced fallback behavior where available, and concrete command/API details.
+- Let that skill own discovery, prompt, gateway-preferred admission-policy selection, fallback managed delivery, and concrete command/API details.
 
 For `mailbox` packets:
 

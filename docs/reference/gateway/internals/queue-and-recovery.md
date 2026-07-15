@@ -27,6 +27,8 @@ Current queue-depth reporting counts only `accepted` and `running` items. Comple
 
 Opt-in gateway diagnostic logs do not live in `queue.sqlite`. They are cleanup-sensitive JSONL files under `logs/diagnostics/` and are useful for route-boundary and mailbox-operation postmortems. The queue database remains the durable authority for accepted work, terminal state, and gateway-owned notifier audit history.
 
+Provider-native pending input is a different state. `surface.pending_input=yes` comes only from the tracked provider TUI and means that the CLI visibly holds submitted user input behind its active turn. An unsubmitted composer draft, an accepted row in `queue.sqlite`, and an explicit Houmao prompt-submission note are each separate facts. None of them sets provider-native pending input.
+
 ## Current-Instance State
 
 The gateway writes `run/current-instance.json` with:
@@ -69,6 +71,8 @@ sequenceDiagram
         GW->>Q: mark failed
     end
 ```
+
+`POST /v1/control/prompt` bypasses this durable worker queue. Its TUI admission policies inspect the latest tracked snapshot: `ready_only` requires prompt-ready posture and no pending input, `if_no_pending` checks only that pending input is decisively absent, and `always` bypasses both tracked checks. This decision is observational. The gateway does not reserve a provider queue slot or hold its lock while waiting for a repaint, so two closely spaced conditional calls can both dispatch before the provider surface changes.
 
 ## Control-Intent Coalescing
 

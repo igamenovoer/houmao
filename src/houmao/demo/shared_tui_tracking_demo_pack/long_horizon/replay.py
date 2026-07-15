@@ -60,9 +60,9 @@ def required_replay_schedules() -> tuple[ReplaySchedule, ...]:
         )
     schedules.extend(
         (
-            ReplaySchedule("jitter-seed-1729", 0.2, "jittered", 0.0, 1729),
-            ReplaySchedule("isolated-gaps", 0.2, "gapped", 0.0, 0),
-            ReplaySchedule("uc02-bursts", 0.2, "bursty", 0.0, 0),
+            ReplaySchedule("jitter-seed-1729", 0.2, "jitter", 0.0, 1729),
+            ReplaySchedule("drop-seed-2718", 0.2, "drop", 0.0, 2718),
+            ReplaySchedule("burst-seed-3141", 0.2, "burst", 0.0, 3141),
         )
     )
     return tuple(schedules)

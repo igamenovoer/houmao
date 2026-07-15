@@ -55,7 +55,9 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailPostRequestV1,
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
+    GatewayPromptControlErrorV1,
     GatewayPromptControlRequestV1,
+    GatewayPromptControlResultV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
@@ -91,6 +93,8 @@ from houmao.agents.realm_controller.gateway_storage import (
     write_gateway_desired_config,
     write_gateway_current_instance,
 )
+
+
 from houmao.agents.realm_controller.loaders import load_blueprint
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
@@ -153,6 +157,7 @@ from houmao.server.models import (
     HoumaoManagedAgentRequestAcceptedResponse,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
+    HoumaoParsedSurface,
     HoumaoRecentTransition,
     HoumaoStabilityMetadata,
     HoumaoTerminalHistoryResponse,
@@ -165,6 +170,60 @@ from houmao.server.models import (
     HoumaoTrackedSurface,
     HoumaoTrackedTurn,
 )
+
+
+def test_gateway_prompt_control_models_use_schema_two_and_ready_only_by_default() -> None:
+    request = GatewayPromptControlRequestV1(prompt="hello")
+
+    assert request.schema_version == 2
+    assert request.admission_policy == "ready_only"
+    assert "force" not in request.model_dump(mode="json")
+
+
+@pytest.mark.parametrize("admission_policy", ["ready_only", "if_no_pending", "always"])
+def test_gateway_prompt_control_models_accept_each_admission_policy(
+    admission_policy: str,
+) -> None:
+    request = GatewayPromptControlRequestV1.model_validate(
+        {
+            "schema_version": 2,
+            "prompt": "hello",
+            "admission_policy": admission_policy,
+        }
+    )
+
+    assert request.admission_policy == admission_policy
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"schema_version": 1, "prompt": "hello"},
+        {"schema_version": 2, "prompt": "hello", "force": True},
+    ],
+)
+def test_gateway_prompt_control_models_reject_legacy_payloads(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        GatewayPromptControlRequestV1.model_validate(payload)
+
+
+def test_gateway_prompt_control_result_shapes_report_policy_without_forced() -> None:
+    success = GatewayPromptControlResultV1(
+        admission_policy="if_no_pending",
+        detail="Prompt dispatched.",
+    ).model_dump(mode="json")
+    refusal = GatewayPromptControlErrorV1(
+        admission_policy="if_no_pending",
+        error_code="pending_input",
+        detail="Provider queue is occupied.",
+    ).model_dump(mode="json")
+
+    assert success["admission_policy"] == "if_no_pending"
+    assert refusal["admission_policy"] == "if_no_pending"
+    assert "forced" not in success
+    assert "forced" not in refusal
 
 
 def _write(path: Path, text: str) -> None:
@@ -1267,11 +1326,13 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
             state_response.json()["tracked_session"]["tracked_session_id"] == "local-interactive-1"
         )
         assert state_response.json()["tracked_session"]["terminal_aliases"] == []
+        assert state_response.json()["surface"]["pending_input"] == "no"
 
         history_response = client.get("/v1/control/tui/history?limit=7")
         assert history_response.status_code == 200
         assert history_response.json()["tracked_session_id"] == "local-interactive-1"
         assert history_response.json()["entries"][0]["stability"]["signature"] == "limit-7"
+        assert history_response.json()["entries"][0]["surface"]["pending_input"] == "no"
 
         note_response = client.post(
             "/v1/control/tui/note-prompt",
@@ -1282,6 +1343,7 @@ def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
         )
         assert note_response.status_code == 200
         assert note_response.json()["terminal_id"] == "local-interactive-1"
+        assert note_response.json()["surface"]["pending_input"] == "no"
         assert (
             note_response.json()["tracked_session"]["tracked_session_id"] == "local-interactive-1"
         )
@@ -1337,8 +1399,8 @@ def test_gateway_service_routes_local_interactive_prompt_through_direct_control_
         assert response.status_code == 200
         assert response.json() == {
             "action": "submit_prompt",
+            "admission_policy": "ready_only",
             "detail": "Prompt dispatched.",
-            "forced": False,
             "sent": True,
             "status": "ok",
         }
@@ -1593,7 +1655,7 @@ def test_gateway_service_rejects_local_interactive_prompt_when_tui_not_ready(
     assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
 
 
-def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
+def test_gateway_service_always_bypasses_local_interactive_prompt_readiness_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1647,10 +1709,13 @@ def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
     try:
         response = client.post(
             "/v1/control/prompt",
-            json=GatewayPromptControlRequestV1(prompt="hello", force=True).model_dump(mode="json"),
+            json=GatewayPromptControlRequestV1(
+                prompt="hello",
+                admission_policy="always",
+            ).model_dump(mode="json"),
         )
         assert response.status_code == 200
-        assert response.json()["forced"] is True
+        assert response.json()["admission_policy"] == "always"
     finally:
         runtime.shutdown()
 
@@ -1658,7 +1723,7 @@ def test_gateway_service_force_bypasses_local_interactive_prompt_readiness_gate(
     assert _FakeGatewayTrackingRuntime.m_prompt_notes == ["hello"]
 
 
-def test_gateway_service_force_degraded_local_interactive_prompt_dispatches_without_reset(
+def test_gateway_service_always_degraded_local_interactive_prompt_dispatches_without_reset(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1719,7 +1784,10 @@ def test_gateway_service_force_degraded_local_interactive_prompt_dispatches_with
     try:
         response = client.post(
             "/v1/control/prompt",
-            json=GatewayPromptControlRequestV1(prompt="hello", force=True).model_dump(mode="json"),
+            json=GatewayPromptControlRequestV1(
+                prompt="hello",
+                admission_policy="always",
+            ).model_dump(mode="json"),
         )
         assert response.status_code == 200
     finally:
@@ -3353,6 +3421,7 @@ def _sample_gateway_tracked_state(
             accepting_input="yes",
             editing_input="no",
             ready_posture="yes",
+            pending_input="no",
         ),
         turn=HoumaoTrackedTurn(phase="ready"),
         last_turn=HoumaoTrackedLastTurn(result="none", source="none", updated_at_utc=None),
@@ -3363,6 +3432,52 @@ def _sample_gateway_tracked_state(
             stable_since_utc="2026-03-25T18:00:00+00:00",
         ),
         recent_transitions=[],
+    )
+
+
+def _sample_gateway_tracked_state_variant(
+    identity: HoumaoTrackedSessionIdentity,
+    *,
+    accepting_input: str = "yes",
+    editing_input: str = "no",
+    ready_posture: str = "yes",
+    pending_input: str = "no",
+    turn_phase: str = "ready",
+    stable: bool = True,
+    parsed_busy: bool = False,
+) -> HoumaoTerminalStateResponse:
+    """Return one tracked-state variant for admission-policy matrix tests."""
+
+    state = _sample_gateway_tracked_state(identity)
+    parsed_surface = None
+    if parsed_busy:
+        parsed_surface = HoumaoParsedSurface(
+            parser_family="codex_shadow",
+            parser_preset_id="codex",
+            parser_preset_version="1.0.0",
+            availability="supported",
+            business_state="working",
+            input_mode="none",
+            ui_context="normal_prompt",
+            normalized_projection_text="working",
+            dialog_text="working",
+            dialog_head="working",
+            dialog_tail="working",
+        )
+    return state.model_copy(
+        update={
+            "parsed_surface": parsed_surface,
+            "surface": state.surface.model_copy(
+                update={
+                    "accepting_input": accepting_input,
+                    "editing_input": editing_input,
+                    "ready_posture": ready_posture,
+                    "pending_input": pending_input,
+                }
+            ),
+            "turn": state.turn.model_copy(update={"phase": turn_phase}),
+            "stability": state.stability.model_copy(update={"stable": stable}),
+        }
     )
 
 
@@ -3381,6 +3496,7 @@ def _sample_gateway_tracked_history(
                 summary=f"limit={limit}",
                 changed_fields=["turn_phase"],
                 diagnostics_availability="available",
+                surface_pending_input="no",
                 turn_phase="ready",
                 last_turn_result="none",
                 last_turn_source="none",
@@ -3456,6 +3572,337 @@ class _FakeGatewayTrackingRuntime:
     def note_prompt_submission(self, *, message: str) -> HoumaoTerminalStateResponse:
         type(self).m_prompt_notes.append(message)
         return _sample_gateway_tracked_state(self.m_identity)
+
+
+def _local_interactive_prompt_control_harness(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    current_state: Callable[[HoumaoTrackedSessionIdentity], HoumaoTerminalStateResponse],
+) -> tuple[GatewayServiceRuntime, TestClient, _FakeGatewayHeadlessSession]:
+    """Build one attached local-interactive gateway prompt-control harness."""
+
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession(
+        tmux_session_name="HOUMAO-local",
+        session_id=None,
+        backend="local_interactive",
+    )
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda *, session_name: session_name == "HOUMAO-local",
+    )
+    _FakeGatewayTrackingRuntime.reset()
+    monkeypatch.setattr(
+        _FakeGatewayTrackingRuntime,
+        "current_state",
+        lambda self: current_state(self.m_identity),
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.SingleSessionTrackingRuntime",
+        _FakeGatewayTrackingRuntime,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    return runtime, TestClient(create_app(runtime=runtime)), fake_session
+
+
+def test_gateway_prompt_admission_policy_matrix_and_structural_checks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Exercise readiness and pending-input admission as orthogonal policy inputs."""
+
+    state_options: dict[str, object] = {}
+
+    def _current_state(identity: HoumaoTrackedSessionIdentity) -> HoumaoTerminalStateResponse:
+        return _sample_gateway_tracked_state_variant(identity, **state_options)
+
+    runtime, client, fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=_current_state,
+    )
+    cases = (
+        ("ready", "ready_only", {}, 200, None),
+        (
+            "busy",
+            "ready_only",
+            {"accepting_input": "no", "ready_posture": "no", "turn_phase": "active"},
+            409,
+            "not_ready",
+        ),
+        ("editing", "ready_only", {"editing_input": "yes"}, 409, "not_ready"),
+        ("unstable", "ready_only", {"stable": False}, 409, "not_ready"),
+        ("parsed-busy", "ready_only", {"parsed_busy": True}, 409, "not_ready"),
+        ("pending", "ready_only", {"pending_input": "yes"}, 409, "pending_input"),
+        (
+            "pending-unknown",
+            "ready_only",
+            {"pending_input": "unknown"},
+            409,
+            "pending_input_unknown",
+        ),
+        (
+            "busy-no-pending",
+            "if_no_pending",
+            {
+                "accepting_input": "no",
+                "editing_input": "yes",
+                "ready_posture": "no",
+                "turn_phase": "active",
+                "stable": False,
+                "parsed_busy": True,
+            },
+            200,
+            None,
+        ),
+        (
+            "busy-pending",
+            "if_no_pending",
+            {"turn_phase": "active", "pending_input": "yes"},
+            409,
+            "pending_input",
+        ),
+        (
+            "busy-pending-unknown",
+            "if_no_pending",
+            {"turn_phase": "active", "pending_input": "unknown"},
+            409,
+            "pending_input_unknown",
+        ),
+        (
+            "always-busy-pending",
+            "always",
+            {
+                "accepting_input": "no",
+                "editing_input": "yes",
+                "ready_posture": "no",
+                "pending_input": "yes",
+                "turn_phase": "active",
+                "stable": False,
+                "parsed_busy": True,
+            },
+            200,
+            None,
+        ),
+    )
+
+    runtime.start()
+    try:
+        successful_prompts: list[str] = []
+        for prompt, admission_policy, options, status_code, error_code in cases:
+            state_options.clear()
+            state_options.update(options)
+            response = client.post(
+                "/v1/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": prompt,
+                    "admission_policy": admission_policy,
+                },
+            )
+            assert response.status_code == status_code
+            if error_code is None:
+                assert response.json()["admission_policy"] == admission_policy
+                successful_prompts.append(prompt)
+            else:
+                detail = response.json()["detail"]
+                assert detail["admission_policy"] == admission_policy
+                assert detail["error_code"] == error_code
+
+        state_options.clear()
+        for admission_policy in ("ready_only", "if_no_pending", "always"):
+            response = client.post(
+                "/v1/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": f"invalid-execution-{admission_policy}",
+                    "admission_policy": admission_policy,
+                    "execution": {"model": {"name": "gpt-5.4"}},
+                },
+            )
+            assert response.status_code == 422
+            assert response.json()["detail"]["error_code"] == "invalid_execution"
+    finally:
+        runtime.shutdown()
+
+    assert [prompt for prompt, _selection in fake_session.prompt_calls] == successful_prompts
+    events = [
+        json.loads(line)
+        for line in runtime.m_paths.events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    decisions = [
+        event
+        for event in events
+        if event.get("kind") in {"control_prompt_submitted", "control_prompt_refused"}
+    ]
+    assert decisions
+    assert all("admission_policy" in event for event in decisions)
+    assert all("tracked_pending_input" in event for event in decisions)
+    assert all("tracked_ready_posture" in event for event in decisions)
+
+
+def test_gateway_if_no_pending_is_observational_across_provider_repaint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Allow pre-repaint submissions, then react to the next replayed queue state."""
+
+    pending_input = "no"
+
+    def _current_state(identity: HoumaoTrackedSessionIdentity) -> HoumaoTerminalStateResponse:
+        return _sample_gateway_tracked_state_variant(
+            identity,
+            accepting_input="no",
+            editing_input="no",
+            ready_posture="no",
+            pending_input=pending_input,
+            turn_phase="active",
+        )
+
+    runtime, client, fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=_current_state,
+    )
+    runtime.start()
+    try:
+        for prompt in ("first-before-repaint", "second-before-repaint"):
+            response = client.post(
+                "/v1/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": prompt,
+                    "admission_policy": "if_no_pending",
+                },
+            )
+            assert response.status_code == 200
+
+        pending_input = "yes"
+        blocked = client.post(
+            "/v1/control/prompt",
+            json={
+                "schema_version": 2,
+                "prompt": "blocked-after-repaint",
+                "admission_policy": "if_no_pending",
+            },
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["error_code"] == "pending_input"
+
+        unconditional = client.post(
+            "/v1/control/prompt",
+            json={
+                "schema_version": 2,
+                "prompt": "always-after-repaint",
+                "admission_policy": "always",
+            },
+        )
+        assert unconditional.status_code == 200
+    finally:
+        runtime.shutdown()
+
+    assert [prompt for prompt, _selection in fake_session.prompt_calls] == [
+        "first-before-repaint",
+        "second-before-repaint",
+        "always-after-repaint",
+    ]
+
+
+def test_gateway_rejects_nondefault_policy_for_tui_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep nondefault observational policies out of the TUI reset workflow."""
+
+    runtime, client, fake_session = _local_interactive_prompt_control_harness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        current_state=_sample_gateway_tracked_state,
+    )
+    runtime.start()
+    try:
+        for admission_policy in ("if_no_pending", "always"):
+            response = client.post(
+                "/v1/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": admission_policy,
+                    "admission_policy": admission_policy,
+                    "chat_session": {"mode": "new"},
+                },
+            )
+            assert response.status_code == 422
+            detail = response.json()["detail"]
+            assert detail["admission_policy"] == admission_policy
+            assert detail["error_code"] == "invalid_admission_policy"
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == []
+
+
+def test_gateway_rejects_nondefault_policy_for_native_headless(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep provider-native pending semantics scoped to tracked TUI targets."""
+
+    gateway_root = _seed_headless_gateway_root(tmp_path)
+    fake_session = _FakeGatewayHeadlessSession()
+    fake_controller = _FakeGatewayHeadlessController(fake_session)
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.HeadlessInteractiveSession",
+        _FakeGatewayHeadlessSession,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resume_runtime_session",
+        lambda **_kwargs: fake_controller,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.tmux_session_exists",
+        lambda **_kwargs: True,
+    )
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root,
+        host="127.0.0.1",
+        port=43123,
+    )
+    client = TestClient(create_app(runtime=runtime))
+
+    runtime.start()
+    try:
+        for admission_policy in ("if_no_pending", "always"):
+            response = client.post(
+                "/v1/control/prompt",
+                json={
+                    "schema_version": 2,
+                    "prompt": admission_policy,
+                    "admission_policy": admission_policy,
+                },
+            )
+            assert response.status_code == 422
+            detail = response.json()["detail"]
+            assert detail["admission_policy"] == admission_policy
+            assert detail["error_code"] == "invalid_admission_policy"
+    finally:
+        runtime.shutdown()
+
+    assert fake_session.prompt_calls == []
 
 
 def _seed_cao_gateway_root_with_stalwart_mailbox(

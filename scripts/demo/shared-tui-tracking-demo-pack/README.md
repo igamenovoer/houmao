@@ -336,6 +336,7 @@ bash scripts/demo/shared-tui-tracking-demo-pack/run_demo.sh recorded-validate \
    - `surface_accepting_input`
    - `surface_editing_input`
    - `surface_ready_posture`
+   - `surface_pending_input`
    - `turn_phase`
    - `last_turn_result`
    - `last_turn_source`

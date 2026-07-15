@@ -344,6 +344,22 @@ def test_agent_loop_lite_packaged_asset_contract() -> None:
         assert f"<placeholder {envelope_field}" not in template_example
 
 
+def test_houmao_agent_messaging_prompt_admission_contract() -> None:
+    skill_root = _packaged_skill_asset_root("houmao-agent-messaging")
+    skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+    prompt_text = (skill_root / "actions/prompt.md").read_text(encoding="utf-8")
+    gateway_text = (skill_root / "actions/gateway-queue.md").read_text(encoding="utf-8")
+    matrix_text = (skill_root / "references/intent-matrix.md").read_text(encoding="utf-8")
+    combined = "\n".join((skill_text, prompt_text, gateway_text, matrix_text))
+
+    assert "--admission-policy ready-only" in prompt_text
+    assert "--admission-policy <ready-only|if-no-pending|always>" in gateway_text
+    assert "Pending `yes` or `unknown`" in matrix_text
+    assert "observational" in gateway_text
+    assert "gateway-durable" in matrix_text.lower()
+    assert "--force" not in combined
+
+
 def test_houmao_operator_messaging_packaged_asset_contract() -> None:
     skill_root = _packaged_skill_asset_root(SYSTEM_SKILL_OPERATOR_MESSAGING)
     skill_text = (skill_root / "SKILL.md").read_text(encoding="utf-8")
@@ -367,8 +383,10 @@ def test_houmao_operator_messaging_packaged_asset_contract() -> None:
     assert "subskills/clarify.md" in skill_text
     assert "subskills/dispatch.md" in skill_text
     assert "Default every packet to prompt delivery" in skill_text
-    assert "use the target gateway when available" in skill_text
-    assert "prompt surface supports `--force`" in skill_text
+    assert "use ready-only target-gateway prompt control when available" in skill_text
+    assert "ready-only target-gateway prompt control" in skill_text
+    assert "`if-no-pending` or `always`" in skill_text
+    assert "--force" not in skill_text
     assert "choose mailbox only from operator intent or chat context" in skill_text
     assert "Do not depend on loop-internal pages" in skill_text
 
@@ -386,8 +404,11 @@ def test_houmao_operator_messaging_packaged_asset_contract() -> None:
         dispatch_text
     )
     assert "Default to prompt delivery" in dispatch_text
-    assert "If the target has a live gateway, use gateway-backed prompt delivery" in (dispatch_text)
-    assert "request forced fallback behavior" in dispatch_text
+    assert "If the target has a live gateway, use ready-only gateway-backed prompt delivery" in (
+        dispatch_text
+    )
+    assert "Select `if-no-pending` or `always`" in dispatch_text
+    assert "--force" not in dispatch_text
     assert "Do not choose mailbox merely because the target has a mailbox" in dispatch_text
     assert "Use `houmao-agent-messaging`" in dispatch_text
     assert "Use `houmao-agent-email-comms`" in dispatch_text

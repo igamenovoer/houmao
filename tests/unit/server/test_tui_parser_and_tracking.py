@@ -19,6 +19,13 @@ from houmao.server.tui.tracking import LiveSessionTracker, _rendered_surface_sig
 
 _CODEX_READY_RAW_SNAPSHOT = "› \n\n  ? for shortcuts            100% context left\n"
 _CODEX_ACTIVE_RAW_SNAPSHOT = "› Explain the failure.\n\n• Working (0s • esc to interrupt)\n"
+_CODEX_PENDING_RAW_SNAPSHOT = (
+    "› Explain the failure.\n\n"
+    "• Working (1s • esc to interrupt)\n\n"
+    "• Queued follow-up inputs\n"
+    "  ↳ Run the focused tests next.\n\n"
+    "› \n"
+)
 _CODEX_OPERATOR_PROMPT_RAW_SNAPSHOT = "Would you like to run the following command?\n› \n"
 _CODEX_WARNING_OVERLOADED_RAW_SNAPSHOT = "⚠ server overloaded\n\n› \n"
 _CODEX_RETRY_STATUS_RAW_SNAPSHOT = (
@@ -60,6 +67,7 @@ def _tracker_state(
     surface_accepting_input: str = "yes",
     surface_editing_input: str = "no",
     surface_ready_posture: str = "yes",
+    surface_pending_input: str = "no",
     turn_phase: str = "ready",
     active_reasons: tuple[str, ...] = (),
     last_turn_result: str = "none",
@@ -71,6 +79,7 @@ def _tracker_state(
         surface_accepting_input=surface_accepting_input,
         surface_editing_input=surface_editing_input,
         surface_ready_posture=surface_ready_posture,
+        surface_pending_input=surface_pending_input,
         turn_phase=turn_phase,
         last_turn_result=last_turn_result,
         last_turn_source=last_turn_source,
@@ -754,6 +763,57 @@ def test_live_session_tracker_note_prompt_submission_arms_turn_anchor() -> None:
     assert state.lifecycle_authority.completion_authority == "turn_anchored"
     assert state.lifecycle_authority.turn_anchor_state == "active"
     assert state.lifecycle_authority.completion_monitoring_armed is True
+    assert state.surface.pending_input == "no"
+
+
+def test_live_session_tracker_retains_pending_only_change_in_history() -> None:
+    tracker = LiveSessionTracker(
+        identity=_identity(observed_tool_version="0.144.0"),
+        recent_transition_limit=4,
+        stability_threshold_seconds=0.1,
+        completion_stability_seconds=1.0,
+        unknown_to_stalled_timeout_seconds=30.0,
+    )
+
+    _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:00+00:00",
+        monotonic_ts=10.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+        output_text=_CODEX_ACTIVE_RAW_SNAPSHOT,
+    )
+    pending = _record_cycle(
+        tracker,
+        observed_at_utc="2026-03-19T10:00:01+00:00",
+        monotonic_ts=11.0,
+        transport_state="tmux_up",
+        process_state="tui_up",
+        parse_status="parsed",
+        probe_snapshot=None,
+        probe_error=None,
+        parse_error=None,
+        parsed_surface=_processing_surface(),
+        output_text=_CODEX_PENDING_RAW_SNAPSHOT,
+    )
+
+    assert pending.surface.pending_input == "yes"
+    assert any(
+        "surface_pending_input" in entry.changed_fields and entry.surface_pending_input == "yes"
+        for entry in pending.recent_transitions
+    )
+
+    noted = tracker.note_prompt_submission(
+        message="Another prompt was sent.",
+        observed_at_utc="2026-03-19T10:00:02+00:00",
+        monotonic_ts=12.0,
+    )
+    assert noted.surface.pending_input == "yes"
 
 
 def test_live_session_tracker_rebuilds_when_observed_tool_version_changes() -> None:

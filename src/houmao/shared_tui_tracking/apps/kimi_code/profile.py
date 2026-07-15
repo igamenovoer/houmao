@@ -187,12 +187,20 @@ class _BaseKimiCodeSignalDetector(BaseTrackedTurnSignalDetector):
         stripped_text = "\n".join(SurfaceView.from_text(current_output_text).stripped_lines)
         surface_signature = hashlib.sha256(stripped_text.encode("utf-8")).hexdigest()
         success_blocked = bool(active_evidence or approval_visible or interrupted)
+        pending_input: Tristate
+        if analysis.queue_visible:
+            pending_input = "yes"
+        elif surface_fresh and prompt.editor_box_visible and not approval_visible:
+            pending_input = "no"
+        else:
+            pending_input = "unknown"
         return DetectedTurnSignals(
             detector_name=self.detector_name,
             detector_version=self.detector_version,
             accepting_input=accepting_input,
             editing_input=editing_input,
             ready_posture=ready_posture,
+            pending_input=pending_input,
             prompt_visible=prompt.prompt_visible,
             prompt_text=prompt.prompt_text,
             footer_interruptable=active_evidence,

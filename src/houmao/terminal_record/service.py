@@ -70,7 +70,15 @@ SUPPORTED_RECORD_TOOLS = ("claude", "codex", "kimi")
 DERIVED_2FPS_SAMPLE_INTERVAL_SECONDS = 0.5
 PANE_CAPTURE_COMMAND = "tmux capture-pane -p -e -S -"
 OUTPUT_TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-DERIVED_SAMPLING_MODES = ("regular", "jittered", "bursty", "gapped")
+DERIVED_SAMPLING_MODES = (
+    "regular",
+    "jitter",
+    "drop",
+    "burst",
+    "jittered",
+    "gapped",
+    "bursty",
+)
 
 
 class TerminalRecordError(RuntimeError):
@@ -634,6 +642,7 @@ def analyze_terminal_record(
                 "surface_accepting_input": item.surface_accepting_input,
                 "surface_editing_input": item.surface_editing_input,
                 "surface_ready_posture": item.surface_ready_posture,
+                "surface_pending_input": item.surface_pending_input,
                 "turn_phase": item.turn_phase,
                 "last_turn_result": item.last_turn_result,
                 "last_turn_source": item.last_turn_source,
@@ -800,20 +809,25 @@ def validate_terminal_record(
         str(item["sample_id"]): item for item in parser_rows if "sample_id" in item
     }
     sample_order = _sample_order_from_rows(state_rows)
+    derived_stream = any(row.get("source_sample_id") is not None for row in state_rows)
     failures: list[dict[str, Any]] = []
+    skipped_unobserved_labels: list[dict[str, Any]] = []
+    pending_comparisons: list[dict[str, Any]] = []
     checked = 0
 
     for label in labels.labels:
         matching_rows = _rows_for_label(label=label, rows=state_rows, sample_order=sample_order)
         if not matching_rows:
-            failures.append(
-                {
-                    "label_id": label.label_id,
-                    "sample_id": label.sample_id,
-                    "sample_end_id": label.sample_end_id,
-                    "error": "no_observed_rows_for_label",
-                }
-            )
+            issue = {
+                "label_id": label.label_id,
+                "sample_id": label.sample_id,
+                "sample_end_id": label.sample_end_id,
+                "error": "no_observed_rows_for_label",
+            }
+            if derived_stream:
+                skipped_unobserved_labels.append(issue)
+            else:
+                failures.append(issue)
             continue
         for row in matching_rows:
             checked += 1
@@ -824,6 +838,16 @@ def validate_terminal_record(
                     merged.setdefault(key, value)
             for key, expected in label.expectations.items():
                 actual = merged.get(key)
+                if key == "surface_pending_input":
+                    pending_comparisons.append(
+                        {
+                            "sample_id": row.get("sample_id"),
+                            "source_sample_id": row.get("source_sample_id"),
+                            "elapsed_seconds": row.get("elapsed_seconds"),
+                            "expected": expected,
+                            "actual": actual,
+                        }
+                    )
                 if actual == expected:
                     continue
                 failures.append(
@@ -837,6 +861,10 @@ def validate_terminal_record(
                     }
                 )
 
+    mismatch_ranges = _compress_validation_mismatches(
+        failures=failures,
+        state_rows=state_rows,
+    )
     return {
         "run_root": str(paths.run_root),
         "labels_path": str(selected_labels_path),
@@ -847,7 +875,174 @@ def validate_terminal_record(
         "failure_count": len(failures),
         "passed": not failures,
         "failures": failures,
+        "mismatch_ranges": mismatch_ranges,
+        "skipped_unobserved_label_count": len(skipped_unobserved_labels),
+        "skipped_unobserved_labels": skipped_unobserved_labels,
+        "pending_cadence": _pending_cadence_diagnostics(pending_comparisons),
     }
+
+
+def _compress_validation_mismatches(
+    *,
+    failures: list[dict[str, Any]],
+    state_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Compress field mismatches into contiguous observed sample ranges."""
+
+    row_order = {
+        str(row["sample_id"]): index
+        for index, row in enumerate(state_rows)
+        if isinstance(row.get("sample_id"), str)
+    }
+    field_failures = [
+        item
+        for item in failures
+        if isinstance(item.get("sample_id"), str) and isinstance(item.get("field"), str)
+    ]
+    field_failures.sort(
+        key=lambda item: (
+            str(item["label_id"]),
+            str(item["field"]),
+            json.dumps(item.get("expected"), sort_keys=True),
+            json.dumps(item.get("actual"), sort_keys=True),
+            row_order.get(str(item["sample_id"]), sys.maxsize),
+        )
+    )
+    ranges: list[dict[str, Any]] = []
+    active: dict[str, Any] | None = None
+    active_key: tuple[str, str, str, str] | None = None
+    active_index = -2
+    for item in field_failures:
+        sample_id = str(item["sample_id"])
+        current_index = row_order.get(sample_id, sys.maxsize)
+        key = (
+            str(item["label_id"]),
+            str(item["field"]),
+            json.dumps(item.get("expected"), sort_keys=True),
+            json.dumps(item.get("actual"), sort_keys=True),
+        )
+        if active is None or key != active_key or current_index != active_index + 1:
+            active = {
+                "label_id": item["label_id"],
+                "field": item["field"],
+                "expected": item.get("expected"),
+                "actual": item.get("actual"),
+                "sample_id": sample_id,
+                "sample_end_id": sample_id,
+                "source_sample_id": item.get("source_sample_id"),
+                "source_sample_end_id": item.get("source_sample_id"),
+                "sample_count": 1,
+            }
+            ranges.append(active)
+        else:
+            active["sample_end_id"] = sample_id
+            active["source_sample_end_id"] = item.get("source_sample_id")
+            active["sample_count"] = int(active["sample_count"]) + 1
+        active_key = key
+        active_index = current_index
+    return ranges
+
+
+def _pending_cadence_diagnostics(
+    comparisons: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Summarize retained pending transitions, drift, and cadence-only oscillation."""
+
+    by_sample_id = {
+        str(item["sample_id"]): item
+        for item in comparisons
+        if isinstance(item.get("sample_id"), str)
+    }
+    rows = sorted(
+        by_sample_id.values(),
+        key=lambda item: float(item.get("elapsed_seconds") or 0.0),
+    )
+    deltas = [
+        float(rows[index]["elapsed_seconds"]) - float(rows[index - 1]["elapsed_seconds"])
+        for index in range(1, len(rows))
+        if float(rows[index]["elapsed_seconds"]) > float(rows[index - 1]["elapsed_seconds"])
+    ]
+    sorted_deltas = sorted(deltas)
+    median_interval = sorted_deltas[len(sorted_deltas) // 2] if sorted_deltas else None
+    oscillation_samples: list[str] = []
+    for previous, current in zip(rows, rows[1:]):
+        if previous.get("expected") != current.get("expected"):
+            continue
+        actual_pair = {previous.get("actual"), current.get("actual")}
+        if actual_pair == {"yes", "no"}:
+            oscillation_samples.append(str(current["sample_id"]))
+
+    expected_transitions = _pending_transitions(rows=rows, field="expected")
+    actual_transitions = _pending_transitions(rows=rows, field="actual")
+    drift_rows: list[dict[str, Any]] = []
+    actual_cursor = 0
+    for expected in expected_transitions:
+        matched: dict[str, Any] | None = None
+        while actual_cursor < len(actual_transitions):
+            candidate = actual_transitions[actual_cursor]
+            actual_cursor += 1
+            if candidate["value"] == expected["value"]:
+                matched = candidate
+                break
+        if matched is None:
+            drift_rows.append(
+                {
+                    "expected_sample_id": expected["sample_id"],
+                    "actual_sample_id": None,
+                    "value": expected["value"],
+                    "drift_seconds": None,
+                    "bound_seconds": median_interval,
+                    "within_bound": False,
+                }
+            )
+            continue
+        drift = abs(float(matched["elapsed_seconds"]) - float(expected["elapsed_seconds"]))
+        bound = max(deltas, default=0.0)
+        drift_rows.append(
+            {
+                "expected_sample_id": expected["sample_id"],
+                "actual_sample_id": matched["sample_id"],
+                "value": expected["value"],
+                "drift_seconds": drift,
+                "bound_seconds": bound,
+                "within_bound": drift <= bound + 1e-9,
+            }
+        )
+    return {
+        "retained_sample_count": len(rows),
+        "median_interval_seconds": median_interval,
+        "expected_transition_count": len(expected_transitions),
+        "actual_transition_count": len(actual_transitions),
+        "transition_drift": drift_rows,
+        "transition_drift_within_bound": all(bool(item["within_bound"]) for item in drift_rows),
+        "cadence_only_yes_no_oscillation_samples": oscillation_samples,
+    }
+
+
+def _pending_transitions(
+    *,
+    rows: list[dict[str, Any]],
+    field: str,
+) -> list[dict[str, Any]]:
+    """Return decisive pending-input transitions from retained comparison rows."""
+
+    transitions: list[dict[str, Any]] = []
+    previous: object = None
+    for row in rows:
+        value = row.get(field)
+        if value not in {"yes", "no"}:
+            previous = value
+            continue
+        if previous is not None and value != previous:
+            transitions.append(
+                {
+                    "sample_id": row["sample_id"],
+                    "elapsed_seconds": row["elapsed_seconds"],
+                    "value": value,
+                }
+            )
+        previous = value
+    return transitions
 
 
 def add_terminal_record_label(
@@ -863,6 +1058,12 @@ def add_terminal_record_label(
     evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Append or replace one structured recorder label."""
+
+    pending_input = expectations.get("surface_pending_input")
+    if pending_input not in {"yes", "no", "unknown"}:
+        raise TerminalRecordError(
+            "expectations.surface_pending_input must be one of yes, no, or unknown"
+        )
 
     paths = TerminalRecordPaths.from_run_root(run_root=run_root)
     destination = (
@@ -1040,6 +1241,9 @@ def _build_parser() -> argparse.ArgumentParser:
     add_label.add_argument("--surface-accepting-input", default=None)
     add_label.add_argument("--surface-editing-input", default=None)
     add_label.add_argument("--surface-ready-posture", default=None)
+    add_label.add_argument(
+        "--surface-pending-input", choices=("yes", "no", "unknown"), required=True
+    )
     add_label.add_argument("--turn-phase", default=None)
     add_label.add_argument("--last-turn-result", default=None)
     add_label.add_argument("--last-turn-source", default=None)
@@ -1142,6 +1346,7 @@ def main(argv: list[str] | None = None) -> int:
                     "surface_accepting_input": args.surface_accepting_input,
                     "surface_editing_input": args.surface_editing_input,
                     "surface_ready_posture": args.surface_ready_posture,
+                    "surface_pending_input": args.surface_pending_input,
                     "turn_phase": args.turn_phase,
                     "last_turn_result": args.last_turn_result,
                     "last_turn_source": args.last_turn_source,

@@ -64,7 +64,7 @@ Commands:
 
 - `start`, `status`, `stop`
 - `add-label`
-- `derive-stream` with `regular`, `jittered`, `bursty`, or `gapped`
+- `derive-stream` with `regular`, `jitter`, `drop`, or `burst`
 - `analyze`
 - `validate`
 

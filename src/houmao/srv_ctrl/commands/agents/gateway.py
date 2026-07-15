@@ -30,6 +30,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierContextErrorPolicy,
     GatewayMailNotifierMode,
     GatewayMailNotifierPreNotificationContextAction,
+    GatewayPromptAdmissionPolicy,
     GatewayReminderCreateBatchV1,
     GatewayReminderDefinitionV1,
     GatewayReminderListV1,
@@ -96,6 +97,11 @@ from ..managed_agents import (
 
 
 _FunctionT = TypeVar("_FunctionT", bound=Callable[..., object])
+_PROMPT_ADMISSION_POLICY_BY_CLI_VALUE: dict[str, GatewayPromptAdmissionPolicy] = {
+    "ready-only": "ready_only",
+    "if-no-pending": "if_no_pending",
+    "always": "always",
+}
 _ReminderModelT = TypeVar(
     "_ReminderModelT",
     GatewayReminderDefinitionV1,
@@ -324,9 +330,11 @@ def status_gateway_command(
     help="Prompt text to submit. If omitted, piped stdin is used.",
 )
 @click.option(
-    "--force",
-    is_flag=True,
-    help="Send the prompt even when the gateway does not judge the target prompt-ready.",
+    "--admission-policy",
+    type=click.Choice(("ready-only", "if-no-pending", "always")),
+    default="ready-only",
+    show_default=True,
+    help="Choose the tracked-state admission rule for this direct prompt.",
 )
 @click.option(
     "--model",
@@ -346,7 +354,7 @@ def status_gateway_command(
 )
 @managed_agent_selector_options
 def prompt_gateway_command(
-    force: bool,
+    admission_policy: str,
     model: str | None,
     reasoning_level: int | None,
     current_session: bool,
@@ -371,7 +379,7 @@ def prompt_gateway_command(
             gateway_prompt(
                 target,
                 prompt=resolve_prompt_text(prompt=prompt),
-                force=force,
+                admission_policy=_PROMPT_ADMISSION_POLICY_BY_CLI_VALUE[admission_policy],
                 model=model,
                 reasoning_level=reasoning_level,
             ),

@@ -1,0 +1,65 @@
+{
+  "labels": [
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: composer bounds incomplete during startup"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "unknown"
+      },
+      "label_id": "startup-unknown",
+      "note": null,
+      "sample_end_id": "s000013",
+      "sample_id": "s000001",
+      "scenario_id": "uc05-claude"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: complete composer and active turn without queued preview"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "no"
+      },
+      "label_id": "busy-no-pending-before",
+      "note": null,
+      "sample_end_id": "s000047",
+      "sample_id": "s000014",
+      "scenario_id": "uc05-claude"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: indented styled queued user preview above bottom composer"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "yes"
+      },
+      "label_id": "pending-span",
+      "note": null,
+      "sample_end_id": "s001015",
+      "sample_id": "s000048",
+      "scenario_id": "uc05-claude"
+    },
+    {
+      "evidence": {
+        "notes": [
+          "Human-audited review video: queued preview consumed; later final ready composer remains empty"
+        ]
+      },
+      "expectations": {
+        "surface_pending_input": "no"
+      },
+      "label_id": "pending-consumed",
+      "note": null,
+      "sample_end_id": "s001546",
+      "sample_id": "s001016",
+      "scenario_id": "uc05-claude"
+    }
+  ],
+  "schema_version": 1
+}

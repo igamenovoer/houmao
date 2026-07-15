@@ -1,135 +1,129 @@
-# Use Case 06: Guard houmao-mgr Prompt Submission Against Pending Instructions
+# Use Case 06: Apply Gateway Prompt Admission Policies to Pending Instructions
 
 ## Actor Goal
 
-As a Houmao operator, I want `houmao-mgr` to refuse a prompt submission when the managed provider CLI already holds a pending instruction, so that I cannot accidentally queue two user prompts in the provider's native retention surface.
+As a Houmao operator, I want to choose whether a prompt requires a fully ready TUI, only an empty provider-native pending queue, or no tracked TUI guard, so that each caller can state its own tolerance for busy and queued provider state.
 
 ## Use Case
 
-When a provider CLI is busy and already retains user text for the next turn, submitting another prompt through `houmao-mgr` creates an ambiguous multi-prompt state. The provider may concatenate the prompts, treat the second as steering, or silently drop one. UC-06 adds an explicit guard to the `houmao-mgr` prompt path:
+UC-05 establishes the public `surface.pending_input=yes|no|unknown` observation. UC-06 consumes that observation through the direct prompt-control path used by `houmao-mgr agents single|self ... gateway prompt`.
 
-- By default, `houmao-mgr agents single --agent-id {{AGENT_ID}} gateway prompt` rejects the request when the tracker reports `turn_phase=busy_pending_input`.
-- The refusal is structured, includes the `pending_input` error code, and cites the sample ids or timestamps that show the pending instruction.
-- A `--force-if-no-pending` flag allows the operator to bypass the ordinary readiness/stability gate while still rejecting if a pending instruction exists. This is useful when the operator trusts the current surface but wants protection against stacking retained prompts.
-- The existing `--force` flag continues to bypass every readiness gate, including the pending-input check; it is reserved for recovery and calibration workflows.
+The command exposes one admission policy:
 
-This use case depends on [UC-05](uc-05-detect-pending-instruction-state.md). Without a reliable `busy_pending_input` detector, the guard would fire on false positives and block legitimate prompts. UC-05 qualifies the detector; UC-06 wires that detector output into the prompt-control command.
+| CLI value | API value | Intended caller behavior |
+|---|---|---|
+| `ready-only` | `ready_only` | Submit only when the existing stable prompt-ready predicate passes and pending input is decisively `no`. This is the default. |
+| `if-no-pending` | `if_no_pending` | Permit submission while busy, editing, or unstable, but back off when pending input is `yes` or `unknown`. |
+| `always` | `always` | Submit regardless of tracked readiness and pending input. |
+
+Provider-native pending input is independent from an unsubmitted composer draft, a durable gateway request, and a Houmao explicit-prompt note. The provider TUI observation remains authoritative after dispatch.
+
+Admission is observational. Houmao does not reserve an empty provider queue slot or hold a lock while the CLI repaints. Two closely spaced `if-no-pending` requests may both dispatch while the latest observation still says `no`; later calls react after the tracker observes `yes`.
 
 ## Supported Actions
 
-### Submit Prompt Under Normal Readiness Gate
-
-Submit a prompt through `houmao-mgr` while the provider is ready.
+### Submit With Ready-Only
 
 - context
-  - Actor **has** a managed agent with an attached gateway, a ready TUI surface, and a unique prompt canary.
-  - System **has** the current tracker state, the direct prompt-control route, and the ordinary readiness predicate.
+  - Actor **has** an attached unattended TUI agent, a stable ready surface, `surface.pending_input=no`, and a unique canary.
 - intent
-  - Actor **wants** the prompt to start immediately as a new independent turn.
-  - Actor **wonders** "Does the normal path still work when no pending input exists?"
+  - Actor **wants** the canary to start immediately as a new independent turn.
 - action
-  - Actor then **asks** the system to run `houmao-mgr agents single --agent-id {{AGENT_ID}} gateway prompt --prompt "{{PROMPT}}"` while the tracker reports `ready_immediate`.
+  - Actor then **asks** the system to run `gateway prompt --admission-policy ready-only --prompt "{{PROMPT}}"`.
 - result
-  - Actor **gets** a success response, the prompt becomes the next active turn, and no `pending_input` refusal occurs.
+  - Actor **gets** a schema-v2 success response with `admission_policy=ready_only`, and the canary starts immediately.
 
-### Reject Prompt When Pending Input Exists
-
-Submit a prompt through `houmao-mgr` while the provider already holds pending user text and verify the command refuses.
+### Refuse Ready-Only While Busy
 
 - context
-  - Actor **has** a managed agent whose TUI is busy with a visible pending instruction, created either by a previous forced submission or by native keystroke interaction.
-  - System **has** the `busy_pending_input` tracker state and the guarded prompt-control route.
+  - Actor **has** a current active turn and `surface.pending_input=no`.
 - intent
-  - Actor **wants** the system to protect the provider's retention surface from a second retained prompt.
-  - Actor **wonders** "Will `houmao-mgr` reject my prompt when the CLI already has text queued for the next turn?"
+  - Actor **wants** full prompt-ready protection.
 - action
-  - Actor then **asks** the system to establish `busy_pending_input` (for example, by forcing one canary while a long turn is active), wait until the tracker reports `busy_pending_input`, and then submit a second canary through the non-forced `gateway prompt` path.
+  - Actor then **asks** the system to submit a ready-only canary.
 - result
-  - Actor **gets** a non-zero exit, structured `error_code=pending_input`, and no provider input event for the second canary. The first pending canary remains queued for the next turn.
+  - Actor **gets** HTTP/CLI refusal with `error_code=not_ready`, and the provider receives no canary input.
 
-### Use Force-if-No-Pending to Bypass Readiness but Not Pending Input
-
-Submit a prompt with `--force-if-no-pending` while the provider is busy but has no pending instruction.
+### Submit If No Pending While Busy
 
 - context
-  - Actor **has** a managed agent whose TUI is `busy_active` with no visible pending input.
-  - System **has** the `--force-if-no-pending` flag on the `gateway prompt` command.
+  - Actor **has** a current active turn and a decisive `surface.pending_input=no` observation.
 - intent
-  - Actor **wants** to bypass the ordinary stability/readiness gate without risking a stacked pending instruction.
-  - Actor **wonders** "Can I force a prompt into a busy-but-clean surface, but still be blocked if the provider already holds queued text?"
+  - Actor **wants** to submit during the busy turn only when the provider has no submitted prompt waiting.
 - action
-  - Actor then **asks** the system to start a long turn, wait for `busy_active` with no pending signature, and submit a canary with `--force-if-no-pending`.
+  - Actor then **asks** the system to run `gateway prompt --admission-policy if-no-pending --prompt "{{PROMPT}}"`.
 - result
-  - Actor **gets** a success response and the canary becomes active after the current turn, or the canary is refused if the provider's own behavior retains it. The important Houmao-level guarantee is that the command does not proceed when `busy_pending_input` is present.
+  - Actor **gets** success with `admission_policy=if_no_pending`; the provider may retain or steer the prompt according to its native behavior.
+  - The Houmao prompt note records explicit-input provenance but does not set `surface.pending_input`.
 
-### Reject Force-if-No-Pending When Pending Input Exists
-
-Submit a prompt with `--force-if-no-pending` while the provider already holds pending user text.
+### Refuse If No Pending After Queue Observation
 
 - context
-  - Actor **has** a managed agent whose TUI is `busy_pending_input`.
-  - System **has** the `--force-if-no-pending` flag.
+  - Actor **has** a current active turn with provider-owned queued-prompt structure and `surface.pending_input=yes`.
 - intent
-  - Actor **wants** confirmation that `--force-if-no-pending` does not override the pending-input guard.
+  - Actor **wants** to avoid stacking another prompt.
 - action
-  - Actor then **asks** the system to establish `busy_pending_input` and submit a canary with `--force-if-no-pending`.
+  - Actor then **asks** the system to submit a second `if-no-pending` canary.
 - result
-  - Actor **gets** a non-zero exit with `error_code=pending_input`, exactly like the default path.
+  - Actor **gets** `error_code=pending_input`, `admission_policy=if_no_pending`, and no provider input event for that canary.
 
-### Clear Pending Input and Retry
-
-After a `pending_input` refusal, clear the provider's retention surface and retry the same prompt.
+### Fail Closed on Unknown
 
 - context
-  - Actor **has** a managed agent that just refused a prompt because of `busy_pending_input`.
-  - System **has** the ability to send `Ctrl+C`, `Escape`, or the provider-specific discard gesture.
+  - Actor **has** a cropped, ambiguous, or unsupported queue surface with `surface.pending_input=unknown`.
 - intent
-  - Actor **wants** to recover from the pending-input state and submit the prompt cleanly.
+  - Actor **wants** a conditional submission.
 - action
-  - Actor then **asks** the system to clear the retained text, wait for `busy_active` or `ready_immediate`, and resubmit the prompt.
+  - Actor then **asks** the system to submit with `ready-only` from an otherwise ready surface or with `if-no-pending` from any posture.
 - result
-  - Actor **gets** either a busy refusal (if the original turn is still active) or a success (if the surface is ready), and no pending instruction remains from the previous canary.
+  - Actor **gets** `error_code=pending_input_unknown`, and the provider receives no canary input.
 
-## CLI Interface
+### Submit Always While Pending
 
-The guarded command is the existing direct prompt-control path. The new flag is added to it:
+- context
+  - Actor **has** a current active turn with `surface.pending_input=yes`.
+- intent
+  - Actor explicitly **wants** provider submission regardless of readiness and existing queued input.
+- action
+  - Actor then **asks** the system to run `gateway prompt --admission-policy always --prompt "{{PROMPT}}"`.
+- result
+  - Actor **gets** success with `admission_policy=always`; structural gateway checks still apply.
+
+### Exercise the Pre-Repaint Window
+
+- context
+  - Actor **has** a busy-no-pending observation and two unique canaries ready for immediate consecutive submission.
+- intent
+  - Actor **wants** to verify that the policy is observational rather than an atomic reservation.
+- action
+  - Actor then **asks** the system to issue two `if-no-pending` calls before the next provider repaint, wait for tracked pending input to become `yes`, retry conditionally, and then submit once with `always`.
+- result
+  - Both pre-repaint calls may succeed.
+  - The later conditional call refuses after observed `yes`.
+  - The later `always` call succeeds.
+
+## CLI and HTTP Interface
 
 ```text
 houmao-mgr agents single --agent-id {{AGENT_ID}} gateway prompt \
   --prompt "{{PROMPT}}" \
-  [--force] \
-  [--force-if-no-pending]
+  --admission-policy <ready-only|if-no-pending|always>
 ```
 
-The flag semantics are:
-
-- Neither flag: apply the full readiness predicate, including the pending-input check. Reject with `error_code=not_ready` or `error_code=pending_input` as appropriate.
-- `--force-if-no-pending`: bypass tracker readiness/stability gates, but still reject with `error_code=pending_input` if `turn_phase=busy_pending_input`.
-- `--force`: bypass every readiness gate, including pending input. This may stack prompts in the provider CLI and is only allowed in calibration or explicit recovery workflows.
-
-The two flags are mutually exclusive. If both are supplied, the command exits with `error_code=conflicting_force_options` before contacting the gateway.
-
-The HTTP request shape sent to the gateway remains:
+The default is `ready-only`. `agents self gateway prompt` exposes the same option. There is no force flag or alias.
 
 ```http
 POST {{GATEWAY_BASE_URL}}/v1/control/prompt
 Content-Type: application/json
 
-{"schema_version":1,"prompt":"{{PROMPT}}","force":false,"force_if_no_pending":true}
+{"schema_version":2,"prompt":"{{PROMPT}}","admission_policy":"if_no_pending"}
 ```
 
-The gateway computes the effective admission decision using the current tracker state:
+Schema version 1 and payloads containing `force` fail strict validation. Success and structured refusal payloads report `admission_policy`; neither shape contains `forced`.
 
-```python
-if turn_phase == "busy_pending_input":
-    refuse(error_code="pending_input")
-elif force:
-    admit()
-elif force_if_no_pending:
-    admit()  # readiness/stability gate skipped
-else:
-    apply_full_readiness_predicate()
-```
+Nondefault policies apply only to TUI direct prompt control. Native headless targets reject `if_no_pending` and `always` so their overlap protection remains intact. TUI `chat_session.mode=new` also requires `ready_only`.
+
+All policies enforce attachment, connectivity, reconciliation, target-selector, execution-override, and adapter-compatibility checks before tracked-state policy evaluation.
 
 ## Main Flow
 
@@ -139,66 +133,69 @@ sequenceDiagram
     actor Op as Operator
     participant M as houmao-mgr
     participant G as Gateway
-    participant T as Provider TUI
     participant Tr as Tracker
+    participant T as Provider TUI
 
-    Op->>M: gateway prompt --prompt AR06-A
-    M->>G: POST /v1/control/prompt (force=false)
-    G->>Tr: Read state
-    Tr-->>G: ready_immediate
+    Op->>M: prompt AR06-A (ready-only)
+    M->>G: schema v2, ready_only
+    G->>Tr: Read latest state
+    Tr-->>G: ready, pending=no
     G->>T: Dispatch AR06-A
-    T->>Tr: busy_active
+    T->>Tr: active, pending=no
 
-    Op->>M: gateway prompt --prompt AR06-B (no force)
-    M->>G: POST /v1/control/prompt (force=false)
-    G->>Tr: Read state
-    Tr-->>G: busy_pending_input
-    G-->>M: error_code=pending_input
-    M-->>Op: Refused; provider already holds queued text
+    Op->>M: prompt AR06-B (ready-only)
+    M->>G: schema v2, ready_only
+    G->>Tr: Read latest state
+    Tr-->>G: active, pending=no
+    G-->>M: not_ready
 
-    Op->>M: Ctrl+C / Escape to clear pending
-    M->>G: Send discard gesture
-    G->>T: Clear retained text
-    T->>Tr: busy_active
-
-    Op->>M: gateway prompt --prompt AR06-C --force-if-no-pending
-    M->>G: POST /v1/control/prompt (force_if_no_pending=true)
-    G->>Tr: Read state
-    Tr-->>G: busy_active (no pending)
+    Op->>M: prompt AR06-C (if-no-pending)
+    M->>G: schema v2, if_no_pending
+    G->>Tr: Read latest state
+    Tr-->>G: active, pending=no
     G->>T: Dispatch AR06-C
-    T->>Tr: busy_pending_input
+    T->>Tr: active, pending=yes
+
+    Op->>M: prompt AR06-D (if-no-pending)
+    M->>G: schema v2, if_no_pending
+    G->>Tr: Read latest state
+    Tr-->>G: active, pending=yes
+    G-->>M: pending_input
+
+    Op->>M: prompt AR06-E (always)
+    M->>G: schema v2, always
+    G->>T: Dispatch AR06-E
 ```
 
 ## Acceptance Criteria
 
 UC-06 passes for a provider only when all of the following hold:
 
-1. A non-forced prompt submitted while `ready_immediate` succeeds and starts a new independent turn.
-2. A non-forced prompt submitted while `busy_pending_input` exits non-zero with `error_code=pending_input` and produces no provider input event.
-3. A prompt submitted with `--force-if-no-pending` while `busy_active` (no pending input) succeeds or is refused only by the provider's own behavior, not by Houmao's pending-input guard.
-4. A prompt submitted with `--force-if-no-pending` while `busy_pending_input` exits non-zero with `error_code=pending_input`.
-5. A prompt submitted with `--force` while `busy_pending_input` succeeds (proving the guard is bypassable), but the run is marked as a calibration/recovery run, not a qualification pass.
-6. The error payload includes the tracker sample ids or timestamps that justified the `pending_input` decision.
-7. After a `pending_input` refusal, clearing the provider's retention surface removes the `busy_pending_input` state and allows a clean retry.
-8. The CLI rejects `--force` and `--force-if-no-pending` together with `error_code=conflicting_force_options`.
+1. `ready-only` succeeds on stable ready/no-pending and refuses busy/no-pending with `not_ready`.
+2. `if-no-pending` succeeds on busy/no-pending and refuses observed pending `yes` with `pending_input`.
+3. Both conditional policies fail closed with `pending_input_unknown` when they reach an `unknown` pending check.
+4. `always` dispatches on busy/pending while structural checks remain enforceable.
+5. The CLI maps hyphenated values to underscore API enums and reports the selected policy in plain, fancy, and JSON output.
+6. Removed `--force`, schema version 1, and a request `force` field are rejected without translation.
+7. Gateway event records include the policy plus tracked readiness and pending facts used by the decision.
+8. A Houmao prompt note does not change pending input before the provider surface repaints.
+9. Two pre-repaint conditional calls may both succeed; a later observed `yes` changes only later admission decisions.
+10. Native headless nondefault policies and TUI new-session nondefault policies are rejected.
+11. Claude, Codex, and Kimi runs use unattended mode and record every tmux session. Gemini is excluded.
 
 ## Durable Outputs
 
-- `sessions/<provider>/ar-06a/scenario.json`: normal readiness gate operations, canaries, and expected outcomes.
-- `sessions/<provider>/ar-06b/scenario.json`: pending-input refusal operations, canaries, and expected outcomes.
-- `sessions/<provider>/ar-06c/scenario.json`: `--force-if-no-pending` while busy-active operations.
-- `sessions/<provider>/ar-06d/scenario.json`: `--force-if-no-pending` while busy-pending operations.
-- `sessions/<provider>/ar-06e/scenario.json`: clear-and-retry operations.
-- `sessions/<provider>/ar-06*/gateway-command-trace.ndjson`: command start/end times, exit status, structured payload, error code, and tracker state snapshot at dispatch time.
-- `sessions/<provider>/ar-06*/tracked-state.ndjson`: per-sample public state so the refusal can be correlated with the exact `busy_pending_input` span.
-- `issues/<provider>-ar-06-<first-divergence>.md`: minimal evidence when a refusal did not occur as expected or when a prompt was admitted despite pending input.
-- `context/features/2026-07-11-tui-state-tracking-test-plan/test-reports/<ts>-houmao-mgr-pending-guard.md`: provider matrix, refusal counts, false-admission counts, force-flag behavior, and release recommendation.
+- `sessions/<provider>/uc06/recording/`: the complete terminal recording, input events, and manifest.
+- `sessions/<provider>/uc06/gateway-decisions.ndjson`: request policy, command result, tracked facts, timestamps, and provider-input correlation.
+- `sessions/<provider>/uc06/tracked-state.ndjson`: current state and transition history including `surface_pending_input`.
+- `sessions/<provider>/uc06/review/`: aligned pane, tracked-state, gateway-decision, and CLI-result video assets.
+- `context/features/2026-07-11-tui-state-tracking-test-plan/test-reports/<ts>-uc06-live-admission-qualification.md`: provider versions, non-secret credential/proxy posture, commands, recordings, videos, mismatches, and verdicts.
 
-## Assumptions and Open Questions
+All temporary projects and output artifacts live under a fresh `tmp/<subdir>` root. Codex inherits and records the configured proxy environment used for the run without hard-coding its current port into product code or generic skill guidance.
 
-- Assumes UC-05 has qualified the `busy_pending_input` detector for the provider/version.
-- Assumes the gateway exposes the current tracker state synchronously to the prompt-control route.
-- Assumes the CLI parser can represent mutually exclusive boolean flags without ambiguity.
-- Open question: should the default behavior also reject when `turn_phase=busy_draft`? UC-03 already covers draft refusal through the full readiness predicate; UC-06 adds only the pending-input specialization.
-- Open question: should `--force-if-no-pending` also skip the `busy_active` gate, or only skip readiness/stability while still requiring the provider to be reachable? This use case treats it as "skip tracker readiness/stability but still enforce pending-input."
-- Open question: should the pending-input guard apply to the durable queued request surface (`POST /v1/requests`) as well? This use case focuses on the direct prompt-control path used by `houmao-mgr agents single ... gateway prompt`; the queued request path intentionally accepts durable work and is not modified here.
+## Assumptions
+
+- UC-05 has qualified pending-input detection for the selected provider/version.
+- The latest tracked snapshot is sufficient for an explicitly observational admission decision.
+- Provider queue count remains diagnostic-only; the public field stays binary tristate presence.
+- The durable gateway request surface remains independent and intentionally does not use this direct-control policy.

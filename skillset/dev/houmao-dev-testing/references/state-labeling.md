@@ -4,7 +4,7 @@
 
 1. **Read only raw terminal, runtime, and input evidence.** Do not inspect tracker or parser output.
 2. **Identify sample ranges where the public meaning stays constant.** Keep boundaries at observable changes, inputs, runtime changes, and settle transitions.
-3. **Assign all seven fields** using **Field Rubric** and record concrete evidence.
+3. **Assign all eight fields** using **Field Rubric** and record concrete evidence.
 4. **Adjudicate ready-versus-busy operationally.** A submitted prompt must begin immediately for ready posture to be `yes`.
 5. **Check complete, non-overlapping source coverage** and freeze the label set with the source digest.
 
@@ -18,6 +18,7 @@ If the evidence cannot determine a field, use the native planning tool to seek a
 | `surface_accepting_input` | `yes`, `no`, `unknown` |
 | `surface_editing_input` | `yes`, `no`, `unknown` |
 | `surface_ready_posture` | `yes`, `no`, `unknown` |
+| `surface_pending_input` | `yes`, `no`, `unknown` |
 | `turn_phase` | `ready`, `active`, `unknown` |
 | `last_turn_result` | `success`, `interrupted`, `known_failure`, `none` |
 | `last_turn_source` | `explicit_input`, `surface_inference`, `none` |
@@ -45,6 +46,10 @@ Label whether the user can currently edit a draft in the composer. A visible typ
 ### Surface Ready Posture
 
 Label `yes` only when a prompt submitted now would begin processing immediately instead of entering a CLI-owned queue or waiting for the current turn. Favor operational evidence from the next recorded submit and immediate surface response. Use `no` for a demonstrably busy/non-admitting surface and `unknown` for an ambiguous editor with no decisive outcome.
+
+### Surface Pending Input
+
+Label `yes` only when provider-owned TUI structure shows submitted user input waiting behind the active turn. An editable composer draft, queue-like transcript prose, a gateway-durable request, and a Houmao prompt note do not establish pending input. Use `no` only when the provider-specific queue/composer bounds are complete and decisively empty; cropped or unrecognized structure is `unknown`.
 
 ### Turn Phase
 
@@ -87,7 +92,7 @@ Do not cite detector names, detector reasons, parser projections, tracker events
 - Ranges are inclusive and ordered by source sample ID.
 - Every source sample has exactly one label.
 - No ranges overlap or reverse.
-- Every range contains all seven fields.
+- Every range contains all eight fields.
 - Short ambiguous or transitional spans remain explicit; do not stretch a neighboring label across them for convenience.
 - Derived streams do not get a separate ground-truth label set. They map back to canonical labels through `source_sample_id`.
 

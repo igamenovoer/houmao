@@ -535,6 +535,7 @@ def test_compare_timelines_reports_first_divergence() -> None:
         surface_accepting_input=replay[1].surface_accepting_input,
         surface_editing_input=replay[1].surface_editing_input,
         surface_ready_posture=replay[1].surface_ready_posture,
+        surface_pending_input=replay[1].surface_pending_input,
         turn_phase="unknown",
         last_turn_result=replay[1].last_turn_result,
         last_turn_source=replay[1].last_turn_source,

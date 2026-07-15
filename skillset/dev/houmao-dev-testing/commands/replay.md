@@ -9,7 +9,7 @@
 5. **Audit row counts, monotonic time, source mapping, and detector metadata.** Retain failed variants as evidence.
 6. **Write a replay manifest** that enumerates all variants and their output paths for `compare` and `render-video`.
 
-If a requested delay model does not fit the built-in regular, jittered, bursty, or gapped schedules, use the native planning tool to define a deterministic schedule with a seed and source mapping, then replay it through the same current tracker interface.
+If a requested delay model does not fit the built-in regular, jitter, drop, or burst schedules, use the native planning tool to define a deterministic schedule with a seed and source mapping, then replay it through the same current tracker interface.
 
 ## Replay Admission
 
@@ -44,10 +44,11 @@ Use the source capture as the only input and create a deliberate matrix. A usefu
 | Tag | Interval | Mode | Purpose |
 | --- | ---: | --- | --- |
 | `10hz-regular` | `0.1` | `regular` | Modest downsampling |
-| `5hz-jittered-s17` | `0.2` | `jittered` | Ordinary capture jitter |
+| `5hz-regular` | `0.2` | `regular` | Moderate downsampling |
 | `2hz-regular` | `0.5` | `regular` | Documented robustness floor |
-| `2hz-bursty-s23` | `0.5` | `bursty` | Closely spaced polls followed by gaps |
-| `2hz-gapped-s31` | `0.5` | `gapped` | Missed capture windows |
+| `5hz-jitter-s17` | `0.2` | `jitter` | Seeded capture jitter |
+| `5hz-drop-s31` | `0.2` | `drop` | Seeded missed capture windows |
+| `5hz-burst-s23` | `0.2` | `burst` | Seeded closely spaced polls followed by gaps |
 
 For each variant, derive and preserve the source mapping:
 
@@ -58,7 +59,7 @@ pixi run python -m tools.terminal_record derive-stream \
   --run-root "<run-root>/capture/recording" \
   --output-path "<run-root>/replay/streams/pane_snapshots_<tag>.ndjson" \
   --target-sample-interval-seconds "<interval>" \
-  --sampling-mode "<regular|jittered|bursty|gapped>" \
+  --sampling-mode "<regular|jitter|drop|burst>" \
   --phase-offset-seconds "<offset>" \
   --seed "<seed>"
 

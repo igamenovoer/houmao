@@ -74,6 +74,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMailReadFilter,
     GatewayMailStatusV1,
     GatewayPromptControlErrorV1,
+    GatewayPromptAdmissionPolicy,
     GatewayPromptControlRequestV1,
     GatewayPromptControlResultV1,
     GatewayReminderCreateBatchV1,
@@ -2332,7 +2333,7 @@ def gateway_prompt(
     target: ManagedAgentTarget,
     *,
     prompt: str,
-    force: bool = False,
+    admission_policy: GatewayPromptAdmissionPolicy = "ready_only",
     model: str | None = None,
     reasoning_level: int | None = None,
 ) -> GatewayPromptControlResultV1:
@@ -2353,13 +2354,16 @@ def gateway_prompt(
                 target.agent_ref,
                 HoumaoManagedAgentGatewayPromptControlRequest(
                     prompt=prompt,
-                    force=force,
+                    admission_policy=admission_policy,
                     execution=_execution_override_payload(execution_model),
                 ),
             )
         except CaoApiError as exc:
             raise GatewayPromptControlCliError(
-                _prompt_control_error_from_cao(exc, forced=force)
+                _prompt_control_error_from_cao(
+                    exc,
+                    admission_policy=admission_policy,
+                )
             ) from exc
 
     controller = _require_live_local_controller(target, operation="submit gateway prompt")
@@ -2368,18 +2372,21 @@ def gateway_prompt(
         return client.control_prompt(
             GatewayPromptControlRequestV1(
                 prompt=prompt,
-                force=force,
+                admission_policy=admission_policy,
                 execution=_execution_override_payload(execution_model),
             )
         )
     except GatewayHttpError as exc:
         raise GatewayPromptControlCliError(
-            _prompt_control_error_from_gateway_http(exc, forced=force)
+            _prompt_control_error_from_gateway_http(
+                exc,
+                admission_policy=admission_policy,
+            )
         ) from exc
     except click.ClickException as exc:
         raise GatewayPromptControlCliError(
             GatewayPromptControlErrorV1(
-                forced=force,
+                admission_policy=admission_policy,
                 error_code="unavailable",
                 detail=exc.message or str(exc),
             )
@@ -2389,7 +2396,7 @@ def gateway_prompt(
 def _prompt_control_error_from_cao(
     exc: CaoApiError,
     *,
-    forced: bool,
+    admission_policy: GatewayPromptAdmissionPolicy,
 ) -> GatewayPromptControlErrorV1:
     """Normalize one pair-server prompt-control failure into structured JSON."""
 
@@ -2397,7 +2404,7 @@ def _prompt_control_error_from_cao(
     detail_payload = payload.get("detail") if isinstance(payload, dict) else None
     return _coerce_prompt_control_error(
         payload=detail_payload,
-        forced=forced,
+        admission_policy=admission_policy,
         status_code=exc.status_code,
         fallback_detail=exc.detail,
     )
@@ -2406,7 +2413,7 @@ def _prompt_control_error_from_cao(
 def _prompt_control_error_from_gateway_http(
     exc: GatewayHttpError,
     *,
-    forced: bool,
+    admission_policy: GatewayPromptAdmissionPolicy,
 ) -> GatewayPromptControlErrorV1:
     """Normalize one direct gateway HTTP failure into structured JSON."""
 
@@ -2416,7 +2423,7 @@ def _prompt_control_error_from_gateway_http(
         payload = None
     return _coerce_prompt_control_error(
         payload=payload,
-        forced=forced,
+        admission_policy=admission_policy,
         status_code=exc.status_code,
         fallback_detail=exc.detail,
     )
@@ -2425,7 +2432,7 @@ def _prompt_control_error_from_gateway_http(
 def _coerce_prompt_control_error(
     *,
     payload: object,
-    forced: bool,
+    admission_policy: GatewayPromptAdmissionPolicy,
     status_code: int | None,
     fallback_detail: str,
 ) -> GatewayPromptControlErrorV1:
@@ -2444,7 +2451,7 @@ def _coerce_prompt_control_error(
             if isinstance(detail_value, str) and detail_value.strip():
                 fallback_detail = detail_value
     return GatewayPromptControlErrorV1(
-        forced=forced,
+        admission_policy=admission_policy,
         error_code=_prompt_control_error_code_from_status(status_code),
         detail=fallback_detail,
     )
