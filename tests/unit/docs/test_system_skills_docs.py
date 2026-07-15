@@ -53,8 +53,13 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "`kimi` target means Kimi Code CLI" in overview
     assert "legacy MoonshotAI `kimi-cli`" in overview
     assert "omitted-home Universal installs land under `~/.agents/skills/`" in overview
-    assert "Kimi Code discovers those files when a later launch uses the same path as `KIMI_CODE_HOME`" in overview
-    assert "current Kimi Code only discovers project `.kimi-code/skills` automatically" not in overview
+    assert (
+        "Kimi Code discovers those files when a later launch uses the same path as `KIMI_CODE_HOME`"
+        in overview
+    )
+    assert (
+        "current Kimi Code only discovers project `.kimi-code/skills` automatically" not in overview
+    )
     assert "Every current packaged Houmao system skill supports explicit skill-level help" in (
         overview
     )
@@ -77,7 +82,10 @@ def test_system_skill_help_docs_cover_standard_convention() -> None:
     assert "The `kimi` target means Kimi Code CLI" in cli_reference
     assert "legacy MoonshotAI `kimi-cli`" in cli_reference
     assert "Omitted-home universal installs land under `~/.agents/skills/`" in cli_reference
-    assert "passing `--home ~/.agents/skills` would therefore create `~/.agents/skills/skills/`" in cli_reference
+    assert (
+        "passing `--home ~/.agents/skills` would therefore create `~/.agents/skills/skills/`"
+        in cli_reference
+    )
     assert "pixi run houmao-mgr system-skills install --tool universal" in cli_reference
     assert "pixi run houmao-mgr system-skills install --tool universal --home ~/.agents" in (
         cli_reference

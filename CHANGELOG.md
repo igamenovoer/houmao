@@ -4,6 +4,41 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [1.2.0] - 2026-07-15
+
+### Added
+
+- **Pending-input TUI state tracking**: Claude Code, Codex, and Kimi Code tracking now reports whether each TUI has a prompt queued in its native input queue, alongside the ready posture used to decide whether a new prompt can run immediately.
+- **Explicit gateway prompt-admission policies**: prompt submission can require an immediately ready TUI, allow a busy TUI only when no prompt is already pending, or submit regardless of readiness and pending input. Admission decisions and their observed state are exposed through the gateway contracts and CLI.
+- **TUI tracking qualification tooling**: high-frequency tmux recording, ground-truth labeling, replay at varied capture cadences, comparison, review-video rendering, short transition cases, and long-horizon pressure cases now form a reusable development test workflow backed by a vendored Boltons test project.
+
+### Changed
+
+- **BREAKING: Gemini CLI support was removed**: TUI and headless launch paths, configuration, credentials, fixtures, documentation, and packaged skills no longer expose Gemini CLI support or compatibility shims.
+- **Codex and Kimi Code integrations were refreshed**: maintained version floors, launch arguments, headless output handling, model mappings, and TUI signal profiles now match the current CLIs. Codex GPT-5.6 mappings expose six ordered reasoning levels where supported by the selected model.
+- **Development skills were reorganized**: repository-only agent-launch and testing skills now live under `skillset/dev`, while runtime system skills remain available through the development-facing `skillset/runtime` projection.
+
+### Fixed
+
+- **Ready-versus-busy classification was hardened**: Claude Code, Codex, and Kimi Code detectors now distinguish editable prompt posture from active generation, overlays, queued input, and transient transitions more reliably, preventing managed prompt submission from remaining falsely blocked after an agent becomes ready.
+- **Pending-input admission is conservative**: the default ready-only policy rejects the rare inconsistent state where a TUI appears ready but still reports queued input, and Claude pending-input detection uses structural and style signals instead of brittle exact suggestion text.
+
+### Notes
+
+- This release bumps the minor segment for the breaking Gemini CLI removal, the new pending-input state contract and admission policies, and the refreshed Codex and Kimi Code integrations.
+- The `gh release create v1.2.0` event triggers `pypi-release.yml`, `docs.yml`, and the stable tool-skills sync workflow dispatch.
+
+## [1.1.1] - 2026-06-15
+
+### Changed
+
+- **System-skill installation gained a universal target**: Houmao-owned skills can be projected into the cross-client `~/.agents/skills` convention as well as supported tool-specific homes.
+- **Credential guidance was refreshed**: packaged credential-management guidance added Kimi Code OAuth login handling and clearer Claude and Codex login diagnostics.
+
+### Notes
+
+- This patch release synchronized the packaged system skills and credential guidance before the 1.2 development line.
+
 ## [1.1.0] - 2026-06-15
 
 ### Added

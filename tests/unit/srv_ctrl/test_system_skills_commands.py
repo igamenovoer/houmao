@@ -806,6 +806,7 @@ def test_system_skills_install_uses_kimi_env_redirect_when_home_is_omitted(
     assert install_payload["projected_relative_dirs"] == ["skills/houmao-agent-definition"]
     assert (home_path / "skills/houmao-agent-definition/SKILL.md").is_file()
 
+
 def test_system_skills_install_uses_user_agents_home_for_universal_default_home(
     tmp_path: Path,
     monkeypatch,
