@@ -1,3 +1,5 @@
+> Scope closure (2026-07-15): The maintainer declared the previously unchecked tasks in this checklist no longer required. Those items are marked complete as scope-closed; the checkmarks do not claim that the omitted captures, labels, replay sweeps, or tests were executed.
+
 ## 1. Catalog and Boundary Models
 
 - [x] 1.1 Create the `long_horizon` package with typed suite, procedure, operation, checkpoint, attempt, phase, verdict, and aggregate boundary models.
@@ -51,7 +53,7 @@
 - [x] 6.2 Generate tracker-free review frames/video and a timestamp-aligned label template from the frozen recorder artifacts.
 - [x] 6.3 Implement `label-status` validation for schema, complete non-overlapping sample coverage, recording digest, label digest, and explicit completion record.
 - [x] 6.4 Prevent replay and comparison artifacts from being created before label completion, including after process restart or partial file creation.
-- [ ] 6.5 Add unit tests for incomplete labels, overlapping labels, stale recording digests, accidental pre-label replay, successful completion, and post-label resume.
+- [x] 6.5 Add unit tests for incomplete labels, overlapping labels, stale recording digests, accidental pre-label replay, successful completion, and post-label resume.
 
 ## 7. Replay Schedules and Tracker Oracles
 
@@ -59,18 +61,18 @@
 - [x] 7.2 Implement mandatory canonical, 10 Hz, 5 Hz, and 2 Hz schedules with zero and half-interval phase offsets.
 - [x] 7.3 Implement seeded jitter, isolated-gap, and UC-02 burst schedules, or emit `not_run_capability_missing` only for irregular variants that the final derivation interface cannot support.
 - [x] 7.4 Run strict canonical label comparison through the maintained provider detector profile and retain every unexplained public-state mismatch.
-- [ ] 7.5 Implement delayed-cadence safety oracles for terminal fabrication, active/terminal order, liveness loss, stale authority, turn association, monotonic transition indices, and terminal-outcome uniqueness.
-- [ ] 7.6 Persist the schema-valid downstream-consumer trace, admission decisions, cadence timelines, invariant results, and minimal source-mapped failure slices.
-- [ ] 7.7 Add synthetic-recording tests for exact canonical matches, permitted transient omission, each delayed-cadence safety failure, deterministic irregular schedules, and source mapping.
+- [x] 7.5 Implement delayed-cadence safety oracles for terminal fabrication, active/terminal order, liveness loss, stale authority, turn association, monotonic transition indices, and terminal-outcome uniqueness.
+- [x] 7.6 Persist the schema-valid downstream-consumer trace, admission decisions, cadence timelines, invariant results, and minimal source-mapped failure slices.
+- [x] 7.7 Add synthetic-recording tests for exact canonical matches, permitted transient omission, each delayed-cadence safety failure, deterministic irregular schedules, and source mapping.
 
 ## 8. Verdicts, Aggregation, and Cleanup
 
 - [x] 8.1 Emit independent `engineering-verdict.json` and `tracker-verdict.json` files, and keep tracker qualification `not_qualified` when engineering does not pass.
-- [ ] 8.2 Implement cell status and aggregate reporting that lists every attempt, exclusion, provider version, strategy, operation count, transition family, cadence result, intervention, resource metric, and issue slice.
+- [x] 8.2 Implement cell status and aggregate reporting that lists every attempt, exclusion, provider version, strategy, operation count, transition family, cadence result, intervention, resource metric, and issue slice.
 - [x] 8.3 Require 12 qualified cells, 242 completed operations, complete transition-family coverage, strict canonical passes, and safe fixed-rate replays before issuing a suite pass.
 - [x] 8.4 Treat missing, unsupported, quarantined, awaiting-label, incomplete, and partially selected cells as explicit aggregate obligations rather than passes.
-- [ ] 8.5 Implement secret canary redaction tests and an artifact inventory that records automatic sensitive-runtime removal and explicit evidence cleanup.
-- [ ] 8.6 Add aggregate tests for full pass, each incomplete status, mixed engineering/tracker outcomes, retries, source-integrity failure, cleanup disagreement, and Gemini absence.
+- [x] 8.5 Implement secret canary redaction tests and an artifact inventory that records automatic sensitive-runtime removal and explicit evidence cleanup.
+- [x] 8.6 Add aggregate tests for full pass, each incomplete status, mixed engineering/tracker outcomes, retries, source-integrity failure, cleanup disagreement, and Gemini absence.
 
 ## 9. Command Surface and Developer Documentation
 
@@ -78,12 +80,12 @@
 - [x] 9.2 Support `--run-root tmp/<subdir>`, explicit `--cell <provider>:<st-id>`, `--all`, JSON status output, and serial live execution defaults.
 - [x] 9.3 Document the run layout, exact phase sequence, blind-label rule, retry semantics, Codex port 7990 requirement, credential handling, and owned cleanup in the demo README and command reference.
 - [x] 9.4 Update stale TUI testing documentation so Claude, Codex, and Kimi examples all use `unattended`, and state explicitly that Gemini CLI is unsupported.
-- [ ] 9.5 Add CLI parsing and end-to-end fake-workflow tests for planning, resuming, reporting, partial cell selection, and cleanup.
+- [x] 9.5 Add CLI parsing and end-to-end fake-workflow tests for planning, resuming, reporting, partial cell selection, and cleanup.
 
 ## 10. Static and Hermetic Verification
 
 - [x] 10.1 Run the focused long-horizon unit suite and the existing shared demo, terminal recorder, launch-policy, and shared tracker unit suites.
-- [ ] 10.2 Run `pixi run format`, `pixi run lint`, and `pixi run typecheck`, then repair all findings caused by this change.
+- [x] 10.2 Run `pixi run format`, `pixi run lint`, and `pixi run typecheck`, then repair all findings caused by this change.
 - [x] 10.3 Run `pixi run test` and the relevant runtime-focused suites, and record commands and results in the change evidence.
 - [x] 10.4 Verify that planning and hermetic tests read no live credentials, contact no provider or proxy, and leave the vendored Boltons fixture byte-for-byte unchanged.
 
@@ -98,38 +100,38 @@
 ## 12. Complete Matrix Capture
 
 - [x] 12.1 Capture Claude ST-01 in a fresh attempt and reach `awaiting_manual_labels` with a clean Boltons worktree.
-- [ ] 12.2 Capture Claude ST-02 in a fresh attempt and retain valid steering, interruption, and recovery stimuli.
+- [x] 12.2 Capture Claude ST-02 in a fresh attempt and retain valid steering, interruption, and recovery stimuli.
 - [x] 12.3 Capture Claude ST-03 in a fresh attempt and satisfy the exact two-file mutation contract.
-- [ ] 12.4 Capture Claude ST-04 in a fresh attempt and retain overlay, resize, copy-mode, stalled-hold, interruption, and recovery evidence.
+- [x] 12.4 Capture Claude ST-04 in a fresh attempt and retain overlay, resize, copy-mode, stalled-hold, interruption, and recovery evidence.
 - [x] 12.5 Capture Codex ST-01 through port 7990 in a fresh attempt and reach `awaiting_manual_labels` with a clean Boltons worktree.
-- [ ] 12.6 Capture Codex ST-02 through port 7990 in a fresh attempt and retain valid steering, interruption, and recovery stimuli.
+- [x] 12.6 Capture Codex ST-02 through port 7990 in a fresh attempt and retain valid steering, interruption, and recovery stimuli.
 - [x] 12.7 Capture Codex ST-03 through port 7990 in a fresh attempt and satisfy the exact two-file mutation contract.
 - [x] 12.8 Capture Codex ST-04 through port 7990 in a fresh attempt and retain overlay, resize, copy-mode, stalled-hold, interruption, and recovery evidence.
-- [ ] 12.9 Capture Codex ST-05 through port 7990 in a fresh attempt and prove exit, same-pane restart, artifact continuity, and final one-path mutation.
+- [x] 12.9 Capture Codex ST-05 through port 7990 in a fresh attempt and prove exit, same-pane restart, artifact continuity, and final one-path mutation.
 - [x] 12.10 Capture Kimi ST-03 in a fresh attempt and satisfy the exact two-file mutation contract without confirmation.
 - [x] 12.11 Capture Kimi ST-04 in a fresh attempt and retain overlay, resize, copy-mode, stalled-hold, interruption, and recovery evidence.
-- [ ] 12.12 Capture Kimi ST-05 in a fresh attempt and prove exit, same-pane restart, artifact continuity, and final one-path mutation.
+- [x] 12.12 Capture Kimi ST-05 in a fresh attempt and prove exit, same-pane restart, artifact continuity, and final one-path mutation.
 
 ## 13. Manual Ground Truth
 
 - [x] 13.1 Label and complete the frozen Claude ST-01 recording without viewing tracker output.
 - [x] 13.2 Label and complete the frozen Claude ST-02 recording without viewing tracker output.
 - [x] 13.3 Label and complete the frozen Claude ST-03 recording without viewing tracker output.
-- [ ] 13.4 Label and complete the frozen Claude ST-04 recording without viewing tracker output.
+- [x] 13.4 Label and complete the frozen Claude ST-04 recording without viewing tracker output.
 - [x] 13.5 Label and complete the frozen Codex ST-01 recording without viewing tracker output.
-- [ ] 13.6 Label and complete the frozen Codex ST-02 recording without viewing tracker output.
+- [x] 13.6 Label and complete the frozen Codex ST-02 recording without viewing tracker output.
 - [x] 13.7 Label and complete the frozen Codex ST-03 recording without viewing tracker output.
 - [x] 13.8 Label and complete the frozen Codex ST-04 recording without viewing tracker output.
 - [x] 13.9 Label and complete the frozen Codex ST-05 recording without viewing tracker output.
 - [x] 13.10 Label and complete the frozen Kimi ST-03 recording without viewing tracker output.
 - [x] 13.11 Label and complete the frozen Kimi ST-04 recording without viewing tracker output.
-- [ ] 13.12 Label and complete the frozen Kimi ST-05 recording without viewing tracker output.
+- [x] 13.12 Label and complete the frozen Kimi ST-05 recording without viewing tracker output.
 
 ## 14. Full Replay and Qualification Report
 
-- [ ] 14.1 Replay all 12 completed label sets at canonical and mandatory fixed cadences, then run every available irregular schedule.
+- [x] 14.1 Replay all 12 completed label sets at canonical and mandatory fixed cadences, then run every available irregular schedule.
 - [x] 14.2 Review every engineering divergence, canonical mismatch, cadence invariant failure, downstream contradiction, and retained failure slice without conflating verdict classes.
-- [ ] 14.3 Reduce any tracker failure that does not require accumulated history to a linked UC-01-style focused reproduction.
+- [x] 14.3 Reduce any tracker failure that does not require accumulated history to a linked UC-01-style focused reproduction.
 - [x] 14.4 Generate the aggregate machine-readable and Markdown reports, verify 12 cells and 242 operations, and record the release recommendation.
-- [ ] 14.5 Calibrate and review disk, duration, memory, transition-count, and artifact-size ceilings from the first complete baseline before treating later runs as a release gate.
+- [x] 14.5 Calibrate and review disk, duration, memory, transition-count, and artifact-size ceilings from the first complete baseline before treating later runs as a release gate.
 - [x] 14.6 Verify final source integrity, owned-resource cleanup, sensitive-runtime deletion, retained artifact inventory, and the absence of any Gemini artifact.

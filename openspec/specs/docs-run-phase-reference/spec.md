@@ -192,34 +192,31 @@ The launch-profile guide or linked run-phase documentation SHALL explain that la
 - **AND THEN** it explains that `--model <alias>` is still allowed and that managed update preflight suppression uses `KIMI_CODE_NO_AUTO_UPDATE=1`
 
 ### Requirement: Run-phase reference documents Kimi unattended TUI startup and relaunch
-The run-phase backend and lifecycle references SHALL document that Kimi Code local-interactive sessions can run with `operator_prompt_mode = unattended` while remaining visible TUI sessions.
+The run-phase backend and lifecycle references SHALL document that maintained Kimi Code 0.23.x local-interactive sessions can run with `operator_prompt_mode = unattended` while remaining visible TUI sessions.
 
-The reference SHALL explain that unattended Kimi TUI startup enters Kimi auto permission mode before managed prompts are submitted.
+The reference SHALL explain that unattended Kimi TUI startup uses native `--auto` before managed prompts are submitted and that current Kimi accepts this flag with `--continue` and `--session <session_id>`. It SHALL state that Houmao does not refresh auto mode through a chat command.
 
-The reference SHALL explain that resumed Kimi TUI startup cannot combine Kimi native resume selectors with `--auto`, so Houmao preserves Kimi resume arguments and refreshes auto mode after TUI readiness.
-
-The reference SHALL distinguish Kimi `as_is` TUI launch from unattended TUI launch.
+The reference SHALL distinguish Kimi `as_is` TUI launch from unattended TUI launch and SHALL describe current source evidence for Kimi's system-prompt limitations without retaining a stale 0.11 version claim.
 
 #### Scenario: Reader sees Kimi TUI unattended behavior
-- **WHEN** a reader opens the run-phase backend reference for Kimi Code local-interactive launch
-- **THEN** it states that unattended Kimi TUI launch runs in Kimi auto permission mode
-- **AND THEN** it states that Houmao applies that mode before role bootstrap or workload prompts
+- **WHEN** a reader opens the Kimi local-interactive backend reference
+- **THEN** it states that unattended startup includes native `--auto`
+- **AND THEN** it states that the mode applies before role bootstrap or workload prompts
 
-#### Scenario: Reader sees Kimi resumed startup constraint
-- **WHEN** a reader opens the run-phase relaunch reference for Kimi Code local-interactive launch
-- **THEN** it explains that `--continue` and `--session <session_id>` cannot be combined with `--auto`
-- **AND THEN** it explains that Houmao refreshes auto mode after TUI readiness for unattended resumed sessions
+#### Scenario: Reader sees Kimi resumed startup behavior
+- **WHEN** a reader opens the Kimi relaunch reference
+- **THEN** it shows native `--auto` combined with `--continue` or `--session <session_id>`
+- **AND THEN** it describes no post-readiness `/auto on` command
 
 #### Scenario: Reader can distinguish as-is from unattended
-- **WHEN** a reader compares Kimi launch prompt modes in run-phase documentation
-- **THEN** `as_is` is described as preserving provider approval behavior
-- **AND THEN** `unattended` is described as the maintained no-question mode
+- **WHEN** a reader compares Kimi launch prompt modes
+- **THEN** `as_is` preserves provider approval behavior
+- **AND THEN** `unattended` is the maintained no-question mode
 
-#### Scenario: Reader sees Kimi native system-prompt gap
-
-- **WHEN** a reader opens the Kimi role-injection or backend reference
-- **THEN** the docs state that Kimi Code 0.11.0 lacks a native system-prompt flag
-- **AND THEN** the docs state that `houmao-auto-system-prompt` may require manual invocation before substantive Kimi chat begins when automatic loading has not happened
+#### Scenario: Reader sees current Kimi system-prompt evidence
+- **WHEN** a reader opens the Kimi role-injection reference
+- **THEN** the documentation describes the maintained Kimi 0.23.x system-prompt integration from current source evidence
+- **AND THEN** it does not present Kimi 0.11.0 as the maintained version
 
 ### Requirement: Run-phase reference excludes Gemini
 Maintained backend, launch-plan, manifest, lifecycle, role-injection, gateway, and realm-controller documentation SHALL not describe Gemini runtime behavior.

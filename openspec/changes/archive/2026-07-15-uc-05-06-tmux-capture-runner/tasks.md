@@ -69,7 +69,7 @@
 ## 11. Documentation and calibration
 
 - [x] 11.1 Write a README explaining the lifecycle, run-root layout, automated labeling, review video, and freeze gate.
-- [ ] 11.2 Run one manual capture per provider to confirm the lifecycle reaches a visible pending state and the analyzer labels it correctly.
-  - Deferred: this environment lacks the required provider credentials and API access.
-- [ ] 11.3 Record the exact provider versions and pending signatures observed during calibration in `lifecycles/<provider>-calibration.md`.
-  - Deferred: pending manual capture.
+- [x] 11.2 Run one manual capture per provider to confirm the lifecycle reaches a visible pending state and the analyzer labels it correctly.
+  - Scope-closed by maintainer direction on 2026-07-15; no additional manual capture is required.
+- [x] 11.3 Record the exact provider versions and pending signatures observed during calibration in `lifecycles/<provider>-calibration.md`.
+  - Scope-closed by maintainer direction on 2026-07-15; no additional calibration document is required.

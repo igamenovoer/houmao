@@ -50,9 +50,9 @@
 
 ## 7. Run Complex and Long-Horizon TUI Qualification
 
-- [ ] 7.1 Execute the unattended state-coverage and multi-step transition cases in `context/features/2026-07-11-tui-state-tracking-test-plan`, excluding unreliable network/LLM API failures and treating confirmation states as forbidden live outcomes.
-- [ ] 7.2 Execute the five specified long-horizon procedures with at least 20 recorded operator operations in each session against the refreshed current profiles.
-- [ ] 7.3 Validate all five stress recordings at canonical 20 fps and at regular, jittered, bursty, and gapped lower cadences; retain downstream-consumer traces and semantic verdicts.
+- [x] 7.1 Execute the unattended state-coverage and multi-step transition cases in `context/features/2026-07-11-tui-state-tracking-test-plan`, excluding unreliable network/LLM API failures and treating confirmation states as forbidden live outcomes.
+- [x] 7.2 Execute the five specified long-horizon procedures with at least 20 recorded operator operations in each session against the refreshed current profiles.
+- [x] 7.3 Validate all five stress recordings at canonical 20 fps and at regular, jittered, bursty, and gapped lower cadences; retain downstream-consumer traces and semantic verdicts.
 - [x] 7.4 Update the test-plan coverage ledger and assumptions so the documented maintained versions, strategy ids, commands, and no-confirmation posture match the implemented contracts.
 
 ## 8. Update Documentation and System Skills
