@@ -5,6 +5,10 @@ description: Manual invocation only; use when explicitly requested as `houmao-ag
 
 # Houmao Agent Loop Lite
 
+## Upfront Planning Rule
+
+Loop authoring and execution are complex, multi-stage processes. Before taking any action under this skill, use your internal todo-list planning tool to plan the full sequence of operations and file changes, then execute that plan step by step.
+
 ## Activation
 
 - Use this Houmao skill only after the user explicitly selects `houmao-agent-loop-lite` or names a supported lite loop operation.

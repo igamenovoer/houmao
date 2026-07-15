@@ -5,6 +5,10 @@ description: Manual invocation only; use only when the user explicitly requests 
 
 # Houmao Agent Loop Pro
 
+## Upfront Planning Rule
+
+Loop authoring and execution are complex, multi-stage processes. Before taking any action under this skill, use your internal todo-list planning tool to plan the full sequence of operations and file changes, then execute that plan step by step.
+
 ## Activation
 
 - Use this Houmao skill only after the user explicitly selects it or names a supported loop operation.
