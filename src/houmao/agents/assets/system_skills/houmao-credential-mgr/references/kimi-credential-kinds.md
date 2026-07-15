@@ -8,7 +8,7 @@ Use this reference when `--tool kimi` and the agent needs to present credential-
 
 - Looks like: a string value for `KIMI_MODEL_API_KEY`
 - Maps to: `--api-key`
-- Choose this when: you have a Kimi-compatible model API key and want Houmao to store env-model credential material
+- Choose this when: you have a Kimi Platform API key or compatible provider key and want Houmao to store env-model credential material
 - Security: opaque secret; treat as non-recoverable once stored
 
 Optional modifiers when using this kind:
@@ -41,10 +41,21 @@ Pair this with `--config-toml` when the matching Kimi config should travel with 
 
 ### 4. Existing Kimi Code Home
 
-- Looks like: a directory path containing `config.toml` and optionally `credentials/kimi-code.json`
+- Looks like: a directory path containing `credentials/kimi-code.json` and optionally `config.toml`
 - Maps to: `--code-home`
-- Choose this when: the user wants to import both supported Kimi Code files from one existing home
+- Choose this when: the user wants to import supported default Kimi Code OAuth state and matching config from one existing home
 - Security: copy only the supported Kimi files; do not scan unrelated Kimi home contents
+
+### 5. Fresh Default Kimi Code OAuth Login
+
+- Looks like: a request to run Kimi Code's `kimi login` device-code OAuth flow and import the resulting temporary Kimi Code home
+- Maps to: the Kimi Code login-handling workflow, then `--code-home`
+- Choose this when: the user wants a new default Kimi Code OAuth credential rather than an API key or existing file
+- Security: run the login in an isolated `KIMI_CODE_HOME`, treat `credentials/kimi-code.json` as opaque login state, and do not print raw token JSON
+
+Use `../subskills/kimi-code-login-handling.md` for this workflow. It runs `kimi login` in tmux, verifies `credentials/kimi-code.json`, and imports with `project credentials kimi add|set --code-home <temp-kimi-home>` or the direct native-agent equivalent. The `project credentials kimi add` command does not itself perform the device-code login.
+
+Non-default Kimi Code OAuth endpoints need extra care. If the user explicitly needs `KIMI_CODE_OAUTH_HOST`, `KIMI_OAUTH_HOST`, or `KIMI_CODE_BASE_URL`, warn that Kimi Code may write a scoped OAuth token file such as `credentials/kimi-code-env-<hash>.json`; current Houmao Kimi `--code-home` import expects `credentials/kimi-code.json` and does not promise support for arbitrary scoped credential filenames.
 
 ## Set and Clear Notes
 
@@ -52,7 +63,9 @@ For `project credentials kimi set` or `internals native-agent credentials kimi s
 
 ## Login Helper Note
 
-Kimi does not have a maintained Houmao credential login helper in this change. If the user asks to log in to Kimi, explain that they must provide explicit credential inputs through `add` or `set`, such as `--api-key`, `--config-toml`, `--credential-json`, or `--code-home`.
+Kimi does not have a maintained Houmao credential login helper in this change. Do not run or invent `houmao-mgr project credentials kimi login` or `houmao-mgr internals native-agent credentials kimi login`.
+
+If the user asks for a fresh default Kimi Code OAuth login, use `../subskills/kimi-code-login-handling.md`; it creates a temporary Kimi Code home with `kimi login` and imports that home with `--code-home`. If the user provides an API key, config file, credential JSON file, or existing Kimi Code home, use explicit credential inputs through `add` or `set`, such as `--api-key`, `--config-toml`, `--credential-json`, or `--code-home`.
 
 ## Discovery Note
 

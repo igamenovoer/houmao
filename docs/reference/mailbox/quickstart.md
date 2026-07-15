@@ -20,10 +20,10 @@ Do not wire mailbox behavior into prompts by hand. For the preferred local serve
 1. `houmao-mgr mailbox ...` manages the filesystem mailbox root and address lifecycle.
 2. `houmao-mgr agents single ... mailbox ...` or `houmao-mgr agents self mailbox ...` attaches or removes one filesystem mailbox binding on an existing local managed agent.
 3. `houmao-mgr agents single ... mail ...` or `houmao-mgr agents self mail ...` discovers the current live mailbox binding and performs mailbox follow-up after the agent is launched or joined.
-4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into resolved Claude, Codex, or Kimi homes when you need those skills outside a Houmao-managed launch or join flow.
+4. `houmao-mgr system-skills ...` installs the current Houmao-owned mailbox skill sets into resolved Claude, Codex, Kimi Code, or Copilot homes, or into the `universal` `~/.agents/skills` target, when you need those skills outside a Houmao-managed launch or join flow.
 
 
-When you need the same Houmao-owned skill surface in a tool home that Houmao did not launch, install it with `houmao-mgr system-skills install`. Omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home, so `pixi run houmao-mgr system-skills install --tool codex` installs into the resolved Codex home. Add `--home ~/.codex` only when you need to override that target.
+When you need the same Houmao-owned skill surface in a tool home that Houmao did not launch, install it with `houmao-mgr system-skills install`. Omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home for tool targets, so `pixi run houmao-mgr system-skills install --tool codex` installs into the resolved Codex home. Use `--tool universal` for the cross-client `~/.agents/skills` target. Add `--home ~/.codex` only when you need to override a single tool target.
 
 When attached mailbox work needs the exact live `/v1/mail/*` endpoint, use `pixi run houmao-mgr agents self mail resolve-live` inside the owning managed tmux session, or `pixi run houmao-mgr agents single --agent-name <name> mail resolve-live` for a selected agent, and take the endpoint from the returned `gateway.base_url` instead of rediscovering host or port ad hoc.
 

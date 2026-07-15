@@ -41,6 +41,7 @@ _SYSTEM_SKILL_DESTINATION_BY_TOOL: dict[str, str] = {
     "codex": "skills",
     "copilot": "skills",
     "kimi": "skills",
+    "universal": "skills",
 }
 AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
 SystemSkillProjectionMode = Literal["copy", "symlink"]

@@ -1,6 +1,6 @@
 # system-skills
 
-`houmao-mgr system-skills` is the operator-facing surface for installing, removing, and inspecting the current Houmao-owned `houmao-*` skills in resolved Claude, Codex, Kimi, or Copilot homes.
+`houmao-mgr system-skills` is the operator-facing surface for installing, removing, and inspecting the current Houmao-owned `houmao-*` skills in resolved Claude, Codex, Kimi Code, or Copilot homes, or in the cross-client `universal` Agent Skills target.
 
 > **Looking for the narrative tour?** See the [System Skills Overview](../../getting-started/system-skills-overview.md) getting-started guide for a 5-minute walkthrough of every packaged skill, when each one fires, and how managed-home auto-install differs from explicit CLI-default install.
 
@@ -58,31 +58,29 @@ houmao-mgr system-skills
 
 ## Effective Home Resolution
 
-For single-tool `install`, `uninstall`, and `status` commands, explicit `--home` overrides all other home selection. When `--home` is omitted, the command resolves the effective tool home with this precedence:
+For single-target `install`, `uninstall`, and `status` commands, explicit `--home` overrides all other home selection. When `--home` is omitted, tool-specific targets resolve the effective home with this precedence:
 
 1. tool-native home env var
 2. project-scoped default home
 
-For comma-separated multi-tool `install` and `uninstall`, omit `--home`; each selected tool resolves through its own tool-native env var and project-scoped default home. If you need explicit home overrides, run separate single-tool commands.
+For comma-separated multi-target `install` and `uninstall`, omit `--home`; each selected target resolves through its own omitted-home rule. If you need explicit home overrides, run separate single-target commands.
 
-Supported tool-native home env vars:
+Supported targets:
 
-- Claude: `CLAUDE_CONFIG_DIR`
-- Codex: `CODEX_HOME`
-- Kimi: `KIMI_CODE_HOME`
-- Copilot: `COPILOT_HOME`
+- Claude: `claude`, with home env var `CLAUDE_CONFIG_DIR` and project default `<cwd>/.claude`
+- Codex: `codex`, with home env var `CODEX_HOME` and project default `<cwd>/.codex`
+- Copilot: `copilot`, with home env var `COPILOT_HOME` and project default `<cwd>/.github`
+- Kimi Code CLI: `kimi`, with home env var `KIMI_CODE_HOME` and project default `<cwd>/.kimi-code`
+- Universal Agent Skills: `universal`, with no env var and default home `~/.agents`
 
-Project-scoped default homes:
-
-- Claude: `<cwd>/.claude`
-- Codex: `<cwd>/.codex`
-- Kimi: `<cwd>/.kimi-code`
-- Copilot: `<cwd>/.github`
+The `kimi` target means Kimi Code CLI. It is not the legacy MoonshotAI `kimi-cli` project; upstream says legacy `kimi-cli` is being wound down in favor of Kimi Code CLI.
 
 
-Kimi uses the same home-relative `skills/` projection as Claude and Codex. With the project default, omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`, which Kimi Code discovers when it runs from that project. Explicit `--home` or `KIMI_CODE_HOME` projections are file-placement, status, and uninstall targets; current Kimi Code does not automatically discover arbitrary `<KIMI_CODE_HOME>/skills` unless `config.toml` includes that path in `extra_skill_dirs`. Managed Kimi brain builds add the managed projected skill root to `extra_skill_dirs` without overwriting unrelated Kimi config, and local-interactive Kimi launches rely on that config rather than receiving a Houmao-injected `--skills-dir`.
+Kimi uses the same home-relative `skills/` projection as Claude and Codex. With the project default, omitted-home Kimi installs land under `<cwd>/.kimi-code/skills/`, which Kimi Code discovers when it runs from that project. Explicit `--home` places files in the chosen home; a later Kimi Code launch sees them when it uses that same path as `KIMI_CODE_HOME`, passes the path through `--skills-dir`, or includes it through `extra_skill_dirs`. Managed Kimi brain builds still add the managed projected skill root to `extra_skill_dirs` without overwriting unrelated Kimi config, and local-interactive Kimi launches rely on that config rather than receiving a Houmao-injected `--skills-dir`.
 
 Copilot uses the same home-relative `skills/` projection as Claude and Codex, but its project-scoped default home is `<cwd>/.github`. That means omitted-home Copilot installs land under `<cwd>/.github/skills/`. To install the same Houmao-owned skills into a personal Copilot CLI home, pass an explicit home such as `--home ~/.copilot` or set `COPILOT_HOME`; no separate scope flag is required.
+
+Universal uses the same home-relative `skills/` projection as Claude, Codex, Kimi, and Copilot, but it is not a runtime tool. Omitted-home universal installs land under `~/.agents/skills/`, the cross-client Agent Skills convention used by clients that scan generic `.agents/skills` directories. With `--tool universal --home <path>`, `<path>` is the `.agents`-style root that contains `skills/`; passing `--home ~/.agents/skills` would therefore create `~/.agents/skills/skills/`.
 
 ## Packaged Catalog
 
@@ -153,6 +151,7 @@ The installer preserves the current visible tool-native skill roots with flat Ho
 | `codex` | `skills/` | `skills/houmao-agent-messaging/SKILL.md` |
 | `kimi` | `skills/` | `.kimi-code/skills/houmao-agent-email-comms/SKILL.md` for the project default, or `<KIMI_CODE_HOME>/skills/houmao-agent-email-comms/SKILL.md` with env redirection |
 | `copilot` | `skills/` | `.github/skills/houmao-agent-messaging/SKILL.md` for the project default, or `~/.copilot/skills/houmao-agent-messaging/SKILL.md` with `--home ~/.copilot` |
+| `universal` | `skills/` | `~/.agents/skills/houmao-agent-messaging/SKILL.md` by default, or `<home>/skills/houmao-agent-messaging/SKILL.md` with `--home <home>` |
 
 That means Houmao-owned skills stay grouped by reserved skill names and closed named sets rather than by family-specific path segments.
 
@@ -160,8 +159,11 @@ That means Houmao-owned skills stay grouped by reserved skill names and closed n
 
 Plain `install`, `status`, and `uninstall` output distinguishes the effective tool home from the skill projection location. The effective home is the root used for tool-home resolution and later status/uninstall targeting. The projection location is where Houmao-owned skill directories actually appear under that home.
 
+For Claude, Codex, Kimi, Copilot, and Universal, the projection root is `<effective-home>/skills/`.
 
-Kimi plain output also prints a discovery caveat. It reports where files were projected, but it does not claim that an arbitrary explicit Kimi home's `skills/` directory is automatically visible to Kimi Code unless that home's `config.toml` includes the path in `extra_skill_dirs`.
+Kimi plain output also prints a discovery caveat. It reports where files were projected and explains that Kimi Code discovers them when a later launch uses the same `KIMI_CODE_HOME`, passes the path with `--skills-dir`, or includes it through `extra_skill_dirs`.
+
+Universal plain output reports the concrete skill root, such as `~/.agents/skills`, so operators can see the cross-client projection target. This file placement does not guarantee that every client supports every optional Houmao skill metadata field.
 
 The plain output reports projection roots or projected paths so an operator can locate installed, discovered, removed, or absent skill paths without switching to JSON output.
 
@@ -220,6 +222,7 @@ pixi run houmao-mgr system-skills status --tool codex
 pixi run houmao-mgr system-skills status --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills status --tool kimi
 pixi run houmao-mgr system-skills status --tool kimi --home ~/.kimi-code
+pixi run houmao-mgr system-skills status --tool universal
 ```
 
 `status` reports:
@@ -239,7 +242,7 @@ Use `install` when you want the current Houmao-owned skill surface in a resolved
 
 ```bash
 pixi run houmao-mgr system-skills install --tool codex
-pixi run houmao-mgr system-skills install --tool claude,codex,kimi,copilot
+pixi run houmao-mgr system-skills install --tool claude,codex,kimi,copilot,universal
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set core
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill-set extensions
@@ -250,6 +253,8 @@ pixi run houmao-mgr system-skills install --tool copilot --home ~/.copilot --ski
 pixi run houmao-mgr system-skills install --tool kimi
 pixi run houmao-mgr system-skills install --tool kimi --skill-set core
 pixi run houmao-mgr system-skills install --tool kimi --home ~/.kimi-code
+pixi run houmao-mgr system-skills install --tool universal
+pixi run houmao-mgr system-skills install --tool universal --home ~/.agents
 pixi run houmao-mgr system-skills install --tool codex --skill houmao-utils-workspace-mgr
 pixi run houmao-mgr system-skills install --tool codex --skill houmao-ext-graphing
 pixi run houmao-mgr system-skills install --tool codex --home ~/.codex --skill houmao-agent-definition --symlink
@@ -272,8 +277,9 @@ Home-resolution rules:
 
 - `--home` is optional for single-tool install commands
 - `--home` cannot be combined with comma-separated multi-tool install commands
-- when omitted, the command resolves the effective home using tool-native env redirection first and project-scoped defaults second
+- when omitted, tool-specific targets resolve the effective home using tool-native env redirection first and project-scoped defaults second
 - omitted-home Kimi installs use `<cwd>/.kimi-code` as the effective home, so Houmao-owned skills land under `.kimi-code/skills/`
+- omitted-home Universal installs use `~/.agents` as the effective home, so Houmao-owned skills land under `~/.agents/skills/`
 
 Structured output rules:
 
@@ -285,6 +291,7 @@ Plain output rules:
 - single-tool output reports the effective home plus the installed projected skill path or projection root
 - multi-tool output reports each selected tool's effective home plus skill projection root
 - Kimi output reports the projected `skills/` path and includes the discovery caveat for explicit or env-redirected Kimi homes
+- Universal output reports the projected `skills/` root under the resolved `.agents` home
 
 Projection rules:
 
@@ -303,10 +310,11 @@ Use `uninstall` when you want to remove the current Houmao-owned skill surface f
 ```bash
 pixi run houmao-mgr system-skills uninstall --tool codex
 pixi run houmao-mgr system-skills uninstall --tool codex --home ~/.codex
-pixi run houmao-mgr system-skills uninstall --tool claude,codex,kimi,copilot
+pixi run houmao-mgr system-skills uninstall --tool claude,codex,kimi,copilot,universal
 pixi run houmao-mgr system-skills uninstall --tool copilot --home ~/.copilot
 pixi run houmao-mgr system-skills uninstall --tool kimi
 pixi run houmao-mgr system-skills uninstall --tool kimi --home ~/.kimi-code
+pixi run houmao-mgr system-skills uninstall --tool universal
 ```
 
 Uninstall rules:
@@ -315,8 +323,9 @@ Uninstall rules:
 - selection flags such as `--skill`, `--skill-set`, `--set`, `--default`, and `--symlink` are not part of the uninstall surface
 - `--home` is optional for single-tool uninstall commands
 - `--home` cannot be combined with comma-separated multi-tool uninstall commands
-- when omitted, the command resolves the effective home using tool-native env redirection first and project-scoped defaults second
+- when omitted, tool-specific targets resolve the effective home using tool-native env redirection first and project-scoped defaults second
 - omitted-home Kimi uninstalls use `<cwd>/.kimi-code` as the effective home, so Houmao-owned skills are removed from `.kimi-code/skills/`
+- omitted-home Universal uninstalls use `~/.agents` as the effective home, so Houmao-owned skills are removed from `~/.agents/skills/`
 
 Structured output rules:
 
@@ -328,6 +337,7 @@ Plain output rules:
 - single-tool output reports the effective home plus removed or absent projected paths
 - multi-tool output reports each selected tool's effective home plus removed or absent projection roots when paths share a root
 - Kimi output reports `skills/` removal or absence paths and repeats the discovery caveat for explicit or env-redirected Kimi homes
+- Universal output reports `skills/` removal or absence paths under the resolved `.agents` home
 
 Removal boundary:
 
@@ -361,7 +371,7 @@ CLI-default installation expands `all`, which installs every packaged Houmao sys
 
 Use `system-skills` when:
 
-- you want to prepare an external Claude, Codex, Kimi, or Copilot home before using `houmao-mgr`
+- you want to prepare an external Claude, Codex, Kimi Code, or Copilot home before using `houmao-mgr`, or install to the cross-client `~/.agents/skills` universal target
 - you want to inspect whether Houmao already installed its own skill set into a home
 - you want the same Houmao-owned guided touring, project-management, mailbox administration, ordinary mailbox participation, low-level definition-management, specialist-management, credential-management, managed-agent inspection, operator message clarification/dispatch, messaging/control, gateway-management, graphing authoring, AG-UI delivery, loop/workspace coordination, or instance-lifecycle skill surface outside a Houmao-managed launch or join flow
 
