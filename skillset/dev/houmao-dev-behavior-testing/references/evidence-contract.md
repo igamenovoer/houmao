@@ -14,8 +14,8 @@ If two observable sources disagree, use the native planning tool to compare thei
 
 | Tier | Evidence | Supports |
 | ---: | --- | --- |
-| 1 | Provider-native skill invocation, tool-call, or skill-load event naming the selected root | Activation and explicit root selection |
-| 2 | Observable skill file access, exact command trace, manager/gateway event, runtime transition, or bounded filesystem delta | Routing, actor gates, effects, and some root-selection claims when the host contract makes the mapping explicit |
+| 1 | Provider-native skill invocation, tool-call, or skill-load event naming the selected root | Initial activation, explicit root selection, and delegated root access |
+| 2 | Observable skill file access, exact command trace, manager/gateway event, runtime transition, or bounded filesystem delta | Delegation, routing, actor and phase gates, effects, and some root-selection claims when the host contract makes the mapping explicit |
 | 3 | Raw terminal transcript, final response, visible clarification, or provider status surface | Outcome semantics, visible gates, and supporting behavior evidence |
 | 4 | Evaluator notes and derived summaries | Interpretation only; never independent proof |
 
@@ -23,7 +23,7 @@ TUI tracker state is not an authority for system-skill activation or semantic ro
 
 ## Activation Visibility
 
-Assign activation `pass` or `fail` only when a source reliably identifies the selected root or reliably proves a forbidden root was selected. When behavior is visible but root selection is not, use `unobservable`. When expected activation instrumentation failed unexpectedly, use `incomplete`.
+Assign activation `pass` or `fail` only when a source reliably identifies the initial selected root or reliably proves a forbidden root was selected. Record delegated root evidence separately; access to shared routines or a loop sibling cannot prove that sibling was the host-selected initial root. When behavior is visible but initial-root selection is not, use `unobservable`. When expected activation instrumentation failed unexpectedly, use `incomplete`.
 
 Non-activation cases require enough native or access evidence to establish that forbidden roots did not load. If a host exposes no such negative evidence, outcome behavior may pass while activation remains unobservable.
 

@@ -48,6 +48,16 @@ EXPECTED_STANDALONE_SKILL_NAMES = (
     "houmao-agent-loop-pro",
     "houmao-agent-loop-lite",
 )
+EXPECTED_NARROW_IMPLICIT_SKILL_NAMES = (
+    "houmao-admin-entrypoint",
+    "houmao-agent-entrypoint",
+)
+EXPECTED_EXPLICIT_STANDALONE_SKILL_NAMES = (
+    "houmao-admin-welcome",
+    "houmao-shared-routines",
+    "houmao-agent-loop-pro",
+    "houmao-agent-loop-lite",
+)
 EXPECTED_SHARED_ROUTINE_IDS = (
     "houmao-adv-usage-pattern",
     "houmao-agent-definition",
@@ -712,6 +722,24 @@ def _validate_manifest_cross_references(
         raise SystemSkillManifestError(f"{source}: shared routine inventory is not canonical.")
     if tuple(manifest.packs) != ("admin", "agent"):
         raise SystemSkillManifestError(f"{source}: pack inventory must be admin then agent.")
+    narrow_implicit_names = tuple(
+        record.name
+        for record in manifest.standalone_skills.values()
+        if record.activation == "narrow-implicit"
+    )
+    if narrow_implicit_names != EXPECTED_NARROW_IMPLICIT_SKILL_NAMES:
+        raise SystemSkillManifestError(
+            f"{source}: only actor entrypoints may use narrow implicit activation."
+        )
+    explicit_names = tuple(
+        record.name
+        for record in manifest.standalone_skills.values()
+        if record.activation == "explicit"
+    )
+    if explicit_names != EXPECTED_EXPLICIT_STANDALONE_SKILL_NAMES:
+        raise SystemSkillManifestError(
+            f"{source}: welcome, shared routines, and loop roots must remain explicit."
+        )
     for pack_id, expected_members in EXPECTED_PACK_MEMBERS.items():
         pack = manifest.packs[pack_id]
         if pack.standalone_skill_names != expected_members:

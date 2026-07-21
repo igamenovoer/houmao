@@ -179,6 +179,60 @@ def test_manifest_v4_declares_exact_static_collection() -> None:
     assert manifest.defaults.managed_launch == ("agent",)
     assert manifest.defaults.managed_join == ("agent",)
     assert manifest.auto_skill_name == "houmao-auto-system-prompt"
+    assert tuple(
+        record.name
+        for record in manifest.standalone_skills.values()
+        if record.activation == "narrow-implicit"
+    ) == ("houmao-admin-entrypoint", "houmao-agent-entrypoint")
+    assert tuple(
+        record.name
+        for record in manifest.standalone_skills.values()
+        if record.activation == "explicit"
+    ) == (
+        "houmao-admin-welcome",
+        "houmao-shared-routines",
+        "houmao-agent-loop-pro",
+        "houmao-agent-loop-lite",
+    )
+
+
+def test_actor_entrypoint_metadata_and_phase_contracts_match_activation_policy() -> None:
+    """Only actor entrypoints are implicit and they classify before operational gates."""
+
+    manifest = load_system_skill_manifest()
+    for name, record in manifest.standalone_skills.items():
+        metadata = (PUBLIC_ROOT / name / "agents/openai.yaml").read_text(encoding="utf-8")
+        expected_value = "true" if record.activation == "narrow-implicit" else "false"
+        assert f"allow_implicit_invocation: {expected_value}" in metadata
+
+    admin = (PUBLIC_ROOT / "houmao-admin-entrypoint/SKILL.md").read_text(encoding="utf-8")
+    agent = (PUBLIC_ROOT / "houmao-agent-entrypoint/SKILL.md").read_text(encoding="utf-8")
+    welcome = (PUBLIC_ROOT / "houmao-admin-welcome/SKILL.md").read_text(encoding="utf-8")
+    assert admin.index("**Classify intent before gates**") < admin.index(
+        "**Establish the operational actor frame**"
+    )
+    assert agent.index("**Classify intent before gates**") < agent.index(
+        "**Verify managed self for operational work**"
+    )
+    assert "DO NOT invoke or delegate to `$houmao-admin-welcome`" in admin
+    assert (
+        "DO NOT run managed-self identity verification for an informational-only response" in agent
+    )
+    assert "explicitly invokes $houmao-admin-welcome" in welcome
+
+
+def test_manifest_rejects_any_other_implicit_activation_set(tmp_path: Path) -> None:
+    """Cross-reference validation fixes the two implicit and four explicit roots exactly."""
+
+    with pytest.raises(SystemSkillManifestError, match="only actor entrypoints"):
+        _load_modified_manifest(
+            tmp_path,
+            lambda text: text.replace(
+                'name = "houmao-admin-welcome"\nrole = "welcome"\nsource_path = "public/houmao-admin-welcome"\nactivation = "explicit"',
+                'name = "houmao-admin-welcome"\nrole = "welcome"\nsource_path = "public/houmao-admin-welcome"\nactivation = "narrow-implicit"',
+                1,
+            ),
+        )
 
 
 def test_manifest_rejects_obsolete_composition_fields(tmp_path: Path) -> None:

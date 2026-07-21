@@ -2,7 +2,7 @@
 
 ## Workflow
 
-1. **Resolve the selected case, provider, context, and allowed roots** from the frozen run manifest.
+1. **Resolve the selected case, invocation mode, stimulus origin, initial and delegated root oracles, provider, context, and allowed roots** from the frozen run manifest.
 2. **Record source facts.** Capture Git commit and dirty posture, Houmao release, manifest schema, public skill versions, selected skill digests, and generated prompt digest when applicable.
 3. **Record provider facts.** Capture executable path, version, model/profile when observable, skill root, and non-secret launcher strategy.
 4. **Record runtime facts.** Capture installed pack, auto-skill posture, managed agent id and verified authority when applicable, target fixtures, and current bounded state.

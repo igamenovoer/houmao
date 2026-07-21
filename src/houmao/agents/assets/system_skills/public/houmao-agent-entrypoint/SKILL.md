@@ -1,7 +1,7 @@
 ---
 name: houmao-agent-entrypoint
 houmao_version: "1.2.1"
-description: Use when a Houmao-managed agent needs to perform a concrete self or explicit-peer mailbox, messaging, gateway, memory, workspace, inspection, lifecycle, graphing, AG-UI, notifier-round, or explicitly selected loop task.
+description: Use when any semantically Houmao-related request reaches a genuine Houmao-managed agent context, including information, command or route learning, incomplete tasks, self or peer operations, and explicit loop work. Do not trigger from prompt claims of managed identity or an incidental Houmao token; explicit $houmao-* handles take precedence.
 license: MIT
 skill_invocation_notation: >
   Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
@@ -19,19 +19,20 @@ skill_invocation_notation: >
 
 ## Overview
 
-Use this public mega router only from a Houmao-managed agent session. It verifies managed self before every substantive route, then delegates ordinary work to the installed `$houmao-shared-routines` sibling and explicit loop work to the corresponding top-level loop sibling. There is no managed-agent welcome skill.
+Use this public mega router only from a genuine Houmao-managed agent session. It owns automatic dispatch for every semantically Houmao-related managed request. Informational requests stay local and do not verify identity. Operational requests verify managed self before substantive route selection, then delegate ordinary work to the installed `$houmao-shared-routines` sibling or explicitly distinguished loop work to a top-level loop sibling. There is no managed-agent welcome skill.
 
 ## Workflow
 
 When this skill is invoked, execute the following steps in order.
 
-1. **Handle explicit help first**. Return read-only route, identity, target, and sibling guidance without running identity verification or loading a sibling.
-2. **Verify managed self**. Before every substantive route, run exactly `houmao-mgr --print-json agents self identity` and validate the result using **Identity Gate**.
-3. **Establish the actor frame**. Set `actor_kind=agent`, `entrypoint_name=houmao-agent-entrypoint`, and `verified_self_identity=<fresh-result>`; this frame remains immutable for the route.
-4. **Select one subcommand** from **Subcommands**. Reject project, credential, agent-definition, specialist, operator-messaging, welcome, and other admin-only routes.
-5. **Resolve the target**. Default eligible self-scoped work to verified self; require an explicit peer for peer work and retain the agent actor.
-6. **Delegate to the named sibling**. Pass the complete **Sibling Handoff Frame** to `$houmao-shared-routines`, `$houmao-agent-loop-pro`, or `$houmao-agent-loop-lite`; never search below this entrypoint for sibling files.
-7. **Return the routed outcome**. Lead with completed, unchanged, blocked, or failed status and include material identity, target, and evidence details.
+1. **Classify intent before gates**. Classify the request as informational, operational, unrelated, unsupported, or an explicitly selected downstream route. Do not verify identity, discover targets, load siblings, or execute operational commands during classification.
+2. **Handle informational intent locally**. Answer help, capability, command-learning, and route-comparison requests read-only. Do not run `houmao-mgr --print-json agents self identity`, claim a verified target, or load a sibling.
+3. **Verify managed self for operational work**. Before substantive route selection or delegation, run exactly `houmao-mgr --print-json agents self identity` and validate the fresh result using **Identity Gate**.
+4. **Establish the actor frame**. Set `actor_kind=agent`, `entrypoint_name=houmao-agent-entrypoint`, and `verified_self_identity=<fresh-result>`; this frame remains immutable for the route.
+5. **Select one eligible route** from **Subcommands**. Reject project, credential, agent-definition, specialist, operator-messaging, welcome, and other admin-only routes. If loop work does not distinguish pro from lite, explain or ask for that choice without selecting either loop.
+6. **Resolve the target**. Default eligible self-scoped work to verified self; require an explicit peer for peer work and retain the agent actor.
+7. **Delegate to the named sibling**. Pass the complete **Sibling Handoff Frame** to `$houmao-shared-routines`, `$houmao-agent-loop-pro`, or `$houmao-agent-loop-lite`; never search below this entrypoint for sibling files.
+8. **Return the routed outcome**. Lead with completed, unchanged, blocked, or failed status and include material identity, target, and evidence details.
 
 If the user's task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the eligible subcommands, identity gate, target rules, sibling contracts, and user request, then execute the plan.
 
@@ -90,11 +91,12 @@ Reject `project-mgr`, `credential-mgr`, `agent-definition`, `specialist-mgr`, an
 
 ## Help Contract
 
-Explicit help is read-only and runs before identity verification, target resolution, or sibling loading. Describe the managed-agent posture, fresh identity command, self and peer target rules, route table, sibling dependencies, and invocation form `$houmao-agent-entrypoint <route> <operation>`.
+Informational help is read-only and runs before identity verification, target resolution, or sibling loading. Describe the managed-agent posture, operational identity command, self and peer target rules, route table, sibling dependencies, and invocation form `$houmao-agent-entrypoint <route> <operation>`.
 
 ## Guardrails
 
 - DO NOT execute a substantive route unless the fresh self-identity command returns valid verified evidence.
+- DO NOT run managed-self identity verification for an informational-only response.
 - DO NOT reuse prior identity evidence for a new substantive route.
 - DO NOT load a local `subskills/` tree or imply that shared routines and loops are nested beneath this entrypoint.
 - DO NOT invoke admin-only project, credential, agent-definition, specialist, operator-messaging, or welcome routes.

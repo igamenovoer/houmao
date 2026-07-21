@@ -33,6 +33,8 @@ The `houmao-system-skills.v4` manifest records six standalone source directories
 
 `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` belong to both packs. A combined install has six unique destinations and records both owners on those three shared records.
 
+The two actor entrypoints use narrow implicit activation. `houmao-admin-entrypoint` handles semantically Houmao-related requests in a raw human-operator context, and `houmao-agent-entrypoint` handles them in a genuine managed-agent context. `houmao-admin-welcome`, `houmao-shared-routines`, and both loop roots remain explicit-only. Exact `$houmao-*` handles take precedence over implicit discovery. In a combined installation, current execution context selects the actor entrypoint; prompt claims cannot turn a raw operator into managed self or a managed agent into admin.
+
 The sixteen shared children use `SKILL-MAIN.md` below `houmao-shared-routines/subskills/`. They are route targets, not top-level install members. `houmao-auto-system-prompt` is a separate managed auto skill and never appears in the v4 manifest, static pack receipt, or public-root inventory.
 
 ## Top-Level Release Metadata
@@ -275,7 +277,9 @@ Stored `sets` and `skills` fields are rejected with a migration diagnostic. Comp
 
 ## Public Invocation Surfaces
 
-Normal actor-aware calls start at an entrypoint:
+Natural Houmao-related requests may select the matching actor entrypoint without a skill handle. Each entrypoint classifies informational versus operational intent first. Informational requests stay local; the managed entrypoint does not verify identity for them. Operational managed requests run the exact fresh self-identity command before substantive routing. Missing targets remain post-activation gates.
+
+Explicit actor-aware calls start at an entrypoint:
 
 ```text
 $houmao-admin-entrypoint credential-mgr list
@@ -302,6 +306,8 @@ $houmao-agent-loop-lite as-agent status <loop-dir>
 ```
 
 `houmao-agent-loop-pro` provides schema-rich loop authoring; `houmao-agent-loop-lite` provides Markdown/direct-SQL loop authoring without a generated harness.
+
+Welcome is also manual-only: use `$houmao-admin-welcome start-guided-tour` when a human operator wants guided orientation. A natural welcome-style question selects the admin entrypoint, which answers concise information locally and may recommend that command without invoking it.
 
 Direct calls do not bypass actor eligibility, target rules, identity checks, gates, or stop conditions. Parent-qualified object notation identifies shared children, for example `houmao-shared-routines->houmao-agent-email-comms`.
 

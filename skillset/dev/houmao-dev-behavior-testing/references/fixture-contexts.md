@@ -16,7 +16,9 @@ If a provider cannot use the required isolated skill projection without mutating
 | Context Type | Purpose | Skill Posture | Launch Authority |
 | --- | --- | --- | --- |
 | `raw-admin` | Human-operator welcome, explicit entrypoint, direct shared, and direct loop cases | Isolated admin pack; no auto skill | Matching `$houmao-dev-launch-agents` provider subcommand |
+| `raw-admin-combined` | Combined-pack actor disambiguation from a human-operator session | Isolated admin+agent packs; no auto skill | Matching `$houmao-dev-launch-agents` provider subcommand |
 | `managed-agent` | Verified-self, agent entrypoint, generated prompt, and auto-prompt cases | Agent pack plus Houmao auto skill | Supported `houmao-mgr` managed launch or join |
+| `managed-agent-combined` | Combined-pack actor disambiguation from genuine managed context | Admin+agent packs plus Houmao auto skill | Supported `houmao-mgr` managed launch or join with an explicit combined-pack override |
 | `managed-identity-failure` | Fail-closed identity cases | Agent pack plus deliberately unavailable self authority | Supported disposable managed setup followed by bounded authority removal or invalidation |
 | `missing-dependency` | Missing sibling or generated-prompt dependency cases | Deliberately incomplete disposable projection recorded as such | Raw or managed launch selected by the case |
 | `joined-session` | Admin-to-agent adoption transition | Admin frame before supported join; agent pack/identity after success | Supported join workflow in a disposable session |
@@ -33,6 +35,7 @@ Record the fixture or strategy name, source path, provider version, and selected
 - Place disposable projects and artifacts below the run root unless an existing maintained harness owns a more specific temporary root.
 - Give every tmux session, managed-agent id, mailbox, gateway port, and provider home a run-specific name.
 - Install only the case-required pack. A mismatch case may deliberately omit or add a pack only when its oracle declares that posture.
+- Treat combined-pack live attempts as explicit maintainer-run, credential-gated qualification. Prompt wording never supplies raw-versus-managed actor authority.
 - Limit filesystem diff capture to the repository fixture copy, isolated tool home, managed project overlay, and run root.
 - Preserve partial failures, then remove live sessions, temporary homes, and disposable managed agents after evidence freeze.
 

@@ -155,6 +155,10 @@ def test_system_skill_docs_cover_actor_welcome_and_static_lifecycle() -> None:
     assert "The receipt disappears when no owned packs remain" in cli_reference
     assert "`specialist-mgr` remains" in cli_reference
     assert "`houmao-auto-system-prompt`" in overview
+    assert "only public roots eligible for implicit selection" in overview
+    assert "Only an explicit `$houmao-admin-welcome ...` invocation selects it" in overview
+    assert "Informational managed-agent requests stay local" in overview
+    assert "prompt wording cannot convert one actor into the other" in overview
 
 
 def test_readme_keeps_agent_first_onboarding_and_static_collection_order() -> None:

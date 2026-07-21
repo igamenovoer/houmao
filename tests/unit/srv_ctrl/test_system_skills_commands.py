@@ -102,6 +102,17 @@ def test_system_skills_list_reports_static_collection_and_shared_routines() -> N
         "managed_launch": ["agent"],
         "managed_join": ["agent"],
     }
+    activation_by_name = {
+        record["name"]: record["activation"] for record in payload["standalone_skills"]
+    }
+    assert activation_by_name == {
+        "houmao-admin-welcome": "explicit",
+        "houmao-admin-entrypoint": "narrow-implicit",
+        "houmao-agent-entrypoint": "narrow-implicit",
+        "houmao-shared-routines": "explicit",
+        "houmao-agent-loop-pro": "explicit",
+        "houmao-agent-loop-lite": "explicit",
+    }
     shared = payload["shared_routines"]
     assert isinstance(shared, list)
     assert len(shared) == 16

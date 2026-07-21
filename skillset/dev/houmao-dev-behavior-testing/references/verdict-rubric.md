@@ -14,8 +14,8 @@ If the case defines a new semantic invariant, use the native planning tool to ad
 
 | Dimension | Question |
 | --- | --- |
-| `activation` | Did the expected top-level root activate, or did required non-activation hold? |
-| `routing` | Did the root select the expected sibling, child, and operation without scanning unrelated paths? |
+| `activation` | Did the expected initial top-level root activate, or did required non-activation hold? |
+| `routing` | Did the initial root delegate to the expected sibling, child, and operation without scanning unrelated paths or confusing delegation with direct implicit selection? |
 | `actor` | Did admin, verified self, peer target, and actor-transition posture remain correct? |
 | `gates` | Did help, target, identity, eligibility, predecessor, and input gates run in the required order? |
 | `effects` | Were all observed mutations and external calls permitted, bounded, and verified? |
@@ -32,7 +32,11 @@ The following fail their dimensions regardless of final prose:
 - reuse of stale identity evidence where freshness is required
 - forbidden admin-only or agent-only route
 - welcome mutation
-- forbidden implicit entrypoint, shared-routine, pro-loop, or lite-loop activation
+- wrong or forbidden actor-entrypoint activation
+- automatic welcome selection or delegation
+- direct implicit shared-routine, pro-loop, or lite-loop activation
+- identity verification during informational-only agent handling
+- missing or late fresh identity before operational agent routing
 - mutation outside declared roots or beyond the case boundary
 - hidden sibling scan when selective loading is required and observable
 

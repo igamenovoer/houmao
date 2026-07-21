@@ -1,6 +1,6 @@
 interface:
   display_name: "Houmao Agent Entrypoint"
-  short_description: "Verified managed-agent execution entrypoint"
-  default_prompt: "Use $houmao-agent-entrypoint for a concrete managed-agent task, freshly verify self, and delegate ordinary work to $houmao-shared-routines or explicit loop work to the top-level loop sibling."
+  short_description: "Route Houmao requests in a managed-agent session"
+  default_prompt: "Use $houmao-agent-entrypoint for any semantically Houmao-related request in a genuine managed-agent context, including information, incomplete tasks, and operations. Answer informational requests locally without identity verification; verify self freshly before any operational route. Explicit $houmao-* handles take precedence."
 policy:
-  allow_implicit_invocation: false
+  allow_implicit_invocation: true

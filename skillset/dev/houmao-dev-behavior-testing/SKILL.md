@@ -17,11 +17,11 @@ skill_invocation_notation: >
 
 ## Overview
 
-Qualify observable Houmao system-skill behavior in fresh live-agent contexts through selectable functional-area coverage profiles. Keep committed selection and case oracles, raw evidence, adjudication, and aggregate results separate so provider nondeterminism remains visible instead of being averaged into a pass.
+Qualify observable Houmao system-skill behavior in fresh live-agent contexts through selectable functional-area, driver-invocation-mode, and coverage-profile slices. Keep committed selection and case oracles, raw evidence, adjudication, and aggregate results separate so provider nondeterminism remains visible instead of being averaged into a pass.
 
 ## When to Use
 
-Use this skill for manual development qualification of public-skill activation, deliberate non-activation, actor-specific routing, identity and target gates, selective shared-routine loading, manual loop activation, or generated notifier/mailbox prompts.
+Use this skill for manual development qualification of direct `$skill` invocation, automatic actor-entrypoint discovery, deliberate non-activation, actor-specific routing, informational and operational phases, identity and target gates, selective shared-routine loading, delegated or direct loop access, or generated notifier/mailbox prompts.
 
 Do not use it for deterministic package structure checks, ordinary Houmao operation, system-skill implementation changes, or TUI tracked-state ground truth. Use `$houmao-dev-tui-testing` when the oracle is TUI tracking rather than system-skill behavior.
 
@@ -30,8 +30,8 @@ Do not use it for deterministic package structure checks, ordinary Houmao operat
 When this skill is invoked, execute the following steps in order.
 
 1. **Select the public subcommand** from **Subcommands**. With no actionable task, select `help`.
-2. **Resolve exact cases or suite selectors** from [references/case-catalog.md](references/case-catalog.md), then load only the selected functional-area pages plus the shared contracts they need. With no selector, return the read-only area/profile summary.
-3. **Plan and freeze the run** with `plan-run`, including provider, context, skill revision, repetitions, allowed effects, and evidence sources.
+2. **Resolve exact cases or suite selectors** from [references/case-catalog.md](references/case-catalog.md), then load only the selected functional-area pages plus the shared contracts they need. With no selector, return the read-only area/mode/profile summary.
+3. **Plan and freeze the run** with `plan-run`, including driver invocation mode, stimulus origin and digest, initial and delegated root oracles, provider, context, skill revision, repetitions, allowed effects, and evidence sources.
 4. **Execute fresh attempts** with `execute-case`. Use the exact stimulus without revealing the expected answer to the agent under test.
 5. **Collect immutable observable evidence** with `collect-evidence`; never request or preserve hidden reasoning.
 6. **Adjudicate dimensions independently** with `adjudicate-case`, then aggregate all configured attempts with `report-run`.
@@ -49,7 +49,7 @@ These are skill subcommands, not shell commands. Preferred forms are `$houmao-de
 
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `plan-run` | Resolve and freeze suite selectors, cases, variants, providers, contexts, repetitions, drift checks, and the run manifest | [commands/plan-run.md](commands/plan-run.md) |
+| `plan-run` | Resolve and freeze suite selectors, invocation modes, cases, variants, root oracles, providers, contexts, repetitions, drift checks, and the run manifest | [commands/plan-run.md](commands/plan-run.md) |
 | `execute-case` | Launch one fresh attempt, submit the exact stimulus, and stop at the declared observation boundary | [commands/execute-case.md](commands/execute-case.md) |
 | `adjudicate-case` | Assign activation, routing, actor, gate, effect, and outcome verdicts from frozen evidence | [commands/adjudicate-case.md](commands/adjudicate-case.md) |
 | `report-run` | Aggregate attempt verdicts without majority-vote masking and finalize cleanup evidence | [commands/report-run.md](commands/report-run.md) |
@@ -99,13 +99,15 @@ Load only the functional-area pages selected by an ordinary case or suite:
 
 ## Help Contract
 
-Explicit help and `list-cases` are read-only. With no selector, explain the seven functional areas, four cumulative coverage profiles, canonical selector forms, profile counts, supported live providers, fresh-context requirement, evidence visibility limits, five aggregate outcomes, and the difference from TUI testing. Expand case ids and variants only for supplied selectors. Do not preflight credentials, inspect active agents, create a run root, or launch a provider.
+Explicit help and `list-cases` are read-only. With no selector, explain the seven functional areas, manual, automatic, and not-applicable invocation modes, four cumulative coverage profiles, canonical selector forms, profile counts, supported live providers, fresh-context requirement, evidence visibility limits, five aggregate outcomes, and the difference from TUI testing. Expand case ids and variants only for supplied selectors. Do not preflight credentials, inspect active agents, create a run root, or launch a provider.
 
 ## Guardrails
 
 - DO NOT run a case against a maintainer's active project, ordinary tool home, or non-disposable managed agent.
 - DO NOT infer `all/normal` or another executable suite when no selector is supplied.
 - DO NOT use a coverage profile to choose providers or repetitions.
+- DO NOT report generated-prompt or lifecycle stimuli as automatic driver invocation.
+- DO NOT report delegated shared or loop roots as directly implicit initial roots.
 - DO NOT expose the semantic oracle, required behavior, or forbidden behavior to the agent under test.
 - DO NOT infer native skill activation from final prose when root-selection evidence is unavailable.
 - DO NOT inspect, request, record, or grade hidden chain-of-thought.

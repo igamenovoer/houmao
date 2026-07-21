@@ -46,7 +46,7 @@ Unavailable optional evidence is recorded in `evidence-index.json` with a reason
 
 ## Freeze Gates
 
-The run-manifest gate binds requested selectors, catalog version and digest, resolved case revisions and variants, functional-area/profile attribution, contributing selectors, explicit exclusions, providers, contexts, repetitions, planned attempts, stimuli, allowed roots, and source/skill revisions. Provider and repetition matrices remain independent from semantic coverage profiles. The context gate binds the attempt setup before stimulus. The evidence gate binds all raw observations before adjudication.
+The run-manifest gate binds requested selectors, catalog version and digest, resolved case revisions and variants, functional-area/profile attribution, driver invocation modes, stimulus origins and exact digests, expected initial roots, expected delegated roots, expected routes, contributing selectors, explicit exclusions, providers, contexts, repetitions, planned attempts, allowed roots, and source/skill revisions. Provider and repetition matrices remain independent from semantic coverage profiles and invocation-mode filters. The context gate binds the attempt setup before stimulus. The evidence gate binds all raw observations before adjudication.
 
 After a gate, corrections require a new run or attempt. Derived excerpts and renderings cite the frozen source digest.
 

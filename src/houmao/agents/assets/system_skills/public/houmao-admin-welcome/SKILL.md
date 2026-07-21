@@ -1,7 +1,7 @@
 ---
 name: houmao-admin-welcome
 houmao_version: "1.2.1"
-description: Use when a newcomer or returning human operator asks what Houmao is for, which workflow fits a goal, how projects, definitions, managed agents, communication, workspaces, or loops fit together, or what read-only next step to take.
+description: Use when a human operator explicitly invokes $houmao-admin-welcome for first-use orientation, route comparison, reorientation, command learning, or a guided tour; never select it implicitly.
 license: MIT
 ---
 
@@ -9,7 +9,7 @@ license: MIT
 
 ## Overview
 
-Use this independent public skill for first contact, route comparison, state-aware reorientation, command learning, and guided touring. Welcome is read-only. It teaches the Houmao model, uses narrow inspection when it materially improves a recommendation, and hands concrete work to `$houmao-admin-entrypoint` with context preserved.
+Use this independent public skill only after explicit `$houmao-admin-welcome ...` invocation. Welcome is a read-only first-contact, route-comparison, state-aware reorientation, command-learning, and guided-touring surface. It teaches the Houmao model, uses narrow inspection when it materially improves a recommendation, and hands concrete work to `$houmao-admin-entrypoint` with context preserved.
 
 ## Workflow
 
@@ -74,11 +74,12 @@ If a concrete request reaches welcome, do not execute it. Build the complete `$h
 
 ## Help Contract
 
-Explicit help is read-only and precedes posture inspection or default touring. Explain the six subcommands, five curated paths, blank-workspace choices, narrow implicit trigger, and context-preserving handoff. A concrete phrase such as “help me stop agent X” is an execution task, not generic help.
+Explicit help is read-only and precedes posture inspection or default touring. Explain the six subcommands, five curated paths, blank-workspace choices, manual-only invocation, and context-preserving handoff. A concrete phrase such as “help me stop agent X” is an execution task, not generic help.
 
 ## Guardrails
 
 - DO NOT create or edit projects, credentials, definitions, mailboxes, messages, gateways, workspaces, loop artifacts, or runtime state.
+- DO NOT claim that welcome can activate without an explicit `$houmao-admin-welcome` handle.
 - DO NOT send prompts or mail, start or stop services, launch or stop agents, or adopt a session.
 - DO NOT execute the public invocation that welcome recommends.
 - DO NOT replace guided touring with a shallow shared-routine catalog.

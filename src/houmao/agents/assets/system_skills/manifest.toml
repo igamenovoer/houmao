@@ -24,7 +24,7 @@ default_lanes = ["managed_launch", "managed_join"]
 name = "houmao-admin-welcome"
 role = "welcome"
 source_path = "public/houmao-admin-welcome"
-activation = "narrow-implicit"
+activation = "explicit"
 pack_ids = ["admin"]
 commands = ["help", "show-options", "choose-path", "show-command-map", "next-step", "start-guided-tour"]
 aliases = ["bare invocation=orientation", "start a guided tour=start-guided-tour", "orient me in this project=next-step"]
@@ -34,7 +34,7 @@ dependencies = ["houmao-admin-entrypoint"]
 name = "houmao-admin-entrypoint"
 role = "entrypoint"
 source_path = "public/houmao-admin-entrypoint"
-activation = "explicit"
+activation = "narrow-implicit"
 pack_ids = ["admin"]
 commands = ["help", "welcome", "project-mgr", "credential-mgr", "agent-definition", "specialist-mgr", "operator-messaging", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
 aliases = ["show-options=welcome", "choose-path=welcome", "show-command-map=welcome", "next-step=welcome", "start-guided-tour=welcome"]
@@ -44,7 +44,7 @@ dependencies = ["houmao-admin-welcome", "houmao-shared-routines", "houmao-agent-
 name = "houmao-agent-entrypoint"
 role = "entrypoint"
 source_path = "public/houmao-agent-entrypoint"
-activation = "explicit"
+activation = "narrow-implicit"
 pack_ids = ["agent"]
 commands = ["help", "process-emails-via-gateway", "agent-email-comms", "adv-usage-pattern", "utils-workspace-mgr", "ext-graphing", "mailbox-mgr", "memory-mgr", "agent-instance", "agent-inspect", "agent-messaging", "agent-gateway", "interop-ag-ui", "agent-loop-pro", "agent-loop-lite"]
 aliases = []

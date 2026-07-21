@@ -10,9 +10,9 @@ Public means that an agent host can discover the directory through its normal to
 
 | Standalone Skill | Pack Membership | Discovery and Activation |
 |---|---|---|
-| `houmao-admin-welcome` | `admin` | Narrow implicit activation for first-use orientation or reorientation; execution stays read only. |
-| `houmao-admin-entrypoint` | `admin` | Explicit normal router for work performed on behalf of a human operator. |
-| `houmao-agent-entrypoint` | `agent` | Explicit router for verified Houmao-managed self. |
+| `houmao-admin-welcome` | `admin` | Explicit manual first-use orientation or reorientation; execution stays read only. |
+| `houmao-admin-entrypoint` | `admin` | Narrow implicit router for any semantically Houmao-related request made on behalf of a human operator. |
+| `houmao-agent-entrypoint` | `agent` | Narrow implicit router for any semantically Houmao-related request in a genuine Houmao-managed session. |
 | `houmao-shared-routines` | `admin`, `agent` | Explicit advanced router for sixteen parent-scoped ordinary routines. |
 | `houmao-agent-loop-pro` | `admin`, `agent` | Explicit manual schema-rich loop workflow. |
 | `houmao-agent-loop-lite` | `admin`, `agent` | Explicit manual Markdown/direct-SQL loop workflow. |
@@ -96,7 +96,9 @@ For the agent surface, copy `houmao-agent-entrypoint`, `houmao-shared-routines`,
 
 ## Sibling Routing
 
-The actor entrypoints are policy routers, not containers. They preserve an immutable actor frame and delegate ordinary work to the installed `houmao-shared-routines` sibling. Loop routes delegate to the two top-level loop siblings.
+The actor entrypoints are policy routers, not containers. They are the only public roots eligible for implicit selection. A request is Houmao-related when its subject or requested outcome needs Houmao explanation, state, routing, or action; an incidental `Houmao` token in unrelated material is insufficient. Raw operator context selects the admin entrypoint, genuine managed context selects the agent entrypoint, and prompt wording cannot convert one actor into the other. An exact `$houmao-*` handle takes precedence and selects that named installed root.
+
+After selection, each entrypoint classifies informational versus operational intent before identity, target, route, or sibling work. Informational responses stay local and read-only. Operational requests preserve an immutable actor frame and delegate ordinary work to the installed `houmao-shared-routines` sibling. Loop routes delegate only after the request distinguishes pro or lite; generic loop wording does not choose one.
 
 Normal copyable forms are:
 
@@ -111,11 +113,11 @@ The handoff preserves actor kind, entrypoint name, verified identity when presen
 
 ### Admin Frame
 
-`houmao-admin-entrypoint` establishes `actor_kind=admin`. The assistant acts for a human operator and is not the managed agent being administered. Target-sensitive work requires an explicit project path, agent id or name, mailbox, loop directory, or other command-owned target. An admin route never defaults to `agents self` merely because it runs in a shell or tmux session.
+For operational work, `houmao-admin-entrypoint` establishes `actor_kind=admin`. The assistant acts for a human operator and is not the managed agent being administered. Target-sensitive work requires an explicit project path, agent id or name, mailbox, loop directory, or other command-owned target. An admin route never defaults to `agents self` merely because it runs in a shell or tmux session. Informational, empty, and welcome-style requests stay in the entrypoint; it may recommend an exact manual `$houmao-admin-welcome ...` command but never invokes welcome.
 
 ### Agent Frame
 
-Before every substantive agent route, `houmao-agent-entrypoint` runs exactly:
+Informational managed-agent requests stay local and do not run identity verification. Before every operational agent route, `houmao-agent-entrypoint` runs exactly:
 
 ```bash
 houmao-mgr --print-json agents self identity
@@ -152,7 +154,7 @@ Direct loop calls default to admin posture. A leading `as-agent` performs the sa
 
 ## Admin Welcome
 
-`houmao-admin-welcome` is the state-aware, read-only first-user and reorientation surface. Start here when you do not yet know which operational route fits:
+`houmao-admin-welcome` is the manual-only, state-aware, read-only first-user and reorientation surface. Only an explicit `$houmao-admin-welcome ...` invocation selects it. Start here when you want a guided tour:
 
 ```text
 $houmao-admin-welcome start-guided-tour
@@ -168,7 +170,7 @@ The tour maintains five guided paths:
 | Subsystem Exploration | Read-only explanation of one Houmao subsystem | A route selected from the admin command map |
 | Existing Project Reorientation | Current overlay, definitions, live agents, mailbox posture, and loop artifacts | The next explicit admin operation |
 
-Welcome can answer `help`, show the option or command map, choose a path, recommend the next step, and continue non-linearly. It cannot mutate files, credentials, mailboxes, gateways, messages, definitions, agents, workspaces, loops, or runtime state. When the user requests execution, welcome hands the selected path, target, constraints, confirmed choices, unresolved inputs, and observations to the admin entrypoint or a top-level loop.
+Welcome can answer `help`, show the option or command map, choose a path, recommend the next step, and continue non-linearly. It cannot mutate files, credentials, mailboxes, gateways, messages, definitions, agents, workspaces, loops, or runtime state. When the user requests execution, welcome hands the selected path, target, constraints, confirmed choices, unresolved inputs, and observations to the admin entrypoint or a top-level loop. The admin entrypoint may recommend welcome but never delegates to it automatically.
 
 ## Shared Child Route Matrix
 
