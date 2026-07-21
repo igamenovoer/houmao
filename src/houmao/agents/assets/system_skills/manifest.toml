@@ -1,4 +1,4 @@
-schema_version = "houmao-system-skills.v2"
+schema_version = "houmao-system-skills.v3"
 auto_skill_name = "houmao-auto-system-prompt"
 
 [defaults]
@@ -49,8 +49,8 @@ public_commands = ["help"]
 mount_id = "houmao-shared-routines"
 source_path = "protected/houmao-shared-routines"
 member_name = "houmao-shared-routines"
-admin_route_path = "protected/houmao-shared-routines/routes/admin/SKILL.md"
-agent_route_path = "protected/houmao-shared-routines/routes/agent/SKILL.md"
+admin_route_path = "protected/houmao-shared-routines/routes/admin/SKILL-MAIN.md"
+agent_route_path = "protected/houmao-shared-routines/routes/agent/SKILL-MAIN.md"
 shared_paths = ["commands", "references"]
 
 [[protected_routines]]

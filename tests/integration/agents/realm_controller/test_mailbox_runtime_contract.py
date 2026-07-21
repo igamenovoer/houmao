@@ -166,10 +166,12 @@ def test_mailbox_runtime_contract_covers_build_start_refresh_and_resume(
 
     entrypoint_root = build_result.home_path / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT
     shared_routines_root = entrypoint_root / "subskills/houmao-shared-routines/subskills"
-    visible_processing_skill = shared_routines_root / "houmao-process-emails-via-gateway/SKILL.md"
-    visible_gateway_skill = shared_routines_root / "houmao-agent-email-comms/SKILL.md"
-    visible_mailbox_mgr_skill = shared_routines_root / "houmao-mailbox-mgr/SKILL.md"
-    visible_memory_mgr_skill = shared_routines_root / "houmao-memory-mgr/SKILL.md"
+    visible_processing_skill = (
+        shared_routines_root / "houmao-process-emails-via-gateway/SKILL-MAIN.md"
+    )
+    visible_gateway_skill = shared_routines_root / "houmao-agent-email-comms/SKILL-MAIN.md"
+    visible_mailbox_mgr_skill = shared_routines_root / "houmao-mailbox-mgr/SKILL-MAIN.md"
+    visible_memory_mgr_skill = shared_routines_root / "houmao-memory-mgr/SKILL-MAIN.md"
     visible_skill = (
         shared_routines_root / "houmao-agent-email-comms/references/transports/filesystem.md"
     )

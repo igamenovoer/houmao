@@ -162,7 +162,7 @@ Additional runtime guidance:
 Current source behavior:
 
 - when the managed `agent` pack is installed, the prompt invokes `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url>`,
-- the prompt uses the public installed entrypoint rather than telling the agent to inspect `SKILL.md` files or invoke protected routines directly,
+- the prompt uses the public installed entrypoint, leaves parent-scoped `SKILL-MAIN.md` traversal to that entrypoint, and never tells the agent to discover or invoke protected routines directly,
 - ordinary mailbox details remain available through the nested `agent-email-comms` route under that same entrypoint,
 - when the agent pack is unavailable, the prompt falls back to the compact mailbox API summary.
 

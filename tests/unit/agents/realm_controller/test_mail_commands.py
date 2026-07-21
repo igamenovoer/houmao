@@ -94,6 +94,13 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
         "Do not inspect the current project, repository, or runtime home to rediscover skill "
         "files or infer install locations."
     ) in prompt_request.prompt
+    assert (
+        "Protected traversal is parent-controlled: let the public entrypoint load the selected "
+        "parent-scoped entrypoints."
+    ) in prompt_request.prompt
+    assert "Do not discover, open, or invoke protected routine files independently." in (
+        prompt_request.prompt
+    )
     assert "pixi run houmao-mgr agents self mail resolve-live" in prompt_request.prompt
     assert "pixi run houmao-mgr agents single --agent-name <name> mail resolve-live" in (
         prompt_request.prompt
@@ -745,6 +752,7 @@ def _build_prompt_echo_surface() -> str:
     return (
         "Use the installed public entrypoint `$houmao-agent-entrypoint agent-email-comms` for this mailbox operation.\n"
         "Use the installed runtime-owned Houmao mailbox skills directly from the tool's native skill surface. Do not inspect the current project, repository, or runtime home to rediscover skill files or infer install locations.\n"
+        "Protected traversal is parent-controlled: let the public entrypoint load the selected parent-scoped entrypoints. Do not discover, open, or invoke protected routine files independently.\n"
         "Use transport-local guidance nested under `houmao-agent-entrypoint agent-email-comms` only for transport-specific context and no-gateway fallback.\n"
         "Return exactly one JSON result between "
         f"`{MAIL_RESULT_BEGIN_SENTINEL}` and `{MAIL_RESULT_END_SENTINEL}`.\n"

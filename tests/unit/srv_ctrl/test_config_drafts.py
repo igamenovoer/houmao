@@ -476,7 +476,7 @@ def test_config_drafts_cli_fix_guide_omits_secret_values() -> None:
 def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     agent_definition = _skill_text(
         "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
-        "subskills/houmao-agent-definition/SKILL.md"
+        "subskills/houmao-agent-definition/SKILL-MAIN.md"
     )
     specialists = _skill_text(
         "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
@@ -492,7 +492,7 @@ def test_packaged_skills_route_config_authoring_to_config_drafts() -> None:
     )
     memory = _skill_text(
         "src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/"
-        "subskills/houmao-memory-mgr/SKILL.md"
+        "subskills/houmao-memory-mgr/SKILL-MAIN.md"
     )
 
     assert "internals config-drafts generate" in agent_definition

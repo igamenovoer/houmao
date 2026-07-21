@@ -7,6 +7,7 @@ Stay inside the tiny copied dummy project and finish only the mailbox task for t
 
 - Route shared mailbox actions through `$houmao-agent-entrypoint agent-email-comms` in this demo.
 - Let the public entrypoint verify managed-agent identity before it enters the protected mailbox routine.
+- Let each parent explicitly load only the selected child `SKILL-MAIN.md`; do not search recursively for nested `SKILL.md` files.
 - Use transport-local guidance only when the protected route selects it for transport-specific context or no-gateway fallback.
 - Do not open, search for, or invoke protected routine files as standalone skills.
 - Treat `houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms` as internal route notation, not a public trigger.

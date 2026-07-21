@@ -3537,6 +3537,11 @@ class GatewayServiceRuntime:
                 f"Use `{mailbox_processing_skill_name()} {processing_route}` with the gateway "
                 "above for this round."
             )
+        lines.append(
+            "Protected traversal is parent-controlled: let the public entrypoint load the "
+            "selected parent-scoped entrypoints. Do not discover, open, or invoke protected "
+            "routine files independently."
+        )
         if gateway_path.is_file():
             lines.append(
                 f"Ordinary mailbox details: `{mailbox_gateway_skill_name()} "

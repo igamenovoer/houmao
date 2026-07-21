@@ -1,3 +1,16 @@
+---
+skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
+
 # Managed-Agent HTTP Route Summary
 
 Prefer the pair-managed `/houmao/agents/*` seam whenever it already satisfies the task. For ordinary prompt turns and mailbox handoff, discover live gateway capability first and prefer gateway-backed delivery when it is currently available. Use direct gateway `/v1/...` only when the lower-level route is genuinely required and the exact live `gateway.base_url` is already available from current context or supported discovery.

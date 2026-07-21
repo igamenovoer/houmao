@@ -318,6 +318,11 @@ def _mail_prompt_instruction_lines(
                 "or runtime home to rediscover skill files or infer install locations."
             ),
             (
+                "Protected traversal is parent-controlled: let the public entrypoint load the "
+                "selected parent-scoped entrypoints. Do not discover, open, or invoke protected "
+                "routine files independently."
+            ),
+            (
                 f"Use transport-local guidance nested under `{skill_name} "
                 f"{gateway_route_name}` only for transport-specific context and "
                 "no-gateway fallback."

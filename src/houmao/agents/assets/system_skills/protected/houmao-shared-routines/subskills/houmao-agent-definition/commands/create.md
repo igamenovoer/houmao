@@ -1,6 +1,6 @@
 # Create Definition
 
-Legacy low-level-only action reference. Current routing should use the `roles` or `recipes` subcommands from `../SKILL.md`.
+Legacy low-level-only action reference. Current routing should use the `roles` or `recipes` subcommands from `../SKILL-MAIN.md`.
 
 Use this action only when the user wants to create one new low-level role or one named recipe.
 

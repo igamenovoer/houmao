@@ -48,7 +48,7 @@ def _relative_markdown_link_targets(path: Path) -> list[str]:
 def test_credential_manager_documents_kimi_login_handling_without_login_helper() -> None:
     """Kimi credential guidance covers CRUD and login handling without login helpers."""
 
-    skill_text = _read(CREDENTIAL_MGR_ROOT / "SKILL.md")
+    skill_text = _read(CREDENTIAL_MGR_ROOT / "SKILL-MAIN.md")
     add_text = _read(CREDENTIAL_MGR_ROOT / "commands/add.md")
     set_text = _read(CREDENTIAL_MGR_ROOT / "commands/set.md")
     login_text = _read(CREDENTIAL_MGR_ROOT / "commands/login.md")
@@ -88,7 +88,7 @@ def test_credential_manager_documents_kimi_login_handling_without_login_helper()
 def test_agent_definition_kimi_guidance_and_relative_links_resolve() -> None:
     """Agent-definition guidance uses Kimi examples and keeps local links valid."""
 
-    skill_text = _read(AGENT_DEFINITION_ROOT / "SKILL.md")
+    skill_text = _read(AGENT_DEFINITION_ROOT / "SKILL-MAIN.md")
     specialists_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/specialists.md")
     profiles_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/profiles.md")
     launch_text = _read(AGENT_DEFINITION_ROOT / "commands/easy/launch-instance.md")

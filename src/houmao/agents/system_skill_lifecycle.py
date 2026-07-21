@@ -387,6 +387,11 @@ def inspect_system_skill_packs(
                 missing.append(public.relative_path)
             elif integrity == "drifted":
                 drifted.append(public.relative_path)
+        if (
+            receipt_inspection.receipt is not None
+            and receipt_inspection.receipt.manifest_schema_version != manifest.schema_version
+        ):
+            drifted.extend(expected_paths)
         expected_protected = tuple(
             routine.logical_id
             for routine in protected_routine_closure(manifest, audience=pack.audience)

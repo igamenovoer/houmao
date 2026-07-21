@@ -308,7 +308,7 @@ def test_build_brain_home_projects_selected_components_and_manifest(
         "houmao-interop-ag-ui",
         "houmao-ext-graphing",
     ):
-        assert (_agent_routine_root(home, logical_id) / "SKILL.md").is_file()
+        assert (_agent_routine_root(home, logical_id) / "SKILL-MAIN.md").is_file()
     assert not _agent_routine_root(home, "houmao-project-mgr").exists()
     assert not _agent_routine_root(home, "houmao-agent-definition").exists()
     assert not (home / "skills/houmao-agent-email-comms").exists()
@@ -744,11 +744,11 @@ def test_build_brain_home_projects_gateway_first_mailbox_system_skills(tmp_path:
     mailbox_mgr_root = _agent_routine_root(result.home_path, "houmao-mailbox-mgr")
     memory_mgr_root = _agent_routine_root(result.home_path, "houmao-memory-mgr")
     advanced_root = _agent_routine_root(result.home_path, "houmao-adv-usage-pattern")
-    processing_skill = (processing_root / "SKILL.md").read_text(encoding="utf-8")
-    gateway_skill = (gateway_root / "SKILL.md").read_text(encoding="utf-8")
-    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL.md").read_text(encoding="utf-8")
-    memory_mgr_skill = (memory_mgr_root / "SKILL.md").read_text(encoding="utf-8")
-    advanced_skill = (advanced_root / "SKILL.md").read_text(encoding="utf-8")
+    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    memory_mgr_skill = (memory_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    advanced_skill = (advanced_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     pairwise_edge_loop_pattern = (
         advanced_root / "commands/pairwise-edge-loop-via-gateway-and-mailbox.md"
     )
@@ -820,20 +820,20 @@ def test_build_brain_home_projects_claude_mailbox_skills_top_level(
     mailbox_mgr_root = _agent_routine_root(result.home_path, "houmao-mailbox-mgr")
     filesystem_path = gateway_root / "references/transports/filesystem.md"
     stalwart_path = gateway_root / "references/transports/stalwart.md"
-    processing_skill = (processing_root / "SKILL.md").read_text(encoding="utf-8")
-    gateway_skill = (gateway_root / "SKILL.md").read_text(encoding="utf-8")
-    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL.md").read_text(encoding="utf-8")
+    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    mailbox_mgr_skill = (mailbox_mgr_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     filesystem_skill = filesystem_path.read_text(encoding="utf-8")
     stalwart_skill = stalwart_path.read_text(encoding="utf-8")
     curl_reference = (gateway_root / "references/curl-examples.md").read_text(encoding="utf-8")
 
     assert (skills_root / f"{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
-    assert (processing_root / "SKILL.md").is_file()
-    assert (gateway_root / "SKILL.md").is_file()
-    assert (mailbox_mgr_root / "SKILL.md").is_file()
-    assert (_agent_routine_root(result.home_path, "houmao-memory-mgr") / "SKILL.md").is_file()
+    assert (processing_root / "SKILL-MAIN.md").is_file()
+    assert (gateway_root / "SKILL-MAIN.md").is_file()
+    assert (mailbox_mgr_root / "SKILL-MAIN.md").is_file()
+    assert (_agent_routine_root(result.home_path, "houmao-memory-mgr") / "SKILL-MAIN.md").is_file()
     assert (
-        _agent_routine_root(result.home_path, "houmao-adv-usage-pattern") / "SKILL.md"
+        _agent_routine_root(result.home_path, "houmao-adv-usage-pattern") / "SKILL-MAIN.md"
     ).is_file()
     assert filesystem_path.is_file()
     assert stalwart_path.is_file()
@@ -1106,7 +1106,9 @@ def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -
 
     assert (result.home_path / "skills/skill-a").is_symlink()
     assert (result.home_path / f"skills/{SYSTEM_SKILL_AGENT_ENTRYPOINT}/SKILL.md").is_file()
-    assert (_agent_routine_root(result.home_path, "houmao-ext-graphing") / "SKILL.md").is_file()
+    assert (
+        _agent_routine_root(result.home_path, "houmao-ext-graphing") / "SKILL-MAIN.md"
+    ).is_file()
     config_payload = tomllib.loads((result.home_path / "config.toml").read_text(encoding="utf-8"))
     assert config_payload["default_model"] == "kimi-code/default"
     assert config_payload["extra_skill_dirs"] == [str((result.home_path / "skills").resolve())]

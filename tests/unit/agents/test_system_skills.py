@@ -38,6 +38,7 @@ from houmao.agents.system_skills import (
     system_skill_selection_policy_to_payload,
     uninstall_system_skill_packs_for_home,
     upgrade_system_skill_packs_for_home,
+    validate_composed_system_skill_pack,
 )
 
 
@@ -90,7 +91,7 @@ def _load_fixture_manifest(tmp_path: Path, transform: object) -> object:
 def test_manifest_exposes_two_actor_packs_and_three_public_skills() -> None:
     manifest = load_system_skill_manifest()
 
-    assert manifest.schema_version == "houmao-system-skills.v2"
+    assert manifest.schema_version == "houmao-system-skills.v3"
     assert manifest.pack_ids == (SYSTEM_SKILL_PACK_ADMIN, SYSTEM_SKILL_PACK_AGENT)
     assert manifest.public_skill_names == (
         SYSTEM_SKILL_ADMIN_WELCOME,
@@ -240,6 +241,13 @@ def test_composer_materializes_only_audience_eligible_nested_routines(
         path.read_text(encoding="utf-8") for path in sorted(entrypoint.path.rglob("*.md"))
     )
     assert len(nested_names) == expected_count
+    assert (shared / "SKILL-MAIN.md").is_file()
+    assert not (shared / "SKILL.md").exists()
+    assert list(entrypoint.path.rglob("SKILL.md")) == [entrypoint.path / "SKILL.md"]
+    assert all(
+        (path / "SKILL-MAIN.md").is_file() and not (path / "SKILL.md").exists()
+        for path in (shared / "subskills").iterdir()
+    )
     assert "<public-entrypoint>" not in composed_markdown
     assert f"${entrypoint.name}" in composed_markdown
     if pack_id == SYSTEM_SKILL_PACK_ADMIN:
@@ -261,12 +269,50 @@ def test_protected_layout_has_true_subskills_actor_guards_and_no_flat_wrappers()
     assert not (ASSET_ROOT / "houmao-specialist-mgr").exists()
     for routine in manifest.protected_routines.values():
         root = ASSET_ROOT / routine.source_path
-        text = (root / "SKILL.md").read_text(encoding="utf-8")
+        text = (root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+        assert not (root / "SKILL.md").exists()
         assert "## Actor Frame Gate" in text
         assert "MUST NOT execute standalone" in text
         assert not list(root.rglob("actions"))
         for nested in (path for path in root.rglob("subskills") if path.is_dir()):
-            assert all((child / "SKILL.md").is_file() for child in nested.iterdir())
+            assert all((child / "SKILL-MAIN.md").is_file() for child in nested.iterdir())
+
+    designator_pages = [
+        path
+        for path in PROTECTED_ROOT.rglob("*.md")
+        if "<public-entrypoint>->houmao-shared-routines" in path.read_text(encoding="utf-8")
+    ]
+    assert designator_pages
+    assert all(
+        "skill_invocation_notation: >" in path.read_text(encoding="utf-8")
+        for path in designator_pages
+    )
+
+
+def test_composed_validation_rejects_nested_skill_md_and_missing_notation(
+    tmp_path: Path,
+) -> None:
+    manifest = load_system_skill_manifest()
+    result = compose_system_skill_pack(
+        manifest,
+        pack_id=SYSTEM_SKILL_PACK_AGENT,
+        destination_root=tmp_path / "ambiguous",
+    )
+    entrypoint = result.public_skills[0]
+    shared = entrypoint.path / "subskills/houmao-shared-routines"
+    (shared / "SKILL.md").write_text("legacy nested entrypoint\n", encoding="utf-8")
+
+    with pytest.raises(SystemSkillManifestError, match="ambiguous|must not own"):
+        validate_composed_system_skill_pack(manifest, result=result)
+
+    (shared / "SKILL.md").unlink()
+    command = shared / "subskills/houmao-agent-email-comms/commands/list.md"
+    command.write_text(
+        "# List\n\nUse houmao-agent-entrypoint->houmao-shared-routines->agent-email-comms.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemSkillManifestError, match="skill_invocation_notation"):
+        validate_composed_system_skill_pack(manifest, result=result)
 
 
 def test_public_content_declares_actor_and_welcome_boundaries() -> None:
@@ -423,6 +469,37 @@ def test_status_classifies_incomplete_drifted_and_conflicting_packs(tmp_path: Pa
     (other_home / "skills/houmao-agent-entrypoint").mkdir(parents=True)
     status = inspect_system_skill_packs(tool="codex", home_path=other_home)
     assert status.packs[1].status == "conflicting"
+
+
+def test_manifest_schema_mismatch_marks_pack_drifted_until_upgrade(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    install_system_skill_packs_for_home(
+        tool="codex",
+        home_path=home,
+        pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
+    )
+    receipt_path = home / ".houmao/system-skills/codex/receipt.json"
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["manifest_schema_version"] = "houmao-system-skills.v2"
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    status = inspect_system_skill_packs(tool="codex", home_path=home)
+    assert status.packs[1].status == "drifted"
+
+    upgrade_system_skill_packs_for_home(
+        tool="codex",
+        home_path=home,
+        pack_ids=(SYSTEM_SKILL_PACK_AGENT,),
+    )
+
+    status = inspect_system_skill_packs(tool="codex", home_path=home)
+    assert status.packs[1].status == "complete"
+    receipt = inspect_system_skill_receipt(tool="codex", home_path=home).receipt
+    assert receipt is not None
+    assert receipt.manifest_schema_version == "houmao-system-skills.v3"
+    shared = home / "skills/houmao-agent-entrypoint/subskills/houmao-shared-routines"
+    assert (shared / "SKILL-MAIN.md").is_file()
+    assert not (shared / "SKILL.md").exists()
 
 
 def test_corrupt_and_forward_receipts_are_read_only_and_block_mutation(tmp_path: Path) -> None:

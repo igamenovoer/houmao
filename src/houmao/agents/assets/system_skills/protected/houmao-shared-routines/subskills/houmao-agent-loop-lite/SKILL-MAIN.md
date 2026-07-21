@@ -1,6 +1,16 @@
 ---
 name: houmao-agent-loop-lite
 description: Manual invocation only; use when an eligible public entrypoint routes a named lite loop operation to author or operate pro-shaped Markdown/direct-SQL loop packages with typed Markdown templates, generated skills, and direct SQLite state, without JSON schemas, Jinja2, generated harnesses, or generated docs layers.
+skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
 # Houmao Agent Loop Lite
@@ -145,7 +155,7 @@ Execution pages:
 
 ## Constraints
 
-- Keep `SKILL.md` as a router; put detailed workflow guidance in routed pages or references.
+- Keep `SKILL-MAIN.md` as a router; put detailed workflow guidance in routed pages or references.
 - Do not create JSON schemas, Jinja2 renderers, generated harness commands, or generated docs as lite outputs.
 - Do not use TOML registries as the normal lite contract authority.
 - Do not duplicate maintained Houmao platform-operation contracts.

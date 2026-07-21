@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "auto_skill_name", "defaults", "packs", "public_skills", "protected_mounts", "protected_routines", "legacy_skills"],
   "properties": {
-    "schema_version": {"const": "houmao-system-skills.v2"},
+    "schema_version": {"const": "houmao-system-skills.v3"},
     "auto_skill_name": {"const": "houmao-auto-system-prompt"},
     "defaults": {
       "type": "object",

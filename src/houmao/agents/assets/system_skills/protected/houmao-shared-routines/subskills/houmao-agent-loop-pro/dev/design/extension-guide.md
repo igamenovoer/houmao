@@ -1,3 +1,16 @@
+---
+skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
+
 # Extension Guide
 
 This guide is for developers revising `<public-entrypoint>->houmao-shared-routines->agent-loop-pro`. It is not part of the skill execution path.
@@ -17,7 +30,7 @@ Do not put long design rationale into execution-facing pages. Those pages should
 
 Do not put runtime guidance that agents must follow only in `dev/design/`. Move shared execution guidance to `references/`, then let operation pages name the needed references in `Read First`.
 
-Keep `SKILL.md` as a router. If it starts accumulating scaffold profiles, generated-contract details, bookkeeping rules, mail-runtime details, or platform-boundary details, move that material to a reference page and leave a concise pointer.
+Keep `SKILL-MAIN.md` as a router. If it starts accumulating scaffold profiles, generated-contract details, bookkeeping rules, mail-runtime details, or platform-boundary details, move that material to a reference page and leave a concise pointer.
 
 Do not duplicate scaffold-owned starter file bodies across routed pages. If the initial README, manifest seed, named docs starter, or execplan ADR shape changes, update the packaged scaffold assets first and then keep the routed pages aligned to the profile names that own them.
 

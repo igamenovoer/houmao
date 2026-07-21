@@ -124,7 +124,7 @@ Pack integrity classes are:
 | `absent` | The receipt does not own the pack. |
 | `complete` | Every receipt-owned public role and protected composition matches its digest and projection shape. |
 | `incomplete` | One or more receipt-owned public paths or materializations are missing. |
-| `drifted` | Receipt-owned content exists but its digest differs. |
+| `drifted` | Receipt-owned content exists but its digest differs, or its recorded manifest schema predates the current composition contract. |
 | `conflicting` | A public path has the wrong type, target, or ownership shape. |
 
 Legacy flat-path classifications are:
@@ -147,7 +147,7 @@ houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack admin
 houmao-mgr system-skills upgrade --tool codex --home ~/.codex --pack agent --symlink
 ```
 
-Omitting `--pack` selects the explicit CLI default `admin`. Upgrade removes only `package-linked` and `digest-matched` legacy paths. It preserves `modified` and `unknown` paths, lists them in `preserved_legacy_paths`, and leaves unrelated content untouched.
+Omitting `--pack` selects the explicit CLI default `admin`. Upgrade also replaces receipt-owned packs whose recorded manifest schema predates the current parent-scoped `SKILL-MAIN.md` composition. It removes only `package-linked` and `digest-matched` legacy paths, preserves `modified` and `unknown` paths, lists them in `preserved_legacy_paths`, and leaves unrelated content untouched.
 
 Use this sequence for a breaking flat-to-pack migration:
 

@@ -12,7 +12,7 @@ This page explains the actor model and route map. See the [`system-skills` CLI r
 | `houmao-admin-entrypoint` | `admin` | Executable router for an assistant acting on behalf of a human operator against explicit targets. |
 | `houmao-agent-entrypoint` | `agent` | Executable router for a managed Houmao agent after fresh self-identity verification. |
 
-The `admin` pack owns two public paths and installs them atomically. The `agent` pack owns one public path. `houmao-shared-routines` is a protected bundle mounted beneath each executable entrypoint; it is not a public install selector. The protected composition contains only routines eligible for that actor.
+The `admin` pack owns two public paths and installs them atomically. The `agent` pack owns one public path. `houmao-shared-routines` is a protected bundle mounted beneath each executable entrypoint; it is not a public install selector. Public roots use host-discoverable `SKILL.md` entrypoints, while the protected router and routines use `SKILL-MAIN.md` and are loaded explicitly through their parent. The protected composition contains only routines eligible for that actor, and recursive exact-`SKILL.md` discovery therefore sees only public roots.
 
 The source of truth is `src/houmao/agents/assets/system_skills/manifest.toml`. Public source assets live under `public/`, protected source assets live under `protected/`, and the retired v1 catalog is read only under `legacy/` for migration classification.
 

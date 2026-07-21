@@ -113,8 +113,8 @@ def test_system_skills_install_defaults_to_admin_pack(tmp_path: Path) -> None:
     entrypoint = home / "skills/houmao-admin-entrypoint"
     assert (entrypoint / "SKILL.md").is_file()
     shared = entrypoint / "subskills/houmao-shared-routines"
-    assert (shared / "SKILL.md").is_file()
-    assert (shared / "subskills/houmao-project-mgr/SKILL.md").is_file()
+    assert (shared / "SKILL-MAIN.md").is_file()
+    assert (shared / "subskills/houmao-project-mgr/SKILL-MAIN.md").is_file()
     assert not (shared / "subskills/houmao-process-emails-via-gateway").exists()
     assert not (home / "skills/houmao-project-mgr").exists()
     assert Path(str(payload["receipt_path"])).is_file()

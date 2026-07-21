@@ -21,9 +21,25 @@ SYSTEM_SKILLS_PACKAGE = "houmao.agents.assets.system_skills"
 SYSTEM_SKILL_MANIFEST_FILENAME = "manifest.toml"
 SYSTEM_SKILL_MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
 LEGACY_SYSTEM_SKILL_CATALOG_FILENAME = "legacy/catalog.v1.toml"
-SYSTEM_SKILL_MANIFEST_SCHEMA_VERSION = "houmao-system-skills.v2"
+SYSTEM_SKILL_MANIFEST_SCHEMA_VERSION = "houmao-system-skills.v3"
 SYSTEM_SKILL_AUTO_PROMPT_NAME = "houmao-auto-system-prompt"
 SYSTEM_SKILL_ACTOR_FRAME_HEADING = "## Actor Frame Gate"
+SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME = "SKILL.md"
+SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME = "SKILL-MAIN.md"
+SYSTEM_SKILL_INVOCATION_NOTATION_FRONTMATTER = """skill_invocation_notation: >
+  Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+  SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+  accepted only as legacy input when SKILL-MAIN.md is absent.
+  Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+  `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+  `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+  subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+  by parent subcommand parent. Intermediate subcommands act as object generators.
+  Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints."""
+
+_SYSTEM_SKILL_OBJECT_DESIGNATOR_RE = re.compile(
+    r"(?:<public-entrypoint>|houmao-(?:admin|agent)-entrypoint)->houmao-shared-routines"
+)
 
 PackAudience = Literal["admin", "agent"]
 PublicSkillRole = Literal["welcome", "entrypoint"]
@@ -484,10 +500,16 @@ def validate_composed_system_skill_pack(
         raise SystemSkillManifestError(f"Pack `{pack.pack_id}` staged an invalid public path set.")
     for record in result.public_skills:
         public = manifest.public_skills[record.name]
-        _validate_skill_frontmatter(record.path, expected_name=public.name)
+        _validate_skill_frontmatter(
+            record.path,
+            expected_name=public.name,
+            entrypoint_filename=SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME,
+        )
         _validate_no_unresolved_actor_placeholders(record.path)
+        _validate_path_invocation_notation(record.path)
         _reject_obsolete_layout_directories(record.path)
         _validate_true_subskills(record.path)
+        _validate_public_scanner_safety(record.path)
         for command_name in public.public_commands:
             command_path = record.path / "commands" / f"{command_name}.md"
             if not command_path.is_file():
@@ -507,21 +529,33 @@ def validate_composed_system_skill_pack(
             continue
         for mount_id in pack.protected_mount_ids:
             protected_root = mount_root / manifest.protected_mounts[mount_id].member_name
-            _validate_skill_frontmatter(protected_root, expected_name=mount_id)
-            route_text = (protected_root / "SKILL.md").read_text(encoding="utf-8")
+            _validate_skill_frontmatter(
+                protected_root,
+                expected_name=mount_id,
+                entrypoint_filename=SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME,
+            )
+            route_text = (
+                protected_root / SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME
+            ).read_text(encoding="utf-8")
             if SYSTEM_SKILL_ACTOR_FRAME_HEADING not in route_text:
                 raise SystemSkillManifestError(
                     f"Protected route `{mount_id}` has no actor-frame gate."
                 )
             for routine in protected_routine_closure(manifest, audience=pack.audience):
                 routine_root = protected_root / "subskills" / routine.member_name
-                _validate_skill_frontmatter(routine_root, expected_name=routine.logical_id)
-                routine_text = (routine_root / "SKILL.md").read_text(encoding="utf-8")
+                _validate_skill_frontmatter(
+                    routine_root,
+                    expected_name=routine.logical_id,
+                    entrypoint_filename=SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME,
+                )
+                routine_text = (
+                    routine_root / SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME
+                ).read_text(encoding="utf-8")
                 if SYSTEM_SKILL_ACTOR_FRAME_HEADING not in routine_text:
                     raise SystemSkillManifestError(
                         f"Protected routine `{routine.logical_id}` has no actor-frame gate."
                     )
-                summary = f"**{routine.route_name}**: When to Route Here:"
+                summary = _protected_route_summary_marker(routine)
                 if summary not in route_text:
                     raise SystemSkillManifestError(
                         f"Protected route `{mount_id}` has no direct summary for "
@@ -768,7 +802,14 @@ def _validate_manifest_cross_references(
             required_prefix="public",
             require_directory=True,
         )
-        _require_resource_file(manifest.source_root, f"{public.source_path}/SKILL.md")
+        _require_resource_file(
+            manifest.source_root,
+            f"{public.source_path}/{SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME}",
+        )
+        _reject_resource_file(
+            manifest.source_root,
+            f"{public.source_path}/{SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME}",
+        )
         for command in public.public_commands:
             _require_resource_file(
                 manifest.source_root,
@@ -792,8 +833,17 @@ def _validate_manifest_cross_references(
             required_prefix="protected",
             require_directory=True,
         )
-        _require_resource_file(manifest.source_root, mount.admin_route_path)
-        _require_resource_file(manifest.source_root, mount.agent_route_path)
+        for route_path in (mount.admin_route_path, mount.agent_route_path):
+            if PurePosixPath(route_path).name != SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME:
+                raise SystemSkillManifestError(
+                    f"{source}: protected route `{route_path}` must use "
+                    f"`{SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME}`."
+                )
+            _require_resource_file(manifest.source_root, route_path)
+            _reject_resource_file(
+                manifest.source_root,
+                str(PurePosixPath(route_path).with_name(SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME)),
+            )
         for shared_path in mount.shared_paths:
             _validate_owned_source(
                 manifest.source_root,
@@ -809,8 +859,12 @@ def _validate_manifest_cross_references(
             required_prefix="protected",
             require_directory=True,
         )
-        skill_path = f"{routine.source_path}/SKILL.md"
+        skill_path = f"{routine.source_path}/{SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME}"
         _require_resource_file(manifest.source_root, skill_path)
+        _reject_resource_file(
+            manifest.source_root,
+            f"{routine.source_path}/{SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME}",
+        )
         skill_text = _resource_at(manifest.source_root, skill_path).read_text(encoding="utf-8")
         if SYSTEM_SKILL_ACTOR_FRAME_HEADING not in skill_text:
             raise SystemSkillManifestError(
@@ -851,7 +905,7 @@ def _validate_manifest_cross_references(
                 mount.route_path_for_audience(audience),
             ).read_text(encoding="utf-8")
             for routine in manifest.protected_routines.values():
-                marker = f"**{routine.route_name}**: When to Route Here:"
+                marker = _protected_route_summary_marker(routine)
                 if audience in routine.audiences and marker not in route_text:
                     raise SystemSkillManifestError(
                         f"{source}: `{audience}` route omits `{routine.route_name}` summary."
@@ -860,6 +914,11 @@ def _validate_manifest_cross_references(
                     raise SystemSkillManifestError(
                         f"{source}: `{audience}` route exposes ineligible `{routine.route_name}`."
                     )
+    for mount in manifest.protected_mounts.values():
+        _validate_resource_invocation_notation(
+            _resource_at(manifest.source_root, mount.source_path),
+            source=mount.source_path,
+        )
 
 
 def _compose_protected_mount(
@@ -875,7 +934,10 @@ def _compose_protected_mount(
     mount_root = public_root / "subskills" / mount.member_name
     mount_root.mkdir(parents=True, exist_ok=False)
     route_source = _resource_at(manifest.source_root, mount.route_path_for_audience(audience))
-    (mount_root / "SKILL.md").write_text(route_source.read_text(encoding="utf-8"), encoding="utf-8")
+    (mount_root / SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME).write_text(
+        route_source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     for shared_path in mount.shared_paths:
         _copy_resource_tree(
             _resource_at(manifest.source_root, f"{mount.source_path}/{shared_path}"),
@@ -906,12 +968,27 @@ def _copy_resource_tree(source_root: Traversable, destination_root: Path) -> Non
                 destination_path.write_bytes(source_handle.read())
 
 
-def _validate_skill_frontmatter(root: Path, *, expected_name: str) -> None:
+def _validate_skill_frontmatter(
+    root: Path,
+    *,
+    expected_name: str,
+    entrypoint_filename: str,
+) -> None:
     """Require a skill router and matching YAML-style name frontmatter."""
 
-    skill_path = root / "SKILL.md"
+    skill_path = root / entrypoint_filename
     if not skill_path.is_file():
-        raise SystemSkillManifestError(f"Skill tree `{root}` has no SKILL.md.")
+        raise SystemSkillManifestError(f"Skill tree `{root}` has no `{entrypoint_filename}`.")
+    alternate_filename = (
+        SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME
+        if entrypoint_filename == SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME
+        else SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME
+    )
+    if (root / alternate_filename).exists():
+        raise SystemSkillManifestError(
+            f"Skill tree `{root}` has ambiguous entrypoints `{entrypoint_filename}` and "
+            f"`{alternate_filename}`."
+        )
     text = skill_path.read_text(encoding="utf-8")
     match = re.match(r"\A---\s*\n(?P<header>.*?)\n---\s*\n", text, flags=re.DOTALL)
     if match is None:
@@ -924,7 +1001,7 @@ def _validate_skill_frontmatter(root: Path, *, expected_name: str) -> None:
 
 
 def _validate_true_subskills(root: Path) -> None:
-    """Require every direct subskill directory to own a SKILL.md."""
+    """Require every direct subskill directory to own only SKILL-MAIN.md."""
 
     for subskills_root in (path for path in root.rglob("subskills") if path.is_dir()):
         for child in subskills_root.iterdir():
@@ -932,8 +1009,81 @@ def _validate_true_subskills(root: Path) -> None:
                 raise SystemSkillManifestError(
                     f"Procedure page `{child}` must be a command or reference, not a subskill."
                 )
-            if child.is_dir() and not (child / "SKILL.md").is_file():
-                raise SystemSkillManifestError(f"Nested capability `{child}` must own a SKILL.md.")
+            if not child.is_dir():
+                continue
+            parent_entrypoint = child / SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME
+            public_entrypoint = child / SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME
+            if public_entrypoint.exists() and parent_entrypoint.exists():
+                raise SystemSkillManifestError(
+                    f"Nested capability `{child}` has ambiguous entrypoint files."
+                )
+            if public_entrypoint.exists():
+                raise SystemSkillManifestError(
+                    f"Nested capability `{child}` must not own "
+                    f"`{SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME}`."
+                )
+            if not parent_entrypoint.is_file():
+                raise SystemSkillManifestError(
+                    f"Nested capability `{child}` must own "
+                    f"`{SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME}`."
+                )
+
+
+def _validate_public_scanner_safety(root: Path) -> None:
+    """Require exact-SKILL.md discovery to find only the public root."""
+
+    discovered = sorted(root.rglob(SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME))
+    expected = [root / SYSTEM_SKILL_PUBLIC_ENTRYPOINT_FILENAME]
+    if discovered != expected:
+        rendered = ", ".join(str(path.relative_to(root)) for path in discovered)
+        raise SystemSkillManifestError(
+            f"Public skill `{root}` exposes nested exact-SKILL.md entrypoints: {rendered}."
+        )
+
+
+def _validate_path_invocation_notation(root: Path) -> None:
+    """Validate notation metadata for designator-bearing staged Markdown pages."""
+
+    for path in sorted(root.rglob("*.md")):
+        _validate_invocation_notation_text(
+            path.read_text(encoding="utf-8"),
+            source=str(path),
+        )
+
+
+def _validate_resource_invocation_notation(root: Traversable, *, source: str) -> None:
+    """Validate notation metadata for packaged Markdown resources."""
+
+    for path in _iter_resource_files(root):
+        if not path.name.endswith(".md"):
+            continue
+        _validate_invocation_notation_text(
+            path.read_text(encoding="utf-8"),
+            source=f"{source}/.../{path.name}",
+        )
+
+
+def _validate_invocation_notation_text(text: str, *, source: str) -> None:
+    """Require the standard notation declaration when object designators appear."""
+
+    if _SYSTEM_SKILL_OBJECT_DESIGNATOR_RE.search(text) is None:
+        return
+    match = re.match(r"\A---\s*\n(?P<header>.*?)\n---\s*\n", text, flags=re.DOTALL)
+    if match is None or SYSTEM_SKILL_INVOCATION_NOTATION_FRONTMATTER not in match.group("header"):
+        raise SystemSkillManifestError(
+            f"Instruction page `{source}` uses object-style invocation designators without "
+            "the standard `skill_invocation_notation` declaration."
+        )
+
+
+def _protected_route_summary_marker(routine: ProtectedRoutineRecord) -> str:
+    """Return the canonical audience-router row prefix for one protected routine."""
+
+    return (
+        f"| `{routine.route_name}` | "
+        f"`subskills/{routine.member_name}/{SYSTEM_SKILL_PARENT_SCOPED_ENTRYPOINT_FILENAME}` | "
+        "When to Route Here:"
+    )
 
 
 def _reject_obsolete_layout_directories(root: Path) -> None:
@@ -984,6 +1134,15 @@ def _require_resource_file(source_root: Traversable, relative_path: str) -> None
         raise SystemSkillManifestError(f"Source file `{relative_path}` escapes the asset root.")
     if not _resource_at(source_root, relative_path).is_file():
         raise SystemSkillManifestError(f"Required source file `{relative_path}` is missing.")
+
+
+def _reject_resource_file(source_root: Traversable, relative_path: str) -> None:
+    """Reject one packaged file that conflicts with its entrypoint role."""
+
+    if _resource_at(source_root, relative_path).is_file():
+        raise SystemSkillManifestError(
+            f"Conflicting source entrypoint `{relative_path}` must not exist."
+        )
 
 
 def _resource_at(source_root: Traversable, relative_path: str) -> Traversable:

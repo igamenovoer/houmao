@@ -421,9 +421,9 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     advanced_root = shared / "houmao-adv-usage-pattern"
     assert references == ("houmao-agent-entrypoint",)
     assert (entrypoint / "SKILL.md").is_file()
-    assert (processing_root / "SKILL.md").is_file()
-    assert (gateway_root / "SKILL.md").is_file()
-    assert (advanced_root / "SKILL.md").is_file()
+    assert (processing_root / "SKILL-MAIN.md").is_file()
+    assert (gateway_root / "SKILL-MAIN.md").is_file()
+    assert (advanced_root / "SKILL-MAIN.md").is_file()
     assert (advanced_root / "commands/pairwise-edge-loop-via-gateway-and-mailbox.md").is_file()
     assert (advanced_root / "commands/relay-loop-via-gateway-and-mailbox.md").is_file()
     assert (gateway_root / "commands/list.md").is_file()
@@ -432,9 +432,9 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_gateway_and_tra
     assert (gateway_root / "references/self-notification-via-gateway.md").is_file()
     assert (gateway_root / "references/transports/filesystem.md").is_file()
     assert (gateway_root / "references/transports/stalwart.md").is_file()
-    processing_skill = (processing_root / "SKILL.md").read_text(encoding="utf-8")
-    gateway_skill = (gateway_root / "SKILL.md").read_text(encoding="utf-8")
-    advanced_skill = (advanced_root / "SKILL.md").read_text(encoding="utf-8")
+    processing_skill = (processing_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    gateway_skill = (gateway_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
+    advanced_skill = (advanced_root / "SKILL-MAIN.md").read_text(encoding="utf-8")
     assert "shared gateway mailbox API" in processing_skill
     assert "pixi run houmao-mgr agents self mail resolve-live" not in processing_skill
     assert (
@@ -461,9 +461,9 @@ def test_install_runtime_mailbox_system_skills_for_tool_respects_tool_skill_dest
     entrypoint = home_path / "skills/houmao-agent-entrypoint"
     shared = entrypoint / "subskills/houmao-shared-routines/subskills"
     assert (entrypoint / "SKILL.md").is_file()
-    assert (shared / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (shared / "houmao-agent-email-comms/SKILL.md").is_file()
-    assert (shared / "houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (shared / "houmao-process-emails-via-gateway/SKILL-MAIN.md").is_file()
+    assert (shared / "houmao-agent-email-comms/SKILL-MAIN.md").is_file()
+    assert (shared / "houmao-adv-usage-pattern/SKILL-MAIN.md").is_file()
     assert not (home_path / mailbox_skills_destination_for_tool("kimi") / "mailbox").exists()
 
 
@@ -480,9 +480,9 @@ def test_install_runtime_mailbox_system_skills_for_tool_projects_claude_top_leve
     gateway_root = shared / "houmao-agent-email-comms"
     assert references == ("houmao-agent-entrypoint",)
     assert (entrypoint / "SKILL.md").is_file()
-    assert (shared / "houmao-process-emails-via-gateway/SKILL.md").is_file()
-    assert (gateway_root / "SKILL.md").is_file()
-    assert (shared / "houmao-adv-usage-pattern/SKILL.md").is_file()
+    assert (shared / "houmao-process-emails-via-gateway/SKILL-MAIN.md").is_file()
+    assert (gateway_root / "SKILL-MAIN.md").is_file()
+    assert (shared / "houmao-adv-usage-pattern/SKILL-MAIN.md").is_file()
     assert (gateway_root / "commands/list.md").is_file()
     assert (gateway_root / "references/transports/filesystem.md").is_file()
     assert (gateway_root / "references/transports/stalwart.md").is_file()

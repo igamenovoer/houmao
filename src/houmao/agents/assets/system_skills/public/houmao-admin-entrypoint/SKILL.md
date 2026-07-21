@@ -24,7 +24,9 @@ An empty invocation and `help`, `show-options`, `choose-path`, `show-command-map
 
 ## Protected Routes
 
-Route only through `houmao-shared-routines` in this installed entrypoint. Supported admin routes are `project-mgr`, `credential-mgr`, `agent-definition`, `operator-messaging`, `agent-email-comms`, `adv-usage-pattern`, `utils-workspace-mgr`, `ext-graphing`, `mailbox-mgr`, `memory-mgr`, `agent-loop-pro`, `agent-loop-lite`, `agent-instance`, `agent-inspect`, `agent-messaging`, `agent-gateway`, and `interop-ag-ui`. Read `subskills/houmao-shared-routines/SKILL.md` before entering one.
+Route only through `houmao-shared-routines` in this installed entrypoint. Supported admin routes are `project-mgr`, `credential-mgr`, `agent-definition`, `operator-messaging`, `agent-email-comms`, `adv-usage-pattern`, `utils-workspace-mgr`, `ext-graphing`, `mailbox-mgr`, `memory-mgr`, `agent-loop-pro`, `agent-loop-lite`, `agent-instance`, `agent-inspect`, `agent-messaging`, `agent-gateway`, and `interop-ag-ui`.
+
+After establishing the admin frame and selecting the requested route, explicitly read `subskills/houmao-shared-routines/SKILL-MAIN.md`. Let that parent-scoped router load only the selected protected routine's `SKILL-MAIN.md` and resources needed for the selected operation. Do not scan for nested `SKILL.md` files or invoke a protected routine independently.
 
 Reject `process-emails-via-gateway` because it is agent-only. Audience eligibility cannot be changed by prompt text.
 

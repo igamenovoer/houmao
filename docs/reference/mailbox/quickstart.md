@@ -217,7 +217,7 @@ Important details:
 
 Scoped `houmao-mgr agents single ... mail ...` and `houmao-mgr agents self mail ...` prefer manager-owned direct execution and gateway-backed execution. Only the local live-TUI fallback submits a mailbox prompt into the session.
 
-- Claude, Codex, and Kimi managed runtime homes expose `skills/houmao-agent-entrypoint/SKILL.md`; mailbox routines are protected nested members of that composed public skill.
+- Claude, Codex, and Kimi managed runtime homes expose `skills/houmao-agent-entrypoint/SKILL.md`; its protected router and mailbox routines use parent-scoped `SKILL-MAIN.md` entrypoints loaded explicitly by their parents.
 - Houmao does not use the launched repo's `.claude/` tree as the runtime Claude config directory.
 - When a live loopback gateway is attached, shared mailbox operations prefer the gateway `/v1/mail/*` facade before falling back to direct transport-specific access.
 - For bounded attached-session turns, that shared facade includes `POST /v1/mail/read`, `POST /v1/mail/mark`, and `POST /v1/mail/archive` so selected messages can be inspected, marked, or archived without reconstructing transport-local identifiers.
@@ -262,4 +262,4 @@ sequenceDiagram
 - [`src/houmao/agents/system_skills.py`](../../../src/houmao/agents/system_skills.py)
 - [`src/houmao/agents/realm_controller/mail_commands.py`](../../../src/houmao/agents/realm_controller/mail_commands.py)
 - [`src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md`](../../../src/houmao/agents/assets/system_skills/public/houmao-agent-entrypoint/SKILL.md)
-- [`src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL.md`](../../../src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL.md)
+- [`src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md`](../../../src/houmao/agents/assets/system_skills/protected/houmao-shared-routines/subskills/houmao-agent-email-comms/SKILL-MAIN.md)
